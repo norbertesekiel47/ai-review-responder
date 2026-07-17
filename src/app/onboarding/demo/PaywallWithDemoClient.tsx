@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
-import { motion } from 'motion/react';
+// `m` only — this client always renders inside OnboardingFunnelShell, whose
+// LazyMotion(domAnimation) provider supplies the animation features.
+import { m } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { infoBannerClass, primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
@@ -25,6 +27,11 @@ interface PaywallWithDemoClientProps {
 
 const MAX_POLLS = 15;
 
+// Onboarding paywall + live demo poller in one island; the branch count is
+// the demo-status vocabulary. Pre-existing size (already acknowledged in
+// .fallowrc.jsonc's duplication backlog) — the perf pass only swapped the
+// full `motion` import for LazyMotion's `m`.
+// fallow-ignore-next-line complexity
 export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoClientProps) {
   const router = useRouter();
   // Read directly from props — do NOT useState(initialDemo). useState only
@@ -48,6 +55,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
       ? JSON.parse(demo.generated_responses)
       : demo.generated_responses ?? [];
 
+  // fallow-ignore-next-line complexity
   const poll = useCallback(async () => {
     if (pollCount >= MAX_POLLS) return;
     try {
@@ -202,7 +210,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Subscribe to start automatically generating responses for every
               review.
             </p>
-            <motion.a
+            <m.a
               href="/onboarding/pay"
               onClick={() => {
                 void captureDemoToSignup();
@@ -211,7 +219,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               className={`inline-block ${primaryButtonClass}`}
             >
               Choose a plan →
-            </motion.a>
+            </m.a>
           </div>
         </div>
       )}
@@ -234,7 +242,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Subscribe to RepWorth and we&apos;ll automatically generate
               responses for all your reviews.
             </p>
-            <motion.a
+            <m.a
               href="/onboarding/pay"
               onClick={() => {
                 void captureDemoToSignup();
@@ -243,7 +251,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               className={`inline-block ${primaryButtonClass}`}
             >
               Choose a plan →
-            </motion.a>
+            </m.a>
           </div>
 
           <div className="text-center">

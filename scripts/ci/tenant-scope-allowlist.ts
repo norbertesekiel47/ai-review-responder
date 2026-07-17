@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 392;
+export const ALLOWLIST_BASELINE = 393;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -136,13 +136,6 @@ const SUSPENSION_FLAG_EVIDENCE_SQL =
   "WITH ranked_flags AS ( SELECT verdict.id, verdict.account_id, verdict.business_id, verdict.review_id, verdict.response_id, ARRAY( SELECT jsonb_array_elements_text( CASE WHEN jsonb_typeof(verdict.reasons) = 'array' THEN verdict.reasons ELSE '[]'::jsonb END ) ) AS reason_categories, verdict.created_at, ROW_NUMBER() OVER ( PARTITION BY verdict.account_id ORDER BY verdict.created_at DESC, verdict.id DESC ) AS flag_rank FROM judge_verdicts verdict WHERE verdict.account_id = ANY(${accountIds}::uuid[]) AND verdict.verdict = 'flag' ) SELECT id, account_id, business_id, review_id, response_id, reason_categories, created_at FROM ranked_flags WHERE flag_rank <= 5 ORDER BY account_id, created_at DESC, id DESC";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
-  {
-    file: "src/app/(authenticated)/layout.tsx",
-    table: "businesses",
-    sqlSnippet: "SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1",
-    category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
-  },
   {
     file: "src/app/(authenticated)/settings/locations/page.tsx",
     table: "accounts",
@@ -1008,14 +1001,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) AND (${cursor}::uuid IS NULL OR a.id > ${cursor}::uuid) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags ORDER BY a.id ASC",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING}) AND (${cursor}::uuid IS NULL OR a.id > ${cursor}::uuid) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_paid, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags ORDER BY a.id ASC",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
@@ -1340,6 +1333,27 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = ${businessId} AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE rev.business_id = ${businessId} AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 10",
     category: 'tenant-root-lookup',
     reason: "Open-escalation badge read (WS3); review_escalations accessed inside a LEFT JOIN LATERAL scoped by e.business_id = ${businessId} (mirrors the resp lateral). Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the dashboard route.",
+  },
+  // Account-wide recent-reviews feed (100-business perf pass, 2026-07-16):
+  // one LIMIT 20 query replaces the aggregate view's fetch-10-per-location
+  // composition. responses/review_escalations are accessed inside LEFT JOIN
+  // LATERAL subqueries correlated on rev.business_id, which the scanner
+  // strips before predicate analysis; the tenant boundary is
+  // b.account_id = ${accountId} with rev.business_id = b.id. accountId is
+  // owner-scoped by requireOwnerWithAccount in the dashboard route.
+  {
+    file: "src/lib/dashboard/aggregate-service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity, b.id AS location_id, b.name AS location_name, b.display_label AS location_display_label FROM reviews rev JOIN businesses b ON b.id = rev.business_id LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = rev.business_id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = rev.business_id AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 20",
+    category: 'tenant-root-lookup',
+    reason: "Aggregate recent-reviews feed; responses accessed via LEFT JOIN LATERAL correlated on rev.business_id inside a scan bounded by b.account_id = ${accountId}. Scanner strips SELECT subqueries before predicate analysis.",
+  },
+  {
+    file: "src/lib/dashboard/aggregate-service.ts",
+    table: "review_escalations",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity, b.id AS location_id, b.name AS location_name, b.display_label AS location_display_label FROM reviews rev JOIN businesses b ON b.id = rev.business_id LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = rev.business_id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = rev.business_id AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 20",
+    category: 'tenant-root-lookup',
+    reason: "Aggregate recent-reviews feed; review_escalations accessed via LEFT JOIN LATERAL correlated on rev.business_id inside a scan bounded by b.account_id = ${accountId}. Scanner strips SELECT subqueries before predicate analysis.",
   },
   {
     file: "src/lib/db/auth.ts",

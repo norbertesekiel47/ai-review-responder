@@ -39,6 +39,40 @@ interface ResolveOwnerScopeOptions {
   allowReadOnly?: boolean;
 }
 
+interface OwnerAccountGateRow {
+  subscription_status: string;
+  past_due_at: Date | string | null;
+  flags: AccountFlagsInput;
+}
+
+/**
+ * Subscription enforcement for owner mutation routes. Past-due accounts
+ * remain writable while the recovery window is open; all other non-active
+ * statuses stay blocked here. Throws ScopeError; returns on entitled.
+ */
+function assertSubscriptionAllowsOwnerScope(
+  account: OwnerAccountGateRow | undefined,
+  options: ResolveOwnerScopeOptions,
+): void {
+  if (!account) {
+    throw new ScopeError('no_business', 403);
+  }
+  if (account.subscription_status === SubscriptionStatus.PAST_DUE) {
+    const recovery = computePastDueRecoveryState({
+      subscriptionStatus: account.subscription_status,
+      pastDueAt: account.past_due_at,
+      accountFlags: account.flags,
+    });
+    if (recovery.isReadOnly && !options.allowReadOnly) {
+      throw new ScopeError('past_due_read_only', 402);
+    }
+    return;
+  }
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
+    throw new ScopeError('subscription_inactive', 403);
+  }
+}
+
 /**
  * Resolves the authenticated owner's account + current location from a
  * NextRequest. Reads the `rw_location_scope` cookie (UUID-validated) and
@@ -78,39 +112,34 @@ export async function resolveOwnerScope(
 
   const accountId = asAccountId(user.accountId);
 
-  // Subscription enforcement for owner mutation routes. Past-due accounts
-  // remain writable while the recovery window is open; all other non-active
-  // statuses stay blocked here.
-  const accountRows = await sql<{
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-  }[]>`
-    SELECT subscription_status, past_due_at, flags
-    FROM accounts
-    WHERE id = ${accountId}
-    LIMIT 1
-  `;
-  const account = accountRows[0];
-  if (!account) {
-    throw new ScopeError('no_business', 403);
-  }
-  if (account.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const recovery = computePastDueRecoveryState({
-      subscriptionStatus: account.subscription_status,
-      pastDueAt: account.past_due_at,
-      accountFlags: account.flags,
-    });
-    if (recovery.isReadOnly && !options.allowReadOnly) {
-      throw new ScopeError('past_due_read_only', 402);
-    }
-  } else if (!subscriptionGrantsFullAccess(account.subscription_status)) {
-    throw new ScopeError('subscription_inactive', 403);
-  }
-
   const rawCookie = request.cookies.get('rw_location_scope')?.value ?? null;
   const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
-  const { currentLocationId } = await getRequestScope(sql, accountId, cookieLocationId);
 
-  return { accountId, locationId: currentLocationId, userId: user.id };
+  // The subscription-gate read and the location-scope resolution are
+  // independent (both key off accountId), so run them concurrently — this
+  // preamble fronts every owner mutation AND every draft-status poll tick.
+  // allSettled (not all) preserves the error precedence of the old serial
+  // code: the subscription gate's ScopeError must win over getRequestScope's
+  // no-active-location Error when both fail (e.g. a cancelled account whose
+  // locations were all archived by offboarding teardown).
+  const [accountResult, scopeResult] = await Promise.allSettled([
+    sql<OwnerAccountGateRow[]>`
+      SELECT subscription_status, past_due_at, flags
+      FROM accounts
+      WHERE id = ${accountId}
+      LIMIT 1
+    `,
+    getRequestScope(sql, accountId, cookieLocationId),
+  ]);
+
+  if (accountResult.status === 'rejected') {
+    throw accountResult.reason;
+  }
+  assertSubscriptionAllowsOwnerScope(accountResult.value[0], options);
+
+  if (scopeResult.status === 'rejected') {
+    throw scopeResult.reason;
+  }
+
+  return { accountId, locationId: scopeResult.value.currentLocationId, userId: user.id };
 }

@@ -9,7 +9,6 @@ import { PendingCountProvider } from '@/contexts/PendingCountContext';
 import { AuthenticatedProviders } from '@/app/(authenticated)/_components/AuthenticatedProviders';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
-import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getPendingApprovalCount } from '@/lib/dashboard/pending-count';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
@@ -134,32 +133,27 @@ export default async function AuthenticatedLayout({
     initialScope = 'all';
   }
 
-  // Fetch all active locations for this account in parallel with other queries
-  let businessName = '';
-  let initialPendingCount = 0;
+  // The scope query above already fetched every active location's
+  // name/display_label, so the current-location lookup and the multi-location
+  // list need no further `businesses WHERE account_id` round trips — only the
+  // pending count still hits the DB here.
+  //
+  // Shared authoritative pending count (excludes held/flagged) — same helper
+  // the dashboard response uses, so the tab badge and approvals strip agree.
+  const initialPendingCount = await getPendingApprovalCount(sql, currentLocationId);
 
-  const [bizRows, pendingCount, allLocations] = await Promise.all([
-    sql<{ name: string; display_label: string | null }[]>`
-      SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1
-    `,
-    // Shared authoritative pending count (excludes held/flagged) — same helper
-    // the dashboard response uses, so the tab badge and approvals strip agree.
-    getPendingApprovalCount(sql, currentLocationId),
-    multiLocationEnabled
-      ? getLocationsForAccount(sql, accountId)
-      : Promise.resolve([]),
-  ]);
-
-  businessName = bizRows[0] ? getDisplayLabel(bizRows[0]) : '';
-  initialPendingCount = pendingCount;
+  const currentLocation = scope.activeLocations.find((loc) => loc.id === currentLocationId);
+  const businessName = currentLocation ? getDisplayLabel(currentLocation) : '';
 
   // Build the locations list for the client-side LocationContext
-  const locationInfos = allLocations.map((loc) => ({
-    id: loc.id as LocationId,
-    name: loc.name,
-    displayLabel: loc.display_label,
-    isPrimary: loc.is_primary,
-  }));
+  const locationInfos = multiLocationEnabled
+    ? scope.activeLocations.map((loc) => ({
+        id: loc.id as LocationId,
+        name: loc.name,
+        displayLabel: loc.display_label,
+        isPrimary: loc.is_primary,
+      }))
+    : [];
 
   // For multi-location accounts, default to "All Locations" when no valid cookie
   if (multiLocationEnabled && locationInfos.length > 1 && !cookieValue) {

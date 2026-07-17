@@ -14,10 +14,12 @@ import { NextRequest } from 'next/server';
 const {
   mockRequireRole,
   mockTxQuery,
+  mockSqlQuery,
   mockSqlBegin,
   mockAssertWritableSubscriptionForAccount,
 } = vi.hoisted(() => {
   const mockTxQuery = vi.fn();
+  const mockSqlQuery = vi.fn();
   const tx = (...args: unknown[]) => {
     const [first] = args;
     if (Array.isArray(first) && Object.prototype.hasOwnProperty.call(first, 'raw')) {
@@ -32,6 +34,7 @@ const {
   return {
     mockRequireRole: vi.fn(),
     mockTxQuery,
+    mockSqlQuery,
     mockSqlBegin,
     mockAssertWritableSubscriptionForAccount: vi.fn(),
   };
@@ -86,9 +89,15 @@ vi.mock('@/lib/db/auth', () => {
 // ── Mock DB ─────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => {
-  const sqlProxy = Object.assign(() => {}, {
-    begin: (...args: unknown[]) => mockSqlBegin(...(args as Parameters<typeof mockSqlBegin>)),
-  });
+  // Tagged-template calls (the GET handler's single read) route to
+  // mockSqlQuery; sql.begin (the PUT handler's transaction) stays on
+  // mockSqlBegin.
+  const sqlProxy = Object.assign(
+    (...args: unknown[]) => mockSqlQuery(...args),
+    {
+      begin: (...args: unknown[]) => mockSqlBegin(...(args as Parameters<typeof mockSqlBegin>)),
+    },
+  );
   return { sql: sqlProxy, jsonb: (v: unknown) => v };
 });
 
@@ -97,7 +106,7 @@ vi.mock('@/lib/shared/writable-subscription', () => ({
 }));
 
 // Import AFTER mocks
-import { PUT } from '../route';
+import { GET, PUT } from '../route';
 import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -387,5 +396,139 @@ describe('PUT /api/settings', () => {
     expect(tableOf(call)).toBe('businesses');
     expect(updatesOf(call)).toEqual({ owner_phone: null });
     expect(idOf(call)).toBe(BUSINESS_ID);
+  });
+});
+
+// ── GET /api/settings (light settings payload) ──────────────────────
+
+function settingsDbRow(overrides: Record<string, unknown> = {}) {
+  return {
+    name: 'Test Biz',
+    created_at: new Date('2026-01-01T00:00:00Z'),
+    initial_review_count: 10,
+    initial_responded_count: 3,
+    baseline_captured_at: null,
+    tone: 'warm',
+    products_services: 'coffee',
+    avoid_facts: ['no discounts'],
+    sample_responses: [],
+    owner_phone: '+15550001111',
+    owner_email: 'owner@test.com',
+    weekly_summary_enabled: true,
+    monthly_impact_enabled: false,
+    category: 'Cafe',
+    google_place_id: 'gp-1',
+    subscription_status: 'active',
+    onboarded_by: null,
+    place_id_verified: true,
+    google_maps_url: 'https://maps.google.com/x',
+    ...overrides,
+  };
+}
+
+function makeGetRequest(): NextRequest {
+  return new NextRequest('http://localhost:3000/api/settings', { method: 'GET' });
+}
+
+describe('GET /api/settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSqlQuery.mockResolvedValue([settingsDbRow()]);
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns the light business + settings payload for an active owner', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.business).toEqual({ name: 'Test Biz', createdAt: '2026-01-01T00:00:00.000Z' });
+    expect(body.settings).toMatchObject({
+      tone: 'warm',
+      productsServices: 'coffee',
+      avoidFacts: ['no discounts'],
+      ownerPhone: '+15550001111',
+      ownerEmail: 'owner@test.com',
+      weeklySummaryEnabled: true,
+      monthlyImpactEnabled: false,
+      category: 'Cafe',
+      googlePlaceId: 'gp-1',
+    });
+    // No heavy dashboard payload fields leak into the light endpoint.
+    expect(body.recentReviews).toBeUndefined();
+    expect(body.ranking).toBeUndefined();
+  });
+
+  it('past_due keeps read access (grace window mirrors the dashboard)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([settingsDbRow({ subscription_status: 'past_due' })]);
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(200);
+    expect((await res.json()).settings).toBeDefined();
+  });
+
+  it('self-serve pending_payment → redirect marker with paymentUrl', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([settingsDbRow({ subscription_status: 'pending_payment' })]);
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('pending_payment');
+    expect(body.paymentUrl).toBe(`${APP_URL}/onboarding/pay`);
+    expect(body.settings).toBeUndefined();
+  });
+
+  it('admin-onboarded pending_payment → pending_payment_admin_handoff (no payment link)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([
+      settingsDbRow({ subscription_status: 'pending_payment', onboarded_by: 'admin-1' }),
+    ]);
+
+    const res = await GET(makeGetRequest());
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
+    expect(body.paymentUrl).toBeUndefined();
+  });
+
+  it('active owner who never finished the business wizard → active_pending_business', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([
+      settingsDbRow({ place_id_verified: false, google_maps_url: null }),
+    ]);
+
+    const res = await GET(makeGetRequest());
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('active_pending_business');
+    expect(body.settings).toBeUndefined();
+  });
+
+  it('cancelled account → 403 subscription_inactive', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([settingsDbRow({ subscription_status: 'cancelled' })]);
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('subscription_inactive');
+  });
+
+  it('returns 404 when the business row is missing', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSqlQuery.mockResolvedValue([]);
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 403 when user has no locationId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ locationId: null }));
+
+    const res = await GET(makeGetRequest());
+    expect(res.status).toBe(403);
+    expect(mockSqlQuery).not.toHaveBeenCalled();
   });
 });

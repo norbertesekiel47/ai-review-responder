@@ -160,13 +160,16 @@ describe('resolveOwnerScope', () => {
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 
-  it('non-ACTIVE subscription (cancelled) → throws ScopeError 403 subscription_inactive, getRequestScope NOT called', async () => {
+  it('non-ACTIVE subscription (cancelled) → throws ScopeError 403 subscription_inactive; concurrent scope read is discarded', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     harness.sqlReturnQueue.push([{ subscription_status: 'cancelled' }]);
     const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
 
     await expect(resolveOwnerScope(mockSql, makeRequest())).rejects.toThrow(ScopeError);
-    expect(mockGetRequestScope).not.toHaveBeenCalled();
+    // The scope read now runs CONCURRENTLY with the subscription gate (perf:
+    // one round trip instead of two); the gate's ScopeError still wins and the
+    // scope result is discarded.
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('trialing subscription resolves scope (treated like active)', async () => {
@@ -212,7 +215,8 @@ describe('resolveOwnerScope', () => {
       message: 'past_due_read_only',
       statusCode: 402,
     });
-    expect(mockGetRequestScope).not.toHaveBeenCalled();
+    // Concurrent scope read is started but its result is discarded (see above).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
   it('past_due subscription after recovery window resolves when read-only access is allowed', async () => {
@@ -232,7 +236,7 @@ describe('resolveOwnerScope', () => {
     expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
-  it('account row missing → throws ScopeError 403 no_business, getRequestScope NOT called', async () => {
+  it('account row missing → throws ScopeError 403 no_business; concurrent scope read is discarded', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     harness.sqlReturnQueue.push([]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
@@ -241,6 +245,7 @@ describe('resolveOwnerScope', () => {
       message: 'no_business',
       statusCode: 403,
     });
-    expect(mockGetRequestScope).not.toHaveBeenCalled();
+    // Concurrent scope read is started but its result is discarded (see above).
+    expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 });

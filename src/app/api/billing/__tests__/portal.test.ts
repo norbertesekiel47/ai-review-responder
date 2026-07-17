@@ -74,7 +74,7 @@ vi.mock('stripe', () => {
 
 process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
 
-import { POST } from '../portal/route';
+import { POST, resetPortalConfigurationCacheForTests } from '../portal/route';
 import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -138,6 +138,9 @@ function unsafeCancellationPortalConfiguration(id: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The route memoizes the portal configuration ID per process; reset so each
+  // test observes its own configurations.list/create traffic.
+  resetPortalConfigurationCacheForTests();
   mockRequireRole.mockReset();
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);

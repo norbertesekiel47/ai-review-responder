@@ -80,6 +80,7 @@ import {
 import {
   runOnce,
   reconcileCycle,
+  resetAccountCursorForTests,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
@@ -449,6 +450,8 @@ describe('StripeLocationsReconcilePoller', () => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
     sqlCalls.length = 0;
+    // The keyset resume cursor is module state; reset so tests are independent.
+    resetAccountCursorForTests();
     mockCaptureMessage.mockClear();
     mockStripeRetrieve.mockClear();
     mockStripeList.mockClear();
@@ -1607,5 +1610,68 @@ describe('StripeLocationsReconcilePoller', () => {
       .find((l: unknown): l is string => typeof l === 'string' && l.includes('acct-hang'));
     expect(hangLine).toBeDefined();
     vi.useRealTimers();
+  });
+
+  // ── Keyset resume cursor (100-business perf pass) ────────────────
+
+  it('deadline abort mid-list stores a cursor; the next cycle resumes after it and a drained tail wraps to the top', async () => {
+    // 4 accounts with fan-out concurrency 3: the three workers claim
+    // acct-a/b/c synchronously, the abort fires during their Stripe work,
+    // so acct-d is never claimed this cycle.
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'acct-a' }),
+      makeAccountRow({ id: 'acct-b' }),
+      makeAccountRow({ id: 'acct-c' }),
+      makeAccountRow({ id: 'acct-d' }),
+    ]);
+    const controller = new AbortController();
+    // Abort on a macrotask so all three pool workers have claimed their
+    // account (and parked on the Stripe retrieve) before the signal flips.
+    mockStripeRetrieve.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            controller.abort();
+            resolve(makeStripeSubscription(2, 'price_overage_copilot'));
+          }, 0);
+        }),
+    );
+
+    await reconcileCycle(controller.signal);
+
+    const firstQuery = sqlCalls[0]!;
+    expect(firstQuery.template).toContain('ORDER BY a.id ASC');
+    // Fresh rotation: the cursor param is bound as null.
+    expect(firstQuery.values).toContain(null);
+
+    // Next cycle resumes after the last CLAIMED account (acct-c).
+    sqlCalls.length = 0;
+    sqlReturnQueue.push([]);
+    mockStripeRetrieve.mockResolvedValue(makeStripeSubscription(2, 'price_overage_copilot'));
+    await reconcileCycle(new AbortController().signal);
+    expect(sqlCalls[0]!.values).toContain('acct-c');
+
+    // The empty tail completed the rotation — the cycle after starts from the top.
+    sqlCalls.length = 0;
+    sqlReturnQueue.push([]);
+    await reconcileCycle(new AbortController().signal);
+    expect(sqlCalls[0]!.values).toContain(null);
+    expect(sqlCalls[0]!.values).not.toContain('acct-c');
+  });
+
+  it('a fully-drained cycle leaves no cursor (next cycle scans from the top)', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'acct-a', locations_included: 1, active_location_count: 3 }),
+      makeAccountRow({ id: 'acct-b', locations_included: 1, active_location_count: 3 }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(makeStripeSubscription(2, 'price_overage_copilot'));
+
+    await reconcileCycle(new AbortController().signal);
+
+    sqlCalls.length = 0;
+    sqlReturnQueue.push([]);
+    await reconcileCycle(new AbortController().signal);
+    expect(sqlCalls[0]!.values).toContain(null);
+    expect(sqlCalls[0]!.values).not.toContain('acct-b');
   });
 });

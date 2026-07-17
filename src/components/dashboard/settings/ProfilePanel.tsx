@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import type { DashboardDataActive } from '@/lib/dashboard/types';
+import type { SettingsPageData } from '@/hooks/useSettingsForm';
 import { DeleteDataPanel } from '@/components/dashboard/settings/DeleteDataPanel';
 
 interface Props {
-  data: DashboardDataActive;
+  data: SettingsPageData;
 }
 
 export function ProfilePanel({ data }: Props) {

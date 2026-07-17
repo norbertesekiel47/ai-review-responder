@@ -54,6 +54,11 @@ const CYCLE_TIMEOUT_MS = 240_000; // the whole cycle (accounts query + all accou
 // drained by then. (The cycle timeout above still covers any residual/under-load
 // contention.)
 const INITIAL_RUN_DELAY_MS = 45_000;
+// Bounded fan-out across accounts. Each account's work is one Stripe
+// retrieve (+ occasional corrective calls) + a couple of DB reads —
+// 3 concurrent accounts keeps well inside Stripe's rate limits and the
+// shared Postgres pool while cutting the cycle wall-clock ~3×.
+const ACCOUNT_FAN_OUT_CONCURRENCY = 3;
 const logger = createWorkerLogger(LOG_PREFIX);
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -61,6 +66,19 @@ let initialTimer: ReturnType<typeof setTimeout> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
 // prevents two scheduled ticks from running concurrently.
 let inProgress = false;
+
+// Keyset resume cursor (same pattern as ZernioRecentReviewPoller): the id of
+// the last account whose reconcile was STARTED in the previous cycle. When a
+// cycle hits its 240s deadline mid-list, the next cycle resumes after this id
+// instead of re-walking the same head — without it, the same late-sorting
+// accounts were never reconciled once the account list outgrew the deadline.
+// In-memory on purpose: a worker restart restarts the rotation from the top,
+// which is safe as long as a full rotation completes between restarts.
+let accountCursor: string | null = null;
+
+export function resetAccountCursorForTests(): void {
+  accountCursor = null;
+}
 
 interface ReconcileResult {
   accountsChecked: number;
@@ -119,8 +137,10 @@ export async function runOnce(): Promise<ReconcileResult> {
  * AbortSignal, so this only halts the loop, it cannot cancel an open HTTP call.
  */
 export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResult> {
-  // Fetch all active paid accounts and their
-  // active location counts in a single query.
+  // Fetch active paid accounts (resuming after the keyset cursor) and their
+  // active location counts in a single query. ORDER BY a.id gives the stable
+  // total order the cursor needs.
+  const cursor = accountCursor;
   const accounts = await sql<AccountWithLocations[]>`
     SELECT
       a.id,
@@ -142,6 +162,7 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
     -- re-retrieves the Checkout Session and re-runs processCheckoutSessionCompleted.
     -- This poller reconciles only entitled/billable states.
     WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}, ${SubscriptionStatus.TRIALING})
+      AND (${cursor}::uuid IS NULL OR a.id > ${cursor}::uuid)
     GROUP BY
       a.id,
       a.subscription_tier,
@@ -154,10 +175,17 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
       a.base_price_cents,
       a.past_due_at,
       a.flags
+    ORDER BY a.id ASC
   `;
 
   if (accounts.length === 0) {
-    logger.log('No paid accounts to reconcile');
+    if (cursor !== null) {
+      // Reached the end of a resumed rotation — wrap to the top next cycle.
+      accountCursor = null;
+      logger.log('Rotation complete — cursor reset');
+    } else {
+      logger.log('No paid accounts to reconcile');
+    }
     return { accountsChecked: 0, driftsFound: 0, errors: 0 };
   }
 
@@ -172,27 +200,53 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
   let driftsFound = 0;
   let errors = 0;
 
-  for (const account of accounts) {
-    if (signal.aborted) {
-      logger.log('Cycle aborted (deadline exceeded) — stopping before remaining accounts');
-      break;
-    }
-    try {
-      const outcome = await withTimeout(
-        reconcileAccount(sql, stripe, account),
-        ACCOUNT_TIMEOUT_MS,
-        `reconcile account ${account.id}`,
-      );
-      accountsChecked += outcome.accountsChecked;
-      errors += outcome.errors;
-      for (const payload of outcome.drifts) {
-        emitDriftAlert(account.id, payload);
-        driftsFound++;
+  // Bounded fan-out (ZernioRecentReviewPoller pattern): a fixed pool of
+  // workers pulls accounts in id order via a shared claim pointer. Once the
+  // deadline aborts, no NEW account is claimed (in-flight ones finish under
+  // their own ACCOUNT_TIMEOUT_MS). Counter mutation is safe — single-threaded
+  // event loop, the fan-out interleaves awaits, not writes.
+  let nextIndex = 0;
+  const workerCount = Math.min(ACCOUNT_FAN_OUT_CONCURRENCY, accounts.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < accounts.length) {
+        if (signal.aborted) return;
+        const account = accounts[nextIndex]!;
+        nextIndex += 1;
+        try {
+          const outcome = await withTimeout(
+            reconcileAccount(sql, stripe, account),
+            ACCOUNT_TIMEOUT_MS,
+            `reconcile account ${account.id}`,
+          );
+          accountsChecked += outcome.accountsChecked;
+          errors += outcome.errors;
+          for (const payload of outcome.drifts) {
+            emitDriftAlert(account.id, payload);
+            driftsFound++;
+          }
+        } catch (err) {
+          errors++;
+          logger.error(`Error reconciling account ${account.id}`, err);
+        }
       }
-    } catch (err) {
-      errors++;
-      logger.error(`Error reconciling account ${account.id}`, err);
-    }
+    }),
+  );
+
+  const dispatched = nextIndex;
+  if (dispatched < accounts.length) {
+    logger.log('Cycle aborted (deadline exceeded) — resuming after cursor next cycle', {
+      dispatched,
+      deferred: accounts.length - dispatched,
+    });
+  }
+
+  // Cursor = last account actually claimed, so deferred accounts lead the next
+  // cycle. A fully-drained list wraps to the start (this query has no LIMIT,
+  // so draining the list means the rotation is complete). An abort before any
+  // claim leaves the cursor untouched.
+  if (dispatched > 0) {
+    accountCursor = dispatched < accounts.length ? accounts[dispatched - 1]!.id : null;
   }
 
   if (driftsFound > 0 || errors > 0) {

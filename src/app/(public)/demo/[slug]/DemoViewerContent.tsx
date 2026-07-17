@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'motion/react';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
@@ -44,6 +44,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       };
 
   return (
+    <LazyMotion features={domAnimation}>
     <PageShell sections={[]}>
       <SiteNav selfServeEnabled={selfServeEnabled} />
 
@@ -51,7 +52,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       {/* Hero */}
       <div className="px-8 pt-12 pb-8 bg-gradient-to-b from-white to-rw-cream/30">
         <div className="max-w-3xl mx-auto">
-          <motion.div {...heroReveal}>
+          <m.div {...heroReveal}>
             <p className="text-sm tracking-wider uppercase text-rw-teal-strong mb-3">RepWorth demo</p>
             <h1 className="text-4xl md:text-5xl font-medium leading-tight text-rw-ink mb-5">
               {businessName}
@@ -66,7 +67,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
             {repliesStillGenerating && (
               <p className="mt-3 text-sm text-rw-teal-strong italic">Some replies are still generating.</p>
             )}
-          </motion.div>
+          </m.div>
         </div>
       </div>
 
@@ -91,10 +92,10 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
 
       {/* CTA */}
       <section className="px-8 py-14 bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/85 text-white rounded-b-[3rem] text-center">
-        <motion.div {...ctaReveal} className="max-w-xl mx-auto">
+        <m.div {...ctaReveal} className="max-w-xl mx-auto">
           <h2 className="text-2xl md:text-3xl font-medium mb-3">Want replies like these for your reviews?</h2>
           <p className="text-white/90 mb-8">RepWorth drafts every reply — you approve before it posts.</p>
-          <motion.div
+          <m.div
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
             whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
             className="inline-block"
@@ -105,11 +106,12 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
             >
               Book a demo
             </Link>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       </section>
       </main>
     </PageShell>
+    </LazyMotion>
   );
 }
 
@@ -194,7 +196,7 @@ function ReviewCard({
       };
 
   return (
-    <motion.div className="bg-white rounded-2xl border border-rw-teal-strong/10 shadow-lg" {...cardReveal}>
+    <m.div className="bg-white rounded-2xl border border-rw-teal-strong/10 shadow-lg" {...cardReveal}>
       <div className="p-5 sm:p-6">
         <div className="flex items-start justify-between mb-2 gap-3">
           <div>
@@ -221,6 +223,6 @@ function ReviewCard({
           <p className="text-rw-ink-soft leading-relaxed">{response.responseText}</p>
         </div>
       )}
-    </motion.div>
+    </m.div>
   );
 }

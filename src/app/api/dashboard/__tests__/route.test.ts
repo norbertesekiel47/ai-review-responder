@@ -29,18 +29,6 @@ vi.mock('@/lib/db/auth', () => {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
     AuthError,
   };
-  it('excludes source-deleted reviews from dashboard queries', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser());
-    setDbResults();
-
-    const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
-
-    const reviewSql = capturedSqlTexts.filter((text) =>
-      text.includes('FROM reviews'),
-    ).join('\n');
-    expect(reviewSql).toContain("status <> 'deleted'");
-  });
 });
 
 // ── Mock DB ──────────────────────────────────────────────────────────
@@ -77,16 +65,16 @@ vi.mock('@/lib/db/redis-cache', () => ({
 
 // ── No more payment-link mock (checkout session replaces it) ───────
 
-// ── Mock location repo (IDOR fix: route now uses getLocationById) ──
-
-const { mockGetLocationById } = vi.hoisted(() => ({
-  mockGetLocationById: vi.fn<(id: string) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
-}));
+// ── Mock location repo ───────────────────────────────────────────────
+// The dashboard route no longer calls getLocationById (the single preflight
+// SQL query owns the IDOR/archived checks now), but ./policy still imports it
+// and the aggregate path uses getLocationsForAccount, so the module stays
+// mocked to keep those imports off the real DB client.
 
 vi.mock('@/lib/locations/repo', () => ({
   getActiveLocationCount: vi.fn(async () => 1),
   getLocationsForAccount: vi.fn(async () => []),
-  getLocationById: (id: string) => mockGetLocationById(id),
+  getLocationById: vi.fn(async () => null),
 }));
 
 // Import AFTER mocks are set up
@@ -114,28 +102,65 @@ function ownerUser(overrides?: { locationId?: string | null }) {
 }
 
 /**
- * Default subRow returned by the pre-query (call 0).
- * For the active path, subscription_status is 'active'.
+ * Default merged preflight row returned by fetchLocationAccountRow (call 0).
+ * One row now carries BOTH the account/subscription columns (IDOR + gate
+ * checks) AND every DashboardBusinessRow field, because the route passes it
+ * into getActiveDashboardData as opts.business (the service skips its own
+ * business query). account_id MUST match the authenticated owner and
+ * archived_at MUST be null or the route 403s / falls back to primary.
  */
 const DEFAULT_SUB_ROW = {
+  account_id: ACCOUNT_ID,
   name: 'Test Biz',
   subscription_status: 'active',
   subscription_tier: 'copilot',
   owner_email: 'owner@test.com',
+  onboarded_by: null,
+  place_id_verified: true,
+  google_maps_url: 'https://maps.google.com',
   archived_at: null,
+  past_due_at: null,
+  trial_ends_at: null,
+  flags: {},
+  stripe_customer_id: null,
+  // DashboardBusinessRow fields (the preflight row doubles as the service's
+  // business row).
+  created_at: new Date('2025-01-15T00:00:00Z'),
+  initial_review_count: 10,
+  initial_responded_count: 3,
+  baseline_captured_at: new Date('2025-01-15T00:00:00Z'),
+  tone: null,
+  products_services: null,
+  avoid_facts: [],
+  sample_responses: [],
+  owner_phone: null,
+  weekly_summary_enabled: true,
+  monthly_impact_enabled: true,
+  category: null,
+  google_place_id: 'gp1',
 };
 
 /**
- * Sets up sql query results in order.
- * The route now uses getLocationById for ownership/archived checks,
- * so the first SQL call is the subscription status check (with account_id filter).
- * Calls 0 = subRow (subscription status check).
- * Calls 1–8 = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
- * Calls 9–11 = the Zernio banner queries (zernio_connections, queued reconnects, unresolved incidents).
- * Call 12 = the windowed reviews-by-rating breakdown GROUP BY (#405).
+ * Sets up sql query results in order for the active per-location path.
  *
- * The Promise.all includes a final entry (the Redis pending-marker read) but that
+ * Call 0: fetchLocationAccountRow — the merged preflight row (IDOR/archived
+ *   checks + DashboardBusinessRow fields; the service's business query is
+ *   SKIPPED because the route passes this row in as opts.business).
+ * Calls 1–7: the Promise.all heavy queries (totals/velocity/ranking/reviews/briefs).
+ * Calls 8–10: the Zernio banner queries (zernio_connections, queued reconnects,
+ *   unresolved incidents).
+ * Call 11: the windowed reviews-by-rating breakdown GROUP BY (#405).
+ * Calls 12–15: the reputation windows (rate/star/timeSaved/sentiment trend) —
+ *   these run in the SAME Promise.all wave; the queue leaves them unset so they
+ *   fall back to [] (fetchReputationRows substitutes zeroed defaults).
+ * Call 16: pendingApprovalCount (src/lib/dashboard/pending-count.ts) — also []
+ *   by default → 0.
+ *
+ * The Promise.all also includes the Redis pending-marker read, but that
  * resolves through `mockRedisGet`, not through the sql proxy.
+ *
+ * `subRow` / `businessRows` overrides are both merged into call 0 (an
+ * explicitly empty `subRow: []` simulates "location not found").
  */
 function setDbResults(overrides?: {
   subRow?: unknown[];
@@ -155,33 +180,21 @@ function setDbResults(overrides?: {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
 
-  // getLocationById returns an active, owned location (IDOR fix)
-  mockGetLocationById.mockResolvedValue({
-    id: BUSINESS_ID,
-    account_id: ACCOUNT_ID,
-    name: 'Test Biz',
-    display_label: null,
-    is_primary: true,
-    archived_at: null,
-    google_place_id: 'gp1',
-    google_place_address: null,
-    created_at: new Date(),
-  });
-
-  // Call 0: pre-query (subRow — subscription status check with account_id filter)
-  mockSqlResults.push(overrides?.subRow ?? [DEFAULT_SUB_ROW]);
-
-  // Calls 1–8: Promise.all heavy queries (only reached when status !== 'pending_payment')
-  mockSqlResults.push(
-    overrides?.businessRows ?? [
+  // Call 0: merged preflight row (fetchLocationAccountRow)
+  if (overrides?.subRow && overrides.subRow.length === 0) {
+    mockSqlResults.push([]);
+  } else {
+    mockSqlResults.push([
       {
-        name: 'Test Biz',
-        created_at: new Date('2025-01-15T00:00:00Z'),
-        initial_review_count: 10,
-        initial_responded_count: 3,
-        baseline_captured_at: new Date('2025-01-15T00:00:00Z'),
+        ...DEFAULT_SUB_ROW,
+        ...((overrides?.subRow?.[0] as object | undefined) ?? {}),
+        ...((overrides?.businessRows?.[0] as object | undefined) ?? {}),
       },
-    ],
+    ]);
+  }
+
+  // Calls 1–11 (only reached when the preflight row passes all gates)
+  mockSqlResults.push(
     overrides?.totalReviewRows ?? [{ count: 20 }],
     overrides?.totalRespondedRows ?? [{ count: 15 }],
     overrides?.velocityRows ?? [
@@ -206,13 +219,13 @@ function setDbResults(overrides?: {
     ],
     overrides?.monthlyBriefRows ?? [],
     overrides?.weeklyBriefRows ?? [],
-    // Calls 9–11: Zernio banner queries. Default to "no Zernio state" so
+    // Calls 8–10: Zernio banner queries. Default to "no Zernio state" so
     // tests that don't care about banner precedence keep their existing
     // behaviour (status resolves to 'none').
     overrides?.zernioConnectionRows ?? [],
     overrides?.queuedReconnectRows ?? [{ count: 0 }],
     overrides?.unresolvedIncidentRows ?? [{ count: 0 }],
-    // Call 12: windowed reviews-by-rating breakdown (#405). Empty by default.
+    // Call 11: windowed reviews-by-rating breakdown (#405). Empty by default.
     overrides?.ratingBreakdownRows ?? [],
   );
 }
@@ -258,26 +271,15 @@ describe('GET /api/dashboard', () => {
     expect(body.error).toBe('No business associated with this account');
   });
 
-  it('returns 404 when pre-query finds no business', async () => {
+  it('returns 404 when the preflight row query finds no business and no primary exists', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns an owned location, but the subscription
-    // check query returns empty rows → "Business not found"
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Test Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // subRow empty — subscription check returns no rows (defense-in-depth)
-    setDbResults({ subRow: [] });
-    // Override the getLocationById that setDbResults sets (already done above)
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    // Call 0: preflight row query finds nothing (location not found)
+    mockSqlResults.push([]);
+    // Call 1: getPrimaryLocationId — no usable primary → 404
+    mockSqlResults.push([]);
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(404);
@@ -294,28 +296,14 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    // getLocationById returns an active, owned location
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Pending Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check (with account_id filter)
+    // Call 0: preflight row (owned, active location, pending_payment sub)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Pending Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'copilot',
         owner_email: 'owner@pending.com',
         onboarded_by: null, // self-serve — owner sees the payment CTA
-        archived_at: null,
       },
     ]);
 
@@ -335,7 +323,7 @@ describe('GET /api/dashboard', () => {
     expect(body.valueSummary).toBeUndefined();
     expect(body.recentReviews).toBeUndefined();
 
-    // Only 1 sql call (the subscription check). Promise.all 8 queries must not have run.
+    // Only 1 sql call (the preflight row query). Promise.all heavy queries must not have run.
     expect(sqlCallCounter.value).toBe(1);
 
     // No-store header still present
@@ -348,27 +336,14 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Founding Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check
+    // Call 0: preflight row
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Founding Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'copilot',
         owner_email: 'founder@example.com',
         onboarded_by: null,
-        archived_at: null,
       },
     ]);
 
@@ -383,27 +358,14 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Admin Onboarded Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check
+    // Call 0: preflight row (admin-onboarded)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Admin Onboarded Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'copilot',
         owner_email: 'owner@admin-onboarded.com',
         onboarded_by: 'admin-uuid-1',
-        archived_at: null,
       },
     ]);
 
@@ -417,7 +379,7 @@ describe('GET /api/dashboard', () => {
     // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
     expect(body.paymentUrl).toBeUndefined();
 
-    // Subscription check only — Promise.all heavy queries skipped.
+    // Preflight query only — Promise.all heavy queries skipped.
     expect(sqlCallCounter.value).toBe(1);
   });
 
@@ -427,27 +389,14 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'No Env Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check
+    // Call 0: preflight row
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'No Env Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'copilot',
         owner_email: 'owner@noenv.com',
         onboarded_by: null,
-        archived_at: null,
       },
     ]);
 
@@ -707,26 +656,13 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Cancelled Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check (cancelled)
+    // Call 0: preflight row (cancelled)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Cancelled Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'copilot',
         owner_email: 'owner@cancelled.com',
-        archived_at: null,
       },
     ]);
 
@@ -769,26 +705,13 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Long Sub Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check (cancelled)
+    // Call 0: preflight row (cancelled)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Long Sub Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'copilot',
         owner_email: 'owner@longsub.com',
-        archived_at: null,
       },
     ]);
 
@@ -826,26 +749,13 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Legacy Cancelled Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check (cancelled)
+    // Call 0: preflight row (cancelled)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'Legacy Cancelled Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'copilot',
         owner_email: 'owner@legacy.com',
-        archived_at: null,
       },
     ]);
 
@@ -872,31 +782,11 @@ describe('GET /api/dashboard', () => {
     vi.setSystemTime(new Date('2026-05-25T12:00:00.000Z'));
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
-
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Past Due Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
     setDbResults({ subRow: [
       {
         name: 'Past Due Biz',
         subscription_status: 'past_due',
-        subscription_tier: 'copilot',
         owner_email: 'owner@pastdue.com',
-        onboarded_by: null,
-        place_id_verified: true,
-        google_maps_url: 'https://maps.example.com',
-        archived_at: null,
         past_due_at: new Date('2026-05-20T12:00:00.000Z'),
         flags: {},
         stripe_customer_id: 'cus_123',
@@ -915,7 +805,9 @@ describe('GET /api/dashboard', () => {
       daysRemaining: 2,
       isReadOnly: false,
       billingPortalUrl: '/api/billing/portal',
-      business: { name: 'Test Biz' },
+      // The preflight row doubles as the service's business row now, so the
+      // rendered business name comes from the same merged row.
+      business: { name: 'Past Due Biz' },
     });
     vi.useRealTimers();
   });
@@ -967,26 +859,13 @@ describe('GET /api/dashboard', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    mockGetLocationById.mockResolvedValue({
-      id: BUSINESS_ID,
-      account_id: ACCOUNT_ID,
-      name: 'No Dates Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // Call 0: subscription status check (cancelled)
+    // Call 0: preflight row (cancelled)
     mockSqlResults.push([
       {
+        ...DEFAULT_SUB_ROW,
         name: 'No Dates Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'copilot',
         owner_email: 'owner@nodates.com',
-        archived_at: null,
       },
     ]);
 
