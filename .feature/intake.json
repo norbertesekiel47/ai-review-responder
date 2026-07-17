@@ -55,7 +55,7 @@
     "sent_at / period-marker guard still excludes already-recorded businesses (weekly_summaries / monthly_impact_emails).",
     "Payload shape assertion: business_id, period date, and correlation_id are present and correctly typed; correlation_id values are distinct per row.",
     "queued count reflects inserted.count (rows actually inserted, not candidates scanned).",
-    "Migration 079 (integration, DB-available): partial unique index blocks a second non-failed row for the same (aggregate_id, period) and permits one after the first goes 'failed'."
+    "Migration 079 (integration, DB-available): partial unique index blocks a second IN-FLIGHT row (status IN pending/dispatching/dispatched) for the same (aggregate_id, period), and PERMITS a fresh row when the prior row is 'completed' OR 'failed' (completed-but-not-sent must remain re-enqueueable)."
   ],
   "verification_commands": [
     "pnpm ci:tenant-scope",

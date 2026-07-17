@@ -39,27 +39,44 @@ those rows (adversarial-review finding 1). Ranking keeps its EXISTING
 `uniq_outbox_track_ranking_run` (`status <> 'failed'`) untouched — it has no
 `sent_at` guard, so its outbox completion IS the done-record.
 
-Each index gets a **015-style preflight** collapsing any pre-existing in-flight
-duplicate (keep oldest per `(aggregate_id, period)`, mark the rest `'failed'`)
-so the build cannot fail on historical rows:
+Each index gets a **race-safe preflight** collapsing any pre-existing in-flight
+duplicate before the build. It must NEVER fail an actively-running row
+(adversarial-review r2 defect 1): a preflight that failed a `dispatched` row
+while keeping an older `pending` duplicate would no-op the running worker's
+completion (`src/lib/shared/outbox.ts` updates `WHERE status='dispatched'`) and
+let the retained `pending` row be re-claimed → double-send. So we KEEP the
+most-advanced-then-oldest row per key and fail ONLY `pending` extras; a
+`dispatching`/`dispatched` row is never touched. `payload->>'…' IS NOT NULL`
+excludes malformed rows the index (NULLs-distinct) would not treat as conflicts
+(r2 defect 3):
 
 ```sql
--- Weekly: collapse in-flight dups, then partial unique index.
-UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed duplicate'
-WHERE id IN (
-  SELECT id FROM (
-    SELECT id, ROW_NUMBER() OVER (
-      PARTITION BY aggregate_id, payload->>'week_start_date' ORDER BY created_at ASC
+-- Weekly: collapse pending in-flight dups (race-safe), then partial unique index.
+WITH ranked AS (
+  SELECT id, status,
+    ROW_NUMBER() OVER (
+      PARTITION BY aggregate_id, payload->>'week_start_date'
+      ORDER BY CASE status WHEN 'dispatched' THEN 0 WHEN 'dispatching' THEN 1 ELSE 2 END, created_at
     ) AS rn
-    FROM job_outbox
-    WHERE topic = 'weekly_summary' AND status IN ('pending','dispatching','dispatched')
-  ) dupes WHERE rn > 1
-);
+  FROM job_outbox
+  WHERE topic = 'weekly_summary'
+    AND status IN ('pending','dispatching','dispatched')
+    AND payload->>'week_start_date' IS NOT NULL
+)
+UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+WHERE id IN (SELECT id FROM ranked WHERE rn > 1 AND status = 'pending');
+
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_outbox_weekly_summary_week
   ON job_outbox(aggregate_id, (payload->>'week_start_date'))
   WHERE topic = 'weekly_summary' AND status IN ('pending','dispatching','dispatched');
 -- send_monthly_impact: identical shape with payload->>'month_start_date'.
 ```
+
+If two `dispatching`/`dispatched` duplicates for one key somehow coexist (never
+observed — the single-flight guarded-poll + hourly window makes it
+near-impossible), the preflight leaves them and the `CREATE UNIQUE INDEX` fails
+loudly rather than silently killing an active job — surfaced staging-first for
+operator investigation.
 
 Comment must state: closes the concurrent-scheduler/restart race the prior
 `WHERE NOT EXISTS` could not; the predicate deliberately matches the in-flight
@@ -76,9 +93,12 @@ safety net.
 keep target-less `ON CONFLICT DO NOTHING` (matches the existing
 `RankingTrackingScheduler` precedent) rather than an explicit
 `ON CONFLICT (cols) WHERE …` target — an explicit partial-index target must
-match the predicate BYTE-FOR-BYTE (documented CLAUDE.md footgun), while a PK
-collision under `gen_random_uuid()` is ~0 probability and DO-NOTHING merely
-skips one enqueue that self-heals next cycle.
+match the predicate BYTE-FOR-BYTE (documented CLAUDE.md footgun). The only thing
+target-less could mask is a PK collision on `id`, whose probability under
+`gen_random_uuid()` (122 random bits) is cryptographically negligible (~2⁻¹²²) —
+it will not occur. (Note it would NOT self-heal within the period, since the
+scheduler window recurs weekly/monthly, not next cycle — but at that probability
+the point is moot.)
 
 **Docs:** `.claude/reference/migrations-log.md` — bump head `078 → 079`, add the
 079 entry. Add a lab note (this file's log section / lab-notes) recording the
