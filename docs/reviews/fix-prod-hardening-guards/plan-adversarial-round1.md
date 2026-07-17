@@ -32,3 +32,11 @@ Verdict: REVISE (5 findings). All accepted → plan R3:
 | 5 | Aggregate per-location fallback underspecified (DTO non-nullable, current code returns null) | ACCEPT | Failed slice EXCLUDED but loudly reported (`locationSlice` context); 3 aggregate regression tests specified |
 
 Consequential fix: Task 1's original test examples rewritten — coupled-tx crashes must NOT best-effort-fail the row (watchdog recovers); best-effort mark now tested on the non-coupled generic branch.
+
+# Round 3 (final)
+
+Verdict: APPROVED (5 one-line notes, all applied to the plan post-approval):
+capture takes IngestFailedHookState; CAS-success-then-write-failure + stale-CAS
+test coverage added; throttle test asserts log suppression + suppressed-count
+propagation; Task 7 file/commit lists include aggregate-service.ts + tests;
+requireFulfilled removed.

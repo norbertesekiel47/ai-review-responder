@@ -78,6 +78,8 @@ Adjust the `ZernioIngestReviewNotFoundError` constructor args to match its actua
 
 Adapt the `sql.begin` mock to the file's existing `sql` mock shape (if the mock has no `begin`, extend it: `mockSql.begin = mockSqlBegin` where the happy-path implementation invokes the callback with the same mock executor). Update pre-existing tests only as far as the tx-wrapping requires (assertions on the same INSERT/markOutboxFailed statements now go through the tx executor).
 
+Final-round note: ALSO cover the CAS-success-then-later-write-failure case — tx callback runs, `markOutboxFailed` (CAS) resolves `true`, then the exception INSERT rejects → whole tx rejects/rolls back → crash guard captures to Sentry and does NOT re-mark (coupled flag). And a stale-attempt case: CAS resolves `false` → handler performs no further writes, no Sentry crash capture (clean no-op).
+
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
 Run: `pnpm vitest run worker/jobs/zernio/__tests__/ingest-failed-hook.test.ts`
@@ -105,9 +107,7 @@ export async function handleIngestFailed(
   // throw here becomes an unhandled rejection — which the crash-net treats
   // as fatal for non-transient-DB errors. One review's failure bookkeeping
   // must never take down all queues. Mirrors handlePublisherFailed.
-  const state: { outboxId?: string; outboxAttempt?: number; coupledTerminalTxStarted: boolean } = {
-    coupledTerminalTxStarted: false,
-  };
+  const state: IngestFailedHookState = { coupledTerminalTxStarted: false };
   try {
     if (!job) return;
     if (job.attemptsMade < (job.opts.attempts ?? 5)) return; // not yet exhausted
@@ -154,7 +154,7 @@ async function dispatchIngestExhaustion(
 
 async function captureIngestFailedHookCrash(
   sql: Sql,
-  state: { outboxId?: string; outboxAttempt?: number },
+  state: IngestFailedHookState,
   handlerErr: unknown,
 ): Promise<void> {
   // This IS the last-resort catch — nothing in here may throw. (Hardened vs
@@ -484,17 +484,24 @@ describe('attachEmitterErrorLogger', () => {
     expect(() => emitter.emit('error', new Error('boom'))).not.toThrow();
   });
 
-  it('throttles Sentry captures per source (R2: no alert storm on reconnect loops)', () => {
+  it('throttles logs AND Sentry per source, surfacing the suppressed count next window', () => {
     vi.useFakeTimers();
     const emitter = new EventEmitter();
     attachEmitterErrorLogger(emitter, 'queue:unique_throttle_test');
     emitter.emit('error', new Error('blip 1'));
     emitter.emit('error', new Error('blip 2'));
-    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(61_000);
     emitter.emit('error', new Error('blip 3'));
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1); // storm suppressed
+    vi.advanceTimersByTime(61_000);
+    emitter.emit('error', new Error('blip 4'));
     expect(mockCaptureMessage).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+    expect(mockCaptureMessage).toHaveBeenLastCalledWith(
+      'worker_emitter_error',
+      expect.objectContaining({ extra: expect.objectContaining({ suppressed_in_prior_window: 2 }) }),
+    );
+    // Log suppression mirrors Sentry: mock/spy the module logger (or spy on
+    // console output via createWorkerLogger's sink) and assert warn was called
+    // exactly twice for this source across the four emits.
   });
 });
 ```
@@ -845,7 +852,8 @@ git commit -m "fix(worker): alert on terminal generate_response and failed inbou
 
 **Files:**
 - Modify: `src/lib/dashboard/service.ts:67-81` (the 13-query `Promise.all`) and the destructure consumers
-- Test: Create `src/lib/dashboard/__tests__/service.degradation.test.ts`
+- Modify: `src/lib/dashboard/aggregate-service.ts` (own-query degradation + per-location slice semantics, R2/R3)
+- Test: Create `src/lib/dashboard/__tests__/service.degradation.test.ts` (+ aggregate degradation cases, either in the same file or `aggregate-service.degradation.test.ts` following the dir's naming)
 
 **Scope note (revised R2 to match the spec, which requires BOTH paths):**
 
@@ -931,10 +939,8 @@ function widgetOrFallback<T>(
   return fallback;
 }
 
-function requireFulfilled<T>(result: PromiseSettledResult<T>): T {
-  if (result.status === 'rejected') throw result.reason;
-  return result.value;
-}
+// (R3: no requireFulfilled helper — the fatal business lookup is awaited
+// directly, outside allSettled.)
 ```
 
 3. Change `await Promise.all([...])` to `await Promise.allSettled([...])` (the 13 queries themselves are untouched) and rework the destructure:
@@ -983,7 +989,7 @@ Expected: ALL PASS (including all pre-existing dashboard tests — the happy pat
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/dashboard/service.ts src/lib/dashboard/__tests__/service.degradation.test.ts
+git add src/lib/dashboard/service.ts src/lib/dashboard/aggregate-service.ts src/lib/dashboard/__tests__/
 git commit -m "fix(dashboard): degrade per-widget instead of 500ing the whole dashboard (P10)"
 ```
 
