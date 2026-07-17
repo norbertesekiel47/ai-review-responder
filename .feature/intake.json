@@ -46,6 +46,7 @@
   ],
   "tests_to_add": [
     "ArchivalPoller.test.ts: agent_runs arm deletes terminal rows with ended_at older than 180d and never touches running rows (ended_at NULL).",
+    "ArchivalPoller.test.ts: CASCADE guard — after the agent_runs arm prunes a terminal run, its agent_run_steps rows are gone (protects the 'no steps arm needed' decision that rests on ON DELETE CASCADE).",
     "ArchivalPoller.test.ts: agent_outcomes arm deletes rows with occurred_at older than 180d.",
     "ArchivalPoller.test.ts: the 'Archived' summary and saturation warning include the two new arms' counts.",
     "Regression guard tying the retention constant to its consumers: assert 180 (retention days) > max(WINDOW_PARAMS.windowDays) AND > GOVERNOR_WINDOW_DAYS, so raising a consumer window past retention fails the build."
