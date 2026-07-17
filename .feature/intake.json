@@ -1,0 +1,68 @@
+{
+  "ticket": "#479",
+  "map": "#472",
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Complete the #479 remainders on StripeLocationsReconcilePoller: add a composite partial index for the reconcile accounts query, persist the keyset resume cursor across worker restarts, and emit a sustained-truncation alert when the cycle deadline keeps aborting the sweep.",
+  "non_goals": [
+    "Do NOT auto-correct drift (poller stays detect-and-alert only).",
+    "Do NOT change ACCOUNT_FAN_OUT_CONCURRENCY, ACCOUNT_TIMEOUT_MS, CYCLE_TIMEOUT_MS, or INITIAL_RUN_DELAY_MS.",
+    "Do NOT change which subscription statuses are reconciled (active/past_due/trialing).",
+    "Do NOT build a generic poller-cursor framework — poller_cursors is a real table but this poller is its only writer for now (no abstraction before a 2nd use).",
+    "Do NOT add a Discord/queue-health routing rule (the residual feature:stripe_reconciliation routing gap noted in drift-alert.ts stays out of scope).",
+    "Do NOT change the in-memory cursor + bounded fan-out already shipped in #487 — only add durability + the alert underneath them."
+  ],
+  "user_visible_behavior": [
+    "Ops-observable: after a worker restart the reconcile rotation RESUMES from the persisted cursor instead of restarting from the top of the account list.",
+    "Ops-observable: when the cycle deadline truncates the sweep for 3 consecutive cycles (no full drain in between), a warning-level Sentry alert fires (tag feature:stripe_reconciliation, structured-log fallback when SENTRY_DSN unset).",
+    "Ops-observable: a single truncated cycle still self-heals via the cursor next cycle and stays log-only (designed behavior, not an alert)."
+  ],
+  "invariants": [
+    "Tenant isolation: poller_cursors holds no tenant data (poller_name + uuid + updated_at); reconcile query scoping is unchanged.",
+    "Invariant #15: cursor-store is a worker helper taking sql as an explicit parameter; only the poller (a composition root registered in worker/index.ts) imports the singleton and passes it down.",
+    "Invariant #3 backstop: the single-flight guard + cycle deadline still release inProgress on every path; persistence must not introduce a path that holds inProgress or blocks a tick.",
+    "Cursor correctness: persisted value equals the in-memory working copy at all times (one owner of the cursor value); rotation-complete persists null.",
+    "Boot ordering: the first runOnce must not read the cursor before the boot load resolves (INITIAL_RUN_DELAY_MS gives 45s of slack, but the read is gated on the load promise regardless)."
+  ],
+  "edge_cases": [
+    "poller_cursors row absent on first-ever boot -> treat as null (start from top).",
+    "poller_cursors read fails at boot -> log and start from null (safe: a from-top rotation is always correct); do not crash the poller.",
+    "Cursor upsert fails mid-cycle -> log-and-swallow (best-effort after the primary side effect, per the crash-net rule); in-memory cursor still advances so the running process stays correct; next successful upsert re-persists.",
+    "Single truncation then full drain next cycle -> counter resets, no alert.",
+    "Rotation completes (cursor -> null) across multiple cycles -> counts as a drain, resets the truncation counter.",
+    "Empty account list (accounts.length === 0) -> drain state, resets the truncation counter, persists null.",
+    "Truncation is defined as dispatched < accounts.length. An abort with dispatched === 0 (fully stalled, e.g. parked on pool acquisition then deadline) DOES count as a truncation for the counter — a cycle that made zero progress is exactly the sustained-truncation signal; the cursor is left untouched in that case (nothing was claimed)."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/background/pollers/billing-reconciliation/drift-alert.ts (Sentry-or-log alert emitter, feature tag, level selection) -> sibling truncation-alert.ts.",
+    "worker/background/pollers/StripeLocationsReconcilePoller.ts lines 70-81 (keyset cursor pattern, resetAccountCursorForTests).",
+    "worker/background/pollers/health-alert/emit.ts (warning-level emission shape) for cross-reference.",
+    "ZernioRecentReviewPoller keyset cursor precedent (referenced in the poller comments).",
+    "migrations-log.md CONCURRENTLY convention (IF NOT EXISTS, staging-first, both Supabase projects in lockstep, pre-flight gate in migration header).",
+    "src/lib/reviews/__tests__/sentiment.test.ts 'invariants' describe block (fast-check house style)."
+  ],
+  "allowed_edit_surface": [
+    "worker/background/pollers/StripeLocationsReconcilePoller.ts",
+    "worker/background/pollers/billing-reconciliation/**",
+    "worker/background/pollers/__tests__/**",
+    "supabase/migrations/079_poller_cursors.sql",
+    "supabase/migrations/080_accounts_reconcile_status_id_index.sql",
+    ".claude/reference/migrations-log.md",
+    "scripts/ci/**",
+    ".feature/**",
+    "docs/**"
+  ],
+  "tests_to_add": [
+    "PROPERTY (fast-check): cursor persistence round-trips — for any uuid|null, load after upsert returns the same value; rotation-complete persists null. (invariant: persisted == in-memory working copy)",
+    "PROPERTY (fast-check): truncation-alert state machine — over any sequence of {truncated, drained} cycles, the alert fires exactly on the cycle where consecutiveTruncations first reaches 3, and never after a drain resets the counter. (invariant: sustained-only alerting)",
+    "UNIT: boot load seeds accountCursor from poller_cursors before the first runOnce reads it (gated on the load promise).",
+    "UNIT: cursor upsert failure mid-cycle is log-and-swallowed; the in-memory cursor still advances and inProgress is released.",
+    "UNIT: emitTruncationAlert emits Sentry at warning with feature:stripe_reconciliation tag when SENTRY_DSN set, structured-log fallback otherwise (mirror drift-alert.test)."
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "open_questions": []
+}
