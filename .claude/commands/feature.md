@@ -152,6 +152,22 @@ Copy the intake contract to `.feature/intake.json` in the worktree root —
 the hooks (edit-surface guard, stop gate) key off this file. Its presence is
 what puts the worktree in "feature mode".
 
+ARM CHECK (mandatory): before proceeding to implementation, prove the
+hooks are actually armed by direct-executing them exactly as registered
+(`./path`, not via a different shell). With `.feature/intake.json` present,
+feed the edit-surface guard a fake out-of-surface payload and expect exit 2;
+with no `.feature/gate-status.json` present, feed the stop gate an empty
+payload and expect exit 2:
+
+```bash
+echo '{"tool_input":{"file_path":"src/app/__arm_check__.ts"}}' | ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
+echo '{}' | ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
+```
+
+Any other exit code (126, 127, 0) means enforcement is DISARMED (missing
+exec bit, missing jq, or broken registration) — STOP and report to the
+user instead of continuing.
+
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
 Before writing the plan, consult the `codebase-design` skill: name the
