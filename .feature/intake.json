@@ -1,0 +1,58 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Add 180-day retention for the agent-run spine (agent_runs / agent_run_steps / agent_outcomes) to ArchivalPoller via straight batched DELETE, with a supporting-index migration (079).",
+  "non_goals": [
+    "No rollup / cold-store table (unlike the api_costs arm) — no lifetime-aggregate consumer of the run spine exists.",
+    "No env-configurable per-table window — follow the hardcoded INTERVAL precedent of the existing six arms.",
+    "Do not touch account_audit_log / approval_audit_log — they stay deliberately keep-forever.",
+    "Do not change read.ts consumers, dashboard windows, or the governor/suspension logic.",
+    "No refactor/abstraction of the existing ArchivalPoller arms — add two new arms in the same shape."
+  ],
+  "user_visible_behavior": [
+    "Terminal agent_runs whose ended_at is older than 180 days are deleted daily; agent_run_steps prune via ON DELETE CASCADE.",
+    "agent_outcomes whose occurred_at is older than 180 days are deleted daily (own arm; they do NOT cascade — ON DELETE SET NULL).",
+    "Opening a review whose runs are all >180 days old shows an empty handling timeline (getReviewTimeline runs:[]); the review row and response row persist.",
+    "The ArchivalPoller 'Archived' log line and saturation warnings include agent_runs and agent_outcomes counts."
+  ],
+  "invariants": [
+    "Running runs are NEVER deleted (status='running' iff ended_at IS NULL, per agent_runs_terminal_consistency; the arm filters ended_at < NOW() - 180d, which excludes NULL).",
+    "agent_outcomes retention (180d) strictly exceeds the max dashboard team-summary window (90d, '90d' in WINDOW_PARAMS) AND the governor/suspension window (GOVERNOR_WINDOW_DAYS=7) — no consumer under-counts within its own window.",
+    "getReviewTimeline (per-review, no time filter) and judge-store.findLatestRunIdForReview (latest/live run) are unaffected by retention.",
+    "Batched DELETE (LIMIT 5000) + FOR UPDATE SKIP LOCKED, matching arms 4-6, so concurrent archival cycles keep accurate counts.",
+    "Tenant-scope and RLS audits stay green — the two new cross-tenant DELETE arms are allowlisted with byte-exact SQL snippets.",
+    "Migration 079 applies staging-first, both Supabase projects in lockstep; CREATE INDEX CONCURRENTLY (non-transactional, per the 065 header)."
+  ],
+  "edge_cases": [
+    "agent_outcomes.agent_run_id is ON DELETE SET NULL (not CASCADE) — without its own occurred_at arm, deleting old runs would orphan outcomes (run link nulled) and they would accumulate forever.",
+    "Delete ordering: outcomes arm before runs arm (matches purge-stages.ts) to avoid wasted SET NULL writes on outcome rows about to be deleted the same cycle.",
+    "Uniform 180d window across runs+outcomes: because occurred_at <= ended_at for any terminal run, an outcome whose run crosses 180d is itself >=180d old, so no permanently NULL-linked outcome survives.",
+    "Cascade fan-out: deleting up to 5000 runs cascades their steps in one statement — bounded by the runs LIMIT, same shape as arm 4's bounded work.",
+    "Batch saturation (count >= 5000) is reported via the existing saturated[] warning path so the next cycle continues cleanup."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/background/pollers/ArchivalPoller.ts arms 5 (notification_deliveries) and 6 (analytics_events): straight batched DELETE with FOR UPDATE SKIP LOCKED + count/saturation reporting.",
+    "supabase/migrations/065_archival_watchdog_indexes.sql: CREATE INDEX CONCURRENTLY on the archival scan column + non-transactional apply header.",
+    "worker/jobs/account-offboarding/purge-stages.ts: agent_outcomes-then-agent_runs delete ordering.",
+    "scripts/ci/tenant-scope-allowlist.ts: byte-exact ArchivalPoller SQL-snippet allowlist entries."
+  ],
+  "allowed_edit_surface": [
+    "worker/background/pollers/ArchivalPoller.ts",
+    "worker/background/pollers/__tests__/ArchivalPoller.test.ts",
+    "supabase/migrations/079_agent_run_spine_archival_indexes.sql",
+    ".claude/reference/migrations-log.md",
+    "scripts/ci/tenant-scope-allowlist.ts"
+  ],
+  "tests_to_add": [
+    "ArchivalPoller.test.ts: agent_runs arm deletes terminal rows with ended_at older than 180d and never touches running rows (ended_at NULL).",
+    "ArchivalPoller.test.ts: agent_outcomes arm deletes rows with occurred_at older than 180d.",
+    "ArchivalPoller.test.ts: the 'Archived' summary and saturation warning include the two new arms' counts.",
+    "Regression guard tying the retention constant to its consumers: assert 180 (retention days) > max(WINDOW_PARAMS.windowDays) AND > GOVERNOR_WINDOW_DAYS, so raising a consumer window past retention fails the build."
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "open_questions": []
+}
