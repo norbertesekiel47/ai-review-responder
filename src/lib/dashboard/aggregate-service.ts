@@ -3,28 +3,27 @@
 // Builds AggregateDashboardData for the "All Locations" aggregate view.
 // Called by the /api/dashboard?scope=all route handler.
 //
-// Strategy: fetch per-location dashboard data for every active location
-// in the account, then compute aggregate sums and per-location breakdowns.
-// This approach reuses the existing getActiveDashboardData per-location
-// query logic and composes results at the service layer rather than
-// writing N+1-style aggregate SQL.
+// Strategy: a single set-based per-account aggregate wave
+// (`fetchPerLocationAggregateSlices`) reproduces — per location — exactly the
+// subset of the per-location dashboard batch this view consumes, fed through
+// the same per-location mappers so the retained fields are identical by
+// construction. This replaces the former per-location fan-out (~14 queries × N
+// via mapWithConcurrency); the query count is now independent of N.
 
 import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import {
-  HANDLED_STATUSES,
-  RECENT_REVIEW_DISPLAY_STATUSES,
-} from '@/lib/shared/response-status';
-import { statusArraySql } from '@/lib/shared/response-status-sql';
+import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   type DashboardWindow,
   DEFAULT_DASHBOARD_WINDOW,
 } from '@/lib/kpi/types';
-import { getActiveDashboardData } from './service';
 import { mapRecentReviews } from './active-mappers';
 import { sumRatingBreakdowns } from './rating-breakdown';
-import { getPendingApprovalCount } from './pending-count';
+import {
+  fetchPerLocationAggregateSlices,
+  type PerLocationAggregateSlice,
+} from './aggregate-queries';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type {
@@ -35,15 +34,32 @@ import type {
   PerLocationRanking,
   PerLocationBrief,
 } from './types';
-import type { DashboardDataActive } from './types';
 
-const AGGREGATE_LOCATION_CONCURRENCY = 5;
+// Zero-filled slice for the defensive case where a location returned by
+// getLocationsForAccount has no row in the aggregate wave (both derive from the
+// same active-businesses set, so this is unreachable in practice).
+const EMPTY_SLICE: PerLocationAggregateSlice = {
+  valueSummary: {
+    totalReviewsHandled: 0,
+    totalTimeSavedMinutes: 0,
+    currentResponseRate: 0,
+    baselineResponseRate: null,
+  },
+  reviewVelocity: [],
+  ranking: null,
+  ratingBreakdown: sumRatingBreakdowns([]),
+  latestBrief: null,
+  recentReviewCount: 0,
+  pendingApprovalCount: 0,
+  windowedReceived: 0,
+  windowedResponded: 0,
+};
 
-// Short TTL cache for the aggregate payload. This is the ONLY request path
-// whose cost scales with location count (N × the per-location 14-query batch),
-// so repeated loads within the TTL — tab switches, the KPI poll, several
-// owners of the same account — reuse one computation. 45s staleness is
-// invisible next to the pipeline's own multi-second latency.
+// Short TTL cache for the aggregate payload. Repeated loads within the TTL — tab
+// switches, the KPI poll, several owners of the same account — reuse one
+// computation. 45s staleness is invisible next to the pipeline's own
+// multi-second latency. The aggregate is now atomic (one wave, no partial
+// failures), so the payload is always cacheable.
 const AGGREGATE_CACHE_TTL_SECONDS = 45;
 
 function aggregateCacheKey(accountId: string, window: DashboardWindow): string {
@@ -83,14 +99,12 @@ export async function getAggregateDashboardData(
 
   const data = await buildAggregateDashboardData(sql, accountId, window);
 
-  // Don't pin a degraded payload for the TTL — partial failures should retry
-  // on the next request, not be served from cache.
-  if ((data.partialFailures?.length ?? 0) === 0) {
-    try {
-      await getCacheRedis().set(cacheKey, JSON.stringify(data), 'EX', AGGREGATE_CACHE_TTL_SECONDS);
-    } catch (err) {
-      console.error('[dashboard/aggregate] cache write failed (serving fresh):', err);
-    }
+  // The aggregate is atomic now (a single set-based wave), so the payload is
+  // always safe to cache — no partial-failure gate.
+  try {
+    await getCacheRedis().set(cacheKey, JSON.stringify(data), 'EX', AGGREGATE_CACHE_TTL_SECONDS);
+  } catch (err) {
+    console.error('[dashboard/aggregate] cache write failed (serving fresh):', err);
   }
 
   return data;
@@ -139,104 +153,82 @@ async function buildAggregateDashboardData(
       perLocationBriefs: [],
       locationKpis: [],
       activeLocationCount: 0,
-      partialFailures: [],
     };
   }
 
-  // Account-wide reads are independent of the per-location fan-out, so start
-  // them alongside it instead of serializing a second query wave after it.
-  const totalsPromise = Promise.all([
-    getTotalReviewsForAccount(sql, accountId),
-    getTotalRespondedForAccount(sql, accountId),
+  // One set-based aggregate wave (constant query count) + the account-wide
+  // LIMIT-20 recent-reviews feed, run together. Every retained field is then
+  // assembled from the per-location slices exactly as before — only the fetch
+  // layer changed, so the output is byte-identical (bar the two signed-off
+  // deltas: windowed currentResponseRate, and partialFailures removed).
+  const [slices, recentReviews] = await Promise.all([
+    fetchPerLocationAggregateSlices(sql, accountId, window),
+    getAccountRecentReviews(sql, accountId),
   ]);
-  const recentReviewsPromise = getAccountRecentReviews(sql, accountId);
 
-  const locationDataPairs = await mapWithConcurrency(
-    locations,
-    AGGREGATE_LOCATION_CONCURRENCY,
-    async (loc) => {
-      try {
-        // Fetch the heavy per-location dashboard batch and the authoritative
-        // pending count (no LIMIT, held/flagged excluded) together, bounded by
-        // the same concurrency cap rather than a second unbounded wave (#346).
-        const [data, pendingApprovalCount] = await Promise.all([
-          getActiveDashboardData(sql, loc.id, { window }),
-          getPendingApprovalCount(sql, loc.id),
-        ]);
-        return { location: loc, data, pendingApprovalCount };
-      } catch (err) {
-        console.error(
-          `[dashboard/aggregate] Failed to load location=${loc.id} account=${accountId}:`,
-          err,
-        );
-        return null;
-      }
-    },
-  );
-
-  const validPairs = locationDataPairs.filter(
-    (p): p is { location: (typeof locations)[number]; data: DashboardDataActive; pendingApprovalCount: number } => p !== null,
-  );
-  const partialFailures = locationDataPairs
-    .map((pair, index) => pair === null ? locations[index] : null)
-    .filter((loc): loc is (typeof locations)[number] => loc !== null)
-    .map((loc) => ({
-      locationId: loc.id,
-      displayName: getDisplayLabel(loc),
-    }));
+  const sliceFor = (locationId: string): PerLocationAggregateSlice =>
+    slices.get(locationId) ?? EMPTY_SLICE;
 
   // ── Aggregate Value Summary ──────────────────────────────────────────────
-  const totalReviewsHandled = validPairs.reduce(
-    (sum, p) => sum + p.data.valueSummary.totalReviewsHandled,
-    0,
-  );
-  const totalTimeSavedMinutes = validPairs.reduce(
-    (sum, p) => sum + p.data.valueSummary.totalTimeSavedMinutes,
-    0,
-  );
+  let totalReviewsHandled = 0;
+  let totalTimeSavedMinutes = 0;
+  let windowedReceived = 0;
+  let windowedResponded = 0;
+  for (const loc of locations) {
+    const slice = sliceFor(loc.id);
+    totalReviewsHandled += slice.valueSummary.totalReviewsHandled;
+    totalTimeSavedMinutes += slice.valueSummary.totalTimeSavedMinutes;
+    windowedReceived += slice.windowedReceived;
+    windowedResponded += slice.windowedResponded;
+  }
 
-  // Aggregate response rate: weighted average across all locations
-  const [totalReviewsAcrossLocations, totalRespondedAcrossLocations] = await totalsPromise;
+  // Windowed account response rate (signed-off delta): the account's handled/
+  // received counts over the selected window. Equal to the old account-wide
+  // windowed COUNT because locations partition reviews by business_id.
   const currentResponseRate =
-    totalReviewsAcrossLocations > 0
-      ? Math.round((totalRespondedAcrossLocations / totalReviewsAcrossLocations) * 100)
+    windowedReceived > 0
+      ? Math.round((windowedResponded / windowedReceived) * 100)
       : 0;
 
   // Baseline: use the primary location's baseline if available
-  const primaryPair = validPairs.find((p) => p.location.is_primary);
-  const baselineResponseRate = primaryPair?.data.valueSummary.baselineResponseRate ?? null;
+  const primaryLocation = locations.find((loc) => loc.is_primary);
+  const baselineResponseRate = primaryLocation
+    ? sliceFor(primaryLocation.id).valueSummary.baselineResponseRate
+    : null;
 
   // ── Per-Location KPIs (strip) ────────────────────────────────────────────
   // VAL-DASH-028: billingPending is true for locations whose index exceeds
   // the billing-confirmed count (locations_included + locations_paid).
-  // This means the Stripe overage webhook hasn't yet confirmed the quantity
-  // update for that location.
-  // pendingApprovalCount is the authoritative SQL count fetched above via
-  // getPendingApprovalCount (no LIMIT, held/flagged excluded) — NOT a filter over
-  // the capped recentReviews slice, which undercounts >10 pending (#346).
-  // recentReviewCount stays a count of the displayed slice.
-  const locationKpis: PerLocationKpi[] = validPairs.map((p, idx) => ({
-    locationId: p.location.id,
-    displayName: getDisplayLabel(p.location),
-    isPrimary: p.location.is_primary,
-    totalReviewsHandled: p.data.valueSummary.totalReviewsHandled,
-    pendingApprovalCount: p.pendingApprovalCount,
-    recentReviewCount: p.data.recentReviews.length,
-    billingPending: idx >= billingConfirmedCount,
-  }));
+  // pendingApprovalCount is the authoritative SQL count (no LIMIT, held/flagged
+  // excluded) — NOT a filter over the capped recentReviews slice, which
+  // undercounts >10 pending (#346). recentReviewCount stays the displayed
+  // slice size (LEAST(all-time, 10)).
+  const locationKpis: PerLocationKpi[] = locations.map((loc, idx) => {
+    const slice = sliceFor(loc.id);
+    return {
+      locationId: loc.id,
+      displayName: getDisplayLabel(loc),
+      isPrimary: loc.is_primary,
+      totalReviewsHandled: slice.valueSummary.totalReviewsHandled,
+      pendingApprovalCount: slice.pendingApprovalCount,
+      recentReviewCount: slice.recentReviewCount,
+      billingPending: idx >= billingConfirmedCount,
+    };
+  });
 
   // ── Review Velocity (combined total + per-location) ──────────────────────
   // Merge all week keys across locations, sum counts per week
   const weekMap = new Map<string, number>();
   const perLocationVelocity: PerLocationVelocity[] = [];
 
-  for (const p of validPairs) {
+  for (const loc of locations) {
+    const slice = sliceFor(loc.id);
     perLocationVelocity.push({
-      locationId: p.location.id,
-      displayName: getDisplayLabel(p.location),
-      velocity: p.data.reviewVelocity,
+      locationId: loc.id,
+      displayName: getDisplayLabel(loc),
+      velocity: slice.reviewVelocity,
     });
-    for (const v of p.data.reviewVelocity) {
+    for (const v of slice.reviewVelocity) {
       weekMap.set(v.weekStart, (weekMap.get(v.weekStart) ?? 0) + v.count);
     }
   }
@@ -255,12 +247,12 @@ async function buildAggregateDashboardData(
     Map<string, number>
   >(); // keyword → date → bestPosition
 
-  for (const p of validPairs) {
-    const locationRanking = p.data.ranking;
+  for (const loc of locations) {
+    const locationRanking = sliceFor(loc.id).ranking;
     if (locationRanking) {
       perLocationRanking.push({
-        locationId: p.location.id,
-        displayName: getDisplayLabel(p.location),
+        locationId: loc.id,
+        displayName: getDisplayLabel(loc),
         ranking: locationRanking,
       });
 
@@ -289,28 +281,22 @@ async function buildAggregateDashboardData(
         }))
       : null;
 
-  // ── Recent Reviews (combined feed with location chips) ───────────────────
-  // One account-wide LIMIT 20 query (started alongside the fan-out above)
-  // instead of composing from each location's capped 10-row slice — the old
-  // composition both over-fetched (10×N rows) and, past 2 locations, could
-  // miss reviews that belonged in the top 20.
-  const recentReviews = await recentReviewsPromise;
-
   // ── Reviews by rating (#405) ─────────────────────────────────────────────
   // Sum the per-location windowed 1–5★ breakdowns. Each location's breakdown is
   // scoped by business_id and the locations are scoped by account_id, so the
-  // account-wide rollup leaks no other tenant. Same composition as velocity.
+  // account-wide rollup leaks no other tenant.
   const ratingBreakdown = sumRatingBreakdowns(
-    validPairs.map((p) => p.data.ratingBreakdown),
+    locations.map((loc) => sliceFor(loc.id).ratingBreakdown),
   );
 
   // ── Per-Location Briefs ─────────────────────────────────────────────────
-  const perLocationBriefs: PerLocationBrief[] = validPairs
-    .filter((p) => p.data.latestBrief !== null)
-    .map((p) => ({
-      locationId: p.location.id,
-      displayName: getDisplayLabel(p.location),
-      brief: p.data.latestBrief,
+  const perLocationBriefs: PerLocationBrief[] = locations
+    .map((loc) => ({ loc, brief: sliceFor(loc.id).latestBrief }))
+    .filter((entry) => entry.brief !== null)
+    .map((entry) => ({
+      locationId: entry.loc.id,
+      displayName: getDisplayLabel(entry.loc),
+      brief: entry.brief,
     }));
 
   return {
@@ -330,28 +316,7 @@ async function buildAggregateDashboardData(
     perLocationBriefs,
     locationKpis,
     activeLocationCount: locations.length,
-    partialFailures,
   };
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(concurrency, items.length);
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index]!);
-    }
-  }));
-
-  return results;
 }
 
 // ── Account-wide recent reviews (combined feed) ─────────────────────────────
@@ -437,32 +402,4 @@ async function getAccountRecentReviews(
   // ordered by the review's own date, matching the previous composed feed.
   items.sort((a, b) => b.reviewDate.localeCompare(a.reviewDate));
   return items;
-}
-
-// ── Helper queries for accurate aggregate rates ─────────────────────────────
-
-async function getTotalReviewsForAccount(sql: Sql, accountId: string): Promise<number> {
-  const [row] = await sql<{ count: number }[]>`
-    SELECT COUNT(*)::int AS count
-    FROM reviews r
-    JOIN businesses b ON b.id = r.business_id
-    WHERE b.account_id = ${accountId}::uuid
-      AND b.archived_at IS NULL
-      AND r.status <> ${REVIEW_STATUS.DELETED}
-  `;
-  return row?.count ?? 0;
-}
-
-async function getTotalRespondedForAccount(sql: Sql, accountId: string): Promise<number> {
-  const [row] = await sql<{ count: number }[]>`
-    SELECT COUNT(DISTINCT r.id)::int AS count
-    FROM reviews r
-    JOIN responses resp ON resp.review_id = r.id
-    JOIN businesses b ON b.id = r.business_id
-    WHERE b.account_id = ${accountId}::uuid
-      AND b.archived_at IS NULL
-      AND r.status <> ${REVIEW_STATUS.DELETED}
-      AND resp.status = ANY(${statusArraySql(sql, HANDLED_STATUSES)})
-  `;
-  return row?.count ?? 0;
 }
