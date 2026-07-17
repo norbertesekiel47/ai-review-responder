@@ -71,15 +71,15 @@ function aggregateCacheKey(accountId: string, window: DashboardWindow): string {
  *
  * The function:
  * 1. Fetches all active locations for the account
- * 2. Runs the existing per-location dashboard query for each location
+ * 2. Runs the set-based per-account aggregate (`fetchPerLocationAggregateSlices`) —
+ *    one fixed wave of `GROUP BY business_id` queries, count independent of N
  * 3. Computes aggregate sums across locations
  * 4. Builds per-location breakdown data (KPI strip, velocity, ranking, reviews, briefs)
  *
- * Performance: Each location triggers the same 8-query parallel batch
- * that getActiveDashboardData runs. For accounts with many locations
- * (5+), this could be slow. A future optimization could batch the
- * SQL queries across locations, but the current approach is simpler
- * and correct for the initial implementation.
+ * Performance: the query count does NOT scale with location count — the slices
+ * come from a fixed set-based wave, bucketed by `business_id` and fed through the
+ * per-location mappers, so the retained output is byte-identical to the old
+ * per-location fan-out (~14 queries × N via mapWithConcurrency) it replaced (#476).
  */
 export async function getAggregateDashboardData(
   sql: Sql,
@@ -182,9 +182,11 @@ async function buildAggregateDashboardData(
     windowedResponded += slice.windowedResponded;
   }
 
-  // Windowed account response rate (signed-off delta): the account's handled/
-  // received counts over the selected window. Equal to the old account-wide
-  // windowed COUNT because locations partition reviews by business_id.
+  // Windowed account response rate (signed-off delta #476): the account's
+  // handled/received counts over the selected window — a change from the old
+  // ALL-TIME account rate. Summing the per-location windowed counts equals a
+  // single account-wide windowed COUNT because locations partition reviews by
+  // business_id.
   const currentResponseRate =
     windowedReceived > 0
       ? Math.round((windowedResponded / windowedReceived) * 100)

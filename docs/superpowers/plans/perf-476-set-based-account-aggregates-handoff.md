@@ -20,9 +20,15 @@ Resume with `/feature-resume perf/476-set-based-account-aggregates` from a sessi
 ## Independent orchestrator verification
 Read `aggregate-queries.ts` + wiring: each query matches the per-location `service.ts` semantics; mappers reused; windowed-rate math and #346/#405 preserved. No parity gap found.
 
-## Review verdicts (fill after triage)
-- Spec & correctness: _pending_ (report: `docs/reviews/perf-476-set-based-account-aggregates/spec-correctness.md`)
-- Standards & maintainability: _pending_ (report: `docs/reviews/perf-476-set-based-account-aggregates/standards.md`)
+## Review verdicts (step 7 — both APPROVE, all findings LOW)
+- Spec & correctness (`docs/reviews/.../spec-correctness.md`): conforms to contract; parity/tenant/#15 hold; all tests present+green. 1 LOW.
+- Standards & maintainability (`docs/reviews/.../standards.md`): approve; genuine deep module, mappers reused. 3 LOW.
+- **Triage:**
+  - ACCEPTED — stale fan-out JSDoc (`aggregate-service.ts:69`) → rewritten to describe the set-based wave.
+  - ACCEPTED — misleading "old windowed COUNT" comment (`aggregate-service.ts:185`) → clarified all-time→windowed change.
+  - REJECTED (defer) — `toBusinessRow` 11-null adapter: clean fix narrows `buildValueSummary` in `service-mappers.ts` (out of surface, shared with single-location path) → scope creep for a LOW; adapter is contained + documented.
+  - REJECTED — shared `ValueSummary.currentResponseRate` two-meanings: intentional, signed off.
+- Gate re-run GREEN after the two comment fixes.
 
 ## Ship lane (step 8): NORMAL
 Push → PR to `main` → all CI green (incl. fallow; React Doctor N/A, backend) → merge. Then `git pull --ff-only` main, ff `staging` onto main, remove worktree + branch, `document-feature`, domain sweep (fold the 3 coined glossary terms into CONTEXT.md), bump arch-review-log merge counter.
