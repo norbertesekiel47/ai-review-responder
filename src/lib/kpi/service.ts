@@ -165,7 +165,7 @@ export async function getLocationKpiSummary(
       return JSON.parse(cached) as DashboardKpiSummary;
     }
   } catch (err) {
-    console.error('[kpi] cache read failed (computing fresh):', err);
+    console.error('[kpi/service] cache read failed (computing fresh):', err);
   }
 
   // Window intervals are PARAMETERIZED: windowDays / trendWeeks come from the
@@ -253,7 +253,7 @@ export async function getLocationKpiSummary(
   try {
     await getCacheRedis().set(cacheKey, JSON.stringify(summary), 'EX', KPI_CACHE_TTL_SECONDS);
   } catch (err) {
-    console.error('[kpi] cache write failed (serving fresh):', err);
+    console.error('[kpi/service] cache write failed (serving fresh):', err);
   }
 
   return summary;
@@ -272,7 +272,7 @@ export async function getAccountKpiSummary(
       return JSON.parse(cached) as DashboardKpiSummary;
     }
   } catch (err) {
-    console.error('[kpi] cache read failed (computing fresh):', err);
+    console.error('[kpi/service] cache read failed (computing fresh):', err);
   }
 
   // Same parameterized-window contract as getLocationKpiSummary, across all
@@ -366,7 +366,7 @@ export async function getAccountKpiSummary(
   try {
     await getCacheRedis().set(cacheKey, JSON.stringify(summary), 'EX', KPI_CACHE_TTL_SECONDS);
   } catch (err) {
-    console.error('[kpi] cache write failed (serving fresh):', err);
+    console.error('[kpi/service] cache write failed (serving fresh):', err);
   }
 
   return summary;
