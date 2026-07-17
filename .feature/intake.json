@@ -58,11 +58,13 @@
     "src/lib/dashboard/types.ts",
     "src/lib/dashboard/__tests__/**",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "scripts/ci/static-policy-audit.ts",
     "docs/superpowers/plans/**",
     ".feature/**"
   ],
   "surface_amendments": [
-    "2026-07-17: added scripts/ci/tenant-scope-allowlist.ts (user sign-off) — deleting getTotalRespondedForAccount per the locked fold-and-delete orphaned its allowlist entry; removing the dead entry is a forced dangling-reference cleanup."
+    "2026-07-17: added scripts/ci/tenant-scope-allowlist.ts (user sign-off) — deleting getTotalRespondedForAccount per the locked fold-and-delete orphaned its allowlist entry; removing the dead entry is a forced dangling-reference cleanup.",
+    "2026-07-17: added scripts/ci/static-policy-audit.ts (same approved principle) — removing the partialFailures field from types.ts shifted the already-allowlisted 'past_due' discriminant literal from line 285 to 283; the line-pinned SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST entry must move in lockstep. Forced audit-tick fix, no new literal introduced."
   ],
   "tests_to_add": [
     "Byte-identical parity: set-based build produces the SAME AggregateDashboardData (retained fields) as the current fan-out on a shared multi-location fixture.",
