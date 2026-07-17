@@ -38,6 +38,32 @@ import {
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
 
+// Short TTL cache for the per-location payload, mirroring the aggregate-service
+// fail-open block (#487). This is the single-location landing's 14-query batch,
+// so repeated loads within the TTL — tab switches, the KPI poll, several owners
+// of the same location — reuse one computation. 45s staleness is invisible next
+// to the pipeline's own multi-second latency.
+const DASHBOARD_LOCATION_CACHE_TTL_SECONDS = 45;
+
+interface ActiveDashboardOpts {
+  includeReputationMetrics?: boolean;
+  window?: DashboardWindow;
+  /** Pre-fetched business+settings row (route preflight already joined
+   *  businesses×accounts) — skips this function's own business query.
+   *  Callers passing it own the guarantee that the row IS businessId's. */
+  business?: DashboardBusinessRow;
+}
+
+// The payload is identical whether `opts.business` was pre-fetched or queried
+// (that flag is a query-skip optimization, not a different result), so it must
+// NOT vary the cache key — only the tenant, window, and reputation-metrics flag
+// change the output.
+function locationCacheKey(businessId: string, opts?: ActiveDashboardOpts): string {
+  const window = opts?.window ?? DEFAULT_DASHBOARD_WINDOW;
+  const includeReputationMetrics = opts?.includeReputationMetrics ?? false;
+  return `dashboard:location:${businessId}:${window}:${includeReputationMetrics ? 'rep' : 'norep'}`;
+}
+
 /**
  * Thrown when the businesses row vanishes between the route's preflight
  * SELECT and the service's 8-query assembly. Extremely rare in practice
@@ -55,14 +81,41 @@ export class BusinessNotFoundError extends Error {
 export async function getActiveDashboardData(
   sql: Sql,
   businessId: string,
-  opts?: {
-    includeReputationMetrics?: boolean;
-    window?: DashboardWindow;
-    /** Pre-fetched business+settings row (route preflight already joined
-     *  businesses×accounts) — skips this function's own business query.
-     *  Callers passing it own the guarantee that the row IS businessId's. */
-    business?: DashboardBusinessRow;
-  },
+  opts?: ActiveDashboardOpts,
+): Promise<DashboardDataActive> {
+  // Cache read fails open: a Redis blip degrades to a fresh computation.
+  const cacheKey = locationCacheKey(businessId, opts);
+  try {
+    const cached = await getCacheRedis().get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as DashboardDataActive;
+    }
+  } catch (err) {
+    console.error('[dashboard/service] cache read failed (computing fresh):', err);
+  }
+
+  // BusinessNotFoundError throws inside the compute (missing business row),
+  // before the set below — so a 404 signal is never cached.
+  const data = await buildActiveDashboardData(sql, businessId, opts);
+
+  try {
+    await getCacheRedis().set(
+      cacheKey,
+      JSON.stringify(data),
+      'EX',
+      DASHBOARD_LOCATION_CACHE_TTL_SECONDS,
+    );
+  } catch (err) {
+    console.error('[dashboard/service] cache write failed (serving fresh):', err);
+  }
+
+  return data;
+}
+
+async function buildActiveDashboardData(
+  sql: Sql,
+  businessId: string,
+  opts?: ActiveDashboardOpts,
 ): Promise<DashboardDataActive> {
   // Velocity + reputation windows are PARAMETERIZED from the analytics window
   // (issue #403). `30d` (default) reproduces the legacy 30-day / 8-week behavior.
