@@ -87,7 +87,9 @@ describe('OutboxPoller.pollOutbox', () => {
     expect(mockSql.begin).toHaveBeenCalledOnce();
     expect(mockTx).toHaveBeenCalledTimes(3);
     expect(sqlText(mockTx.mock.calls[0])).toContain("status = 'pending'");
-    expect(sqlText(mockTx.mock.calls[0])).toContain("INTERVAL '1 hour'");
+    // Stale window is env-tunable (OUTBOX_WATCHDOG_STALE_MS, 15min default)
+    // and reaches SQL as a bound make_interval parameter, not a literal.
+    expect(sqlText(mockTx.mock.calls[0])).toContain('make_interval(secs =>');
     expect(sqlText(mockTx.mock.calls[0])).toContain('attempts < max_attempts');
     expect(sqlText(mockTx.mock.calls[1])).toContain("status = 'failed'");
     expect(sqlText(mockTx.mock.calls[1])).toContain('attempts >= max_attempts');

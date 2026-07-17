@@ -55,7 +55,14 @@ export class BusinessNotFoundError extends Error {
 export async function getActiveDashboardData(
   sql: Sql,
   businessId: string,
-  opts?: { includeReputationMetrics?: boolean; window?: DashboardWindow },
+  opts?: {
+    includeReputationMetrics?: boolean;
+    window?: DashboardWindow;
+    /** Pre-fetched business+settings row (route preflight already joined
+     *  businesses×accounts) — skips this function's own business query.
+     *  Callers passing it own the guarantee that the row IS businessId's. */
+    business?: DashboardBusinessRow;
+  },
 ): Promise<DashboardDataActive> {
   // Velocity + reputation windows are PARAMETERIZED from the analytics window
   // (issue #403). `30d` (default) reproduces the legacy 30-day / 8-week behavior.
@@ -78,9 +85,12 @@ export async function getActiveDashboardData(
     unresolvedIncidentRows,
     ratingBreakdownRows,
     pendingRaw,
+    reputationRows,
   ] = await Promise.all([
-    // Business info + settings
-    sql<DashboardBusinessRow[]>`
+    // Business info + settings (skipped when the route already fetched it)
+    opts?.business
+      ? Promise.resolve([opts.business])
+      : sql<DashboardBusinessRow[]>`
       SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
              b.tone, b.products_services, b.avoid_facts, b.sample_responses,
              b.owner_phone, b.owner_email,
@@ -254,6 +264,13 @@ export async function getActiveDashboardData(
     // OAuth + finalize window instead of falling back to "Connect" which
     // would 409 on retry and confuse the owner.
     readPendingMarker(businessId),
+    // Opt-in reputation batch (single-location landing only), fetched in the
+    // SAME parallel wave as the main batch — running it afterwards cost a full
+    // extra pool round-trip wave per landing request. Aggregate/connect
+    // callers omit the flag and pay nothing.
+    opts?.includeReputationMetrics
+      ? fetchReputationRows(sql, businessId, windowDays, trendWeeks)
+      : Promise.resolve(null),
   ]);
 
   const business = businessRows[0];
@@ -264,12 +281,6 @@ export async function getActiveDashboardData(
   const totalReviews = totalReviewRows[0]?.count ?? 0;
   const totalResponded = totalRespondedRows[0]?.count ?? 0;
 
-  // Opt-in reputation batch (single-location landing only). Runs after the main
-  // batch; its windowed queries are internally parallel (one FILTER query per
-  // metric). Aggregate/connect callers omit the flag and pay nothing.
-  const reputationRows = opts?.includeReputationMetrics
-    ? await fetchReputationRows(sql, businessId, windowDays, trendWeeks)
-    : null;
   const reputationSummary = reputationRows
     ? buildReputationSummary({
         ...reputationRows,

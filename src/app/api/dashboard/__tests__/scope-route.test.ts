@@ -73,10 +73,10 @@ vi.mock('@/lib/db/redis-cache', () => ({
 }));
 
 // ── Mock location repo ────────────────────────────────────────────────
-
-const { mockGetLocationById } = vi.hoisted(() => ({
-  mockGetLocationById: vi.fn<(id: string) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
-}));
+// The dashboard route no longer calls getLocationById — the single preflight
+// SQL query (fetchLocationAccountRow) owns the ownership/archived checks — but
+// ./policy still imports it and the aggregate service uses
+// getLocationsForAccount, so the module stays mocked.
 
 vi.mock('@/lib/locations/repo', () => ({
   getActiveLocationCount: vi.fn(async () => 2),
@@ -84,7 +84,7 @@ vi.mock('@/lib/locations/repo', () => ({
     { id: 'loc-1', account_id: 'acc-1', name: 'Downtown Cafe', display_label: 'Downtown', is_primary: true, archived_at: null, google_place_id: 'g1', google_place_address: null, created_at: new Date() },
     { id: 'loc-2', account_id: 'acc-1', name: 'Westside Bakery', display_label: null, is_primary: false, archived_at: null, google_place_id: 'g2', google_place_address: null, created_at: new Date() },
   ]),
-  getLocationById: (id: string) => mockGetLocationById(id),
+  getLocationById: vi.fn(async () => null),
 }));
 
 // Import AFTER mocks are set up
@@ -114,52 +114,46 @@ function ownerUser() {
 }
 
 /**
- * Sets up mocks for the per-location path where the location is owned
- * by the authenticated user, is active, and has an active subscription.
- *
- * After the IDOR fix, the route first calls getLocationById for ownership
- * and archived checks, then runs SQL for subscription status, then calls
- * getActiveDashboardData.
- *
- * Query order:
- *   1. getLocationById(locationId) — ownership + archived check
- *   2. SQL: subscription status + onboarding check (with account_id filter)
- *   3. getActiveDashboardData(locationId)
+ * Merged preflight row returned by fetchLocationAccountRow (SQL call 0).
+ * One row now carries the account/subscription columns (IDOR + gate checks)
+ * AND every DashboardBusinessRow field, because the route passes it into
+ * getActiveDashboardData as opts.business.
  */
-function setActiveSubRow(locationId = LOCATION_ID) {
-  mockSqlResults.length = 0;
-  sqlCallCounter.value = 0;
-
-  // getLocationById returns an active, owned location
-  mockGetLocationById.mockResolvedValue({
-    id: locationId,
+function preflightRow(overrides?: Record<string, unknown>) {
+  return {
     account_id: ACCOUNT_ID,
     name: 'Test Biz',
-    display_label: null,
-    is_primary: true,
+    subscription_status: 'active',
+    subscription_tier: 'copilot',
+    owner_email: 'owner@test.com',
+    onboarded_by: null,
+    place_id_verified: true,
+    google_maps_url: 'https://maps.google.com',
     archived_at: null,
+    past_due_at: null,
+    trial_ends_at: null,
+    flags: {},
+    stripe_customer_id: null,
+    created_at: new Date('2026-01-01T00:00:00Z'),
+    initial_review_count: null,
+    initial_responded_count: null,
+    baseline_captured_at: null,
+    tone: null,
+    products_services: null,
+    avoid_facts: [],
+    sample_responses: [],
+    owner_phone: null,
+    weekly_summary_enabled: true,
+    monthly_impact_enabled: true,
+    category: null,
     google_place_id: 'gp1',
-    google_place_address: null,
-    created_at: new Date(),
-  });
+    ...overrides,
+  };
+}
 
-  // SQL: subscription status + onboarding check (with account_id filter)
-  mockSqlResults.push([
-    {
-      name: 'Test Biz',
-      subscription_status: 'active',
-      subscription_tier: 'copilot',
-      owner_email: 'owner@test.com',
-      onboarded_by: null,
-      place_id_verified: true,
-      google_maps_url: 'https://maps.google.com',
-      archived_at: null,
-    },
-  ]);
-
-  // Mock the active dashboard data service
-  mockGetActiveDashboardData.mockResolvedValue({
-    business: { name: 'Test Biz', createdAt: '2026-01-01' },
+function activeDashboardPayload(businessName = 'Test Biz') {
+  return {
+    business: { name: businessName, createdAt: '2026-01-01' },
     valueSummary: { totalReviewsHandled: 10, totalTimeSavedMinutes: 70, currentResponseRate: 80, baselineResponseRate: null },
     reviewVelocity: [{ weekStart: '2026-04-27', count: 5 }],
     ranking: null,
@@ -171,7 +165,28 @@ function setActiveSubRow(locationId = LOCATION_ID) {
       category: '', googlePlaceId: '',
     },
     zernioConnection: { status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false },
-  });
+  };
+}
+
+/**
+ * Sets up mocks for the per-location path where the location is owned
+ * by the authenticated user, is active, and has an active subscription.
+ *
+ * Query order:
+ *   SQL call 0: fetchLocationAccountRow(locationId) — the merged preflight row
+ *     (ownership + archived + subscription checks in one query)
+ *   then getActiveDashboardData(sql, locationId, { includeReputationMetrics,
+ *     window, business: <the preflight row> }) — mocked here.
+ */
+function setActiveSubRow() {
+  mockSqlResults.length = 0;
+  sqlCallCounter.value = 0;
+
+  // SQL call 0: merged preflight row
+  mockSqlResults.push([preflightRow()]);
+
+  // Mock the active dashboard data service
+  mockGetActiveDashboardData.mockResolvedValue(activeDashboardPayload());
 }
 
 function setActiveAccountRow() {
@@ -190,7 +205,6 @@ describe('GET /api/dashboard scope parameter', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    mockGetLocationById.mockResolvedValue(null);
   });
 
   // VAL-DASH-024: /api/dashboard accepts scope query parameter
@@ -250,10 +264,13 @@ describe('GET /api/dashboard scope parameter', () => {
     // Regression guard: the active landing MUST request reputation metrics so
     // DashboardContent renders the 4-zone hero, not the legacy KPI fallback.
     // (A missing flag here is invisible to the CSS/component tests.)
-    expect(mockGetActiveDashboardData).toHaveBeenCalledWith(expect.any(Function), LOCATION_ID, {
-      includeReputationMetrics: true,
-      window: '30d',
-    });
+    // The options object also carries the preflight row as `business` (the
+    // service skips its own business query), hence objectContaining.
+    expect(mockGetActiveDashboardData).toHaveBeenCalledWith(
+      expect.any(Function),
+      LOCATION_ID,
+      expect.objectContaining({ includeReputationMetrics: true, window: '30d' }),
+    );
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -309,50 +326,15 @@ describe('GET /api/dashboard scope parameter', () => {
 
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns an owned but archived location
-    mockGetLocationById.mockResolvedValue({
-      id: LOCATION_ID,
-      account_id: ACCOUNT_ID,
-      name: 'Test Biz',
-      display_label: null,
-      is_primary: false,
-      archived_at: new Date(),
-      google_place_id: 'gp1',
-      google_place_address: null,
-      created_at: new Date(),
-    });
-
-    // SQL: getPrimaryLocationId
+    // SQL call 0: preflight row — owned but archived
+    mockSqlResults.push([preflightRow({ archived_at: new Date() })]);
+    // SQL call 1: getPrimaryLocationId
     mockSqlResults.push([{ id: PRIMARY_LOCATION_ID }]);
-    // SQL: fetchPerLocationData subscription check for primary (with account_id filter)
-    mockSqlResults.push([
-      {
-        name: 'Primary Biz',
-        subscription_status: 'active',
-        subscription_tier: 'copilot',
-        owner_email: 'owner@test.com',
-        onboarded_by: null,
-        place_id_verified: true,
-        google_maps_url: 'https://maps.google.com',
-        archived_at: null,
-      },
-    ]);
+    // SQL call 2: the primary's merged preflight row
+    mockSqlResults.push([preflightRow({ name: 'Primary Biz' })]);
 
     // Mock the active dashboard data service
-    mockGetActiveDashboardData.mockResolvedValue({
-      business: { name: 'Primary Biz', createdAt: '2026-01-01' },
-      valueSummary: { totalReviewsHandled: 5, totalTimeSavedMinutes: 35, currentResponseRate: 60, baselineResponseRate: null },
-      reviewVelocity: [],
-      ranking: null,
-      recentReviews: [],
-      latestBrief: null,
-      settings: {
-        tone: 'professional', productsServices: '', avoidFacts: [], sampleResponses: [],
-        ownerPhone: '', ownerEmail: '', weeklySummaryEnabled: true, monthlyImpactEnabled: true,
-        category: '', googlePlaceId: '',
-      },
-      zernioConnection: { status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false },
-    });
+    mockGetActiveDashboardData.mockResolvedValue(activeDashboardPayload('Primary Biz'));
 
     const res = await GET(makeRequest(`http://localhost:3000/api/dashboard?scope=${LOCATION_ID}`));
     expect(res.status).toBe(200);
@@ -369,47 +351,22 @@ describe('GET /api/dashboard scope parameter', () => {
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
 
-  // VAL-DASH-029: Location not found fallback (getLocationById returns null)
+  // VAL-DASH-029: Location not found fallback (preflight row query returns nothing)
   it('falls back to primary when scoped location is not found', async () => {
     const originalEnv = process.env.MULTI_LOCATION_ENABLED;
     process.env.MULTI_LOCATION_ENABLED = 'true';
 
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns null (not found)
-    mockGetLocationById.mockResolvedValue(null);
-
-    // SQL: getPrimaryLocationId
+    // SQL call 0: preflight row query finds nothing (not found)
+    mockSqlResults.push([]);
+    // SQL call 1: getPrimaryLocationId
     mockSqlResults.push([{ id: PRIMARY_LOCATION_ID }]);
-    // SQL: fetchPerLocationData subscription check for primary (with account_id filter)
-    mockSqlResults.push([
-      {
-        name: 'Primary Biz',
-        subscription_status: 'active',
-        subscription_tier: 'copilot',
-        owner_email: 'owner@test.com',
-        onboarded_by: null,
-        place_id_verified: true,
-        google_maps_url: 'https://maps.google.com',
-        archived_at: null,
-      },
-    ]);
+    // SQL call 2: the primary's merged preflight row
+    mockSqlResults.push([preflightRow({ name: 'Primary Biz' })]);
 
     // Mock the active dashboard data service
-    mockGetActiveDashboardData.mockResolvedValue({
-      business: { name: 'Primary Biz', createdAt: '2026-01-01' },
-      valueSummary: { totalReviewsHandled: 5, totalTimeSavedMinutes: 35, currentResponseRate: 60, baselineResponseRate: null },
-      reviewVelocity: [],
-      ranking: null,
-      recentReviews: [],
-      latestBrief: null,
-      settings: {
-        tone: 'professional', productsServices: '', avoidFacts: [], sampleResponses: [],
-        ownerPhone: '', ownerEmail: '', weeklySummaryEnabled: true, monthlyImpactEnabled: true,
-        category: '', googlePlaceId: '',
-      },
-      zernioConnection: { status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false },
-    });
+    mockGetActiveDashboardData.mockResolvedValue(activeDashboardPayload('Primary Biz'));
 
     // Use a valid-format UUID that doesn't exist in the DB — tests the "not found"
     // fallback path without triggering the malformed-UUID 400 guard (#103).
@@ -432,18 +389,10 @@ describe('GET /api/dashboard scope parameter', () => {
 
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns a location that belongs to a DIFFERENT account
-    mockGetLocationById.mockResolvedValue({
-      id: OTHER_ACCOUNT_LOCATION_ID,
-      account_id: OTHER_ACCOUNT_ID,
-      name: 'Rival Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp3',
-      google_place_address: null,
-      created_at: new Date(),
-    });
+    // SQL call 0: preflight row — location exists but belongs to a DIFFERENT account
+    mockSqlResults.push([
+      preflightRow({ account_id: OTHER_ACCOUNT_ID, name: 'Rival Biz', google_place_id: 'gp3' }),
+    ]);
 
     const res = await GET(makeRequest(`http://localhost:3000/api/dashboard?scope=${OTHER_ACCOUNT_LOCATION_ID}`));
     expect(res.status).toBe(403);
@@ -463,24 +412,24 @@ describe('GET /api/dashboard scope parameter', () => {
 
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns an archived location belonging to a DIFFERENT account
-    mockGetLocationById.mockResolvedValue({
-      id: OTHER_ACCOUNT_LOCATION_ID,
-      account_id: OTHER_ACCOUNT_ID,
-      name: 'Rival Biz',
-      display_label: null,
-      is_primary: false,
-      archived_at: new Date(),
-      google_place_id: 'gp3',
-      google_place_address: null,
-      created_at: new Date(),
-    });
+    // SQL call 0: preflight row — archived location belonging to a DIFFERENT
+    // account. The IDOR check must win over the archived fallback.
+    mockSqlResults.push([
+      preflightRow({
+        account_id: OTHER_ACCOUNT_ID,
+        name: 'Rival Biz',
+        archived_at: new Date(),
+        google_place_id: 'gp3',
+      }),
+    ]);
 
     const res = await GET(makeRequest(`http://localhost:3000/api/dashboard?scope=${OTHER_ACCOUNT_LOCATION_ID}`));
     expect(res.status).toBe(403);
 
     const body = await res.json();
     expect(body.error).toMatch(/not authorized|forbidden|ownership/i);
+
+    expect(mockGetActiveDashboardData).not.toHaveBeenCalled();
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -502,7 +451,7 @@ describe('GET /api/dashboard scope parameter', () => {
   });
 
   // VAL-DASH-103: malformed ?scope= value → 400 (not 500 from Postgres ::uuid cast)
-  it('malformed scope (not a UUID) → 400 Invalid scope; getLocationById not called', async () => {
+  it('malformed scope (not a UUID) → 400 Invalid scope; no preflight query runs', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await GET(makeRequest('http://localhost:3000/api/dashboard?scope=not-a-uuid'));
@@ -511,7 +460,8 @@ describe('GET /api/dashboard scope parameter', () => {
     const body = await res.json();
     expect(body.error).toContain('Invalid scope');
 
-    expect(mockGetLocationById).not.toHaveBeenCalled();
+    // The malformed id must be rejected BEFORE any SQL runs.
+    expect(sqlCallCounter.value).toBe(0);
     expect(mockGetActiveDashboardData).not.toHaveBeenCalled();
   });
 
@@ -524,25 +474,19 @@ describe('GET /api/dashboard scope parameter', () => {
 
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    // getLocationById returns a location that belongs to a DIFFERENT account
-    // for the user's default locationId
-    mockGetLocationById.mockResolvedValue({
-      id: LOCATION_ID,
-      account_id: OTHER_ACCOUNT_ID,
-      name: 'Hijacked Biz',
-      display_label: null,
-      is_primary: true,
-      archived_at: null,
-      google_place_id: 'gp4',
-      google_place_address: null,
-      created_at: new Date(),
-    });
+    // SQL call 0: preflight row — the user's default locationId resolves to a
+    // location owned by a DIFFERENT account
+    mockSqlResults.push([
+      preflightRow({ account_id: OTHER_ACCOUNT_ID, name: 'Hijacked Biz', google_place_id: 'gp4' }),
+    ]);
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(403);
 
     const body = await res.json();
     expect(body.error).toMatch(/not authorized|forbidden|ownership/i);
+
+    expect(mockGetActiveDashboardData).not.toHaveBeenCalled();
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });

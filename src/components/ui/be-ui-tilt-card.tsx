@@ -1,7 +1,9 @@
 'use client';
 
 import {
-  motion,
+  LazyMotion,
+  domAnimation,
+  m,
   useMotionTemplate,
   useMotionValue,
   useReducedMotion,
@@ -89,26 +91,28 @@ export function TiltCard({ children, max = 12, glare = true, className }: TiltCa
   const glareBg = useMotionTemplate`radial-gradient(circle at ${gx}% ${gy}%, var(--rw-teal-strong), transparent 50%)`;
 
   return (
-    <motion.div
-      ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={onLeave}
-      // NOTE: no `transform-style: preserve-3d`. The card content is a flat
-      // plane (no nested 3D layers), so the perspective tilt looks identical
-      // without it — and `preserve-3d` puts the element in a 3D rendering
-      // context, which disables `backdrop-filter` (used for the glass card).
-      style={{ transform }}
-      className={cn('relative overflow-hidden rounded-2xl will-change-transform', className)}
-    >
-      {children}
+    <LazyMotion features={domAnimation}>
+      <m.div
+        ref={ref}
+        onMouseMove={onMove}
+        onMouseLeave={onLeave}
+        // NOTE: no `transform-style: preserve-3d`. The card content is a flat
+        // plane (no nested 3D layers), so the perspective tilt looks identical
+        // without it — and `preserve-3d` puts the element in a 3D rendering
+        // context, which disables `backdrop-filter` (used for the glass card).
+        style={{ transform }}
+        className={cn('relative overflow-hidden rounded-2xl will-change-transform', className)}
+      >
+        {children}
 
-      {glare && enabled ? (
-        <motion.div
-          aria-hidden
-          style={{ background: glareBg }}
-          className="pointer-events-none absolute inset-0 opacity-15"
-        />
-      ) : null}
-    </motion.div>
+        {glare && enabled ? (
+          <m.div
+            aria-hidden
+            style={{ background: glareBg }}
+            className="pointer-events-none absolute inset-0 opacity-15"
+          />
+        ) : null}
+      </m.div>
+    </LazyMotion>
   );
 }

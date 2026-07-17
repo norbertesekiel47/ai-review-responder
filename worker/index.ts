@@ -160,7 +160,7 @@ const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, w
 const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
   QUEUE_NAMES.INGEST_ZERNIO_REVIEW,
   withJobLogContext<IngestZernioReviewPayload>((job) => handleZernioReviewIngest(sql, job)),
-  workerOpts,
+  { ...workerOpts, concurrency: 5 },
 );
 
 // Zernio first-connect backfill. Concurrency 1 — each backfill is heavy
@@ -173,11 +173,27 @@ const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
 
 ingestZernioReviewWorker.on('failed', (job, err) => handleIngestFailed(sql, job, err));
 
-const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, withJobLogContext(handleResponseGeneration), workerOpts);
+// Draft generation is spend-safe under concurrency: the Redis cost reservation
+// (reserveCost) precedes every LLM call and acquireConcurrencySlot bounds
+// parallel LLM work per business, so parallel jobs can't over-spend. Without
+// this a 30-review burst drains serially (~1 LLM call at a time).
+const responseGenWorker = new Worker(
+  QUEUE_NAMES.GENERATE_RESPONSE,
+  withJobLogContext(handleResponseGeneration),
+  { ...workerOpts, concurrency: 6 },
+);
 
-const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, withJobLogContext<SendNotificationPayload>((job) => handleSendNotification(sql, job)), workerOpts);
+const notificationWorker = new Worker(
+  QUEUE_NAMES.SEND_NOTIFICATION,
+  withJobLogContext<SendNotificationPayload>((job) => handleSendNotification(sql, job)),
+  { ...workerOpts, concurrency: 4 },
+);
 
-const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogContext<PublishResponsePayload>((job) => handlePublishResponse(sql, job)), workerOpts);
+const publisherWorker = new Worker(
+  QUEUE_NAMES.PUBLISH_RESPONSE,
+  withJobLogContext<PublishResponsePayload>((job) => handlePublishResponse(sql, job)),
+  { ...workerOpts, concurrency: 4 },
+);
 
 publisherWorker.on('failed', (job, err) => handlePublisherFailed(sql, job, err));
 
