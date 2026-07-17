@@ -1,0 +1,65 @@
+{
+  "ticket": "#484",
+  "parent_map": "#472 (wayfinder), audit item 10",
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Collapse the three scheduler per-row outbox insert loops (WeeklySummaryScheduler, MonthlyImpactScheduler, RankingTrackingScheduler) each into one set-based INSERT…SELECT…ON CONFLICT DO NOTHING that merges the candidate SELECT with the enqueue.",
+  "non_goals": [
+    "Do NOT change the time-gate windows, feature-flag gates, mock-mode gate, or subscription-status predicates of any scheduler.",
+    "Do NOT touch OnboardingDripScheduler or AutonomyGovernorScheduler (out of ticket scope).",
+    "Do NOT change what the consuming workers (WeeklySummaryWorker, SendMonthlyImpactWorker, RankingTrackingWorker) do with the payload.",
+    "Do NOT introduce sql.begin()/multi-statement transactions — each scheduler's only state write is the single job_outbox INSERT, which is already atomic.",
+    "Do NOT preserve ranking's separate candidates_checked log field (merge removes the standalone candidate count; only queued is logged, consistent with the other two)."
+  ],
+  "user_visible_behavior": [
+    "No externally observable behavior change: the same eligible businesses get the same job_outbox rows enqueued with the same payload shape ({business_id, week_start_date|month_start_date|(google_place_id,run_date), correlation_id}).",
+    "Dedup for weekly_summary and send_monthly_impact is now enforced by a partial unique index (migration 079) plus ON CONFLICT DO NOTHING, closing the concurrent-scheduler / restart race that WHERE NOT EXISTS alone could not.",
+    "Each cycle now issues ONE set-based INSERT per scheduler instead of 1 candidate SELECT + N per-row inserts."
+  ],
+  "invariants": [
+    "Outbox invariant #2: state change + enqueue in one transaction — satisfied trivially; the single INSERT is the only write and is atomic.",
+    "Idempotency: a business already enqueued (in-flight) or already recorded complete for the same period must not be re-enqueued. Enforced by candidate-level NOT EXISTS (in-flight pre-filter) + partial unique index + ON CONFLICT DO NOTHING.",
+    "Tenant scoping: schedulers intentionally scan tenant rows globally (background-global-scan) before enqueueing scoped work — must remain allowlisted in tenant-scope-allowlist.ts.",
+    "Payload shape and field types are byte-compatible with the current per-row payloads (business_id/google_place_id as JSON strings, dates as 'YYYY-MM-DD' strings, correlation_id as a UUID string).",
+    "run/week/month partial unique index predicate is status <> 'failed' so a terminally-failed row still permits a fresh retry entry."
+  ],
+  "edge_cases": [
+    "gen_random_uuid() (UUIDv4) replaces app-generated UUIDv7 for job_outbox.id and payload.correlation_id in the set-based path — deliberate, documented deviation (job_outbox.id already DEFAULTs to gen_random_uuid; rows are 7-day-pruned; correlation_id is untyped trace id). Requires code comment + lab note.",
+    "Empty candidate set: INSERT…SELECT inserts 0 rows and logs nothing (queued=0) — no error.",
+    "A business whose previous weekly/monthly outbox row is 'completed' for the same period is now blocked from re-enqueue by the <> 'failed' index (belt to the existing sent_at candidate guard); a 'failed' row is NOT blocked (retry path preserved).",
+    "Migration 079 CREATE UNIQUE INDEX could fail if historical duplicate non-failed rows exist for (aggregate_id, period) — verified negligible under current logic; caught staging-first before prod.",
+    "Concurrent scheduler processes / restart both passing the NOT EXISTS pre-filter: the second INSERT's conflicting rows are absorbed by ON CONFLICT DO NOTHING (no 23505 surfaced).",
+    "Ranking: the pre-merge `if (candidates.length === 0) return` micro-guard is removed; runDate is computed unconditionally (cheap) and a 0-row INSERT is a no-op."
+  ],
+  "existing_patterns_to_follow": [
+    "RankingTrackingScheduler.ts current INSERT…VALUES…ON CONFLICT DO NOTHING (target-less) — the ON CONFLICT idiom for outbox dedup.",
+    "supabase/migrations/014_retention_expansion.sql uniq_outbox_track_ranking_run and uniq_outbox_onboarding_drip — the partial-unique-index-on-job_outbox pattern to mirror for migration 079.",
+    "jsonb_build_object(...) in SQL for set-based payload construction (replaces the JS-side jsonb() helper, which cannot run per-row inside INSERT…SELECT).",
+    "scripts/ci/tenant-scope-allowlist.ts *_CANDIDATES_SQL constants — update in place; keep the 8 scheduler entries (background-global-scan) matching the new merged statement text.",
+    ".claude/reference/migrations-log.md — append the 079 entry and bump head 078 -> 079."
+  ],
+  "allowed_edit_surface": [
+    "worker/background/schedulers/WeeklySummaryScheduler.ts",
+    "worker/background/schedulers/MonthlyImpactScheduler.ts",
+    "worker/background/schedulers/RankingTrackingScheduler.ts",
+    "worker/background/schedulers/__tests__/**",
+    "supabase/migrations/079_scheduler_outbox_dedup_indexes.sql",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    ".claude/reference/migrations-log.md"
+  ],
+  "tests_to_add": [
+    "Per scheduler: the set-based INSERT enqueues exactly the eligible businesses (parity with the old loop) given a candidate fixture.",
+    "Dedup: a business with an in-flight (pending/dispatching/dispatched) outbox row for the same period is NOT re-enqueued.",
+    "Dedup: ON CONFLICT DO NOTHING absorbs a duplicate insert without surfacing 23505 (unique-index conflict path).",
+    "sent_at / period-marker guard still excludes already-recorded businesses (weekly_summaries / monthly_impact_emails).",
+    "Payload shape assertion: business_id, period date, and correlation_id are present and correctly typed; correlation_id values are distinct per row.",
+    "queued count reflects inserted.count (rows actually inserted, not candidates scanned).",
+    "Migration 079 (integration, DB-available): partial unique index blocks a second non-failed row for the same (aggregate_id, period) and permits one after the first goes 'failed'."
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "open_questions": []
+}
