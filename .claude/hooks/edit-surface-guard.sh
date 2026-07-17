@@ -61,6 +61,16 @@ fi
 # not repo code — allow.
 [ -z "$TARGET_ROOT" ] && exit 0
 
+# Session binding: record that THIS session is working the armed worktree,
+# so the stop gate (which may fire from a different cwd) enforces the gate
+# for engaged sessions only — parked worktrees don't nag unrelated sessions.
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+if [ -n "$SESSION_ID" ]; then
+  SESSIONS_FILE="$ROOT/.feature/sessions"
+  grep -qxF "$SESSION_ID" "$SESSIONS_FILE" 2>/dev/null \
+    || echo "$SESSION_ID" >> "$SESSIONS_FILE"
+fi
+
 REL_PATH="${ABS_PATH#"$ROOT"/}"
 
 # --- Rule 1: dependency manifests need a justification file ---

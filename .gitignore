@@ -136,3 +136,4 @@ tests/llm-eval/reports/
 # /feature workflow enforcement artifacts (intake.json + deps-justification.md ARE committed)
 .feature/logs/
 .feature/gate-status.json
+.feature/sessions
