@@ -78,20 +78,37 @@ export async function resolveOwnerScope(
 
   const accountId = asAccountId(user.accountId);
 
+  const rawCookie = request.cookies.get('rw_location_scope')?.value ?? null;
+  const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
+
+  // The subscription-gate read and the location-scope resolution are
+  // independent (both key off accountId), so run them concurrently — this
+  // preamble fronts every owner mutation AND every draft-status poll tick.
+  // allSettled (not all) preserves the error precedence of the old serial
+  // code: the subscription gate's ScopeError must win over getRequestScope's
+  // no-active-location Error when both fail (e.g. a cancelled account whose
+  // locations were all archived by offboarding teardown).
+  const [accountResult, scopeResult] = await Promise.allSettled([
+    sql<{
+      subscription_status: string;
+      past_due_at: Date | string | null;
+      flags: AccountFlagsInput;
+    }[]>`
+      SELECT subscription_status, past_due_at, flags
+      FROM accounts
+      WHERE id = ${accountId}
+      LIMIT 1
+    `,
+    getRequestScope(sql, accountId, cookieLocationId),
+  ]);
+
   // Subscription enforcement for owner mutation routes. Past-due accounts
   // remain writable while the recovery window is open; all other non-active
   // statuses stay blocked here.
-  const accountRows = await sql<{
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-  }[]>`
-    SELECT subscription_status, past_due_at, flags
-    FROM accounts
-    WHERE id = ${accountId}
-    LIMIT 1
-  `;
-  const account = accountRows[0];
+  if (accountResult.status === 'rejected') {
+    throw accountResult.reason;
+  }
+  const account = accountResult.value[0];
   if (!account) {
     throw new ScopeError('no_business', 403);
   }
@@ -108,9 +125,9 @@ export async function resolveOwnerScope(
     throw new ScopeError('subscription_inactive', 403);
   }
 
-  const rawCookie = request.cookies.get('rw_location_scope')?.value ?? null;
-  const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
-  const { currentLocationId } = await getRequestScope(sql, accountId, cookieLocationId);
+  if (scopeResult.status === 'rejected') {
+    throw scopeResult.reason;
+  }
 
-  return { accountId, locationId: currentLocationId, userId: user.id };
+  return { accountId, locationId: scopeResult.value.currentLocationId, userId: user.id };
 }

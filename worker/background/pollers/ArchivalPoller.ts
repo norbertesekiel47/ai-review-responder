@@ -20,12 +20,17 @@ function getIntervalMs(): number {
 
 async function runArchival(logger: WorkerLogger): Promise<void> {
   try {
-    // 1. Completed outbox entries older than 7 days (batched to avoid long locks)
+    // 1. Outbox entries: completed rows older than 7 days; failed rows older
+    // than 90 days (kept longer for dead-letter forensics — mirrors the
+    // analytics_events failed arm). Without the failed arm, dead-lettered rows
+    // accumulate forever on the same table the OutboxPoller claim query scans
+    // every few seconds. Failed rows from the dispatch-failure path never get
+    // completed_at, so age falls back to created_at.
     const [outboxResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
         SELECT id FROM job_outbox
-        WHERE status = 'completed'
-          AND completed_at < NOW() - INTERVAL '7 days'
+        WHERE (status = 'completed' AND completed_at < NOW() - INTERVAL '7 days')
+           OR (status = 'failed' AND COALESCE(completed_at, created_at) < NOW() - INTERVAL '90 days')
         LIMIT 5000
       ),
       deleted AS (

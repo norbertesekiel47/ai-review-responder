@@ -376,19 +376,23 @@ describe('GET /api/dashboard/kpis', () => {
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
   });
 
-  it('pending_payment account → 403; aggregate mode also gated, no KPI service call', async () => {
+  it('pending_payment account → 403; aggregate mode also gated, KPI result discarded', async () => {
     const previous = process.env.MULTI_LOCATION_ENABLED;
     try {
       process.env.MULTI_LOCATION_ENABLED = 'true';
       mockRequireRole.mockResolvedValue(ownerUser());
       mockAccountRows.value = [{ subscription_status: 'pending_payment' }];
+      // The KPI read now starts CONCURRENTLY with the gate query (perf: one
+      // round trip instead of two). A gated account still gets its 403 even
+      // when the concurrent read rejects — the gate has precedence and the
+      // KPI result is never returned.
+      mockGetAccountKpiSummary.mockRejectedValue(new Error('should never surface'));
 
       const res = await GET(makeRequest('/api/dashboard/kpis?scope=all'));
       expect(res.status).toBe(403);
 
       const body = await res.json();
       expect(body.error).toBe('subscription_inactive');
-      expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
       expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { motion } from 'motion/react';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
@@ -49,18 +49,20 @@ const MESSAGES: Record<'error' | 'expired', { title: string; body: (name?: strin
 
 export function DemoStatusIsland({ variant, businessName, selfServeEnabled }: DemoStatusIslandProps) {
   return (
-    <PageShell sections={[]}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
-      <main id="main-content">
-        {variant === 'loading' ? (
-          <LoadingIsland businessName={businessName} />
-        ) : (
-          <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
-            <MessageBody variant={variant} businessName={businessName} />
-          </div>
-        )}
-      </main>
-    </PageShell>
+    <LazyMotion features={domAnimation}>
+      <PageShell sections={[]}>
+        <SiteNav selfServeEnabled={selfServeEnabled} />
+        <main id="main-content">
+          {variant === 'loading' ? (
+            <LoadingIsland businessName={businessName} />
+          ) : (
+            <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
+              <MessageBody variant={variant} businessName={businessName} />
+            </div>
+          )}
+        </main>
+      </PageShell>
+    </LazyMotion>
   );
 }
 
@@ -185,7 +187,7 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
         try again, or book a demo and we&apos;ll walk you through it.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
-        <motion.button
+        <m.button
           type="button"
           onClick={() => router.refresh()}
           whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
@@ -193,7 +195,7 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
           className="inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium"
         >
           Try again
-        </motion.button>
+        </m.button>
         <Link
           href="/book-a-demo"
           className="inline-block px-8 py-4 border border-rw-teal-strong text-rw-teal-strong rounded-full font-medium"
@@ -240,7 +242,7 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
       <p className="text-lg text-rw-ink-soft max-w-md mb-8">{body(businessName)}</p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         {variant === 'error' && (
-          <motion.button
+          <m.button
             type="button"
             onClick={() => router.refresh()}
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
@@ -248,9 +250,9 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
             className="inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium"
           >
             Try again
-          </motion.button>
+          </m.button>
         )}
-        <motion.div
+        <m.div
           whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
           whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
           className="inline-block"
@@ -265,7 +267,7 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
           >
             Book a demo
           </Link>
-        </motion.div>
+        </m.div>
       </div>
       <Link href="/" className="text-sm text-rw-teal-strong underline mt-6">
         Back to RepWorth

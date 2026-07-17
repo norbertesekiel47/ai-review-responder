@@ -5,6 +5,14 @@ import { sql } from '@/lib/db/server';
 import { jsonResponse, requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
+import {
+  buildDashboardSettings,
+  type DashboardBusinessRow,
+} from '@/lib/dashboard/service-mappers';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,6 +100,101 @@ async function runScopedUpdate<Field extends string>(
       `;
   return result.count;
 }
+
+// GET row: the DashboardBusinessRow settings fields plus the subscription /
+// onboarding columns the redirect gates need.
+interface SettingsRow extends DashboardBusinessRow {
+  subscription_status: string;
+  onboarded_by: string | null;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+}
+
+/**
+ * GET /api/settings — the light payload the settings pages actually need
+ * (business name + voice/contact/digest settings). The settings form
+ * previously fetched the entire /api/dashboard (18 queries, 12 months of
+ * ranking snapshots, review texts) just to populate these fields.
+ *
+ * Mirrors /api/dashboard's redirect gates so useSettingsForm keeps routing
+ * pending-payment / pre-wizard owners back to their next action.
+ */
+async function getSettings(request: NextRequest): Promise<NextResponse> {
+  const auth = await requireRoleOr401(request, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
+
+  if (!user.locationId) {
+    return jsonResponse(
+      { error: 'No business associated with this account' },
+      403,
+    );
+  }
+  if (!user.accountId) {
+    return jsonResponse({ error: 'No account associated with this user' }, 403);
+  }
+
+  try {
+    const [row] = await sql<SettingsRow[]>`
+      SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count,
+             b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts,
+             b.sample_responses, b.owner_phone, b.owner_email,
+             a.weekly_summary_enabled, a.monthly_impact_enabled,
+             b.category, b.google_place_id,
+             a.subscription_status, b.onboarded_by, b.place_id_verified, b.google_maps_url
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${user.locationId}
+        AND b.account_id = ${user.accountId}
+    `;
+    if (!row) {
+      return jsonResponse({ error: 'Business not found' }, 404);
+    }
+
+    // Redirect gates — same semantics as /api/dashboard's per-location path.
+    if (row.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
+      if (row.onboarded_by !== null) {
+        return jsonResponse({ subscriptionStatus: 'pending_payment_admin_handoff' });
+      }
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+      return jsonResponse({
+        subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
+        paymentUrl: `${baseUrl}/onboarding/pay`,
+      });
+    }
+    const isActivePendingBusiness =
+      subscriptionGrantsFullAccess(row.subscription_status)
+      && !row.place_id_verified
+      && row.google_maps_url === null;
+    if (isActivePendingBusiness) {
+      return jsonResponse({ subscriptionStatus: 'active_pending_business' });
+    }
+    // Past-due keeps read access during the grace window (mirrors the
+    // dashboard); anything else non-entitled gets an explicit 403.
+    if (
+      !subscriptionGrantsFullAccess(row.subscription_status)
+      && row.subscription_status !== SubscriptionStatus.PAST_DUE
+    ) {
+      return jsonResponse(
+        { error: 'subscription_inactive', subscriptionStatus: row.subscription_status },
+        403,
+      );
+    }
+
+    return jsonResponse({
+      business: { name: row.name, createdAt: row.created_at.toISOString() },
+      settings: buildDashboardSettings(row),
+    });
+  } catch (error) {
+    reportCaughtError('api/settings GET', error, {
+      accountId: user.accountId,
+      locationId: user.locationId,
+    });
+    return jsonResponse({ error: 'Failed to load settings' }, 500);
+  }
+}
+
+export const GET = getSettings;
 
 async function putSettings(request: NextRequest): Promise<NextResponse> {
   const auth = await requireRoleOr401(request, 'owner');

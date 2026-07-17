@@ -19,7 +19,11 @@ interface OutboxEntry {
 // getWorkerConfig() at import). Worker env is immutable after boot, so a runtime
 // read returns the same value a once-at-import const did. Parse/default preserved.
 function readPollIntervalMs(): number {
-  return parseInt(getWorkerConfig().OUTBOX_POLL_INTERVAL_MS || '30000', 10);
+  // 5s default: the claim query is a cheap indexed FOR UPDATE SKIP LOCKED
+  // scan, so polling 6× more often is negligible DB load — but it cuts the
+  // median per-hop outbox wait from ~15s to ~2.5s across the four
+  // webhook→ingest→generate→notify hops.
+  return parseInt(getWorkerConfig().OUTBOX_POLL_INTERVAL_MS || '5000', 10);
 }
 
 function readBatchSize(): number {
@@ -40,6 +44,21 @@ function readDispatchTimeoutMs(): number {
   const raw = parseInt(getWorkerConfig().OUTBOX_DISPATCH_TIMEOUT_MS || '10000', 10);
   if (!Number.isFinite(raw) || raw < 1000) return 10000;
   return raw;
+}
+
+// Watchdog rescue window for rows stuck in 'dispatched' (worker crashed after
+// dispatch, before completion). BullMQ's own retry budget spans only ~1-2
+// minutes (attempts × exponential backoff), so this window is the real
+// recovery bound after an outage that outlasts the in-band retries: a
+// provider blip longer than the BullMQ budget stalls affected rows until the
+// watchdog re-pends them. 15 minutes keeps that stall tolerable while staying
+// far above any legitimate job runtime except the initial Zernio backfill —
+// which is idempotent by design (processReview dedupes), so a rare re-dispatch
+// of a >15-min backfill is wasteful, not harmful.
+function readWatchdogStaleMs(): number {
+  const raw = parseInt(getWorkerConfig().OUTBOX_WATCHDOG_STALE_MS || '', 10);
+  if (Number.isFinite(raw) && raw >= 60_000) return raw;
+  return 900_000;
 }
 
 // Defense in depth for the same failure class: even if some *other* await in a
@@ -89,6 +108,7 @@ export async function pollOutbox(): Promise<void> {
     // same value every cycle).
     const batchSize = readBatchSize();
     const dispatchTimeoutMs = readDispatchTimeoutMs();
+    const watchdogStaleSecs = Math.floor(readWatchdogStaleMs() / 1000);
 
     // ── Phase 1: Watchdog recovery (separate transaction) ───────────
     // Runs in its own transaction so a timeout or failure here
@@ -104,7 +124,7 @@ export async function pollOutbox(): Promise<void> {
             UPDATE job_outbox
             SET status = 'pending', available_at = NOW(), dispatched_at = NULL
             WHERE status = 'dispatched'
-              AND dispatched_at < NOW() - INTERVAL '1 hour'
+              AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
               AND attempts < max_attempts
             RETURNING id
           )
@@ -118,7 +138,7 @@ export async function pollOutbox(): Promise<void> {
                 last_error = 'Stale dispatched entry exceeded max_attempts',
                 completed_at = NOW()
             WHERE status = 'dispatched'
-              AND dispatched_at < NOW() - INTERVAL '1 hour'
+              AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
               AND attempts >= max_attempts
             RETURNING id
           )
@@ -304,6 +324,7 @@ export function startOutboxPoller(): void {
     batch: readBatchSize(),
     dispatch_timeout_ms: readDispatchTimeoutMs(),
     max_cycle_ms: readMaxCycleMs(),
+    watchdog_stale_ms: readWatchdogStaleMs(),
   });
   pollOutbox().catch(logUnhandledPollError(LOG_PREFIX));
   pollerInterval = setInterval(() => {

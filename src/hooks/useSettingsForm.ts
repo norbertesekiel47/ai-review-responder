@@ -1,8 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DashboardData, DashboardDataActive, DashboardSettings } from '@/lib/dashboard/types';
+import type { DashboardSettings } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+
+/** The light GET /api/settings payload — the only fields the settings pages
+ *  read (previously satisfied by fetching the entire /api/dashboard). */
+export interface SettingsPageData {
+  business: { name: string; createdAt: string };
+  settings: DashboardSettings;
+}
+
+/** GET /api/settings union: settings data, or a redirect-gate marker. */
+type SettingsResponse = Partial<SettingsPageData> & {
+  subscriptionStatus?: string;
+  paymentUrl?: string | null;
+};
 
 export interface SettingsForm {
   tone: string;
@@ -48,7 +61,9 @@ function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
-export function settingsRedirectForDashboardData(json: DashboardData): string | null {
+export function settingsRedirectForDashboardData(
+  json: { subscriptionStatus?: string; paymentUrl?: string | null },
+): string | null {
   if (json.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return json.paymentUrl ?? '/dashboard';
   if (
     json.subscriptionStatus === 'active_pending_business' ||
@@ -60,7 +75,7 @@ export function settingsRedirectForDashboardData(json: DashboardData): string | 
 }
 
 export interface UseSettingsForm {
-  data: DashboardDataActive | null;
+  data: SettingsPageData | null;
   form: SettingsForm | null;
   initial: SettingsForm | null;
   fetchError: string | null;
@@ -75,7 +90,7 @@ export interface UseSettingsForm {
 }
 
 export function useSettingsForm(): UseSettingsForm {
-  const [data, setData] = useState<DashboardDataActive | null>(null);
+  const [data, setData] = useState<SettingsPageData | null>(null);
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [initial, setInitial] = useState<SettingsForm | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -95,21 +110,24 @@ export function useSettingsForm(): UseSettingsForm {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch('/api/dashboard');
+        const res = await fetch('/api/settings');
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error ?? `Request failed (${res.status})`);
         }
-        const json: DashboardData = await res.json();
+        const json: SettingsResponse = await res.json();
         if (cancelled) return;
         const redirectUrl = settingsRedirectForDashboardData(json);
         if (redirectUrl) {
           window.location.href = redirectUrl;
           return;
         }
-        const active = json as DashboardDataActive;
-        setData(active);
-        const f = settingsToForm(active.settings);
+        if (!json.business || !json.settings) {
+          throw new Error('Malformed settings response');
+        }
+        const page: SettingsPageData = { business: json.business, settings: json.settings };
+        setData(page);
+        const f = settingsToForm(page.settings);
         setForm(f);
         setInitial(f);
       } catch (err) {

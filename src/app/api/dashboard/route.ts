@@ -10,7 +10,6 @@ import {
   BusinessNotFoundError,
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
-import { getLocationById } from '@/lib/locations/repo';
 import { isValidUuid } from '@/lib/shared/ids';
 import {
   computePastDueRecoveryState,
@@ -43,6 +42,65 @@ function trialEndsAtIso(
   trialEndsAt: Date | string | null,
 ): string | null {
   return subscriptionStatus === SubscriptionStatus.TRIALING ? toIsoOrNull(trialEndsAt) : null;
+}
+
+/**
+ * The single per-location preflight row: business + account columns for the
+ * IDOR/archived checks and subscription gates, PLUS every DashboardBusinessRow
+ * field so the row can be passed straight into getActiveDashboardData
+ * (skipping its internal business query). One round trip instead of three
+ * (getLocationById + subRow + service business query).
+ */
+interface LocationAccountRow {
+  account_id: string;
+  name: string;
+  subscription_status: string;
+  subscription_tier: string;
+  owner_email: string | null;
+  onboarded_by: string | null;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+  archived_at: Date | null;
+  past_due_at: Date | string | null;
+  trial_ends_at: Date | string | null;
+  flags: AccountFlagsInput;
+  stripe_customer_id: string | null;
+  created_at: Date;
+  initial_review_count: number | null;
+  initial_responded_count: number | null;
+  baseline_captured_at: Date | string | null;
+  tone: string | null;
+  products_services: string | null;
+  avoid_facts: unknown;
+  sample_responses: unknown;
+  owner_phone: string | null;
+  weekly_summary_enabled: boolean | null;
+  monthly_impact_enabled: boolean | null;
+  category: string | null;
+  google_place_id: string | null;
+}
+
+/**
+ * Fetches the preflight row by location id ONLY (no account filter) so the
+ * caller can distinguish not-found (fallback/404) from wrong-account (403).
+ */
+async function fetchLocationAccountRow(locationId: string): Promise<LocationAccountRow | null> {
+  const [row] = await sql<LocationAccountRow[]>`
+    SELECT b.account_id, b.name, a.subscription_status, a.subscription_tier,
+           b.owner_email, b.onboarded_by,
+           b.place_id_verified, b.google_maps_url,
+           b.archived_at,
+           a.past_due_at, a.trial_ends_at, a.flags, a.stripe_customer_id,
+           b.created_at, b.initial_review_count, b.initial_responded_count,
+           b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts,
+           b.sample_responses, b.owner_phone,
+           a.weekly_summary_enabled, a.monthly_impact_enabled,
+           b.category, b.google_place_id
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${locationId}
+  `;
+  return row ?? null;
 }
 
 /** pending_payment per-location response: admin-handoff vs self-serve pay CTA. */
@@ -112,13 +170,7 @@ function isActivePendingBusiness(subRow: {
 
 /** Past-due per-location payload: dashboard data + payment warning + recovery state. */
 async function pastDuePerLocationResponse(
-  subRow: {
-    name: string;
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-    stripe_customer_id: string | null;
-  },
+  subRow: LocationAccountRow,
   locationId: string,
   accountId: string,
   window: DashboardWindow,
@@ -129,7 +181,11 @@ async function pastDuePerLocationResponse(
     pastDueAt: subRow.past_due_at,
     accountFlags: subRow.flags,
   });
-  const data = await getActiveDashboardData(sql, locationId, { includeReputationMetrics: true, window });
+  const data = await getActiveDashboardData(sql, locationId, {
+    includeReputationMetrics: true,
+    window,
+    business: subRow,
+  });
   return jsonResponse({
     ...data,
     subscriptionStatus: SubscriptionStatus.PAST_DUE,
@@ -153,7 +209,12 @@ async function fallbackToPrimary(
 ): Promise<NextResponse | null> {
   const primary = await getPrimaryLocationId(accountId);
   if (!primary || primary === excludeLocationId) return null;
-  return fetchPerLocationData(primary, accountId, window, {
+  const subRow = await fetchLocationAccountRow(primary);
+  // getPrimaryLocationId already filtered to this account's active locations,
+  // so a missing/archived row here is a sub-millisecond TOCTOU race — treat it
+  // as "no usable primary" and let the caller return its own error.
+  if (!subRow || subRow.account_id !== accountId || subRow.archived_at !== null) return null;
+  return renderPerLocationData(subRow, primary, accountId, window, {
     scopeFallback: { reason, fallbackLocationId: primary },
   });
 }
@@ -171,55 +232,24 @@ async function getPrimaryLocationId(accountId: string): Promise<string | null> {
 }
 
 /**
- * Fetches per-location dashboard data for a given location ID.
+ * Renders per-location dashboard data from an already-fetched preflight row.
  * Handles subscription status checks, onboarding state, and returns
- * the appropriate response shape.
+ * the appropriate response shape. Callers own the not-found / IDOR /
+ * archived checks on subRow before calling.
  *
+ * @param subRow      The location's preflight row (fetchLocationAccountRow).
  * @param locationId  The location to fetch data for.
  * @param accountId   The owner's account ID (for fallback resolution).
  * @param window      Validated analytics time-range window (issue #403).
  * @param fallback    If provided, a scopeFallback indicator to include in the response.
  */
-async function fetchPerLocationData(
+async function renderPerLocationData(
+  subRow: LocationAccountRow,
   locationId: string,
   accountId: string,
   window: DashboardWindow,
   fallback?: { scopeFallback: { reason: string; fallbackLocationId: string } },
 ): Promise<NextResponse> {
-  const [subRow] = await sql<{
-    name: string;
-    subscription_status: string;
-    subscription_tier: string;
-    owner_email: string;
-    onboarded_by: string | null;
-    place_id_verified: boolean;
-    google_maps_url: string | null;
-    archived_at: Date | null;
-    past_due_at: Date | string | null;
-    trial_ends_at: Date | string | null;
-    flags: AccountFlagsInput;
-    stripe_customer_id: string | null;
-  }[]>`
-    SELECT b.name, a.subscription_status, a.subscription_tier,
-           b.owner_email, b.onboarded_by,
-           b.place_id_verified, b.google_maps_url,
-           b.archived_at,
-           a.past_due_at, a.trial_ends_at, a.flags, a.stripe_customer_id
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${locationId}
-      AND b.account_id = ${accountId}::uuid
-  `;
-
-  if (!subRow) {
-    return errorResponse('Business not found', 404);
-  }
-
-  // VAL-DASH-029: If the fallback location itself is archived, we're stuck
-  if (subRow.archived_at !== null) {
-    return errorResponse('No active location available', 404);
-  }
-
   if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
     return pendingPaymentResponse(subRow, locationId);
   }
@@ -250,8 +280,12 @@ async function fetchPerLocationData(
   // Single-location landing requests reputation metrics so DashboardContent
   // renders the 4-zone reputation hero (PLAN.md PR2) instead of the legacy KPI
   // fallback. The past-due path above already opts in; this is the normal
-  // active path.
-  const data = await getActiveDashboardData(sql, locationId, { includeReputationMetrics: true, window });
+  // active path. The preflight row doubles as the service's business row.
+  const data = await getActiveDashboardData(sql, locationId, {
+    includeReputationMetrics: true,
+    window,
+    business: subRow,
+  });
   const trialEndsAt = trialEndsAtIso(subRow.subscription_status, subRow.trial_ends_at);
 
   // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
@@ -369,30 +403,32 @@ async function handlePerLocationDashboard(
   }
 
   try {
-    // IDOR protection: verify the location belongs to the authenticated user's account.
-    // getLocationById fetches the row via service-role SQL (bypasses RLS), so we must
-    // explicitly check account ownership before returning any data.
-    const location = await getLocationById(sql, locationId);
+    // Single preflight query serves the IDOR/archived checks AND the
+    // subscription/business data (it selects by b.id only, no account
+    // filter, so not-found and wrong-account stay distinguishable).
+    const subRow = await fetchLocationAccountRow(locationId);
 
-    if (!location) {
+    if (!subRow) {
       // Location not found — fall back to primary, else 404.
       const fallback = await fallbackToPrimary(accountId, window, 'location_not_found');
       return fallback ?? errorResponse('Business not found', 404);
     }
 
-    if (location.account_id !== accountId) {
+    // IDOR protection: the row was fetched via service-role SQL (bypasses
+    // RLS), so account ownership must be checked before returning any data.
+    if (subRow.account_id !== accountId) {
       // IDOR attempt: location exists but belongs to a different account
       return errorResponse('Not authorized to access this location', 403);
     }
 
-    if (location.archived_at !== null) {
+    if (subRow.archived_at !== null) {
       // Location is archived — fall back to a different primary, else 404.
       const fallback = await fallbackToPrimary(accountId, window, 'location_archived', locationId);
       return fallback ?? errorResponse('No active location available', 404);
     }
 
-    // Location is active and owned — fetch its data normally
-    return fetchPerLocationData(locationId, accountId, window);
+    // Location is active and owned — render its data normally
+    return renderPerLocationData(subRow, locationId, accountId, window);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
       return errorResponse('Business not found', 404);

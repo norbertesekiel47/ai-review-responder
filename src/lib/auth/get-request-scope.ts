@@ -13,13 +13,27 @@ import type { Sql } from 'postgres';
 import { asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 
+export interface RequestScopeLocation {
+  id: LocationId;
+  name: string;
+  display_label: string | null;
+  is_primary: boolean;
+}
+
 export interface RequestScope {
   accountId: AccountId;
   currentLocationId: LocationId;
+  /** All non-archived locations for the account (primary first, then by
+   *  created_at) — already fetched by the scope query, so callers that need
+   *  the location list (e.g. the authenticated layout) don't have to re-query
+   *  `businesses WHERE account_id` on every navigation. */
+  activeLocations: RequestScopeLocation[];
 }
 
 interface LocationRow {
   id: string;
+  name: string;
+  display_label: string | null;
   is_primary: boolean;
   archived_at: Date | null;
 }
@@ -47,17 +61,24 @@ export async function getRequestScope(
 ): Promise<RequestScope> {
   // Fetch all locations for the account, ordered so primary + non-archived come first
   const locations = await sql<LocationRow[]>`
-    SELECT id, is_primary, archived_at
+    SELECT id, name, display_label, is_primary, archived_at
     FROM businesses
     WHERE account_id = ${accountId}
     ORDER BY is_primary DESC, archived_at ASC, created_at ASC
   `;
 
-  const activeLocations = locations.filter((loc) => loc.archived_at === null);
+  const activeRows = locations.filter((loc) => loc.archived_at === null);
 
-  if (activeLocations.length === 0) {
+  if (activeRows.length === 0) {
     throw new Error(`No active location found for account ${accountId}`);
   }
+
+  const activeLocations: RequestScopeLocation[] = activeRows.map((loc) => ({
+    id: asLocationId(loc.id),
+    name: loc.name,
+    display_label: loc.display_label,
+    is_primary: loc.is_primary,
+  }));
 
   // Determine primary location
   const primary = activeLocations.find((loc) => loc.is_primary)
@@ -69,7 +90,8 @@ export async function getRequestScope(
     if (match) {
       return {
         accountId,
-        currentLocationId: asLocationId(match.id),
+        currentLocationId: match.id,
+        activeLocations,
       };
     }
     // Cookie location is either archived or not in this account → fall back
@@ -78,6 +100,7 @@ export async function getRequestScope(
   // Fall back to primary location (guaranteed to exist since activeLocations.length > 0)
   return {
     accountId,
-    currentLocationId: asLocationId(primary!.id),
+    currentLocationId: primary!.id,
+    activeLocations,
   };
 }

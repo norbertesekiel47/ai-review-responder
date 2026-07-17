@@ -26,6 +26,55 @@ type PortalConfigurationCandidate = {
   };
 };
 
+// Module-level memo for the portal configuration ID. The configuration is a
+// stable, rarely-changing Stripe object, but rediscovering it costs a
+// configurations.list(limit:100) round-trip (~200-500ms) on EVERY portal
+// click. Memoize per process; if a session create fails with a memoized ID
+// (e.g. the configuration was deleted in the Dashboard), the catch below
+// invalidates the memo and retries once with a fresh lookup.
+let cachedPortalConfigurationId: string | null = null;
+
+async function resolvePortalConfigurationId(
+  stripe: ReturnType<typeof getStripe>,
+): Promise<string> {
+  if (cachedPortalConfigurationId) return cachedPortalConfigurationId;
+
+  const configuration = await stripe.billingPortal.configurations.list({
+    active: true,
+    limit: 100,
+  });
+  const safeExistingConfiguration = configuration.data.find(isCancellationSafePortalConfiguration);
+
+  if (safeExistingConfiguration) {
+    cachedPortalConfigurationId = safeExistingConfiguration.id;
+    return safeExistingConfiguration.id;
+  }
+
+  // Create a default portal configuration if none exists
+  const newConfig = await stripe.billingPortal.configurations.create({
+    features: {
+      payment_method_update: {
+        enabled: true,
+      },
+      invoice_history: {
+        enabled: true,
+      },
+      subscription_cancel: {
+        enabled: false,
+      },
+    },
+    business_profile: {
+      headline: 'RepWorth Billing Management',
+    },
+  });
+  cachedPortalConfigurationId = newConfig.id;
+  return newConfig.id;
+}
+
+export function resetPortalConfigurationCacheForTests(): void {
+  cachedPortalConfigurationId = null;
+}
+
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 /**
@@ -100,42 +149,28 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
     // VAL-BILLING-068: Configure the portal for payment method updates and
     // invoice viewing. Owner cancellation stays in RepWorth offboarding so the
     // lifecycle record, paid-through access, and reactivation path stay durable.
-    const configuration = await stripe.billingPortal.configurations.list({
-      active: true,
-      limit: 100,
-    });
+    const hadCachedConfiguration = cachedPortalConfigurationId !== null;
+    const configurationId = await resolvePortalConfigurationId(stripe);
 
-    let configurationId: string;
-    const safeExistingConfiguration = configuration.data.find(isCancellationSafePortalConfiguration);
-
-    if (safeExistingConfiguration) {
-      configurationId = safeExistingConfiguration.id;
-    } else {
-      // Create a default portal configuration if none exists
-      const newConfig = await stripe.billingPortal.configurations.create({
-        features: {
-          payment_method_update: {
-            enabled: true,
-          },
-          invoice_history: {
-            enabled: true,
-          },
-          subscription_cancel: {
-            enabled: false,
-          },
-        },
-        business_profile: {
-          headline: 'RepWorth Billing Management',
-        },
+    let session;
+    try {
+      session = await stripe.billingPortal.sessions.create({
+        customer: account.stripe_customer_id,
+        configuration: configurationId,
+        return_url: `${baseUrl}/settings/billing`,
       });
-      configurationId = newConfig.id;
+    } catch (sessionErr) {
+      // The memoized configuration may have been deleted/deactivated in the
+      // Stripe Dashboard. Fall back to one fresh lookup before failing.
+      if (!hadCachedConfiguration) throw sessionErr;
+      cachedPortalConfigurationId = null;
+      const freshConfigurationId = await resolvePortalConfigurationId(stripe);
+      session = await stripe.billingPortal.sessions.create({
+        customer: account.stripe_customer_id,
+        configuration: freshConfigurationId,
+        return_url: `${baseUrl}/settings/billing`,
+      });
     }
-
-    const session = await stripe.billingPortal.sessions.create({
-      customer: account.stripe_customer_id,
-      configuration: configurationId,
-      return_url: `${baseUrl}/settings/billing`,
-    });
 
     return NextResponse.json(
       { url: session.url },

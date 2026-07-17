@@ -21,6 +21,15 @@ vi.mock('@/lib/dashboard/pending-count', () => ({
   getPendingApprovalCount: (sql: unknown, id: string) => mockGetPendingApprovalCount(sql, id),
 }));
 
+// The aggregate payload is now cached in Redis (45s TTL). Stub the cache as
+// always-miss so every test exercises a fresh computation.
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: async () => null,
+    set: async () => 'OK',
+  }),
+}));
+
 vi.mock('@/lib/locations/repo', () => ({
   getLocationsForAccount: vi.fn(async () => [
     { id: 'loc-1', account_id: 'acc-1', name: 'Downtown Cafe', display_label: 'Downtown', is_primary: true, archived_at: null, google_place_id: 'g1', google_place_address: null, created_at: new Date('2026-01-01') },
@@ -117,16 +126,29 @@ describe('getAggregateDashboardData — authoritative per-location pending count
   });
 
   it('preserves scheduled-post and open-escalation fields in the aggregate feed', async () => {
-    mockGetActiveDashboardData.mockImplementation(async () => {
-      const data = locationData(1);
-      data.recentReviews[0]!.autoPostScheduledAt = '2026-07-13T18:00:00.000Z';
-      data.recentReviews[0]!.escalation = {
-        id: 'escalation-open-1',
-        status: 'escalated',
-        severity: 'high',
-      };
-      return data;
-    });
+    // The feed now comes from ONE account-wide SQL query (call 4: after the
+    // billing row and the two totals), not from composing each location's
+    // capped recentReviews slice.
+    harness.sqlReturnQueue.push(
+      ['loc-1', 'loc-2'].map((locationId, index) => ({
+        id: `rev-${index}`,
+        reviewer_name: 'Reviewer',
+        star_rating: 5,
+        review_text: null,
+        review_date: '2026-06-01',
+        status: 'pending_approval',
+        response_text: 'draft',
+        response_status: 'pending_approval',
+        approval_method: null,
+        auto_post_scheduled_at: '2026-07-13T18:00:00.000Z',
+        escalation_id: 'escalation-open-1',
+        escalation_status: 'escalated',
+        escalation_severity: 'high',
+        location_id: locationId,
+        location_name: locationId === 'loc-1' ? 'Downtown Cafe' : 'Westside Bakery',
+        location_display_label: locationId === 'loc-1' ? 'Downtown' : null,
+      })),
+    );
 
     const result = await getAggregateDashboardData(mockSql, 'acc-1');
 

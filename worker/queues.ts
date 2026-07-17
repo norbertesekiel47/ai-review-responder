@@ -41,10 +41,17 @@ const defaultJobOptions = {
   removeOnFail: { age: 604_800, count: 5_000 },
 };
 
+// LLM-bound queues get 5 attempts (~5s/10s/20s/40s backoff ceiling, ~75s
+// total in-band retry budget) so a short provider blip is absorbed by BullMQ
+// instead of stalling the draft until the outbox watchdog re-pends the row
+// (OUTBOX_WATCHDOG_STALE_MS, 15min default). Retries are spend-safe: the cost
+// reservation + idempotent generation cache precede every LLM call.
+const llmJobOptions = { ...defaultJobOptions, attempts: 5 };
+
 export const queues = {
   ingestZernioReview: new Queue(QUEUE_NAMES.INGEST_ZERNIO_REVIEW, { connection: opts, defaultJobOptions }),
   zernioInitialBackfill: new Queue(QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL, { connection: opts, defaultJobOptions }),
-  generateResponse: new Queue(QUEUE_NAMES.GENERATE_RESPONSE, { connection: opts, defaultJobOptions }),
+  generateResponse: new Queue(QUEUE_NAMES.GENERATE_RESPONSE, { connection: opts, defaultJobOptions: llmJobOptions }),
   sendNotification: new Queue(QUEUE_NAMES.SEND_NOTIFICATION, { connection: opts, defaultJobOptions }),
   publishResponse: new Queue(QUEUE_NAMES.PUBLISH_RESPONSE, { connection: opts, defaultJobOptions }),
   generateDemo: new Queue(QUEUE_NAMES.GENERATE_DEMO, { connection: opts, defaultJobOptions }),

@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
-import { motion } from 'motion/react';
+// `m` only — this client always renders inside OnboardingFunnelShell, whose
+// LazyMotion(domAnimation) provider supplies the animation features.
+import { m } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { infoBannerClass, primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
@@ -202,7 +204,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Subscribe to start automatically generating responses for every
               review.
             </p>
-            <motion.a
+            <m.a
               href="/onboarding/pay"
               onClick={() => {
                 void captureDemoToSignup();
@@ -211,7 +213,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               className={`inline-block ${primaryButtonClass}`}
             >
               Choose a plan →
-            </motion.a>
+            </m.a>
           </div>
         </div>
       )}
@@ -234,7 +236,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Subscribe to RepWorth and we&apos;ll automatically generate
               responses for all your reviews.
             </p>
-            <motion.a
+            <m.a
               href="/onboarding/pay"
               onClick={() => {
                 void captureDemoToSignup();
@@ -243,7 +245,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               className={`inline-block ${primaryButtonClass}`}
             >
               Choose a plan →
-            </motion.a>
+            </m.a>
           </div>
 
           <div className="text-center">
