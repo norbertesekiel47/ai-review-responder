@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# scripts/verify-gate.sh
+# scripts/verify-gate.sh — the /feature step 5 gate.
+#
+# The audit set is derived from package.json's ci:* scripts (single
+# authoritative owner — the same list CI's lint job and the lefthook
+# pre-push gate run), so a gate-green branch can't fail push-time audits.
+# ci:fallow* is excluded: the fallow gate runs in its own CI workflow with
+# its own baseline and env expectations.
 set -uo pipefail
 
 INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
-: > .feature/logs/.gitkeep
 
 SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
-DB=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
 
 NAMES=()
 RESULTS=()
@@ -21,16 +25,14 @@ run() {
   fi
 }
 
-run lint             pnpm lint
-run typecheck        pnpm typecheck
-run test             pnpm test
-run static-policy    pnpm ci:static-policy
-run analytics-events pnpm ci:analytics-events
+run lint      pnpm lint
+run typecheck pnpm typecheck
+run test      pnpm test
 
-if [ "$DB" = "true" ]; then
-  run tenant-scope pnpm ci:tenant-scope
-  run rls-audit    pnpm ci:rls-audit
-fi
+# Every ci:* audit from package.json (excluding ci:fallow*).
+while IFS= read -r SCRIPT; do
+  run "${SCRIPT#ci:}" pnpm "$SCRIPT"
+done < <(jq -r '.scripts | keys[] | select(startswith("ci:")) | select(startswith("ci:fallow") | not)' package.json)
 
 if [ "$SURFACE" = "ui" ] || [ "$SURFACE" = "mixed" ]; then
   run build pnpm build

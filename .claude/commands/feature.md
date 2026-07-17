@@ -113,7 +113,10 @@ invoke the `prototype` skill to build a throwaway answer before locking the
 intake. Prototypes never graduate to production code.
 
 Lock the outcome into an **intake contract** — not free-form prose. Write it
-to `docs/superpowers/plans/<branch>-intake.json` with exactly these fields:
+to `docs/superpowers/plans/<branch>-intake.json` (parent checkout, temporary —
+step 2 MOVES it into the worktree as `.feature/intake.json` and commits it
+there; the worktree copy is the single authoritative owner) with exactly
+these fields:
 
 ```json
 {
@@ -153,25 +156,45 @@ the guard hook requires BOTH surface coverage and
 intake. Every subsequent edit targets that worktree root — never the parent
 checkout.
 
-Copy the intake contract to `.feature/intake.json` in the worktree root —
-the hooks (edit-surface guard, stop gate) key off this file. Its presence is
-what puts the worktree in "feature mode".
+**CWD PIN (mandatory)**: `cd` into the worktree now and keep the session
+cwd at the worktree root for the ENTIRE run. Hook processes execute in the
+session's current cwd — the edit-surface guard re-anchors on the edited
+file's own repo root, but the Stop gate arms from cwd/`$CLAUDE_PROJECT_DIR`,
+so cd-ing away can silently disarm it. Inspect the parent checkout with
+`git -C <path>` or absolute-path reads, never by changing directory.
+
+**MOVE the intake in and commit it**: relocate the step 1 draft to
+`.feature/intake.json` at the worktree root (delete the parent copy — one
+authoritative owner) and make it the branch's first commit. The hooks key
+off this file — its presence puts the tree in "feature mode" — and
+committing it makes the agreed scope part of the branch's audit trail.
+Commit `.feature/deps-justification.md` the same way if one is created
+later.
+
+**NO BASH WRITES (hook scoping)**: the guard sees Edit/Write tool calls
+only. Never modify repo files via Bash (`sed -i`, `>` redirects, `mv`,
+heredocs) during a feature run — that routes around enforcement. Scratch
+notes go to the scratchpad or `.feature/`/`docs/` (exempt surfaces), never
+into shell redirects over repo files.
 
 ARM CHECK (mandatory): before proceeding to implementation, prove the
-hooks are actually armed by direct-executing them exactly as registered
-(`./path`, not via a different shell). With `.feature/intake.json` present,
-feed the edit-surface guard a fake out-of-surface payload and expect exit 2;
-with no `.feature/gate-status.json` present, feed the stop gate an empty
-payload and expect exit 2:
+hooks are actually armed by executing them the way the harness does
+(`bash <script>`, matching the settings.json registration). With
+`.feature/intake.json` present, feed the edit-surface guard an
+out-of-surface probe payload (pick a path NOT covered by the declared
+`allowed_edit_surface` — `__arm_check__/probe.ts` at the worktree root is
+outside any sane surface) and expect exit 2; with no
+`.feature/gate-status.json` present, feed the stop gate an empty payload
+and expect exit 2:
 
 ```bash
-echo '{"tool_input":{"file_path":"src/app/__arm_check__.ts"}}' | ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
-echo '{}' | ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
+echo '{"tool_input":{"file_path":"'"$PWD"'/__arm_check__/probe.ts"}}' | bash ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
+echo '{}' | bash ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
 ```
 
 Any other exit code (126, 127, 0) means enforcement is DISARMED (missing
-exec bit, missing jq, or broken registration) — STOP and report to the
-user instead of continuing.
+file, missing jq, or broken registration) — STOP and report to the user
+instead of continuing.
 
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
@@ -208,9 +231,11 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 (`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
 plan, ticket files, and glossary excerpt by path — not restate them. Then:
 - If context usage is already high (grilling ran long), tell me to start a
-  fresh session and resume with `/feature-resume <branch>` semantics: read
-  the handoff doc + referenced files and continue from step 4. The grilling
-  transcript is no longer needed once the spec is locked.
+  fresh session **in the worktree** and resume with `/feature-resume
+  <branch>` — it re-enters the worktree, re-runs the ARM CHECK, and
+  bootstraps from the handoff doc + referenced files, continuing from
+  step 4. The grilling transcript is no longer needed once the spec is
+  locked.
 - Otherwise continue in this session — but from here on, NEVER re-read the
   full grilling conversation; consult the spec/plan files instead.
 
@@ -241,9 +266,10 @@ surface/db flags, runs the applicable checks, writes per-check logs to
 `.feature/logs/`, and writes machine-readable `.feature/gate-status.json`:
 
 - Always: `pnpm lint && pnpm typecheck && pnpm test`
-- Always (CI runs them; catching here saves a wasted review):
-  `pnpm ci:static-policy && pnpm ci:analytics-events`
-- If `db_touching`: `pnpm ci:tenant-scope && pnpm ci:rls-audit`
+- Always: every `ci:*` audit script in package.json except `ci:fallow*`,
+  enumerated dynamically — the same set CI's lint job and the lefthook
+  pre-push gate run, so gate-green can never fail push-time audits.
+  (fallow runs in its own CI workflow with its own baseline.)
 - If surface includes ui: `pnpm build`
 - Plus any `verification_commands` declared in the intake.
 
@@ -259,9 +285,11 @@ claims.
 **Property-test requirement**: if the feature touches billing, approval /
 auto-approval, or escalation logic, `tests_to_add` MUST include at least one
 `fast-check` property test per declared invariant — example tests are too
-weak for state-machine and money logic. (Mutation testing via Stryker runs
-in nightly CI, not in this gate; if it later flags this feature's tests as
-weak, that comes back as a bug ticket.)
+weak for state-machine and money logic. `fast-check` is installed; the
+house style lives in `src/lib/reviews/__tests__/sentiment.test.ts`
+("invariants" describe block). (Mutation testing via Stryker is planned as
+a nightly CI lane, not part of this gate; when it lands, tests it flags as
+weak come back as bug tickets.)
 
 **Anti-thrash rule**: if the gate fails on the same failure class twice,
 STOP patching. Dispatch a fresh subagent to run the `diagnosing-bugs` skill
@@ -345,8 +373,9 @@ state). Re-run step 5.
   `CONTEXT.md` and ADRs, so the next session inherits the language.
 - **Entropy counter**: increment the merge counter in
   `.claude/reference/arch-review-log.md`. If ≥ 5 merges since the last
-  architecture pass, remind me to run `/improve-codebase-architecture`
-  (user-invoked; never run it automatically).
+  architecture pass, remind me to schedule an architecture review session
+  (e.g. the `claude-mem:pathfinder` skill or a dedicated review pass — my
+  call; never start one automatically).
 
 ## Session hygiene
 

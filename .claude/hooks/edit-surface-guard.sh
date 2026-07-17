@@ -1,23 +1,72 @@
 #!/usr/bin/env bash
 # .claude/hooks/edit-surface-guard.sh
+#
+# PreToolUse guard for Edit/Write/MultiEdit during a /feature run.
+#
+# Arming is FILE-ANCHORED: the guard resolves the edited file's own repo root
+# and looks for .feature/intake.json there, falling back to the session cwd.
+# This survives session `cd` drift — a worktree edit is enforced even when the
+# hook process fires from the parent checkout, and an armed session cannot
+# write into a different checkout (the "edit silently lands in main's tree"
+# footgun from CLAUDE.md).
+#
+# Known gap (inherent to PreToolUse): file changes made through Bash
+# (`sed -i`, `>` redirects, `mv`) never reach this guard. feature.md bans
+# routing repo edits through Bash during a feature run.
 set -uo pipefail
 
 INPUT=$(cat)
-INTAKE=".feature/intake.json"
-
-# Not in feature mode -> allow everything.
-[ -f "$INTAKE" ] || exit 0
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -n "$FILE_PATH" ] || exit 0
 
-# Normalize to repo-relative path.
-REL_PATH="${FILE_PATH#"$PWD"/}"
+# Absolute path (the harness normally passes absolute; belt-and-braces).
+case "$FILE_PATH" in
+  /*) ABS_PATH="$FILE_PATH" ;;
+  *)  ABS_PATH="$PWD/$FILE_PATH" ;;
+esac
+
+# Repo root the edit actually targets: git root of the nearest EXISTING
+# ancestor (the file itself may not exist yet for a Write into a new dir).
+ANCHOR_DIR=$(dirname "$ABS_PATH")
+while [ ! -d "$ANCHOR_DIR" ] && [ "$ANCHOR_DIR" != "/" ]; do
+  ANCHOR_DIR=$(dirname "$ANCHOR_DIR")
+done
+TARGET_ROOT=$(git -C "$ANCHOR_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+
+# Arm from the target repo root first, the session cwd second.
+ROOT=""
+if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.feature/intake.json" ]; then
+  ROOT="$TARGET_ROOT"
+elif [ -f "$PWD/.feature/intake.json" ]; then
+  ROOT="$PWD"
+fi
+
+# Not in feature mode anywhere relevant -> allow everything.
+[ -n "$ROOT" ] || exit 0
+
+INTAKE="$ROOT/.feature/intake.json"
+
+# Armed, but the edit targets a DIFFERENT git checkout (parent repo, another
+# worktree): always a mistake mid-feature — the edit would land in the wrong
+# tree regardless of what the surface globs say.
+if [ -n "$TARGET_ROOT" ] && [ "$TARGET_ROOT" != "$ROOT" ]; then
+  echo "BLOCKED: edit targets checkout '$TARGET_ROOT' but the feature is armed in '$ROOT'." >&2
+  echo "Mid-feature edits must stay inside the feature worktree — an edit to another" >&2
+  echo "checkout silently lands in that tree (see CLAUDE.md worktree rules)." >&2
+  exit 2
+fi
+
+# Armed, and the file lives outside ANY git repo (scratchpad, /tmp notes):
+# not repo code — allow.
+[ -z "$TARGET_ROOT" ] && exit 0
+
+REL_PATH="${ABS_PATH#"$ROOT"/}"
 
 # --- Rule 1: dependency manifests need a justification file ---
 case "$REL_PATH" in
   package.json|pnpm-lock.yaml|*/package.json)
-    if [ ! -f ".feature/deps-justification.md" ]; then
+    if [ ! -f "$ROOT/.feature/deps-justification.md" ]; then
       echo "BLOCKED: dependency manifest edit without .feature/deps-justification.md." >&2
       echo "Write that file first (reason, alternatives considered, blast radius)," >&2
       echo "get user sign-off, then retry." >&2
