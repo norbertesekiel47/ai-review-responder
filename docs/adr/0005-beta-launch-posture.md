@@ -77,3 +77,36 @@ scale-shaped to explicit growth triggers.
   backlog's P1 items (poller bounds, worker concurrency) and this posture should
   be revisited — the HealthAlertPoller's outbox-lag signal doubles as an early
   tripwire.
+
+## Addendum (2026-07-16) — capacity target locked; SPOF + LLM-cap deferral sharpened
+
+Resolved in the scalability-hardening wayfinder map
+([map #472](https://github.com/RepWorth/ai-review-responder/issues/472),
+tickets [#474](https://github.com/RepWorth/ai-review-responder/issues/474) and
+[#475](https://github.com/RepWorth/ai-review-responder/issues/475)). This
+refines the posture above — it does not reverse it.
+
+**Capacity target (#474):** 50 businesses at launch → 250 locations at 6
+months (~100–150 accounts); ~125 reviews/day fleet-wide steady state; design
+burst 1000 ingest events in 10 minutes, drained within 30 minutes with a
+queue-health alert at ~1500 pending outbox rows; peak 10 concurrent dashboard
+renders. Single-replica worker posture stays.
+
+**Global LLM concurrency cap (#475): deferral held, trigger sharpened.**
+While the worker is single-replica, the de facto global LLM cap is the
+*summed* BullMQ concurrency across the LLM-calling queues (draft generation,
+weekly summary, monthly impact, review triage, judge, onboarding demo). That
+sum stays **≤8**, documented where `workerOpts` are defined. The global Redis
+semaphore (beside the per-business one in `src/lib/costs/concurrency-guard.ts`)
+is built only when any of: a second worker replica ships; the sum needs to
+exceed ~10; Sentry shows sustained provider 429s.
+
+**Upstash SPOF (#475): pause-and-resume is the documented posture.** An
+Upstash outage pauses generation spend-safely (cost reservation precedes every
+LLM call and requires Redis; `CostInfraUnavailableError` → bounded retry +
+outbox watchdog) and auto-resumes; dashboards degrade to direct DB reads; API
+rate limits fail open. Tripwires: the outbox backlog-depth alert
+([#480](https://github.com/RepWorth/ai-review-responder/issues/480)) and the
+existing outbox-lag alert. No multi-region replica; no Railway-Redis fallback
+(it would re-couple the deliberately split Redis roles). Revisit at
+auto-approval go-live or >500 locations.
