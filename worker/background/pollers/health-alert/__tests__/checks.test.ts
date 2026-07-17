@@ -27,10 +27,12 @@ import {
   checkFailedOutboxByTopic,
   checkZeroDeliveryNotifications,
   checkBacklogDepth,
+  checkFailedInboundEvents,
   runHealthChecks,
   type HealthAlertConfig,
 } from '../checks';
 import { resetWorkerConfigForTests } from '../../../../../src/lib/config/worker';
+import { QUEUE_NAMES } from '../../../../../src/lib/shared/queue-names';
 
 const CFG: HealthAlertConfig = {
   pendingAgeThresholdS: 900,
@@ -117,6 +119,50 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([]);
       expect(await checkFailedOutboxByTopic(mockSql, CFG)).toEqual([]);
     });
+
+    it('raises a finding for terminal generate_response failures', async () => {
+      sqlReturnQueue.push([{ topic: 'generate_response', count: 2 }]);
+      const findings = await checkFailedOutboxByTopic(mockSql, CFG);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.key).toBe('outbox_failed:generate_response');
+      // SQL-text assertion: the row-queued mock returns whatever is queued
+      // regardless of the query, so also prove the production topic filter
+      // actually includes generate_response (passed as an interpolated value).
+      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      expect(template.join(' ')).toContain('FROM job_outbox');
+      expect(values).toContain(QUEUE_NAMES.GENERATE_RESPONSE);
+    });
+  });
+
+  describe('checkFailedInboundEvents', () => {
+    it('raises one finding per failing (source, event_type)', async () => {
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'invoice.paid', count: 3 },
+        { source: 'zernio', event_type: 'review.updated', count: 1 },
+      ]);
+      const findings = await checkFailedInboundEvents(mockSql, CFG);
+      expect(findings).toHaveLength(2);
+      expect(findings[0]).toMatchObject({
+        key: 'inbound_events_failed:stripe:invoice.paid',
+        level: 'error',
+      });
+      expect(findings[1]).toMatchObject({
+        key: 'inbound_events_failed:zernio:review.updated',
+      });
+      // SQL-text assertion: prove the query targets inbound_events failures
+      // grouped by (source, event_type) — a row-only test would pass even if
+      // the production query were wrong.
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('FROM inbound_events');
+      expect(queryText).toContain("status = 'failed'");
+      expect(queryText).toContain('GROUP BY source, event_type');
+    });
+
+    it('returns nothing when counts are within threshold', async () => {
+      sqlReturnQueue.push([]);
+      expect(await checkFailedInboundEvents(mockSql, CFG)).toEqual([]);
+    });
   });
 
   describe('checkZeroDeliveryNotifications', () => {
@@ -175,6 +221,7 @@ describe('health-alert checks', () => {
     sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
     sqlReturnQueue.push([{ count: 0 }]);  // openFlagged → null
     sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+    sqlReturnQueue.push([]);              // failedInboundEvents → []
   }
 
   describe('backlog-depth threshold config', () => {
@@ -197,12 +244,14 @@ describe('health-alert checks', () => {
   describe('runHealthChecks', () => {
     it('aggregates findings across all checks (env defaults)', async () => {
       // Order matches Promise.all dispatch order in runHealthChecks:
-      // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery, backlogDepth
+      // failedByTopic, oldestPending, staleDispatching, openFlagged,
+      // zeroDelivery, failedInboundEvents, backlogDepth
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
       sqlReturnQueue.push([{ count: 0 }]);                             // stale → null
       sqlReturnQueue.push([{ count: 10 }]);                            // flagged → finding (>5 default)
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
+      sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
       const findings = await runHealthChecks(mockSql);
@@ -210,6 +259,7 @@ describe('health-alert checks', () => {
       expect(keys).toEqual([
         'backlog_depth:job_outbox',
         'flagged_open_backlog',
+        'inbound_events_failed:stripe:invoice.paid',
         'outbox_failed:publish_response',
       ]);
     });
@@ -217,7 +267,7 @@ describe('health-alert checks', () => {
     // F-medium regression: a backlog-count failure (checkBacklogDepth uses
     // sql.begin) must NOT reject Promise.all and swallow the critical findings.
     it('isolates a backlog-check failure: other findings survive, failure becomes a warning', async () => {
-      // First five checks (dispatch order) drain the queue synchronously; the
+      // First six checks (dispatch order) drain the queue synchronously; the
       // backlog check's sql.begin rejects (as it would under the DB pressure it
       // detects) and consumes no queue entry.
       sqlReturnQueue.push([]);              // failedByTopic → []
@@ -225,6 +275,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
       sqlReturnQueue.push([{ count: 10 }]); // openFlagged → finding (>5 default)
       sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+      sqlReturnQueue.push([]);              // failedInboundEvents → []
       mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
 
       const findings = await runHealthChecks(mockSql);
@@ -289,7 +340,8 @@ describe('health-alert checks', () => {
 
     // One queue entry per tagged-template QUERY, in sequential dispatch order:
     // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery,
-    // then backlogDepth's inner SELECT (its SET LOCAL via .unsafe consumes none).
+    // failedInboundEvents, then backlogDepth's inner SELECT (its SET LOCAL via
+    // .unsafe consumes none).
     function quietRows(): unknown[] {
       return [
         [], // failedByTopic → []
@@ -297,6 +349,7 @@ describe('health-alert checks', () => {
         [{ count: 0 }], // staleDispatching → null
         [{ count: 0 }], // openFlagged → null
         [{ count: 0 }], // zeroDelivery → null
+        [], // failedInboundEvents → []
         [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
       ];
     }

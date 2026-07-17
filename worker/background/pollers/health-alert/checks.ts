@@ -2,7 +2,8 @@
 // beta-launch gate alerts on. Each check issues ONE query against confirmed
 // schema and compares to an env-tunable threshold, returning HealthFinding(s) or
 // null. No writes. Column references verified against supabase/migrations
-// (job_outbox, notification_deliveries, flagged_responses, responses).
+// (job_outbox, notification_deliveries, flagged_responses, responses,
+// inbound_events).
 import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
@@ -45,7 +46,8 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
 }
 
 // Public-path outbox topics that exhausted all retries (status='failed') — a
-// failed publish/notify is a customer-visible stall, not a transient blip.
+// failed publish/notify is a customer-visible stall, and a terminal
+// generate_response failure is a dropped paid draft. Not transient blips.
 export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
   // Window on completed_at: markOutboxFailed sets completed_at = NOW() when a row
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
@@ -55,7 +57,7 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
-      AND topic IN (${QUEUE_NAMES.PUBLISH_RESPONSE}, ${QUEUE_NAMES.SEND_NOTIFICATION})
+      AND topic IN (${QUEUE_NAMES.PUBLISH_RESPONSE}, ${QUEUE_NAMES.SEND_NOTIFICATION}, ${QUEUE_NAMES.GENERATE_RESPONSE})
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic
   `;
@@ -172,6 +174,30 @@ export async function checkBacklogDepth(sql: postgres.Sql, cfg: HealthAlertConfi
     }));
 }
 
+// Inbound webhook events that failed processing. Provider-side retries
+// (Stripe retries ~3 days) mask these — by the time the provider gives up,
+// the bug has been silent for days. Grouped by (source, event_type): the
+// event type is what identifies WHICH provider operation is failing (e.g.
+// stripe/invoice.paid vs stripe/checkout.session.completed); source alone
+// hides that. Uses the partial index idx_ie_status (WHERE status != 'processed').
+export async function checkFailedInboundEvents(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
+  const rows = await sql<{ source: string; event_type: string; count: number }[]>`
+    SELECT source, event_type, COUNT(*)::int AS count
+    FROM inbound_events
+    WHERE status = 'failed'
+      AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS})
+    GROUP BY source, event_type
+  `;
+  return rows
+    .filter((r) => r.count > cfg.failedThreshold)
+    .map((r) => ({
+      key: `inbound_events_failed:${r.source}:${r.event_type}`,
+      level: 'error' as const,
+      title: `${r.count} inbound ${r.source} ${r.event_type} event(s) failed processing in the last ${cfg.failedWindowS}s`,
+      detail: { source: r.source, event_type: r.event_type, count: r.count, window_s: cfg.failedWindowS },
+    }));
+}
+
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
   const findings: HealthFinding[] = [];
@@ -195,6 +221,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkStaleDispatching(sql, cfg));
   collect(await checkOpenFlaggedResponses(sql, cfg));
   collect(await checkZeroDeliveryNotifications(sql, cfg));
+  collect(await checkFailedInboundEvents(sql, cfg));
 
   // Isolate the backlog check: it reads the DB precisely when the DB is under
   // pressure, so its rejection must NOT fail the whole cycle and suppress the
