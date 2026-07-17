@@ -2,15 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { IngestZernioReviewPayload } from '../../../../src/lib/shared/worker-types';
 
-const { sqlReturnQueue, mockSql, mockMarkOutboxFailed } = vi.hoisted(() => {
+const { sqlReturnQueue, mockSql, mockSqlBegin, mockMarkOutboxFailed } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
     const result = sqlReturnQueue.shift() ?? Object.assign([], { count: 0 });
+    // Queueing an Error simulates a statement failing mid-transaction.
+    if (result instanceof Error) return Promise.reject(result);
     return Promise.resolve(result);
   });
   // Identity pass-through for sql.json(...) (mirrors mock-sql.ts's createMockSql().json).
   mockSql.json = vi.fn((v: unknown) => v);
-  return { sqlReturnQueue, mockSql, mockMarkOutboxFailed: vi.fn() };
+  // sql.begin hands the same executor back as tx, so assertions on statement
+  // calls keep landing on mockSql; a rejecting statement rejects the tx.
+  const mockSqlBegin = vi.fn(async (cb: (tx: unknown) => unknown) => cb(mockSql));
+  mockSql.begin = mockSqlBegin;
+  return { sqlReturnQueue, mockSql, mockSqlBegin, mockMarkOutboxFailed: vi.fn() };
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -23,6 +29,7 @@ vi.mock('../../../../src/lib/shared/outbox', () => ({
 }));
 vi.mock('@sentry/node', () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 
+import * as Sentry from '@sentry/node';
 import { handleIngestFailed } from '../ingest-failed-hook';
 import { ZernioIngestReviewNotFoundError } from '../ZernioReviewIngestWorker';
 
@@ -50,6 +57,9 @@ function makeJob(
 beforeEach(() => {
   vi.resetAllMocks();
   sqlReturnQueue.length = 0;
+  // CAS-first contract: handlers only write when they own the terminal
+  // transition, so the default is a won CAS.
+  mockMarkOutboxFailed.mockResolvedValue(true);
 });
 
 describe('handleIngestFailed', () => {
@@ -334,6 +344,83 @@ describe('handleIngestFailed', () => {
       await handleIngestFailed(mockSql, undefined, new Error('whatever'));
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('last-resort crash guard', () => {
+    // NON-coupled path (generic-error branch, bare markOutboxFailed): the crash
+    // guard MAY best-effort-fail the row. (Coupled-tx behavior is tested below.)
+    it('captures to Sentry and best-effort fails the row when the generic-branch markOutboxFailed throws', async () => {
+      mockMarkOutboxFailed
+        .mockRejectedValueOnce(new Error('pgbouncer down')) // generic-branch mark
+        .mockResolvedValueOnce(true);                       // best-effort mark inside the capture
+      await expect(
+        handleIngestFailed(mockSql, makeJob(), new Error('some non-zernio failure')),
+      ).resolves.toBeUndefined();
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ tags: { worker: 'ingest_zernio_review', kind: 'on_failed_handler_crash' } }),
+      );
+      expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
+        mockSql, 'outbox-1', expect.stringContaining('on_failed_crash'), 1,
+      );
+    });
+
+    it('resolves without rejecting even when the best-effort markOutboxFailed also throws', async () => {
+      mockMarkOutboxFailed.mockRejectedValue(new Error('mark failed too'));
+      await expect(
+        handleIngestFailed(mockSql, makeJob(), new Error('boom')),
+      ).resolves.toBeUndefined();
+    });
+
+    it('leaves the outbox row untouched when a coupled handler tx crashes (watchdog recovers atomically)', async () => {
+      const { ZernioIngestUnparseableLocationError } = await import('../ZernioReviewIngestWorker');
+      // handleUnparseableLocation runs inside sql.begin; make the tx reject.
+      mockSqlBegin.mockRejectedValueOnce(new Error('deadlock'));
+      await expect(
+        handleIngestFailed(
+          mockSql,
+          makeJob(),
+          new ZernioIngestUnparseableLocationError('biz-1', 'acct-1', 'loc-1', 'rev-abc', 'malformed/review/name'),
+        ),
+      ).resolves.toBeUndefined();
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled(); // no split of the coupled tx
+    });
+
+    it('does not re-mark after the CAS wins but a later write in the coupled tx fails (rollback is atomic)', async () => {
+      // CAS resolves true (beforeEach default), then the exception INSERT
+      // rejects — the whole tx rolls back, so the row is still `dispatched`.
+      sqlReturnQueue.push(new Error('insert blew up'));
+      const err = new ZernioIngestReviewNotFoundError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', 2, 78,
+      );
+      await expect(handleIngestFailed(mockSql, makeJob(), err)).resolves.toBeUndefined();
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ tags: { worker: 'ingest_zernio_review', kind: 'on_failed_handler_crash' } }),
+      );
+      // Only the in-tx CAS ran; the crash guard must NOT re-mark a coupled tx.
+      expect(mockMarkOutboxFailed).toHaveBeenCalledTimes(1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), expect.stringContaining('on_failed_crash'), expect.anything(),
+      );
+    });
+
+    it('performs no writes and no Sentry capture when the CAS loses (stale attempt)', async () => {
+      const { ZernioIngestPaginationCapExhaustedError } = await import('../ZernioReviewIngestWorker');
+      mockMarkOutboxFailed.mockResolvedValueOnce(false); // stale attempt / row not dispatched
+      await expect(
+        handleIngestFailed(
+          mockSql,
+          makeJob(),
+          new ZernioIngestPaginationCapExhaustedError('biz-1', 'acct-1', 'loc-1', 'rev-abc', 4, 200),
+        ),
+      ).resolves.toBeUndefined();
+      expect(mockSql).not.toHaveBeenCalled();                        // no exception INSERT
+      expect(mockMarkOutboxFailed).toHaveBeenCalledTimes(1);         // just the losing CAS
+      expect(vi.mocked(Sentry.captureMessage)).not.toHaveBeenCalled(); // trend signal only on ownership
+      expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled();
     });
   });
 });
