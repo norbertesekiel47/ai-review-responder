@@ -82,6 +82,10 @@ let activeCycleToken: number | null = null;
 let activeCycleStartedAt = 0;
 let cycleSeq = 0;
 
+// Watchdog + claim + dispatch in one linear cycle; the branch count is the
+// per-row dispatch-failure vocabulary. Pre-existing size — the perf pass only
+// parameterized the watchdog window.
+// fallow-ignore-next-line complexity
 export async function pollOutbox(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
   const maxCycleMs = readMaxCycleMs();

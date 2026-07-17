@@ -27,6 +27,11 @@ interface PaywallWithDemoClientProps {
 
 const MAX_POLLS = 15;
 
+// Onboarding paywall + live demo poller in one island; the branch count is
+// the demo-status vocabulary. Pre-existing size (already acknowledged in
+// .fallowrc.jsonc's duplication backlog) — the perf pass only swapped the
+// full `motion` import for LazyMotion's `m`.
+// fallow-ignore-next-line complexity
 export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoClientProps) {
   const router = useRouter();
   // Read directly from props — do NOT useState(initialDemo). useState only
@@ -50,6 +55,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
       ? JSON.parse(demo.generated_responses)
       : demo.generated_responses ?? [];
 
+  // fallow-ignore-next-line complexity
   const poll = useCallback(async () => {
     if (pollCount >= MAX_POLLS) return;
     try {

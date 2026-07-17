@@ -39,6 +39,40 @@ interface ResolveOwnerScopeOptions {
   allowReadOnly?: boolean;
 }
 
+interface OwnerAccountGateRow {
+  subscription_status: string;
+  past_due_at: Date | string | null;
+  flags: AccountFlagsInput;
+}
+
+/**
+ * Subscription enforcement for owner mutation routes. Past-due accounts
+ * remain writable while the recovery window is open; all other non-active
+ * statuses stay blocked here. Throws ScopeError; returns on entitled.
+ */
+function assertSubscriptionAllowsOwnerScope(
+  account: OwnerAccountGateRow | undefined,
+  options: ResolveOwnerScopeOptions,
+): void {
+  if (!account) {
+    throw new ScopeError('no_business', 403);
+  }
+  if (account.subscription_status === SubscriptionStatus.PAST_DUE) {
+    const recovery = computePastDueRecoveryState({
+      subscriptionStatus: account.subscription_status,
+      pastDueAt: account.past_due_at,
+      accountFlags: account.flags,
+    });
+    if (recovery.isReadOnly && !options.allowReadOnly) {
+      throw new ScopeError('past_due_read_only', 402);
+    }
+    return;
+  }
+  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
+    throw new ScopeError('subscription_inactive', 403);
+  }
+}
+
 /**
  * Resolves the authenticated owner's account + current location from a
  * NextRequest. Reads the `rw_location_scope` cookie (UUID-validated) and
@@ -89,11 +123,7 @@ export async function resolveOwnerScope(
   // no-active-location Error when both fail (e.g. a cancelled account whose
   // locations were all archived by offboarding teardown).
   const [accountResult, scopeResult] = await Promise.allSettled([
-    sql<{
-      subscription_status: string;
-      past_due_at: Date | string | null;
-      flags: AccountFlagsInput;
-    }[]>`
+    sql<OwnerAccountGateRow[]>`
       SELECT subscription_status, past_due_at, flags
       FROM accounts
       WHERE id = ${accountId}
@@ -102,28 +132,10 @@ export async function resolveOwnerScope(
     getRequestScope(sql, accountId, cookieLocationId),
   ]);
 
-  // Subscription enforcement for owner mutation routes. Past-due accounts
-  // remain writable while the recovery window is open; all other non-active
-  // statuses stay blocked here.
   if (accountResult.status === 'rejected') {
     throw accountResult.reason;
   }
-  const account = accountResult.value[0];
-  if (!account) {
-    throw new ScopeError('no_business', 403);
-  }
-  if (account.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const recovery = computePastDueRecoveryState({
-      subscriptionStatus: account.subscription_status,
-      pastDueAt: account.past_due_at,
-      accountFlags: account.flags,
-    });
-    if (recovery.isReadOnly && !options.allowReadOnly) {
-      throw new ScopeError('past_due_read_only', 402);
-    }
-  } else if (!subscriptionGrantsFullAccess(account.subscription_status)) {
-    throw new ScopeError('subscription_inactive', 403);
-  }
+  assertSubscriptionAllowsOwnerScope(accountResult.value[0], options);
 
   if (scopeResult.status === 'rejected') {
     throw scopeResult.reason;

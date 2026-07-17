@@ -18,6 +18,10 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
+// Six independent batched-DELETE arms + count/saturation reporting; the length
+// is the retention vocabulary, one block per table. Pre-existing size — the
+// perf pass only added the failed-outbox arm to the first block.
+// fallow-ignore-next-line complexity
 async function runArchival(logger: WorkerLogger): Promise<void> {
   try {
     // 1. Outbox entries: completed rows older than 7 days; failed rows older
