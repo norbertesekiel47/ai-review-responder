@@ -128,6 +128,7 @@ export async function fetchBusinessDetailBatch1(
       ) resp ON true
       WHERE r.business_id = ${businessId}
       ORDER BY r.detected_at DESC
+      LIMIT 100
     `,
     sql<RankingSnapshotRow[]>`
       SELECT keyword, rank_position, snapshot_date::text, source
