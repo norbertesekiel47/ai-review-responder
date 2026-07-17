@@ -57,8 +57,12 @@
     "src/lib/dashboard/pending-count.ts",
     "src/lib/dashboard/types.ts",
     "src/lib/dashboard/__tests__/**",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "docs/superpowers/plans/**",
     ".feature/**"
+  ],
+  "surface_amendments": [
+    "2026-07-17: added scripts/ci/tenant-scope-allowlist.ts (user sign-off) — deleting getTotalRespondedForAccount per the locked fold-and-delete orphaned its allowlist entry; removing the dead entry is a forced dangling-reference cleanup."
   ],
   "tests_to_add": [
     "Byte-identical parity: set-based build produces the SAME AggregateDashboardData (retained fields) as the current fan-out on a shared multi-location fixture.",

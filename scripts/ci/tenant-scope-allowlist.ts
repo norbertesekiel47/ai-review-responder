@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 393;
+export const ALLOWLIST_BASELINE = 392;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1305,13 +1305,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT u.role, u.account_id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${authUser.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/lib/dashboard/aggregate-service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND r.status <> ${REVIEW_STATUS.DELETED} AND resp.status = ANY(${statusArraySql(sql, HANDLED_STATUSES)})",
-    category: 'tenant-root-lookup',
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
   },
   {
     file: "src/lib/dashboard/service.ts",
