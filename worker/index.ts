@@ -5,9 +5,11 @@ import { Sentry } from './sentry';
 import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
 import { registerIngressContentTypeParsers } from './config/content-type-parsers';
+import { buildFastifyOptions } from './config/fastify-options';
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues, topicToQueue } from './queues';
+import { attachEmitterErrorLogger } from './emitter-errors';
 import { createQueueHealthHandler, QUEUE_HEALTH_JOB_STATES } from './internal/queue-health';
 import { queryBacklogDepth } from '../src/lib/shared/backlog-depth';
 import { withJobLogContext } from './job-log-context';
@@ -164,7 +166,7 @@ function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
 // ---------------------------------------------------------------------------
-export const app = Fastify({ logger: { level: process.env.NODE_ENV === 'production' ? 'warn' : 'info' } });
+export const app = Fastify(buildFastifyOptions(process.env.NODE_ENV));
 
 // ---------------------------------------------------------------------------
 // BullMQ workers — only create Workers for implemented handlers.
@@ -393,8 +395,11 @@ const workersByQueue = {
 
 const workers = Object.values(workersByQueue);
 
-// Sentry breadcrumbs on job lifecycle
-for (const worker of workers) {
+// Sentry breadcrumbs on job lifecycle + non-fatal 'error' sink (P5): a Worker
+// 'error' with no listener escalates to a fatal uncaughtException, so one
+// Redis blip would restart every queue. See worker/emitter-errors.ts.
+for (const [queueName, worker] of Object.entries(workersByQueue)) {
+  attachEmitterErrorLogger(worker, `worker:${queueName}`);
   worker.on('active', (job) => {
     Sentry.addBreadcrumb({ category: 'worker', message: `Started ${job.name} (${job.id})`, level: 'info' });
   });
@@ -485,7 +490,10 @@ async function main(): Promise<void> {
   // cache = Upstash). 2s timeout per probe; 503 when any dep is down.
   let queueProbeRedis: Redis | null = null;
   const getQueueProbeRedis = (): Redis => {
-    queueProbeRedis ??= new Redis(getRedisOptions());
+    if (!queueProbeRedis) {
+      queueProbeRedis = new Redis(getRedisOptions());
+      attachEmitterErrorLogger(queueProbeRedis, 'probe_redis');
+    }
     return queueProbeRedis;
   };
   app.get('/ready', async (_request, reply) => {
