@@ -28,6 +28,7 @@ interface OverviewData {
   totalBusinesses: number;
   limit: number;
   offset: number;
+  responseMetricsWindowDays: number;
   businesses: {
     id: string;
     name: string;
@@ -271,8 +272,12 @@ export default function AdminOverviewPage() {
                   >
                     Reconnect
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Response Rate</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Avg Time</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">
+                    Response Rate ({data.responseMetricsWindowDays}d)
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">
+                    Avg Time ({data.responseMetricsWindowDays}d)
+                  </th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Last Activity</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Health</th>
                 </tr>
