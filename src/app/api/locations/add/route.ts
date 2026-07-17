@@ -16,6 +16,7 @@ import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import {
   locationDenialResponse,
   LOCATION_ROUTE_NO_STORE as NO_STORE,
@@ -130,6 +131,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { error: 'account_not_found' },
       { status: 404, headers: NO_STORE },
+    );
+  }
+  if (!isSubscriptionTier(account.subscription_tier)) {
+    return NextResponse.json(
+      { error: 'account_invalid_subscription_tier' },
+      { status: 500, headers: NO_STORE },
     );
   }
 

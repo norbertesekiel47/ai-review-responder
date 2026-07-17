@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
 import { TRIAGE_SOURCE } from '../../../../src/lib/reviews/triage-schema';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 import { createMockSql, mkTaggedResult } from '../../../__tests__/helpers/mock-sql';
 import {
   evaluateAutoApprovalCandidate,
@@ -52,6 +53,7 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     moderation: CLEAN_MODERATION,
     held: false,
     subscriptionStatus: 'active',
+    subscriptionTier: 'autopilot',
     accountPastDueAt: null,
     accountFlags: {},
     activeLocationNow: true,
@@ -81,6 +83,30 @@ describe('evaluateAutoApprovalCandidate', () => {
     expect(decision.publisherSubscription).toEqual({ allowed: true });
     expect(decision.reviewContentHashMatched).toBe(true);
   });
+
+  it('denies Copilot even when every policy, moderation, and runtime gate otherwise passes', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+    const decision = evaluateAutoApprovalCandidate(baseInput({ subscriptionTier: 'copilot' }));
+
+    expect(decision.approved).toBe(false);
+    expect(decision.blockReasons).toEqual(['autopilot_tier_required']);
+  });
+
+  it.each(['copilot', 'autopilot'] as const)(
+    'denies invalid publisher subscription status for %s',
+    (subscriptionTier) => {
+      process.env.AUTO_APPROVAL_ENABLED = 'true';
+      process.env.OPENAI_MODERATION_ENABLED = 'true';
+      const decision = evaluateAutoApprovalCandidate(baseInput({
+        subscriptionTier,
+        subscriptionStatus: 'pending_payment',
+      }));
+      expect(decision.approved).toBe(false);
+      expect(decision.blockReasons).toContain('publisher_subscription_denied');
+    },
+  );
 
   const fallbackCases: AutoApprovalMatrixCase[] = [
     { reason: 'bad_origin_lane', overrides: { originLane: 'regenerate' } },
@@ -261,6 +287,7 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
       review_content_hash: 'hash-1',
       archived_at: null,
       subscription_status: 'active',
+      subscription_tier: 'autopilot',
       account_past_due_at: null,
       account_flags: {},
       triage_severity: null,
@@ -323,6 +350,7 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
     expect(state.effectivePolicy.dailyAutoPostCap).toBe(7);
     expect(state.effectivePolicy.suspended).toBe(true);
     expect(state.autoApprovedTodayCount).toBe(3);
+    expect(state.subscriptionTier).toBe('autopilot');
   });
 
   it('loads a NULL daily_auto_post_cap as-is (default resolution is the evaluator\'s job)', async () => {
@@ -347,6 +375,21 @@ describe('loadAutoApprovalRuntimeState (mocked sql)', () => {
     expect(policySelect!.text).toContain('persona = ?');
     expect(policySelect!.text).toContain('action_class = ?');
     expect(policySelect!.values).toEqual(expect.arrayContaining(['reply', 'posting']));
+  });
+
+  it('fails closed on a non-WS8 tier instead of casting or falling back', async () => {
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    harness.sqlReturnQueue.push(mkTaggedResult([
+      currentStateRow({ subscription_tier: unsupportedTier }),
+    ]));
+
+    await expect(runLoader()).rejects.toThrow(
+      'auto_approval_invalid_subscription_tier:retired_tier',
+    );
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls[0]!.text).toContain('FROM reviews');
+    expect(harness.sqlCalls[0]!.text).not.toContain('auto_approval_policies');
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
   it('takes the business FOR UPDATE lock BEFORE counting, and counts on the UTC day boundary', async () => {

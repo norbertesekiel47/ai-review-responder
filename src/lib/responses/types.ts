@@ -1,4 +1,5 @@
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── Demo-mode business context (minimal) ────────────────────────────
 
@@ -19,7 +20,8 @@ export interface BusinessContext extends DemoBusinessContext {
   highlightFacts: string[];
   avoidFacts: string[];
   sampleResponses: string[];
-  subscriptionTier: 'founders' | 'standard' | 'premium';
+  /** Current paid launch tier. */
+  subscriptionTier: SubscriptionTierValue;
 }
 
 // ── Voice learning examples ─────────────────────────────────────────
@@ -43,7 +45,7 @@ export interface GenerationOptions {
   /** Billing account ID — recorded on api_costs for business-scoped production calls. */
   accountId?: string;
   /** Required in production mode for tier-aware limits */
-  subscriptionTier?: 'founders' | 'standard' | 'premium';
+  subscriptionTier?: SubscriptionTierValue;
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a
    *  cached violating response doesn't short-circuit the regeneration. */
   skipCache?: boolean;

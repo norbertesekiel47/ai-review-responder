@@ -45,7 +45,7 @@ export function makeLoadContextBusinessRow(
     avoid_facts: [],
     sample_responses: [],
     subscription_status: 'active',
-    subscription_tier: 'standard',
+    subscription_tier: 'autopilot',
     account_past_due_at: null,
     account_flags: {},
     archived_at: null,

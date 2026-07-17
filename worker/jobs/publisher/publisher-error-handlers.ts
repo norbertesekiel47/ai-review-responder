@@ -97,7 +97,7 @@ export class ZernioReplyVerificationIndeterminateError extends Error {
 
 // ── Terminal helpers ────────────────────────────────────────────────────
 
-interface AuthErrorTerminalArgs {
+export interface AuthErrorTerminalArgs {
   response_id: string;
   business_id: string;
   account_id: string;
@@ -124,15 +124,24 @@ interface AuthErrorTerminalArgs {
  * Idempotent — re-call on already-disconnected / already-parked no-ops.
  */
 export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: AuthErrorTerminalArgs): Promise<void> {
+  const { outboxId, outboxAttempt } = args;
+
+  await sql.begin((tx) => handlePublisherAuthErrorTerminalInTx(tx, args));
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+}
+
+/** Auth terminal state/outbox body for an attempt already CAS-claimed. */
+export async function handlePublisherAuthErrorTerminalInTx(
+  tx: postgres.TransactionSql,
+  args: Omit<AuthErrorTerminalArgs, 'outboxId' | 'outboxAttempt'>,
+): Promise<void> {
   const {
     response_id, business_id, account_id, location_id,
-    error_body, outboxId, outboxAttempt, logger,
+    error_body, logger,
   } = args;
-
   const safeErrorBody = redactSensitiveError(error_body);
 
-  await sql.begin(async (tx) => {
-    const disconnected = await tx`
+  const disconnected = await tx`
       UPDATE zernio_connections
       SET status = 'disconnected',
           disconnected_at = NOW(),
@@ -152,7 +161,7 @@ export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: 
     // notify enqueue. Without this, a parallel publisher attempt could
     // disconnect the connection and then skip the reconnect email because
     // the response UPDATE returns 0 rows.
-    const parked = await tx<{ review_id: string }[]>`
+  const parked = await tx<{ review_id: string }[]>`
       UPDATE responses
       SET status = 'awaiting_owner_connect',
           posting_error = 'zernio_auth_error',
@@ -163,10 +172,10 @@ export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: 
       RETURNING review_id
     `;
 
-    if (parked.length === 0) {
-      logger.warn(`Response ${response_id} already terminal — skipping reconnect notify`);
-      return;
-    }
+  if (parked.length === 0) {
+    logger.warn(`Response ${response_id} already terminal — skipping reconnect notify`);
+    return;
+  }
 
     const reviewId = parked[0]!.review_id;
 
@@ -204,12 +213,9 @@ export async function handlePublisherAuthErrorTerminal(sql: postgres.Sql, args: 
         )
       `;
     }
-  });
-
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }
 
-interface PermanentErrorTerminalArgs {
+export interface PermanentErrorTerminalArgs {
   response_id: string;
   business_id: string;
   review_id: string;
@@ -232,12 +238,25 @@ interface PermanentErrorTerminalArgs {
  */
 export async function handlePublisherPermanentErrorTerminal(sql: postgres.Sql, args: PermanentErrorTerminalArgs): Promise<void> {
   const {
-    response_id, business_id, review_id, endpoint_kind, http_status,
-    error_body, outboxId, outboxAttempt, logger,
+    response_id, endpoint_kind, http_status, outboxId, outboxAttempt, logger,
   } = args;
 
-  await sql.begin(async (tx) => {
-    const updated = await tx`
+  await sql.begin((tx) => handlePublisherPermanentErrorTerminalInTx(tx, args));
+
+  await markOutboxCompleted(sql, outboxId, outboxAttempt);
+  logger.warn(`Response ${response_id} permanently failed (${endpoint_kind} ${http_status}) — exception opened`);
+}
+
+/** Permanent terminal state/outbox body for an attempt already CAS-claimed. */
+export async function handlePublisherPermanentErrorTerminalInTx(
+  tx: postgres.TransactionSql,
+  args: Omit<PermanentErrorTerminalArgs, 'outboxId' | 'outboxAttempt'>,
+): Promise<void> {
+  const {
+    response_id, business_id, review_id, endpoint_kind, http_status,
+    error_body,
+  } = args;
+  const updated = await tx`
       UPDATE responses
       SET status = 'failed',
           posting_error = 'zernio_permanent_4xx',
@@ -247,7 +266,7 @@ export async function handlePublisherPermanentErrorTerminal(sql: postgres.Sql, a
         AND status IN ('approved', 'edited', 'awaiting_owner_connect')
       RETURNING 1
     `;
-    if (updated.count === 0) return;
+  if (updated.count === 0) return;
 
     // Serialize the unknown-shape error_body to JSON, then run through
     // redactSensitiveError before persisting to review_exceptions.payload.
@@ -291,10 +310,6 @@ export async function handlePublisherPermanentErrorTerminal(sql: postgres.Sql, a
         )
       `;
     }
-  });
-
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
-  logger.warn(`Response ${response_id} permanently failed (${endpoint_kind} ${http_status}) — exception opened`);
 }
 
 // ── verify409AndDispose ─────────────────────────────────────────────────────

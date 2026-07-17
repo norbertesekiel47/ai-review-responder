@@ -4,7 +4,8 @@ A catalogue of every third-party service RepWorth integrates with, plus a full
 inventory of environment variables the code actually reads — cross-checked
 against `.env.example`.
 
-- **Last verified:** 2026-05-29 (by codebase scan — see §4 to reproduce).
+- **Last verified:** 2026-07-15 (WS8 tier/cutover sweep; original full scan
+  procedure remains in §4).
 - **Canonical files:** `.env.example` is the copy-paste template; this doc is the
   service map + var index + drift report. Deep per-flag *behavior* lives in
   `.claude/reference/env-vars.md` — don't duplicate it here.
@@ -82,7 +83,16 @@ only · ⚙️ platform-injected (not app config).
 `RESEND_API_KEY` ✅ · `RESEND_WEBHOOK_SECRET` ✅ · `RESEND_FROM_EMAIL` ✅ · `ADMIN_NOTIFICATION_EMAIL` ✅ · `CONTACT_NOTIFY_TO` ✅ · `LIST_UNSUBSCRIBE_EMAIL` ✅ (mailto fallback) · `LIST_UNSUBSCRIBE_URL` 🟢 (one-click https endpoint — distinct var) · `OWNER_LEADS_GOOGLE_SHEET_ID` ✅ · `OWNER_LEADS_GOOGLE_SHEET_RANGE` ✅ · `GOOGLE_SHEETS_CLIENT_EMAIL` ✅ · `GOOGLE_SHEETS_PRIVATE_KEY` ✅
 
 ### Payments (Stripe)
-`STRIPE_SECRET_KEY` ✅ · `STRIPE_WEBHOOK_SECRET` ✅ · `STRIPE_PRICE_BASIC` / `_FOUNDING` / `_FOUNDERS_OVERAGE` / `_STANDARD` / `_STANDARD_OVERAGE` / `_PREMIUM` / `_PREMIUM_OVERAGE` ✅ (Payment Links deprecated)
+`STRIPE_SECRET_KEY` ✅ · `STRIPE_WEBHOOK_SECRET` ✅ ·
+`STRIPE_PRICE_COPILOT_LIST` ✅ · `STRIPE_PRICE_COPILOT_FOUNDING` ✅ ·
+`STRIPE_PRICE_AUTOPILOT_LIST` ✅ · `STRIPE_PRICE_AUTOPILOT_FOUNDING` ✅ ·
+`STRIPE_PRICE_COPILOT_OVERAGE` ✅ · `STRIPE_PRICE_AUTOPILOT_OVERAGE` ✅ ·
+`FOUNDING_DEADLINE` ✅. The seven pre-WS8 Price variables remain deployed only
+through the cutover rollback window and are read only by the cutover preflight,
+not strict runtime price resolution: `STRIPE_PRICE_BASIC`,
+`STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_FOUNDERS_OVERAGE`,
+`STRIPE_PRICE_STANDARD`, `STRIPE_PRICE_STANDARD_OVERAGE`,
+`STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PREMIUM_OVERAGE`.
 
 ### Channels (Twilio / Telegram) — flags off by default
 Telegram: `CHANNELS_TELEGRAM_ENABLED` ✅ · `TELEGRAM_BOT_TOKEN` ✅ · `TELEGRAM_WEBHOOK_SECRET` ✅ · `TELEGRAM_BOT_USERNAME` ✅
@@ -107,11 +117,14 @@ WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO
 `SENTRY_DSN` ✅ · `NEXT_PUBLIC_SENTRY_DSN` ✅ · `SENTRY_ORG` ✅ · `SENTRY_PROJECT` ✅ · `SENTRY_AUTH_TOKEN` ✅ · `POSTHOG_API_KEY` ✅ · `POSTHOG_HOST` ✅ · `LOG_SERVICE` 🟢 (log-label, cosmetic)
 
 ### Feature flags
-`SELF_SERVE_SIGNUP_ENABLED` ✅ · `RANKING_TRACKING_ENABLED` ✅ · `EDIT_REPLIES_ENABLED` ✅ · `MULTI_LOCATION_ENABLED` 🟢 · `ONBOARDING_DEMO_ENABLED` 🟢 · `EXTERNAL_REPLY_IMPORT_ENABLED` 🟢 · `PAST_REPLIES_VIEW_ENABLED` 🟢 · `MFA_ENFORCEMENT_ENABLED` 🟢 · `AUTO_APPROVAL_ENABLED` 🟢 · `AUTO_APPROVAL_PROVIDER_MODERATION_READY` 🟢 · `ACCOUNT_OFFBOARDING_ENABLED` 🟢 · `OPENAI_MODERATION_ENABLED` 🟢 (listed under LLM)
+`SELF_SERVE_SIGNUP_ENABLED` ✅ · `RANKING_TRACKING_ENABLED` ✅ · `EDIT_REPLIES_ENABLED` ✅ · `MULTI_LOCATION_ENABLED` 🟢 · `ONBOARDING_DEMO_ENABLED` 🟢 · `EXTERNAL_REPLY_IMPORT_ENABLED` 🟢 · `PAST_REPLIES_VIEW_ENABLED` 🟢 · `MFA_ENFORCEMENT_ENABLED` 🟢 · `AUTO_APPROVAL_ENABLED` 🟢 · `AUTOPILOT_PURCHASABLE` ✅ · `AUTO_APPROVAL_PROVIDER_MODERATION_READY` 🟢 · `ACCOUNT_OFFBOARDING_ENABLED` 🟢 · `OPENAI_MODERATION_ENABLED` 🟢 (listed under LLM)
 > Behavior of each flag: `.claude/reference/env-vars.md`. All are server-authoritative — never add a `NEXT_PUBLIC_*` companion.
 
 ### Costs
-`GLOBAL_DAILY_COST_LIMIT_CENTS` ✅ · `DAILY_COST_LIMIT_CENTS_FOUNDING` ✅ · `DAILY_COST_LIMIT_CENTS_STANDARD` ✅ · `DAILY_COST_LIMIT_CENTS_PREMIUM` 🟢 (the tier the example had dropped) · `ONBOARDING_DEMO_DAILY_CENTS` 🟢 · `ONBOARDING_DEMO_STAFF_EMAILS_CSV` 🟢
+`GLOBAL_DAILY_COST_LIMIT_CENTS` ✅ · `DAILY_COST_LIMIT_CENTS_COPILOT` ✅
+(required positive operator input) · `DAILY_COST_LIMIT_CENTS_AUTOPILOT` ✅
+(required positive operator input) · `ONBOARDING_DEMO_DAILY_CENTS` 🟢 ·
+`ONBOARDING_DEMO_STAFF_EMAILS_CSV` 🟢
 
 ### Poller / scheduler tuning — all optional, code defaults; 🟢 added as commented docs
 `OUTBOX_POLL_INTERVAL_MS` · `OUTBOX_BATCH_SIZE` · `ARCHIVAL_INTERVAL_MS` · `CANCELLATION_GRACE_INTERVAL_MS` · `ENGAGEMENT_MONITOR_INTERVAL_MS` · `EMAIL_CHANNEL_RECONCILE_INTERVAL_MS` / `_BATCH_SIZE` / `_DISABLED` · `ANALYTICS_DISPATCH_POLL_INTERVAL_MS` / `_BATCH_SIZE` · `STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS` / `_DISABLED` · `MONTHLY_IMPACT_SCHEDULER_INTERVAL_MS` · `WEEKLY_SUMMARY_SCHEDULER_INTERVAL_MS` · `ONBOARDING_DRIP_INTERVAL_MS` · `NOTIFICATION_FAILOVER_INTERVAL_MS` / `_DISABLED` · `CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS` / `_BATCH_SIZE` · `RANKING_TRACKING_INTERVAL_MS`
@@ -127,7 +140,11 @@ WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO
 
 ---
 
-## 3. Drift report (snapshot at scan time)
+## 3. Historical drift report (2026-05-29 snapshot; not the current inventory)
+
+The bullets below preserve the outcome of the original 2026-05-29 scan. They
+are historical evidence, not a claim about the WS8-era variable set; the current
+inventory is §2 and `.env.example`.
 
 - **Missing from `.env.example`, read by code (34):** the full Zernio family (8),
   6 feature flags, `DAILY_COST_LIMIT_CENTS_PREMIUM`, `LIST_UNSUBSCRIBE_URL`,

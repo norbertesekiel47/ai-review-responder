@@ -34,6 +34,8 @@ import {
 } from '../../../src/lib/agents/run-spine';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
+import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import {
   type AutoApprovalDecision,
   type AutoApprovalRuntimeState,
@@ -59,6 +61,8 @@ export interface PersistResponseInput {
   loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
   accountId: string;
+  /** Diagnostic pre-LLM tier. Grant authority comes from runtimeState only. */
+  preLlmSubscriptionTier: SubscriptionTierValue;
   logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 
@@ -66,7 +70,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   const {
     result, retryCostId, reviewId, businessId, version,
     correlationId, suppressNotification, originLane, loadedReviewContentHash,
-    moderation, accountId, logger,
+    moderation, accountId, preLlmSubscriptionTier, logger,
   } = input;
 
   const responseId = uuidv7();
@@ -90,6 +94,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       reviewId,
       businessId,
       responseId,
+      accountId,
       isAutoApprovalCandidate,
       logger,
     });
@@ -154,6 +159,13 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         businessId,
         accountId,
       });
+      if (preLlmSubscriptionTier !== runtimeState.subscriptionTier) {
+        logger.log('Subscription tier changed during response generation', {
+          account_id: accountId,
+          pre_llm_subscription_tier: preLlmSubscriptionTier,
+          current_subscription_tier: runtimeState.subscriptionTier,
+        });
+      }
       autoDecision = evaluateAutoApprovalCandidate({
         originLane,
         version,
@@ -165,6 +177,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         moderation,
         held,
         subscriptionStatus: runtimeState.subscriptionStatus,
+        subscriptionTier: runtimeState.subscriptionTier,
         accountPastDueAt: runtimeState.accountPastDueAt,
         accountFlags: runtimeState.accountFlags,
         activeLocationNow: runtimeState.activeLocationNow,
@@ -247,11 +260,14 @@ async function acquirePersistLocks(
     reviewId: string;
     businessId: string;
     responseId: string;
+    accountId: string;
     isAutoApprovalCandidate: boolean;
     logger: Pick<WorkerLogger, 'warn'>;
   },
 ): Promise<void> {
-  const { reviewId, businessId, responseId, isAutoApprovalCandidate, logger } = args;
+  const {
+    reviewId, businessId, responseId, accountId, isAutoApprovalCandidate, logger,
+  } = args;
 
   // Take the review row lock as the transaction's FIRST statement
   // (run-spine.ts lock-ordering contract). It must precede the responses
@@ -300,6 +316,9 @@ async function acquirePersistLocks(
     await tx`
       SELECT id FROM businesses WHERE id = ${businessId} FOR UPDATE
     `;
+    // Fixed WS8 approval-lane order: reviews -> businesses -> entitlement,
+    // before the responses INSERT (and every later account-FK child write).
+    await acquireTierEntitlementLock(tx, accountId);
   }
 }
 

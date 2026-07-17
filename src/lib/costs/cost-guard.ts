@@ -3,10 +3,11 @@ import {
   acquireConcurrencySlot,
   releaseConcurrencySlot,
 } from './concurrency-guard';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export interface CostGuardOptions {
   businessId: string;
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
   /** Acquire a per-business concurrency slot. Defaults to true. */
   withConcurrency?: boolean;
   /**
@@ -33,7 +34,7 @@ export async function withCostGuard<T>(
 
   // L6: Defensive boundary check. Empty businessId would build collision-prone
   // Redis keys like `cost:daily::2026-05-03`. Tier feeds tier-limit lookup;
-  // empty would silently fall back to 'standard'. Both are caller bugs we
+  // empty would produce an invalid configuration lookup. Both are caller bugs we
   // want to surface immediately, not paper over.
   if (!businessId) {
     throw new TypeError('withCostGuard: businessId is required');

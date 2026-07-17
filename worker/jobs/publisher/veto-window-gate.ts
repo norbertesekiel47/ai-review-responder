@@ -1,8 +1,8 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { AUDIT_ACTION_AUTO_APPROVED_BY_POLICY } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueuePublishResponse } from '../../../src/lib/shared/job-outbox-helpers';
-import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import { markOutboxCompletedIfOwned } from '../../../src/lib/shared/outbox';
 
 export type VetoWindowGateOutcome =
   /** A full veto window has elapsed since the FIRST delivered notice — post. */
@@ -59,12 +59,27 @@ export async function enforceElapsedVetoWindow(
   sql: Sql,
   input: VetoWindowGateInput,
 ): Promise<VetoWindowGateOutcome> {
-  const { responseId, businessId, outboxId, outboxAttempt, correlationId, logger } = input;
+  return sql.begin((tx) => enforceElapsedVetoWindowInTx(tx, input));
+}
+
+/** Caller owns review -> business -> response locks. */
+export async function enforceElapsedVetoWindowInTx(
+  tx: TransactionSql,
+  input: VetoWindowGateInput,
+): Promise<VetoWindowGateOutcome> {
+  const {
+    responseId,
+    businessId,
+    outboxId,
+    outboxAttempt,
+    correlationId,
+    logger,
+  } = input;
 
   // Aggregate with no GROUP BY: always exactly one row (first_sent NULL when
   // zero delivered notices). db_now keeps the elapsed comparison on the DB
   // clock — the same clock that stamped sent_at.
-  const [gate] = await sql<VetoWindowGateRow[]>`
+  const [gate] = await tx<VetoWindowGateRow[]>`
     SELECT
       MIN(nd.sent_at) AS first_sent,
       NOW() AS db_now
@@ -77,7 +92,7 @@ export async function enforceElapsedVetoWindow(
 
   if (!gate || gate.first_sent === null) return 'downgrade';
 
-  const [grant] = await sql<{ veto_window_minutes: number | null }[]>`
+  const [grant] = await tx<{ veto_window_minutes: number | null }[]>`
     SELECT (aal.metadata->>'veto_window_minutes')::int AS veto_window_minutes
     FROM approval_audit_log aal
     WHERE aal.response_id = ${responseId}
@@ -112,7 +127,10 @@ export async function enforceElapsedVetoWindow(
   // enqueue a fresh delayed publish row. Completion MUST precede the insert:
   // the in-flight partial index counts pending/dispatching/dispatched rows,
   // and within this tx the completed current row no longer blocks the insert.
-  return sql.begin(async (tx): Promise<VetoWindowGateOutcome> => {
+  {
+    const ownsAttempt = await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+    if (!ownsAttempt) return 'completed';
+
     const [pushed] = await tx<{ auto_post_scheduled_at: Date }[]>`
       UPDATE responses
       SET auto_post_scheduled_at = ${anchoredDeadline},
@@ -127,14 +145,12 @@ export async function enforceElapsedVetoWindow(
     if (!pushed) {
       // State changed since load (vetoed / downgraded / posted) — no-op exit,
       // same shape as the worker's other terminal no-ops.
-      await markOutboxCompleted(tx, outboxId, outboxAttempt);
       logger.log(
         `Veto-window push for response ${responseId} lost a state race; completed outbox ${outboxId} without re-enqueue`,
       );
       return 'completed';
     }
 
-    await markOutboxCompleted(tx, outboxId, outboxAttempt);
     await enqueuePublishResponse(tx, {
       responseId,
       businessId,
@@ -145,5 +161,5 @@ export async function enforceElapsedVetoWindow(
       `Response ${responseId} veto window extended to ${pushed.auto_post_scheduled_at.toISOString()}, publish re-enqueued`,
     );
     return 'completed';
-  });
+  }
 }

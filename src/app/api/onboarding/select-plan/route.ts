@@ -6,20 +6,153 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
-import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
-import { applyTierSnapshot, resolveCheckoutContext } from '@/lib/payments/plan-activation';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import {
+  CheckoutOffboardingBlockedError,
+  CheckoutUnavailableError,
+  createCheckoutSession,
+} from '@/lib/payments/create-checkout-session';
+import {
+  applyTierSnapshot,
+  CheckoutAttemptConflictError,
+  resolveCheckoutContext,
+} from '@/lib/payments/plan-activation';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
+type SelectPlanRequestGate =
+  | { kind: 'ok'; tier: SubscriptionTierValue; userId: string }
+  | { kind: 'response'; response: NextResponse };
+
+async function validateSelectPlanRequest(
+  req: NextRequest,
+): Promise<SelectPlanRequestGate> {
+  if (!selfServeSignupEnabled()) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: NO_STORE },
+      ),
+    };
+  }
+
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (!(err instanceof SameOriginError)) throw err;
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'forbidden' },
+        { status: 403, headers: NO_STORE },
+      ),
+    };
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'invalid_json' },
+        { status: 400, headers: NO_STORE },
+      ),
+    };
+  }
+  const parsed = SelectPlanSchema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'invalid_body', issues: parsed.error.issues },
+        { status: 400, headers: NO_STORE },
+      ),
+    };
+  }
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll() {
+          // Read-only.
+        },
+      },
+    },
+  );
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'unauthorized' },
+        { status: 401, headers: NO_STORE },
+      ),
+    };
+  }
+
+  try {
+    const authRl = await checkRateLimit(
+      `select-plan:auth:${user.id}`,
+      10,
+      600,
+      { strict: true },
+    );
+    if (!authRl.allowed) {
+      return {
+        kind: 'response',
+        response: NextResponse.json(
+          { error: 'rate_limited' },
+          { status: 429, headers: NO_STORE },
+        ),
+      };
+    }
+    const ipRl = await checkRateLimit(
+      getIpKey(req, 'select-plan'),
+      30,
+      600,
+      { strict: true },
+    );
+    if (!ipRl.allowed) {
+      return {
+        kind: 'response',
+        response: NextResponse.json(
+          { error: 'rate_limited' },
+          { status: 429, headers: NO_STORE },
+        ),
+      };
+    }
+  } catch (err) {
+    reportCaughtError('select-plan', err, { reason: 'rate_limit_strict_failure' });
+    return {
+      kind: 'response',
+      response: NextResponse.json(
+        { error: 'rate_limit_unavailable' },
+        { status: 503, headers: NO_STORE },
+      ),
+    };
+  }
+
+  return { kind: 'ok', tier: parsed.data.tier, userId: user.id };
+}
+
 /**
  * POST /api/onboarding/select-plan
  *
- * Self-serve owner picks a plan (founders | basic | standard | premium) on /onboarding/pay.
+ * Self-serve owner explicitly picks Copilot or Autopilot on /onboarding/pay.
  * We write the choice to `accounts.subscription_tier` BEFORE creating a
  * Stripe Checkout Session, so by the time `checkout.session.completed` fires
  * the DB tier already matches what they paid for. The Stripe webhook still
@@ -42,100 +175,9 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * limits are generous enough that two impatient retries don't trip them.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (!selfServeSignupEnabled()) {
-    return NextResponse.json(
-      { error: 'not_found' },
-      { status: 404, headers: NO_STORE },
-    );
-  }
-
-  try {
-    assertSameOrigin(req);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json(
-        { error: 'forbidden' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-    throw err;
-  }
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const parsed = SelectPlanSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const { tier } = parsed.data;
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll() {
-          // Read-only.
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { error: 'unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  try {
-    const authRl = await checkRateLimit(
-      `select-plan:auth:${user.id}`,
-      10,
-      600,
-      { strict: true },
-    );
-    if (!authRl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-    const ipRl = await checkRateLimit(
-      getIpKey(req, 'select-plan'),
-      30,
-      600,
-      { strict: true },
-    );
-    if (!ipRl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-  } catch (err) {
-    reportCaughtError('select-plan', err, { reason: 'rate_limit_strict_failure' });
-    return NextResponse.json(
-      { error: 'rate_limit_unavailable' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
+  const requestGate = await validateSelectPlanRequest(req);
+  if (requestGate.kind === 'response') return requestGate.response;
+  const { tier, userId } = requestGate;
 
   // We need the business_id before applyTierSnapshot can take the per-business
   // activation lock, but we don't know it yet — this single round to find it
@@ -146,12 +188,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // would otherwise hit whichever business their account points at via the
   // primary location. Returning 404 on non-owner sessions keeps this an
   // authorization invariant independent of proxy.
-  const lookup = await sql<{ id: string; owner_email: string }[]>`
-    SELECT b.id, b.owner_email
+  const lookup = await sql<{
+    id: string;
+    account_id: string;
+    owner_email: string;
+  }[]>`
+    SELECT b.id, a.id AS account_id, b.owner_email
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
-    WHERE u.auth_id = ${user.id}
+    WHERE u.auth_id = ${userId}
       AND u.role = 'owner'
     LIMIT 1
   `;
@@ -161,25 +207,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 404, headers: NO_STORE },
     );
   }
-  const { id: businessId, owner_email: ownerEmail } = lookup[0]!;
+  const {
+    id: businessId,
+    account_id: accountId,
+    owner_email: ownerEmail,
+  } = lookup[0]!;
 
-  // SELECTPLAN-1: tier is validated by SelectPlanSchema, so this lookup always
-  // resolves — the guard makes the invariant explicit (and refuses to snapshot a
-  // wrong price) instead of papering over an impossible state with `?? 1/2500/7900`.
-  const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
-  if (!tierConfig) {
+  // Freeze the server-authoritative trial decision together with the other
+  // caller/environment-dependent Stripe create parameters in the attempt.
+  const ctx = await resolveCheckoutContext(sql, businessId);
+  if (!ctx) {
     return NextResponse.json(
-      { error: 'checkout_unavailable', detail: `Unknown tier: ${tier}` },
-      { status: 502, headers: NO_STORE },
+      { error: 'account_incomplete' },
+      { status: 404, headers: NO_STORE },
     );
   }
 
-  const result = await applyTierSnapshot(sql, { businessId, tier, tierConfig });
+  let result: Awaited<ReturnType<typeof applyTierSnapshot>>;
+  try {
+    result = await applyTierSnapshot(sql, {
+      accountId,
+      activationLockId: businessId,
+      tier,
+      ownerEmail,
+      trial: ctx.trialEligible,
+    });
+  } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
+      return NextResponse.json(
+        { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    throw err;
+  }
 
   if (result.kind === 'not_found') {
     return NextResponse.json(
       { error: 'account_incomplete' },
       { status: 404, headers: NO_STORE },
+    );
+  }
+  if (result.kind === 'offboarding_blocked') {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
+      { status: 403, headers: NO_STORE },
     );
   }
   if (result.kind === 'wrong_status') {
@@ -188,45 +266,45 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 409, headers: NO_STORE },
     );
   }
-  if (result.kind === 'race_lost') {
-    // Status flipped under the lock — extremely unlikely (the lock should
-    // serialize against the only other writer, the Stripe webhook) but the
-    // honest response is "you're already active, go to dashboard".
-    console.warn(
-      `[select-plan] UPDATE matched 0 rows for business ${businessId} despite pending_payment check passing — race_lost branch`,
-    );
-    return NextResponse.json(
-      { error: 'subscription_not_pending', subscriptionStatus: SubscriptionStatus.ACTIVE },
-      { status: 409, headers: NO_STORE },
-    );
-  }
-
   // Create a Stripe Checkout Session instead of a Payment Link URL.
   // The session includes the correct base + overage line items.
   let checkoutUrl: string;
   try {
-    // Resolve the account_id for this owner, plus trial eligibility (PLAN.md
-    // §0.2): TRIAL_ENABLED on AND a self-serve account (onboarded_by IS
-    // NULL) — an admin/partner-onboarded business must not receive a $0
-    // trial via direct POST. Server-authoritative flag; no NEXT_PUBLIC_*.
-    const ctx = await resolveCheckoutContext(sql, businessId);
-    if (!ctx) {
+    const checkout = await createCheckoutSession(
+      sql,
+      ctx.accountId,
+      tier,
+      result.variant,
+      {
+        attemptId: result.attemptId,
+        activationLockId: businessId,
+      },
+    );
+    checkoutUrl = checkout.url;
+  } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
       return NextResponse.json(
-        { error: 'account_incomplete' },
-        { status: 404, headers: NO_STORE },
+        { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
       );
     }
-
-    const result = await createCheckoutSession(sql, ctx.accountId, tier, ownerEmail, {
-      trial: ctx.trialEligible,
-    });
-    checkoutUrl = result.url;
-  } catch (err) {
     if (err instanceof CheckoutUnavailableError) {
       // Missing price env vars — same posture as the old payment_link_unavailable.
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutOffboardingBlockedError) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
+        { status: 409, headers: NO_STORE },
       );
     }
     reportCaughtError('select-plan', err, { reason: 'checkout_session_creation_failed', businessId });

@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * invoice.paid handler (worker/ingress/stripe/invoice-paid.ts):
@@ -13,15 +14,20 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueInvoicePaid,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -31,6 +37,7 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
+    subscriptions = { retrieve: mockRetrieveSubscription };
   },
 }));
 
@@ -47,8 +54,30 @@ import { handleStripeWebhook } from '../stripe';
 const restoreStripeWebhookEnv = installStripeWebhookEnv();
 afterAll(restoreStripeWebhookEnv);
 
+function isAccountStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  status: string,
+): boolean {
+  return /\bUPDATE\s+accounts\b/.test(call.text)
+    && !call.text.includes('inbound_events')
+    && call.values.includes(status);
+}
+
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'active',
+    trial_end: null,
+    metadata: {},
+    items: { data: [] },
+  });
+});
+
+afterEach(() => {
+  expect(sqlReturnQueue).toEqual([]);
 });
 
 describe('invoice.paid — active recovery from past_due', () => {
@@ -67,7 +96,7 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
 
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
@@ -81,6 +110,8 @@ describe('invoice.paid — active recovery from past_due', () => {
         payload: { fromStatus: 'past_due', toStatus: 'active' },
       }),
     );
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 
   it('VAL-BILLING-014: already active → no-op', async () => {
@@ -98,9 +129,15 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
     // No accounts UPDATE should fire since status is already active
     const updateAcct = sqlCalls.filter(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'") && !c.text.includes('inbound_events'),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toEqual([]);
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(
+      TEST_SUBSCRIPTION_ID,
+      {},
+      { timeout: 20_000 },
+    );
+    expect(sqlCalls).toHaveLength(4);
   });
 
   it('VAL-BILLING-D3a: past_due → active recovery inserts one update_stripe_overage_quantity outbox row', async () => {
@@ -127,6 +164,8 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(insert.text).toContain("'account'");   // aggregate_type — SQL literal
     expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     expect(insert.values).toContain(TEST_ACCOUNT_ID); // aggregate_id — interpolated
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 
   it('VAL-BILLING-D3b: already-active account (VAL-BILLING-014 no-op) does NOT insert overage outbox row', async () => {
@@ -148,6 +187,12 @@ describe('invoice.paid — active recovery from past_due', () => {
       (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('update_stripe_overage_quantity'),
     );
     expect(overageInserts).toHaveLength(0);
+    expect(mockRetrieveSubscription).toHaveBeenCalledWith(
+      TEST_SUBSCRIPTION_ID,
+      {},
+      { timeout: 20_000 },
+    );
+    expect(sqlCalls).toHaveLength(4);
   });
 
   it('missing customer → warns and skips', async () => {
@@ -165,6 +210,8 @@ describe('invoice.paid — active recovery from past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
     expect(warnedText).toMatch(/missing customer/);
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(1);
 
     consoleSpy.mockRestore();
   });
@@ -178,6 +225,20 @@ describe('invoice.paid — active recovery from past_due', () => {
 
     queueInvoicePaid({ status: 'past_due' });
 
+    mockRetrieveSubscription.mockImplementation(async () => {
+      const templates = sqlCalls.map((call) => call.text);
+      expect(templates.some((text) => text.includes('pg_advisory_xact_lock'))).toBe(true);
+      expect(templates.some((text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'))).toBe(false);
+      return {
+        id: TEST_SUBSCRIPTION_ID,
+        customer: TEST_CUSTOMER_ID,
+        status: 'active',
+        trial_end: null,
+        metadata: {},
+        items: { data: [] },
+      };
+    });
+
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
@@ -190,5 +251,7 @@ describe('invoice.paid — active recovery from past_due', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 });

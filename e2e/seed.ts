@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { randomUUID, createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import type { SubscriptionTierValue } from '../src/lib/accounts/tier-config';
 
 /**
  * Whether E2E DB seeding is configured. Import this in test files
@@ -78,7 +79,7 @@ export interface MultiLocationSeedData {
 
 export interface SeedMultiLocationAccountOptions {
   subscriptionStatus?: 'active' | 'pending_payment' | 'past_due' | 'cancelled';
-  /** Override to 1 to exercise overage path (secondary location exceeds quota). Default: 2. */
+  /** Stored quota override for grandfathering tests. Default: one launch-included location. */
   locationsIncluded?: number;
   /** Insert an org-default email channel enrollment. Default: true. */
   orgDefaultChannel?: boolean;
@@ -96,14 +97,15 @@ export function getE2eSql(): Sql {
 }
 
 /**
- * Point-in-time standard-tier billing snapshot (invariant #9a) stamped onto
+ * Point-in-time Copilot list billing snapshot (invariant #9a) stamped onto
  * every seeded accounts row. One owner for the numbers the seeders write and
  * the integration tests assert — import it instead of repeating the literals.
  */
-export const STANDARD_TIER_SNAPSHOT = {
-  tier: 'standard',
-  overagePriceCents: 2500,
-  basePriceCents: 7900,
+export const COPILOT_TIER_SNAPSHOT = {
+  tier: 'copilot',
+  priceVariant: 'list',
+  overagePriceCents: 1500,
+  basePriceCents: 2900,
 } as const;
 
 // ── Shared seed builders ─────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ async function insertOwnerWithAccount(tx: TransactionSql, seed: OwnerAccountSeed
       owner_user_id,
       display_name,
       subscription_tier,
+      price_variant,
       subscription_status,
       stripe_customer_id,
       stripe_subscription_id,
@@ -157,15 +160,16 @@ async function insertOwnerWithAccount(tx: TransactionSql, seed: OwnerAccountSeed
       ${seed.accountId}::uuid,
       ${seed.userId}::uuid,
       ${seed.accountDisplayName},
-      ${STANDARD_TIER_SNAPSHOT.tier},
+      ${COPILOT_TIER_SNAPSHOT.tier},
+      ${COPILOT_TIER_SNAPSHOT.priceVariant},
       ${seed.subscriptionStatus},
       ${seed.stripeCustomerId},
       ${seed.stripeSubscriptionId},
       NOW(),
       ${seed.locationsIncluded},
       0,
-      ${STANDARD_TIER_SNAPSHOT.overagePriceCents},
-      ${STANDARD_TIER_SNAPSHOT.basePriceCents}
+      ${COPILOT_TIER_SNAPSHOT.overagePriceCents},
+      ${COPILOT_TIER_SNAPSHOT.basePriceCents}
     )
   `;
 }
@@ -178,7 +182,7 @@ interface BusinessSeedRow {
   google_place_id: string;
   owner_name: string;
   owner_email: string;
-  subscription_tier: string;
+  subscription_tier: SubscriptionTierValue;
   subscription_status: string;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -353,7 +357,7 @@ export async function seedApprovalFlow(
         google_place_id: `e2e-place-${suffix}`,
         owner_name: 'Test Owner',
         owner_email: ownerEmail,
-        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_tier: COPILOT_TIER_SNAPSHOT.tier,
         subscription_status: 'active',
         stripe_customer_id: null,
         stripe_subscription_id: null,
@@ -424,7 +428,7 @@ export async function seedOwnerOffboardingAccount(
         google_place_id: `e2e-owner-offboarding-${suffix}`,
         owner_name: 'Owner Offboarding',
         owner_email: ownerEmail,
-        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_tier: COPILOT_TIER_SNAPSHOT.tier,
         subscription_status: subscriptionStatus,
         stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: stripeSubscriptionId,
@@ -472,7 +476,7 @@ export async function seedMultiLocationAccount(
   const suffix = accountId.slice(0, 8);
   const ownerEmail = `owner-multiloc-${suffix}@test.local`;
   const subscriptionStatus = options.subscriptionStatus ?? 'active';
-  const locationsIncluded = options.locationsIncluded ?? 2;
+  const locationsIncluded = options.locationsIncluded ?? 1;
   const orgDefaultChannel = options.orgDefaultChannel !== false;
   const zernioAccountId = `zacct_e2e_${suffix}`;
   const primaryZernioLocationId = `zloc_e2e_${suffix}_1`;
@@ -495,7 +499,7 @@ export async function seedMultiLocationAccount(
       category: 'restaurant',
       owner_name: 'Multi-Location Owner',
       owner_email: ownerEmail,
-      subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+      subscription_tier: COPILOT_TIER_SNAPSHOT.tier,
       subscription_status: subscriptionStatus,
       stripe_customer_id: null,
       stripe_subscription_id: null,
@@ -703,7 +707,7 @@ export async function seedAuthOwnerAccount(input: {
         google_place_id: `e2e-auth-${suffix}`,
         owner_name: 'E2E Harness Owner',
         owner_email: input.ownerEmail,
-        subscription_tier: STANDARD_TIER_SNAPSHOT.tier,
+        subscription_tier: COPILOT_TIER_SNAPSHOT.tier,
         subscription_status: 'active',
         stripe_customer_id: null,
         stripe_subscription_id: null,

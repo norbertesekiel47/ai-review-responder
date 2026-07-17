@@ -36,7 +36,7 @@ function contextRow() {
     star_rating: 5,
     review_text: 'Great service.',
     subscription_status: 'active',
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     status: 'posted',
     approval_method: 'auto_policy',
   };

@@ -1,4 +1,8 @@
 import type postgres from 'postgres';
+import {
+  isSubscriptionTier,
+  type SubscriptionTierValue,
+} from '../../src/lib/accounts/tier-config';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import {
   checkSubscription,
@@ -30,6 +34,10 @@ export interface SummaryReportBusiness {
   archived_at: Date | null;
 }
 
+type ValidatedSummaryReportBusiness = Omit<SummaryReportBusiness, 'subscription_tier'> & {
+  subscription_tier: SubscriptionTierValue;
+};
+
 export interface BaselineFields {
   baseline_captured_at: Date | null;
   initial_review_count: number | null;
@@ -48,7 +56,7 @@ export interface RankingSummary {
 }
 
 export interface SummaryReportContext {
-  business: SummaryReportBusiness;
+  business: ValidatedSummaryReportBusiness;
   businessId: LocationId;
   outboxId: string;
   outboxAttempt: number | undefined;
@@ -73,7 +81,14 @@ export async function prepareSummaryReport(
     logger,
   });
   if (skipped || !business) return null;
-  return { business, businessId, outboxId, outboxAttempt };
+  if (!isSubscriptionTier(business.subscription_tier)) {
+    throw new Error(`Unsupported subscription tier: ${business.subscription_tier}`);
+  }
+  const validatedBusiness: ValidatedSummaryReportBusiness = {
+    ...business,
+    subscription_tier: business.subscription_tier,
+  };
+  return { business: validatedBusiness, businessId, outboxId, outboxAttempt };
 }
 
 export async function sendSummaryReportEmail(

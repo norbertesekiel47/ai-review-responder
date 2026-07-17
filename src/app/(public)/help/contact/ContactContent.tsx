@@ -49,9 +49,7 @@ const ICON_PATHS: Record<IconKey, string> = {
 };
 
 const RESPONSE_TARGETS = [
-  'Basic and Founders: we aim to respond within 24 business hours',
-  'Standard: we aim to respond within 8 business hours',
-  'Premium: we aim to respond within 2 business hours',
+  'Copilot and Autopilot support is available through the email channels above',
 ];
 
 const HELP_TOPICS = [
@@ -161,7 +159,7 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6 }}
           >
-            <h2 className="mb-4 text-xl font-medium text-rw-ink">Response targets</h2>
+            <h2 className="mb-4 text-xl font-medium text-rw-ink">Support coverage</h2>
             <ul className="space-y-2 text-rw-ink-soft">
               {RESPONSE_TARGETS.map((target) => (
                 <li key={target}>{target}</li>

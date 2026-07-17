@@ -9,7 +9,7 @@
 // See docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md §4.1, §4.6.
 
 import type postgres from 'postgres';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import {
   assertWritableSubscriptionStatus,
@@ -19,13 +19,6 @@ import {
 export { SubscriptionReadOnlyError };
 
 type TxClient = postgres.TransactionSql;
-
-export class PremiumRequiredError extends Error {
-  constructor() {
-    super('premium_required');
-    this.name = 'PremiumRequiredError';
-  }
-}
 
 export class ReviewChangedError extends Error {
   constructor(public readonly current: { reviewText: string | null; reviewHash: string | null }) {
@@ -68,16 +61,9 @@ export interface EditContext {
 /**
  * Tier + ownership gate. Throws on denial; resolves on permit.
  *
- * Tier rule (spec §4.1):
- *   isHistorical = activated_at IS NULL OR review_date < activated_at
- *   isPremium    = tier === 'premium'
- *   canEdit      = NOT isHistorical OR isPremium
- *
- * NULL activation timestamp → fail-closed: ALL reviews treated as historical.
- * Non-premium owners (basic / standard / founders) → PremiumRequiredError;
- * premium → still allowed (subject to the historical cap enforced elsewhere).
- *
- * Boundary: review_date == subscription_activated_at counts as gap (>= predicate).
+ * Paid-tier rule: both Copilot and Autopilot may edit gap and historical
+ * replies. Any unsupported stored tier fails closed before the reply's age can
+ * affect the decision; strict code never treats an unknown tier as a paid one.
  *
  * Account scope (post-migration-034): subscription_tier and
  * subscription_activated_at live on the `accounts` table (the billing parent),
@@ -127,11 +113,7 @@ export async function assertCanEditReply(
     throw new SubscriptionReadOnlyError(writable.error, writable.status);
   }
 
-  const isHistorical =
-    row.activated_at === null ||
-    new Date(row.review_date).getTime() < new Date(row.activated_at).getTime();
-  const isPremium = row.tier === SubscriptionTier.PREMIUM;
-  if (isHistorical && !isPremium) throw new PremiumRequiredError();
+  if (!isSubscriptionTier(row.tier)) throw new ForbiddenError();
 }
 
 /**

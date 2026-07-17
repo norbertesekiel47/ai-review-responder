@@ -27,38 +27,40 @@ describe('createAccountRow', () => {
     const account = createAccountRow();
 
     expect(account.id).toBeTruthy();
-    expect(account.subscription_tier).toBe('standard');
+    expect(account.subscription_tier).toBe('copilot');
+    expect(account.price_variant).toBe('list');
     expect(account.subscription_status).toBe('active');
-    expect(account.locations_included).toBe(1); // standard tier
-    expect(account.locations_overage_price_cents).toBe(2500); // standard tier
+    expect(account.locations_included).toBe(1);
+    expect(account.locations_overage_price_cents).toBe(1500);
     expect(account.locations_paid).toBe(0);
     expect(account.flags).toEqual({});
   });
 
-  it('derives quota fields from premium tier', () => {
-    const account = createAccountRow({ subscription_tier: 'premium' });
+  it('derives quota fields from Autopilot', () => {
+    const account = createAccountRow({ subscription_tier: 'autopilot' });
 
-    expect(account.locations_included).toBe(5);
+    expect(account.locations_included).toBe(1);
     expect(account.locations_overage_price_cents).toBe(2000);
   });
 
-  it('derives quota fields from basic tier', () => {
-    const account = createAccountRow({ subscription_tier: 'basic' });
+  it('derives quota fields from Copilot', () => {
+    const account = createAccountRow({ subscription_tier: 'copilot' });
 
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(0);
+    expect(account.locations_overage_price_cents).toBe(1500);
   });
 
-  it('derives quota fields from founders tier', () => {
-    const account = createAccountRow({ subscription_tier: 'founders' });
+  it('derives founding pricing independently of tier', () => {
+    const account = createAccountRow({ subscription_tier: 'copilot', price_variant: 'founding' });
 
     expect(account.locations_included).toBe(1);
-    expect(account.locations_overage_price_cents).toBe(2500);
+    expect(account.locations_overage_price_cents).toBe(1500);
+    expect(account.base_price_cents).toBe(1900);
   });
 
   it('allows overriding derived quota fields', () => {
     const account = createAccountRow({
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       locations_included: 10,
       locations_overage_price_cents: 500,
     });
@@ -68,14 +70,14 @@ describe('createAccountRow', () => {
   });
 
   it('defaults base_price_cents per tier', () => {
-    expect(createAccountRow({ subscription_tier: 'basic' }).base_price_cents).toBe(2900);
-    expect(createAccountRow({ subscription_tier: 'standard' }).base_price_cents).toBe(7900);
-    expect(createAccountRow({ subscription_tier: 'premium' }).base_price_cents).toBe(19900);
-    expect(createAccountRow({ subscription_tier: 'founders' }).base_price_cents).toBe(1900);
+    expect(createAccountRow({ subscription_tier: 'copilot' }).base_price_cents).toBe(2900);
+    expect(createAccountRow({ subscription_tier: 'autopilot' }).base_price_cents).toBe(6900);
+    expect(createAccountRow({ subscription_tier: 'copilot', price_variant: 'founding' }).base_price_cents).toBe(1900);
+    expect(createAccountRow({ subscription_tier: 'autopilot', price_variant: 'founding' }).base_price_cents).toBe(4900);
   });
 
   it('respects an explicit base_price_cents override', () => {
-    expect(createAccountRow({ subscription_tier: 'founders', base_price_cents: 1500 }).base_price_cents).toBe(1500);
+    expect(createAccountRow({ subscription_tier: 'copilot', base_price_cents: 1500 }).base_price_cents).toBe(1500);
   });
 
   it('generates unique IDs for each account', () => {
@@ -158,10 +160,10 @@ describe('createAccountWithLocations', () => {
   });
 
   it('respects account overrides', () => {
-    const { account } = createAccountWithLocations({ subscription_tier: 'premium' }, 2);
+    const { account } = createAccountWithLocations({ subscription_tier: 'autopilot' }, 2);
 
-    expect(account.subscription_tier).toBe('premium');
-    expect(account.locations_included).toBe(5);
+    expect(account.subscription_tier).toBe('autopilot');
+    expect(account.locations_included).toBe(1);
   });
 });
 

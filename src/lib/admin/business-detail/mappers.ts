@@ -5,6 +5,7 @@
 // export/import wiring changed. No edits to computation or mapping logic.
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
+import { isSubscriptionTier, tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
@@ -15,6 +16,7 @@ import {
 } from '@/lib/auto-approval/flags';
 import { resolveEffectivePolicy } from '@/lib/auto-approval/policy';
 import { buildAutoApprovalReadiness } from '@/lib/auto-approval/readiness';
+import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type {
   AccountContext,
@@ -179,6 +181,9 @@ function buildAutoApprovalDiagnostics({
   // admin's view-as session (which is always blocked from expanding by the owner route).
   const readiness = buildAutoApprovalReadiness({
     runtimeEnabled,
+    autopilotAvailable:
+      tierGrantsAutopilot(accountRow?.subscription_tier)
+      && autopilotPurchasable(),
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
     accountWritable: writable.ok,
@@ -248,6 +253,9 @@ export function mapBusinessDetailResponse({
   autoApprovalPolicyRows,
   autoApprovalAccountRows,
 }: MapBusinessDetailResponseArgs): BusinessDetailResponse {
+  if (!isSubscriptionTier(business.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
+  }
   let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
   if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
     responseTimeTrend = metrics.avg_hours_current > metrics.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';

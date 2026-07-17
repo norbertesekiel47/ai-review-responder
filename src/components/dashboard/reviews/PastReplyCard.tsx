@@ -22,7 +22,7 @@ export interface PastReplyRow {
   // Optimistic-concurrency snapshot (required by EditReplyDrawer).
   review_content_hash?: string | null;
   version?: number | null;
-  // C-2 gate computed server-side (canEdit = !isHistorical OR isPremium).
+  // Server-computed edit eligibility. Both paid launch tiers may edit history.
   canEdit?: boolean;
   // Recoverable failed sibling attached by the LATERAL sidecar query.
   failed_response_id?: string | null;
@@ -232,9 +232,9 @@ function EditControls({
 
   return (
     <div className="pr-edit-row">
-      <span className="pr-premium-lock" aria-label="Editing historical replies requires Premium">
+      <span className="pr-edit-lock" aria-label="This historical reply cannot be edited">
         <LockIcon />
-        Premium feature
+        Editing unavailable
       </span>
     </div>
   );

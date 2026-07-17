@@ -69,6 +69,8 @@ export interface WalkOptions {
   scanExt?: RegExp;
   /** Override the default skip-directory set. */
   skipDirs?: ReadonlySet<string>;
+  /** Override the default test/spec filename exclusion. */
+  skipFile?: RegExp;
 }
 
 /**
@@ -82,7 +84,7 @@ export async function walk(root: string, options: WalkOptions): Promise<string[]
   const resolved: ResolvedWalk = {
     scanExt: options.scanExt ?? DEFAULT_SCAN_EXT,
     skipDirs: options.skipDirs ?? DEFAULT_SKIP_DIRS,
-    skipFile: DEFAULT_SKIP_FILE,
+    skipFile: options.skipFile ?? DEFAULT_SKIP_FILE,
   };
   const files: string[] = [];
   for (const dir of options.scanDirs) {

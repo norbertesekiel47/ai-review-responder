@@ -546,6 +546,31 @@ export async function enqueueStripeOverageRecompute(
 }
 
 /**
+ * Durably projects the canonical account subscription status onto the
+ * deprecated businesses mirror after the canonical transaction commits. A
+ * dedicated job keeps Stripe status writers out of the publisher's
+ * business -> entitlement lock edge while guaranteeing eventual convergence.
+ */
+export async function enqueueStripeSubscriptionMirrorSync(
+  tx: TxClient,
+  accountId: string,
+): Promise<string> {
+  const outboxId = uuidv7();
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC},
+      'account',
+      ${accountId}::uuid,
+      ${tx.json({ account_id: accountId } as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+  return outboxId;
+}
+
+/**
  * Enqueue a validate_place_id job with in-flight dedup: if a pending /
  * dispatching / dispatched validate_place_id row already exists for this
  * business, the INSERT is a no-op. Single owner of that dedup rule — used by

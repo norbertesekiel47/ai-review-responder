@@ -30,11 +30,11 @@ const input = {
   responseId: 'response-1',
   businessId: 'business-1',
   accountId: 'account-1',
-  subscriptionTier: 'standard',
+  subscriptionTier: 'copilot',
   reviewRating: 2,
   reviewText: 'The appointment started 40 minutes late.',
   postedReplyText: 'We are sorry about the wait and will review our scheduling process.',
-};
+} as const;
 
 function llmResult(structured: unknown) {
   return {

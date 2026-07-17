@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Sql } from 'postgres';
 
 // ── Hoisted shared sql mock (worker/__tests__/helpers/mock-sql) ──────────
-const { sqlReturnQueue, mockSql, resetMockSql } = await vi.hoisted(async () => {
+const { sqlReturnQueue, sqlCalls, mockSql, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
@@ -18,6 +18,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
 const sqlArg = mockSql as unknown as Sql;
 
 import { loadGenerationContext } from '../load-context';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../../src/lib/shared/worker-types';
 import {
   FIXTURE_REVIEW_ID,
@@ -175,5 +176,25 @@ describe('loadGenerationContext', () => {
     });
 
     expect(out.kind).toBe('ready');
+    if (out.kind === 'ready') {
+      expect(out.ctx.subscriptionTier).toBe('autopilot');
+      expect(out.ctx.businessContext.subscriptionTier).toBe('autopilot');
+    }
+  });
+
+  it('fails closed on a legacy tier instead of casting or mapping it', async () => {
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+    sqlReturnQueue.push([makeLoadContextReviewRow()]);
+    sqlReturnQueue.push([makeLoadContextBusinessRow({ subscription_tier: unsupportedTier })]);
+    sqlReturnQueue.push([]);
+
+    await expect(loadGenerationContext(sqlArg, {
+      reviewId: FIXTURE_REVIEW_ID,
+      businessId: FIXTURE_BUSINESS_ID,
+      version: 1,
+    })).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+    expect(sqlCalls).toHaveLength(3);
+    expect(sqlCalls[2]!.text).toContain('JOIN responses');
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 });

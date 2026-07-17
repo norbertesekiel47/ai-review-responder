@@ -8,7 +8,6 @@
 // VAL-BILLING-073: Tier change UI renders downgrade confirmation modal
 // with new billing summary.
 
-import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -21,6 +20,7 @@ import {
   type TierChangeFailureCode,
 } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -37,15 +37,21 @@ const TierChangeSchema = z.object({
   preview: z.boolean().optional().default(false),
 });
 
-function normalizeIdempotencyKey(raw: string | null): string {
-  const source = raw && raw.trim().length > 0 ? raw.trim() : uuidv7();
-  const safe = source.replace(/[^a-zA-Z0-9_-]/g, '-');
-  if (safe.length > 0 && safe.length <= 96) return safe;
+function normalizeIdempotencyKey(
+  raw: string | null,
+): string | null {
+  const source = raw?.trim();
+  if (!source) return null;
+  if (/^[a-zA-Z0-9_-]+$/.test(source) && source.length <= 96) return source;
   return createHash('sha256').update(source).digest('hex');
 }
 
 const FAILURE_STATUS: Record<TierChangeFailureCode, number> = {
   no_stripe_subscription: 400,
+  account_offboarding_blocked: 403,
+  subscription_inactive: 409,
+  same_tier: 409,
+  operation_conflict: 409,
   missing_price_config: 500,
   base_item_not_found: 500,
   ambiguous_overage_item: 500,
@@ -92,15 +98,36 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const validation = await validateTierChange(sql, accountId, tier);
-  if (!validation.allowed) {
+  const operationKey = preview
+    ? null
+    : normalizeIdempotencyKey(req.headers.get('Idempotency-Key'));
+  if (!preview && !operationKey) {
     return NextResponse.json(
-      { error: validation.reason ?? 'tier_change_not_allowed' },
-      { status: 409, headers: NO_STORE_HEADERS },
+      { error: 'missing_idempotency_key' },
+      { status: 400, headers: NO_STORE_HEADERS },
     );
   }
 
   if (preview) {
+    let validation;
+    try {
+      validation = await validateTierChange(sql, accountId, tier);
+    } catch (err) {
+      if (err instanceof TierNotPurchasableError) {
+        return NextResponse.json(
+          { error: 'tier_not_purchasable' },
+          { status: 409, headers: NO_STORE_HEADERS },
+        );
+      }
+      throw err;
+    }
+    if (!validation.allowed) {
+      const status = validation.reason === 'account_offboarding_blocked' ? 403 : 409;
+      return NextResponse.json(
+        { error: validation.reason ?? 'tier_change_not_allowed' },
+        { status, headers: NO_STORE_HEADERS },
+      );
+    }
     return NextResponse.json(
       {
         success: true,
@@ -112,12 +139,22 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const outcome = await applyTierChange(sql, {
-    accountId,
-    tier,
-    newOverageUnits: validation.newBillingPreview?.overageUnits ?? 0,
-    operationKey: normalizeIdempotencyKey(req.headers.get('Idempotency-Key')),
-  });
+  let outcome;
+  try {
+    outcome = await applyTierChange(sql, {
+      accountId,
+      tier,
+      operationKey: operationKey!,
+    });
+  } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
+      return NextResponse.json(
+        { error: 'tier_not_purchasable' },
+        { status: 409, headers: NO_STORE_HEADERS },
+      );
+    }
+    throw err;
+  }
 
   if (!outcome.ok) {
     return NextResponse.json(
@@ -130,7 +167,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     {
       success: true,
       newTier: tier,
-      newBilling: validation.newBillingPreview,
+      newBilling: outcome.newBilling,
     },
     { status: 200, headers: NO_STORE_HEADERS },
   );

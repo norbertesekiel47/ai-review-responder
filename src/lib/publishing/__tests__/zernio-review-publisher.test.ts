@@ -80,6 +80,31 @@ describe('ZernioReviewPublisher', () => {
       expect(lookupZernioReviewId).toHaveBeenCalledWith(sql, 'biz1', 'rev1', 'acct1', 'loc1');
     });
 
+    it('locks the active connection for a transaction-bound publish lane', async () => {
+      const tx = vi.fn().mockResolvedValue([
+        { zernio_account_id: 'acct1', zernio_location_id: 'loc1' },
+      ]);
+      const { lookupZernioReviewId } = await import('../zernio-publisher');
+      (lookupZernioReviewId as unknown as ReturnType<typeof vi.fn>)
+        .mockResolvedValue('z-rev-1');
+      const transactionalAdapter = new ZernioReviewPublisher(tx as never, {
+        lockActiveConnection: true,
+      });
+
+      await transactionalAdapter.resolveTarget(REF);
+
+      const query = (tx.mock.calls[0]![0] as TemplateStringsArray).join('?');
+      expect(query).toContain('FROM zernio_connections');
+      expect(query).toContain('FOR UPDATE');
+      expect(lookupZernioReviewId).toHaveBeenCalledWith(
+        tx,
+        'biz1',
+        'rev1',
+        'acct1',
+        'loc1',
+      );
+    });
+
     it('returns review_not_found (carrying meta) when the lookup cannot match', async () => {
       const { sql } = await import('@/lib/db/server');
       const { lookupZernioReviewId } = await import('../zernio-publisher');

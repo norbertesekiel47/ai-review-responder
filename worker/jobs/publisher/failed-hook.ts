@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import * as Sentry from '@sentry/node';
@@ -7,6 +8,7 @@ import {
   extractOutboxHandle,
   markOutboxFailed,
   markOutboxCompleted,
+  markOutboxCompletedIfOwned,
 } from '../../../src/lib/shared/outbox';
 import { applyTransientExhaustionFallback } from '../../../src/lib/publishing/zernio-publisher';
 import { ZernioTransientError } from '../../../src/lib/zernio/errors';
@@ -27,6 +29,40 @@ interface PublisherFailedHookState {
   outboxId: string | undefined;
   outboxAttempt: number | undefined;
   coupledTerminalTxStarted: boolean;
+}
+
+/**
+ * Take the publisher's canonical domain lane before attempting an outbox CAS.
+ * The active publisher orders response -> outbox, so a failed-hook recovery
+ * must never invert that edge by claiming the outbox before it locks the
+ * response. The unlocked anchor pre-read is intentionally first; actual locks
+ * are reviews -> businesses -> responses.
+ */
+async function lockPublisherFailureLane(
+  tx: postgres.TransactionSql,
+  responseId: string,
+  businessId: string,
+): Promise<string | null> {
+  const reviewId = await anchorReviewLockOrder(tx, responseId, businessId);
+  if (!reviewId) return null;
+
+  const [business] = await tx<{ id: string }[]>`
+    SELECT id
+    FROM businesses
+    WHERE id = ${businessId}
+    FOR UPDATE
+  `;
+  if (!business) return null;
+
+  const [response] = await tx<{ id: string }[]>`
+    SELECT id
+    FROM responses
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND review_id = ${reviewId}
+    FOR UPDATE
+  `;
+  return response ? reviewId : null;
 }
 
 function exhaustedJob(
@@ -81,11 +117,23 @@ async function handleTransientPublisherExhaustion(
 
   const ctx = err.attemptContext;
   try {
-    await applyTransientExhaustionFallback(sql, {
-      response_id: ctx.response_id,
-      business_id: ctx.business_id,
-      correlation_id: job.data.correlation_id,
+    state.coupledTerminalTxStarted = true;
+    await sql.begin(async (tx) => {
+      await lockPublisherFailureLane(tx, ctx.response_id, ctx.business_id);
+      const ownsAttempt = await markOutboxFailed(
+        tx,
+        state.outboxId!,
+        'zernio_transient_max_attempts',
+        state.outboxAttempt,
+      );
+      if (!ownsAttempt) return;
+      await applyTransientExhaustionFallback(tx, {
+        response_id: ctx.response_id,
+        business_id: ctx.business_id,
+        correlation_id: job.data.correlation_id,
+      });
     });
+    state.coupledTerminalTxStarted = false;
   } catch (fallbackErr) {
     const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
     console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
@@ -102,12 +150,6 @@ async function handleTransientPublisherExhaustion(
     );
     return;
   }
-  await markOutboxFailed(
-    sql,
-    state.outboxId!,
-    'zernio_transient_max_attempts',
-    state.outboxAttempt,
-  );
 }
 
 async function dispatchPublisherExhaustion(
@@ -118,7 +160,9 @@ async function dispatchPublisherExhaustion(
 ): Promise<void> {
   if (await tryOrphanExhaustion(sql, job, state)) return;
   if (err instanceof ZernioReplyVerificationIndeterminateError) {
+    state.coupledTerminalTxStarted = true;
     await handleVerificationIndeterminate(sql, err, state.outboxId!, state.outboxAttempt);
+    state.coupledTerminalTxStarted = false;
     return;
   }
   if (err instanceof ZernioTransientError) {
@@ -363,12 +407,17 @@ async function handleVerificationIndeterminate(
   outboxAttempt: number | undefined,
 ): Promise<void> {
   await sql.begin(async (tx) => {
-    // Lock-order law: the anchor takes the reviews FOR UPDATE lock FIRST
-    // (its unlocked pre-read resolves review_id), before the responses UPDATE
-    // below and before completeRun's implicit agent_runs lock at the end of
-    // this tx. A null anchor means no visible response row — the UPDATE then
-    // matches 0 rows and we fall out to today's markOutboxCompleted.
-    const reviewId = await anchorReviewLockOrder(tx, err.meta.response_id, err.meta.business_id);
+    // Lock order is review -> business -> response -> outbox. In particular,
+    // the response FOR UPDATE precedes the completion CAS because the active
+    // publisher takes the same response -> outbox edge.
+    const reviewId = await lockPublisherFailureLane(
+      tx,
+      err.meta.response_id,
+      err.meta.business_id,
+    );
+
+    const ownsAttempt = await markOutboxCompletedIfOwned(tx, outboxId, outboxAttempt);
+    if (!ownsAttempt || !reviewId) return;
 
     const updated = await tx`
       UPDATE responses
@@ -425,7 +474,6 @@ async function handleVerificationIndeterminate(
     // so this normally completes; only another still-owner-actionable draft
     // keeps the run running. completeRun stays LAST — agent_runs after the
     // reviews/responses/child-row locks per the global order.
-    if (!reviewId) return;
     if (await hasLiveOwnerActionableResponse(tx, reviewId, err.meta.business_id)) return;
     const activeRun = await findActiveReviewRun(tx, reviewId);
     if (activeRun) {
@@ -434,5 +482,4 @@ async function handleVerificationIndeterminate(
       });
     }
   });
-  await markOutboxCompleted(sql, outboxId, outboxAttempt);
 }

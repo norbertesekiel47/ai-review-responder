@@ -49,7 +49,6 @@ export default async function PastRepliesPage({
         hasHistoricalSection={view.hasHistoricalSection}
         hasGapOrphans={view.hasGapOrphans}
         avgStarRating={view.avgStarRating}
-        isPremium={view.isPremium}
         page={view.page}
         totalPages={view.totalPages}
         editRepliesEnabled={editRepliesEnabled()}

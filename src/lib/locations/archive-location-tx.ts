@@ -24,6 +24,13 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueStripeOverageRecompute, enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
+import { acquireLocationLifecycleLock } from '@/lib/accounts/billing-locks';
+import {
+  getOffboardingState,
+  isBillingMutationBlocked,
+} from '@/lib/account-offboarding/gate';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -228,6 +235,24 @@ async function lockArchiveContext(
   locationId: string,
   accountId: string,
 ): Promise<ArchiveContext> {
+  await acquireLocationLifecycleLock(tx, accountId);
+
+  // Location lifecycle order is mutex -> business rows (ordered) -> account.
+  // Never hold the account while waiting for a publisher/mirror business row:
+  // those paths hold business -> entitlement while tier/status writers hold
+  // entitlement -> account.
+  const [location] = await tx<{ archived_at: Date | string | null; is_primary: boolean }[]>`
+    SELECT archived_at, is_primary
+    FROM businesses
+    WHERE id = ${locationId}::uuid
+      AND account_id = ${accountId}::uuid
+    ORDER BY id
+    FOR UPDATE
+  `;
+  if (!location) {
+    throw new Error('location_archive_conflict');
+  }
+
   await tx`
     SELECT id
     FROM accounts
@@ -241,19 +266,6 @@ async function lockArchiveContext(
     WHERE account_id = ${accountId}::uuid
       AND archived_at IS NULL
   `;
-
-  // FP: lock-ordering inside the tx — account FOR UPDATE lock, then active-count read, then this per-location FOR UPDATE row lock; reordering/parallelizing would break the lock acquisition order.
-  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-  const [location] = await tx<{ archived_at: Date | string | null; is_primary: boolean }[]>`
-    SELECT archived_at, is_primary
-    FROM businesses
-    WHERE id = ${locationId}::uuid
-      AND account_id = ${accountId}::uuid
-    FOR UPDATE
-  `;
-  if (!location) {
-    throw new Error('location_archive_conflict');
-  }
 
   return {
     archivedAt: location.archived_at,
@@ -355,8 +367,9 @@ export interface ReactivateLocationTxResult {
  * silently auto-promotes the reactivated location to primary in the SAME
  * transaction. The self-heal is silent — no notification, only a
  * 'primary_promoted' audit row and the `selfPromoted` response flag. An
- * accounts FOR UPDATE lock is taken FIRST (same accounts→businesses ordering
- * as archive/promote) so concurrent reactivations can't both self-promote.
+ * The account-scoped lifecycle advisory lock is taken first, followed by the
+ * business row and then the account row, so concurrent reactivations cannot
+ * both self-promote and the publisher/mirror lock graph stays acyclic.
  *
  * The outbox job enqueues a Stripe overage update so the worker
  * recalculates the overage quantity (increment).
@@ -373,10 +386,52 @@ export async function reactivateLocationTransaction(
   let selfPromoted: boolean;
   try {
     selfPromoted = await sql.begin(async (tx) => {
-      // 0. Lock the account FIRST — establishes the same accounts→businesses lock
-      // ordering as archive/promote and serializes concurrent reactivations so two
-      // can't both self-promote into a zero-primary account.
-      await tx`SELECT id FROM accounts WHERE id = ${accountId}::uuid FOR UPDATE`;
+      await acquireLocationLifecycleLock(tx, accountId);
+
+      // Lock the affected business before the account. The lifecycle mutex
+      // still serializes concurrent reactivations, so two cannot both heal a
+      // zero-primary account.
+      const [lockedLocation] = await tx<{
+        id: string;
+        archived_at: Date | string | null;
+      }[]>`
+        SELECT id, archived_at
+        FROM businesses
+        WHERE id = ${locationId}::uuid
+          AND account_id = ${accountId}::uuid
+        ORDER BY id
+        FOR UPDATE
+      `;
+      if (!lockedLocation || lockedLocation.archived_at === null) {
+        throw new Error('location_reactivate_conflict');
+      }
+
+      const [lockedAccount] = await tx<{
+        id: string;
+        subscription_tier: string;
+        subscription_activated_at: Date | null;
+      }[]>`
+        SELECT id, subscription_tier, subscription_activated_at
+        FROM accounts
+        WHERE id = ${accountId}::uuid
+        FOR UPDATE
+      `;
+      if (!lockedAccount) {
+        throw new Error('location_reactivate_conflict');
+      }
+      if (!isSubscriptionTier(lockedAccount.subscription_tier)) {
+        throw new Error(
+          `invalid_ws8_subscription_tier:${lockedAccount.subscription_tier}`,
+        );
+      }
+
+      // Reactivation restores billable capacity. Recheck offboarding only
+      // after the account row is locked, and in a separate command, so a
+      // waiter observes a lifecycle row committed by the lock holder.
+      const offboardingState = await getOffboardingState(accountId, tx);
+      if (isBillingMutationBlocked(offboardingState)) {
+        throw new Error('account_offboarding_blocked');
+      }
 
       // 1. Set archived_at = NULL (reactivate)
       const [updatedLocation] = await tx<{
@@ -434,17 +489,12 @@ export async function reactivateLocationTransaction(
       const [backfillContext] = await tx<{
         zernio_account_id: string;
         zernio_location_id: string;
-        subscription_tier: string;
-        subscription_activated_at: Date | null;
       }[]>`
         SELECT
           zc.zernio_account_id,
-          zc.zernio_location_id,
-          a.subscription_tier,
-          a.subscription_activated_at
+          zc.zernio_location_id
         FROM zernio_connections zc
         JOIN businesses b ON b.id = zc.business_id
-        JOIN accounts a ON a.id = b.account_id
         WHERE zc.business_id = ${locationId}::uuid
           AND b.account_id = ${accountId}::uuid
           AND zc.status = 'active'
@@ -455,7 +505,17 @@ export async function reactivateLocationTransaction(
       // 4. Enqueue Zernio backfill for connected reactivated locations
       // VAL-LOC-071: Review sync jobs enqueued for the restored location
       // to catch up on any reviews that arrived during the archived period.
-      if (backfillContext?.subscription_activated_at) {
+      if (backfillContext && lockedAccount.subscription_activated_at) {
+        const payload = {
+          business_id: locationId,
+          zernio_account_id: backfillContext.zernio_account_id,
+          zernio_location_id: backfillContext.zernio_location_id,
+          subscription_tier: lockedAccount.subscription_tier,
+          subscription_activated_at:
+            lockedAccount.subscription_activated_at.toISOString(),
+          backfill_reason: 'reactivation',
+          correlation_id: uuidv7(),
+        } satisfies ZernioInitialBackfillPayload;
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
@@ -463,15 +523,7 @@ export async function reactivateLocationTransaction(
             ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${locationId}::uuid,
-            ${tx.json({
-              business_id: locationId,
-              zernio_account_id: backfillContext.zernio_account_id,
-              zernio_location_id: backfillContext.zernio_location_id,
-              subscription_tier: backfillContext.subscription_tier,
-              subscription_activated_at: backfillContext.subscription_activated_at.toISOString(),
-              backfill_reason: 'reactivation',
-              correlation_id: uuidv7(),
-            })},
+            ${tx.json(payload)},
             'pending'
           )
         `;

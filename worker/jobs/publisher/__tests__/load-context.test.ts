@@ -54,8 +54,10 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'biz-1',
+    account_id: 'acct-1',
     name: 'Test Biz',
     subscription_status: 'active',
+    subscription_tier: 'autopilot',
     account_updated_at: new Date(),
     archived_at: null,
     ...overrides,
@@ -104,6 +106,19 @@ describe('loadPublishResponseContext', () => {
     if (result === 'terminal') return;
 
     expect(result.response.approval_method).toBe('auto_policy');
+  });
+
+  it('loads the tier only as an early publisher hint', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow({ subscription_tier: 'copilot' })]);
+
+    const result = await loadPublishResponseContext(mockSql, BASE_INPUT);
+
+    expect(result).not.toBe('terminal');
+    if (result === 'terminal') return;
+    expect(result.business.subscription_tier).toBe('copilot');
+    const businessSelect = mockSql.mock.calls[1]![0].join('?');
+    expect(businessSelect).toContain('a.subscription_tier');
   });
 
   it('returns terminal and marks outbox failed when response not found', async () => {

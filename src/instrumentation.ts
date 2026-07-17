@@ -1,6 +1,9 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubSentryEvent } from '@/lib/shared/sentry-scrub';
-import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import {
+  assertStripePriceIdsUnique,
+  STRIPE_PRICE_ENV_VARS,
+} from '@/lib/payments/price-tier-map';
 import { assertCoreAppConfig } from '@/lib/config/server';
 
 export const onRequestError = Sentry.captureRequestError;
@@ -18,6 +21,18 @@ function reportStripePriceDrift(): void {
   const message = `[instrumentation] STRIPE_SECRET_KEY is set but Stripe price env vars are missing: ${missing.join(', ')} — tier changes needing them will fail closed with missing_price_config (env drift, not a code bug).`;
   console.error(message);
   Sentry.captureMessage(message, 'error');
+}
+
+function reportStripePriceDuplicateDrift(): void {
+  if (!process.env.STRIPE_SECRET_KEY) return;
+  try {
+    assertStripePriceIdsUnique();
+  } catch {
+    const message =
+      '[instrumentation] Stripe Price mappings conflict; billing lookups will fail closed until live env and retained-history configuration are repaired.';
+    console.error(message);
+    Sentry.captureMessage(message, 'error');
+  }
 }
 
 export async function register() {
@@ -48,6 +63,7 @@ export async function register() {
     assertCoreAppConfig();
 
     reportStripePriceDrift();
+    reportStripePriceDuplicateDrift();
   }
 
   if (process.env.NEXT_RUNTIME === 'edge') {

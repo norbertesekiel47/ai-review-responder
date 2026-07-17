@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
@@ -303,7 +304,7 @@ async function resolveWeeklyIntelligenceBrief(
     existingSummary: string | null;
     reviews: WeeklyReviewRow[];
     businessId: LocationId;
-    subscriptionTier: string;
+    subscriptionTier: SubscriptionTierValue;
     weekStartDate: string;
   },
 ): Promise<string | null> {

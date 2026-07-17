@@ -11,7 +11,7 @@
 //     concrete Playwright assertions so each can be un-fixme'd one at a time
 //     once the harness exists.
 //
-// Seeding: seedMultiLocationAccount() builds a standard-tier account with a
+// Seeding: seedMultiLocationAccount() builds a Copilot account with a
 // primary + secondary business (distinct google_place_id), two active
 // zernio_connections, an owner user, and an org-default email channel
 // enrollment. cleanupMultiLocationAccount() tears it all down. Both run under
@@ -251,7 +251,7 @@ test.describe('Multi-location — authenticated owner (seeded)', () => {
   }) => {
     // HARNESS: authed session for the seeded owner (active, multiLocAllowed).
     // canAddLocationForAccount = flag + active + multiLocAllowed (invariant #9b)
-    // — all true for the seeded standard-tier active account at quota+1.
+    // — all true for the seeded active Copilot account at quota+1.
     await page.goto('/dashboard/add-location');
     // Step 1 of the wizard is the location picker.
     await expect(page).toHaveURL(/\/dashboard\/add-location/);

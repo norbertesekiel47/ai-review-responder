@@ -352,8 +352,8 @@
 }
 .pr-edit-btn:hover { background: rgba(240, 238, 234, 0.4); border-color: #97B3AE; }
 
-/* Lock badge — muted pill shown for non-premium historical rows. */
-.pr-premium-lock {
+/* Lock badge — muted pill shown for historical rows the server marks unavailable. */
+.pr-edit-lock {
   display: inline-flex;
   align-items: center;
   gap: 5px;

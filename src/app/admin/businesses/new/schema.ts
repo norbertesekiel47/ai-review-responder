@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { websiteUrlSchema } from '@/lib/shared/schemas';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 
 // Client-side form schema for the admin "Onboard New Business" page. The
 // server-side equivalent (OnboardBusinessSchema in @/lib/shared/schemas)
@@ -27,7 +28,10 @@ export const FormSchema = z.object({
   highlightFacts: z.string().max(2000).optional(),
   avoidFacts: z.string().max(2000).optional(),
   sampleResponses: z.string().max(5000).optional(),
-  subscriptionTier: z.enum(['founders', 'standard']),
+  subscriptionTier: z.enum([
+    SubscriptionTier.COPILOT,
+    SubscriptionTier.AUTOPILOT,
+  ]),
 });
 
 export type FormData = z.infer<typeof FormSchema>;

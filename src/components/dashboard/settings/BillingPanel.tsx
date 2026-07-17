@@ -3,14 +3,20 @@
 import { useReducer, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { AccountSettingsData } from '@/hooks/useAccountData';
-import { type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
+import {
+  isSubscriptionTier,
+  type PriceVariant,
+  type SubscriptionTierValue,
+} from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { CancelSubscriptionPanel } from '@/components/dashboard/settings/CancelSubscriptionPanel';
 
-const TIER_OPTIONS: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
+const BILLING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
 
 type BillingPreview = {
   basePriceCents: number;
+  includedLocations: number;
   overagePriceCents: number;
   overageUnits: number;
   totalCents: number;
@@ -18,6 +24,7 @@ type BillingPreview = {
 
 interface TierChangeState {
   selectedTier: SubscriptionTierValue | null;
+  operationKey: string | null;
   billingPreview: BillingPreview | null;
   previewLoading: boolean;
   previewError: string | null;
@@ -27,6 +34,7 @@ interface TierChangeState {
 
 const initialTierChangeState: TierChangeState = {
   selectedTier: null,
+  operationKey: null,
   billingPreview: null,
   previewLoading: false,
   previewError: null,
@@ -35,7 +43,7 @@ const initialTierChangeState: TierChangeState = {
 };
 
 type TierChangeAction =
-  | { type: 'previewStart'; selectedTier: SubscriptionTierValue }
+  | { type: 'previewStart'; selectedTier: SubscriptionTierValue; operationKey: string }
   | { type: 'previewError'; previewError: string }
   | { type: 'previewSuccess'; billingPreview: BillingPreview | null }
   | { type: 'previewFinish' }
@@ -51,8 +59,10 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
       return {
         ...state,
         selectedTier: action.selectedTier,
+        operationKey: action.operationKey,
         billingPreview: null,
         previewError: null,
+        tierChangeError: null,
         previewLoading: true,
       };
     case 'previewError':
@@ -64,28 +74,36 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
     case 'confirmStart':
       return { ...state, changing: true, tierChangeError: null };
     case 'confirmSuccess':
-      return { ...state, selectedTier: null };
+      return { ...state, selectedTier: null, operationKey: null, billingPreview: null };
     case 'confirmError':
       return { ...state, tierChangeError: action.tierChangeError };
     case 'confirmFinish':
       return { ...state, changing: false };
     case 'closeModal':
-      return { ...state, selectedTier: null, billingPreview: null, previewError: null };
+      return {
+        ...state,
+        selectedTier: null,
+        operationKey: null,
+        billingPreview: null,
+        previewError: null,
+      };
   }
 }
 
-// ── TierChangeModal ───────────────────────────────────────────────────
+function planLabel(tier: SubscriptionTierValue): string {
+  return tier === 'copilot' ? 'Copilot' : 'Autopilot';
+}
+
+function formatMoney(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 interface TierChangeModalProps {
-  currentTier: SubscriptionTierValue;
   newTier: SubscriptionTierValue;
-  accountId: string;
-  billingPreview: {
-    basePriceCents: number;
-    overagePriceCents: number;
-    overageUnits: number;
-    totalCents: number;
-  } | null;
+  isDowngrade: boolean;
+  priceVariant: PriceVariant;
+  trialing: boolean;
+  billingPreview: BillingPreview | null;
   previewLoading: boolean;
   previewError: string | null;
   onConfirm: () => void;
@@ -94,8 +112,10 @@ interface TierChangeModalProps {
 }
 
 export function TierChangeModal({
-  currentTier,
   newTier,
+  isDowngrade,
+  priceVariant,
+  trialing,
   billingPreview,
   previewLoading,
   previewError,
@@ -103,110 +123,77 @@ export function TierChangeModal({
   onCancel,
   changing,
 }: TierChangeModalProps) {
-  const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
-
   return (
     <SettingsModal
       title={isDowngrade ? 'Downgrade plan' : 'Upgrade plan'}
       closeLabel="Cancel tier change"
       onClose={onCancel}
     >
-        <div className="set-section-title" style={{ marginBottom: 8 }}>
-          {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
-          {isDowngrade
-            ? 'Downgrading will reduce your plan. Your billing will be prorated.'
-            : 'Upgrading will give you more features. Your billing will be prorated.'}
+      <div className="set-section-title" style={{ marginBottom: 8 }}>
+        {isDowngrade ? 'Downgrade' : 'Upgrade'} to {planLabel(newTier)}?
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+        {trialing
+          ? 'Your current trial continues. The selected monthly plan price applies when the trial ends unless you cancel.'
+          : isDowngrade
+            ? 'Your plan will change immediately and Stripe will apply any required proration.'
+            : 'Your plan will change immediately and Stripe will apply any required proration.'}
+      </p>
+
+      {previewLoading && (
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', textAlign: 'center', padding: 8 }}>
+          Calculating new billing…
         </p>
-
-        {/* Billing preview */}
-        {previewLoading && (
-          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', textAlign: 'center', padding: 8 }}>
-            Calculating new billing…
-          </p>
-        )}
-        {previewError && (
-          <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: 8 }}>
-            {previewError}
-          </div>
-        )}
-        {billingPreview && !previewLoading && (
-          <div style={{
-            background: 'var(--rw-recess)',
-            border: '1px solid var(--rw-hair)',
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 12,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
-              New monthly estimate
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--rw-app-text-muted)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Base ({newTier.charAt(0).toUpperCase() + newTier.slice(1)})</span>
-                <span>${(billingPreview.basePriceCents / 100).toFixed(2)}/mo</span>
-              </div>
-              {billingPreview.overageUnits > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Overage ({billingPreview.overageUnits} location{billingPreview.overageUnits > 1 ? 's' : ''})</span>
-                  <span>${(billingPreview.overagePriceCents * billingPreview.overageUnits / 100).toFixed(2)}/mo</span>
-                </div>
-              )}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                borderTop: '1px solid var(--rw-hair)',
-                paddingTop: 4,
-                marginTop: 4,
-                fontWeight: 600,
-                color: 'var(--rw-app-text)',
-              }}>
-                <span>Total</span>
-                <span>${(billingPreview.totalCents / 100).toFixed(2)}/mo</span>
-              </div>
-            </div>
-          </div>
-        )}
-        {billingPreview && !previewLoading && (
-          <p style={{ fontSize: 12, color: 'var(--rw-app-text-muted)', marginBottom: 12, textAlign: 'center' }}>
-            Estimate shown before any applicable taxes. Subscription continues
-            monthly until cancelled.
-          </p>
-        )}
-
-        {isDowngrade && newTier === 'basic' && (
-          <div style={{
-            background: 'var(--rw-blush-soft)',
-            border: '1px solid var(--rw-blush)',
-            borderRadius: 8,
-            padding: 8,
-            marginBottom: 12,
-            fontSize: 12,
-            color: 'var(--rw-blush-deep)',
-          }}>
-            Basic plan supports only 1 location. Archive extra locations before downgrading.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={changing}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onConfirm}
-            disabled={changing || previewLoading}
-          >
-            {changing ? 'Changing…' : `Confirm ${isDowngrade ? 'downgrade' : 'upgrade'}`}
-          </button>
+      )}
+      {previewError && (
+        <div role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)', padding: 8 }}>
+          {previewError}
         </div>
+      )}
+      {billingPreview && !previewLoading && (
+        <div className="billing-preview-card">
+          <div className="billing-preview-title">
+            New monthly estimate
+            {priceVariant === 'founding' && <span className="billing-variant-badge">Founding-for-life</span>}
+          </div>
+          <div className="billing-preview-lines">
+            <div><span>Base ({planLabel(newTier)})</span><span>{formatMoney(billingPreview.basePriceCents)}/month</span></div>
+            <div><span>Included locations</span><span>{billingPreview.includedLocations}</span></div>
+            <div><span>Extra-location rate</span><span>{formatMoney(billingPreview.overagePriceCents)}/month each</span></div>
+            {billingPreview.overageUnits > 0 && (
+              <div>
+                <span>Extra locations ({billingPreview.overageUnits})</span>
+                <span>{formatMoney(billingPreview.overagePriceCents * billingPreview.overageUnits)}/month</span>
+              </div>
+            )}
+            <div className="billing-preview-total">
+              <span>Total</span><span>{formatMoney(billingPreview.totalCents)}/month</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {billingPreview && !previewLoading && (
+        <p style={{ fontSize: 12, color: 'var(--rw-app-text-muted)', marginBottom: 12, textAlign: 'center' }}>
+          Estimate shown before any applicable taxes. Subscription continues monthly until cancelled.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={changing}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onConfirm}
+          disabled={changing || previewLoading || !billingPreview}
+        >
+          {changing ? 'Changing…' : `Confirm ${isDowngrade ? 'downgrade' : 'upgrade'}`}
+        </button>
+      </div>
     </SettingsModal>
   );
 }
-
-// ── QuotaBar subcomponent ──────────────────────────────────────────────
 
 function QuotaBar({ activeLocations, included, overage }: {
   activeLocations: number;
@@ -215,7 +202,7 @@ function QuotaBar({ activeLocations, included, overage }: {
 }) {
   const totalSlots = included + overage;
   const includedPct = totalSlots > 0 ? Math.min((Math.min(activeLocations, included) / totalSlots) * 100, 100) : 0;
-  const overagePct = totalSlots > 0 ? (Math.min(overage, activeLocations - included) / totalSlots) * 100 : 0;
+  const overagePct = totalSlots > 0 ? (Math.min(overage, Math.max(0, activeLocations - included)) / totalSlots) * 100 : 0;
 
   return (
     <div className="quota-bar-wrap">
@@ -223,28 +210,14 @@ function QuotaBar({ activeLocations, included, overage }: {
         <strong>{activeLocations}</strong> of {included} included{overage > 0 ? `, ${overage} overage` : ''}
       </div>
       <div className="quota-bar-track">
-        <div
-          className="quota-bar-fill included"
-          style={{ width: `${includedPct}%` }}
-        />
-        {overage > 0 && (
-          <div
-            className="quota-bar-fill overage"
-            style={{ width: `${overagePct}%`, marginLeft: 0 }}
-          />
-        )}
+        <div className="quota-bar-fill included" style={{ width: `${includedPct}%` }} />
+        {overage > 0 && <div className="quota-bar-fill overage" style={{ width: `${overagePct}%`, marginLeft: 0 }} />}
       </div>
     </div>
   );
 }
 
-// ── PlanCard subcomponent ──────────────────────────────────────────────
-
-function PlanCard({ subscription, billing, accountId }: {
-  subscription: AccountSettingsData['subscription'];
-  billing: AccountSettingsData['billing'];
-  accountId: string;
-}) {
+function CurrentPlanCard({ account }: { account: AccountSettingsData }) {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
 
@@ -255,7 +228,7 @@ function PlanCard({ subscription, billing, accountId }: {
       const portalRes = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId }),
+        body: JSON.stringify({ accountId: account.accountId }),
       });
       if (!portalRes.ok) {
         const body = await portalRes.json().catch(() => ({}));
@@ -270,47 +243,44 @@ function PlanCard({ subscription, billing, accountId }: {
     }
   }
 
-  const basePrice = (billing.basePriceCents / 100).toFixed(2);
-  const overagePrice = billing.overagePriceCents > 0 ? (billing.overagePriceCents / 100).toFixed(2) : null;
+  const currentLabel = isSubscriptionTier(account.subscription.tier)
+    ? planLabel(account.subscription.tier)
+    : account.subscription.tierLabel;
 
   return (
     <div className="plan-card">
       <div>
         <div className="plan-eyebrow">Current plan</div>
-        <div className="plan-name">{subscription.tierLabel}</div>
+        <div className="plan-name">{currentLabel}</div>
         <div className="plan-price">
-          ${basePrice}/mo base
-          {overagePrice && billing.overageUnits > 0 && (
-            <> + ${overagePrice}/mo × {billing.overageUnits} overage</>
+          {formatMoney(account.billing.basePriceCents)}/month base
+          {account.billing.overageUnits > 0 && (
+            <> + {formatMoney(account.billing.overagePriceCents)}/month × {account.billing.overageUnits} extra</>
           )}
         </div>
         <div className="plan-renew">
-          Status: <span style={{ fontWeight: 600 }}>{subscription.statusLabel}</span>
-          {subscription.activatedAt && (
-            <> · Active since {new Date(subscription.activatedAt).toLocaleDateString()}</>
+          {account.subscription.priceVariant === 'founding'
+            ? 'Founding-for-life pricing'
+            : 'List pricing'}
+          {' · '}Status: <span style={{ fontWeight: 600 }}>{account.subscription.statusLabel}</span>
+          {account.subscription.activatedAt && (
+            <> · Active since {new Date(account.subscription.activatedAt).toLocaleDateString()}</>
           )}
         </div>
       </div>
-      {subscription.stripeCustomerId && (
-        <button
-          type="button"
-          className="plan-cta"
-          onClick={openBillingPortal}
-          disabled={portalLoading}
-        >
+      {account.subscription.stripeCustomerId && (
+        <button type="button" className="plan-cta" onClick={openBillingPortal} disabled={portalLoading}>
           {portalLoading ? 'Opening…' : 'Manage billing'}
         </button>
       )}
       {portalError && (
-        <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>
+        <div role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>
           {portalError}
         </div>
       )}
     </div>
   );
 }
-
-// ── BillingPanel ──────────────────────────────────────────────────────
 
 interface Props {
   accountData: AccountSettingsData | null;
@@ -321,11 +291,23 @@ interface Props {
 
 export function BillingPanel({ accountData, accountLoading, accountError, onAccountRefetch }: Props) {
   const [tierChange, dispatch] = useReducer(tierChangeReducer, initialTierChangeState);
-  const { selectedTier, billingPreview, previewLoading, previewError, changing, tierChangeError } = tierChange;
+  const {
+    selectedTier,
+    operationKey,
+    billingPreview,
+    previewLoading,
+    previewError,
+    changing,
+    tierChangeError,
+  } = tierChange;
 
   async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
-    dispatch({ type: 'previewStart', selectedTier: newTier });
+    if (!accountData.planPresentation.purchasable[newTier]) {
+      dispatch({ type: 'confirmError', tierChangeError: 'Autopilot is not currently available. Copilot remains available.' });
+      return;
+    }
+    dispatch({ type: 'previewStart', selectedTier: newTier, operationKey: crypto.randomUUID() });
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
@@ -334,8 +316,12 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        dispatch({ type: 'previewError', previewError: body.error ?? body.detail ?? `Tier change not allowed (${res.status})` });
-        dispatch({ type: 'previewFinish' });
+        dispatch({
+          type: 'previewError',
+          previewError: body.error === 'tier_not_purchasable'
+            ? 'Autopilot is no longer available. Choose Copilot to continue.'
+            : body.error ?? body.detail ?? `Tier change not allowed (${res.status})`,
+        });
         return;
       }
       const result = await res.json();
@@ -348,12 +334,12 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
   }
 
   async function confirmTierChange() {
-    if (!accountData || !selectedTier) return;
+    if (!accountData || !selectedTier || !operationKey || !billingPreview) return;
     dispatch({ type: 'confirmStart' });
     try {
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey },
         body: JSON.stringify({ accountId: accountData.accountId, newTier: selectedTier }),
       });
       if (!res.ok) {
@@ -369,52 +355,93 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
     }
   }
 
-  const currentTier = (accountData?.subscription?.tier ?? 'standard') as SubscriptionTierValue;
-  const otherTiers = TIER_OPTIONS.filter((t) => t !== currentTier);
-  const upgradableTiers = otherTiers.filter((t) => TIER_CONFIG[t].baseCents > TIER_CONFIG[currentTier].baseCents);
-  const downgradableTiers = otherTiers.filter((t) => TIER_CONFIG[t].baseCents < TIER_CONFIG[currentTier].baseCents);
+  const currentTier = accountData && isSubscriptionTier(accountData.subscription.tier)
+    ? accountData.subscription.tier
+    : null;
+  const selectedPrice = accountData && selectedTier
+    ? accountData.planPresentation.prices[selectedTier]
+    : null;
+  const selectedIsDowngrade = Boolean(
+    accountData && selectedPrice && selectedPrice.basePriceCents < accountData.billing.basePriceCents,
+  );
 
   return (
     <>
       <div id="subscription-billing" className="set-section">
         <div className="set-section-head">
-          <div className="set-section-icon violet">
-            <Icon name="chart" size={18} />
-          </div>
+          <div className="set-section-icon violet"><Icon name="chart" size={18} /></div>
           <div>
             <div className="set-section-title">Subscription &amp; billing</div>
-            <div className="set-section-sub">Your plan, billing details, and location quota.</div>
+            <div className="set-section-sub">Your stored plan pricing, location quota, and monthly subscription.</div>
           </div>
         </div>
 
-        {accountLoading && (
-          <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>Loading account data…</p>
-        )}
-        {accountError && <div style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>{accountError}</div>}
+        {accountLoading && <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>Loading account data…</p>}
+        {accountError && <div role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>{accountError}</div>}
         {accountData && (
           <>
-            <PlanCard subscription={accountData.subscription} billing={accountData.billing} accountId={accountData.accountId} />
+            <CurrentPlanCard account={accountData} />
 
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>Locations quota</div>
+              <div className="billing-subhead">Location quota</div>
               <QuotaBar activeLocations={accountData.quota.activeLocations} included={accountData.quota.included} overage={accountData.quota.overage} />
             </div>
 
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>Change plan</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {downgradableTiers.map((tier) => (
-                  <button key={tier} type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => openTierChangeModal(tier)}>
-                    Downgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(TIER_CONFIG[tier].baseCents / 100).toFixed(0)}/mo)
-                  </button>
-                ))}
-                {upgradableTiers.map((tier) => (
-                  <button key={tier} type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => openTierChangeModal(tier)}>
-                    Upgrade to {tier.charAt(0).toUpperCase() + tier.slice(1)} (${(TIER_CONFIG[tier].baseCents / 100).toFixed(0)}/mo)
-                  </button>
-                ))}
+            <div style={{ marginTop: 20 }}>
+              <div className="billing-subhead">Copilot and Autopilot</div>
+              {!currentTier && (
+                <p className="billing-plan-note">Plan changes are unavailable until this account is on a launch tier.</p>
+              )}
+              <div className="billing-plan-grid">
+                {BILLING_PLAN_ORDER.map((tier) => {
+                  const option = accountData.planPresentation.prices[tier];
+                  const isCurrent = tier === currentTier;
+                  const isAvailable = accountData.planPresentation.purchasable[tier];
+                  const isDowngrade = option.basePriceCents < accountData.billing.basePriceCents;
+                  const action = isDowngrade ? 'Downgrade' : 'Upgrade';
+                  const displayedBaseCents = isCurrent
+                    ? accountData.billing.basePriceCents
+                    : option.basePriceCents;
+                  const displayedOverageCents = isCurrent
+                    ? accountData.billing.overagePriceCents
+                    : option.locationsOveragePriceCents;
+                  const displayedIncluded = isCurrent
+                    ? accountData.quota.included
+                    : option.locationsIncluded;
+                  return (
+                    <article key={tier} className={`billing-plan-option ${isCurrent ? 'is-current' : ''}`}>
+                      <div>
+                        <div className="billing-plan-name">{planLabel(tier)}</div>
+                        <div className="billing-plan-price">{formatMoney(displayedBaseCents)}/month</div>
+                        <div className="billing-plan-overage">
+                          {displayedIncluded} included · {formatMoney(displayedOverageCents)}/month each extra
+                        </div>
+                      </div>
+                      {isCurrent ? (
+                        <span className="billing-current-label">Current plan</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={isDowngrade ? 'btn btn-secondary' : 'btn btn-primary'}
+                          onClick={() => openTierChangeModal(tier)}
+                          disabled={!currentTier || !isAvailable}
+                          aria-describedby={!isAvailable ? `${tier}-billing-unavailable` : undefined}
+                        >
+                          {isAvailable
+                            ? `${action} to ${planLabel(tier)} (${formatMoney(option.basePriceCents)}/month)`
+                            : 'Autopilot unavailable'}
+                        </button>
+                      )}
+                      {!isAvailable && !isCurrent && (
+                        <p id={`${tier}-billing-unavailable`} className="billing-plan-note">
+                          Its safety runtime is closed. Copilot remains available.
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
-              {tierChangeError && <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>{tierChangeError}</div>}
+              {tierChangeError && <div role="alert" style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 8 }}>{tierChangeError}</div>}
             </div>
           </>
         )}
@@ -422,11 +449,12 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
 
       <CancelSubscriptionPanel accountTimeZone={accountData?.timeZone ?? 'UTC'} onAccountRefetch={onAccountRefetch} />
 
-      {selectedTier && accountData && (
+      {selectedTier && accountData && isPriceVariantForDisplay(accountData.subscription.priceVariant) && (
         <TierChangeModal
-          currentTier={currentTier}
           newTier={selectedTier}
-          accountId={accountData.accountId}
+          isDowngrade={selectedIsDowngrade}
+          priceVariant={accountData.subscription.priceVariant}
+          trialing={accountData.subscription.status === SubscriptionStatus.TRIALING}
           billingPreview={billingPreview}
           previewLoading={previewLoading}
           previewError={previewError}
@@ -437,4 +465,8 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
       )}
     </>
   );
+}
+
+function isPriceVariantForDisplay(value: string): value is PriceVariant {
+  return value === 'list' || value === 'founding';
 }

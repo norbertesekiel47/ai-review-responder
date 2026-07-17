@@ -13,6 +13,7 @@ import { getActiveLocationCount } from '@/lib/locations/repo';
 import { v7 as uuidv7 } from 'uuid';
 import { DUPLICATE_LOCATION } from '@/lib/locations/duplicate-location';
 import { enqueueStripeOverageRecompute } from '@/lib/shared/job-outbox-helpers';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -308,6 +309,9 @@ export async function processRow(
     }
     if (!ownerUser) {
       return { reason: 'Account owner not found' };
+    }
+    if (!isSubscriptionTier(account.subscription_tier)) {
+      return { reason: 'Account has invalid subscription tier' };
     }
 
     // Step 3: Build voice config from CSV columns

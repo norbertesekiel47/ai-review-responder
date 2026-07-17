@@ -107,7 +107,7 @@ Next.js App Router pages, grouped by access level.
 | `dashboard/connect/page.tsx` | Zernio Google Business Profile connect entry point. 6-state UI: none / starting / oauth_in_progress / finalizing / active / finalize_unknown / disconnected. Shows Cancel button during oauth_in_progress; spinner-only during finalizing. |
 | `dashboard/connect/select-location/page.tsx` | Server component that loads candidate GBP locations from Zernio after OAuth returns. |
 | `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
-| `dashboard/past-replies/page.tsx` | "Past Replies" tab — read-only paginated list of every review with a `posted` response, bucketed into "From your active period" (review_date >= subscription_activated_at) and "From before you joined" (review_date < activated_at, or all rows when activated_at IS NULL). Renders `PastReplyCard` rows + `HistoricalUpgradeBanner` above the historical section for non-premium owners. Gated by `PAST_REPLIES_VIEW_ENABLED`; companion ingest path gated by `EXTERNAL_REPLY_IMPORT_ENABLED`. The full edit/regenerate/recovery feature is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
+| `dashboard/reviews/history/page.tsx` | "Past Replies" history tab — account/location-scoped paginated list of every posted Google reply, including pre-RepWorth replies. Gated by `PAST_REPLIES_VIEW_ENABLED`; edit actions are separately gated by `EDIT_REPLIES_ENABLED`. Both Copilot and Autopilot receive the former paid-tier history/edit feature set. |
 | `dashboard/add-location/` | 4-step "add location" wizard (gated by `MULTI_LOCATION_ENABLED`). `AddLocationWizard.tsx` is a composing shell; `wizard/reducer.ts` is the pure state machine; `wizard/useAddLocationWizard.ts` owns the two fetch effects + submit/navigation; `wizard/steps/Step{1..4}*.tsx` are presentational; `wizard/billing.ts` + `wizard/payload.ts` hold the pure proration/payload helpers. |
 | `settings/layout.tsx` | Settings shell — renders the grouped `SettingsSidebar` (Responses: Brand Voice, Auto-approval, Notifications · Account: Locations, Profile, Billing, Security) as a persistent left rail; each child route renders its own panel + `TopBar`. |
 | `settings/page.tsx` | Index — server `redirect('/settings/voice')` (Brand Voice is the first tab). |
@@ -168,7 +168,7 @@ Next.js App Router pages, grouped by access level.
 |------|--------------|
 | `error.tsx` | Error boundary for the onboarding flow. |
 | `pay/page.tsx` | Stripe checkout step during owner onboarding. |
-| `pay/PlanPickerClient.tsx` | Plan tier picker; redirects to Stripe Payment Link. |
+| `pay/PlanPickerClient.tsx` | Explicit Copilot/Autopilot picker with no default selection; posts the selected tier to the server, then follows the returned Stripe Checkout Session URL. Autopilot availability and founding/list prices come from the server view model. |
 | `payment-success/page.tsx` | Shown after payment. |
 | `payment-success/PaymentSuccessClient.tsx` | Polls `/api/auth/signup-status` until the subscription grants full access (paid or trial). |
 | `business/page.tsx` | 3-step onboarding wizard shell. |
@@ -238,7 +238,7 @@ GET + POST owner settings (tone, products/services, avoid-facts).
 | Route | What it does |
 |-------|--------------|
 | `business/route.ts` | POST: persists step-by-step business profile data from the 3-step wizard (`/onboarding/business`). Validates step input via `signup-schemas.ts` and updates the existing `businesses` row created at signup. |
-| `select-plan/route.ts` | POST: records the selected tier and returns the matching `STRIPE_PAYMENT_LINK_*` URL for the client to redirect to. |
+| `select-plan/route.ts` | POST: validates the owner's explicit Copilot/Autopilot selection, persists the complete tier/variant snapshot under billing serialization, and returns a Stripe Checkout Session URL. No tier default or Payment Link remains. |
 
 #### `signup/place-prefill/route.ts`
 
@@ -329,7 +329,6 @@ Reusable React components imported by multiple pages.
 | `dashboard/Charts.tsx` | Recharts-based charts for the owner dashboard (response rate, star distribution, etc.). |
 | `dashboard/ConnectGoogleBanner.tsx` | Banner surfacing the owner's Zernio GBP connection state. States: active (hidden), none (blue CTA), disconnected (orange CTA), finalize_unknown (yellow ops-alert). |
 | `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (WhatsApp only). |
-| `dashboard/HistoricalUpgradeBanner.tsx` | Soft upsell banner shown on the "Past Replies" tab to non-premium owners above the historical section. References the future GBP-era edit feature. Rendered when `PAST_REPLIES_VIEW_ENABLED=true` and the owner is non-premium. |
 | `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |
 | `dashboard/AgentTeamStrip.tsx` | **(WS5)** Three-card Reply/Guardian/Insights summary strip. Follows the dashboard's account/location scope and time window; zero-count agents remain visible as "Standing by". |
 | `dashboard/NeedsAttentionList.tsx` | **(WS5)** Owner exception queue backed by `/api/dashboard/escalations`; hidden when empty, otherwise links each open escalation to its review timeline. |
@@ -406,10 +405,10 @@ Cross-cutting utilities imported by both Next.js and worker.
 
 | File | What it does |
 |------|--------------|
-| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names, including WS6 `judge_verdict`, `autonomy_suspended_notice`, and `autonomy_admin_alert`. |
+| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names, including WS6 autonomy topics and WS8 `stripe_subscription_mirror_sync`. |
 | `queue-health-states.ts` | `QUEUE_HEALTH_JOB_STATES` — the BullMQ job-count states surfaced to the admin panel. Single owner shared by `worker/internal/queue-health.ts` and the admin jobs page (`src/app/admin/jobs`). Same no-side-effect contract as `queue-names.ts` (never imports bullmq/ioredis). |
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.); **WS6** owns the suspension-trigger/evidence vocabulary and the three judge/suspension payloads here. |
-| `job-outbox-helpers.ts` | Typed transactional enqueue helpers. **WS6** adds exact-partial-index-deduped helpers for judge verdicts, owner suspension notices, and admin suspension alerts; callers invoke them in the state-change transaction. |
+| `job-outbox-helpers.ts` | Typed transactional enqueue helpers. **WS6** adds exact-partial-index-deduped autonomy helpers; **WS8** adds the deprecated Stripe subscription-mirror repair job, enqueued with canonical status state. |
 | `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. **WS5/WS6:** attempt-aware failure and `markOutboxCompletedIfOwned()` completion CASes return ownership so a stale BullMQ replay cannot write coupled terminal/domain state. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
 | `past-due-recovery.ts` | **(Wave 2)** Shared past_due deadline calculator. Uses `accounts.past_due_at` + `accounts.flags.past_due_extension`; consumed by UI/write guards and worker subscription guard. |
@@ -607,7 +606,13 @@ LLM cost tracking and enforcement.
 
 | File | What it does |
 |------|--------------|
-| `payment-link.ts` | `getPaymentLink(businessId)` — returns the correct Stripe Payment Link URL (`STRIPE_PAYMENT_LINK_*` env vars). |
+| `price-tier-map.ts` | Single variant-aware owner of the four Copilot/Autopilot base Price IDs and two overage IDs; forward lookup takes `(tier, price_variant, kind)` and reverse base lookup returns `{tier, variant}`. |
+| `create-checkout-session.ts` | Creates card-up-front monthly Stripe Checkout Sessions from one authoritative account attempt. Retries use its frozen Price/quantity/trial/tax/email/URL tuple under a stable idempotency key; promotion codes stay disabled. |
+| `founding-window.ts` | Strict-UTC, fail-closed `FOUNDING_DEADLINE` eligibility (`now < deadline`). |
+| `tier-purchasability.ts` | Composes the server-only Autopilot sales gate with auto-approval runtime readiness. |
+| `plan-presentation.ts` | Server-produced Copilot/Autopilot availability and founding/list amount view model for pricing, onboarding, and billing UI. |
+| `plan-activation.ts` / `overage-item.ts` | Complete stored billing-snapshot activation, single pending Checkout lease/reselection, and variant-aware overage item resolution. |
+| `stripe-client.ts` | Shared pinned Stripe client with bounded timeout/retry policy. |
 
 ### `admin/` *(Wave 2 additions)*
 
@@ -700,7 +705,7 @@ Starts everything:
 
 ### `worker/queues.ts`
 
-Defines all BullMQ `Queue` instances (one per job type), including WS6 judge verdict, autonomy owner-notice, and autonomy admin-alert queues on the shared retry defaults. Exports:
+Defines all BullMQ `Queue` instances (one per job type), including WS6 autonomy queues and the WS8 Stripe subscription-mirror repair queue on the shared retry defaults. Exports:
 
 - `queues` — object keyed by queue name.
 - `topicToQueue` — maps `job_outbox.topic` strings to `Queue` instances (used by `OutboxPoller`).
@@ -741,6 +746,7 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
 | `PendingPostNoticeWorker.ts` | `pending_post_notice` | **(WS4)** Sends the veto-window "your reply will post automatically" notice. Re-checks `AUTO_APPROVAL_ENABLED` at SEND time (spec §2.12; flag off ⇒ complete without sending — the publisher's downgrade backstop owns the record), loads the still-scheduled `auto_policy` response via `pending-post-notice/context.ts` freshness guards, reuses the approval worker's eligibility primitive, then hands off to `pending-post-notice/dispatch.ts`. NEVER mutates the response; the delayed publish outbox row is independent and fires at the deadline regardless. |
 | `AutonomyAdminAlertWorker.ts` | `autonomy_admin_alert` | **(WS6)** Renders an internal account-suspension alert from bounded trigger/evidence facts, sends it to `ADMIN_NOTIFICATION_EMAIL`, then independently attempts Sentry warning telemetry so observability cannot poison a successful email path. |
+| `billing/StripeSubscriptionMirrorSyncWorker.ts` | `stripe_subscription_mirror_sync` | **(WS8)** Converges deprecated business subscription status/activation from canonical account state. Locks business rows in id order, then entitlement, reads the account without a row lock, updates the mirror, and completes the originating outbox entry in one transaction. |
 | `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. **WS6:** every unposted `auto_policy` response first passes the judge flag/health gate; disabled or unhealthy downgrades to owner review under a durable audit action, while query failures retry. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
 | `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
 | `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
@@ -872,7 +878,7 @@ Each handler is registered as a Fastify route in `worker/index.ts`. They all fol
 | File | Route | What it does |
 |------|-------|--------------|
 | `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
-| `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signature. `checkout.session.completed` → transitions `subscription_status` to `active` + enqueues `SyncReviewsPayload`. `customer.subscription.updated` → updates status. |
+| `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signatures and deduplicates delivery. Checkout completion provider-reads and validates the authoritative attempt before the single status/snapshot projection; subscription/invoice handlers converge provider-current status through the exact entitlement-locked account and durably enqueue deprecated mirror repair. |
 | `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag; **WS6** classifies `autonomy_suspended_notice` as owner-directed for hard-bounce suppression. |
 | `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by WhatsApp ingress. |
 | `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |
@@ -975,13 +981,13 @@ Zernio fires review.new / review.updated → POST /ingress/zernio
 ### Past replies — read-only history of every posted Google reply
 
 ```
-Owner navigates to /dashboard/past-replies (PAST_REPLIES_VIEW_ENABLED=true)
+Owner navigates to /dashboard/reviews/history (PAST_REPLIES_VIEW_ENABLED=true)
   → server component reads reviews JOIN responses ON status='posted'
   → bucketed into "From your active period" (review_date >= activated_at)
                 + "From before you joined" (review_date < activated_at)
   → renders PastReplyCard rows (review + reply + provenance label)
-  → HistoricalUpgradeBanner above the historical section for non-premium owners
-  → no further action — the tab is read-only on this branch
+  → optional edit actions appear when EDIT_REPLIES_ENABLED=true
+  → Copilot and Autopilot receive the same paid history/edit entitlement
 ```
 
 Imported replies arrive via the `EXTERNAL_REPLY_IMPORT_ENABLED` ingest path
@@ -1006,6 +1012,8 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 | `clear-signup-rate-limits.ts` | Wipes signup rate-limit keys in Redis. Used when a real owner gets stuck behind rate limits during dev / first-customer onboarding. |
 | `zernio-count-reviews.ts` | One-shot diagnostic: hits Zernio `listReviews` for a given business and prints counts per page. Used during the Zernio ingestion smoke test to verify pagination + tier caps. |
 | `zernio-backfill-external-replies.ts` | One-off backfill helper for the read-only Past Replies feature (migration 031). Walks Zernio reviews for a business and ingests existing owner replies as `posted` responses so they appear in the "Past Replies" tab. Requires `EXTERNAL_REPLY_IMPORT_ENABLED=true` to run (otherwise the underlying helpers no-op). Idempotent. |
+| `verify-stripe-price-parity.ts` | WS8 provider verifier for all six immutable Prices: exact cents, USD, monthly recurrence, active state, and Stripe-Tax-compatible behavior. Fails on missing/duplicate configuration. |
+| `ws8-stripe-cutover-preflight.ts` | Dry-run-by-default provider-wide cutover blocker. Independently paginates every Stripe subscription and open Checkout Session/line item, reconciles local projections, and optionally expires old-Price Sessions with stable idempotency. Never writes the database or cancels subscriptions. |
 | `ci/rls-audit.ts` | **(Wave 1)** Reads `pg_class.relrowsecurity` and exits non-zero if any tenant-scoped table (see `ci/tenant-tables.ts`) has RLS disabled. Needs a DB URL — documented as staging-gated until `TEST_DATABASE_POOL_URL` is in CI. |
 | `ci/tenant-scope-audit.ts` | **(Wave 1)** Static scan of inline `sql\`…\`` queries in `src/` + `worker/`; flags `SELECT`/`UPDATE`/`DELETE` on a tenant table without an `account_id`/`business_id` predicate. Runs in the blocking `lint` CI job. Backed by `ci/tenant-scope-allowlist.ts` (vetted known-good exceptions, with dead-entry + duplicate guards) and `ci/tenant-tables.ts` (the tenant-table inventory). |
 | `ci/db-imports-audit.ts` | **(A+ campaign)** `ci:db-imports` — bans any non-composition-root file from importing `@/lib/db/server` (invariant #15). **STRICT** (PR 3, #456): no baseline — any non-root importer fails. Worker root status is **derived from `worker/index.ts` registration** via TypeScript-AST parsing (not file position); `import type` excluded (runtime-value-precise). The checked-in baseline snapshot was deleted when the importer set hit 0 (arc: 105 → 0). Unit-tested (11/11); runs in the blocking `lint` CI job. |
@@ -1045,7 +1053,14 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 ## `supabase/migrations/`
 
-All schema migrations live here, numbered `001` … `076` (repository/local-test head; next is `077`). Supabase staging/production migrations are a user-run promotion step. Recent agent-platform migrations: `071` run spine, `072` triage, `073` Guardian escalations, `074` trust dial + veto window, **WS5** `075` agent-run subject lookup, and **WS6** `076_judge_verdicts_governor.sql` (`judge_verdicts` table with deny-all RLS and its account/time/RI indexes, the posted-auto-policy response query index, `notification_deliveries.entity_id` plus the autonomy-notice claim index, and three exact in-flight outbox indexes). Migration 076 is applied only to the local test database until the user-run staging→production promotion. For the full per-migration narrative, ordering rules, deployment status, and residual risks, read `.claude/reference/migrations-log.md`.
+All schema migrations live here, numbered `001` … `078` (repository/local-test
+head; next is `079`). Supabase staging/production migrations remain a user-run
+promotion step. WS8 uses `077_copilot_autopilot_expand.sql` only after provider
+preflight reaches zero while traffic is quiesced, then deploys strict code and
+smokes before `078_copilot_autopilot_contract.sql` installs the NULL-safe strict
+two-tier checks. The only executable rollout is
+`docs/runbooks/ws8-tier-cutover.md`; the full per-migration narrative and
+deployment status remain in `.claude/reference/migrations-log.md`.
 
 ---
 
@@ -1055,7 +1070,9 @@ All schema migrations live here, numbered `001` … `076` (repository/local-test
 - `.claude/rules/` — always-loaded behavioral law: `repworth.md` (project rules) plus the generic `engineering.md` / `production.md` / `design.md`.
 - `.claude/skills/` — patterns to follow, invoked on demand (cost-guard, approval-security, outbox-pattern, onboarding-demo-cost-guard).
 - `.claude/reference/` — recall-when-needed inventories, read on demand (env-vars, migrations-log, lab-notes, review-ingestion).
-- `docs/runbooks/` — operational + deployment runbooks (Zernio launch, smoke tests, ops, email deliverability, beta deployment plan; **Wave 1** added `secrets-rotation-*.md` + `security-scan-staging.md`; **channels** added `channels-rollout.md` (prod flip: Telegram-first/WhatsApp-follows) + `channels-staging-smoke-test.md` (end-to-end staging verification)).
+- `docs/runbooks/` — operational + deployment runbooks, including
+  `ws8-tier-cutover.md` as the single quiesced Stripe → 077 → strict code → 078
+  tier rollout path.
 - `docs/security/` — **(Wave 1)** RLS inventory, tenant-isolation model, vendor-risk + access registers, CSP rollout plan.
 - `docs/finance/` — **(Wave 1)** pilot invoice-review template for the first multi-location accounts (`accounts.flags.is_pilot`).
 - `docs/legal/` — legal source docs + external-gate status (`legal-review.md`, `insurance.md`); rendered pages come from `src/lib/legal/content.ts`, not these.

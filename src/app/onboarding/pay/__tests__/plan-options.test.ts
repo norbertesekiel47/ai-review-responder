@@ -1,43 +1,35 @@
 import { describe, expect, it } from 'vitest';
-
-import {
-  formatMonthlyPrice,
-  getOnboardingPlans,
-  ONBOARDING_PLAN_ORDER,
-} from '../plan-options';
+import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
+import { formatMonthlyPrice, getOnboardingPlans } from '../plan-options';
 
 describe('onboarding plan options', () => {
-  it('lists all four canonical onboarding tiers in display order', () => {
-    expect(ONBOARDING_PLAN_ORDER).toEqual([
-      'founders',
-      'basic',
-      'standard',
-      'premium',
-    ]);
+  it('builds exactly two plans from the supplied list-price view model', () => {
+    const plans = getOnboardingPlans(buildPlanPresentation({
+      priceVariant: 'list',
+      autopilotPurchasable: true,
+      trialEnabled: false,
+    }));
 
-    expect(getOnboardingPlans().map((plan) => plan.tier)).toEqual([
-      'founders',
-      'basic',
-      'standard',
-      'premium',
-    ]);
+    expect(plans.map((plan) => plan.tier)).toEqual(['copilot', 'autopilot']);
+    expect(plans.map((plan) => plan.price)).toEqual(['$29', '$69']);
+    expect(plans.map((plan) => plan.overagePrice)).toEqual(['$15', '$20']);
   });
 
-  it('formats verified canonical monthly prices', () => {
-    const byTier = Object.fromEntries(
-      getOnboardingPlans().map((plan) => [plan.tier, plan.price]),
-    );
+  it('uses supplied founding prices without deriving list amounts in the client', () => {
+    const plans = getOnboardingPlans(buildPlanPresentation({
+      priceVariant: 'founding',
+      autopilotPurchasable: false,
+      trialEnabled: true,
+    }));
 
-    expect(byTier).toMatchObject({
-      founders: '$19',
-      basic: '$29',
-      standard: '$79',
-      premium: '$199',
-    });
+    expect(plans.map((plan) => plan.price)).toEqual(['$19', '$49']);
+    expect(plans.map((plan) => plan.listPrice)).toEqual(['$29', '$69']);
+    expect(plans[1]).toMatchObject({ purchasable: false });
+    expect(plans[1]?.unavailableReason).toMatch(/temporarily unavailable/i);
   });
 
   it('formats whole-dollar and decimal prices', () => {
-    expect(formatMonthlyPrice(7900)).toBe('$79');
-    expect(formatMonthlyPrice(7950)).toBe('$79.50');
+    expect(formatMonthlyPrice(6900)).toBe('$69');
+    expect(formatMonthlyPrice(6950)).toBe('$69.50');
   });
 });

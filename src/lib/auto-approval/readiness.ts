@@ -2,6 +2,8 @@ import type { AutoApprovalReadiness, AutoApprovalReadinessBlockReason } from './
 
 interface BuildAutoApprovalReadinessInput {
   runtimeEnabled: boolean;
+  /** Tier entitlement plus the composed server-side Autopilot sale/runtime gate. */
+  autopilotAvailable: boolean;
   providerModerationEnabled: boolean;
   providerModerationValidated: boolean;
   accountWritable: boolean;
@@ -17,6 +19,7 @@ interface BuildAutoApprovalReadinessInput {
 
 export function buildAutoApprovalReadiness({
   runtimeEnabled,
+  autopilotAvailable,
   providerModerationEnabled,
   providerModerationValidated,
   accountWritable,
@@ -27,6 +30,7 @@ export function buildAutoApprovalReadiness({
   const blockReasons: AutoApprovalReadinessBlockReason[] = [];
 
   if (!runtimeEnabled) blockReasons.push('auto_approval_disabled');
+  if (!autopilotAvailable) blockReasons.push('autopilot_unavailable');
   if (!providerModerationEnabled) blockReasons.push('provider_moderation_disabled');
   if (!providerModerationValidated) blockReasons.push('provider_moderation_not_validated');
   if (!accountWritable) blockReasons.push('subscription_not_writable');

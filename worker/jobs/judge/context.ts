@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import type { AccountFlagsInput } from '@/lib/shared/subscription-guard';
+import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export interface JudgeContext {
   response_id: string;
@@ -52,6 +53,13 @@ export async function loadJudgeContext(
 }
 
 export function isJudgeEligibleContext(
+  context: JudgeContext,
+): context is JudgeContext & { subscription_tier: SubscriptionTierValue } {
+  return isPostedAutoPolicyResponse(context)
+    && isSubscriptionTier(context.subscription_tier);
+}
+
+export function isPostedAutoPolicyResponse(
   context: Pick<JudgeContext, 'status' | 'approval_method'>,
 ): boolean {
   return context.status === 'posted' && context.approval_method === 'auto_policy';

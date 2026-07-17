@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 
 /**
  * checkout.session.completed handler (worker/ingress/stripe/checkout-completed.ts):
@@ -13,19 +14,36 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueCheckoutActivate,
+  mockRetrieveSession,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSession: vi.fn(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
+vi.mock('../../../src/lib/payments/stripe-client', () => ({
+  getStripe: () => ({
+    webhooks: { constructEvent: mockConstructEvent },
+    checkout: { sessions: { retrieve: mockRetrieveSession } },
+    subscriptions: {
+      retrieve: mockRetrieveSubscription,
+      cancel: vi.fn(),
+    },
+  }),
+}));
 vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
@@ -39,6 +57,9 @@ import {
   mkRequest,
   mkReply,
   TEST_ACCOUNT_ID,
+  TEST_CHECKOUT_CANCEL_URL,
+  TEST_CHECKOUT_EMAIL,
+  TEST_CHECKOUT_SUCCESS_URL,
   TEST_CUSTOMER_ID,
   TEST_SUBSCRIPTION_ID,
 } from './helpers/stripe-webhook-harness';
@@ -47,8 +68,57 @@ import { handleStripeWebhook } from '../stripe';
 const restoreStripeWebhookEnv = installStripeWebhookEnv();
 afterAll(restoreStripeWebhookEnv);
 
+function isAccountStatusUpdate(
+  call: (typeof sqlCalls)[number],
+  status: string,
+): boolean {
+  return /\bUPDATE\s+accounts\b/.test(call.text) && call.values.includes(status);
+}
+
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSession.mockReset();
+  mockRetrieveSession.mockImplementation(async (sessionId: string) => ({
+    id: sessionId,
+    mode: 'subscription',
+    status: 'complete',
+    payment_status: 'paid',
+    allow_promotion_codes: false,
+    automatic_tax: { enabled: false, liability: null },
+    billing_address_collection: null,
+    tax_id_collection: { enabled: false, required: 'never' },
+    customer_email: TEST_CHECKOUT_EMAIL,
+    success_url: TEST_CHECKOUT_SUCCESS_URL,
+    cancel_url: TEST_CHECKOUT_CANCEL_URL,
+    client_reference_id: TEST_ACCOUNT_ID,
+    customer: TEST_CUSTOMER_ID,
+    subscription: TEST_SUBSCRIPTION_ID,
+    metadata: {
+      checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    },
+    line_items: {
+      data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+    },
+  }));
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'active',
+    trial_start: null,
+    trial_end: null,
+    metadata: {
+      checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+    },
+    items: {
+      data: [{
+        id: 'si_base',
+        quantity: 1,
+        metadata: {},
+        price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+      }],
+    },
+  });
 });
 
 describe('checkout.session.completed — account activation (VAL-BILLING-007, VAL-BILLING-008)', () => {
@@ -68,7 +138,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    queueCheckoutActivate();
+    queueCheckoutActivate({ sessionId: 'cs_test' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -80,14 +150,16 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     // (VAL-SCHEMA-037); the applier does NOT write them. The accounts row gets them
     // via the applier's COALESCE write (first-writer-wins, invariant #3).
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.values).toContain(TEST_CUSTOMER_ID);
     expect(updateAcct!.values).toContain(TEST_SUBSCRIPTION_ID);
+    expect(sqlCalls).toHaveLength(18);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
-  it('VAL-BILLING-008: already active → idempotent no-op (applier: isAllowedTransition returns false)', async () => {
+  it('VAL-BILLING-008: completed active replay is an idempotent no-op', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_dup',
       type: 'checkout.session.completed',
@@ -104,7 +176,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     });
 
     // already-active: applier's isAllowedTransition(active→active)=false → no UPDATEs
-    queueCheckoutActivate({ status: 'active' });
+    queueCheckoutActivate({ status: 'active', sessionId: 'cs_test_dup' });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -113,9 +185,11 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
 
     // No UPDATE accounts for 'active' (idempotent no-op)
     const updateAcct = sqlCalls.find(
-      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
+      (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeUndefined();
+    expect(sqlCalls).toHaveLength(10);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 
   it('VAL-BILLING-060: uses client_reference_id as account ID', async () => {
@@ -135,7 +209,50 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       },
     });
 
-    queueCheckoutActivate({ accountId: customAccountId });
+    queueCheckoutActivate({
+      accountId: customAccountId,
+      sessionId: 'cs_test_crid',
+      customerId: 'cus_custom',
+      subscriptionId: 'sub_custom',
+    });
+    mockRetrieveSession.mockResolvedValueOnce({
+      id: 'cs_test_crid',
+      mode: 'subscription',
+      status: 'complete',
+      payment_status: 'paid',
+      allow_promotion_codes: false,
+      automatic_tax: { enabled: false, liability: null },
+      billing_address_collection: null,
+      tax_id_collection: { enabled: false, required: 'never' },
+      customer_email: TEST_CHECKOUT_EMAIL,
+      success_url: TEST_CHECKOUT_SUCCESS_URL,
+      cancel_url: TEST_CHECKOUT_CANCEL_URL,
+      client_reference_id: customAccountId,
+      customer: 'cus_custom',
+      subscription: 'sub_custom',
+      metadata: {
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+      },
+      line_items: {
+        data: [{ quantity: 1, price: { id: 'price_copilot_list_test' } }],
+      },
+    });
+    mockRetrieveSubscription.mockResolvedValueOnce({
+      id: 'sub_custom',
+      customer: 'cus_custom',
+      status: 'active',
+      trial_start: null,
+      trial_end: null,
+      metadata: {
+        checkout_attempt_id: '019dc366-29ce-7000-a000-0000000000cc',
+      },
+      items: {
+        data: [{
+          id: 'si_base', quantity: 1, metadata: {},
+          price: { id: 'price_copilot_list_test', metadata: {}, unit_amount: 2900 },
+        }],
+      },
+    });
 
     const { status, send } = mkReply();
     await handleStripeWebhook(mkRequest(), { status, send } as any);
@@ -148,5 +265,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     );
     expect(lookupCall).toBeDefined();
     expect(lookupCall!.values).toContain(customAccountId);
+    expect(sqlCalls).toHaveLength(18);
+    expect(sqlReturnQueue).toHaveLength(0);
   });
 });

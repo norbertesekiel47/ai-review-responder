@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 391;
+export const ALLOWLIST_BASELINE = 392;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -230,14 +230,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/billing/checkout/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    sqlSnippet: "SELECT a.id, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = ${accountId}::uuid AND b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
     file: "src/app/api/billing/checkout/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
+    sqlSnippet: "SELECT a.id, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = ${accountId}::uuid AND b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
     reason: "onboarded_by subquery is tenant-scoped: b.account_id = a.id where a.id = ${accountId} (the owner-verified tenant root).",
   },
@@ -250,10 +250,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/lib/accounts/tier-change.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT stripe_subscription_id, subscription_tier, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT a.owner_user_id, a.price_variant, a.stripe_subscription_id, a.subscription_status, a.subscription_tier, a.locations_overage_price_cents, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM accounts a LEFT JOIN LATERAL ( SELECT active.* FROM account_offboardings active WHERE active.account_id = a.id AND active.terminal_at IS NULL ORDER BY active.created_at DESC LIMIT 1 ) ao ON TRUE WHERE a.id = ${accountId}::uuid",
     category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+    reason: "The tier-change transaction first locks the owner-resolved account id, then projects only that account's latest active offboarding row through a correlated lateral join; the scanner intentionally strips the correlated subquery predicate.",
   },
   {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
@@ -320,10 +320,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/lib/accounts/tier-change.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT subscription_tier, subscription_status FROM accounts WHERE id = ${accountId}::uuid",
+    table: "businesses",
+    sqlSnippet: "SELECT COUNT(*) AS count FROM businesses WHERE account_id = ${accountId}::uuid AND archived_at IS NULL",
     category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
+    reason: "The active-location count is constrained by the owner-resolved account id while the shared billing locks hold the tier-change plan boundary.",
   },
   {
     file: "src/lib/admin/cost-report-service.ts",
@@ -784,9 +784,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid",
+    sqlSnippet: "SELECT id, subscription_tier, subscription_status, price_variant, stripe_subscription_id, locations_included, locations_overage_price_cents FROM accounts WHERE id = ${account_id}::uuid FOR UPDATE",
     category: 'background-global-scan',
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+    reason: "Worker follows a durable job payload account id and reads the account only after the shared billing advisory lock; the scanner cannot establish that job ownership boundary.",
   },
   {
     file: "worker/jobs/notification/context.ts",
@@ -1204,14 +1204,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
@@ -1260,14 +1260,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/onboarding/pay/page.tsx",
     table: "accounts",
-    sqlSnippet: "SELECT b.id AS business_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/onboarding/pay/page.tsx",
     table: "businesses",
-    sqlSnippet: "SELECT b.id AS business_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
@@ -1524,11 +1524,11 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/lib/payments/plan-activation.ts",
+    file: "src/lib/accounts/tier-snapshot.ts",
     table: "accounts",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${snapshot.tier}, base_price_cents = ${snapshot.baseCents}, locations_overage_price_cents = ${snapshot.overageCents}, locations_included = ${snapshot.included}, locations_paid = ${input.locationsPaid}, updated_at = NOW() WHERE id = ${input.accountId}::uuid AND ROW( subscription_tier, base_price_cents, locations_overage_price_cents, locations_included, locations_paid ) IS DISTINCT FROM ROW( ${snapshot.tier}::text, ${snapshot.baseCents}::integer, ${snapshot.overageCents}::integer, ${snapshot.included}::integer, ${input.locationsPaid}::integer ) RETURNING id",
+    category: 'tenant-root-lookup',
+    reason: "The caller supplies the owner/provider-resolved account id and holds the fixed WS8 billing locks before this complete snapshot update.",
   },
   {
     file: "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
@@ -1729,14 +1729,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/invoice-paid.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_status, stripe_subscription_id FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT id FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${recoverySubscriptionId}",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/invoice-payment-failed.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${failedSubscriptionId} FOR UPDATE",
+    sqlSnippet: "SELECT id FROM accounts WHERE stripe_customer_id = ${customerId} AND stripe_subscription_id = ${failedSubscriptionId}",
     category: 'provider-ingress',
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available. Scoped by (customer, subscription) — a Stripe customer can map to multiple accounts (RECONCILE-F6), so a failure for subscription B must never mark account A past_due.",
   },
@@ -1774,6 +1774,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId} AND status = 'posted' AND id != ${responseId} LIMIT 1 FOR UPDATE",
     category: 'worker-job-scoped',
     reason: "Edit publisher path derives sibling response ids from the same business-scoped publish job before superseding posted rows.",
+  },
+  {
+    file: "worker/jobs/publisher/auto-policy-publish.ts",
+    table: "auto_approval_policies",
+    sqlSnippet: "SELECT subscription_status, subscription_tier, past_due_at, flags, EXISTS ( SELECT 1 FROM auto_approval_policies p WHERE p.account_id = ${business.account_id}::uuid AND p.suspended_at IS NOT NULL AND (p.location_id IS NULL OR p.location_id = ${input.businessId}::uuid) ) AS autonomy_suspended FROM accounts WHERE id = ${business.account_id}::uuid",
+    category: 'worker-job-scoped',
+    reason: "Publish-time WS6 suspension recheck rides the entitlement-lane accounts read; the auto_approval_policies EXISTS subquery IS account-scoped (p.account_id = the locked lane's account id param) and location-scoped via the OR override arm — the static analyzer cannot see through the parenthesized OR.",
   },
   {
     file: "worker/jobs/publisher/edit-publish-tx.ts",
@@ -1818,11 +1825,11 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/lib/payments/plan-activation.ts",
+    file: "src/lib/accounts/tier-snapshot.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig.included}, locations_overage_price_cents = ${tierConfig.overageCents}, base_price_cents = ${tierConfig.baseCents}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+    sqlSnippet: "UPDATE businesses SET subscription_tier = ${account.subscription_tier}, updated_at = NOW() WHERE account_id = ${accountId}::uuid AND subscription_tier IS DISTINCT FROM ${account.subscription_tier}::text",
+    category: 'tenant-root-lookup',
+    reason: "The deprecated tier-only mirror is constrained by the same owner/provider-resolved account id and runs after locking every business row for that account.",
   },
   {
     file: "src/lib/approval/http-routes.ts",
@@ -2341,21 +2348,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
+    sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED} AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",
     category: 'background-global-scan',
     reason: "Background scheduler scans cancelled accounts globally, excluding accounts with active offboarding receipts before archiving expired locations.",
   },
@@ -2369,58 +2376,58 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/stripe/subscription-deleted.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId}",
     category: 'provider-ingress',
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-deleted.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId}",
     category: 'provider-ingress',
     reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "WITH account_candidates AS ( SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 0 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id = ${subscriptionId} UNION ALL SELECT a.id, a.stripe_subscription_id, ao.stripe_subscription_id AS active_offboarding_subscription_id, 1 AS resolution_priority FROM accounts a JOIN account_offboardings ao ON ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL WHERE a.stripe_customer_id = ${customerId} UNION ALL SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 2 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id IS DISTINCT FROM ${subscriptionId} AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) ) SELECT id, stripe_subscription_id, active_offboarding_subscription_id FROM account_candidates ORDER BY resolution_priority ASC, id ASC LIMIT 1",
     category: 'provider-ingress',
-    reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
+    reason: "Stripe webhook resolves account and active-offboarding subscription lineage from signed provider identifiers without a row lock before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/subscription-updated.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.locations_paid, a.locations_overage_price_cents, a.stripe_subscription_id, CASE WHEN EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) THEN ${subscriptionId} ELSE NULL END AS active_offboarding_subscription_id FROM accounts a WHERE a.stripe_customer_id = ${customerId} FOR UPDATE",
+    sqlSnippet: "WITH account_candidates AS ( SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 0 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id = ${subscriptionId} UNION ALL SELECT a.id, a.stripe_subscription_id, ao.stripe_subscription_id AS active_offboarding_subscription_id, 1 AS resolution_priority FROM accounts a JOIN account_offboardings ao ON ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL WHERE a.stripe_customer_id = ${customerId} UNION ALL SELECT a.id, a.stripe_subscription_id, NULL::text AS active_offboarding_subscription_id, 2 AS resolution_priority FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.stripe_subscription_id IS DISTINCT FROM ${subscriptionId} AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.stripe_subscription_id = ${subscriptionId} AND ao.terminal_at IS NULL ) ) SELECT id, stripe_subscription_id, active_offboarding_subscription_id FROM account_candidates ORDER BY resolution_priority ASC, id ASC LIMIT 1",
     category: 'provider-ingress',
-    reason: "Stripe webhook resolves account and offboarding state from signed provider identifiers before tenant ids are available.",
+    reason: "Stripe webhook resolves account and active-offboarding subscription lineage from signed provider identifiers without a row lock before tenant ids are available.",
   },
   {
     file: "worker/ingress/stripe/apply-subscription-state.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${ref.accountId}::uuid FOR UPDATE",
+    sqlSnippet: "SELECT id FROM accounts WHERE id = ${ref.accountId}::uuid",
     category: 'provider-ingress',
     reason: "Stripe trial applier resolves the account by signed checkout client_reference_id (account id) before projecting Stripe subscription status. No tenant id is available except the one being resolved.",
   },
   {
     file: "worker/ingress/stripe/apply-subscription-state.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${ref.accountId}::uuid FOR UPDATE",
+    table: "accounts",
+    sqlSnippet: "SELECT id FROM accounts WHERE stripe_customer_id = ${ref.stripeCustomerId} AND stripe_subscription_id = ${ref.stripeSubscriptionId}",
     category: 'provider-ingress',
-    reason: "Stripe trial applier resolves the account's primary business while resolving the account from signed checkout client_reference_id. Subquery is scoped to the resolved account.",
+    reason: "Stripe status applier resolves the account from signed provider customer and subscription identifiers without taking the account row before entitlement.",
   },
   {
     file: "worker/ingress/stripe/apply-subscription-state.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.stripe_customer_id = ${ref.stripeCustomerId} AND a.stripe_subscription_id = ${ref.stripeSubscriptionId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${accountId}::uuid FOR UPDATE",
     category: 'provider-ingress',
-    reason: "Stripe trial applier resolves the account by signed provider identifiers (customer + subscription) before projecting Stripe subscription status. No tenant id is available except the one being resolved.",
+    reason: "After entitlement is held, the Stripe status applier locks only the previously resolved account and rechecks provider lineage from the locked row.",
   },
   {
     file: "worker/ingress/stripe/apply-subscription-state.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_status, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.stripe_customer_id = ${ref.stripeCustomerId} AND a.stripe_subscription_id = ${ref.stripeSubscriptionId} FOR UPDATE",
+    sqlSnippet: "SELECT a.id, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, (SELECT b.id FROM businesses b WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_business_id FROM accounts a WHERE a.id = ${accountId}::uuid FOR UPDATE",
     category: 'provider-ingress',
-    reason: "Stripe trial applier resolves the account's primary business while resolving the account from signed provider identifiers. Subquery is scoped to the resolved account.",
+    reason: "The locked account query reads only that account's primary business id for best-effort post-status backfill resume.",
   },
   {
     file: "worker/ingress/zernio/zernio.ts",
@@ -2600,7 +2607,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/publisher/load-context.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
+    sqlSnippet: "SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.subscription_tier, a.updated_at AS account_updated_at, a.past_due_at AS account_past_due_at, a.flags AS account_flags, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN account_offboardings ao ON ao.account_id = a.id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
     category: 'worker-job-scoped',
     reason: "Publisher worker follows a durable job business id and joins to the active offboarding gate for that business account before publishing.",
   },

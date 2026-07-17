@@ -43,10 +43,10 @@ import { mkTaggedResult } from '../../../../worker/__tests__/helpers/mock-sql';
 
 const classifyInput = {
   businessId: 'biz-1',
-  subscriptionTier: 'standard',
+  subscriptionTier: 'copilot',
   accountId: 'acct-1',
   review: { starRating: 1, reviewText: 'The kitchen was filthy and the manager screamed at us.' },
-};
+} as const;
 
 function llmResult(structured: unknown) {
   return {
@@ -89,7 +89,7 @@ describe('classifyReviewTriage', () => {
     }));
     expect(withCostGuard).toHaveBeenCalledWith(
       expect.objectContaining({
-        businessId: 'biz-1', subscriptionTier: 'standard',
+        businessId: 'biz-1', subscriptionTier: 'copilot',
         withConcurrency: false, onFinalizeError: 'log-and-return-value',
       }),
       expect.any(Function),

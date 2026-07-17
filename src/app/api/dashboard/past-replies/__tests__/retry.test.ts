@@ -213,14 +213,14 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 
-  it('returns 403 premium_required when standard owner retries a historical review', async () => {
+  it('returns 403 forbidden when unsupported-tier owner retries a historical review', async () => {
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    const { PremiumRequiredError } = await import('@/lib/responses/edit-existing');
-    mockAssertCanEdit.mockRejectedValue(new PremiumRequiredError());
+    const { ForbiddenError } = await import('@/lib/responses/edit-existing');
+    mockAssertCanEdit.mockRejectedValue(new ForbiddenError());
     const POST = await importPOST();
     const res = await POST(makeRequest(), ctx());
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'premium_required' });
+    expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 
   it('returns 404 response_not_found when response_id does not belong to current location', async () => {

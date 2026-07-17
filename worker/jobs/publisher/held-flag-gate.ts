@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { hasOpenFlag } from '../../../src/lib/moderation/held-draft';
 
 /**
@@ -33,6 +33,14 @@ export async function isHeldForModerationReview(
       WHERE id = ${responseId}::uuid AND business_id = ${businessId}::uuid
       FOR UPDATE
     `;
-    return hasOpenFlag(tx, responseId);
+    return isHeldForModerationReviewInTx(tx, responseId);
   });
+}
+
+/** Caller owns the response lock and the surrounding publish-lane tx. */
+export async function isHeldForModerationReviewInTx(
+  tx: TransactionSql,
+  responseId: string,
+): Promise<boolean> {
+  return hasOpenFlag(tx, responseId);
 }

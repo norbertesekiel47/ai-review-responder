@@ -242,16 +242,16 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 
-  it('returns 403 premium_required when assertCanEditReply throws PremiumRequiredError', async () => {
+  it('returns 403 forbidden when assertCanEditReply throws ForbiddenError', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     // Top-level lookup of review_id succeeds.
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    const { PremiumRequiredError } = await import('@/lib/responses/edit-existing');
-    mockAssertCanEdit.mockRejectedValue(new PremiumRequiredError());
+    const { ForbiddenError } = await import('@/lib/responses/edit-existing');
+    mockAssertCanEdit.mockRejectedValue(new ForbiddenError());
     const { PATCH } = await importHandlers();
     const res = await PATCH(makeRequest({ body: validPatchBody() }), ctx());
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'premium_required' });
+    expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 
   it('returns 404 response_not_found when responseId belongs to another location', async () => {

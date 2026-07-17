@@ -1,7 +1,7 @@
 // src/lib/config/stripe-shape.ts
 //
 // Shared Stripe env shape for both lanes. The server and worker both need the
-// same Stripe secret + 7 price IDs and narrow them identically, so the type, the
+// same Stripe secret + 6 price IDs and narrow them identically, so the type, the
 // required-var list, and the non-null narrowing live here once (DRY) instead of
 // being duplicated in server.ts and worker.ts.
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
@@ -13,17 +13,14 @@ export const STRIPE_REQUIRED_VARS = [
   ...STRIPE_PRICE_ENV_VARS,
 ] as const;
 
-export interface StripeEnvConfig {
+type StripePriceEnvConfig = {
+  [Key in (typeof STRIPE_PRICE_ENV_VARS)[number]]: string;
+};
+
+export type StripeEnvConfig = StripePriceEnvConfig & {
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
-  STRIPE_PRICE_BASIC: string;
-  STRIPE_PRICE_FOUNDING: string;
-  STRIPE_PRICE_STANDARD: string;
-  STRIPE_PRICE_PREMIUM: string;
-  STRIPE_PRICE_STANDARD_OVERAGE: string;
-  STRIPE_PRICE_PREMIUM_OVERAGE: string;
-  STRIPE_PRICE_FOUNDERS_OVERAGE: string;
-}
+};
 
 /**
  * Assert presence of every Stripe var in `env` and narrow to the non-null shape.
@@ -37,15 +34,12 @@ export function narrowStripeConfig(
   subsystem = 'stripe',
 ): StripeEnvConfig {
   requirePresentIn(env, STRIPE_REQUIRED_VARS, subsystem);
+  const priceConfig = Object.fromEntries(
+    STRIPE_PRICE_ENV_VARS.map((name) => [name, env[name]!]),
+  ) as StripePriceEnvConfig;
   return {
     STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY!,
     STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET!,
-    STRIPE_PRICE_BASIC: env.STRIPE_PRICE_BASIC!,
-    STRIPE_PRICE_FOUNDING: env.STRIPE_PRICE_FOUNDING!,
-    STRIPE_PRICE_STANDARD: env.STRIPE_PRICE_STANDARD!,
-    STRIPE_PRICE_PREMIUM: env.STRIPE_PRICE_PREMIUM!,
-    STRIPE_PRICE_STANDARD_OVERAGE: env.STRIPE_PRICE_STANDARD_OVERAGE!,
-    STRIPE_PRICE_PREMIUM_OVERAGE: env.STRIPE_PRICE_PREMIUM_OVERAGE!,
-    STRIPE_PRICE_FOUNDERS_OVERAGE: env.STRIPE_PRICE_FOUNDERS_OVERAGE!,
+    ...priceConfig,
   };
 }

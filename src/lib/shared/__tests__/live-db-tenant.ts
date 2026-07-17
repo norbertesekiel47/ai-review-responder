@@ -49,7 +49,7 @@ export async function seedTenantAccount(
   const ownerEmail = overrides.ownerEmail ?? `tenant-${accountId}@test.local`;
   const userName = overrides.userName ?? 'Tenant Seed Owner';
   const accountDisplayName = overrides.accountDisplayName ?? 'Tenant Seed Account';
-  const subscriptionTier = overrides.subscriptionTier ?? 'standard';
+  const subscriptionTier = overrides.subscriptionTier ?? 'copilot';
   const subscriptionStatus = overrides.subscriptionStatus ?? 'active';
 
   await db.begin(async (tx) => {

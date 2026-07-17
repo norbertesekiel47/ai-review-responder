@@ -20,27 +20,34 @@ import type postgres from 'postgres';
 import type Stripe from 'stripe';
 import { extractCustomerId } from './shared';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
-import { enqueueStripeOverageRecompute } from '../../../src/lib/shared/job-outbox-helpers';
+import {
+  enqueueStripeOverageRecompute,
+  enqueueStripeSubscriptionMirrorSync,
+} from '../../../src/lib/shared/job-outbox-helpers';
 import {
   enqueueTrialStarted,
   enqueueTrialConverted,
   enqueueTrialPaymentFailed,
   enqueueTrialCancelled,
 } from '../../../src/lib/analytics/trial-events';
-import { SubscriptionStatus, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
+import { SubscriptionStatus, subscriptionGrantsFullAccess, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
+import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
 // The applier is ALWAYS invoked inside sql.begin() (transactional-outbox
 // invariant), so the transaction handle is a postgres.TransactionSql. This also
 // matches enqueueStripeOverageRecompute's strict TxClient parameter.
 type TxSql = postgres.TransactionSql;
+type StripeSubscriptionState = Pick<
+  Stripe.Subscription,
+  'id' | 'status' | 'trial_end'
+> & { customer?: unknown };
 
 /**
  * How the applier resolves the target account. Two resolution strategies — the
  * caller picks whichever it can satisfy from what it already holds:
- *   - 'checkout'     → resolve by accounts.id. Used by ANY caller that has
- *                      already resolved (and FOR-UPDATE-locked) the account row;
- *                      the name is historical (the checkout handler was the first
- *                      caller). Needs no Stripe ids to resolve.
+ *   - 'checkout'     → resolve by accounts.id. The name is historical (the
+ *                      checkout handler was the first caller). Needs no Stripe
+ *                      ids to resolve.
  *   - 'subscription' → resolve by (stripe_customer_id, stripe_subscription_id);
  *                      acts only on the account's CURRENT subscription.
  */
@@ -64,7 +71,7 @@ export interface TransitionResult {
  * represents a billing problem (past_due/unpaid/incomplete*) →past_due. Stripe
  * statuses we don't act on map to null (no-op).
  */
-function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): SubscriptionStatusValue | null {
+export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): SubscriptionStatusValue | null {
   switch (stripeStatus) {
     case 'trialing':
       return SubscriptionStatus.TRIALING;
@@ -90,7 +97,7 @@ function mapStripeStatus(stripeStatus: Stripe.Subscription.Status | string): Sub
  * reachable only from the listed sources. `cancelled` itself is terminal and is
  * the (deliberately absent) common source filtered out by the guard below.
  */
-const ALLOWED_TRANSITION_SOURCES: Readonly<
+export const ALLOWED_TRANSITION_SOURCES: Readonly<
   Record<SubscriptionStatusValue, readonly SubscriptionStatusValue[]>
 > = {
   [SubscriptionStatus.TRIALING]: [SubscriptionStatus.PENDING_PAYMENT],
@@ -123,34 +130,60 @@ interface ResolvedAccount {
   id: string;
   subscription_status: string;
   primary_business_id: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
 }
 
-async function resolveAccount(tx: TxSql, ref: ApplyStripeRef): Promise<ResolvedAccount | null> {
+async function resolveAccountId(tx: TxSql, ref: ApplyStripeRef): Promise<string | null> {
   if (ref.mode === 'checkout') {
-    const rows = await tx<ResolvedAccount[]>`
-      SELECT a.id, a.subscription_status,
-        (SELECT b.id FROM businesses b
-          WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
-          LIMIT 1) AS primary_business_id
-      FROM accounts a
-      WHERE a.id = ${ref.accountId}::uuid
-      FOR UPDATE
+    const [row] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM accounts
+      WHERE id = ${ref.accountId}::uuid
     `;
-    return rows[0] ?? null;
+    return row?.id ?? null;
   }
-  // subscription mode: resolve by customer, but only act on the account's
-  // CURRENT subscription (ignore stale/old subscription events).
+  const [row] = await tx<{ id: string }[]>`
+    SELECT id
+    FROM accounts
+    WHERE stripe_customer_id = ${ref.stripeCustomerId}
+      AND stripe_subscription_id = ${ref.stripeSubscriptionId}
+  `;
+  return row?.id ?? null;
+}
+
+async function resolveLockedAccount(
+  tx: TxSql,
+  accountId: string,
+  ref: ApplyStripeRef,
+): Promise<ResolvedAccount | null> {
   const rows = await tx<ResolvedAccount[]>`
     SELECT a.id, a.subscription_status,
+      a.stripe_customer_id, a.stripe_subscription_id,
       (SELECT b.id FROM businesses b
         WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
         LIMIT 1) AS primary_business_id
     FROM accounts a
-    WHERE a.stripe_customer_id = ${ref.stripeCustomerId}
-      AND a.stripe_subscription_id = ${ref.stripeSubscriptionId}
+    WHERE a.id = ${accountId}::uuid
     FOR UPDATE
   `;
-  return rows[0] ?? null;
+  const account = rows[0] ?? null;
+  if (
+    account
+    && (
+      (ref.mode === 'checkout' && ref.accountId !== accountId)
+      || (
+        ref.mode === 'subscription'
+        && (
+          account.stripe_customer_id !== ref.stripeCustomerId
+          || account.stripe_subscription_id !== ref.stripeSubscriptionId
+        )
+      )
+    )
+  ) {
+    return null;
+  }
+  return account;
 }
 
 const NO_CHANGE = (
@@ -172,48 +205,120 @@ const NO_CHANGE = (
 export async function applyStripeSubscriptionState(
   tx: TxSql,
   ref: ApplyStripeRef,
-  stripeSub: Pick<Stripe.Subscription, 'id' | 'status' | 'trial_end'> & { customer?: unknown },
+  stripeSub: StripeSubscriptionState,
 ): Promise<TransitionResult> {
-  const account = await resolveAccount(tx, ref);
-  if (!account) return NO_CHANGE(null);
+  // Resolve without a row lock, then serialize status/tier/publisher state
+  // before re-reading and locking the account. Never wait for entitlement
+  // while holding the account row.
+  const accountId = await resolveAccountId(tx, ref);
+  if (!accountId) return NO_CHANGE(null);
+  await acquireTierEntitlementLock(tx, accountId);
+  return applyStripeSubscriptionStateInternal(tx, accountId, ref, stripeSub);
+}
 
-  const target = mapStripeStatus(stripeSub.status);
-  if (!target) return NO_CHANGE(account);
+/**
+ * Status projection for callers that already hold the entitlement advisory
+ * lock for `lockedAccountId`. The explicit account id is the linearization
+ * anchor: never re-resolve the Stripe lineage after taking another account's
+ * lock. The locked row rechecks that the customer/subscription lineage still
+ * belongs to that same account before any mutation. Those callers must project
+ * the deprecated business mirror only after the canonical transaction commits,
+ * in business -> entitlement order.
+ */
+export async function applyStripeSubscriptionStateUnderEntitlementLock(
+  tx: TxSql,
+  lockedAccountId: string,
+  ref: ApplyStripeRef,
+  stripeSub: StripeSubscriptionState,
+): Promise<TransitionResult> {
+  return applyStripeSubscriptionStateInternal(tx, lockedAccountId, ref, stripeSub);
+}
 
-  const current = account.subscription_status;
-  if (!isAllowedTransition(current, target)) return NO_CHANGE(account);
+interface StatusTransitionPlan {
+  current: string;
+  target: SubscriptionStatusValue;
+}
 
-  const stripeSubscriptionId = stripeSub.id;
-  const stripeCustomerId = extractStripeCustomerId(stripeSub.customer, ref);
-  const trialEndIso =
-    typeof stripeSub.trial_end === 'number' && stripeSub.trial_end > 0
-      ? new Date(stripeSub.trial_end * 1000).toISOString()
-      : null;
+function resolveStatusTransition(
+  account: ResolvedAccount,
+  stripeStatus: Stripe.Subscription.Status | string,
+): StatusTransitionPlan | null {
+  const target = mapStripeStatus(stripeStatus);
+  if (!target || !isAllowedTransition(account.subscription_status, target)) return null;
+  return { current: account.subscription_status, target };
+}
 
-  await writeStatusColumns(tx, account.id, target, trialEndIso, stripeCustomerId, stripeSubscriptionId);
-  await writeBusinessesMirror(tx, account.id, target);
+function stripeTrialEndIso(trialEnd: number | null | undefined): string | null {
+  if (typeof trialEnd !== 'number' || trialEnd <= 0) return null;
+  return new Date(trialEnd * 1000).toISOString();
+}
 
+async function persistStatusTransition(
+  tx: TxSql,
+  input: {
+    account: ResolvedAccount;
+    transition: StatusTransitionPlan;
+    stripeSub: StripeSubscriptionState;
+    ref: ApplyStripeRef;
+  },
+): Promise<void> {
+  const stripeSubscriptionId = input.stripeSub.id;
+  const stripeCustomerId = extractStripeCustomerId(input.stripeSub.customer, input.ref);
+  await writeStatusColumns(
+    tx,
+    input.account.id,
+    input.transition.target,
+    stripeTrialEndIso(input.stripeSub.trial_end),
+    stripeCustomerId,
+    stripeSubscriptionId,
+  );
   await writeAccountAuditLog(tx, {
-    accountId: account.id,
+    accountId: input.account.id,
     eventType: 'subscription_status_changed',
     entityType: 'account',
-    entityId: account.id,
-    payload: { fromStatus: current, toStatus: target },
+    entityId: input.account.id,
+    payload: {
+      fromStatus: input.transition.current,
+      toStatus: input.transition.target,
+    },
   });
-
-  // Overage recompute on entering an entitled (billable) state.
-  if (target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE) {
-    await enqueueStripeOverageRecompute(tx, account.id);
+  if (subscriptionGrantsFullAccess(input.transition.target)) {
+    await enqueueStripeOverageRecompute(tx, input.account.id);
   }
+  await enqueueLifecycleAnalytics(
+    tx,
+    input.account.id,
+    input.transition.current,
+    input.transition.target,
+    stripeSubscriptionId,
+  );
+  await enqueueStripeSubscriptionMirrorSync(tx, input.account.id);
+}
 
-  await enqueueLifecycleAnalytics(tx, account.id, current, target, stripeSubscriptionId);
+async function applyStripeSubscriptionStateInternal(
+  tx: TxSql,
+  accountId: string,
+  ref: ApplyStripeRef,
+  stripeSub: StripeSubscriptionState,
+): Promise<TransitionResult> {
+  const account = await resolveLockedAccount(tx, accountId, ref);
+  if (!account) return NO_CHANGE(null);
+
+  const transition = resolveStatusTransition(account, stripeSub.status);
+  if (!transition) return NO_CHANGE(account);
+  await persistStatusTransition(tx, {
+    account,
+    transition,
+    stripeSub,
+    ref,
+  });
 
   return {
     accountResolved: true,
-    fromStatus: current,
-    toStatus: target,
+    fromStatus: transition.current,
+    toStatus: transition.target,
     changed: true,
-    activated: target === SubscriptionStatus.TRIALING || target === SubscriptionStatus.ACTIVE,
+    activated: subscriptionGrantsFullAccess(transition.target),
     primaryBusinessId: account.primary_business_id,
   };
 }
@@ -254,7 +359,7 @@ async function writeStatusColumns(
       // every later subscription-mode webhook and by the Billing Portal.
       await tx`
         UPDATE accounts
-        SET subscription_status = 'trialing',
+        SET subscription_status = ${SubscriptionStatus.TRIALING},
             trial_ends_at = ${trialEndIso},
             past_due_at = NULL,
             stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
@@ -267,7 +372,7 @@ async function writeStatusColumns(
     case SubscriptionStatus.ACTIVE:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'active',
+        SET subscription_status = ${SubscriptionStatus.ACTIVE},
             trial_ends_at = NULL,
             past_due_at = NULL,
             stripe_customer_id = COALESCE(stripe_customer_id, ${stripeCustomerId}),
@@ -280,7 +385,7 @@ async function writeStatusColumns(
     case SubscriptionStatus.PAST_DUE:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'past_due',
+        SET subscription_status = ${SubscriptionStatus.PAST_DUE},
             trial_ends_at = NULL,
             past_due_at = NOW(),
             updated_at = NOW()
@@ -290,63 +395,13 @@ async function writeStatusColumns(
     case SubscriptionStatus.CANCELLED:
       await tx`
         UPDATE accounts
-        SET subscription_status = 'cancelled',
+        SET subscription_status = ${SubscriptionStatus.CANCELLED},
             cancelled_at = NOW(),
             trial_ends_at = NULL,
             past_due_at = NULL,
             updated_at = NOW()
         WHERE id = ${accountId}::uuid
       `;
-      return;
-    default:
-      return;
-  }
-}
-
-async function writeBusinessesMirror(
-  tx: TxSql,
-  accountId: string,
-  target: SubscriptionStatusValue,
-): Promise<void> {
-  // Deprecated businesses.subscription_status mirror (retained per VAL-SCHEMA-037).
-  // Mirror the SAME status the accounts row now carries (including 'trialing').
-  //
-  // On entering an entitled state (trialing OR active), ALSO mirror the
-  // service-start anchor onto businesses.subscription_activated_at — first-writer
-  // wins via COALESCE, matching the accounts column. The OnboardingDripScheduler
-  // gates on businesses.subscription_activated_at IS NOT NULL (and the drip
-  // worker hard-fails day_7/day_30 when it is null), so without this mirror trial
-  // accounts would never receive onboarding drips. Scoped to the primary,
-  // non-archived business — same target row as checkout-completed's paid path.
-  // The anchor is NOT touched on past_due/cancelled (those are exits, not starts).
-  switch (target) {
-    case SubscriptionStatus.TRIALING:
-      await tx`
-        UPDATE businesses
-        SET subscription_status = 'trialing',
-            subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-            updated_at = NOW()
-        WHERE account_id = ${accountId}::uuid
-          AND is_primary = TRUE
-          AND archived_at IS NULL
-      `;
-      return;
-    case SubscriptionStatus.ACTIVE:
-      await tx`
-        UPDATE businesses
-        SET subscription_status = 'active',
-            subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-            updated_at = NOW()
-        WHERE account_id = ${accountId}::uuid
-          AND is_primary = TRUE
-          AND archived_at IS NULL
-      `;
-      return;
-    case SubscriptionStatus.PAST_DUE:
-      await tx`UPDATE businesses SET subscription_status = 'past_due', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
-      return;
-    case SubscriptionStatus.CANCELLED:
-      await tx`UPDATE businesses SET subscription_status = 'cancelled', updated_at = NOW() WHERE account_id = ${accountId}::uuid`;
       return;
     default:
       return;

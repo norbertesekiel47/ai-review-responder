@@ -9,9 +9,10 @@
 
 import Stripe from 'stripe';
 import type postgres from 'postgres';
-import { applyStripeSubscriptionState } from '../../../ingress/stripe/apply-subscription-state';
+import { applyStripeSubscriptionStateUnderEntitlementLock } from '../../../ingress/stripe/apply-subscription-state';
 import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
-import { isSubscriptionTier, TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
+import { acquireTierEntitlementLock } from '../../../../src/lib/accounts/billing-locks';
+import { isSubscriptionTier } from '../../../../src/lib/accounts/tier-config';
 import { resolveSubscriptionBilling } from '../../../../src/lib/payments/overage-item';
 import {
   compareUpcomingInvoice,
@@ -61,7 +62,6 @@ export async function reconcileAccount(
     return { accountsChecked: 0, drifts, errors: 1 };
   }
 
-  const config = TIER_CONFIG[tier];
   const activeLocations = Number(account.active_location_count);
   const expectedAccount: BillingReconciliationAccount = {
     ...account,
@@ -186,20 +186,27 @@ export async function reconcileAccount(
   const dbTrialing = account.subscription_status === SubscriptionStatus.TRIALING;
   const stripeTrialing = subscription.status === 'trialing';
   if (dbTrialing && !stripeTrialing && account.stripe_subscription_id) {
-    // Read-before-tx invariant: all Stripe reads above have resolved before
-    // sql.begin() acquires a pool connection. This tx runs only fast DB writes —
-    // never across an open Stripe call.
-    const transition = await sql.begin(async (tx) =>
-      applyStripeSubscriptionState(
+    const transition = await sql.begin(async (tx) => {
+      await acquireTierEntitlementLock(tx, account.id);
+      // Drift detection may use the earlier read, but corrective authority must
+      // use a fresh provider observation inside the entitlement boundary. The
+      // bounded read occurs before the applier takes the account row lock.
+      const currentSubscription = await stripe.subscriptions.retrieve(
+        account.stripe_subscription_id!,
+        {},
+        { timeout: STRIPE_READ_TIMEOUT_MS },
+      );
+      return applyStripeSubscriptionStateUnderEntitlementLock(
         tx,
+        account.id,
         {
           mode: 'subscription',
-          stripeCustomerId: extractStripeCustomerId(subscription.customer) ?? account.stripe_customer_id ?? '',
+          stripeCustomerId: extractStripeCustomerId(currentSubscription.customer) ?? account.stripe_customer_id ?? '',
           stripeSubscriptionId: account.stripe_subscription_id!,
         },
-        subscription,
-      ),
-    );
+        currentSubscription,
+      );
+    });
     if (transition.changed) {
       logger.warn('Corrected stuck trialing row to match Stripe', {
         account_id: account.id,
@@ -320,25 +327,7 @@ export async function reconcileAccount(
     });
   }
 
-  // Basic tier has no overage concept
-  if (!config.multiLocAllowed || config.overageCents === 0) {
-    if (overageItem && (overageItem.quantity ?? 0) > 0) {
-      // Basic tier should never have overage items with quantity > 0
-      drifts.push({
-        driftType: 'quantity_mismatch',
-        dbExpectedOverage: expectedInvoice.overageUnits,
-        stripeOverageQuantity,
-        activeLocations,
-        locationsIncluded: account.locations_included,
-        tier,
-        isPilot,
-        dbStatus: account.subscription_status,
-        stripeStatus: subscription.status,
-        stripeSubscriptionId: subscription.id,
-        stripeCustomerId,
-      });
-    }
-  } else if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
+  if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
     drifts.push({
       driftType: 'quantity_mismatch',
       dbExpectedOverage: expectedInvoice.overageUnits,

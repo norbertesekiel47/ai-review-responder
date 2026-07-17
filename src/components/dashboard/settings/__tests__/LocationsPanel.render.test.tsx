@@ -243,7 +243,7 @@ describe('LocationsPanel add-location state', () => {
     );
   });
 
-  it('shows a Basic locked upgrade state instead of Add location', () => {
+  it('shows a server-authoritative locked state instead of Add location', () => {
     render(
       <LocationsPanel
         locations={[location({})]}
@@ -252,8 +252,8 @@ describe('LocationsPanel add-location state', () => {
         accountId={ACCOUNT_ID}
         addLocationState={{
           kind: 'locked',
-          title: 'Upgrade to add locations',
-          description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
+          title: 'Location changes unavailable',
+          description: 'Your account cannot add another location right now.',
           ctaHref: '/settings/billing',
           ctaLabel: 'View plan options',
         }}
@@ -262,7 +262,7 @@ describe('LocationsPanel add-location state', () => {
     );
 
     expect(screen.queryByRole('link', { name: /^add location$/i })).not.toBeInTheDocument();
-    expect(screen.getByText('Upgrade to add locations')).toBeInTheDocument();
+    expect(screen.getByText('Location changes unavailable')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /view plan options/i })).toHaveAttribute(
       'href',
       '/settings/billing',

@@ -1,101 +1,383 @@
-// src/lib/payments/price-tier-map.ts
-//
-// Single owner of the SubscriptionTier <-> Stripe price-ID mapping. Every
-// tier/price lookup (checkout, tier-change, the subscription webhook, the
-// overage worker, the reconciliation poller) sources from here so the mapping
-// has one authoritative representation.
-//
-// Env is read at call time (not memoized at import) so tests can stub
-// process.env per case; presence-validation stays with the worker's boot-time
-// env assertions (worker/config/startup-assert.ts).
-//
-// Validation contract: VAL-BILLING-009, VAL-BILLING-030, VAL-BILLING-032,
-//   VAL-BILLING-055.
+// Single owner of the WS8 Stripe Price-ID mapping. Environment values are read
+// at call time so tests can safely stub them and long-lived processes never
+// retain a partial registry built before configuration is available.
 
-import { type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import {
+  SubscriptionTier,
+  isPriceVariant,
+  isSubscriptionTier,
+  resolveTierSnapshot,
+  type PriceVariant,
+  type SubscriptionTierValue,
+} from '@/lib/accounts/tier-config';
 
-/**
- * The seven Stripe price env vars this module reads. Single owner of the
- * list — the worker boot assertions and the Next.js instrumentation
- * soft-assert derive from it, so adding a tier means adding it HERE and in
- * the env maps below, nowhere else.
- */
+/** The complete launch Price contract. Keep historical launch IDs resolvable. */
 export const STRIPE_PRICE_ENV_VARS = [
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+  'STRIPE_PRICE_COPILOT_LIST',
+  'STRIPE_PRICE_COPILOT_FOUNDING',
+  'STRIPE_PRICE_AUTOPILOT_LIST',
+  'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+  'STRIPE_PRICE_COPILOT_OVERAGE',
+  'STRIPE_PRICE_AUTOPILOT_OVERAGE',
 ] as const;
 
-function baseEnvMap(): Record<SubscriptionTierValue, string | undefined> {
-  return {
-    basic: process.env.STRIPE_PRICE_BASIC,
-    standard: process.env.STRIPE_PRICE_STANDARD,
-    premium: process.env.STRIPE_PRICE_PREMIUM,
-    // The 'founders' tier uses the STRIPE_PRICE_FOUNDING env var (naming quirk
-    // documented in tier-config.ts).
-    founders: process.env.STRIPE_PRICE_FOUNDING,
-  };
+type StripePriceEnvVar = (typeof STRIPE_PRICE_ENV_VARS)[number];
+export type StripePriceKind = 'base' | 'overage';
+
+export interface BasePriceInfo {
+  tier: SubscriptionTierValue;
+  variant: PriceVariant;
 }
 
-function overageEnvMap(): Record<SubscriptionTierValue, string | undefined> {
-  return {
-    basic: undefined, // basic tier has no overage
-    standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
-    premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
-    founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
-  };
-}
-
-/** tier -> base price ID, or null when the env var is unset/empty. */
-export function basePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return baseEnvMap()[tier] || null;
-}
-
-/** tier -> overage price ID, or null. `basic` is always null. */
-export function overagePriceIdForTier(tier: SubscriptionTierValue): string | null {
-  return overageEnvMap()[tier] || null;
+export interface OveragePriceInfo {
+  tier: SubscriptionTierValue;
 }
 
 /**
- * base price ID -> tier. The reverse map is built ONLY from non-empty IDs, so
- * an empty/undefined price ID can never collide on a shared '' key. Unknown or
- * empty input returns null.
+ * Code-owned archive of rotated immutable Stripe Prices. Add the outgoing ID
+ * here before rotating an environment variable so webhook/reconciliation
+ * reverse lookups remain valid forever. These entries are never used by the
+ * forward lookup that creates new Stripe mutations.
  */
-export function tierForBasePriceId(
-  priceId: string | null | undefined,
-): SubscriptionTierValue | null {
-  if (!priceId) return null;
-  const entries = Object.entries(baseEnvMap()) as [SubscriptionTierValue, string | undefined][];
-  for (const [tier, id] of entries) {
-    if (id && id === priceId) return tier;
+export type RetainedStripePrice =
+  | {
+      id: string;
+      kind: 'base';
+      tier: SubscriptionTierValue;
+      variant: PriceVariant;
+    }
+  | {
+      id: string;
+      kind: 'overage';
+      tier: SubscriptionTierValue;
+      /** Immutable Stripe unit_amount used to recreate grandfathered items. */
+      unitAmountCents: number;
+    };
+
+const RETAINED_STRIPE_PRICE_HISTORY: readonly RetainedStripePrice[] = [];
+
+export type RetainedOverageStripePrice = Extract<
+  RetainedStripePrice,
+  { kind: 'overage' }
+>;
+
+export function retainedOverageStripePrices(): readonly RetainedOverageStripePrice[] {
+  return RETAINED_STRIPE_PRICE_HISTORY.filter(
+    (price): price is RetainedOverageStripePrice => price.kind === 'overage',
+  );
+}
+
+interface ConfiguredPrice {
+  env: StripePriceEnvVar;
+  id: string | null;
+  kind: StripePriceKind;
+  tier: SubscriptionTierValue;
+  variant?: PriceVariant;
+}
+
+function configuredId(env: StripePriceEnvVar): string | null {
+  const value = process.env[env];
+  return value && value.trim().length > 0 ? value : null;
+}
+
+function configuredPrices(): ConfiguredPrice[] {
+  const prices: ConfiguredPrice[] = [
+    {
+      env: 'STRIPE_PRICE_COPILOT_LIST',
+      id: configuredId('STRIPE_PRICE_COPILOT_LIST'),
+      kind: 'base',
+      tier: SubscriptionTier.COPILOT,
+      variant: 'list',
+    },
+    {
+      env: 'STRIPE_PRICE_COPILOT_FOUNDING',
+      id: configuredId('STRIPE_PRICE_COPILOT_FOUNDING'),
+      kind: 'base',
+      tier: SubscriptionTier.COPILOT,
+      variant: 'founding',
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_LIST',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_LIST'),
+      kind: 'base',
+      tier: SubscriptionTier.AUTOPILOT,
+      variant: 'list',
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_FOUNDING'),
+      kind: 'base',
+      tier: SubscriptionTier.AUTOPILOT,
+      variant: 'founding',
+    },
+    {
+      env: 'STRIPE_PRICE_COPILOT_OVERAGE',
+      id: configuredId('STRIPE_PRICE_COPILOT_OVERAGE'),
+      kind: 'overage',
+      tier: SubscriptionTier.COPILOT,
+    },
+    {
+      env: 'STRIPE_PRICE_AUTOPILOT_OVERAGE',
+      id: configuredId('STRIPE_PRICE_AUTOPILOT_OVERAGE'),
+      kind: 'overage',
+      tier: SubscriptionTier.AUTOPILOT,
+    },
+  ];
+  assertUniqueConfiguredPrices(prices);
+  return prices;
+}
+
+function assertUniqueConfiguredPrices(prices: readonly ConfiguredPrice[]): void {
+  const firstEnvById = new Map<string, StripePriceEnvVar>();
+  for (const price of prices) {
+    if (!price.id) continue;
+    const firstEnv = firstEnvById.get(price.id);
+    if (firstEnv) {
+      throw new Error(
+        `[config] Stripe Price IDs must be unique: ${firstEnv} duplicates ${price.env}`,
+      );
+    }
+    firstEnvById.set(price.id, price.env);
   }
-  return null;
 }
 
-/** The set of configured (non-empty) base price IDs. */
-export function basePriceIdSet(): Set<string> {
-  return new Set(
-    Object.values(baseEnvMap()).filter((id): id is string => Boolean(id)),
-  );
+/** Worker hard assertion and Next soft-drift check share this mapping guard. */
+export function assertStripePriceIdsUnique(): void {
+  knownPricesFor(RETAINED_STRIPE_PRICE_HISTORY);
 }
 
-/** The set of configured (non-empty) overage price IDs. */
-export function overagePriceIdSet(): Set<string> {
-  return new Set(
-    Object.values(overageEnvMap()).filter((id): id is string => Boolean(id)),
-  );
+interface KnownPrice {
+  id: string | null;
+  kind: StripePriceKind;
+  tier: SubscriptionTierValue;
+  variant?: PriceVariant;
+}
+
+function assertRetainedOverageAmounts(
+  retainedHistory: readonly RetainedStripePrice[],
+): void {
+  const amountById = new Map<string, number>();
+  for (const price of retainedHistory) {
+    if (price.kind !== 'overage') continue;
+    if (!Number.isSafeInteger(price.unitAmountCents) || price.unitAmountCents <= 0) {
+      throw new Error(
+        `[config] Retained Stripe overage Price ${price.id} has invalid unit amount`,
+      );
+    }
+    const firstAmount = amountById.get(price.id);
+    if (firstAmount !== undefined && firstAmount !== price.unitAmountCents) {
+      throw new Error(
+        `[config] Retained Stripe overage Price ${price.id} has conflicting unit amounts: `
+        + `${firstAmount} and ${price.unitAmountCents}`,
+      );
+    }
+    amountById.set(price.id, price.unitAmountCents);
+  }
+}
+
+function knownPriceSemantics(price: KnownPrice): string {
+  return price.kind === 'base'
+    ? `${price.kind}:${price.tier}:${price.variant ?? 'missing'}`
+    : `${price.kind}:${price.tier}`;
+}
+
+function assertKnownPriceMappingsConsistent(
+  prices: readonly KnownPrice[],
+): void {
+  const semanticsById = new Map<string, string>();
+  for (const price of prices) {
+    if (!price.id) continue;
+    const semantics = knownPriceSemantics(price);
+    const firstSemantics = semanticsById.get(price.id);
+    if (firstSemantics && firstSemantics !== semantics) {
+      throw new Error(
+        `[config] Stripe Price ID ${price.id} has conflicting mappings: `
+        + `${firstSemantics} and ${semantics}`,
+      );
+    }
+    semanticsById.set(price.id, semantics);
+  }
+}
+
+function knownPricesFor(
+  retainedHistory: readonly RetainedStripePrice[],
+): KnownPrice[] {
+  assertRetainedOverageAmounts(retainedHistory);
+  const prices: KnownPrice[] = [
+    ...configuredPrices(),
+    ...retainedHistory.map((price): KnownPrice => ({
+      id: price.id,
+      kind: price.kind,
+      tier: price.tier,
+      variant: price.kind === 'base' ? price.variant : undefined,
+    })),
+  ];
+  assertKnownPriceMappingsConsistent(prices);
+  return prices;
 }
 
 /**
- * True when priceId is one of the configured overage price IDs. Builds the set
- * on each call; for bulk membership checks (e.g. scanning many subscription
- * items) call `overagePriceIdSet()` once and reuse the result instead.
+ * Builds the Price lookup surface around an explicit retained-history list.
+ * The default production instance uses RETAINED_STRIPE_PRICE_HISTORY; passing
+ * a registry keeps rotation behavior pure and directly testable.
  */
+export function createPriceTierMap(
+  retainedHistory: readonly RetainedStripePrice[] = RETAINED_STRIPE_PRICE_HISTORY,
+) {
+  const knownPrices = (): KnownPrice[] => knownPricesFor(retainedHistory);
+
+  return {
+    /**
+     * Variant-aware forward lookup. Deliberately reads only the six live env
+     * IDs; history can recognize old provider state but can never create it.
+     */
+    priceIdFor(
+      tier: SubscriptionTierValue,
+      variant: PriceVariant,
+      kind: StripePriceKind,
+    ): string | null {
+      // Forward writes must also fail closed if the code-owned historical
+      // registry conflicts with a live ID. Next instrumentation reports config
+      // drift but is intentionally non-fatal, so the write seam enforces it.
+      knownPrices();
+      if (!isSubscriptionTier(tier)) {
+        throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
+      }
+      if (!isPriceVariant(variant)) {
+        throw new Error(`Unknown price variant: ${String(variant)}`);
+      }
+      if (kind !== 'base' && kind !== 'overage') {
+        throw new Error(`Unknown Stripe Price kind: ${String(kind)}`);
+      }
+      const match = configuredPrices().find(
+        (price) =>
+          price.tier === tier &&
+          price.kind === kind &&
+          (kind === 'overage' || price.variant === variant),
+      );
+      return match?.id ?? null;
+    },
+
+    /**
+     * Resolves the Price that preserves an account's stored overage cents.
+     * Current cents use the live env ID; grandfathered cents require an
+     * explicitly retained immutable Price and never fall forward to today's
+     * more expensive Price.
+     */
+    overagePriceIdForStoredCents(
+      tier: SubscriptionTierValue,
+      storedOveragePriceCents: number,
+    ): string | null {
+      knownPrices();
+      if (!isSubscriptionTier(tier)) {
+        throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
+      }
+      if (
+        !Number.isSafeInteger(storedOveragePriceCents)
+        || storedOveragePriceCents <= 0
+      ) {
+        throw new Error('Stored overage Price cents must be a positive safe integer');
+      }
+
+      const currentSnapshot = resolveTierSnapshot(tier, 'list');
+      if (currentSnapshot.overageCents === storedOveragePriceCents) {
+        return configuredPrices().find(
+          (price) => price.kind === 'overage' && price.tier === tier,
+        )?.id ?? null;
+      }
+
+      const retained = retainedHistory.find(
+        (price) => price.kind === 'overage'
+          && price.tier === tier
+          && price.unitAmountCents === storedOveragePriceCents,
+      );
+      return retained?.id ?? null;
+    },
+
+    basePriceInfoForId(priceId: string | null | undefined): BasePriceInfo | null {
+      if (!priceId) return null;
+      const match = knownPrices().find(
+        (price) => price.kind === 'base' && price.id === priceId,
+      );
+      if (!match?.variant) return null;
+      return { tier: match.tier, variant: match.variant };
+    },
+
+    overagePriceInfoForId(
+      priceId: string | null | undefined,
+    ): OveragePriceInfo | null {
+      if (!priceId) return null;
+      const match = knownPrices().find(
+        (price) => price.kind === 'overage' && price.id === priceId,
+      );
+      return match ? { tier: match.tier } : null;
+    },
+
+    basePriceIdSet(): Set<string> {
+      return new Set(knownPrices()
+        .filter((price) => price.kind === 'base' && price.id)
+        .map((price) => price.id!));
+    },
+
+    overagePriceIdSet(): Set<string> {
+      return new Set(knownPrices()
+        .filter((price) => price.kind === 'overage' && price.id)
+        .map((price) => price.id!));
+    },
+
+    isOveragePriceId(priceId: string | null | undefined): boolean {
+      return Boolean(
+        priceId
+        && knownPrices().some(
+          (price) => price.kind === 'overage' && price.id === priceId,
+        ),
+      );
+    },
+  };
+}
+
+const priceTierMap = createPriceTierMap();
+
+export function priceIdFor(
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+  kind: StripePriceKind,
+): string | null {
+  return priceTierMap.priceIdFor(tier, variant, kind);
+}
+
+export function basePriceInfoForId(
+  priceId: string | null | undefined,
+): BasePriceInfo | null {
+  return priceTierMap.basePriceInfoForId(priceId);
+}
+
+export function overagePriceInfoForId(
+  priceId: string | null | undefined,
+): OveragePriceInfo | null {
+  return priceTierMap.overagePriceInfoForId(priceId);
+}
+
+export function overagePriceIdForStoredCents(
+  tier: SubscriptionTierValue,
+  storedOveragePriceCents: number,
+): string | null {
+  return priceTierMap.overagePriceIdForStoredCents(
+    tier,
+    storedOveragePriceCents,
+  );
+}
+
+/** Current plus retained historical base Price IDs. */
+export function basePriceIdSet(): Set<string> {
+  return priceTierMap.basePriceIdSet();
+}
+
+/** Current plus retained historical overage Price IDs. */
+export function overagePriceIdSet(): Set<string> {
+  return priceTierMap.overagePriceIdSet();
+}
+
 export function isOveragePriceId(priceId: string | null | undefined): boolean {
-  if (!priceId) return false;
-  return overagePriceIdSet().has(priceId);
+  return priceTierMap.isOveragePriceId(priceId);
 }

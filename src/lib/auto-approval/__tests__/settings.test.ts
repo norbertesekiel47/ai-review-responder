@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { resetServerConfigForTests } from '@/lib/config/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { AutoApprovalThreshold } from '../types';
 
-const {
-  mockAssertWritableSubscriptionForAccount,
-  mockWriteAccountAuditLog,
-} = vi.hoisted(() => ({
-  mockAssertWritableSubscriptionForAccount: vi.fn(),
+const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
   mockWriteAccountAuditLog: vi.fn(),
 }));
 
@@ -39,6 +38,10 @@ type Offboarding = {
 const sqlCalls: { text: string; values: unknown[] }[] = [];
 const dbState = {
   accountExists: true,
+  subscriptionTier: SubscriptionTier.AUTOPILOT as string,
+  subscriptionStatus: SubscriptionStatus.ACTIVE as string,
+  pastDueAt: null as Date | string | null,
+  flags: null as Record<string, unknown> | string | null,
   accountDefault: null as Policy | null,
   locations: [] as Location[],
   overrides: new Map<string, Policy>(),
@@ -99,8 +102,16 @@ const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unkn
   sqlCalls.push({ text, values });
   const accountId = values[0] as string;
 
-  if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
-    return dbState.accountExists ? [{ id: accountId }] : [];
+  if (text.includes('FROM accounts') && text.includes('WHERE id =')) {
+    return dbState.accountExists
+      ? [{
+          id: accountId,
+          subscription_tier: dbState.subscriptionTier,
+          subscription_status: dbState.subscriptionStatus,
+          past_due_at: dbState.pastDueAt,
+          flags: dbState.flags,
+        }]
+      : [];
   }
 
   if (text.includes('FROM account_offboardings')) {
@@ -229,11 +240,6 @@ const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unkn
 });
 mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
 
-vi.mock('@/lib/shared/writable-subscription', () => ({
-  assertWritableSubscriptionForAccount: (...args: unknown[]) =>
-    mockAssertWritableSubscriptionForAccount(...args),
-}));
-
 vi.mock('@/lib/audit/log', () => ({
   writeAccountAuditLog: (...args: unknown[]) => mockWriteAccountAuditLog(...args),
 }));
@@ -249,6 +255,10 @@ const LOCATION_2 = 'bbbbbbbb-0000-0000-0000-000000000002';
 
 function resetDb(): void {
   dbState.accountExists = true;
+  dbState.subscriptionTier = SubscriptionTier.AUTOPILOT;
+  dbState.subscriptionStatus = SubscriptionStatus.ACTIVE;
+  dbState.pastDueAt = null;
+  dbState.flags = null;
   dbState.accountDefault = null;
   dbState.locations = [
     { id: LOCATION_1, name: 'Main Cafe', displayLabel: 'Main', archivedAt: null },
@@ -260,10 +270,32 @@ function resetDb(): void {
 
 function enableReadiness(): void {
   process.env.AUTO_APPROVAL_ENABLED = 'true';
+  process.env.AUTOPILOT_PURCHASABLE = 'true';
   process.env.OPENAI_MODERATION_ENABLED = 'true';
   process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'true';
   delete process.env.VERCEL_ENV;
-  mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
+  resetServerConfigForTests();
+}
+
+function expectSuccessfulRowlessDialContraction(): void {
+  expect(sqlCalls.filter((call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE')))
+    .toHaveLength(1);
+  expect(sqlCalls.filter((call) => call.text.includes('FROM account_offboardings')))
+    .toHaveLength(3);
+  expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies')))
+    .toHaveLength(1);
+  expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+  expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+    mockSql,
+    expect.objectContaining({
+      payload: expect.objectContaining({
+        exposureClassification: 'contraction',
+        expansion: false,
+        requiredConfirmationLevel: null,
+        submittedConfirmationLevel: null,
+      }),
+    }),
+  );
 }
 
 describe('auto-approval settings service', () => {
@@ -399,17 +431,497 @@ describe('auto-approval settings service', () => {
     });
 
     expect(result.accountDefault.threshold).toBe(4);
+    const accountReads = sqlCalls.filter((call) => call.text.includes('FROM accounts'));
+    expect(accountReads).toHaveLength(1);
+    expect(accountReads[0]?.text).toContain('subscription_tier');
+    expect(accountReads[0]?.text).toContain('subscription_status');
+    expect(accountReads[0]?.text).toContain('FOR UPDATE');
+  });
+
+  it('GET reports only autopilot_unavailable for a writable Copilot account', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    const { getAutoApprovalSettings } = await import('../settings');
+
+    const result = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+
+    expect(result.readiness).toMatchObject({
+      accountWritable: true,
+      canExpand: false,
+      blockReasons: ['autopilot_unavailable'],
+    });
+    expect(result.readiness).not.toHaveProperty('autopilotPurchasable');
+  });
+
+  it('allows a trialing Autopilot account to expand', async () => {
+    dbState.subscriptionStatus = SubscriptionStatus.TRIALING;
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 5,
+      confirmationLevel: 'standard',
+    })).resolves.toMatchObject({ readiness: { canExpand: true } });
+  });
+
+  it('allows past-due grace but blocks expansion after the grace window', async () => {
+    dbState.subscriptionStatus = SubscriptionStatus.PAST_DUE;
+    dbState.pastDueAt = new Date(Date.now() - 86_400_000);
+    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
+      await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 5,
+      confirmationLevel: 'standard',
+    })).resolves.toMatchObject({ readiness: { accountWritable: true } });
+
+    dbState.accountDefault = null;
+    dbState.pastDueAt = new Date(Date.now() - 8 * 86_400_000);
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 5,
+      confirmationLevel: 'standard',
+    })).rejects.toBeInstanceOf(AutoApprovalExpansionBlockedError);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks expansion when the sale gate closes but still allows contraction', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5 };
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({
+      name: 'AutoApprovalExpansionBlockedError',
+      blockReasons: ['autopilot_unavailable'],
+    });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_manual',
+    });
+    expect(contracted.accountDefault.threshold).toBeNull();
+    expect(contracted.readiness.blockReasons).toEqual(['autopilot_unavailable']);
+  });
+
+  it('allows a Copilot rowless location veto change that creates a manual override', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_1,
+      minutes: 15,
+    });
+
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.override)
+      .toMatchObject({ exists: true, threshold: null, vetoWindowMinutes: 15 });
+    expectSuccessfulRowlessDialContraction();
+  });
+
+  it('allows a rowless location cap change when the Autopilot sale gate is closed', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_1,
+      cap: 5,
+    });
+
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.override)
+      .toMatchObject({ exists: true, threshold: null, dailyAutoPostCap: 5 });
+    expectSuccessfulRowlessDialContraction();
+  });
+
+  it('allows a rowless location veto change while the inherited policy is suspended', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+      suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
+      suspendedReason: 'governor_negative_feedback',
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_1,
+      minutes: 15,
+    });
+
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.effective)
+      .toMatchObject({ threshold: null, vetoWindowMinutes: 15, suspended: true });
+    expectSuccessfulRowlessDialContraction();
+  });
+
+  it('still blocks widening a dial on an existing location override for Copilot', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-location',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_1,
+      minutes: 15,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+
+    expect(sqlCalls.filter((call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE')))
+      .toHaveLength(1);
+    expect(sqlCalls.filter((call) => call.text.includes('FROM account_offboardings')))
+      .toHaveLength(2);
+    expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies')))
+      .toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('blocks Copilot expansion but permits an equal/no-op write with an honest audit', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = { id: 'policy-default', threshold: 5 };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+    expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toHaveLength(0);
+
+    await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 5,
+    });
+    expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toHaveLength(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenLastCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          exposureClassification: 'no_change',
+          expansion: false,
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: 'veto shortening',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: 5 },
+      request: { operation: 'set_account_veto_window' as const, minutes: 15 as const, confirmationLevel: 'standard' as const },
+      classification: 'expansion',
+      blocked: true,
+    },
+    {
+      name: 'veto lengthening',
+      policy: { vetoWindowMinutes: 15 as const, dailyAutoPostCap: 5 },
+      request: { operation: 'set_account_veto_window' as const, minutes: 30 as const },
+      classification: 'contraction',
+      blocked: false,
+    },
+    {
+      name: 'cap raising',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: 5 },
+      request: { operation: 'set_account_daily_cap' as const, cap: 6, confirmationLevel: 'standard' as const },
+      classification: 'expansion',
+      blocked: true,
+    },
+    {
+      name: 'cap lowering',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: 6 },
+      request: { operation: 'set_account_daily_cap' as const, cap: 5 },
+      classification: 'contraction',
+      blocked: false,
+    },
+    {
+      name: 'cap removal',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: 5 },
+      request: { operation: 'set_account_daily_cap' as const, cap: null, confirmationLevel: 'standard' as const },
+      classification: 'expansion',
+      blocked: true,
+    },
+    {
+      name: 'cap below the effective platform default',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
+      request: { operation: 'set_account_daily_cap' as const, cap: 1 },
+      classification: 'contraction',
+      blocked: false,
+    },
+    {
+      name: 'cap equal to the effective platform default',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
+      request: { operation: 'set_account_daily_cap' as const, cap: 10 },
+      classification: 'no_change',
+      blocked: false,
+    },
+    {
+      name: 'cap above the effective platform default',
+      policy: { vetoWindowMinutes: 30 as const, dailyAutoPostCap: null },
+      request: {
+        operation: 'set_account_daily_cap' as const,
+        cap: 50,
+        confirmationLevel: 'standard' as const,
+      },
+      classification: 'expansion',
+      blocked: true,
+    },
+  ])('classifies and gates $name for Copilot', async ({ policy, request, classification, blocked }) => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = { id: 'policy-default', threshold: 5, ...policy };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const action = patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      ...request,
+    });
+
+    if (blocked) {
+      await expect(action).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+      expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toHaveLength(0);
+      expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+      return;
+    }
+
+    await expect(action).resolves.toBeDefined();
+    expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toHaveLength(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({ exposureClassification: classification }),
+      }),
+    );
+  });
+
+  it('allows a confirmed NULL-to-50 cap expansion for ready Autopilot and projects it to inheriting locations', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: null,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    });
+
+    expect(result.accountDefault).toMatchObject({
+      dailyAutoPostCap: 50,
+      effectiveDailyCap: 50,
+    });
+    expect(result.locations).toHaveLength(2);
+    for (const location of result.locations) {
+      expect(location.effective).toMatchObject({
+        inherited: true,
+        dailyAutoPostCap: 50,
+        effectiveDailyCap: 50,
+      });
+    }
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          beforeEffectiveDailyAutoPostCap: null,
+          beforeEffectiveDailyCap: 10,
+          afterEffectiveDailyAutoPostCap: 50,
+          afterEffectiveDailyCap: 50,
+          exposureClassification: 'expansion',
+          expansion: true,
+        }),
+      }),
+    );
+  });
+
+  it('blocks NULL-to-50 but allows NULL-to-1 when the Autopilot sale gate is closed', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5, dailyAutoPostCap: null };
+    process.env.AUTOPILOT_PURCHASABLE = 'false';
+    resetServerConfigForTests();
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 1,
+    });
+    expect(contracted.accountDefault).toMatchObject({
+      dailyAutoPostCap: 1,
+      effectiveDailyCap: 1,
+    });
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          exposureClassification: 'contraction',
+          expansion: false,
+        }),
+      }),
+    );
+  });
+
+  it('blocks NULL-to-50 but allows NULL-to-1 while the policy is suspended', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      dailyAutoPostCap: null,
+      suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
+      suspendedReason: 'governor_negative_feedback',
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 50,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['policy_suspended'] });
+
+    const contracted = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_daily_cap',
+      cap: 1,
+    });
+    expect(contracted.accountDefault.dailyAutoPostCap).toBe(1);
+    expect(contracted.readiness.blockReasons).toEqual(['policy_suspended']);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an impersonated contraction blocked before opening a transaction', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: true,
+      operation: 'set_account_manual',
+    })).rejects.toMatchObject({ blockReasons: ['impersonation_not_allowed'] });
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps a contraction blocked during operational offboarding before any policy write', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
+    dbState.offboarding = {
+      id: '22222222-2222-7333-8444-555555555555',
+      account_id: ACCOUNT_ID,
+      mode: 'delete_data',
+      status: 'pending',
+      failed_step: null,
+      terminal_at: null,
+      access_ends_at: null,
+      teardown_started_at: null,
+      purge_after: null,
+      purge_started_at: null,
+      purge_cancelled_at: null,
+    };
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_manual',
+    })).rejects.toMatchObject({ code: 'account_offboarding_blocked', status: 403 });
+    expect(sqlCalls.filter((call) => call.text.includes('FOR UPDATE'))).toHaveLength(1);
+    expect(sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'))).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('allows contractions while readiness is blocked and writes audit in the same transaction', async () => {
     dbState.accountDefault = { id: 'policy-default', threshold: 4 };
     process.env.AUTO_APPROVAL_ENABLED = 'false';
     process.env.OPENAI_MODERATION_ENABLED = 'false';
-    mockAssertWritableSubscriptionForAccount.mockResolvedValue({
-      ok: false,
-      status: 403,
-      error: 'subscription_inactive',
-    });
+    dbState.subscriptionStatus = SubscriptionStatus.PENDING_PAYMENT;
 
     const { patchAutoApprovalSettings } = await import('../settings');
 
@@ -599,6 +1111,102 @@ describe('auto-approval settings service', () => {
     );
   });
 
+  it('blocks deleting a dial-restrictive override when inheritance widens another dial', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: null,
+    };
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-restrictive',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'delete_location_override',
+      locationId: LOCATION_1,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+    expect(dbState.overrides.get(LOCATION_1)?.id).toBe('policy-restrictive');
+    expect(sqlCalls.filter((call) => call.text.includes('DELETE FROM auto_approval_policies'))).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('allows Copilot to delete a permissive override and inherit a stricter policy', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-permissive',
+      threshold: 4,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: null,
+    });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'delete_location_override',
+      locationId: LOCATION_1,
+    });
+
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.effective)
+      .toMatchObject({ threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+    expect(sqlCalls.filter((call) => call.text.includes('DELETE FROM auto_approval_policies'))).toHaveLength(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({ exposureClassification: 'contraction' }),
+      }),
+    );
+  });
+
+  it('blocks manual-to-manual override deletion when inheritance widens restrictive dials', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: null,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: null,
+    };
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-manual-restrictive',
+      threshold: null,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'delete_location_override',
+      locationId: LOCATION_1,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ blockReasons: ['autopilot_unavailable'] });
+
+    expect(dbState.overrides.get(LOCATION_1)?.id).toBe('policy-manual-restrictive');
+    expect(sqlCalls.filter((call) => call.text.includes('DELETE FROM auto_approval_policies')))
+      .toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
   it('records affectedActiveLocationCount across inheriting active locations', async () => {
     const { patchAutoApprovalSettings } = await import('../settings');
 
@@ -686,7 +1294,12 @@ describe('auto-approval settings service', () => {
 
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_manual' });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_veto_window', minutes: 30 });
-    await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_account_daily_cap', cap: 25 });
+    await patchAutoApprovalSettings(mockSql, {
+      ...base,
+      operation: 'set_account_daily_cap',
+      cap: 25,
+      confirmationLevel: 'standard',
+    });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_manual', locationId: LOCATION_1 });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_veto_window', locationId: LOCATION_1, minutes: 30 });
     await patchAutoApprovalSettings(mockSql, { ...base, operation: 'set_location_daily_cap', locationId: LOCATION_1, cap: 25 });
@@ -728,6 +1341,15 @@ describe('auto-approval settings service', () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           operation: 'set_account_veto_window',
+          beforeEffectiveThreshold: 4,
+          afterEffectiveThreshold: 4,
+          beforeEffectiveVetoWindowMinutes: 15,
+          afterEffectiveVetoWindowMinutes: 30,
+          beforeEffectiveDailyAutoPostCap: 25,
+          afterEffectiveDailyAutoPostCap: 25,
+          beforeEffectiveDailyCap: 25,
+          afterEffectiveDailyCap: 25,
+          exposureClassification: 'contraction',
           expansion: false,
           requiredConfirmationLevel: null,
         }),
@@ -745,6 +1367,7 @@ describe('auto-approval settings service', () => {
       impersonated: false,
       operation: 'set_account_daily_cap',
       cap: null,
+      confirmationLevel: 'standard',
     });
 
     expect(result.accountDefault).toMatchObject({
@@ -837,7 +1460,7 @@ describe('auto-approval settings service', () => {
     ).rejects.toBeInstanceOf(AutoApprovalExpansionBlockedError);
   });
 
-  it('allows contractions and dial changes while the policy is suspended', async () => {
+  it('allows complete disablement and veto-window contraction while the policy is suspended', async () => {
     dbState.accountDefault = {
       id: 'policy-default',
       threshold: 4,

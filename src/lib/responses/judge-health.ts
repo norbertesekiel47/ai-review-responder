@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { publisherSubscriptionEligibleSql } from '@/lib/shared/subscription-eligibility-sql';
 import {
@@ -35,7 +35,7 @@ interface ErrorDensityRow {
  * not detected by staleness — the judge kill-switch downgrade and the
  * error-density signal below remain the covers.
  */
-export async function isJudgeHealthy(sql: Sql): Promise<boolean> {
+export async function isJudgeHealthy(sql: Sql | TransactionSql): Promise<boolean> {
   const [staleness] = await sql<StalenessRow[]>`
     SELECT EXISTS (
       SELECT 1

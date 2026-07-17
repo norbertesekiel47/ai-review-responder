@@ -11,10 +11,19 @@ import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { z } from 'zod';
 import { getOffboardingState, isCheckoutBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
-import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import {
+  CheckoutOffboardingBlockedError,
+  CheckoutUnavailableError,
+  createCheckoutSession,
+} from '@/lib/payments/create-checkout-session';
+import {
+  applyTierSnapshot,
+  CheckoutAttemptConflictError,
+} from '@/lib/payments/plan-activation';
 import { trialEnabled } from '@/lib/payments/flags';
+import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -31,6 +40,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const CheckoutSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
+  tier: z.enum([SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT]),
 });
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -67,7 +77,7 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       { status: 400, headers: NO_STORE },
     );
   }
-  const { accountId } = parsed.data;
+  const { accountId, tier } = parsed.data;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== owner.accountId) {
@@ -82,14 +92,16 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // same discriminator dashboard/route.ts uses to suppress the self-serve CTA.
   const [account] = await sql<{
     id: string;
-    subscription_tier: string;
     subscription_status: string;
     owner_email: string;
     onboarded_by: string | null;
   }[]>`
-    SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email,
+    SELECT a.id, a.subscription_status, u.email AS owner_email,
       (SELECT b.onboarded_by FROM businesses b
-        WHERE b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL
+        WHERE b.account_id = ${accountId}::uuid
+          AND b.account_id = a.id
+          AND b.is_primary = TRUE
+          AND b.archived_at IS NULL
         LIMIT 1) AS onboarded_by
     FROM accounts a
     JOIN users u ON u.id = a.owner_user_id
@@ -127,16 +139,6 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate tier
-  if (!isSubscriptionTier(account.subscription_tier)) {
-    return NextResponse.json(
-      { error: 'invalid_tier', tier: account.subscription_tier },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-
-  const tier = account.subscription_tier as SubscriptionTierValue;
-
   // Trial eligibility (PLAN.md §0.2): trials are the SELF-SERVE pending_payment
   // onboarding path only. The status reject above eliminates active/trialing/
   // past_due, but NOT cancelled — so check pending_payment explicitly here
@@ -159,18 +161,72 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
   // (network timeout, rate limit, invalid key, Stripe 500).
   try {
-    const result = await createCheckoutSession(sql, accountId, tier, account.owner_email, {
+    const snapshotResult = await applyTierSnapshot(sql, {
+      accountId,
+      activationLockId: accountId,
+      tier,
+      ownerEmail: account.owner_email,
       trial: trialEligible,
     });
+    if (snapshotResult.kind === 'not_found') {
+      return NextResponse.json(
+        { error: 'account_not_found' },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+    if (snapshotResult.kind === 'wrong_status') {
+      return NextResponse.json(
+        {
+          error: 'subscription_not_pending',
+          subscriptionStatus: snapshotResult.status,
+        },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    if (snapshotResult.kind === 'offboarding_blocked') {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+
+    const result = await createCheckoutSession(
+      sql,
+      accountId,
+      tier,
+      snapshotResult.variant,
+      {
+        attemptId: snapshotResult.attemptId,
+        activationLockId: accountId,
+      },
+    );
     return NextResponse.json(
       { url: result.url, sessionId: result.sessionId },
       { headers: NO_STORE },
     );
   } catch (err) {
+    if (err instanceof TierNotPurchasableError) {
+      return NextResponse.json(
+        { error: 'tier_unavailable' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
     if (err instanceof CheckoutUnavailableError) {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
         { status: 502, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutOffboardingBlockedError) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutAttemptConflictError) {
+      return NextResponse.json(
+        { error: 'checkout_attempt_conflict' },
+        { status: 409, headers: NO_STORE },
       );
     }
     reportCaughtError('billing/checkout', err, { reason: 'stripe_error', accountId });

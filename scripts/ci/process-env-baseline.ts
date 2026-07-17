@@ -114,12 +114,8 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // getServerConfig(). Stage-3 src-lib batch ALLOWLISTED (moved up to
   // ALLOWLIST_FILES): admin/cost-report-service.ts, db/redis-cache.ts,
   // db/server.ts, demos/fetch-reviews.ts, shared/logger.ts (import-time readers).
-  // Stage-3 cost-guard batch MIGRATED (removed): costs/tracker.ts — its
-  // GLOBAL_DAILY_COST_LIMIT_CENTS + per-tier DAILY_COST_LIMIT_CENTS_{FOUNDING,
-  // STANDARD,PREMIUM,BASIC} reads now go through getServerConfig() (the former
-  // dynamic process.env[envKey] is a static-typed config lookup). safeParseLimitCents
-  // and the reservation logic are byte-for-byte unchanged. (admin/cost-report-service.ts
-  // reads the same *_CENTS vars at module-load and stays ALLOWLISTED — independent.)
+  // Stage-3 cost-guard batch MIGRATED (removed): costs/tracker.ts — its global
+  // ceiling and required Copilot/Autopilot ceilings now go through typed config.
   // PR3-T2 NEXT_PUBLIC declassification (removed 6): the scan-surface widening to
   // src/app + src/components paired with the new NEXT_PUBLIC_* exemption
   // (isExemptIndicatorName) declassified 6 former src/lib entries whose ONLY
@@ -131,8 +127,7 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   //   onboarding/admin-onboarding-service.ts, payments/create-checkout-session.ts,
   //   shared/csrf.ts (NEXT_PUBLIC_APP_URL — the "not migratable" literal that was
   //     previously grandfathered here; the exemption is its correct resolution).
-  //   payments/payment-link.ts STAYS: its read is a computed process.env[envKey],
-  //     not a static NEXT_PUBLIC_* name, so it still counts.
+  //   payments/payment-link.ts was later deleted with the retired Payment Link flow.
   // Stage-3 notification-channels batch removed the 5 fully-migrated SEND
   // adapters (email-channel.ts, telegram-client.ts, whatsapp-client.ts,
   // whatsapp-channel.ts, whatsapp-body.ts). They are reached only by the worker
@@ -155,7 +150,6 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // this CI-tooling task).
   'src/app/api/admin/channels/telegram/_shared.ts',
   'src/app/api/admin/channels/whatsapp/_shared.ts',
-  'src/lib/payments/payment-link.ts',
   // Stage-3 serpapi-redis batch MIGRATED (removed): reviews/place-id-resolver.ts
   // (worker-only → getWorkerConfig()), reviews/serpapi-prefill.ts (Next-only) +
   // shared/rate-limit.ts (dual Next+worker) → getServerConfig(). All 3 fully

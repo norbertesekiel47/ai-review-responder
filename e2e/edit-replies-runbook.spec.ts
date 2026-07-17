@@ -230,7 +230,7 @@ test.describe('Scenario 1 — Edit CTAs visible with EDIT_REPLIES_ENABLED=true',
     console.log('✅ /draft does NOT return 503 — feature flag is active.');
   });
 
-  test('1-D: lock badges appear on historical reviews (standard tier = pre-activation reviews locked)', async ({ page }) => {
+  test('1-D: Copilot historical reviews expose Edit without a tier lock', async ({ page }) => {
     await login(page);
     await goToPastReplies(page);
     await page.waitForTimeout(2000);
@@ -238,17 +238,10 @@ test.describe('Scenario 1 — Edit CTAs visible with EDIT_REPLIES_ENABLED=true',
     const bodyText = await page.locator('body').textContent() ?? '';
     await page.screenshot({ path: '/tmp/e2e-s1-d-lock-badges.png', fullPage: true });
 
-    // With standard tier, historical reviews (before 2026-05-22) should show lock badges
-    // We have 9 historical reviews and 1 gap review
-    const hasLockBadge =
-      bodyText.toLowerCase().includes('premium') ||
-      (await page.locator('[data-testid*="lock"], [aria-label*="premium"], svg[aria-label*="lock"]').count()) > 0;
-
-    console.log('Lock badge / premium indicator found:', hasLockBadge);
-    console.log('Body snippet:', bodyText.slice(0, 600));
-
-    // Note: This may or may not show depending on how reviews are bucketed
-    // Just screenshot and report — the gap review should have Edit CTA
+    const hasEditLock = bodyText.toLowerCase().includes('editing unavailable');
+    const editButtons = await page.getByRole('button', { name: /edit reply/i }).count();
+    expect(hasEditLock).toBe(false);
+    expect(editButtons).toBeGreaterThan(0);
     console.log('📸 Screenshot saved to /tmp/e2e-s1-d-lock-badges.png');
   });
 });

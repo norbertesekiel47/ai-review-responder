@@ -13,8 +13,14 @@ import { sql } from '@/lib/db/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
-import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import {
+  SubscriptionTier,
+  isPriceVariant,
+  isSubscriptionTier,
+} from '@/lib/accounts/tier-config';
+import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
+import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     id: string;
     display_name: string;
     subscription_tier: string;
+    price_variant: string;
     subscription_status: string;
     stripe_customer_id: string | null;
     subscription_activated_at: Date | null;
@@ -38,6 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       id,
       display_name,
       subscription_tier,
+      price_variant,
       subscription_status,
       stripe_customer_id,
       subscription_activated_at,
@@ -51,6 +59,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!account) {
     return jsonResponse({ error: 'Account not found' }, 404);
   }
+  if (!isSubscriptionTier(account.subscription_tier)) {
+    return jsonResponse({ error: 'Account has an invalid subscription tier' }, 500);
+  }
+  if (!isPriceVariant(account.price_variant)) {
+    return jsonResponse({ error: 'Account has an invalid price variant' }, 500);
+  }
 
   // Fetch independent account metrics after the account existence check.
   const [activeLocations, billingSnapshot] = await Promise.all([
@@ -59,10 +73,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   ]);
 
   // Format tier label for display
-  const tierLabel = isSubscriptionTier(account.subscription_tier)
-    ? SubscriptionTier[account.subscription_tier.toUpperCase() as keyof typeof SubscriptionTier]
-      ?? account.subscription_tier
-    : account.subscription_tier;
+  const tierLabel = SubscriptionTier[
+    account.subscription_tier.toUpperCase() as keyof typeof SubscriptionTier
+  ] ?? account.subscription_tier;
 
   // Format subscription status for display
   const statusLabel = account.subscription_status
@@ -75,6 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     subscription: {
       tier: account.subscription_tier,
       tierLabel,
+      priceVariant: account.price_variant,
       status: account.subscription_status,
       statusLabel,
       stripeCustomerId: account.stripe_customer_id,
@@ -93,6 +107,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       overageUnits: billingSnapshot.overageUnits,
       totalCents: billingSnapshot.totalCents,
     },
+    planPresentation: buildPlanPresentation({
+      priceVariant: account.price_variant,
+      autopilotPurchasable: autopilotPurchasable(),
+      trialEnabled: account.subscription_status === SubscriptionStatus.TRIALING,
+    }),
     // The current account schema has no persisted IANA timezone. Keep the
     // display timezone server-owned and explicit until a future schema adds it.
     timeZone: 'UTC',

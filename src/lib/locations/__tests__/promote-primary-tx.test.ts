@@ -64,15 +64,16 @@ beforeEach(() => {
 
 describe('promotePrimaryTransaction', () => {
   // Helper: set up mocks for a successful promote transaction.
-  // All validation happens INSIDE the tx, under the locks: account lock,
-  // target row lock (filters archived), demotion UPDATE RETURNING,
+  // All validation happens INSIDE the tx, under the locks: lifecycle mutex,
+  // ordered target/current-primary rows, account lock, demotion UPDATE RETURNING,
   // promotion UPDATE RETURNING, audit INSERT.
   function setupPromoteMocks() {
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
+    mockSql.mockResolvedValueOnce([
+      { id: OLD_PRIMARY_ID, is_primary: true },
+      { id: NEW_PRIMARY_ID, is_primary: false },
+    ]); // ordered target/current-primary row locks
     mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
-    mockSql.mockResolvedValueOnce([{
-      id: NEW_PRIMARY_ID,
-      is_primary: false,
-    }]); // target row lock
     mockSql.mockResolvedValueOnce([{ id: OLD_PRIMARY_ID }]); // demotion UPDATE RETURNING
     mockSql.mockResolvedValueOnce([{ id: NEW_PRIMARY_ID }]); // promotion UPDATE RETURNING
     mockSql.mockResolvedValueOnce([]); // audit INSERT
@@ -92,11 +93,12 @@ describe('promotePrimaryTransaction', () => {
   // Zero-primary repair: promoting an active location heals an account with no
   // current primary. The demotion UPDATE returns 0 rows; this must NOT throw.
   it('repairs a zero-primary account: demotion returns 0 rows, oldPrimaryId is null', async () => {
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
     mockSql.mockResolvedValueOnce([{
       id: NEW_PRIMARY_ID,
       is_primary: false,
     }]); // target row lock
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
     mockSql.mockResolvedValueOnce([]); // demotion UPDATE RETURNING — zero-primary account
     mockSql.mockResolvedValueOnce([{ id: NEW_PRIMARY_ID }]); // promotion UPDATE RETURNING
     mockSql.mockResolvedValueOnce([]); // audit INSERT
@@ -164,7 +166,7 @@ describe('promotePrimaryTransaction', () => {
 
   // Rejects if new primary doesn't exist or doesn't belong to account
   it('throws location_not_found if new primary does not exist or does not belong to account', async () => {
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
     mockSql.mockResolvedValueOnce([]); // in-tx target lock returns no rows
 
     await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
@@ -174,7 +176,7 @@ describe('promotePrimaryTransaction', () => {
 
   // Rejects if new primary is already the primary
   it('throws already_primary if new primary is already the primary', async () => {
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
     mockSql.mockResolvedValueOnce([{
       id: NEW_PRIMARY_ID,
       is_primary: true, // already primary
@@ -189,7 +191,7 @@ describe('promotePrimaryTransaction', () => {
   // archived_at IS NULL), so it surfaces as location_not_found — there is
   // no separate "archived" error in the tx vocabulary.
   it('archived target surfaces as location_not_found (in-tx SELECT filters archived)', async () => {
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
     mockSql.mockResolvedValueOnce([]); // archived target filtered out by archived_at IS NULL
 
     await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
@@ -238,7 +240,7 @@ describe('promotePrimaryTransaction', () => {
   });
 
   it('throws location_not_found and skips demote/audit when the target archives before the in-tx lock', async () => {
-    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([]); // lifecycle advisory lock
     mockSql.mockResolvedValueOnce([]); // target archived under the lock → filtered out
 
     await expect(promotePrimaryTransaction(sql, mkInput())).rejects.toThrow(
@@ -253,5 +255,29 @@ describe('promotePrimaryTransaction', () => {
     );
     expect(demoteCall).toBeUndefined();
     expect(auditCall).toBeUndefined();
+  });
+
+  it('takes lifecycle then ordered business locks before the account row lock', async () => {
+    setupPromoteMocks();
+
+    await promotePrimaryTransaction(sql, mkInput());
+
+    const templates = mockSql.mock.calls.map(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?'),
+    );
+    const lifecycleIndex = mockSql.mock.calls.findIndex(
+      (call: unknown[]) => call.slice(1).includes(`${ACCOUNT_ID}:location_lifecycle`),
+    );
+    const businessIndex = templates.findIndex(
+      (text: string) => text.includes('FROM businesses') && text.includes('FOR UPDATE'),
+    );
+    const accountIndex = templates.findIndex(
+      (text: string) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+    );
+
+    expect(lifecycleIndex).toBe(0);
+    expect(businessIndex).toBeGreaterThan(lifecycleIndex);
+    expect(templates[businessIndex]).toContain('ORDER BY id');
+    expect(accountIndex).toBeGreaterThan(businessIndex);
   });
 });

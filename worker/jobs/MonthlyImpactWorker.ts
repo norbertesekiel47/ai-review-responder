@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
@@ -189,7 +190,7 @@ async function resolveMonthlyIntelligenceBrief(
   input: {
     existingSummary: string | null;
     businessId: LocationId;
-    subscriptionTier: string;
+    subscriptionTier: SubscriptionTierValue;
     monthStartDate: string;
     monthEndDate: string;
   },

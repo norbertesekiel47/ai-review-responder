@@ -15,6 +15,7 @@ import {
   enqueueJudgeVerdict,
   enqueuePendingPostNotice,
   enqueuePublishResponse,
+  enqueueStripeSubscriptionMirrorSync,
   enqueueValidatePlaceId,
   normalizeGenerateResponsePayload,
 } from '../job-outbox-helpers';
@@ -465,5 +466,19 @@ describe('job outbox helpers', () => {
     // correlation_id defaults to a fresh uuid when not supplied.
     const payload = objectArgs(tx).find((arg) => arg.business_id === 'business-1');
     expect(payload?.correlation_id).toBe('outbox-uuid');
+  });
+
+  it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueStripeSubscriptionMirrorSync(tx, 'account-1');
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC);
+    expect(tx.mock.calls[0]).toContain('account-1');
+    expect(objectArgs(tx)).toContainEqual({ account_id: 'account-1' });
   });
 });

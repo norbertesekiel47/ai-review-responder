@@ -686,6 +686,25 @@
 .rw-le-footer-links a:hover {
   color: var(--rw-ink);
 }
+
+/* Keyboard focus stays visible across the landing experience's two surface
+   families. Strong teal has at least 4.64:1 contrast against the cream/paper
+   surfaces. Filled CTAs pair a cream inner outline (contrasts with their teal
+   fill) with an outer ink ring that remains visible on cream and bright video. */
+.rw-le-brand:focus-visible,
+.rw-le-nav-links a:focus-visible,
+.rw-le-btn-ghost:focus-visible,
+.rw-le-footer-links a:focus-visible {
+  outline: 2px solid var(--rw-teal-strong);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.rw-le-cta:focus-visible,
+.rw-le-btn-primary:focus-visible {
+  outline: 2px solid var(--rw-cream);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--rw-ink);
+}
 .rw-le-footer-sep {
   width: 1px;
   height: 0.8rem;

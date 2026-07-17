@@ -3,6 +3,7 @@ import { buildAutoApprovalReadiness } from '../readiness';
 
 const readyInput = {
   runtimeEnabled: true,
+  autopilotAvailable: true,
   providerModerationEnabled: true,
   providerModerationValidated: true,
   accountWritable: true,
@@ -25,9 +26,21 @@ describe('buildAutoApprovalReadiness', () => {
     expect(readiness.blockReasons).toEqual(['policy_suspended']);
   });
 
+  it('adds only autopilot_unavailable when the tier or composed Autopilot gate is unavailable', () => {
+    const readiness = buildAutoApprovalReadiness({
+      ...readyInput,
+      autopilotAvailable: false,
+    });
+
+    expect(readiness.canExpand).toBe(false);
+    expect(readiness.blockReasons).toEqual(['autopilot_unavailable']);
+    expect(readiness).not.toHaveProperty('autopilotPurchasable');
+  });
+
   it('collects every block reason in a stable order', () => {
     const readiness = buildAutoApprovalReadiness({
       runtimeEnabled: false,
+      autopilotAvailable: false,
       providerModerationEnabled: false,
       providerModerationValidated: false,
       accountWritable: false,
@@ -39,6 +52,7 @@ describe('buildAutoApprovalReadiness', () => {
     expect(readiness.canExpand).toBe(false);
     expect(readiness.blockReasons).toEqual([
       'auto_approval_disabled',
+      'autopilot_unavailable',
       'provider_moderation_disabled',
       'provider_moderation_not_validated',
       'subscription_not_writable',

@@ -13,6 +13,8 @@ import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 interface FinalizeConnectionTxArgs {
   user: AppUser;
@@ -88,6 +90,11 @@ export async function finalizeConnectionTx(
 
     if (!accountLocation) {
       throw new ZernioRouteError(403, 'business_mismatch');
+    }
+    if (!isSubscriptionTier(accountLocation.subscription_tier)) {
+      throw new Error(
+        `invalid_ws8_subscription_tier:${accountLocation.subscription_tier}`,
+      );
     }
     const writable = assertWritableSubscriptionStatus({
       subscriptionStatus: accountLocation.subscription_status,
@@ -203,6 +210,15 @@ export async function finalizeConnectionTx(
 
     if (predicate?.needs_backfill) {
       if (accountLocation.subscription_activated_at) {
+        const payload = {
+          business_id: stored.businessId,
+          zernio_account_id: accountId,
+          zernio_location_id: locationId,
+          subscription_tier: accountLocation.subscription_tier,
+          subscription_activated_at:
+            accountLocation.subscription_activated_at.toISOString(),
+          correlation_id: uuidv7(),
+        } satisfies ZernioInitialBackfillPayload;
         await tx`
           INSERT INTO job_outbox (
             id, topic, aggregate_type, aggregate_id, payload, status
@@ -211,15 +227,7 @@ export async function finalizeConnectionTx(
             ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
             'business',
             ${stored.businessId},
-            ${tx.json({
-              business_id: stored.businessId,
-              zernio_account_id: accountId,
-              zernio_location_id: locationId,
-              subscription_tier: accountLocation.subscription_tier,
-              subscription_activated_at:
-                accountLocation.subscription_activated_at.toISOString(),
-              correlation_id: uuidv7(),
-            } as never)},
+            ${tx.json(payload)},
             'pending'
           )
         `;

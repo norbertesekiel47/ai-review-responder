@@ -6,28 +6,14 @@
 // These are pure data factories — they return plain objects matching the
 // shape of database rows, suitable for mocking `sql` return values.
 
-import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
-import { SubscriptionStatus, type SubscriptionStatusValue } from '@/lib/shared/subscription-status';
+import type { AccountRow as RepositoryAccountRow } from '@/lib/accounts/repo';
+import { resolveTierSnapshot, type PriceVariant } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Account row factory ────────────────────────────────────────────────────
 
-export interface AccountRow {
-  id: string;
-  owner_user_id: string;
-  display_name: string;
-  subscription_tier: SubscriptionTierValue;
-  subscription_status: SubscriptionStatusValue;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  trial_ends_at: Date | null;
-  subscription_activated_at: Date | null;
-  locations_included: number;
-  locations_paid: number;
-  locations_overage_price_cents: number;
-  base_price_cents: number;
-  flags: Record<string, unknown>;
-  created_at: Date;
-  updated_at: Date;
+export interface AccountRow extends RepositoryAccountRow {
+  price_variant: PriceVariant;
 }
 
 const ACCOUNT_COUNTER = { value: 0 };
@@ -43,50 +29,29 @@ export function createAccountRow(
   overrides: Partial<AccountRow> = {},
 ): AccountRow {
   const id = overrides.id ?? nextAccountId();
-  const tier = overrides.subscription_tier ?? 'standard';
+  const tier = overrides.subscription_tier ?? 'copilot';
+  const priceVariant = overrides.price_variant ?? 'list';
   const status = overrides.subscription_status ?? SubscriptionStatus.ACTIVE;
+  const snapshot = resolveTierSnapshot(tier, priceVariant);
 
   // Derive quota fields from tier config when not explicitly provided
   let locations_included = overrides.locations_included;
   let locations_overage_price_cents = overrides.locations_overage_price_cents;
 
-  if (locations_included === undefined) {
-    switch (tier) {
-      case 'basic': locations_included = 1; break;
-      case 'standard': locations_included = 1; break;
-      case 'premium': locations_included = 5; break;
-      case 'founders': locations_included = 1; break;
-      default: locations_included = 1;
-    }
-  }
+  locations_included ??= snapshot.included;
 
-  if (locations_overage_price_cents === undefined) {
-    switch (tier) {
-      case 'basic': locations_overage_price_cents = 0; break;
-      case 'standard': locations_overage_price_cents = 2500; break;
-      case 'premium': locations_overage_price_cents = 2000; break;
-      case 'founders': locations_overage_price_cents = 2500; break;
-      default: locations_overage_price_cents = 0;
-    }
-  }
+  locations_overage_price_cents ??= snapshot.overageCents;
 
   let base_price_cents = overrides.base_price_cents;
 
-  if (base_price_cents === undefined) {
-    switch (tier) {
-      case 'basic': base_price_cents = 2900; break;
-      case 'standard': base_price_cents = 7900; break;
-      case 'premium': base_price_cents = 19900; break;
-      case 'founders': base_price_cents = 1900; break;
-      default: base_price_cents = 7900;
-    }
-  }
+  base_price_cents ??= snapshot.baseCents;
 
   return {
     id,
     owner_user_id: overrides.owner_user_id ?? 'owner-aaaaaaaa-0000-0000-0000-000000000001',
     display_name: overrides.display_name ?? `Test Account ${id.slice(-4)}`,
     subscription_tier: tier,
+    price_variant: priceVariant,
     subscription_status: status,
     stripe_customer_id: overrides.stripe_customer_id ?? 'cus_test123',
     stripe_subscription_id: overrides.stripe_subscription_id ?? 'sub_test123',

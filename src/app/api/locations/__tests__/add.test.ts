@@ -145,7 +145,7 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     id: ACCOUNT_ID,
     owner_user_id: USER_ID,
     display_name: 'Test Account',
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     subscription_status: 'active',
     stripe_customer_id: 'cus_test123',
     stripe_subscription_id: 'sub_test123',
@@ -367,9 +367,25 @@ describe('POST /api/locations/add', () => {
     expect(txInput.actorUserId).toBe(USER_ID);
     expect(txInput.ownerName).toBe('Test Owner');
     expect(txInput.ownerEmail).toBe('owner@test.com');
-    expect(txInput.subscriptionTier).toBe('standard');
+    expect(txInput.subscriptionTier).toBe('copilot');
     expect(txInput.subscriptionStatus).toBe('active');
     expect(txInput.activeLocationsBefore).toBe(1);
+  });
+
+  it('fails closed before the transaction when the re-read account tier is unsupported', async () => {
+    setupHappyPathMocks({
+      subscription_tier: 'retired_tier',
+    });
+
+    const res = await POST(mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    }));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'account_invalid_subscription_tier' });
+    expect(mockGetAccountById).toHaveBeenCalledTimes(1);
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
   });
 
   // Delegates to assertCanAddLocation for quota checks
@@ -391,7 +407,7 @@ describe('POST /api/locations/add', () => {
     expect(body.error).toBe('subscription_inactive');
   });
 
-  it('returns 403 for basic tier (no multi-location allowed)', async () => {
+  it('returns 403 when the server quota gate rejects tier eligibility', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({
       allowed: false,
@@ -597,7 +613,7 @@ describe('POST /api/locations/add', () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 0 });
     mockGetActiveLocationCount.mockResolvedValueOnce(0);
-    mockGetAccountById.mockResolvedValueOnce(mockAccountRow({ subscription_tier: 'premium' }));
+    mockGetAccountById.mockResolvedValueOnce(mockAccountRow({ subscription_tier: 'autopilot' }));
     mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
     mockAddLocationTransaction.mockResolvedValueOnce({
       businessId: 'new-biz-id-0000-0000-0000-000000000001',

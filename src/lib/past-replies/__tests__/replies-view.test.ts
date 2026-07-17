@@ -80,15 +80,15 @@ describe('isHistorical (C-2 predicate)', () => {
   });
 });
 
-describe('canEdit (= NOT historical OR premium)', () => {
-  it('blocks editing historical replies on the free tier', () => {
-    expect(canEdit(new Date('2026-01-01'), ACTIVATED, false)).toBe(false);
+describe('canEdit (= NOT historical OR paid launch tier)', () => {
+  it('blocks editing historical replies without a paid launch-tier entitlement', () => {
+    expect(canEdit(false)).toBe(false);
   });
-  it('allows editing historical replies on premium', () => {
-    expect(canEdit(new Date('2026-01-01'), ACTIVATED, true)).toBe(true);
+  it('allows editing historical replies on either paid launch tier', () => {
+    expect(canEdit(true)).toBe(true);
   });
-  it('always allows editing gap (post-activation) replies regardless of tier', () => {
-    expect(canEdit(new Date('2026-04-01'), ACTIVATED, false)).toBe(true);
+  it('fails closed for a gap reply without a paid launch-tier entitlement', () => {
+    expect(canEdit(false)).toBe(false);
   });
 });
 
@@ -98,7 +98,7 @@ describe('toCardRow', () => {
     expect(row.review_date).toBe('2026-04-01T12:00:00.000Z');
     expect(row.posted_at).toBe('2026-04-01T13:00:00.000Z');
     expect(row.external_reply_ingested_at).toBeNull();
-    expect(row.canEdit).toBe(true); // post-activation gap → editable
+    expect(row.canEdit).toBe(false); // unsupported tier stays locked even in the gap
     expect(row.version).toBe(2);
   });
 
@@ -114,12 +114,16 @@ describe('toCardRow', () => {
 });
 
 describe('toOrphanCardRow', () => {
-  it('keys on the failed response id, carries superseded text, and is always editable', () => {
-    const row = toOrphanCardRow(orphanRow());
+  it('keys on the failed response id, carries superseded text, and permits a paid tier', () => {
+    const row = toOrphanCardRow(orphanRow(), true);
     expect(row.response_id).toBe('fail-1'); // failed id, not a posted response
     expect(row.approved_text).toBe('old reply');
     expect(row.posted_at).toBeNull();
-    expect(row.canEdit).toBe(true); // recovery is never gated by the C-2 lock
+    expect(row.canEdit).toBe(true);
+  });
+
+  it('fails closed for orphan recovery on an unsupported stored tier', () => {
+    expect(toOrphanCardRow(orphanRow(), false).canEdit).toBe(false);
   });
 });
 
@@ -141,6 +145,7 @@ describe('bucketReplies', () => {
     expect(result.gapRows.map((r) => r.review_id)).toEqual(['gap-new', 'orph-gap', 'gap-old']);
     // Historical section: 1 posted (pre-activation) + 1 orphan.
     expect(result.histRows.map((r) => r.review_id)).toEqual(['orph-hist', 'hist']);
+    expect([...result.gapRows, ...result.histRows].every((r) => !r.canEdit)).toBe(true);
     expect(result.orphanGapCount).toBe(1);
     expect(result.orphanHistCount).toBe(1);
   });

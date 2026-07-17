@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 
 // Boot queues.ts without a real BullMQ/Redis connection so we can assert the
@@ -39,5 +41,16 @@ describe('outbox topic → queue routing', () => {
     expect(q).toBeDefined();
     expect(q).toBe(queues.autoPostNotice);
     expect((q as unknown as { name: string }).name).toBe('auto_post_notice');
+  });
+
+  it('registers the Stripe subscription mirror handler in the worker entry point', () => {
+    const indexSource = readFileSync(resolve(process.cwd(), 'worker/index.ts'), 'utf8');
+    expect(QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC).toBe(
+      'stripe_subscription_mirror_sync',
+    );
+    expect(indexSource).toContain('handleStripeSubscriptionMirrorSync(sql, job)');
+    expect(indexSource).toContain(
+      '[QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC]: stripeSubscriptionMirrorSyncWorker',
+    );
   });
 });

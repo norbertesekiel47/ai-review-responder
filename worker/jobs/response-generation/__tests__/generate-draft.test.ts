@@ -98,7 +98,7 @@ import { CostInfraUnavailableError } from '../../../../src/lib/costs/errors';
 const BIZ_CONTEXT: BusinessContext = {
   id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
   productsServices: null, staffNames: [], highlightFacts: [], avoidFacts: [],
-  sampleResponses: [], subscriptionTier: 'standard',
+  sampleResponses: [], subscriptionTier: 'copilot',
 };
 
 const REVIEW: NormalizedReview = {
@@ -114,6 +114,7 @@ const MOCK_RESULT: GenerationResult = {
 function ctx(overrides: Partial<BusinessContext> = {}): GenerationContext {
   return {
     accountId: 'acct-1',
+    subscriptionTier: 'autopilot',
     loadedReviewContentHash: 'hash-1',
     normalizedReview: REVIEW,
     businessContext: { ...BIZ_CONTEXT, ...overrides },

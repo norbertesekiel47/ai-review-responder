@@ -21,13 +21,22 @@ import {
   recordOutboxTransientError,
   extractOutboxHandle,
 } from '../../../src/lib/shared/outbox';
-import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
-import { overagePriceIdForTier } from '../../../src/lib/payments/price-tier-map';
+import {
+  isPriceVariant,
+  isSubscriptionTier,
+} from '../../../src/lib/accounts/tier-config';
+import { acquireBillingLock } from '../../../src/lib/accounts/billing-locks';
+import { overagePriceIdForStoredCents } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '../../../src/lib/shared/subscription-status';
 import { classifyStripeOverageError } from './stripe-overage-error';
 import { isTransientPostgresError } from '../../../src/lib/db/transient-error';
+import {
+  getOffboardingState,
+  isBillingManagementBlocked,
+  isBillingMutationBlocked,
+} from '../../../src/lib/account-offboarding/gate';
 import { syncStripeOverageItem, type OverageSyncOutcome } from './overage-sync';
 
 export interface UpdateStripeOveragePayload {
@@ -36,6 +45,12 @@ export interface UpdateStripeOveragePayload {
   outbox_id?: string;
   outbox_attempt?: number;
 }
+
+type LockedOverageExecution =
+  | { kind: 'account_missing' }
+  | { kind: 'skip'; detail: string }
+  | { kind: 'invalid'; detail: string }
+  | { kind: 'sync'; outcome: OverageSyncOutcome };
 
 /**
  * @param sql  Postgres.js client (composition root supplies the singleton —
@@ -50,89 +65,73 @@ export async function handleUpdateStripeOverage(
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
   const operationScope = `outbox:${outboxId}:corr:${job.data.correlation_id ?? 'none'}`;
 
-  // Read account row. Stripe idempotency keys (overage-sync.ts) handle
-  // concurrent jobs; a SELECT FOR UPDATE here would not survive PgBouncer
-  // transaction pooling unless the entire Stripe call happened inside a DB
-  // transaction.
-  const [account] = await sql<{
-    id: string;
-    subscription_tier: string;
-    subscription_status: string;
-    stripe_customer_id: string | null;
-    stripe_subscription_id: string | null;
-    locations_included: number;
-    locations_overage_price_cents: number;
-  }[]>`
-    SELECT id, subscription_tier, subscription_status,
-           stripe_customer_id, stripe_subscription_id, locations_included,
-           locations_overage_price_cents
-    FROM accounts
-    WHERE id = ${account_id}::uuid
-  `;
-
-  if (!account) {
-    logger.error(`Account not found: ${account_id}`);
-    await markOutboxFailed(sql, outboxId, `Account not found: ${account_id}`, outboxAttempt);
-    return;
-  }
-
-  // Skip if no Stripe subscription exists
-  if (!account.stripe_subscription_id) {
-    logger.log(`No Stripe subscription for account ${account_id} — skipping overage update`);
-    await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    return;
-  }
-
-  // Skip if subscription is not entitled (cancelled, pending, etc.). Trialing is
-  // allowed: a mid-trial add-location must sync the Stripe quantity now, and
-  // Stripe does not invoice the proration until trial end (PLAN.md §6 —
-  // verified trial-safe, $0 until trial_end).
-  if (!subscriptionGrantsFullAccess(account.subscription_status)) {
-    logger.log(`Account ${account_id} subscription status is ${account.subscription_status} — skipping overage update`);
-    await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    return;
-  }
-
-  const tier = account.subscription_tier as SubscriptionTierValue;
-  const config = TIER_CONFIG[tier];
-  if (!config) {
-    logger.error(`Unknown tier ${account.subscription_tier} for account ${account_id}`);
-    await markOutboxFailed(sql, outboxId, `Unknown tier: ${account.subscription_tier}`, outboxAttempt);
-    return;
-  }
-
-  // Basic tier has no overage
-  if (!config.multiLocAllowed) {
-    logger.log(`Account ${account_id} is on basic tier — no overage to update`);
-    await markOutboxCompleted(sql, outboxId, outboxAttempt);
-    return;
-  }
-
-  const overagePriceId = overagePriceIdForTier(tier);
-
-  if (!overagePriceId) {
-    logger.error(`No overage price ID for tier ${tier}`);
-    await markOutboxFailed(sql, outboxId, `Missing overage price ID for tier: ${tier}`, outboxAttempt);
-    return;
-  }
-
-  let outcome: OverageSyncOutcome;
+  let execution: LockedOverageExecution;
   try {
-    // OVERAGE-F1: serialize concurrent overage syncs for THIS account. The
-    // per-outbox idempotency key (overage-sync.ts) does NOT dedup two DISTINCT
-    // recompute rows for the same account, so a second replica or redeploy
-    // overlap could double-`create` an overage item. The account-scoped
-    // advisory lock (held across the Stripe resolve→mutate) closes that window
-    // and is the hard gate before any worker scale-out. concurrency:1 +
-    // single-replica remain as defense-in-depth (boot-asserted in index.ts).
-    // The lock is held across the Stripe call; bounded by getStripe()'s request
-    // timeout (single consumer + infrequent events → ~zero contention).
-    outcome = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${account_id + ':overage_sync'}))`;
-      // OVERAGE-F1b: recompute the live location count INSIDE the lock so the
-      // serialized section acts on fresh state. Computing it pre-lock let two
-      // concurrent same-account syncs read different counts; the older snapshot
-      // could then update Stripe last and stale-over/under-bill. [Codex review]
+    execution = await sql.begin(async (tx): Promise<LockedOverageExecution> => {
+      // Fixed overage-only order: billing advisory lock, then account row. No
+      // account state is read and no row is held while the lock is awaited.
+      await acquireBillingLock(tx, account_id);
+      const [account] = await tx<{
+        id: string;
+        subscription_tier: string;
+        subscription_status: string;
+        price_variant: string;
+        stripe_subscription_id: string | null;
+        locations_included: number;
+        locations_overage_price_cents: number;
+      }[]>`
+        SELECT
+          id,
+          subscription_tier,
+          subscription_status,
+          price_variant,
+          stripe_subscription_id,
+          locations_included,
+          locations_overage_price_cents
+        FROM accounts
+        WHERE id = ${account_id}::uuid
+        FOR UPDATE
+      `;
+      if (!account) return { kind: 'account_missing' };
+
+      // Read current offboarding state only after the canonical billing-lock →
+      // account-row lock order. Delayed/dispatched outbox jobs must observe an
+      // offboarding flow that started after enqueue. Full-block states permit
+      // no provider mutation, so complete this stale recompute as a no-op.
+      const offboardingState = await getOffboardingState(account_id, tx);
+      if (isBillingManagementBlocked(offboardingState)) {
+        return {
+          kind: 'skip',
+          detail: 'is in a full-block offboarding state',
+        };
+      }
+      if (!account.stripe_subscription_id) {
+        return { kind: 'skip', detail: 'no Stripe subscription' };
+      }
+      // Trialing is full access. Pending/cancelled remain no-op outbox success.
+      if (!subscriptionGrantsFullAccess(account.subscription_status)) {
+        return {
+          kind: 'skip',
+          detail: `subscription status is ${account.subscription_status}`,
+        };
+      }
+      if (!isSubscriptionTier(account.subscription_tier)) {
+        return {
+          kind: 'invalid',
+          detail: `Unknown tier: ${account.subscription_tier}`,
+        };
+      }
+      if (!isPriceVariant(account.price_variant)) {
+        return {
+          kind: 'invalid',
+          detail: `Unknown price variant: ${account.price_variant}`,
+        };
+      }
+      const overagePriceId = overagePriceIdForStoredCents(
+        account.subscription_tier,
+        account.locations_overage_price_cents,
+      );
+
       const [lockedCountRow] = await tx<{ count: number }[]>`
         SELECT COUNT(*) AS count
         FROM businesses
@@ -143,14 +142,23 @@ export async function handleUpdateStripeOverage(
         Number(lockedCountRow?.count ?? 0),
         account.locations_included,
       );
-      return syncStripeOverageItem(getStripe(), {
-        accountId: account_id,
-        subscriptionId: account.stripe_subscription_id!,
-        storedOveragePriceCents: account.locations_overage_price_cents,
-        overagePriceId,
-        newQuantity,
-        operationScope,
-      }, logger);
+      const outcome = await syncStripeOverageItem(
+        getStripe(),
+        {
+          accountId: account_id,
+          subscriptionId: account.stripe_subscription_id,
+          tier: account.subscription_tier,
+          storedOveragePriceCents: account.locations_overage_price_cents,
+          overagePriceId,
+          newQuantity,
+          mutationPolicy: isBillingMutationBlocked(offboardingState)
+            ? 'contractions_only'
+            : 'allow_all',
+          operationScope,
+        },
+        logger,
+      );
+      return { kind: 'sync', outcome };
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -178,6 +186,29 @@ export async function handleUpdateStripeOverage(
     throw new UnrecoverableError(message);
   }
 
+  if (execution.kind === 'account_missing') {
+    logger.error(`Account not found: ${account_id}`);
+    await markOutboxFailed(
+      sql,
+      outboxId,
+      `Account not found: ${account_id}`,
+      outboxAttempt,
+    );
+    return;
+  }
+  if (execution.kind === 'skip') {
+    logger.log(`Account ${account_id} ${execution.detail} — skipping overage update`);
+    await markOutboxCompleted(sql, outboxId, outboxAttempt);
+    return;
+  }
+  if (execution.kind === 'invalid') {
+    logger.error(`${execution.detail} for account ${account_id}`);
+    await markOutboxFailed(sql, outboxId, execution.detail, outboxAttempt);
+    return;
+  }
+
+  const outcome = execution.outcome;
+
   if (outcome.kind === 'ambiguous') {
     // No Stripe mutation happened. Terminal-fail the outbox row so ops sees it.
     // Also page Sentry directly (OVERAGE-F2): an ambiguous match silently stops
@@ -198,6 +229,10 @@ export async function handleUpdateStripeOverage(
     );
     await markOutboxFailed(sql, outboxId, outcome.detail, outboxAttempt);
     return;
+  }
+
+  if (outcome.kind === 'policy_blocked') {
+    logger.log(`${outcome.detail} (account ${account_id}) — completing stale recompute`);
   }
 
   // Outside the Stripe try/catch on purpose: a transient Postgres blip here

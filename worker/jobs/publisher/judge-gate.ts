@@ -1,7 +1,10 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
 import { isJudgeHealthy } from '@/lib/responses/judge-health';
-import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
+import {
+  downgradeAutoApprovedResponseForManualReview,
+  downgradeAutoApprovedResponseForManualReviewInTx,
+} from './auto-policy-downgrade';
 
 interface JudgeGateContext {
   responseId: string;
@@ -26,6 +29,30 @@ export async function applyJudgeGate(
 
   if (!await isJudgeHealthy(sql)) {
     await downgradeAutoApprovedResponseForManualReview(sql, {
+      ...context,
+      reason: 'judge_unhealthy',
+    });
+    return 'downgraded';
+  }
+
+  return 'post';
+}
+
+/** Judge gate for a caller already holding the full auto-policy lock lane. */
+export async function applyJudgeGateInTx(
+  tx: TransactionSql,
+  context: JudgeGateContext,
+): Promise<'post' | 'downgraded'> {
+  if (!judgeEnabled()) {
+    await downgradeAutoApprovedResponseForManualReviewInTx(tx, {
+      ...context,
+      reason: 'judge_disabled',
+    });
+    return 'downgraded';
+  }
+
+  if (!await isJudgeHealthy(tx)) {
+    await downgradeAutoApprovedResponseForManualReviewInTx(tx, {
       ...context,
       reason: 'judge_unhealthy',
     });

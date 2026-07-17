@@ -35,6 +35,7 @@ import type {
   AccountOffboardingReactivationPayload,
   AccountOffboardingTeardownPayload,
   StripeCheckoutReconcilePayload,
+  StripeSubscriptionMirrorSyncPayload,
   ZernioInitialBackfillPayload,
   SendNotificationPayload,
   AutoPostNoticePayload,
@@ -76,6 +77,7 @@ import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
 import { handleUpdateStripeOverage, type UpdateStripeOveragePayload } from './jobs/billing/UpdateStripeOverageWorker';
 import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
+import { handleStripeSubscriptionMirrorSync } from './jobs/billing/StripeSubscriptionMirrorSyncWorker';
 import { handleAccountOffboardingBillingSchedule } from './jobs/account-offboarding/BillingScheduleWorker';
 import { handleAccountOffboardingEmail } from './jobs/account-offboarding/AccountOffboardingEmailWorker';
 import { handleAccountOffboardingReactivation } from './jobs/account-offboarding/ReactivationWorker';
@@ -245,6 +247,13 @@ const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>
   workerOpts,
 );
 
+const stripeSubscriptionMirrorSyncWorker = new Worker<StripeSubscriptionMirrorSyncPayload>(
+  QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC,
+  withJobLogContext<StripeSubscriptionMirrorSyncPayload>((job) =>
+    handleStripeSubscriptionMirrorSync(sql, job)),
+  workerOpts,
+);
+
 const accountOffboardingBillingScheduleWorker = new Worker<AccountOffboardingBillingSchedulePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
   withJobLogContext<AccountOffboardingBillingSchedulePayload>((job) => handleAccountOffboardingBillingSchedule(sql, job)),
@@ -304,6 +313,7 @@ const workersByQueue = {
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: updateStripeOverageWorker,
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: stripeCheckoutReconcileWorker,
+  [QUEUE_NAMES.STRIPE_SUBSCRIPTION_MIRROR_SYNC]: stripeSubscriptionMirrorSyncWorker,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: accountOffboardingBillingScheduleWorker,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: accountOffboardingEmailWorker,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION]: accountOffboardingReactivationWorker,

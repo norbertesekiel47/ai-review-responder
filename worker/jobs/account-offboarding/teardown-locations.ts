@@ -34,8 +34,9 @@ export async function runLocationTeardown(
   }
 
   for (const locationId of locationIds) {
-    // Each archival is its own transaction taking a FOR UPDATE lock on the shared account-scoped
-    // accounts row; running them in parallel would deadlock/contend on that row.
+    // Each archival is its own transaction under the shared account-scoped
+    // location-lifecycle advisory lock. Keep teardown sequential so its audit
+    // and overage facts retain the captured location order.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     await archiveLocationForAccountOffboardingTeardownTransaction(sql, {
       accountId: row.account_id,

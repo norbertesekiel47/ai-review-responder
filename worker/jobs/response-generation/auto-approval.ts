@@ -26,6 +26,11 @@ import {
 } from '../../../src/lib/shared/worker-types';
 import { TRIAGE_SOURCE, type TriageSeverity } from '../../../src/lib/reviews/triage-schema';
 import type postgres from 'postgres';
+import {
+  isSubscriptionTier,
+  tierGrantsAutopilot,
+  type SubscriptionTierValue,
+} from '../../../src/lib/accounts/tier-config';
 
 type TxClient = postgres.TransactionSql;
 
@@ -50,7 +55,8 @@ export type AutoApprovalBlockReason =
   | 'triage_fallback'
   | 'rating_below_positive_quadrant'
   | 'daily_cap_exhausted'
-  | 'policy_suspended';
+  | 'policy_suspended'
+  | 'autopilot_tier_required';
 
 export interface AutoApprovalCandidateInput {
   originLane: GenerateResponseOriginLane | null;
@@ -63,6 +69,8 @@ export interface AutoApprovalCandidateInput {
   moderation: ModerationDecision;
   held: boolean;
   subscriptionStatus: string;
+  /** Authoritative same-transaction tier, never the pre-LLM hint. */
+  subscriptionTier: SubscriptionTierValue;
   accountPastDueAt: Date | string | null;
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
@@ -87,6 +95,7 @@ interface AutoApprovalCurrentStateRow {
   review_content_hash: string | null;
   archived_at: Date | null;
   subscription_status: string;
+  subscription_tier: string;
   account_past_due_at: Date | null;
   account_flags: AccountFlagsInput | null;
   triage_severity: TriageSeverity | null;
@@ -110,6 +119,7 @@ export interface AutoApprovalRuntimeState {
   currentStarRating: number | null;
   effectivePolicy: EffectiveAutoApprovalPolicy;
   subscriptionStatus: string;
+  subscriptionTier: SubscriptionTierValue;
   accountPastDueAt: Date | null;
   accountFlags: AccountFlagsInput;
   activeLocationNow: boolean;
@@ -155,7 +165,8 @@ export async function loadAutoApprovalRuntimeState(
   const { reviewId, businessId, accountId } = input;
   const [state] = await tx<AutoApprovalCurrentStateRow[]>`
     SELECT r.star_rating, r.review_content_hash, b.archived_at,
-           a.subscription_status, a.past_due_at AS account_past_due_at,
+           a.subscription_status, a.subscription_tier,
+           a.past_due_at AS account_past_due_at,
            a.flags AS account_flags,
            r.triage_severity, r.triage_source
     FROM reviews r
@@ -168,6 +179,9 @@ export async function loadAutoApprovalRuntimeState(
 
   if (!state) {
     throw new Error('auto_approval_current_state_missing');
+  }
+  if (!isSubscriptionTier(state.subscription_tier)) {
+    throw new Error(`auto_approval_invalid_subscription_tier:${state.subscription_tier}`);
   }
 
   const policyRows = await tx<AutoApprovalPolicyRow[]>`
@@ -243,6 +257,7 @@ export async function loadAutoApprovalRuntimeState(
     effectivePolicy,
     autoApprovedTodayCount: capRow.auto_approved_today,
     subscriptionStatus: state.subscription_status,
+    subscriptionTier: state.subscription_tier,
     accountPastDueAt: state.account_past_due_at,
     accountFlags: state.account_flags ?? {},
     activeLocationNow: state.archived_at === null,
@@ -323,6 +338,7 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(input.moderation.flagged, 'moderation_flagged'),
     when(input.held, 'moderation_held'),
     when(!publisherSubscription.allowed, 'publisher_subscription_denied'),
+    when(!tierGrantsAutopilot(input.subscriptionTier), 'autopilot_tier_required'),
     when(!input.activeLocationNow, 'archived_location'),
     when(!input.activeZernioConnectionNow, 'active_zernio_connection_missing'),
     when(!runtimeEnabled, 'auto_approval_disabled'),

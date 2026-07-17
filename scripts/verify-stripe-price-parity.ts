@@ -1,66 +1,134 @@
-// scripts/verify-stripe-price-parity.ts
-//
-// Fails loudly if a configured Stripe Price has drifted from TIER_CONFIG —
-// the displayed price (TIER_CONFIG) and the charged price (Stripe unit_amount)
-// are two copies of one fact, so this reconciles them. Run before the first
-// charge and after ANY price change (see the price-change procedure in
-// .claude/reference/env-vars.md). NOT in blocking CI (needs live Stripe keys).
-//
-//   pnpm verify:stripe-prices
-//
-import { config as dotenvConfig } from 'dotenv';
-import { existsSync } from 'node:fs';
-if (existsSync('.env.local')) dotenvConfig({ path: '.env.local' });
-else dotenvConfig();
-
+// Verifies every live and retained billable Price shape against the locked registry.
+// Run manually before first charge and after creating any replacement Price.
 import { getStripe } from '../src/lib/payments/stripe-client';
-import { basePriceIdForTier, overagePriceIdForTier } from '../src/lib/payments/price-tier-map';
-import { TIER_CONFIG, type SubscriptionTierValue } from '../src/lib/accounts/tier-config';
+import {
+  priceIdFor,
+  retainedOverageStripePrices,
+  type RetainedOverageStripePrice,
+} from '../src/lib/payments/price-tier-map';
+import {
+  resolveTierSnapshot,
+  type PriceVariant,
+  type SubscriptionTierValue,
+} from '../src/lib/accounts/tier-config';
+import { runDirectCli } from './run-direct-cli';
 
-const TAX_REQUIRED = process.env.STRIPE_TAX_ENABLED === 'true';
-const TIERS = Object.keys(TIER_CONFIG) as SubscriptionTierValue[];
+const TIERS = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
+const VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
 
-interface Mismatch { label: string; field: string; expected: unknown; actual: unknown; }
+export interface StripePriceParityMismatch {
+  label: string;
+  field: string;
+  expected: unknown;
+  actual: unknown;
+}
 
-async function checkPrice(label: string, priceId: string, expectedCents: number): Promise<Mismatch[]> {
-  const price = await getStripe().prices.retrieve(priceId);
-  // One row per reconciled field; `active` gates the tax_behavior row behind the
-  // flag. Data-driven so adding a field never grows the branch count.
-  const checks: ReadonlyArray<{ field: string; expected: unknown; actual: unknown; active: boolean }> = [
-    { field: 'unit_amount', expected: expectedCents, actual: price.unit_amount, active: true },
-    { field: 'currency', expected: 'usd', actual: price.currency, active: true },
-    { field: 'recurring.interval', expected: 'month', actual: price.recurring?.interval, active: true },
-    { field: 'tax_behavior', expected: 'exclusive', actual: price.tax_behavior, active: TAX_REQUIRED },
-  ];
+interface StripePriceShape {
+  active: boolean;
+  unit_amount: number | null;
+  currency: string;
+  recurring: { interval: string; interval_count: number } | null;
+  tax_behavior: string | null;
+}
+
+export type RetrieveStripePrice = (priceId: string) => Promise<StripePriceShape>;
+
+async function checkPrice(
+  retrievePrice: RetrieveStripePrice,
+  taxRequired: boolean,
+  label: string,
+  priceId: string,
+  expectedCents: number,
+): Promise<StripePriceParityMismatch[]> {
+  const price = await retrievePrice(priceId);
+  const checks = [
+    { field: 'active', expected: true, actual: price.active, required: true },
+    { field: 'unit_amount', expected: expectedCents, actual: price.unit_amount, required: true },
+    { field: 'currency', expected: 'usd', actual: price.currency, required: true },
+    { field: 'recurring.interval', expected: 'month', actual: price.recurring?.interval, required: true },
+    { field: 'recurring.interval_count', expected: 1, actual: price.recurring?.interval_count, required: true },
+    { field: 'tax_behavior', expected: 'exclusive', actual: price.tax_behavior, required: taxRequired },
+  ] as const;
   return checks
-    .filter((c) => c.active && c.expected !== c.actual)
-    .map((c) => ({ label, field: c.field, expected: c.expected, actual: c.actual }));
+    .filter((check) => check.required && check.expected !== check.actual)
+    .map(({ field, expected, actual }) => ({ label, field, expected, actual }));
 }
 
-async function tierMismatches(tier: SubscriptionTierValue): Promise<Mismatch[]> {
-  const baseId = basePriceIdForTier(tier);
-  if (!baseId) return [{ label: `${tier} base`, field: 'env', expected: 'price id', actual: 'unset' }];
-
-  const out = await checkPrice(`${tier} base`, baseId, TIER_CONFIG[tier].baseCents);
-  const overageId = overagePriceIdForTier(tier);
-  if (overageId) out.push(...await checkPrice(`${tier} overage`, overageId, TIER_CONFIG[tier].overageCents));
-  return out;
+/** Verify the four live base, two live overage, and all retained overage Prices. */
+export async function verifyConfiguredStripePrices(
+  retrievePrice: RetrieveStripePrice,
+  taxRequired: boolean,
+  retainedOverages: readonly RetainedOverageStripePrice[] = retainedOverageStripePrices(),
+): Promise<StripePriceParityMismatch[]> {
+  const mismatches: StripePriceParityMismatch[] = [];
+  for (const tier of TIERS) {
+    for (const variant of VARIANTS) {
+      const snapshot = resolveTierSnapshot(tier, variant);
+      const baseId = priceIdFor(tier, variant, 'base');
+      if (!baseId) mismatches.push({ label: `${tier}/${variant} base`, field: 'env', expected: 'price id', actual: 'unset' });
+      else mismatches.push(...await checkPrice(retrievePrice, taxRequired, `${tier}/${variant} base`, baseId, snapshot.baseCents));
+    }
+    const snapshot = resolveTierSnapshot(tier, 'list');
+    const overageId = priceIdFor(tier, 'list', 'overage');
+    if (!overageId) mismatches.push({ label: `${tier} overage`, field: 'env', expected: 'price id', actual: 'unset' });
+    else mismatches.push(...await checkPrice(retrievePrice, taxRequired, `${tier} overage`, overageId, snapshot.overageCents));
+  }
+  for (const retained of retainedOverages) {
+    mismatches.push(...await checkPrice(
+      retrievePrice,
+      taxRequired,
+      `${retained.tier} retained overage ${retained.id}`,
+      retained.id,
+      retained.unitAmountCents,
+    ));
+  }
+  return mismatches;
 }
 
-function failWith(mismatches: Mismatch[]): never {
-  console.error('Stripe price parity FAILED:');
-  for (const m of mismatches) console.error(`  ${m.label}: ${m.field} expected=${m.expected} actual=${m.actual}`);
-  process.exit(1);
+export function parseStripeTaxEnabled(value: string | undefined): boolean {
+  if (value === undefined || value === '' || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new Error('STRIPE_TAX_ENABLED must be exactly true or false when set');
 }
 
-async function main(): Promise<void> {
-  const mismatches: Mismatch[] = [];
-  for (const tier of TIERS) mismatches.push(...await tierMismatches(tier));
-
-  if (mismatches.length > 0) failWith(mismatches);
-
-  const taxNote = TAX_REQUIRED ? ' (incl. tax_behavior)' : '';
-  console.log(`Stripe price parity OK for ${TIERS.length} tiers${taxNote}.`);
+export function prepareStripePriceParityCli(
+  env: Readonly<Record<string, string | undefined>>,
+): { taxRequired: boolean } {
+  return { taxRequired: parseStripeTaxEnabled(env.STRIPE_TAX_ENABLED) };
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+export function stripePriceParityExitCode(
+  mismatches: readonly StripePriceParityMismatch[] | null,
+  error: unknown = null,
+): 0 | 1 {
+  if (error !== null || mismatches === null) return 1;
+  return mismatches.length === 0 ? 0 : 1;
+}
+
+async function main(): Promise<number> {
+  const { taxRequired } = prepareStripePriceParityCli(process.env);
+  const mismatches = await verifyConfiguredStripePrices(
+    async (priceId) => getStripe().prices.retrieve(priceId),
+    taxRequired,
+  );
+  if (mismatches.length > 0) {
+    console.error('Stripe price parity FAILED:');
+    for (const item of mismatches) console.error(`  ${item.label}: ${item.field} expected=${item.expected} actual=${item.actual}`);
+  }
+  if (mismatches.length === 0) {
+    console.log(
+      `Stripe price parity OK for ${TIERS.length} tiers, ${VARIANTS.length} variants, `
+      + `and ${retainedOverageStripePrices().length} retained overage Prices.`,
+    );
+  }
+  return stripePriceParityExitCode(mismatches);
+}
+
+runDirectCli({
+  importMetaUrl: import.meta.url,
+  main,
+  onError: (error) => {
+    console.error(error);
+    return stripePriceParityExitCode(null, error);
+  },
+});

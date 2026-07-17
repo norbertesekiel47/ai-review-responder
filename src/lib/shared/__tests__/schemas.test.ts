@@ -70,6 +70,7 @@ describe('OnboardBusinessSchema — googlePlaceId validation', () => {
       name: 'Acme Cafe',
       ownerName: 'Jane Smith',
       ownerEmail: 'jane@acme.example',
+      subscriptionTier: 'copilot',
       ...overrides,
     };
   }

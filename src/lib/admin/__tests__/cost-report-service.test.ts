@@ -392,11 +392,15 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
 
 import type { Sql } from 'postgres';
 import { getCostReport } from '../cost-report-service';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const sql = mockSql as unknown as Sql;
 
 beforeEach(() => {
   resetMockSql();
+  process.env.DAILY_COST_LIMIT_CENTS_COPILOT = '1000';
+  process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = '2000';
+  resetServerConfigForTests();
 });
 
 describe('parseCostQuery', () => {
@@ -501,13 +505,26 @@ describe('parseCostQuery', () => {
 // refactor (do not weaken); only the sql-wiring mechanism changed (shared
 // createMockSql harness instead of an ad hoc Proxy).
 describe('getCostReport — accountId set, no rollup (days ≤ 90)', () => {
+  it('fails before querying when an owning server cost ceiling is missing', async () => {
+    delete process.env.DAILY_COST_LIMIT_CENTS_COPILOT;
+    resetServerConfigForTests();
+
+    await expect(getCostReport(sql, {
+      days: 30,
+      limit: 20,
+      offset: 0,
+      accountId: '',
+    })).rejects.toThrow(/DAILY_COST_LIMIT_CENTS_COPILOT/);
+    expect(sqlCalls).toHaveLength(0);
+  });
+
   it('issues exactly 5 queries (no rollup queries) when days<=90 and accountId is set', async () => {
     sqlReturnQueue.push([{ provider: 'openai', total_usd: 0.8, call_count: 4 }]);
     sqlReturnQueue.push([
       {
         business_id: 'biz-acct-1',
         name: 'Account Biz',
-        subscription_tier: 'premium',
+        subscription_tier: 'autopilot',
         total_usd: 0.8,
         call_count: 4,
         today_usd: 0.2,
@@ -534,8 +551,8 @@ describe('getCostReport — accountId set, no rollup (days ≤ 90)', () => {
     expect(result.byBusiness).toHaveLength(1);
     const biz = result.byBusiness[0]!;
     expect(biz.businessId).toBe('biz-acct-1');
-    expect(biz.subscriptionTier).toBe('premium');
-    // todayUsd / dailyLimitUsd for premium tier: 2000 cents = $20
+    expect(biz.subscriptionTier).toBe('autopilot');
+    // Autopilot ceiling: 2000 cents = $20.
     expect(biz.dailyLimitUsd).toBe(20);
     expect(biz.pctOfDailyLimit).toBe(1); // 0.2/20 * 100 = 1%
     expect(result.byDay).toHaveLength(1);
@@ -602,7 +619,7 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
       {
         business_id: 'biz-1',
         name: 'Biz One',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 1.2,
         call_count: 6,
         today_usd: 0.3,
@@ -622,11 +639,11 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
     expect(result.byBusiness).toHaveLength(1);
     expect(result.byBusiness[0]).toMatchObject({
       businessId: 'biz-1',
-      subscriptionTier: 'standard',
+      subscriptionTier: 'copilot',
       totalUsd: 1.2,
       callCount: 6,
       todayUsd: 0.3,
-      dailyLimitUsd: 10, // standard tier: 1000 cents
+      dailyLimitUsd: 10, // Copilot ceiling: 1000 cents
       pctOfDailyLimit: 3, // 0.3/10*100 = 3
     });
     expect(result.byDay).toEqual([{ day: '2026-07-01', totalUsd: 1.2, callCount: 6 }]);
@@ -639,7 +656,7 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
       {
         business_id: 'biz-1',
         name: 'Biz One',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 1.2,
         call_count: 6,
         today_usd: 0.3,
@@ -671,7 +688,7 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
       {
         business_id: 'biz-2',
         name: 'Biz Two',
-        subscription_tier: 'premium',
+        subscription_tier: 'autopilot',
         total_usd: 3.0,
         call_count: 15,
         today_usd: 0.5,
@@ -694,7 +711,7 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
     expect(result.byBusiness).toHaveLength(1);
     expect(result.byBusiness[0]).toMatchObject({
       businessId: 'biz-2',
-      subscriptionTier: 'premium',
+      subscriptionTier: 'autopilot',
       totalUsd: 3.0,
       callCount: 15,
       todayUsd: 0.5,
@@ -715,7 +732,7 @@ describe('getCostReport — pinned SQL + shape (4 quadrants)', () => {
       {
         business_id: 'biz-2',
         name: 'Biz Two',
-        subscription_tier: 'premium',
+        subscription_tier: 'autopilot',
         total_usd: 3.0,
         call_count: 15,
         today_usd: 0.5,

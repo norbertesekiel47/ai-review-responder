@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 import { withCostGuard } from '@/lib/costs/cost-guard';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { runLlmTask } from '@/lib/llm/run-task';
 import type { LLMCallResult } from '@/lib/llm/types';
 
@@ -69,7 +70,7 @@ export async function generateReviewSummary(
   sql: Sql,
   reviews: ReviewForSummary[],
   businessId: string,
-  subscriptionTier: string = 'standard',
+  subscriptionTier: SubscriptionTierValue,
 ): Promise<SummaryResult | null> {
   if (reviews.length === 0) return null;
 

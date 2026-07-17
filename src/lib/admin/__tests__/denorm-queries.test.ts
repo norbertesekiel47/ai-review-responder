@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
@@ -56,6 +56,12 @@ describe('Admin denormalized account_id queries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMockSql();
+    vi.stubEnv('DAILY_COST_LIMIT_CENTS_COPILOT', '1000');
+    vi.stubEnv('DAILY_COST_LIMIT_CENTS_AUTOPILOT', '2000');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   // ── VAL-ADMIN-002: api_costs uses account_id ──────────────────────
@@ -73,7 +79,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{
         business_id: 'loc-1',
         name: 'Downtown',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         total_usd: 1.5,
         call_count: 10,
         today_usd: 0.1,
@@ -81,13 +87,33 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{ total: 1 }]);
       sqlReturnQueue.push([{ day: '2026-05-09', total_usd: 1.5, call_count: 10 }]);
       sqlReturnQueue.push([{ total: 0.1 }]);
+      sqlReturnQueue.push([{
+        id: 'acct-margin-1',
+        display_name: 'Copilot Account',
+        subscription_tier: 'copilot',
+        subscription_status: 'active',
+        locations_included: 1,
+        locations_overage_price_cents: 1500,
+        base_price_cents: 2900,
+        active_locations: 1,
+      }]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{ total_cost_usd: 0 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const { NextRequest } = await import('next/server');
       const req = new NextRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
       const res = await GET(req);
+      const body = await res.json();
 
       expect(res.status).toBe(200);
+      expect(body.margin).not.toBeNull();
+      expect(body.margin.topAccountsByCost[0]).toMatchObject({
+        accountId: 'acct-margin-1',
+        subscriptionTier: 'copilot',
+      });
+      expect(sqlCalls).toHaveLength(8);
+      expect(sqlReturnQueue).toHaveLength(0);
 
       // Verify that api_costs queries filter by account_id directly,
       // enabling the idx_api_costs_account index.
@@ -104,7 +130,7 @@ describe('Admin denormalized account_id queries', () => {
         {
           business_id: 'loc-1',
           name: 'Downtown',
-          subscription_tier: 'standard',
+          subscription_tier: 'copilot',
           total_usd: 2.0,
           call_count: 12,
           today_usd: 0.2,
@@ -112,7 +138,7 @@ describe('Admin denormalized account_id queries', () => {
         {
           business_id: 'loc-2',
           name: 'Uptown',
-          subscription_tier: 'standard',
+          subscription_tier: 'copilot',
           total_usd: 1.0,
           call_count: 8,
           today_usd: 0.1,
@@ -121,6 +147,18 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{ total: 2 }]);
       sqlReturnQueue.push([{ day: '2026-05-09', total_usd: 3.0, call_count: 20 }]);
       sqlReturnQueue.push([{ total: 0.3 }]);
+      sqlReturnQueue.push([{
+        id: 'acct-margin-1',
+        display_name: 'Autopilot Account',
+        subscription_tier: 'autopilot',
+        subscription_status: 'active',
+        locations_included: 1,
+        locations_overage_price_cents: 2000,
+        base_price_cents: 6900,
+        active_locations: 2,
+      }]);
+      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{ total_cost_usd: 0 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
       const { NextRequest } = await import('next/server');
@@ -130,6 +168,13 @@ describe('Admin denormalized account_id queries', () => {
 
       expect(body.totalBusinesses).toBe(2);
       expect(body.byBusiness.length).toBe(2);
+      expect(body.margin).not.toBeNull();
+      expect(body.margin.topAccountsByCost[0]).toMatchObject({
+        accountId: 'acct-margin-1',
+        subscriptionTier: 'autopilot',
+      });
+      expect(sqlCalls).toHaveLength(8);
+      expect(sqlReturnQueue).toHaveLength(0);
     });
   });
 
@@ -197,7 +242,7 @@ describe('Admin denormalized account_id queries', () => {
         avoid_facts: null,
         sample_responses: null,
         subscription_status: 'active',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_name: 'John',
         owner_email: 'john@test.com',
         last_sync_at: null,
@@ -267,7 +312,7 @@ describe('Admin denormalized account_id queries', () => {
         created_at: new Date(),
       }]);
       sqlReturnQueue.push([]);
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       const result = await getBusinessDetail(sql, 'loc-1');
       expect(result).not.toBeNull();
@@ -296,7 +341,7 @@ describe('Admin denormalized account_id queries', () => {
         id: 'loc-1', name: 'Test Biz', category: null, website: null, google_place_id: null,
         tone: null, products_services: null, staff_names: null, highlight_facts: null,
         avoid_facts: null, sample_responses: null, subscription_status: 'active',
-        subscription_tier: 'standard', owner_name: null, owner_email: null, last_sync_at: null,
+        subscription_tier: 'copilot', owner_name: null, owner_email: null, last_sync_at: null,
         tracked_keywords: null, google_place_lat: null, google_place_lng: null,
         ranking_search_location: null, google_place_address: null, owner_email_bounced: false,
         account_id: 'acct-1', display_label: null, is_primary: true,
@@ -315,7 +360,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]); // approval audit log
       sqlReturnQueue.push([]); // account audit log
       sqlReturnQueue.push([]); // auto approval policies
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail(sql, 'loc-1');
 
@@ -334,7 +379,7 @@ describe('Admin denormalized account_id queries', () => {
         id: 'loc-1', name: 'Test Biz', category: null, website: null, google_place_id: null,
         tone: null, products_services: null, staff_names: null, highlight_facts: null,
         avoid_facts: null, sample_responses: null, subscription_status: 'active',
-        subscription_tier: 'standard', owner_name: null, owner_email: null, last_sync_at: null,
+        subscription_tier: 'copilot', owner_name: null, owner_email: null, last_sync_at: null,
         tracked_keywords: null, google_place_lat: null, google_place_lng: null,
         ranking_search_location: null, google_place_address: null, owner_email_bounced: false,
         account_id: 'acct-1', display_label: null, is_primary: true,
@@ -353,7 +398,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
-      sqlReturnQueue.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+      sqlReturnQueue.push([{ subscription_tier: 'autopilot', subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail(sql, 'loc-1');
 

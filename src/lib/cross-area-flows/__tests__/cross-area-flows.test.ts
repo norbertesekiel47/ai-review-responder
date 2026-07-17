@@ -14,7 +14,7 @@ import {
   createAccountWithLocations,
   resetFixtureCounters,
 } from '@/lib/__fixtures__/account-location';
-import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { SubscriptionTier, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
   it('full flow: account creation → checkout → activation → add location → overage → notification → approval', async () => {
     // Step 1: Account is created via self-serve signup (pending_payment)
     const account = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.PENDING_PAYMENT,
       locations_paid: 0,
     });
@@ -121,7 +121,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
     // assertCanAddLocation checks
     mockSql.mockResolvedValueOnce([{
       id: activeAccount.id,
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_included: 1,
       locations_paid: 0,
@@ -150,8 +150,21 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       sample_responses: [],
     }]);
     // Mock sql.begin transaction
+    const locationTxSql: string[] = [];
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
-      const mockTx = vi.fn().mockResolvedValue(undefined);
+      const mockTx = vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        locationTxSql.push(text);
+        if (
+          text.includes('SELECT id')
+          && text.includes('FROM accounts')
+          && text.includes('FOR UPDATE')
+        ) {
+          return [{ id: activeAccount.id }];
+        }
+        if (text.includes('FROM account_offboardings')) return [];
+        return undefined;
+      });
       // Identity .json stub: injected tx.json(...) now fires on this mock tx.
       Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
@@ -165,29 +178,45 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       actorUserId: 'user-001',
       ownerName: 'Test Owner',
       ownerEmail: 'owner@test.com',
-      subscriptionTier: SubscriptionTier.STANDARD,
+      subscriptionTier: SubscriptionTier.COPILOT,
       subscriptionStatus: SubscriptionStatus.ACTIVE,
       activeLocationsBefore: 1,
     });
 
     expect(addResult.businessId).toBeTruthy();
     expect(addResult.displayLabel).toBe('Westside Bakery');
+    const lifecycleLockIndex = locationTxSql.findIndex((text) =>
+      text.includes('pg_advisory_xact_lock'),
+    );
+    const accountLockIndex = locationTxSql.findIndex(
+      (text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+    );
+    const offboardingReadIndex = locationTxSql.findIndex((text) =>
+      text.includes('FROM account_offboardings'),
+    );
+    const businessInsertIndex = locationTxSql.findIndex((text) =>
+      text.includes('INSERT INTO businesses'),
+    );
+    expect(lifecycleLockIndex).toBeGreaterThanOrEqual(0);
+    expect(accountLockIndex).toBeGreaterThan(lifecycleLockIndex);
+    expect(offboardingReadIndex).toBeGreaterThan(accountLockIndex);
+    expect(businessInsertIndex).toBeGreaterThan(offboardingReadIndex);
 
     // Step 6: Verify overage billing snapshot
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 1,
       locations_overage_price_cents: activeAccount.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]); // 2 active locations
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, activeAccount.id);
-    expect(snapshot.basePriceCents).toBe(7900); // $79
+    expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.overageUnits).toBe(1); // 2 locations - 1 included = 1
-    expect(snapshot.overagePriceCents).toBe(2500); // $25 per overage
-    expect(snapshot.totalCents).toBe(10400); // $79 + $25 = $104
+    expect(snapshot.overagePriceCents).toBe(1500);
+    expect(snapshot.totalCents).toBe(4400);
 
     // Step 7: Verify notification channel resolution
     const loc2Id = addResult.businessId as unknown as import('@/lib/shared/ids').LocationId;
@@ -217,10 +246,9 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
 // ── VAL-CROSS-002: Single-location regression ──────────────────────────
 
 describe('VAL-CROSS-002: Single-location regression', () => {
-  it('single-location signup works end-to-end with no multi-location features', async () => {
-    // Create a basic-tier account (single-location only)
+  it('single-location signup works end-to-end with paid overage available', async () => {
     const account = createAccountRow({
-      subscription_tier: SubscriptionTier.BASIC,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_paid: 0,
     });
@@ -236,37 +264,36 @@ describe('VAL-CROSS-002: Single-location regression', () => {
     const activeCheck = await isAccountActive(mockSql as unknown as Sql, account.id);
     expect(activeCheck).toEqual({ active: true });
 
-    // Step 2: Verify billing snapshot — basic tier, no overage
-    // NOTE: currentBillingSnapshot for basic tier returns early (only 1 SQL call, no location count)
+    // Step 2: one active location is inside Copilot's stored included quota.
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.BASIC,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
       base_price_cents: 2900,
     }]);
+    mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot.basePriceCents).toBe(2900); // $29
     expect(snapshot.overageUnits).toBe(0);
-    expect(snapshot.overagePriceCents).toBe(0);
+    expect(snapshot.overagePriceCents).toBe(1500);
     expect(snapshot.totalCents).toBe(2900);
 
-    // Step 3: Verify assertCanAddLocation rejects basic tier
-    // NOTE: assertCanAddLocation for basic tier returns early at tier_disallows_multi_location
-    // check — it only makes 1 SQL call (SELECT FOR UPDATE), not 2
+    // Step 3: adding a second location is allowed with one paid overage unit.
     mockSql.mockResolvedValueOnce([{
       id: account.id,
-      subscription_tier: SubscriptionTier.BASIC,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_included: 1,
       locations_paid: 0,
     }]);
+    mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const quotaResult = await assertCanAddLocation(mockSql as unknown as Sql, account.id);
-    expect(quotaResult.allowed).toBe(false);
-    if (!quotaResult.allowed) {
-      expect(quotaResult.reason).toBe('tier_disallows_multi_location');
+    expect(quotaResult.allowed).toBe(true);
+    if (quotaResult.allowed) {
+      expect(quotaResult.overageUnits).toBe(1);
     }
 
     // Step 4: Verify notification resolves correctly for single location
@@ -284,12 +311,9 @@ describe('VAL-CROSS-002: Single-location regression', () => {
     expect(channels[0]!.channel).toBe('email');
   });
 
-  it('multi-location UI elements are not applicable for basic tier', () => {
-    // Basic tier has multiLocAllowed = false, so switcher, "All Locations",
-    // and Location tab would never be shown. This is enforced at the
-    // application level by checking the location count and tier config.
-    const basicConfig = { multiLocAllowed: false };
-    expect(basicConfig.multiLocAllowed).toBe(false);
+  it('both launch tiers support multi-location overage', () => {
+    expect(TIER_CONFIG.copilot).toMatchObject({ included: 1, multiLocAllowed: true });
+    expect(TIER_CONFIG.autopilot).toMatchObject({ included: 1, multiLocAllowed: true });
   });
 });
 
@@ -298,7 +322,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
 describe('VAL-CROSS-003: Switcher + approval attribution', () => {
   it('approval is attributed to the correct location when switching', async () => {
     const { account, locations } = createAccountWithLocations(
-      { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
+      { subscription_tier: SubscriptionTier.COPILOT, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
     const _locA = locations[0]!;
@@ -307,7 +331,7 @@ describe('VAL-CROSS-003: Switcher + approval attribution', () => {
     // Verify getLocationContext returns the correct location
     mockSql.mockResolvedValueOnce([{
       account_id: account.id,
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       stripe_customer_id: 'cus_test',
       stripe_subscription_id: 'sub_test',
@@ -334,7 +358,7 @@ describe('VAL-CROSS-003: Switcher + approval attribution', () => {
 describe('VAL-CROSS-004: Channel override + notification dispatch', () => {
   it('per-location override dispatches to correct handle', async () => {
     const { account, locations } = createAccountWithLocations(
-      { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
+      { subscription_tier: SubscriptionTier.COPILOT, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
     const locA = locations[0]!;
@@ -387,7 +411,7 @@ describe('VAL-CROSS-004: Channel override + notification dispatch', () => {
 describe('VAL-CROSS-005: Archive mid-flow', () => {
   it('archiving location with pending approval preserves state', async () => {
     const { account, locations } = createAccountWithLocations(
-      { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
+      { subscription_tier: SubscriptionTier.COPILOT, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
     const _locA = locations[0]!;
@@ -469,101 +493,100 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
 
 // ── VAL-CROSS-006: Billing + add-location e2e ──────────────────────────
 
-describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → archive → $79)', () => {
+describe('VAL-CROSS-006: Copilot billing + add-location e2e', () => {
   it('full billing cycle with add and archive', async () => {
     const account = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_paid: 0,
     });
 
-    // Step 1: Initial state — $79 base, 1 location, no overage
+    // Step 1: initial $29 base, one included location, no overage.
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot1 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
-    expect(snapshot1.basePriceCents).toBe(7900);
+    expect(snapshot1.basePriceCents).toBe(2900);
     expect(snapshot1.overageUnits).toBe(0);
-    expect(snapshot1.totalCents).toBe(7900); // $79
+    expect(snapshot1.totalCents).toBe(2900);
 
-    // Step 2: Add 2nd location → $79 + $25 = $104
+    // Step 2: add a second location → $29 + $15 = $44.
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 1, // Stripe overage updated
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]);
 
     const snapshot2 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot2.overageUnits).toBe(1);
-    expect(snapshot2.overagePriceCents).toBe(2500);
-    expect(snapshot2.totalCents).toBe(10400); // $79 + $25 = $104
+    expect(snapshot2.overagePriceCents).toBe(1500);
+    expect(snapshot2.totalCents).toBe(4400);
 
-    // Step 3: Archive 2nd location → back to $79
+    // Step 3: archive the second location → back to $29.
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 0, // Stripe overage decremented
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot3 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot3.overageUnits).toBe(0);
-    expect(snapshot3.totalCents).toBe(7900); // back to $79
+    expect(snapshot3.totalCents).toBe(2900);
   });
 });
 
 // ── VAL-CROSS-007: Tier upgrade + quota expansion ──────────────────────
 
-describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly', () => {
-  it('upgrade from Standard (1 included) to Premium (5 included) eliminates overage', async () => {
-    // Standard account with 3 active locations → 2 overage units
+describe('VAL-CROSS-007: Copilot→Autopilot changes prices without changing quota', () => {
+  it('retains two overage units while applying the Autopilot stored snapshot', async () => {
+    // Copilot account with 3 active locations → 2 overage units.
     const account = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_paid: 2,
     });
 
     // Step 1: Verify pre-upgrade overage
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 2,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
     const preUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(preUpgrade.overageUnits).toBe(2); // 3 - 1 = 2
-    expect(preUpgrade.totalCents).toBe(7900 + 2 * 2500); // $79 + $50 = $129
+    expect(preUpgrade.totalCents).toBe(2900 + 2 * 1500);
 
-    // Step 2: After upgrade to Premium → overage drops to 0
-    // Premium includes 5 locations, and account has 3 active → 3 - 5 = 0 overage
+    // Step 2: Autopilot also includes one location, with its own prices.
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.PREMIUM,
-      locations_included: 5,
-      locations_paid: 0, // Stripe overage updated to 0
+      subscription_tier: SubscriptionTier.AUTOPILOT,
+      locations_included: 1,
+      locations_paid: 2,
       locations_overage_price_cents: 2000,
-      base_price_cents: 19900,
+      base_price_cents: 6900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
     const postUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
-    expect(postUpgrade.overageUnits).toBe(0); // 3 - 5 < 0 → clamped to 0
-    expect(postUpgrade.basePriceCents).toBe(19900); // $199
-    expect(postUpgrade.overagePriceCents).toBe(2000); // Premium overage rate
-    expect(postUpgrade.totalCents).toBe(19900); // $199 only, no overage
+    expect(postUpgrade.overageUnits).toBe(2);
+    expect(postUpgrade.basePriceCents).toBe(6900);
+    expect(postUpgrade.overagePriceCents).toBe(2000);
+    expect(postUpgrade.totalCents).toBe(6900 + 2 * 2000);
   });
 
   it('audit log records tier change', () => {
@@ -572,11 +595,11 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
     // This is verified in the stripe webhook tests.
     const auditPayload = {
       event_type: 'subscription_updated',
-      fromTier: SubscriptionTier.STANDARD,
-      toTier: SubscriptionTier.PREMIUM,
+      fromTier: SubscriptionTier.COPILOT,
+      toTier: SubscriptionTier.AUTOPILOT,
     };
-    expect(auditPayload.fromTier).toBe('standard');
-    expect(auditPayload.toTier).toBe('premium');
+    expect(auditPayload.fromTier).toBe('copilot');
+    expect(auditPayload.toTier).toBe('autopilot');
   });
 });
 
@@ -585,7 +608,7 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
 describe('VAL-CROSS-008: Cookie persistence across sessions', () => {
   it('cookie value survives page refresh (server-side validation)', async () => {
     const { account, locations } = createAccountWithLocations(
-      { subscription_tier: SubscriptionTier.STANDARD, subscription_status: SubscriptionStatus.ACTIVE },
+      { subscription_tier: SubscriptionTier.COPILOT, subscription_status: SubscriptionStatus.ACTIVE },
       2,
     );
     const _locA = locations[0]!;
@@ -618,7 +641,7 @@ describe('VAL-CROSS-008: Cookie persistence across sessions', () => {
 describe('VAL-CROSS-009: Admin CSV import + billing sync', () => {
   it('CSV with 3 locations creates businesses rows and enqueues billing updates', async () => {
     const account = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       locations_paid: 0,
     });
@@ -662,7 +685,7 @@ Uptown Diner,ChIJ003,casual`;
     for (let i = 0; i < 3; i++) {
       mockSql.mockResolvedValueOnce([{
         id: account.id,
-        subscription_tier: SubscriptionTier.STANDARD,
+        subscription_tier: SubscriptionTier.COPILOT,
         subscription_status: SubscriptionStatus.ACTIVE,
         locations_included: 1,
         locations_paid: i, // 0, 1, 2 paid locations
@@ -672,8 +695,23 @@ Uptown Diner,ChIJ003,casual`;
 
     // Mock add-location transaction for each row
     mockSql.mockResolvedValue([{ tone: 'professional', products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [], sample_responses: [] }]);
+    const csvLocationTxSql: string[][] = [];
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
-      const mockTx = vi.fn().mockResolvedValue(undefined);
+      const calls: string[] = [];
+      csvLocationTxSql.push(calls);
+      const mockTx = vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        calls.push(text);
+        if (
+          text.includes('SELECT id')
+          && text.includes('FROM accounts')
+          && text.includes('FOR UPDATE')
+        ) {
+          return [{ id: account.id }];
+        }
+        if (text.includes('FROM account_offboardings')) return [];
+        return undefined;
+      });
       // Identity .json stub: injected tx.json(...) now fires on this mock tx.
       Object.assign(mockTx, { json: (v: unknown) => v });
       await cb(mockTx);
@@ -689,20 +727,39 @@ Uptown Diner,ChIJ003,casual`;
       // All 3 rows should succeed
       expect(results.every(r => 'businessId' in r)).toBe(true);
     }
+    expect(csvLocationTxSql).toHaveLength(3);
+    for (const calls of csvLocationTxSql) {
+      const lifecycleLockIndex = calls.findIndex((text) =>
+        text.includes('pg_advisory_xact_lock'),
+      );
+      const accountLockIndex = calls.findIndex(
+        (text) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+      );
+      const offboardingReadIndex = calls.findIndex((text) =>
+        text.includes('FROM account_offboardings'),
+      );
+      const businessInsertIndex = calls.findIndex((text) =>
+        text.includes('INSERT INTO businesses'),
+      );
+      expect(lifecycleLockIndex).toBeGreaterThanOrEqual(0);
+      expect(accountLockIndex).toBeGreaterThan(lifecycleLockIndex);
+      expect(offboardingReadIndex).toBeGreaterThan(accountLockIndex);
+      expect(businessInsertIndex).toBeGreaterThan(offboardingReadIndex);
+    }
 
     // Step 4: Verify billing snapshot after 3 locations added
     mockSql.mockResolvedValueOnce([{
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 3,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 7900,
+      base_price_cents: 2900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 4 }]); // 1 primary + 3 CSV locations
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
-    expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // $79 + $75 = $154
+    expect(snapshot.totalCents).toBe(2900 + 3 * 1500);
 
     // Step 5: Verify audit log for csv_bulk_import
     mockSql.mockResolvedValueOnce(undefined); // INSERT succeeds
@@ -716,11 +773,11 @@ Uptown Diner,ChIJ003,casual`;
 describe('VAL-CROSS-010: RLS cross-account isolation e2e', () => {
   it('user A cannot see user B data through account-guard', async () => {
     const accountA = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
     });
     const accountB = createAccountRow({
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
     });
 
@@ -741,7 +798,7 @@ describe('VAL-CROSS-010: RLS cross-account isolation e2e', () => {
 
     mockSql.mockResolvedValueOnce([{
       account_id: accountB.id, // location belongs to B
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.ACTIVE,
       stripe_customer_id: 'cus_b',
       stripe_subscription_id: 'sub_b',
@@ -795,7 +852,7 @@ describe('VAL-CROSS-011: Cancelled account — read-only banner and disabled wri
 
     mockSql.mockResolvedValueOnce([{
       id: cancelledAccount.id,
-      subscription_tier: SubscriptionTier.STANDARD,
+      subscription_tier: SubscriptionTier.COPILOT,
       subscription_status: SubscriptionStatus.CANCELLED,
       locations_included: 1,
       locations_paid: 0,

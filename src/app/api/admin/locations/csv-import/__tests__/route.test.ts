@@ -102,7 +102,7 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
     id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     owner_user_id: 'uuuuuuuu-0000-0000-0000-000000000001',
     display_name: 'Test Account',
-    subscription_tier: 'standard',
+    subscription_tier: 'copilot',
     subscription_status: 'active',
     stripe_customer_id: 'cus_test123',
     stripe_subscription_id: 'sub_test123',

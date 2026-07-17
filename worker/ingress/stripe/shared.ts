@@ -3,6 +3,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
+import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
 
 export const LOG_PREFIX = '[ingress/stripe]';
 
@@ -118,6 +120,18 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
   `;
 
   if (!target) return;
+  if (!isSubscriptionTier(target.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${target.subscription_tier}`);
+  }
+
+  const payload = {
+    business_id: businessId,
+    zernio_account_id: target.zernio_account_id,
+    zernio_location_id: target.zernio_location_id,
+    subscription_tier: target.subscription_tier,
+    subscription_activated_at: target.subscription_activated_at.toISOString(),
+    correlation_id: uuidv7(),
+  } satisfies ZernioInitialBackfillPayload;
 
   await sql`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
@@ -126,14 +140,7 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
       ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
       'business',
       ${businessId}::uuid,
-      ${jsonb({
-        business_id: businessId,
-        zernio_account_id: target.zernio_account_id,
-        zernio_location_id: target.zernio_location_id,
-        subscription_tier: target.subscription_tier,
-        subscription_activated_at: target.subscription_activated_at.toISOString(),
-        correlation_id: uuidv7(),
-      })},
+      ${jsonb(payload)},
       'pending'
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo

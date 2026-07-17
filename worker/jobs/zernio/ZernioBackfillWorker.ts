@@ -8,7 +8,7 @@
 //
 // Buckets reviews by createTime vs subscription_activated_at:
 //   gap (>= activated, reviewReply=null) → cap 25, all tiers
-//   historical (< activated, reviewReply=null) → cap 50, premium only
+//   historical (< activated, reviewReply=null) → cap 50, both launch tiers
 // Reviews already replied to externally are routed through
 // reconcileExternallyAnsweredReview (not bucket-processing) so any
 // pre-existing local active draft is correctly superseded.
@@ -21,6 +21,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
@@ -50,6 +51,9 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     subscription_activated_at,
     backfill_reason,
   } = job.data;
+  if (!isSubscriptionTier(subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${subscription_tier}`);
+  }
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
   const isReactivationBackfill = backfill_reason === 'reactivation';
   const runReason = isReactivationBackfill ? 'reactivation' : 'initial';
@@ -148,7 +152,7 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   const activeSinceMs = new Date(subscription_activated_at).getTime();
   if (Number.isNaN(activeSinceMs)) {
     // Malformed ISO string — without this guard, all >= comparisons evaluate
-    // false, producing gap=[] and (non-premium) historical=[], silently
+    // false, producing gap=[] and historical=[], silently
     // completing the backfill with 0 reviews processed. Throw → BullMQ
     // retry → exhaustion surfaces in the failed outbox row for ops.
     throw new Error(
@@ -185,20 +189,17 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     }
   }
 
-  const isPremium = subscription_tier === 'premium';
   const GAP_CAP = 25;
-  const HISTORICAL_CAP_PREMIUM = 50;
+  const HISTORICAL_CAP = 50;
 
   const gapAll = unanswered.filter((z) => new Date(z.createTime).getTime() >= activeSinceMs);
   const histAll = unanswered.filter((z) => new Date(z.createTime).getTime() < activeSinceMs);
 
   const gap = gapAll.slice(0, GAP_CAP);
-  const historical = isPremium ? histAll.slice(0, HISTORICAL_CAP_PREMIUM) : [];
+  const historical = histAll.slice(0, HISTORICAL_CAP);
 
   const gapSkipped = gapAll.length - gap.length;
-  const historicalSkipped = isPremium
-    ? histAll.length - historical.length
-    : histAll.length;
+  const historicalSkipped = histAll.length - historical.length;
   const oldestSkipped = [...gapAll.slice(GAP_CAP), ...histAll.slice(historical.length)]
     .reduce((oldest: string | null, z) =>
       !oldest || z.createTime < oldest ? z.createTime : oldest, null);

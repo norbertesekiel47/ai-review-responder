@@ -16,6 +16,7 @@ import { CostInfraUnavailableError } from '@/lib/costs/errors';
 import { runLlmTask } from '@/lib/llm/run-task';
 import { TransientLLMError } from '@/lib/llm/error-classifier';
 import type { ChatPrompt, LLMCallResult } from '@/lib/llm/types';
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { findActiveReviewRun, recordStep } from '@/lib/agents/run-spine';
 import { escalationEnabled } from '@/lib/escalations/flags';
@@ -59,7 +60,7 @@ export interface ReviewForTriage {
 
 export interface ClassifyTriageInput {
   businessId: string;
-  subscriptionTier: string;
+  subscriptionTier: SubscriptionTierValue;
   accountId: string;
   review: ReviewForTriage;
 }

@@ -120,7 +120,7 @@ function ownerUser(overrides?: { locationId?: string | null }) {
 const DEFAULT_SUB_ROW = {
   name: 'Test Biz',
   subscription_status: 'active',
-  subscription_tier: 'standard',
+  subscription_tier: 'copilot',
   owner_email: 'owner@test.com',
   archived_at: null,
 };
@@ -312,7 +312,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Pending Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@pending.com',
         onboarded_by: null, // self-serve — owner sees the payment CTA
         archived_at: null,
@@ -365,7 +365,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Founding Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founders',
+        subscription_tier: 'copilot',
         owner_email: 'founder@example.com',
         onboarded_by: null,
         archived_at: null,
@@ -400,7 +400,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Admin Onboarded Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founders',
+        subscription_tier: 'copilot',
         owner_email: 'owner@admin-onboarded.com',
         onboarded_by: 'admin-uuid-1',
         archived_at: null,
@@ -444,7 +444,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'No Env Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@noenv.com',
         onboarded_by: null,
         archived_at: null,
@@ -724,7 +724,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Cancelled Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@cancelled.com',
         archived_at: null,
       },
@@ -786,7 +786,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Long Sub Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@longsub.com',
         archived_at: null,
       },
@@ -843,7 +843,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Legacy Cancelled Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@legacy.com',
         archived_at: null,
       },
@@ -891,7 +891,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Past Due Biz',
         subscription_status: 'past_due',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@pastdue.com',
         onboarded_by: null,
         place_id_verified: true,
@@ -984,7 +984,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'No Dates Biz',
         subscription_status: 'cancelled',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         owner_email: 'owner@nodates.com',
         archived_at: null,
       },

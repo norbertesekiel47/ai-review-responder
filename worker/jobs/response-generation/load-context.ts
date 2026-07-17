@@ -27,9 +27,15 @@ import { mergeLogContext } from '../../../src/lib/shared/log-context';
 import type { LocationId } from '../../../src/lib/shared/ids';
 import type { NormalizedReview } from '../../../src/lib/reviews/types';
 import type { BusinessContext } from '../../../src/lib/responses/types';
+import {
+  isSubscriptionTier,
+  type SubscriptionTierValue,
+} from '../../../src/lib/accounts/tier-config';
 
 export interface GenerationContext {
   accountId: string;
+  /** Pre-LLM diagnostic only; grant re-reads the tier under entitlement lock. */
+  subscriptionTier: SubscriptionTierValue;
   loadedReviewContentHash: string | null;
   normalizedReview: NormalizedReview;
   businessContext: BusinessContext;
@@ -197,6 +203,10 @@ export async function loadGenerationContext(sql: Sql, input: {
     return { kind: 'skipped', reason: 'account_offboarding_blocked' };
   }
 
+  if (!isSubscriptionTier(business.subscription_tier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
+  }
+
   // ── Build DTOs ───────────────────────────────────────────────────────
   const normalizedReview: NormalizedReview = {
     reviewerName: review.reviewer_name,
@@ -216,13 +226,14 @@ export async function loadGenerationContext(sql: Sql, input: {
     highlightFacts: parseDbArray(business.highlight_facts),
     avoidFacts: parseDbArray(business.avoid_facts),
     sampleResponses: parseDbArray(business.sample_responses),
-    subscriptionTier: business.subscription_tier as BusinessContext['subscriptionTier'],
+    subscriptionTier: business.subscription_tier,
   };
 
   return {
     kind: 'ready',
     ctx: {
       accountId: business.account_id,
+      subscriptionTier: business.subscription_tier,
       loadedReviewContentHash: review.review_content_hash,
       normalizedReview,
       businessContext,

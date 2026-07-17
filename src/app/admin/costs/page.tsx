@@ -5,28 +5,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MarginData } from '@/lib/admin/margin-service';
+import type { CostData as CostReportData } from '@/lib/admin/cost-report-service';
 
 const PAGE_SIZE = 20;
 
-interface CostData {
-  days: number;
-  totalBusinesses: number;
-  limit: number;
-  offset: number;
-  byProvider: { provider: string; totalUsd: number; callCount: number }[];
-  byBusiness: {
-    businessId: string;
-    businessName: string;
-    subscriptionTier: string;
-    totalUsd: number;
-    callCount: number;
-    todayUsd: number;
-    dailyLimitUsd: number;
-    pctOfDailyLimit: number;
-  }[];
-  byDay: { day: string; totalUsd: number; callCount: number }[];
-  todayTotalUsd: number;
-  globalDailyLimitUsd: number;
+interface CostData extends CostReportData {
   margin?: MarginData;
 }
 

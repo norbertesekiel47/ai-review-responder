@@ -18,6 +18,8 @@ export interface PublishResponseContext {
     account_id: string;
     name: string;
     subscription_status: string;
+    /** Early hint only; auto-policy lane re-reads under entitlement lock. */
+    subscription_tier: string;
     account_updated_at: Date;
     account_past_due_at: Date | null;
     account_flags: AccountFlagsInput;
@@ -34,26 +36,21 @@ export async function loadPublishResponseContext(sql: Sql, input: {
 }): Promise<PublishResponseContext | 'terminal'> {
   const { responseId, businessId, outboxId, outboxAttempt, logger } = input;
 
-  const [response] = await sql<PublishResponseContext['response'][]>`
+  // Both reads are keyed only by immutable job.data ids (the response's
+  // business_id is compared against job.data AFTER the fact, never used as a
+  // query key), and they run on the pool — not a shared transaction — so they
+  // parallelize for real (2026-07-16 review finding #10). Validation order
+  // below is unchanged.
+  const [[response], [business]] = await Promise.all([
+    sql<PublishResponseContext['response'][]>`
     SELECT id, review_id, business_id, approved_text, status, approval_method, posting_error
     FROM responses
     WHERE id = ${responseId}
-  `;
-
-  if (!response) {
-    logger.error(`Response ${responseId} not found`);
-    await markOutboxFailed(sql, outboxId, `response_not_found: ${responseId}`, outboxAttempt);
-    return 'terminal';
-  }
-
-  if (response.business_id !== businessId) {
-    logger.error(`Response ${responseId} belongs to business ${response.business_id}, not ${businessId}`);
-    await markOutboxFailed(sql, outboxId, 'business_id_mismatch', outboxAttempt);
-    return 'terminal';
-  }
-
-  const [business] = await sql<PublishResponseContext['business'][]>`
-    SELECT b.id, b.account_id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at,
+  `,
+    sql<PublishResponseContext['business'][]>`
+    SELECT b.id, b.account_id, b.name, b.archived_at,
+           a.subscription_status, a.subscription_tier,
+           a.updated_at AS account_updated_at,
            a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            ao.id AS offboarding_id,
            ao.account_id AS offboarding_account_id,
@@ -73,7 +70,20 @@ export async function loadPublishResponseContext(sql: Sql, input: {
     WHERE b.id = ${businessId}
     ORDER BY ao.created_at DESC NULLS LAST
     LIMIT 1
-  `;
+  `,
+  ]);
+
+  if (!response) {
+    logger.error(`Response ${responseId} not found`);
+    await markOutboxFailed(sql, outboxId, `response_not_found: ${responseId}`, outboxAttempt);
+    return 'terminal';
+  }
+
+  if (response.business_id !== businessId) {
+    logger.error(`Response ${responseId} belongs to business ${response.business_id}, not ${businessId}`);
+    await markOutboxFailed(sql, outboxId, 'business_id_mismatch', outboxAttempt);
+    return 'terminal';
+  }
 
   if (!business) {
     logger.error(`Business ${businessId} not found`);

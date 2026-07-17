@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
@@ -32,7 +32,7 @@ interface OurReviewRowExpanded {
  * Zernio's review.id is stable across edits. No cache invalidation required.
  */
 export async function lookupZernioReviewId(
-  sql: Sql,
+  sql: Sql | TransactionSql,
   businessId: string,
   ourReviewId: string,
   accountId: string,
@@ -177,7 +177,7 @@ export async function getCachedZernioReviewPage(
  * the owner sees the failed reply in the dashboard. Status guard: no-op if the
  * response is already terminal (posted/failed/superseded by a parallel worker).
  */
-export async function applyTransientExhaustionFallback(sql: Sql, args: {
+export async function applyTransientExhaustionFallback(sql: Sql | TransactionSql, args: {
   response_id: string;
   business_id: string;
   correlation_id?: string;

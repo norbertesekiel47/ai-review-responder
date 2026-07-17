@@ -15,7 +15,9 @@ import { v7 as uuidv7 } from 'uuid';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { createGuardedPoll } from '../guarded-poll';
+import { acquireLocationLifecycleLock } from '../../../src/lib/accounts/billing-locks';
 
 const LOG_PREFIX = '[CancellationGracePoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -43,7 +45,7 @@ async function runCancellationGrace(logger: WorkerLogger): Promise<void> {
       SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count
       FROM accounts a
       JOIN businesses b ON b.account_id = a.id
-      WHERE a.subscription_status = 'cancelled'  -- enum: SubscriptionStatus.CANCELLED
+      WHERE a.subscription_status = ${SubscriptionStatus.CANCELLED}
         AND a.cancelled_at IS NOT NULL
         AND a.cancelled_at < NOW() - INTERVAL '30 days'
         AND b.archived_at IS NULL
@@ -67,6 +69,16 @@ async function runCancellationGrace(logger: WorkerLogger): Promise<void> {
       });
 
       await sql.begin(async (tx) => {
+        await acquireLocationLifecycleLock(tx, account_id);
+        await tx`
+          SELECT id
+          FROM businesses
+          WHERE account_id = ${account_id}::uuid
+            AND archived_at IS NULL
+          ORDER BY id
+          FOR UPDATE
+        `;
+
         // Soft-archive all active locations and use the updated row set for
         // audit logs. A second timestamp-window SELECT can pick up unrelated
         // rows archived by another process in the same time window.

@@ -44,7 +44,7 @@ const BUSINESS_ROW = {
   avoid_facts: '{No alcohol}',
   sample_responses: '{Thank you for visiting!}',
   subscription_status: 'active',
-  subscription_tier: 'standard',
+  subscription_tier: 'copilot',
   owner_name: 'Alice Owner',
   owner_email: 'alice@cafe.com',
   last_sync_at: new Date('2026-05-01T10:00:00Z'),
@@ -172,6 +172,7 @@ const AUTO_APPROVAL_POLICY_ROWS = [
 ];
 
 const AUTO_APPROVAL_ACCOUNT_ROW = {
+  subscription_tier: 'autopilot',
   subscription_status: 'active',
   past_due_at: null,
   flags: {},
@@ -238,7 +239,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(Array.isArray(res.business.trackedKeywords)).toBe(true);
 
     expect(res.business.subscriptionStatus).toBe('active');
-    expect(res.business.subscriptionTier).toBe('standard');
+    expect(res.business.subscriptionTier).toBe('copilot');
     expect(res.business.ownerName).toBe('Alice Owner');
     expect(res.business.ownerEmail).toBe('alice@cafe.com');
     expect(res.business.lastSyncAt).toBe(new Date('2026-05-01T10:00:00Z').toISOString());
@@ -264,7 +265,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(res.account.id).toBe('acct-xyz');
     // displayName uses the primary business.name
     expect(res.account.displayName).toBe('Main Street Cafe');
-    expect(res.account.subscriptionTier).toBe('standard');
+    expect(res.account.subscriptionTier).toBe('copilot');
     expect(res.account.subscriptionStatus).toBe('active');
 
     expect(res.account.locations).toHaveLength(2);
@@ -427,6 +428,26 @@ describe('getBusinessDetail — full DTO characterization', () => {
     const result = await getBusinessDetail(sql, 'non-existent-id');
 
     expect(result).toBeNull();
+  });
+
+  it('rejects an unsupported tier after batch 1 and before every batch-2 query', async () => {
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+    sqlReturnQueue.push(
+      [{ ...BUSINESS_ROW, subscription_tier: 'retired_tier' }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
+
+    await expect(getBusinessDetail(sql, 'biz-abc')).rejects.toThrow(
+      'invalid_ws8_subscription_tier:retired_tier',
+    );
+
+    expect(sqlCalls).toHaveLength(6);
+    expect(sqlReturnQueue).toHaveLength(0);
+    expect(sqlCalls.some((call) => call.text.includes('FROM auto_approval_policies'))).toBe(false);
   });
 
   it('maps responseTimeTrend=slower when avg_hours_current > avg_hours_prev * 1.5', async () => {

@@ -36,7 +36,6 @@ const baseProps = {
   gapTotal: 1,
   histTotal: 0,
   avgStarRating: 5,
-  isPremium: false,
   hasHistoricalSection: false,
   page: 1,
   totalPages: 1,
@@ -57,7 +56,6 @@ describe('PastRepliesClient', () => {
         gapTotal={47}
         histTotal={0}
         avgStarRating={4.4}
-        isPremium
         hasHistoricalSection={false}
         page={1}
         totalPages={5}
@@ -132,7 +130,7 @@ describe('PastRepliesClient', () => {
     );
 
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
   });
 
@@ -188,7 +186,7 @@ describe('PastRepliesClient', () => {
 
   // ── Flag-on: lock badge for !canEdit rows ───────────────────────────────
 
-  it('flag-on: lock badge shown for canEdit=false (historical + non-premium)', () => {
+  it('flag-on: generic edit lock shown for canEdit=false', () => {
     render(
       <PastRepliesClient
         {...baseProps}
@@ -197,7 +195,7 @@ describe('PastRepliesClient', () => {
       />,
     );
 
-    expect(screen.getByText(/premium feature/i)).toBeInTheDocument();
+    expect(screen.getByText(/editing unavailable/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
   });
 
@@ -251,9 +249,9 @@ describe('PastRepliesClient', () => {
   // posted_at = null, approved_text = superseded text or null, canEdit = true.
   // They are merged into gapRows / histRows before being passed to this client.
   // The client must render them as recovery cards, NOT drop them, and NOT show
-  // a premium lock (canEdit=true + recovery branch wins).
+  // an edit lock (canEdit=true + recovery branch wins).
 
-  it('orphan-only gap row: recovery button visible, no premium lock, not dropped', () => {
+  it('orphan-only gap row: recovery button visible, no edit lock, not dropped', () => {
     // Simulates an orphan row merged into gapRows by page.tsx.
     const orphanRow = row({
       review_id: 'orphan-review-1',
@@ -280,8 +278,7 @@ describe('PastRepliesClient', () => {
     expect(
       screen.getByRole('button', { name: /needs attention/i }),
     ).toBeInTheDocument();
-    // Premium lock must NOT appear.
-    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     // Edit CTA must NOT appear alongside the recovery button.
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
   });
@@ -319,13 +316,13 @@ describe('PastRepliesClient', () => {
   // ── Fix 1 regression guard: historical section renders for orphan-only rows ──
   //
   // Before this fix: hasHistoricalSection={histTotal > 0} gated the section on
-  // posted count only. A premium user editing a historical reply that orphans
+  // posted count only. An owner editing a historical reply that orphans
   // (DELETE OK + POST fail) produces an orphan histRow but histTotal stays 0 →
   // the section was hidden and the recovery card silently vanished.
   // After fix: hasHistoricalSection = histTotal > 0 || orphanHistRows.length > 0.
 
   it('historical section renders when only orphan hist rows exist (histTotal=0)', () => {
-    // Simulates the scenario where a premium user's edit orphaned a historical
+    // Simulates the scenario where an owner's edit orphaned a historical
     // reply: histTotal=0 (no posted hist rows), but a hist orphan is merged in.
     const orphanHistRow = row({
       review_id: 'hist-orphan-review-1',
@@ -346,7 +343,6 @@ describe('PastRepliesClient', () => {
         gapTotal={0}
         histTotal={0}          // posted-only count: 0
         avgStarRating={null}
-        isPremium={true}
         hasHistoricalSection={true}  // page.tsx now passes true when orphanHistRows.length > 0
         page={1}
         totalPages={1}
@@ -390,7 +386,6 @@ describe('PastRepliesClient', () => {
         gapTotal={2}           // posted-only count
         histTotal={0}
         avgStarRating={4}
-        isPremium={false}
         hasHistoricalSection={false}
         hasGapOrphans={true}   // signals that gapRows includes orphan rows
         page={1}
@@ -429,7 +424,6 @@ describe('PastRepliesClient', () => {
         gapTotal={0}
         histTotal={1}          // posted-only count
         avgStarRating={null}
-        isPremium={true}
         hasHistoricalSection={true}
         page={1}
         totalPages={1}

@@ -53,10 +53,17 @@ export interface MarkPostedResult {
   fyiEnqueued: boolean;
 }
 
+export interface RecoverAutoPolicyProviderTruthInput extends MarkPostedInput {
+  /** Durable auto-approval text; provider truth must never depend on job payload text. */
+  approvedText: string;
+  /** Original auto-policy approval instant from approval_audit_log. */
+  approvedAt: Date;
+}
+
 export async function markPostedAndMaybeEnqueueAutoPostNotice(
   input: MarkPostedInput,
 ): Promise<MarkPostedResult> {
-  const { tx, responseId, reviewId, businessId, correlationId, logger } = input;
+  const { tx, responseId, reviewId, businessId, logger } = input;
 
   // Review row lock (run-spine.ts lock-ordering contract). CALLER CONTRACT:
   // every caller's tx must hold the reviews FOR UPDATE before any other
@@ -110,6 +117,54 @@ export async function markPostedAndMaybeEnqueueAutoPostNotice(
     return { transitioned: false, fyiEnqueued: false };
   }
 
+  return finalizePostedTransition(input, rows[0]!.approval_method);
+}
+
+/**
+ * Repairs local truth after a provider-attempt ambiguity is later confirmed as
+ * our auto-policy reply. An intervening veto/downgrade may have cleared the
+ * approval fields, but it cannot make the already-public provider reply cease
+ * to exist. The caller has already CAS-claimed the outbox attempt and holds the
+ * review -> business -> response lane.
+ */
+export async function recoverAutoPolicyProviderTruth(
+  input: RecoverAutoPolicyProviderTruthInput,
+): Promise<MarkPostedResult> {
+  const {
+    tx,
+    responseId,
+    businessId,
+    approvedText,
+    approvedAt,
+  } = input;
+  const rows = await tx<{ id: string }[]>`
+    UPDATE responses
+    SET status = 'posted',
+        approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+        approved_text = ${approvedText},
+        approved_at = ${approvedAt},
+        posted_at = COALESCE(posted_at, NOW()),
+        posting_error = NULL,
+        updated_at = NOW()
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
+      AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
+    RETURNING id
+  `;
+  if (rows.length !== 1) {
+    throw new Error(
+      `Confirmed provider reply could not repair response ${responseId} from its current state`,
+    );
+  }
+  return finalizePostedTransition(input, APPROVAL_METHOD.AUTO_POLICY);
+}
+
+async function finalizePostedTransition(
+  input: MarkPostedInput,
+  approvalMethod: string | null,
+): Promise<MarkPostedResult> {
+  const { tx, responseId, reviewId, businessId, correlationId, logger } = input;
+
   // The pending-post notice mints approval links for auto-approved responses;
   // once posted, no live link should remain actionable-looking. (A concurrent
   // veto tx orders links→reviews while this tx orders reviews→links; the rare
@@ -117,7 +172,6 @@ export async function markPostedAndMaybeEnqueueAutoPostNotice(
   // safely — veto re-taps, this job re-runs through the 409 recovery path.)
   await revokeOpenLinksForResponse(tx, responseId);
 
-  const approvalMethod = rows[0]!.approval_method;
   const isAutoPolicy = approvalMethod === APPROVAL_METHOD.AUTO_POLICY;
 
   // Run-spine checkpoint: the reply reached Google — record the terminal step

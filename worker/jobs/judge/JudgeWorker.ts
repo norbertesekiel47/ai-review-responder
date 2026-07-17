@@ -15,7 +15,7 @@ import {
 } from '@/lib/shared/outbox';
 import { checkSubscription } from '@/lib/shared/subscription-guard';
 import type { JudgeVerdictPayload } from '@/lib/shared/worker-types';
-import { isJudgeEligibleContext, loadJudgeContext } from './context';
+import { isJudgeEligibleContext, isPostedAutoPolicyResponse, loadJudgeContext } from './context';
 
 export async function handleJudgeVerdict(
   sql: Sql,
@@ -94,7 +94,7 @@ export async function handleJudgeVerdict(
         AND business_id = ${context.business_id}
       FOR UPDATE
     `;
-    if (!current || !isJudgeEligibleContext(current)) {
+    if (!current || !isPostedAutoPolicyResponse(current)) {
       await markOutboxCompleted(tx, outboxId, attempt);
       return;
     }

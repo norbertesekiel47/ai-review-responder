@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 
 /**
  * Webhook idempotency + error handling (VAL-BILLING-051/067): claimInboundEvent dedup
@@ -12,15 +12,20 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueInvoicePaymentFailed,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -30,6 +35,7 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
+    subscriptions = { retrieve: mockRetrieveSubscription };
   },
 }));
 
@@ -47,6 +53,19 @@ afterAll(restoreStripeWebhookEnv);
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'past_due',
+    trial_end: null,
+    metadata: {},
+    items: { data: [] },
+  });
+});
+
+afterEach(() => {
+  expect(sqlReturnQueue).toEqual([]);
 });
 
 describe('Webhook idempotency and error handling', () => {
@@ -61,8 +80,8 @@ describe('Webhook idempotency and error handling', () => {
           customer: TEST_CUSTOMER_ID,
           items: {
             data: [
-              { price: { id: 'price_standard_test' }, quantity: 1 },
-              { price: { id: 'price_standard_overage_test' }, quantity: 3 },
+              { price: { id: 'price_copilot_list_test' }, quantity: 1 },
+              { price: { id: 'price_copilot_overage_test' }, quantity: 3 },
             ],
           },
         },
@@ -78,6 +97,8 @@ describe('Webhook idempotency and error handling', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text),
     );
     expect(acctUpdates).toEqual([]);
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(0);
   });
 
   it('VAL-BILLING-067: processing failure returns 500 so Stripe retries', async () => {
@@ -94,6 +115,8 @@ describe('Webhook idempotency and error handling', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(500);
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(1);
   });
 
   it('successfully processed event returns 200', async () => {
@@ -109,5 +132,7 @@ describe('Webhook idempotency and error handling', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 });

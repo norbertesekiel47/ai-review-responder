@@ -45,10 +45,10 @@ export function parsePageParam(raw: string | undefined): number {
   return Math.max(1, Number.isFinite(requested) ? requested : 1);
 }
 
-// ── C-2 rule (mirrors assertCanEditReply exactly) ───────────────────────────
+// ── Historical bucketing + strict paid-tier edit gate ──────────────────────
 //   isHistorical = activated_at IS NULL OR review_date < activated_at
-//   canEdit      = NOT isHistorical OR isPremium
-//   Boundary: review_date == subscription_activated_at → gap (>= predicate).
+//   canEdit      = hasPaidTier
+// Both launch tiers can edit either bucket. Unknown tiers fail closed.
 export function isHistorical(reviewDate: Date, activatedAtIso: string | null): boolean {
   return (
     activatedAtIso === null ||
@@ -57,11 +57,9 @@ export function isHistorical(reviewDate: Date, activatedAtIso: string | null): b
 }
 
 export function canEdit(
-  reviewDate: Date,
-  activatedAtIso: string | null,
-  isPremium: boolean,
+  hasPaidTier: boolean,
 ): boolean {
-  return !isHistorical(reviewDate, activatedAtIso) || isPremium;
+  return hasPaidTier;
 }
 
 /** Postgres.js may hand back a Date or a string; normalize nullable ts → ISO. */
@@ -72,7 +70,7 @@ const toIso = (d: Date | null): string | null =>
 export function toCardRow(
   r: ReviewRow,
   activatedAtIso: string | null,
-  isPremium: boolean,
+  hasPaidTier: boolean,
 ): PastReplyRow {
   return {
     review_id: r.review_id,
@@ -88,8 +86,8 @@ export function toCardRow(
     external_reply_ingested_at: toIso(r.external_reply_ingested_at),
     review_content_hash: r.review_content_hash,
     version: typeof r.version === 'number' ? r.version : null,
-    // C-2 gate computed server-side.
-    canEdit: canEdit(r.review_date, activatedAtIso, isPremium),
+    // Strict paid-tier gate computed server-side.
+    canEdit: canEdit(hasPaidTier),
     failed_response_id: r.failed_response_id ?? null,
     failed_posting_error: r.failed_posting_error ?? null,
   };
@@ -97,10 +95,9 @@ export function toCardRow(
 
 // Maps an orphan-only row into the PastReplyRow shape, using the failed
 // response's id as response_id so the card's key stays unique. Posted-only
-// fields are null (the card guards them). canEdit is always true: the owner
-// already approved + attempted this edit, so recovery must not be gated by the
-// C-2 lock (the recovery branch takes precedence over the lock badge).
-export function toOrphanCardRow(r: OrphanRow): PastReplyRow {
+// fields are null (the card guards them). Recovery remains available to both
+// launch tiers but fails closed for an unsupported stored tier.
+export function toOrphanCardRow(r: OrphanRow, hasPaidTier: boolean): PastReplyRow {
   return {
     review_id: r.review_id,
     review_text: r.review_text,
@@ -115,7 +112,7 @@ export function toOrphanCardRow(r: OrphanRow): PastReplyRow {
     external_reply_ingested_at: null,
     review_content_hash: r.review_content_hash,
     version: null,
-    canEdit: true,
+    canEdit: hasPaidTier,
     failed_response_id: r.failed_response_id,
     failed_posting_error: r.failed_posting_error,
   };
@@ -145,19 +142,19 @@ export function bucketReplies(
   rows: readonly ReviewRow[],
   orphanRows: readonly OrphanRow[],
   activatedAtIso: string | null,
-  isPremium: boolean,
+  hasPaidTier: boolean,
 ): BucketedReplies {
   const postedGap = rows.flatMap((r) =>
-    !isHistorical(r.review_date, activatedAtIso) ? [toCardRow(r, activatedAtIso, isPremium)] : [],
+    !isHistorical(r.review_date, activatedAtIso) ? [toCardRow(r, activatedAtIso, hasPaidTier)] : [],
   );
   const postedHist = rows.flatMap((r) =>
-    isHistorical(r.review_date, activatedAtIso) ? [toCardRow(r, activatedAtIso, isPremium)] : [],
+    isHistorical(r.review_date, activatedAtIso) ? [toCardRow(r, activatedAtIso, hasPaidTier)] : [],
   );
   const orphanGap = orphanRows.flatMap((r) =>
-    !isHistorical(r.review_date, activatedAtIso) ? [toOrphanCardRow(r)] : [],
+    !isHistorical(r.review_date, activatedAtIso) ? [toOrphanCardRow(r, hasPaidTier)] : [],
   );
   const orphanHist = orphanRows.flatMap((r) =>
-    isHistorical(r.review_date, activatedAtIso) ? [toOrphanCardRow(r)] : [],
+    isHistorical(r.review_date, activatedAtIso) ? [toOrphanCardRow(r, hasPaidTier)] : [],
   );
 
   return {

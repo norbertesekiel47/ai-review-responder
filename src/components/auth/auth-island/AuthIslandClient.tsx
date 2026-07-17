@@ -35,7 +35,7 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
             {initialMode === 'signup' ? (
               <>
                 <h1 className="rw-form-h">Create your account</h1>
-                <p className="rw-form-sub">Free for 14 days. No credit card required.</p>
+                <p className="rw-form-sub">Create your account, then choose your monthly plan explicitly.</p>
                 <SignupForm />
                 <p className="rw-foot">
                   Already have an account?{' '}

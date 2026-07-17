@@ -77,7 +77,19 @@ describe('config/server', () => {
     const { getStripeConfig } = await import('../server');
     const cfg = getStripeConfig();
     expect(cfg.STRIPE_SECRET_KEY).toBe('sk_test');
-    expect(cfg.STRIPE_PRICE_BASIC).toBe('price_STRIPE_PRICE_BASIC');
+    expect(cfg.STRIPE_PRICE_COPILOT_LIST).toBe('price_STRIPE_PRICE_COPILOT_LIST');
+  });
+
+  it('accepts only exact configured AUTOPILOT_PURCHASABLE booleans', async () => {
+    Object.assign(process.env, CORE, { AUTOPILOT_PURCHASABLE: 'TRUE' });
+    const { getServerConfig } = await import('../server');
+    expect(() => getServerConfig()).toThrow();
+  });
+
+  it('keeps FOUNDING_DEADLINE raw for the fail-closed strict parser', async () => {
+    Object.assign(process.env, CORE, { FOUNDING_DEADLINE: '2027-01-01T00:00:00Z' });
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().FOUNDING_DEADLINE).toBe('2027-01-01T00:00:00Z');
   });
 
   it('getStripeConfig throws when a Stripe secret is missing', async () => {
@@ -299,35 +311,25 @@ describe('config/server', () => {
     expect(mod.getServerConfig().TRIAL_PERIOD_DAYS).toBe('   ');
   });
 
-  // ── Stage-3 cost-guard batch: GLOBAL_DAILY_COST_LIMIT_CENTS + the four per-tier
-  //    DAILY_COST_LIMIT_CENTS_{FOUNDING,STANDARD,PREMIUM,BASIC} added as rawOptionalVar.
-  //    safeParseLimitCents owns trim + `^\d+$` validation, but the RAW value must
-  //    reach it verbatim (#7) so ''/'   ' hit the SAME numeric fallback as the old
-  //    raw process.env read. Note FOUNDING (founders/founding→FOUNDING), BASIC via
-  //    tier.toUpperCase().
+  // Cost limit values are shape-only here; owning gates enforce required
+  // positive integers for both launch tiers.
   const COST_LIMIT_VARS = [
     'GLOBAL_DAILY_COST_LIMIT_CENTS',
-    'DAILY_COST_LIMIT_CENTS_FOUNDING',
-    'DAILY_COST_LIMIT_CENTS_STANDARD',
-    'DAILY_COST_LIMIT_CENTS_PREMIUM',
-    'DAILY_COST_LIMIT_CENTS_BASIC',
+    'DAILY_COST_LIMIT_CENTS_COPILOT',
+    'DAILY_COST_LIMIT_CENTS_AUTOPILOT',
   ] as const;
 
   it('exposes the cost-limit vars as OPTIONAL (present when set)', async () => {
     Object.assign(process.env, CORE, {
       GLOBAL_DAILY_COST_LIMIT_CENTS: '9999',
-      DAILY_COST_LIMIT_CENTS_FOUNDING: '500',
-      DAILY_COST_LIMIT_CENTS_STANDARD: '1000',
-      DAILY_COST_LIMIT_CENTS_PREMIUM: '2000',
-      DAILY_COST_LIMIT_CENTS_BASIC: '750',
+      DAILY_COST_LIMIT_CENTS_COPILOT: '1234',
+      DAILY_COST_LIMIT_CENTS_AUTOPILOT: '5678',
     });
     const { getServerConfig } = await import('../server');
     const cfg = getServerConfig();
     expect(cfg.GLOBAL_DAILY_COST_LIMIT_CENTS).toBe('9999');
-    expect(cfg.DAILY_COST_LIMIT_CENTS_FOUNDING).toBe('500');
-    expect(cfg.DAILY_COST_LIMIT_CENTS_STANDARD).toBe('1000');
-    expect(cfg.DAILY_COST_LIMIT_CENTS_PREMIUM).toBe('2000');
-    expect(cfg.DAILY_COST_LIMIT_CENTS_BASIC).toBe('750');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_COPILOT).toBe('1234');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_AUTOPILOT).toBe('5678');
   });
 
   it('cost-limit vars are undefined when unset — fallback path (no throw)', async () => {
@@ -343,12 +345,12 @@ describe('config/server', () => {
   it('preserves whitespace-only cost-limit vars verbatim (rawOptionalVar #7)', async () => {
     Object.assign(process.env, CORE, {
       GLOBAL_DAILY_COST_LIMIT_CENTS: '   ',
-      DAILY_COST_LIMIT_CENTS_STANDARD: '   ',
+      DAILY_COST_LIMIT_CENTS_COPILOT: '   ',
     });
     const { getServerConfig } = await import('../server');
     const cfg = getServerConfig();
     expect(cfg.GLOBAL_DAILY_COST_LIMIT_CENTS).toBe('   ');
-    expect(cfg.DAILY_COST_LIMIT_CENTS_STANDARD).toBe('   ');
+    expect(cfg.DAILY_COST_LIMIT_CENTS_COPILOT).toBe('   ');
   });
 
   // ── Stage-3 out-of-guard batch: the 5 new src/app server-route vars added as

@@ -95,8 +95,8 @@ function mockAccountRow(
   tier: SubscriptionTierValue,
   locationsIncluded: number,
   locationsPaid: number,
-  locationsOveragePriceCents: number = tier === 'premium' ? 2000 : tier === 'basic' ? 0 : 2500,
-  basePriceCents: number = tier === 'basic' ? 2900 : tier === 'premium' ? 19900 : tier === 'founders' ? 1900 : 7900,
+  locationsOveragePriceCents: number = tier === 'autopilot' ? 2000 : 1500,
+  basePriceCents: number = tier === 'autopilot' ? 6900 : 2900,
 ) {
   return {
     subscription_tier: tier,
@@ -113,80 +113,79 @@ function mockLocationCount(count: number) {
 }
 
 describe('currentBillingSnapshot', () => {
-  // VAL-BILLING-024 — standard tier
-  it('returns correct snapshot for standard tier with overage', async () => {
+  // VAL-BILLING-024 — Copilot
+  it('returns the stored Copilot snapshot with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // First query returns account row
     harness.sqlReturnQueue.push([
-      mockAccountRow('standard', 1, 3),
+      mockAccountRow('copilot', 1, 3),
     ]);
     // Second query returns active location count
     harness.sqlReturnQueue.push(mockLocationCount(4));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.includedLocations).toBe(1);
-    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overagePriceCents).toBe(1500);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
-    expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // 15400
+    expect(snapshot.totalCents).toBe(2900 + 3 * 1500);
   });
 
-  it('uses stored included quota for standard snapshot below custom quota', async () => {
+  it('uses a stored Copilot included quota below a custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('standard', 3, 0),
+      mockAccountRow('copilot', 3, 0),
     ]);
     harness.sqlReturnQueue.push(mockLocationCount(2));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.includedLocations).toBe(3);
-    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overagePriceCents).toBe(1500);
     expect(snapshot.overageUnits).toBe(0);
-    expect(snapshot.totalCents).toBe(7900);
+    expect(snapshot.totalCents).toBe(2900);
   });
 
-  it('uses stored included quota for standard snapshot above custom quota', async () => {
+  it('uses a stored Copilot included quota above a custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('standard', 3, 0),
+      mockAccountRow('copilot', 3, 0),
     ]);
     harness.sqlReturnQueue.push(mockLocationCount(5));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.includedLocations).toBe(3);
-    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overagePriceCents).toBe(1500);
     expect(snapshot.overageUnits).toBe(2);
-    expect(snapshot.totalCents).toBe(7900 + 2 * 2500);
+    expect(snapshot.totalCents).toBe(2900 + 2 * 1500);
   });
 
-  it('uses stored overage price for standard snapshot totals', async () => {
+  it('uses a stored Copilot overage price for snapshot totals', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('standard', 1, 0, 3000),
+      mockAccountRow('copilot', 1, 0, 3000),
     ]);
     harness.sqlReturnQueue.push(mockLocationCount(3));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(3000);
     expect(snapshot.overageUnits).toBe(2);
-    expect(snapshot.totalCents).toBe(7900 + 2 * 3000);
+    expect(snapshot.totalCents).toBe(2900 + 2 * 3000);
   });
 
-  // VAL-BILLING-025 — basic tier, no overage
-  it('returns no overage for basic tier', async () => {
+  // A stored zero-overage snapshot remains authoritative.
+  it('returns no overage when the stored Copilot snapshot has zero overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('basic', 1, 0),
+      mockAccountRow('copilot', 1, 0, 0),
     ]);
-    harness.sqlReturnQueue.push(mockLocationCount(1));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
@@ -195,30 +194,32 @@ describe('currentBillingSnapshot', () => {
     expect(snapshot.overagePriceCents).toBe(0);
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.totalCents).toBe(2900);
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
-  // VAL-BILLING-026 — premium tier with 5 included
-  it('returns correct snapshot for premium tier with 5 included', async () => {
+  // VAL-BILLING-026 — Autopilot
+  it('returns the stored Autopilot snapshot with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('premium', 5, 0),
+      mockAccountRow('autopilot', 1, 0),
     ]);
-    harness.sqlReturnQueue.push(mockLocationCount(7));
+    harness.sqlReturnQueue.push(mockLocationCount(3));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    expect(snapshot.basePriceCents).toBe(19900);
-    expect(snapshot.includedLocations).toBe(5);
+    expect(snapshot.basePriceCents).toBe(6900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(2000);
-    expect(snapshot.overageUnits).toBe(2); // 7 - 5 = 2
-    expect(snapshot.totalCents).toBe(19900 + 2 * 2000); // 23900
+    expect(snapshot.overageUnits).toBe(2);
+    expect(snapshot.totalCents).toBe(6900 + 2 * 2000);
   });
 
-  // VAL-BILLING-027 — founders tier
-  it('returns correct snapshot for founders tier', async () => {
+  // VAL-BILLING-027 — immutable founding Copilot snapshot
+  it('returns a stored founding Copilot snapshot', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('founders', 1, 0),
+      mockAccountRow('copilot', 1, 0, 1500, 1900),
     ]);
     harness.sqlReturnQueue.push(mockLocationCount(3));
 
@@ -226,9 +227,9 @@ describe('currentBillingSnapshot', () => {
 
     expect(snapshot.basePriceCents).toBe(1900);
     expect(snapshot.includedLocations).toBe(1);
-    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overagePriceCents).toBe(1500);
     expect(snapshot.overageUnits).toBe(2); // 3 - 1 = 2
-    expect(snapshot.totalCents).toBe(1900 + 2 * 2500); // 6900
+    expect(snapshot.totalCents).toBe(1900 + 2 * 1500);
   });
 
   it('throws for unknown tier', async () => {
@@ -257,28 +258,28 @@ describe('currentBillingSnapshot', () => {
     );
   });
 
-  it('basic tier with 0 overage even if extra locations exist (impossible scenario, but tested)', async () => {
+  it('keeps a stored zero-overage Copilot snapshot at zero even with extra locations', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     harness.sqlReturnQueue.push([
-      mockAccountRow('basic', 1, 0),
+      mockAccountRow('copilot', 1, 0, 0),
     ]);
-    harness.sqlReturnQueue.push(mockLocationCount(3));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
-    // Basic tier has overageCents=0 and multiLocAllowed=false
-    // The snapshot reports 0 overage regardless
+    // Stored cents, not the live registry, remain authoritative.
     expect(snapshot.basePriceCents).toBe(2900);
     expect(snapshot.overagePriceCents).toBe(0);
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.totalCents).toBe(2900);
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
-  it('reads stored base_price_cents, not live TIER_CONFIG (founders price-lock)', async () => {
+  it('reads stored base_price_cents, not live TIER_CONFIG (founding price-lock)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // Founders row whose STORED base (1500) differs from TIER_CONFIG.founders.baseCents (1900).
+    // Founding Copilot row whose stored base differs from the current registry.
     harness.sqlReturnQueue.push([
-      mockAccountRow('founders', 1, 0, 2500, 1500),
+      mockAccountRow('copilot', 1, 0, 2500, 1500),
     ]);
     harness.sqlReturnQueue.push(mockLocationCount(3)); // 2 overage units
 
@@ -288,18 +289,19 @@ describe('currentBillingSnapshot', () => {
     expect(snapshot.totalCents).toBe(1500 + 2 * 2500);
   });
 
-  it('reads stored base_price_cents for a no-overage (basic) snapshot', async () => {
+  it('reads stored base_price_cents for a zero-overage Copilot snapshot', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // Basic row with a stored base (2600) different from config (2900).
+    // Stored base differs from the current Copilot list price.
     harness.sqlReturnQueue.push([
-      mockAccountRow('basic', 1, 0, 0, 2600),
+      mockAccountRow('copilot', 1, 0, 0, 2600),
     ]);
-    harness.sqlReturnQueue.push(mockLocationCount(1));
 
     const snapshot = await currentBillingSnapshot(mockSql, accountId);
 
     expect(snapshot.basePriceCents).toBe(2600);
     expect(snapshot.totalCents).toBe(2600);
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 });
 
@@ -318,7 +320,7 @@ function mockQuotaAccountRow(
 ) {
   return {
     id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    subscription_tier: overrides.tier ?? 'standard',
+    subscription_tier: overrides.tier ?? 'copilot',
     subscription_status: overrides.status ?? 'active',
     locations_included: overrides.locationsIncluded ?? 1,
     locations_paid: overrides.locationsPaid ?? 0,
@@ -326,17 +328,18 @@ function mockQuotaAccountRow(
 }
 
 describe('assertCanAddLocation', () => {
-  // VAL-LOC-001: rejects basic tier (multiLocAllowed = false)
-  it('rejects basic tier accounts (multiLocAllowed = false)', async () => {
+  // Both launch tiers support one included location plus paid overage.
+  it.each(['copilot', 'autopilot'] as const)('allows active %s accounts to add locations', async (tier) => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Account eligibility read
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'basic', status: 'active' })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier, status: 'active' })]);
+    harness.sqlReturnQueue.push([{ count: 0 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
 
-    expect(result.allowed).toBe(false);
-    if (!result.allowed) {
-      expect(result.reason).toBe('tier_disallows_multi_location');
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(0);
     }
   });
 
@@ -362,10 +365,10 @@ describe('assertCanAddLocation', () => {
   // VAL-LOC-003: quota boundary — at quota with overage policy → allows
   // For multi-location tiers, overage billing is automatic. The function
   // should allow the add and report overage units.
-  it('at quota boundary (standard, 1 included, 0 paid, 1 active): allows with overage', async () => {
+  it('at the Copilot quota boundary, allows with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     // Account eligibility read
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1, locationsPaid: 0 })]);
     // Location count query
     harness.sqlReturnQueue.push([{ count: 1 }]);
 
@@ -383,8 +386,8 @@ describe('assertCanAddLocation', () => {
   // the computed overage units.
   it('at quota boundary when locations_included + locations_paid == active count: allows with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // Standard tier: 1 included, 2 paid, 3 active locations → at quota
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 2 })]);
+    // Copilot: 1 included, 2 paid, 3 active locations → at quota
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1, locationsPaid: 2 })]);
     harness.sqlReturnQueue.push([{ count: 3 }]); // 1 + 2 = 3 active
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -397,9 +400,9 @@ describe('assertCanAddLocation', () => {
   });
 
   // VAL-LOC-004: allows add when within quota
-  it('allows add when within quota (premium, 5 included, 3 active)', async () => {
+  it('uses a stored custom Autopilot quota when adding a location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'autopilot', locationsIncluded: 5, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 3 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -410,9 +413,9 @@ describe('assertCanAddLocation', () => {
     }
   });
 
-  it('uses stored standard included quota when adding the second location', async () => {
+  it('uses stored Copilot included quota when adding the second location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 3, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 1 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -423,9 +426,9 @@ describe('assertCanAddLocation', () => {
     }
   });
 
-  it('uses stored standard included quota when adding the third location', async () => {
+  it('uses stored Copilot included quota when adding the third location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 3, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 2 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -436,9 +439,9 @@ describe('assertCanAddLocation', () => {
     }
   });
 
-  it('uses stored standard included quota when reporting overage above the custom quota', async () => {
+  it('uses stored Copilot included quota when reporting overage above the custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 3, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 5 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -450,9 +453,9 @@ describe('assertCanAddLocation', () => {
   });
 
   // VAL-LOC-005: allows add with overage when above included quota but sub is active
-  it('allows add with overage when above included quota (standard, 1 included, 0 paid, 1 active)', async () => {
+  it('allows Copilot add with overage when above included quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 1 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -463,10 +466,10 @@ describe('assertCanAddLocation', () => {
     }
   });
 
-  // Premium tier with overage
-  it('allows add with overage for premium at quota (5 included, 5 active)', async () => {
+  // Autopilot with overage
+  it('allows add with overage for Autopilot at a stored custom quota', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'premium', locationsIncluded: 5, locationsPaid: 0 })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'autopilot', locationsIncluded: 5, locationsPaid: 0 })]);
     harness.sqlReturnQueue.push([{ count: 5 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -515,8 +518,8 @@ describe('assertCanAddLocation', () => {
   // The Stripe outbox worker will reconcile the overage quantity.
   it('allows even when active count > included + paid (oversold), with higher overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // Standard: 1 included, 1 paid → 2 max, but 3 active (oversold)
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 1 })]);
+    // Copilot: 1 included, 1 paid → 2 max, but 3 active (oversold)
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1, locationsPaid: 1 })]);
     harness.sqlReturnQueue.push([{ count: 3 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -531,7 +534,7 @@ describe('assertCanAddLocation', () => {
   // Edge: zero active locations but tier allows
   it('allows when zero active locations and tier allows multi-location', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard' })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot' })]);
     harness.sqlReturnQueue.push([{ count: 0 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -542,10 +545,10 @@ describe('assertCanAddLocation', () => {
     }
   });
 
-  // Founders tier allows multi-location
-  it('allows add for founders tier (multiLocAllowed = true)', async () => {
+  // Price variant does not alter Copilot location eligibility.
+  it('allows add for founding Copilot', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'founders' })]);
+    harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot' })]);
     harness.sqlReturnQueue.push([{ count: 0 }]);
 
     const result = await assertCanAddLocation(mockSql, accountId);
@@ -595,7 +598,7 @@ describe('assertCanAddLocation', () => {
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
       // Call A sees 1 active location at quota boundary → allowed with overage
-      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1 })]);
       harness.sqlReturnQueue.push([{ count: 1 }]);
       const resultA = await assertCanAddLocation(mockSql, accountId);
       expect(resultA.allowed).toBe(true);
@@ -604,7 +607,7 @@ describe('assertCanAddLocation', () => {
       }
 
       // Call B sees the updated state if it runs after call A commits.
-      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1 })]);
       harness.sqlReturnQueue.push([{ count: 2 }]); // After call A's add, now 2 active
       const resultB = await assertCanAddLocation(mockSql, accountId);
       expect(resultB.allowed).toBe(true);
@@ -624,12 +627,12 @@ describe('assertCanAddLocation', () => {
       // Both calls see the same state (simulating no lock / race condition)
       // Both would be allowed, but the second should see updated state
       // under the current no-hard-cap overage policy.
-      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1 })]);
       harness.sqlReturnQueue.push([{ count: 1 }]);
       const result1 = await assertCanAddLocation(mockSql, accountId);
       expect(result1.allowed).toBe(true);
 
-      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
+      harness.sqlReturnQueue.push([mockQuotaAccountRow({ tier: 'copilot', locationsIncluded: 1 })]);
       harness.sqlReturnQueue.push([{ count: 1 }]);
       const result2 = await assertCanAddLocation(mockSql, accountId);
       // Billing is reconciled asynchronously from the actual committed count.

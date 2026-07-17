@@ -28,6 +28,7 @@
 //   vi.mock('stripe', () => ({ default: class { webhooks = { constructEvent: mockConstructEvent }; } }));
 
 import { vi, type Mock } from 'vitest';
+import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 import {
   createMockSql,
   type MockSql,
@@ -37,17 +38,19 @@ import {
 export const TEST_ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 export const TEST_CUSTOMER_ID = 'cus_test_123';
 export const TEST_SUBSCRIPTION_ID = 'sub_test_456';
+export const TEST_CHECKOUT_EMAIL = 'owner@example.com';
+export const TEST_CHECKOUT_SUCCESS_URL = 'https://repworth.example/onboarding?checkout=success';
+export const TEST_CHECKOUT_CANCEL_URL = 'https://repworth.example/onboarding?checkout=cancelled';
 
 // Price env vars for reverse-map tests. Module-private — consumed only by the
 // harness helpers below, not by the per-handler test files.
 const PRICE_ENV_VARS = {
-  STRIPE_PRICE_BASIC: 'price_basic_test',
-  STRIPE_PRICE_FOUNDING: 'price_founders_test',
-  STRIPE_PRICE_STANDARD: 'price_standard_test',
-  STRIPE_PRICE_PREMIUM: 'price_premium_test',
-  STRIPE_PRICE_FOUNDERS_OVERAGE: 'price_founders_overage_test',
-  STRIPE_PRICE_STANDARD_OVERAGE: 'price_standard_overage_test',
-  STRIPE_PRICE_PREMIUM_OVERAGE: 'price_premium_overage_test',
+  STRIPE_PRICE_COPILOT_LIST: 'price_copilot_list_test',
+  STRIPE_PRICE_COPILOT_FOUNDING: 'price_copilot_founding_test',
+  STRIPE_PRICE_AUTOPILOT_LIST: 'price_autopilot_list_test',
+  STRIPE_PRICE_AUTOPILOT_FOUNDING: 'price_autopilot_founding_test',
+  STRIPE_PRICE_COPILOT_OVERAGE: 'price_copilot_overage_test',
+  STRIPE_PRICE_AUTOPILOT_OVERAGE: 'price_autopilot_overage_test',
 } as const;
 
 // ── Pure request/reply fixtures ──────────────────────────────────────
@@ -112,7 +115,7 @@ export interface StripeWebhookHarness {
    */
   resetStripeWebhookMocks: () => void;
   queueSubscriptionUpdated: (opts?: {
-    tier?: string;
+    tier?: SubscriptionTierValue;
     status?: string;
     locationsPaid?: number;
     updateBiz?: boolean;
@@ -127,7 +130,13 @@ export interface StripeWebhookHarness {
     stripeSubscriptionId?: string;
     activeOffboardingSubscriptionId?: string | null;
   }) => void;
-  queueCheckoutActivate: (opts?: { accountId?: string; status?: string }) => void;
+  queueCheckoutActivate: (opts?: {
+    accountId?: string;
+    status?: string;
+    sessionId?: string;
+    customerId?: string;
+    subscriptionId?: string;
+  }) => void;
 }
 
 export function createStripeWebhookHarness(): StripeWebhookHarness {
@@ -153,11 +162,11 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     }
   }
 
-  // Queue helper: standard subscription.updated tx flow.
+  // Queue helper: canonical subscription.updated transaction flow.
   // NOTE: the audit write now goes through the mocked writeAccountAuditLog, so it
   // is NOT a tx SQL call and is asserted via mockWriteAccountAuditLog (not the queue).
   function queueSubscriptionUpdated(opts: {
-    tier?: string;
+    tier?: SubscriptionTierValue;
     status?: string;
     locationsPaid?: number;
     updateBiz?: boolean;
@@ -165,7 +174,7 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     activeOffboardingSubscriptionId?: string | null;
     overagePriceCents?: number;
   } = {}) {
-    const tier = opts.tier ?? 'standard';
+    const tier = opts.tier ?? 'copilot';
     const status = opts.status ?? 'active';
     const locationsPaid = opts.locationsPaid ?? 0;
     // Inside sql.begin -> tx calls in order:
@@ -175,7 +184,7 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       subscription_tier: tier,
       subscription_status: status,
       locations_paid: locationsPaid,
-      locations_overage_price_cents: opts.overagePriceCents ?? 2500,
+      locations_overage_price_cents: opts.overagePriceCents ?? 1500,
       stripe_subscription_id: opts.stripeSubscriptionId ?? TEST_SUBSCRIPTION_ID,
       active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
     }]);
@@ -189,44 +198,39 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     sqlReturnQueue.push(updateBizResult);
   }
 
-  // Queue helper: invoice.payment_failed tx flow (active → past_due)
-  // After B1.3: the active→past_due status write is owned by the real applier
-  // (checkout mode), so the SQL sequence is:
-  //   1. Handler's SELECT … FOR UPDATE (resolves acctRow by (stripe_customer_id,
-  //      stripe_subscription_id) — subscription-lineage scope, adversarial review)
-  //   2. pg_advisory_xact_lock (always)
-  //   3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
-  //   4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due', past_due_at=NOW()
-  //   5. Applier's writeBusinessesMirror: UPDATE businesses SET subscription_status='past_due'
-  //   6. writeAccountAuditLog — mocked, no SQL consumed
-  //   7. enqueueLifecycleAnalytics — PAST_DUE from ACTIVE emits nothing (guard: fromStatus !== 'trialing')
-  // The handler now REQUIRES the failed invoice's subscription id (scoped SELECT),
-  // so the paired invoice fixture carries subscription: TEST_SUBSCRIPTION_ID and the
-  // seeded account row's stripe_subscription_id matches it (faithful 1:1 state).
-  // recordTrialConversionFailureIfRecent: failedSubscriptionId is now non-null, so for
-  // an active→past_due transition the recent-convert EXISTS query runs — queued as
-  // { ok: false } so no trial_payment_failed is emitted on a normal renewal.
+  // Queue helper: invoice.payment_failed provider-current status projection.
+  // Identity is resolved without a row lock, then entitlement is acquired before
+  // the applier locks the canonical account. The deprecated business status mirror
+  // is no longer written synchronously; a durable mirror-sync outbox row owns it.
   function queueInvoicePaymentFailed(opts: {
     status?: string;
   } = {}) {
     const status = opts.status ?? 'active';
-    // 1. Handler's SELECT … FOR UPDATE (now scoped by customer + subscription)
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
+    // 1. Handler's unlocked lineage lookup.
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
     // 2. Advisory lock
     sqlReturnQueue.push([]);
+    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
     if (status === 'active') {
-      // 3. Applier's resolveAccount SELECT (checkout mode)
-      sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'active', primary_business_id: null }]);
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='past_due'
       const r1: any = []; r1.count = 1;
       sqlReturnQueue.push(r1);
-      // 5. Applier's writeBusinessesMirror: UPDATE businesses
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2);
+      // 5. Durable deprecated-status mirror projection.
+      const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+      sqlReturnQueue.push(mirrorOutbox);
       // 6. recordTrialConversionFailureIfRecent EXISTS query (failedSubscriptionId now
       //    non-null) → no recent trial conversion, so no trial_payment_failed emit.
       sqlReturnQueue.push([{ ok: false }]);
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
   // Queue helper: invoice.paid tx flow (past_due → active)
@@ -239,30 +243,32 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     status?: string;
   } = {}) {
     const status = opts.status ?? 'past_due';
-    // 1. Handler's SELECT … FOR UPDATE (stripe_customer_id lookup) — also reads
-    //    stripe_subscription_id, which the recovery loop matches against the
-    //    invoice's subscription id (lineage scope) before recovering.
-    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status, stripe_subscription_id: TEST_SUBSCRIPTION_ID }]);
+    // 1. Handler's unlocked, customer+subscription lineage lookup.
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
+    // 2. pg_advisory_xact_lock result. Provider state is fetched after this
+    // queue item and before the applier's canonical row lock below.
+    sqlReturnQueue.push([]);
+    // 3. Applier's canonical account row lock + lineage recheck.
+    sqlReturnQueue.push([{
+      id: TEST_ACCOUNT_ID,
+      subscription_status: status,
+      primary_business_id: null,
+      stripe_customer_id: TEST_CUSTOMER_ID,
+      stripe_subscription_id: TEST_SUBSCRIPTION_ID,
+    }]);
     if (status === 'past_due') {
-      // 2. pg_advisory_xact_lock result
-      sqlReturnQueue.push([]);
-      // 3. Applier's resolveAccount SELECT (checkout mode, by accountId FOR UPDATE)
-      //    Returns id + subscription_status + primary_business_id for the applier.
-      sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: 'past_due', primary_business_id: null }]);
       // 4. Applier's writeStatusColumns: UPDATE accounts SET subscription_status='active' …
       const r1: any = []; r1.count = 1;
       sqlReturnQueue.push(r1);
-      // 5. Applier's writeBusinessesMirror: UPDATE businesses …
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2);
-      // 6. Applier's enqueueStripeOverageRecompute: INSERT INTO job_outbox
+      // 5. Applier's enqueueStripeOverageRecompute: INSERT INTO job_outbox
       const outboxInsert: any = []; outboxInsert.count = 1;
       sqlReturnQueue.push(outboxInsert);
-      // 7. Post-tx: primary business lookup for backfill resume
-      sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]);
-      // 8. maybeEnqueueBackfillResume zernio predicate (no match by default)
-      sqlReturnQueue.push([]);
+      // 6. Durable deprecated-status mirror projection.
+      const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+      sqlReturnQueue.push(mirrorOutbox);
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
   // Queue helper: customer.subscription.deleted tx flow
@@ -280,74 +286,119 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       stripe_subscription_id: subId,
       active_offboarding_subscription_id: opts.activeOffboardingSubscriptionId ?? null,
     }]);
-    // 2. Advisory lock pg_advisory_xact_lock
-    sqlReturnQueue.push([]);
-    // 3. Applier's resolveAccount SELECT (subscription mode, inside applyStripeSubscriptionState)
-    //    Only queued when the event subscription matches the account's current sub
-    //    (i.e. NOT the stale/mismatch paths that early-return before reaching the applier).
-    //    Stale-sub tests (stripeSubscriptionId !== TEST_SUBSCRIPTION_ID with event sub_old_*)
-    //    call queueSubscriptionDeleted with a different stripeSubscriptionId and the
-    //    event id won't match — those early-return before reaching the advisory lock,
-    //    so nothing past item 1 is consumed. When subId matches the event sub, the applier runs.
-    if (status !== 'cancelled') {
+    // The named stale-subscription fixtures use a noncanonical current id; they
+    // return before taking entitlement. Default TEST_SUBSCRIPTION_ID fixtures
+    // exercise the matching path.
+    if (subId === TEST_SUBSCRIPTION_ID) {
+      // 2. Advisory lock pg_advisory_xact_lock
+      sqlReturnQueue.push([]);
+      // 3. Applier's canonical account row lock + lineage recheck.
       sqlReturnQueue.push([{
         id: TEST_ACCOUNT_ID,
         subscription_status: status,
         primary_business_id: null,
+        stripe_customer_id: TEST_CUSTOMER_ID,
+        stripe_subscription_id: TEST_SUBSCRIPTION_ID,
       }]);
-      const r1: any = []; r1.count = 1;
-      sqlReturnQueue.push(r1); // UPDATE accounts (applier writeStatusColumns)
-      const r2: any = []; r2.count = 1;
-      sqlReturnQueue.push(r2); // UPDATE businesses (applier writeBusinessesMirror)
-    } else {
-      // already-cancelled: applier resolveAccount runs, but isAllowedTransition
-      // returns false (CANCELLED→CANCELLED) so no UPDATEs fire.
-      sqlReturnQueue.push([{
-        id: TEST_ACCOUNT_ID,
-        subscription_status: status,
-        primary_business_id: null,
-      }]);
+      if (status !== 'cancelled') {
+        const r1: any = []; r1.count = 1;
+        sqlReturnQueue.push(r1); // UPDATE accounts (applier writeStatusColumns)
+        const mirrorOutbox: any = []; mirrorOutbox.count = 1;
+        sqlReturnQueue.push(mirrorOutbox); // durable business-status mirror sync
+      }
     }
+    // Ingress wrapper marks the claimed event processed.
+    sqlReturnQueue.push([]);
   }
 
-  // Queue helper for the checkout paid-activation SQL sequence (after B1.4).
-  // The inline sql.begin block is replaced by the applier (checkout mode).
+  // Queue helper for the checkout paid-activation SQL sequence.
   // NOTE: businesses.stripe_customer_id / stripe_subscription_id are intentionally
   // NOT mirrored by the applier (deprecated columns, VAL-SCHEMA-037; the trial path
   // already never wrote them). The applier writes subscription_status + activated_at.
-  // Sequence inside the tx (sql.begin → callback(mockSql)):
-  //   1. pg_advisory_xact_lock
-  //   2. Applier resolveAccount: SELECT a.id, a.subscription_status, (subq) AS primary_business_id … FOR UPDATE
-  //   3. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active', COALESCE…
-  //   4. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active', COALESCE…
-  //   5. writeAccountAuditLog — MOCKED (mockWriteAccountAuditLog), no SQL consumed
-  //   6. enqueueStripeOverageRecompute: INSERT INTO job_outbox …
-  //   7. enqueueLifecycleAnalytics: pending_payment→active is NOT a trial exit → no-op
-  // Post-tx: primaryBusinessId is null (resolveAccount row has no primary_business_id)
-  //   and legacy businessId is null → no backfill resume SQL.
-  function queueCheckoutActivate(opts: { accountId?: string; status?: string } = {}) {
+  // The handler takes entitlement -> billing -> activation, retrieves provider
+  // current state, locks the canonical account, applies status without touching
+  // businesses, writes the billing snapshot, commits, then projects the
+  // deprecated mirror in business -> entitlement order.
+  function queueCheckoutActivate(opts: {
+    accountId?: string;
+    status?: string;
+    sessionId?: string;
+    customerId?: string;
+    subscriptionId?: string;
+  } = {}) {
     const acctId = opts.accountId ?? TEST_ACCOUNT_ID;
     const status = opts.status ?? 'pending_payment';
+    const sessionId = opts.sessionId ?? 'cs_test';
+    const customerId = opts.customerId ?? TEST_CUSTOMER_ID;
+    const subscriptionId = opts.subscriptionId ?? TEST_SUBSCRIPTION_ID;
+    const attemptId = '019dc366-29ce-7000-a000-0000000000cc';
     // 1. Pre-tx account lookup
     sqlReturnQueue.push([{ id: acctId }]);
-    // Inside sql.begin:
-    // 2. pg_advisory_xact_lock
-    sqlReturnQueue.push([]);
-    // 3. Applier's resolveAccount (checkout mode, FOR UPDATE)
-    sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
+    // 2-4. entitlement, billing, activation advisory locks
+    sqlReturnQueue.push([], [], []);
+    const checkoutAccount = {
+      id: acctId,
+      subscription_tier: 'copilot',
+      subscription_status: status,
+      price_variant: 'list',
+      base_price_cents: 2900,
+      locations_paid: 0,
+      locations_overage_price_cents: 1500,
+      locations_included: 1,
+      stripe_subscription_id: status === 'active' ? subscriptionId : null,
+      stripe_customer_id: status === 'active' ? customerId : null,
+      checkout_attempt_id: attemptId,
+      checkout_session_id: sessionId,
+      checkout_attempt_state: status === 'active' ? 'completed' : 'open',
+      checkout_attempt_tier: 'copilot',
+      checkout_attempt_price_variant: 'list',
+      checkout_attempt_base_price_id: 'price_copilot_list_test',
+      checkout_attempt_overage_price_id: 'price_copilot_overage_test',
+      checkout_attempt_base_price_cents: 2900,
+      checkout_attempt_overage_price_cents: 1500,
+      checkout_attempt_locations_included: 1,
+      checkout_attempt_locations_paid: 0,
+      checkout_attempt_overage_quantity: 0,
+      checkout_attempt_trial_period_days: null,
+      checkout_attempt_tax_enabled: false,
+      checkout_attempt_customer_email: TEST_CHECKOUT_EMAIL,
+      checkout_attempt_success_url: TEST_CHECKOUT_SUCCESS_URL,
+      checkout_attempt_cancel_url: TEST_CHECKOUT_CANCEL_URL,
+    };
+    // 5. Provider-current observed account row.
+    sqlReturnQueue.push([checkoutAccount]);
     if (status !== 'active') {
-      // 4. Applier writeStatusColumns: UPDATE accounts SET subscription_status='active'…
+      // 6. Pin the account row before taking a fresh READ COMMITTED snapshot
+      //    of its active offboarding lifecycle.
+      sqlReturnQueue.push([{ id: acctId }]);
+      // 7. Canonical lease + active-offboarding projection after the row lock.
+      sqlReturnQueue.push([checkoutAccount]);
+      // 8. Applier resolveAccount (checkout mode, FOR UPDATE)
+      sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
+      // 9. Applier status write. Business mirror is explicitly deferred.
       const updateAcctR: any = []; updateAcctR.count = 1;
       sqlReturnQueue.push(updateAcctR);
-      // 5. Applier writeBusinessesMirror: UPDATE businesses SET subscription_status='active'…
-      const updateBizR: any = []; updateBizR.count = 1;
-      sqlReturnQueue.push(updateBizR);
-      // 6. enqueueStripeOverageRecompute: INSERT INTO job_outbox
+      // 10. enqueueStripeOverageRecompute: INSERT INTO job_outbox
       const outboxR: any = []; outboxR.count = 1;
       sqlReturnQueue.push(outboxR);
-      // 7. enqueueLifecycleAnalytics: pending_payment→active, fromStatus≠trialing → no-op
+      // 11. enqueueStripeSubscriptionMirrorSync: INSERT INTO job_outbox
+      const mirrorOutboxR: any = []; mirrorOutboxR.count = 1;
+      sqlReturnQueue.push(mirrorOutboxR);
+      // 12. Canonical snapshot update (change-only; audit is mocked).
+      sqlReturnQueue.push([{ id: acctId }]);
+      // 13. Retain completed attempt identity.
+      sqlReturnQueue.push([{ id: acctId }]);
     }
-    // already-active: isAllowedTransition(active, active) = false → NO_CHANGE, no UPDATEs
+    // Post-commit tier projection: business lock, entitlement, canonical tier,
+    // then conditional businesses update.
+    sqlReturnQueue.push(
+      [{ id: 'business-1' }],
+      [],
+      [{ subscription_tier: 'copilot' }],
+      [],
+    );
+    // Ingress wrapper marks the claimed event processed after the handler.
+    sqlReturnQueue.push([]);
   }
 
   return {

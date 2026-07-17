@@ -3,10 +3,15 @@ import { v7 as uuidv7 } from 'uuid';
 import {
   getOffboardingState,
   isBillingMutationBlocked,
+  isOperationalUIBlocked,
 } from '@/lib/account-offboarding/gate';
+import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import { isPreviewEnvironment } from '@/lib/config/flags';
+import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -14,8 +19,8 @@ import {
 } from './flags';
 import {
   DEFAULT_VETO_WINDOW_MINUTES,
+  classifyPolicyExposure,
   exposureRank,
-  isThresholdExpansion,
   resolveDailyCap,
   resolveEffectivePolicy,
 } from './policy';
@@ -30,6 +35,7 @@ import type {
   AutoApprovalThreshold,
   EffectiveAutoApprovalPolicy,
   PolicyRowState,
+  PolicyExposureClassification,
   VetoWindowMinutes,
 } from './types';
 import {
@@ -92,6 +98,14 @@ interface TargetLocationRow {
   archived_at: Date | null;
 }
 
+interface SettingsAccountEntitlementRow {
+  id: string;
+  subscription_tier: string;
+  subscription_status: string;
+  past_due_at: Date | string | null;
+  flags: AccountFlagsInput;
+}
+
 // One point-in-time view of the targeted policy: its API row plus the effective
 // policy that results for the targeted scope.
 interface PolicySnapshot {
@@ -150,14 +164,26 @@ export async function getAutoApprovalSettings(
   db: SqlExecutor,
   input: GetAutoApprovalSettingsInput,
 ): Promise<AutoApprovalSettingsResponse> {
+  return loadAutoApprovalSettings(db, input);
+}
+
+async function loadAutoApprovalSettings(
+  db: SqlExecutor,
+  input: GetAutoApprovalSettingsInput,
+  lockedAccount?: SettingsAccountEntitlementRow,
+): Promise<AutoApprovalSettingsResponse> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
   const locations = await loadActiveLocationSettings(db, input.accountId, accountDefault);
+  // PATCH passes the account row captured by its opening FOR UPDATE. GET has no
+  // mutation lock, so it loads the same projection once for its point-in-time
+  // readiness response.
+  const account = lockedAccount ?? await loadSettingsAccount(db, input.accountId);
   // FP: all three reads share one db SqlExecutor (single pooled connection) and the prior read consumes accountDefault; sequential by design, not safely parallelizable.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const readiness = await buildReadiness(db, input.accountId, {
     impersonated: input.impersonated,
     policySuspended: Boolean(accountDefault?.suspendedAt),
-  });
+  }, account);
 
   return {
     accountDefault: toApiState(accountDefault),
@@ -175,19 +201,23 @@ export async function patchAutoApprovalSettings(
   }
 
   return sql.begin(async (tx) => {
-    await updatePolicyInTransaction(tx, input);
-    return getAutoApprovalSettings(tx, {
+    const lockedAccount = await updatePolicyInTransaction(tx, input);
+    return loadAutoApprovalSettings(tx, {
       accountId: input.accountId,
       impersonated: input.impersonated,
-    });
+    }, lockedAccount);
   });
 }
 
 async function updatePolicyInTransaction(
   tx: TransactionSql,
   input: PatchAutoApprovalSettingsInput,
-): Promise<void> {
-  await lockAccount(tx, input.accountId);
+): Promise<SettingsAccountEntitlementRow> {
+  const lockedAccount = await lockAccount(tx, input.accountId);
+  const offboardingState = await getOffboardingState(input.accountId, tx);
+  if (isOperationalUIBlocked(offboardingState)) {
+    throw new AutoApprovalSettingsError('account_offboarding_blocked', 403);
+  }
 
   // Gate BEFORE write: read the current state, derive the after-state purely,
   // assert the mutation is allowed (throws before any write), THEN mutate. The
@@ -196,15 +226,17 @@ async function updatePolicyInTransaction(
   const before = await readBeforeState(tx, input);
   const newPolicyId = uuidv7();
   const after = computeAfterState(before, input, newPolicyId);
-  const auditContext = await assertMutationAllowed(tx, input, before, after);
+  const auditContext = await assertMutationAllowed(tx, input, before, after, lockedAccount);
   await applyMutation(tx, input, newPolicyId, before);
   await writeAudit(tx, input, before, after, auditContext);
+  return lockedAccount;
 }
 
 interface PolicyChangeAuditContext {
   beforeRank: number;
   afterRank: number;
   expansion: boolean;
+  exposureClassification: PolicyExposureClassification;
   requiredConfirmationLevel: AutoApprovalConfirmationLevel | null;
   readiness: AutoApprovalReadiness;
 }
@@ -253,11 +285,12 @@ async function assertExpansionReady(
   input: PatchAutoApprovalSettingsInput,
   before: PolicyMutationBeforeState,
   expansion: boolean,
+  lockedAccount: SettingsAccountEntitlementRow,
 ): Promise<AutoApprovalReadiness> {
   const readiness = await buildReadiness(tx, input.accountId, {
     impersonated: input.impersonated,
     policySuspended: before.snapshot.effective.suspended,
-  });
+  }, lockedAccount);
   if (expansion && !readiness.canExpand) {
     throw new AutoApprovalExpansionBlockedError(readiness.blockReasons);
   }
@@ -272,20 +305,24 @@ async function assertMutationAllowed(
   input: PatchAutoApprovalSettingsInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
+  lockedAccount: SettingsAccountEntitlementRow,
 ): Promise<PolicyChangeAuditContext> {
-  const expansion = isThresholdExpansion(
-    before.snapshot.effective.threshold,
-    after.snapshot.effective.threshold,
+  const exposureClassification = classifyPolicyExposure(
+    before.snapshot.effective,
+    after.snapshot.effective,
+    { completeDisable: isCompleteDisable(input, before, after.snapshot.effective) },
   );
+  const expansion = exposureClassification === 'expansion';
 
   assertArchivedPolicyAllowed(before, input, expansion);
   const requiredConfirmationLevel = assertConfirmationProvided(input, expansion);
-  const readiness = await assertExpansionReady(tx, input, before, expansion);
+  const readiness = await assertExpansionReady(tx, input, before, expansion, lockedAccount);
 
   return {
     beforeRank: exposureRank(before.snapshot.effective.threshold),
     afterRank: exposureRank(after.snapshot.effective.threshold),
     expansion,
+    exposureClassification,
     requiredConfirmationLevel,
     readiness,
   };
@@ -316,6 +353,12 @@ async function writeAudit(
       afterRow: after.snapshot.row,
       beforeEffectiveThreshold: before.snapshot.effective.threshold,
       afterEffectiveThreshold: after.snapshot.effective.threshold,
+      beforeEffectiveVetoWindowMinutes: before.snapshot.effective.vetoWindowMinutes,
+      afterEffectiveVetoWindowMinutes: after.snapshot.effective.vetoWindowMinutes,
+      beforeEffectiveDailyAutoPostCap: before.snapshot.effective.dailyAutoPostCap,
+      afterEffectiveDailyAutoPostCap: after.snapshot.effective.dailyAutoPostCap,
+      beforeEffectiveDailyCap: resolveDailyCap(before.snapshot.effective),
+      afterEffectiveDailyCap: resolveDailyCap(after.snapshot.effective),
       beforeEffectiveSource: before.snapshot.effective.source,
       afterEffectiveSource: after.snapshot.effective.source,
       beforeExposureRank: context.beforeRank,
@@ -324,6 +367,7 @@ async function writeAudit(
       // removed the row, 'threshold_null_suspended' preserved a suspended row
       // by NULLing only the threshold (see clearsSuspendedRow).
       clearedVia: clearShapeFor(input, before),
+      exposureClassification: context.exposureClassification,
       expansion: context.expansion,
       requiredConfirmationLevel: context.requiredConfirmationLevel,
       submittedConfirmationLevel: input.confirmationLevel ?? null,
@@ -334,9 +378,12 @@ async function writeAudit(
   });
 }
 
-async function lockAccount(db: TransactionSql, accountId: string): Promise<void> {
-  const [account] = await db<{ id: string }[]>`
-    SELECT id
+async function lockAccount(
+  db: TransactionSql,
+  accountId: string,
+): Promise<SettingsAccountEntitlementRow> {
+  const [account] = await db<SettingsAccountEntitlementRow[]>`
+    SELECT id, subscription_tier, subscription_status, past_due_at, flags
     FROM accounts
     WHERE id = ${accountId}::uuid
     FOR UPDATE
@@ -344,6 +391,7 @@ async function lockAccount(db: TransactionSql, accountId: string): Promise<void>
   if (!account) {
     throw new AutoApprovalSettingsError('account_not_found', 404);
   }
+  return account;
 }
 
 async function readBeforeState(
@@ -443,6 +491,54 @@ function computeAfterState(
         },
       };
   }
+}
+
+const LOCATION_DIAL_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+  'set_location_veto_window',
+  'set_location_daily_cap',
+]);
+
+const COMPLETE_DISABLE_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['operation']>([
+  'set_account_manual',
+  'clear_account_default',
+  'set_location_manual',
+  'delete_location_override',
+]);
+
+function createsManualLocationOverride(
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+): boolean {
+  return before.scope === 'location_override'
+    && before.targetRow === null
+    && LOCATION_DIAL_OPERATIONS.has(input.operation);
+}
+
+function transitionsEnabledPolicyToManual(
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+  after: EffectiveAutoApprovalPolicy,
+): boolean {
+  return before.snapshot.effective.threshold !== null
+    && after.threshold === null
+    && COMPLETE_DISABLE_OPERATIONS.has(input.operation);
+}
+
+function isCompleteDisable(
+  input: PatchAutoApprovalSettingsInput,
+  before: PolicyMutationBeforeState,
+  after: EffectiveAutoApprovalPolicy,
+): boolean {
+  // WS4 §6: a veto/cap PATCH that creates a previously-rowless location
+  // override always switches that location to manual approval. That operation
+  // is a contraction/non-expansion even when the target dial by itself widens.
+  if (createsManualLocationOverride(input, before)) return true;
+
+  // A clear/manual operation is a complete disable only when it actually
+  // transitions enabled automation to manual. Manual -> manual delete/clear
+  // must still classify inherited dial widening (for example 30 -> 15 or a
+  // finite cap -> NULL) as an expansion.
+  return transitionsEnabledPolicyToManual(input, before, after);
 }
 
 // Finding-1 rule (spec §6): a policy mutation never DELETEs a row carrying a
@@ -986,29 +1082,56 @@ async function countActiveInheritingLocations(
   return row?.count ?? 0;
 }
 
+async function loadSettingsAccount(
+  db: SqlExecutor,
+  accountId: string,
+): Promise<SettingsAccountEntitlementRow | undefined> {
+  const [account] = await db<SettingsAccountEntitlementRow[]>`
+    SELECT id, subscription_tier, subscription_status, past_due_at, flags
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    LIMIT 1
+  `;
+  return account;
+}
+
 async function buildReadiness(
   db: SqlExecutor,
   accountId: string,
   context: { impersonated: boolean; policySuspended: boolean },
+  account: SettingsAccountEntitlementRow | undefined,
 ): Promise<AutoApprovalReadiness> {
   const runtimeEnabled = autoApprovalRuntimeEnabled();
   const moderationEnabled = providerModerationEnabled();
   const moderationValidated = providerModerationValidated();
   const preview = isPreviewEnvironment();
-  const writable = await assertWritableSubscriptionForAccount(accountId, db);
-  // FP: both reads share one db SqlExecutor (single pooled connection); kept sequential rather than parallelized on the shared executor.
-  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const offboardingState = await getOffboardingState(accountId, db);
+  const accountWritable = Boolean(account && accountSubscriptionWritable(account))
+    && !isBillingMutationBlocked(offboardingState);
+  const autopilotAvailable = Boolean(
+    tierGrantsAutopilot(account?.subscription_tier)
+      && autopilotPurchasable(),
+  );
 
   return buildAutoApprovalReadiness({
     runtimeEnabled,
+    autopilotAvailable,
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
-    accountWritable: writable.ok && !isBillingMutationBlocked(offboardingState),
+    accountWritable,
     policySuspended: context.policySuspended,
     previewEnvironment: preview,
     impersonated: context.impersonated,
   });
+}
+
+function accountSubscriptionWritable(account: SettingsAccountEntitlementRow): boolean {
+  if (subscriptionGrantsFullAccess(account.subscription_status)) return true;
+  return assertWritableSubscriptionStatus({
+    subscriptionStatus: account.subscription_status,
+    pastDueAt: account.past_due_at,
+    accountFlags: account.flags,
+  }).ok;
 }
 
 function toPolicyRow(row: PolicyDbRow): SettingsPolicyRow {

@@ -225,15 +225,15 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(body.error).toBe('forbidden');
   });
 
-  it('returns 403 PremiumRequiredError when standard owner attacks historical review', async () => {
+  it('returns 403 ForbiddenError when unsupported-tier owner attacks historical review', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    const { PremiumRequiredError } = await import('@/lib/responses/edit-existing');
-    mockAssertCanEdit.mockRejectedValue(new PremiumRequiredError());
+    const { ForbiddenError } = await import('@/lib/responses/edit-existing');
+    mockAssertCanEdit.mockRejectedValue(new ForbiddenError());
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toBe('premium_required');
+    expect(body.error).toBe('forbidden');
   });
 
   it('returns 409 review_changed when hash mismatches; body includes current_review_text and current_review_hash', async () => {

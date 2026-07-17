@@ -80,7 +80,10 @@ function mkInput(overrides: Partial<ArchiveLocationTxInput> = {}): ArchiveLocati
 const defaultZernioRow = {
   zernio_account_id: 'zernio-account-1',
   zernio_location_id: 'zernio-location-1',
-  subscription_tier: 'standard',
+};
+const defaultAccountRow = {
+  id: ACCOUNT_ID,
+  subscription_tier: 'copilot',
   subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
 };
 
@@ -108,11 +111,16 @@ function driveArchiveDb({
   }>,
   selfPromoteRows = undefined as Array<{ id: string }> | undefined,
   zernio = defaultZernioRow as typeof defaultZernioRow | null,
+  account = defaultAccountRow as typeof defaultAccountRow | null,
+  offboarding = null as Record<string, unknown> | null,
 } = {}) {
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
     const template = strings.join('?');
     if (template.includes('SELECT id') && template.includes('FROM accounts')) {
-      return [{ id: ACCOUNT_ID }];
+      return account ? [account] : [];
+    }
+    if (template.includes('FROM account_offboardings')) {
+      return offboarding ? [offboarding] : [];
     }
     if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
       return [{ count: activeCount }];
@@ -124,8 +132,15 @@ function driveArchiveDb({
     ) {
       return [{ count: activePrimaryCount }];
     }
-    if (template.includes('SELECT archived_at') && template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
-      return [{ archived_at: archivedAt, is_primary: isPrimary }];
+    if (template.includes('FROM businesses') && template.includes('FOR UPDATE')) {
+      const isReactivateLock = template.includes('SELECT id, archived_at');
+      return [{
+        id: SECONDARY_LOCATION_ID,
+        archived_at: isReactivateLock
+          ? (archivedAt ?? new Date('2026-05-01T00:00:00.000Z'))
+          : archivedAt,
+        is_primary: isPrimary,
+      }];
     }
     if (template.includes('UPDATE businesses') && template.includes('SET is_primary = TRUE')) {
       return selfPromoteRows ?? updateRows;
@@ -133,7 +148,7 @@ function driveArchiveDb({
     if (template.includes('UPDATE businesses')) {
       return updateRows;
     }
-    if (template.includes('FROM zernio_connections') && template.includes('JOIN accounts')) {
+    if (template.includes('FROM zernio_connections')) {
       return zernio ? [zernio] : [];
     }
     return [];
@@ -321,10 +336,19 @@ describe('archiveLocationTransaction', () => {
     expect(template).toMatch(/WHERE\s+id\s*=\s*\?::uuid\s+AND\s+account_id\s*=\s*\?::uuid/i);
   });
 
-  it('locks the account and re-checks active count inside the archive transaction', async () => {
+  it('takes lifecycle then business then account locks before re-checking active count', async () => {
     await archiveLocationTransaction(sql, mkInput());
 
-    const lockIndex = mockSql.mock.calls.findIndex(
+    const lifecycleIndex = mockSql.mock.calls.findIndex(
+      (c: any[]) => c.slice(1).includes(`${ACCOUNT_ID}:location_lifecycle`),
+    );
+    const businessLockIndex = mockSql.mock.calls.findIndex(
+      (c: any[]) => {
+        const template = (c[0] as TemplateStringsArray).join('?');
+        return template.includes('FROM businesses') && template.includes('FOR UPDATE');
+      },
+    );
+    const accountLockIndex = mockSql.mock.calls.findIndex(
       (c: any[]) => {
         const template = (c[0] as TemplateStringsArray).join('?');
         return template.includes('FROM accounts') && template.includes('FOR UPDATE');
@@ -340,8 +364,10 @@ describe('archiveLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
     );
 
-    expect(lockIndex).toBeGreaterThanOrEqual(0);
-    expect(countIndex).toBeGreaterThan(lockIndex);
+    expect(lifecycleIndex).toBe(0);
+    expect(businessLockIndex).toBeGreaterThan(lifecycleIndex);
+    expect(accountLockIndex).toBeGreaterThan(businessLockIndex);
+    expect(countIndex).toBeGreaterThan(accountLockIndex);
     expect(updateIndex).toBeGreaterThan(countIndex);
   });
 
@@ -642,6 +668,48 @@ describe('archiveLocationForAccountOffboardingTeardownTransaction', () => {
 //   (restores from archived_at=NULL)"
 
 describe('reactivateLocationTransaction', () => {
+  it('fails closed after the account lock when offboarding blocks expansion', async () => {
+    driveArchiveDb({
+      offboarding: {
+        id: 'offboarding-1',
+        account_id: ACCOUNT_ID,
+        mode: 'delete_data',
+        status: 'pending',
+        failed_step: null,
+        terminal_at: null,
+        access_ends_at: null,
+        teardown_started_at: null,
+        purge_after: null,
+        purge_started_at: null,
+        purge_cancelled_at: null,
+      },
+    });
+
+    await expect(reactivateLocationTransaction(sql, {
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    })).rejects.toThrow('account_offboarding_blocked');
+
+    const calls: string[] = mockSql.mock.calls.map(
+      (call: unknown[]) => (call[0] as TemplateStringsArray).join('?'),
+    );
+    const businessLock = calls.findIndex(
+      (text: string) => text.includes('FROM businesses') && text.includes('FOR UPDATE'),
+    );
+    const accountLock = calls.findIndex(
+      (text: string) => text.includes('FROM accounts') && text.includes('FOR UPDATE'),
+    );
+    const offboardingRead = calls.findIndex(
+      (text: string) => text.includes('FROM account_offboardings'),
+    );
+    expect(accountLock).toBeGreaterThan(businessLock);
+    expect(offboardingRead).toBeGreaterThan(accountLock);
+    expect(calls.some(
+      (text: string) => text.includes('UPDATE businesses') && text.includes('archived_at = NULL'),
+    )).toBe(false);
+  });
+
   it('sets archived_at = NULL on the businesses row', async () => {
     const result = await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
@@ -740,7 +808,12 @@ describe('reactivateLocationTransaction', () => {
     expect(zernioCall).toBeDefined();
   });
 
-  it('enqueues reactivation backfill with the full Zernio/account payload', async () => {
+  it.each(['copilot', 'autopilot'] as const)(
+    'enqueues reactivation backfill with the full Zernio/account payload for %s',
+    async (subscriptionTier) => {
+    driveArchiveDb({
+      account: { ...defaultAccountRow, subscription_tier: subscriptionTier },
+    });
     await reactivateLocationTransaction(sql, {
       locationId: SECONDARY_LOCATION_ID,
       accountId: ACCOUNT_ID,
@@ -760,10 +833,33 @@ describe('reactivateLocationTransaction', () => {
       business_id: SECONDARY_LOCATION_ID,
       zernio_account_id: 'zernio-account-1',
       zernio_location_id: 'zernio-location-1',
-      subscription_tier: 'standard',
+      subscription_tier: subscriptionTier,
       subscription_activated_at: '2026-05-01T00:00:00.000Z',
       backfill_reason: 'reactivation',
     });
+  });
+
+  it('rejects an unsupported account tier before reactivation writes', async () => {
+    driveArchiveDb({
+      account: { ...defaultAccountRow, subscription_tier: 'retired_tier' },
+    });
+
+    await expect(
+      reactivateLocationTransaction(sql, {
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+
+    const accountLockCall = mockSql.mock.calls.find((call: unknown[]) => {
+      const template = (call[0] as TemplateStringsArray).join('?');
+      return template.includes('FROM accounts') && template.includes('FOR UPDATE');
+    });
+    expect(accountLockCall).toBeDefined();
+    expect((accountLockCall![0] as TemplateStringsArray).join('?')).toMatch(
+      /SELECT id, subscription_tier, subscription_activated_at[\s\S]*FOR UPDATE/,
+    );
   });
 
   it('runs all operations inside sql.begin()', async () => {
@@ -876,13 +972,13 @@ describe('reactivateLocationTransaction', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// B3: reactivation self-heals a zero-primary account (under an account lock)
+// B3: reactivation self-heals a zero-primary account under lifecycle/business/account locks
 // ══════════════════════════════════════════════════════════════════════════
 // Invariant: businesses_account_primary_uniq enforces AT MOST one primary per
 // active account; a healthy account also wants AT LEAST one. When the
 // offboarding-cancel → reactivate path leaves an account with zero active
 // primaries, reactivating a location must silently self-promote it under the
-// SAME accounts→businesses lock used by archive/promote, so two concurrent
+// SAME lifecycle→businesses→account order used by archive/promote, so two concurrent
 // reactivations can't both win the primary.
 
 describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
@@ -952,7 +1048,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
     expect(primaryPromotedAuditCalls().length).toBe(0);
   });
 
-  it('takes the account FOR UPDATE lock FIRST, before the un-archive UPDATE', async () => {
+  it('takes lifecycle then business then account locks before the un-archive UPDATE', async () => {
     driveArchiveDb({ activePrimaryCount: 0, zernio: null });
 
     await reactivateLocationTransaction(sql, {
@@ -961,6 +1057,13 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
       actorUserId: ACTOR_USER_ID,
     });
 
+    const lifecycleIndex = mockSql.mock.calls.findIndex((c: any[]) =>
+      c.slice(1).includes(`${ACCOUNT_ID}:location_lifecycle`),
+    );
+    const businessLockIndex = mockSql.mock.calls.findIndex((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('FROM businesses') && template.includes('FOR UPDATE');
+    });
     const accountLockIndex = mockSql.mock.calls.findIndex((c: any[]) => {
       const template = (c[0] as TemplateStringsArray).join('?');
       return template.includes('FROM accounts') && template.includes('FOR UPDATE');
@@ -970,7 +1073,9 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
       return template.includes('UPDATE businesses') && template.includes('archived_at') && template.includes('NULL');
     });
 
-    expect(accountLockIndex).toBe(0);
+    expect(lifecycleIndex).toBe(0);
+    expect(businessLockIndex).toBeGreaterThan(lifecycleIndex);
+    expect(accountLockIndex).toBeGreaterThan(businessLockIndex);
     expect(unarchiveIndex).toBeGreaterThan(accountLockIndex);
   });
 });
@@ -983,7 +1088,7 @@ describe('reactivateLocationTransaction — B3 zero-primary self-heal', () => {
 // reconciliation from the committed active-location count.
 
 describe('concurrent safety (VAL-LOC-047)', () => {
-  it('archiveLocationTransaction locks the account and target location before archive update', async () => {
+  it('archiveLocationTransaction locks the target location before the account and archive update', async () => {
     await archiveLocationTransaction(sql, mkInput());
 
     const txCalls = mockSql.mock.calls;
@@ -1002,5 +1107,6 @@ describe('concurrent safety (VAL-LOC-047)', () => {
 
     expect(accountLockCall).toBeTruthy();
     expect(locationLockCall).toBeTruthy();
+    expect(txCalls.indexOf(locationLockCall!)).toBeLessThan(txCalls.indexOf(accountLockCall!));
   });
 });

@@ -10,7 +10,6 @@ import type { PublishResponsePayload } from '../../../src/lib/shared/worker-type
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
-import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
 import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
@@ -19,11 +18,12 @@ import { resolvePublishTarget } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from '../../../src/lib/publishing/orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
-import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
-import { enforceElapsedVetoWindow } from './veto-window-gate';
-import { applyJudgeGate } from './judge-gate';
 import { markPostedAndMaybeEnqueueAutoPostNotice } from './mark-posted';
 import { isHeldForModerationReview } from './held-flag-gate';
+import {
+  hasAutoPolicyProviderAttemptMarker,
+  publishAutoPolicyResponse,
+} from './auto-policy-publish';
 
 export async function handlePublishResponse(
   sql: Sql,
@@ -35,16 +35,45 @@ export async function handlePublishResponse(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const context = await loadPublishResponseContext(sql, {
-    responseId: response_id,
-    businessId,
-    outboxId,
-    outboxAttempt,
-    logger,
-  });
+  // The pre-routing reads are independent (each keyed only by immutable
+  // job.data ids) and run on the pool, so they parallelize safely — the
+  // auto-policy lane re-reads everything FOR UPDATE anyway (2026-07-16 review
+  // finding #10; these are routing hints only).
+  const [context, hasProviderAttempt] = await Promise.all([
+    loadPublishResponseContext(sql, {
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      logger,
+    }),
+    // A durable provider-attempt marker outranks stale local response state.
+    // In particular, an owner veto may have cleared approval_method after a
+    // 2xx whose verification was ambiguous; the locked auto lane must
+    // reconcile provider truth before ordinary publishable/offboarding gates
+    // can close it.
+    hasAutoPolicyProviderAttemptMarker(sql, {
+      outboxId,
+      outboxAttempt,
+    }),
+  ]);
   if (context === 'terminal') return;
 
   const { response, business } = context;
+  if (hasProviderAttempt) {
+    await publishAutoPolicyResponse(sql, {
+      responseId: response_id,
+      reviewId: response.review_id,
+      businessId,
+      accountId: business.account_id,
+      approvedText: response.approved_text ?? '',
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    return;
+  }
 
   const offboardingState = activeOffboardingStateFromProjection(business);
   if (isPublishingBlocked(offboardingState)) {
@@ -75,54 +104,23 @@ export async function handlePublishResponse(
     return;
   }
 
-  // ── Auto-policy kill-switch downgrade (before any external call) ────
-  if (
-    response.approval_method === APPROVAL_METHOD.AUTO_POLICY &&
-    !autoApprovalRuntimeEnabled()
-  ) {
-    await downgradeAutoApprovedResponseForManualReview(sql, {
+  // Auto-policy owns one fresh, locked safety lane. Runtime, notice/veto,
+  // archive, subscription+tier, moderation, and Judge state are re-read under
+  // review -> business -> response -> entitlement immediately before provider
+  // work; cheap load-context fields are routing hints only.
+  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+    await publishAutoPolicyResponse(sql, {
       responseId: response_id,
+      reviewId: response.review_id,
       businessId,
+      accountId: business.account_id,
+      approvedText: response.approved_text ?? '',
       outboxId,
       outboxAttempt,
       correlationId: job.data.correlation_id,
       logger,
     });
     return;
-  }
-
-  // ── Auto-policy notice-delivery gate (spec §2.11) ────────────────────
-  // An unnotified auto-post fails toward the owner — the veto window is only
-  // real if the owner could see it, and only for its FULL duration: the gate
-  // requires a complete veto window elapsed since the FIRST delivered
-  // pending-post notice, pushing the deadline for late deliveries. Zero
-  // DELIVERED notices at publish time ⇒ downgrade to owner review instead of
-  // posting. Placement: this runs BEFORE any external call, so a racing
-  // notice-send between the check and the post is benign (fail-toward-owner:
-  // worst case the owner manually reviews a draft they were just told would
-  // auto-post).
-  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
-    const vetoGate = await enforceElapsedVetoWindow(sql, {
-      responseId: response_id,
-      businessId,
-      outboxId,
-      outboxAttempt,
-      correlationId: job.data.correlation_id,
-      logger,
-    });
-    if (vetoGate === 'downgrade') {
-      await downgradeAutoApprovedResponseForManualReview(sql, {
-        responseId: response_id,
-        businessId,
-        outboxId,
-        outboxAttempt,
-        correlationId: job.data.correlation_id,
-        reason: 'notice_undelivered',
-        logger,
-      });
-      return;
-    }
-    if (vetoGate === 'completed') return;
   }
 
   // ── Archived-location terminal ──────────────────────────────────────
@@ -160,25 +158,6 @@ export async function handlePublishResponse(
     );
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
-  }
-
-  // ── Judge availability gate (WS6) ────────────────────────────────────
-  // Placement: AFTER the cheap quiet terminals (archived location,
-  // subscription guard, moderation hold — all cheaper than the two fleet
-  // health queries, and a row those gates would quietly terminate must not be
-  // downgraded+notified instead), and BEFORE resolvePublishTarget so no
-  // external call can happen without a live Judge. The WS4 kill-switch and
-  // veto-window/notice gates above keep their relative order.
-  if (response.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
-    const judgeGate = await applyJudgeGate(sql, {
-      responseId: response_id,
-      businessId,
-      outboxId,
-      outboxAttempt,
-      correlationId: job.data.correlation_id,
-      logger,
-    });
-    if (judgeGate === 'downgraded') return;
   }
 
   // ── Resolve the publishing target via the ReviewPublisher seam ──────

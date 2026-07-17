@@ -28,7 +28,10 @@ vi.mock('../../../../src/lib/agents/run-spine', () => ({
   completeRun: vi.fn(),
 }));
 
-import { markPostedAndMaybeEnqueueAutoPostNotice } from '../mark-posted';
+import {
+  markPostedAndMaybeEnqueueAutoPostNotice,
+  recoverAutoPolicyProviderTruth,
+} from '../mark-posted';
 import { APPROVAL_METHOD } from '../../../../src/lib/auto-approval/types';
 import {
   findActiveReviewRun,
@@ -234,5 +237,52 @@ describe('markPostedAndMaybeEnqueueAutoPostNotice', () => {
       ).rejects.toThrow('spine write failed');
       expect(completeRun).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('recoverAutoPolicyProviderTruth', () => {
+  it('forces a vetoed/manual row to truthful posted auto_policy state and runs all success semantics', async () => {
+    const tx = makeTx([{ id: 'resp-1' }]);
+    const approvedAt = new Date('2026-07-15T00:00:00Z');
+
+    const result = await recoverAutoPolicyProviderTruth({
+      ...baseInput(tx),
+      approvedText: 'Durable approved reply',
+      approvedAt,
+    });
+
+    expect(result).toEqual({ transitioned: true, fyiEnqueued: true });
+    const text = txTexts(tx as never)[0]!;
+    expect(text).toContain("status = 'posted'");
+    expect(text).toContain('approval_method = ?');
+    expect(text).toContain('approved_text = ?');
+    expect(text).toContain("status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')");
+    expect((tx as ReturnType<typeof vi.fn>).mock.calls[0]!.slice(1)).toEqual(
+      expect.arrayContaining([
+        APPROVAL_METHOD.AUTO_POLICY,
+        'Durable approved reply',
+        approvedAt,
+      ]),
+    );
+    expect(mockRevokeOpenLinks).toHaveBeenCalledWith(tx, 'resp-1');
+    expect(recordOutcome).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      outcomeKind: 'reply_auto_posted',
+    }));
+    expect(completeRun).toHaveBeenCalledWith(expect.anything(), 'run-1', 'completed');
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws instead of completing ambiguity when the confirmed-truth transition loses', async () => {
+    const tx = makeTx([]);
+
+    await expect(recoverAutoPolicyProviderTruth({
+      ...baseInput(tx),
+      approvedText: 'Durable approved reply',
+      approvedAt: new Date('2026-07-15T00:00:00Z'),
+    })).rejects.toThrow('could not repair response');
+
+    expect(mockRevokeOpenLinks).not.toHaveBeenCalled();
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
   });
 });

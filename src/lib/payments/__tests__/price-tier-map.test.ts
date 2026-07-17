@@ -1,131 +1,228 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  basePriceIdForTier,
+  assertStripePriceIdsUnique,
   basePriceIdSet,
-  overagePriceIdForTier,
-  tierForBasePriceId,
+  basePriceInfoForId,
+  createPriceTierMap,
   isOveragePriceId,
   overagePriceIdSet,
+  overagePriceIdForStoredCents,
+  overagePriceInfoForId,
+  priceIdFor,
+  STRIPE_PRICE_ENV_VARS,
 } from '../price-tier-map';
-
-const PRICE_KEYS = [
-  'STRIPE_PRICE_BASIC',
-  'STRIPE_PRICE_FOUNDING',
-  'STRIPE_PRICE_STANDARD',
-  'STRIPE_PRICE_PREMIUM',
-  'STRIPE_PRICE_STANDARD_OVERAGE',
-  'STRIPE_PRICE_PREMIUM_OVERAGE',
-  'STRIPE_PRICE_FOUNDERS_OVERAGE',
-] as const;
 
 const original: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  for (const k of PRICE_KEYS) original[k] = process.env[k];
-  process.env.STRIPE_PRICE_BASIC = 'price_basic';
-  process.env.STRIPE_PRICE_FOUNDING = 'price_founders';
-  process.env.STRIPE_PRICE_STANDARD = 'price_standard';
-  process.env.STRIPE_PRICE_PREMIUM = 'price_premium';
-  process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_standard_overage';
-  process.env.STRIPE_PRICE_PREMIUM_OVERAGE = 'price_premium_overage';
-  process.env.STRIPE_PRICE_FOUNDERS_OVERAGE = 'price_founders_overage';
+  for (const key of STRIPE_PRICE_ENV_VARS) original[key] = process.env[key];
+  process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
+  process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
+  process.env.STRIPE_PRICE_AUTOPILOT_LIST = 'price_autopilot_list';
+  process.env.STRIPE_PRICE_AUTOPILOT_FOUNDING = 'price_autopilot_founding';
+  process.env.STRIPE_PRICE_COPILOT_OVERAGE = 'price_copilot_overage';
+  process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_autopilot_overage';
 });
 
 afterEach(() => {
-  for (const k of PRICE_KEYS) {
-    if (original[k] === undefined) delete process.env[k];
-    else process.env[k] = original[k];
+  for (const key of STRIPE_PRICE_ENV_VARS) {
+    if (original[key] === undefined) delete process.env[key];
+    else process.env[key] = original[key];
   }
 });
 
 describe('price-tier-map', () => {
-  describe('basePriceIdForTier', () => {
-    it('maps each tier to its base price ID', () => {
-      expect(basePriceIdForTier('basic')).toBe('price_basic');
-      expect(basePriceIdForTier('standard')).toBe('price_standard');
-      expect(basePriceIdForTier('premium')).toBe('price_premium');
-      expect(basePriceIdForTier('founders')).toBe('price_founders');
+  it('owns exactly the six immutable launch Price variables', () => {
+    expect(STRIPE_PRICE_ENV_VARS).toEqual([
+      'STRIPE_PRICE_COPILOT_LIST',
+      'STRIPE_PRICE_COPILOT_FOUNDING',
+      'STRIPE_PRICE_AUTOPILOT_LIST',
+      'STRIPE_PRICE_AUTOPILOT_FOUNDING',
+      'STRIPE_PRICE_COPILOT_OVERAGE',
+      'STRIPE_PRICE_AUTOPILOT_OVERAGE',
+    ]);
+  });
+
+  it.each([
+    ['copilot', 'list', 'price_copilot_list', 'price_copilot_overage'],
+    ['copilot', 'founding', 'price_copilot_founding', 'price_copilot_overage'],
+    ['autopilot', 'list', 'price_autopilot_list', 'price_autopilot_overage'],
+    ['autopilot', 'founding', 'price_autopilot_founding', 'price_autopilot_overage'],
+  ] as const)('resolves %s/%s base and overage IDs', (tier, variant, baseId, overageId) => {
+    expect(priceIdFor(tier, variant, 'base')).toBe(baseId);
+    expect(priceIdFor(tier, variant, 'overage')).toBe(overageId);
+  });
+
+  it('reverse-resolves every configured Price', () => {
+    expect(basePriceInfoForId('price_copilot_list')).toEqual({ tier: 'copilot', variant: 'list' });
+    expect(basePriceInfoForId('price_copilot_founding')).toEqual({ tier: 'copilot', variant: 'founding' });
+    expect(basePriceInfoForId('price_autopilot_list')).toEqual({ tier: 'autopilot', variant: 'list' });
+    expect(basePriceInfoForId('price_autopilot_founding')).toEqual({ tier: 'autopilot', variant: 'founding' });
+    expect(overagePriceInfoForId('price_copilot_overage')).toEqual({ tier: 'copilot' });
+    expect(overagePriceInfoForId('price_autopilot_overage')).toEqual({ tier: 'autopilot' });
+  });
+
+  it('retains rotated base and overage IDs for reverse lookup without replacing forward IDs', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list_rotated_out',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'list',
+      },
+      {
+        id: 'price_copilot_overage_rotated_out',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1250,
+      },
+    ]);
+
+    expect(lookup.basePriceInfoForId('price_copilot_list_rotated_out')).toEqual({
+      tier: 'copilot',
+      variant: 'list',
     });
-    it('returns null when the env var is unset', () => {
-      delete process.env.STRIPE_PRICE_STANDARD;
-      expect(basePriceIdForTier('standard')).toBeNull();
+    expect(lookup.overagePriceInfoForId('price_copilot_overage_rotated_out')).toEqual({
+      tier: 'copilot',
+    });
+    expect(lookup.overagePriceIdForStoredCents('copilot', 1250)).toBe(
+      'price_copilot_overage_rotated_out',
+    );
+    expect(lookup.basePriceIdSet()).toContain('price_copilot_list_rotated_out');
+    expect(lookup.overagePriceIdSet()).toContain('price_copilot_overage_rotated_out');
+
+    // Historical IDs exist only for reverse recognition. New writes must keep
+    // using the six live environment IDs.
+    expect(lookup.priceIdFor('copilot', 'list', 'base')).toBe('price_copilot_list');
+    expect(lookup.priceIdFor('copilot', 'list', 'overage')).toBe('price_copilot_overage');
+  });
+
+  it('allows retained history to repeat a current ID only with identical semantics', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'list',
+      },
+    ]);
+
+    expect(lookup.basePriceInfoForId('price_copilot_list')).toEqual({
+      tier: 'copilot',
+      variant: 'list',
     });
   });
 
-  describe('overagePriceIdForTier', () => {
-    it('maps non-basic tiers to overage price IDs; basic is null', () => {
-      expect(overagePriceIdForTier('basic')).toBeNull();
-      expect(overagePriceIdForTier('standard')).toBe('price_standard_overage');
-      expect(overagePriceIdForTier('premium')).toBe('price_premium_overage');
-      expect(overagePriceIdForTier('founders')).toBe('price_founders_overage');
-    });
-    it('returns null when the overage env var is unset', () => {
-      delete process.env.STRIPE_PRICE_STANDARD_OVERAGE;
-      expect(overagePriceIdForTier('standard')).toBeNull();
-    });
+  it('fails closed when retained history conflicts with a current Price mapping', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'autopilot',
+        variant: 'list',
+      },
+    ]);
+
+    expect(() => lookup.basePriceInfoForId('price_copilot_list')).toThrow(
+      /price_copilot_list has conflicting mappings: base:copilot:list and base:autopilot:list/,
+    );
   });
 
-  describe('tierForBasePriceId (reverse map)', () => {
-    it('maps each base price ID back to its tier', () => {
-      expect(tierForBasePriceId('price_basic')).toBe('basic');
-      expect(tierForBasePriceId('price_standard')).toBe('standard');
-      expect(tierForBasePriceId('price_premium')).toBe('premium');
-      expect(tierForBasePriceId('price_founders')).toBe('founders');
-    });
-    it('returns null for an unknown price ID', () => {
-      expect(tierForBasePriceId('price_unknown')).toBeNull();
-    });
-    it('returns null for empty/undefined/null input (no empty-string key collision)', () => {
-      expect(tierForBasePriceId('')).toBeNull();
-      expect(tierForBasePriceId(undefined)).toBeNull();
-      expect(tierForBasePriceId(null)).toBeNull();
-    });
-    it('does not collide when multiple base price vars are unset', () => {
-      delete process.env.STRIPE_PRICE_BASIC;
-      delete process.env.STRIPE_PRICE_STANDARD;
-      expect(tierForBasePriceId('')).toBeNull();
-      expect(tierForBasePriceId('price_premium')).toBe('premium');
-    });
+  it('fails closed when two retained entries conflict with each other', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_history_conflict',
+        kind: 'base',
+        tier: 'copilot',
+        variant: 'founding',
+      },
+      {
+        id: 'price_history_conflict',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1500,
+      },
+    ]);
+
+    expect(() => lookup.basePriceIdSet()).toThrow(
+      /price_history_conflict has conflicting mappings: base:copilot:founding and overage:copilot/,
+    );
   });
 
-  describe('basePriceIdSet', () => {
-    it('contains the configured base price IDs only', () => {
-      const set = basePriceIdSet();
-      expect(set.has('price_basic')).toBe(true);
-      expect(set.has('price_standard')).toBe(true);
-      expect(set.has('price_premium')).toBe(true);
-      expect(set.has('price_founders')).toBe(true);
-      expect(set.has('')).toBe(false);
-      expect(set.size).toBe(4);
-    });
-    it('excludes unset base vars from the set', () => {
-      delete process.env.STRIPE_PRICE_STANDARD;
-      const set = basePriceIdSet();
-      expect(set.has('price_standard')).toBe(false);
-      expect(set.size).toBe(3);
-    });
+  it('resolves current overage cents from the live ID and never falls grandfathered cents forward', () => {
+    expect(overagePriceIdForStoredCents('copilot', 1500)).toBe(
+      'price_copilot_overage',
+    );
+    expect(overagePriceIdForStoredCents('copilot', 1400)).toBeNull();
   });
 
-  describe('overagePriceIdSet / isOveragePriceId', () => {
-    it('contains the configured overage IDs only', () => {
-      const set = overagePriceIdSet();
-      expect(set.has('price_standard_overage')).toBe(true);
-      expect(set.has('price_premium_overage')).toBe(true);
-      expect(set.has('price_founders_overage')).toBe(true);
-      expect(set.has('')).toBe(false);
-      expect(set.size).toBe(3);
-    });
-    it('isOveragePriceId reflects membership', () => {
-      expect(isOveragePriceId('price_standard_overage')).toBe(true);
-      expect(isOveragePriceId('price_basic')).toBe(false);
-      expect(isOveragePriceId('')).toBe(false);
-      expect(isOveragePriceId(undefined)).toBe(false);
-    });
-    it('excludes unset overage vars from the set', () => {
-      delete process.env.STRIPE_PRICE_STANDARD_OVERAGE;
-      const set = overagePriceIdSet();
-      expect(set.has('price_standard_overage')).toBe(false);
-      expect(set.size).toBe(2);
-    });
+  it('rejects conflicting retained unit amounts for one immutable overage Price', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_old_overage',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1400,
+      },
+      {
+        id: 'price_old_overage',
+        kind: 'overage',
+        tier: 'copilot',
+        unitAmountCents: 1450,
+      },
+    ]);
+
+    expect(() => lookup.overagePriceIdForStoredCents('copilot', 1400)).toThrow(
+      /price_old_overage has conflicting unit amounts: 1400 and 1450/,
+    );
+  });
+
+  it('fails forward lookup closed when retained history conflicts with a live ID', () => {
+    const lookup = createPriceTierMap([
+      {
+        id: 'price_copilot_list',
+        kind: 'base',
+        tier: 'autopilot',
+        variant: 'founding',
+      },
+    ]);
+
+    expect(() => lookup.priceIdFor('copilot', 'list', 'base')).toThrow(
+      /price_copilot_list has conflicting mappings/,
+    );
+  });
+
+  it('returns only canonical IDs from the base and overage sets', () => {
+    expect(basePriceIdSet()).toEqual(new Set([
+      'price_copilot_list',
+      'price_copilot_founding',
+      'price_autopilot_list',
+      'price_autopilot_founding',
+    ]));
+    expect(overagePriceIdSet()).toEqual(new Set([
+      'price_copilot_overage',
+      'price_autopilot_overage',
+    ]));
+    expect(isOveragePriceId('price_copilot_overage')).toBe(true);
+    expect(isOveragePriceId('price_copilot_list')).toBe(false);
+  });
+
+  it('fails closed for missing, blank, unknown, or malformed lookup inputs', () => {
+    delete process.env.STRIPE_PRICE_COPILOT_LIST;
+    process.env.STRIPE_PRICE_COPILOT_OVERAGE = '   ';
+    expect(priceIdFor('copilot', 'list', 'base')).toBeNull();
+    expect(priceIdFor('copilot', 'founding', 'overage')).toBeNull();
+    expect(basePriceInfoForId('price_unknown')).toBeNull();
+    expect(overagePriceInfoForId(null)).toBeNull();
+    expect(() => priceIdFor('enterprise' as 'copilot', 'list', 'base')).toThrow(/Unknown WS8/);
+    expect(() => priceIdFor('copilot', 'discount' as 'list', 'base')).toThrow(/variant/);
+    expect(() => priceIdFor('copilot', 'list', 'annual' as 'base')).toThrow(/kind/);
+  });
+
+  it('rejects duplicate IDs across all six variables', () => {
+    process.env.STRIPE_PRICE_AUTOPILOT_OVERAGE = 'price_copilot_list';
+    expect(() => assertStripePriceIdsUnique()).toThrow(
+      /STRIPE_PRICE_COPILOT_LIST duplicates STRIPE_PRICE_AUTOPILOT_OVERAGE/,
+    );
   });
 });

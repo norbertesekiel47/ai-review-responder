@@ -4,7 +4,150 @@ import {
   auditPackageJson,
   ALLOWED_NEXT_PUBLIC,
   SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
+  scanLegacySubscriptionTiers,
 } from '../static-policy-audit';
+
+describe('legacy subscription-tier AST audit', () => {
+  it.each([
+    ['comparison', "if (account.subscription_tier === 'basic') return;"],
+    ['SQL value', "await sql`UPDATE accounts SET subscription_tier = 'standard'`;"],
+    ['interpolated SQL value', "await sql`UPDATE accounts SET subscription_tier = 'standard' WHERE id = ${id}`;"],
+    ['schema enum', "const subscriptionTierSchema = z.enum(['premium', 'copilot']);"],
+    ['tier map', "const TIER_CONFIG = { founders: { included: 1 } };"],
+    ['singular tier', "const subscriptionTier: SubscriptionTier = 'founding';"],
+    ['tier return', "function subscriptionTierForAccount() { return 'basic'; }"],
+    ['capitalized tier label', "const tierLabel = 'Standard';"],
+  ])('flags removed tier in %s context', (_label, source) => {
+    const findings = scanLegacySubscriptionTiers('src/example.ts', source);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('legacy-subscription-tier');
+  });
+
+  it.each([
+    ['upgrade copy', "const copy = 'Basic includes one location. Upgrade to Standard or Premium.';"],
+    ['feature copy', "const copy = 'Multi-location supported on Premium';"],
+    ['support label', "const copy = 'Founders: response target';"],
+    ['lowercase plan copy', "const copy = 'upgrade to premium plan';"],
+    ['explicit founding tier', "const copy = 'founding tier';"],
+  ])('flags embedded legacy plan names in %s', (_label, source) => {
+    expect(scanLegacySubscriptionTiers('src/example.tsx', source).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['capitalized Basic auth', "const docs = 'Basic authentication uses a header';"],
+    ['capitalized standard confirmation', "const docs = 'Standard confirmation is required';"],
+    ['capitalized standard library', "const docs = 'Standard library behavior';"],
+    ['capitalized premium adjective', "const docs = 'Premium materials improve durability';"],
+    ['legal cancellation term', "const docs = 'Standard cancellation keeps access through the paid period';"],
+    ['founding offer', "const copy = 'Founding offer';"],
+    ['founding price', "const copy = 'founding price';"],
+    ['founding variant', "const copy = 'founding variant';"],
+  ])('allows embedded %s as non-tier English', (_label, source) => {
+    expect(scanLegacySubscriptionTiers('src/example.ts', source)).toEqual([]);
+  });
+
+  it.each([
+    ['stored price variant', "const row = { price_variant: 'founding' };"],
+    ['PriceVariant type', "type PriceVariant = 'list' | 'founding';"],
+    ['variant resolver argument', "resolveTierSnapshot('copilot', 'founding');"],
+    ['confirmation level', "const confirmationLevel = 'standard';"],
+    ['auth mode', "const authenticationScheme = 'basic';"],
+    ['ordinary product adjective', "const serviceQuality = 'premium';"],
+    ['ordinary team noun', "const audience = 'founders';"],
+    ['ordinary assertion', "expect(row).toEqual('standard');"],
+    ['ordinary confirmation call', "requireConfirmation('standard');"],
+    ['Basic auth call', "buildAuthHeader('basic');"],
+    ['standard library call', "loadLibrary('standard');"],
+  ])('allows %s outside the subscription-tier domain', (_label, source) => {
+    expect(scanLegacySubscriptionTiers('src/example.ts', source)).toEqual([]);
+  });
+
+  it('flags removed enum member symbols without relying on a string literal', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      'const tier = SubscriptionTier.PREMIUM;',
+    );
+    expect(findings).toHaveLength(1);
+  });
+
+  it('flags removed members declared directly in a subscription-tier enum', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      "enum SubscriptionTier { PREMIUM = 'premium' }",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('premium');
+  });
+
+  it('flags a retired shorthand key in a tier registry', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      'const premium = {}; const TIER_CONFIG = { premium };',
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('premium');
+  });
+
+  it('flags a retired literal passed indirectly into a tier schema', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      "const values = ['standard']; const subscriptionTierSchema = z.enum(values);",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('standard');
+  });
+
+  it('allows one-step founding indirection for a price-variant schema', () => {
+    expect(scanLegacySubscriptionTiers(
+      'src/example.ts',
+      "const values = ['list', 'founding']; const priceVariantSchema = z.enum(values);",
+    )).toEqual([]);
+  });
+
+  it('does not let a nearby price_variant predicate hide a singular tier value', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      "sql`UPDATE accounts SET price_variant = 'list', subscription_tier = 'founding' WHERE id = ${id}`;",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('founding');
+  });
+
+  it('does not let an adjacent variant declaration hide a singular tier value', () => {
+    const findings = scanLegacySubscriptionTiers(
+      'src/example.ts',
+      "const subscriptionTier = 'founding', priceVariant = 'list';",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('founding');
+  });
+
+  it('allows founding in a price-variant comparison inside tier-domain code', () => {
+    expect(
+      scanLegacySubscriptionTiers(
+        'src/example.ts',
+        "const subscriptionTier = priceVariant === 'founding' ? 'copilot' : 'autopilot';",
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([
+    "const priceVariant = subscriptionTier === 'founding' ? 'founding' : 'list';",
+    "const row = { priceVariant: account.subscriptionTier === 'founding' ? 'founding' : 'list' };",
+  ])('does not let a variant-named ancestor hide a nested retired tier comparison', (source) => {
+    const findings = scanLegacySubscriptionTiers('src/example.ts', source);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain('founding');
+  });
+
+  it.each([
+    "expect(account.subscription_tier).toBe('standard');",
+    "expect(tier).toEqual('premium');",
+    "assert.equal(subscriptionTier, 'founders');",
+  ])('flags removed tier values in tier assertions', (source) => {
+    expect(scanLegacySubscriptionTiers('tests/example.test.ts', source)).toHaveLength(1);
+  });
+});
 
 describe('scanFile — crypto-js (invariant #10)', () => {
   it('flags a named ESM import of crypto-js', () => {
@@ -248,7 +391,7 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('exposes a non-empty, reviewed carve-out allowlist', () => {
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.size).toBeGreaterThan(0);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:110')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:112')).toBe(true);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:176')).toBe(true);
   });
 });

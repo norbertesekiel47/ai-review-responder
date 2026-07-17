@@ -1,8 +1,14 @@
 import type {
   AutoApprovalThreshold,
   EffectiveAutoApprovalPolicy,
+  PolicyExposureClassification,
   PolicyRowState,
 } from './types';
+
+export type PolicyExposure = Pick<
+  EffectiveAutoApprovalPolicy,
+  'threshold' | 'vetoWindowMinutes' | 'dailyAutoPostCap'
+>;
 
 export function exposureRank(threshold: AutoApprovalThreshold | null): number {
   switch (threshold) {
@@ -30,7 +36,74 @@ export function isThresholdExpansion(
   before: AutoApprovalThreshold | null,
   after: AutoApprovalThreshold | null,
 ): boolean {
-  return exposureRank(after) > exposureRank(before);
+  return classifyThresholdExposure(before, after) === 'expansion';
+}
+
+export function classifyThresholdExposure(
+  before: AutoApprovalThreshold | null,
+  after: AutoApprovalThreshold | null,
+): PolicyExposureClassification {
+  const delta = exposureRank(after) - exposureRank(before);
+  if (delta > 0) return 'expansion';
+  if (delta < 0) return 'contraction';
+  return 'no_change';
+}
+
+export function classifyVetoWindowExposure(
+  before: PolicyExposure['vetoWindowMinutes'],
+  after: PolicyExposure['vetoWindowMinutes'],
+): PolicyExposureClassification {
+  if (after < before) return 'expansion';
+  if (after > before) return 'contraction';
+  return 'no_change';
+}
+
+export function classifyDailyCapExposure(
+  before: PolicyExposure['dailyAutoPostCap'],
+  after: PolicyExposure['dailyAutoPostCap'],
+): PolicyExposureClassification {
+  if (before === after) return 'no_change';
+  // Removing an owner cap is always an expansion, even when the finite value
+  // happened to equal or exceed today's platform default. This is the locked
+  // cap-removal rule: NULL restores platform ownership of the limit.
+  if (after === null) return 'expansion';
+
+  // For NULL -> finite, compare against the cap that NULL actually enforces.
+  // Otherwise a change from the default 10 to 50 would bypass the expansion
+  // gate even though it increases autonomous volume fivefold.
+  const effectiveBefore = before ?? DEFAULT_DAILY_AUTO_POST_CAP;
+  if (after > effectiveBefore) return 'expansion';
+  if (after < effectiveBefore) return 'contraction';
+  return 'no_change';
+}
+
+/**
+ * The single WS8 owner for trust-dial exposure classification. Any broader
+ * dimension wins over simultaneous contractions in another dimension (the
+ * important case is creating/deleting an inherited location override).
+ *
+ * A complete disable is intentionally special: once the resulting threshold
+ * is manual, resetting otherwise-stored dials cannot trap an owner behind an
+ * Autopilot gate. Dial-only edits on an already-manual row are not complete
+ * disables and continue to be classified normally.
+ */
+export function classifyPolicyExposure(
+  before: PolicyExposure,
+  after: PolicyExposure,
+  options: { completeDisable?: boolean } = {},
+): PolicyExposureClassification {
+  if (options.completeDisable && after.threshold === null) {
+    return before.threshold === null ? 'no_change' : 'contraction';
+  }
+
+  const dimensions = [
+    classifyThresholdExposure(before.threshold, after.threshold),
+    classifyVetoWindowExposure(before.vetoWindowMinutes, after.vetoWindowMinutes),
+    classifyDailyCapExposure(before.dailyAutoPostCap, after.dailyAutoPostCap),
+  ];
+  if (dimensions.includes('expansion')) return 'expansion';
+  if (dimensions.includes('contraction')) return 'contraction';
+  return 'no_change';
 }
 
 export function starMeetsThreshold(

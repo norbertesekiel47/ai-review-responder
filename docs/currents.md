@@ -7,7 +7,76 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-06 (Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are now permanent CI-enforced invariants, all five audit questions at A/A+ (Q4 A+), PRs #438–#456; see the summary directly below and the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE — Stages 5–6 #397/#398; worker transient-DB resilience #399; Dependabot security patches #400. See the simple-words summary further below. Earlier: 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15 #319/#320/#322; Multi-location launch hardening 2026-06-11 #262–#273; Rate-limiting & abuse hardening 2026-06-09 #254–#257; Launch readiness sweep 2026-05-29 #152–#186; Wave 3 #93–#96; Wave 2 #87.)
+Last updated: 2026-07-15 (WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — WS8 launch-safety correction (2026-07-15, execution branch; PR pending)
+
+WS8 now owns exactly one durable Checkout attempt per pending account. The
+attempt freezes the selected tier, immutable variant, Price IDs, cents/quota,
+quantity, trial/tax shape, customer email, and return URLs before Stripe Session
+creation. Same-attempt retries therefore cannot drift under a deploy or flag
+change. Reselecting a plan expires the prior open Session first; stale,
+non-entitled, or non-binding completion cancels/remediates its unexpected
+subscription before any status or billing snapshot can activate. Successful
+completion replay performs no billing mutation but still repairs the deprecated
+tier mirror.
+
+Stripe status projection also has one linearization anchor: resolve the account
+without a row lock, acquire that exact account's entitlement lock, then lock and
+recheck the same account/provider lineage. Canonical status transactions never
+wait on the publisher's business-row anchor. Instead they durably enqueue
+`stripe_subscription_mirror_sync`; its worker uses business rows → entitlement
+ordering and converges the deprecated status/activation mirror. Deterministic
+three-actor tests cover both publisher-first and tier-first wait orders.
+
+The commercial prices, founding contract, and quiesced
+077 → strict code → 078 rollout are unchanged. No PR, remote migration, Stripe
+mutation, env mutation, deployment, or reserved integration-owner action has
+been performed by the executor.
+
+## Quick summary — WS8 Copilot/Autopilot tier wiring (2026-07-15, execution branch; PR pending)
+
+RepWorth now has one commercial tier model in code: Copilot ($29 list / $19
+founding, $15 extra location) and Autopilot ($69 / $49, $20 extra location),
+monthly only and one included location. Owners choose explicitly. The immutable
+account `price_variant` follows founding customers through tier changes, while
+billing screens and invoice math read the cents/quota stored on the account
+instead of silently re-pricing from today's registry.
+
+Autopilot is also a runtime authority boundary, not just a checkout label.
+Copilot cannot receive `auto_policy` approval; the publisher rechecks access at
+the final side-effect boundary and downgrades queued autonomy after access loss.
+Trust-dial expansions require server-confirmed Autopilot readiness, while every
+contraction remains available. Trialing still receives full product access via
+the shared subscription predicate.
+
+The database rollout is deliberately two-stage. Migration 077 expands the
+schema and, on first apply only, normalizes the quiesced zero-live-account data
+to a complete Copilot/list snapshot. Strict code deploys and smokes before
+migration 078 installs NULL-safe Copilot/Autopilot-only constraints. The
+provider-wide Stripe blocker and
+[`ws8-tier-cutover.md`](runbooks/ws8-tier-cutover.md) enforce the single order;
+no staging/production migration, Price creation, env mutation, deployment, or
+PR is performed by this branch execution.
+
+The new shape:
+
+```text
+src/lib/accounts/{tier-config,tier-snapshot,tier-change}.ts
+  → two-tier snapshots, immutable variants, serialized complete writes
+src/lib/payments/{price-tier-map,founding-window,tier-purchasability}.ts
+  → six retained launch Prices + strict deadline + composed Autopilot gate
+worker/ingress/stripe/apply-subscription-state.ts
+  → single subscription-status owner; variant mismatch preserves billing data
+worker/jobs/publisher/ + src/lib/auto-approval/
+  → grant-time, settings-time, and publish-time autonomy enforcement
+supabase/migrations/077_* + 078_*
+  → quiesced expand/normalize, then strict contract
+scripts/{verify-stripe-price-parity,ws8-stripe-cutover-preflight}.ts
+  → all-six provider parity + provider-wide subscription/Session blocker
+docs/runbooks/ws8-tier-cutover.md
+  → staging-first quiesce → zero → 077 → strict code → smoke → 078 → resume
+```
 
 ## Quick summary — Modularity A+ campaign complete (2026-07-06, PR #438–#456)
 

@@ -85,4 +85,29 @@ describe('downgradeAutoApprovedResponseForManualReview ownership', () => {
     expect(sqlCalls[5]!.values).toContain('auto_policy_revoked_judge_unavailable');
     expect(logger.warn).toHaveBeenCalledOnce();
   });
+
+  it('uses a distinct bounded marker and reason for Autopilot entitlement loss', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([{ review_id: 'review-1' }]),
+      mkTaggedResult([{ id: 'review-1' }]),
+      mkTaggedResult([{ id: 'business-1' }]),
+      mkTaggedResult([{ status: 'approved', approval_method: 'auto_policy' }]),
+      mkTaggedResult([{}]),
+      mkTaggedResult([{ id: 'response-1' }]),
+      mkTaggedResult([{ account_id: 'account-1' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+    );
+
+    await expect(downgradeAutoApprovedResponseForManualReview(mockSql as never, {
+      ...input(),
+      reason: 'autopilot_entitlement_lost',
+    })).resolves.toBe('downgraded');
+
+    expect(sqlCalls[5]!.values).toContain('auto_policy_revoked_tier_entitlement');
+    expect(sqlCalls[7]!.values).toContainEqual(expect.objectContaining({
+      downgrade_reason: 'autopilot_entitlement_lost',
+      runtime_enabled: true,
+    }));
+  });
 });

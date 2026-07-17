@@ -1,4 +1,8 @@
-import { lookupTierConfig } from '@/lib/accounts/tier-config';
+import {
+  isSubscriptionTier,
+  lookupTierConfig,
+  type SubscriptionTierValue,
+} from '@/lib/accounts/tier-config';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 
 export function shouldUseMultiLocationSettings(
@@ -26,27 +30,21 @@ export function canAddLocationForAccount(
  * The whole add-location decision for the Locations settings page, in one tested
  * place so the page never re-derives entitlement from a raw status compare:
  *   - 'enabled'  — the account may add a location now.
- *   - 'upgrade'  — entitled (full access) but on a tier with no multi-location
- *                  allowance (Basic). Show the upgrade CTA.
  *   - 'inactive' — the subscription does not grant full access. Show the
  *                  "subscription must be active" CTA.
- * Trialing grants full access, so a trialing-Basic owner resolves to 'upgrade'
- * (fixes STATUS-1.1), not 'inactive'. Total over its inputs — no caller
- * precondition to remember.
+ * Trialing grants full access. Total over its inputs — no caller precondition
+ * to remember.
  */
 export function resolveAddLocationState(
   featureEnabled: boolean,
-  subscriptionTier: string,
+  subscriptionTier: SubscriptionTierValue,
   subscriptionStatus: string,
-): 'enabled' | 'upgrade' | 'inactive' {
+): 'enabled' | 'inactive' {
+  if (!isSubscriptionTier(subscriptionTier)) {
+    throw new Error(`invalid_ws8_subscription_tier:${String(subscriptionTier)}`);
+  }
   if (canAddLocationForAccount(featureEnabled, subscriptionTier, subscriptionStatus)) {
     return 'enabled';
-  }
-  if (
-    subscriptionGrantsFullAccess(subscriptionStatus)
-    && lookupTierConfig(subscriptionTier)?.multiLocAllowed !== true
-  ) {
-    return 'upgrade';
   }
   return 'inactive';
 }

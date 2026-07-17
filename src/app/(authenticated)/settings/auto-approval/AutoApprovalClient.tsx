@@ -5,11 +5,18 @@ import type { FocusEvent } from 'react';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { isThresholdExpansion } from '@/lib/auto-approval/policy';
+import {
+  classifyDailyCapExposure,
+  classifyPolicyExposure,
+  classifyVetoWindowExposure,
+  isThresholdExpansion,
+  type PolicyExposure,
+} from '@/lib/auto-approval/policy';
 import { isVetoWindowMinutes } from '@/lib/auto-approval/types';
 import type {
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
+  AutoApprovalPolicyApiState,
   AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
@@ -28,6 +35,7 @@ const MAX_DAILY_CAP = 50;
 
 const BLOCK_REASON_COPY: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Auto-approval is not enabled for this environment.',
+  autopilot_unavailable: 'Policy expansion requires an available Autopilot plan.',
   provider_moderation_disabled: 'Provider moderation is not enabled.',
   provider_moderation_not_validated: 'Provider moderation readiness has not been validated.',
   subscription_not_writable: 'The account cannot expand automation while billing is read-only.',
@@ -40,14 +48,18 @@ interface Props {
   initialState: AutoApprovalSettingsResponse;
 }
 
-// 'threshold_expansion' asks before loosening exposure (the server also demands
-// a 'standard' confirmation level). 'location_dial' asks before a veto-window or
+// 'exposure_expansion' asks before loosening any trust dial (the server also
+// demands a 'standard' confirmation level). 'location_dial' asks before a veto-window or
 // cap change creates a location override row: that row shadows the account
 // threshold with NULL, silently switching the location to manual approval — the
 // owner must opt in before the write happens.
 type PendingConfirmation =
-  | { kind: 'threshold_expansion'; request: AutoApprovalPatchRequest; label: string }
-  | { kind: 'location_dial'; request: AutoApprovalPatchRequest; label: string };
+  | { kind: 'exposure_expansion'; request: AutoApprovalPatchRequest; label: string }
+  | {
+      kind: 'location_dial';
+      request: AutoApprovalPatchRequest;
+      label: string;
+    };
 
 type SelectValue = 'inherit' | 'manual' | `${AutoApprovalThreshold}`;
 
@@ -153,17 +165,24 @@ export function AutoApprovalClient({ initialState }: Props) {
   function requestChange(
     request: AutoApprovalPatchRequest,
     key: string,
-    before: AutoApprovalThreshold | null,
-    after: AutoApprovalThreshold | null,
+    before: PolicyExposure,
+    after: PolicyExposure,
     label: string,
+    completeDisable = false,
   ) {
-    if (!isThresholdExpansion(before, after)) {
+    const actualCompleteDisable = completeDisable
+      && before.threshold !== null
+      && after.threshold === null;
+    if (
+      classifyPolicyExposure(before, after, { completeDisable: actualCompleteDisable })
+      !== 'expansion'
+    ) {
       void sendPatch(request, key);
       return;
     }
     dispatch({
       type: 'set_pending_confirmation',
-      pending: { kind: 'threshold_expansion', request, label },
+      pending: { kind: 'exposure_expansion', request, label },
     });
   }
 
@@ -173,11 +192,28 @@ export function AutoApprovalClient({ initialState }: Props) {
    * needs the owner's explicit confirmation first; account-scope changes and
    * locations that already have an override row submit directly.
    */
-  function requestDialChange(request: AutoApprovalPatchRequest, location?: AutoApprovalLocationSettings) {
+  function requestDialChange(
+    request: AutoApprovalPatchRequest,
+    before: PolicyExposure,
+    after: PolicyExposure,
+    location?: AutoApprovalLocationSettings,
+  ) {
     if (location && !location.override.exists) {
       dispatch({
         type: 'set_pending_confirmation',
         pending: { kind: 'location_dial', request, label: location.displayName },
+      });
+      return;
+    }
+    const expansion = classifyPolicyExposure(before, after) === 'expansion';
+    if (expansion) {
+      dispatch({
+        type: 'set_pending_confirmation',
+        pending: {
+          kind: 'exposure_expansion',
+          request,
+          label: location?.displayName ?? 'the account default',
+        },
       });
       return;
     }
@@ -191,7 +227,7 @@ export function AutoApprovalClient({ initialState }: Props) {
     void sendPatch(
       pending.request,
       requestKey(pending.request),
-      pending.kind === 'threshold_expansion' ? 'standard' : undefined,
+      pending.kind === 'exposure_expansion' ? 'standard' : undefined,
     );
   }
 
@@ -248,9 +284,10 @@ export function AutoApprovalClient({ initialState }: Props) {
               requestChange(
                 request,
                 'account',
-                data.accountDefault.threshold,
-                threshold,
+                policyExposure(data.accountDefault),
+                { ...policyExposure(data.accountDefault), threshold },
                 'the account default',
+                threshold === null,
               );
             }}
           >
@@ -278,7 +315,12 @@ export function AutoApprovalClient({ initialState }: Props) {
             ariaLabel="Account default veto window"
             value={data.accountDefault.vetoWindowMinutes}
             disabled={accountSaving}
-            onChange={(minutes) => requestDialChange({ operation: 'set_account_veto_window', minutes })}
+            expansionBlocked={!data.readiness.canExpand}
+            onChange={(minutes) => requestDialChange(
+              { operation: 'set_account_veto_window', minutes },
+              policyExposure(data.accountDefault),
+              { ...policyExposure(data.accountDefault), vetoWindowMinutes: minutes },
+            )}
           />
           <DailyCapField
             key={`account-cap-${capDraftEpoch}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
@@ -286,7 +328,12 @@ export function AutoApprovalClient({ initialState }: Props) {
             storedCap={data.accountDefault.dailyAutoPostCap}
             effectiveDailyCap={data.accountDefault.effectiveDailyCap}
             disabled={accountSaving}
-            onCommit={(cap) => requestDialChange({ operation: 'set_account_daily_cap', cap })}
+            expansionBlocked={!data.readiness.canExpand}
+            onCommit={(cap) => requestDialChange(
+              { operation: 'set_account_daily_cap', cap },
+              policyExposure(data.accountDefault),
+              { ...policyExposure(data.accountDefault), dailyAutoPostCap: cap },
+            )}
             onDiscardDraft={() => dispatch({ type: 'discard_cap_draft' })}
           />
         </div>
@@ -308,13 +355,21 @@ export function AutoApprovalClient({ initialState }: Props) {
             <LocationPolicyRow
               key={location.locationId}
               location={location}
-              accountThreshold={data.accountDefault.threshold}
+              accountPolicy={data.accountDefault}
               canExpand={data.readiness.canExpand}
               saving={savingKey === location.locationId}
               capDraftEpoch={capDraftEpoch}
-              onRequestChange={(request, before, after) =>
-                requestChange(request, location.locationId, before, after, location.displayName)}
-              onRequestDial={(request) => requestDialChange(request, location)}
+              onRequestChange={(request, before, after, completeDisable) =>
+                requestChange(
+                  request,
+                  location.locationId,
+                  before,
+                  after,
+                  location.displayName,
+                  completeDisable,
+                )}
+              onRequestDial={(request, before, after) =>
+                requestDialChange(request, before, after, location)}
               onDiscardCapDraft={() => dispatch({ type: 'discard_cap_draft' })}
             />
           ))}
@@ -328,7 +383,7 @@ export function AutoApprovalClient({ initialState }: Props) {
         <p style={{ fontSize: 13, color: '#DC2626', marginTop: -8 }}>{saveError}</p>
       )}
 
-      {pendingConfirmation?.kind === 'threshold_expansion' && (
+      {pendingConfirmation?.kind === 'exposure_expansion' && (
         <SettingsModal
           title="Confirm auto-approval change"
           closeLabel="Cancel auto-approval change"
@@ -387,7 +442,7 @@ export function AutoApprovalClient({ initialState }: Props) {
 
 function LocationPolicyRow({
   location,
-  accountThreshold,
+  accountPolicy,
   canExpand,
   saving,
   capDraftEpoch,
@@ -396,16 +451,21 @@ function LocationPolicyRow({
   onDiscardCapDraft,
 }: {
   location: AutoApprovalLocationSettings;
-  accountThreshold: AutoApprovalThreshold | null;
+  accountPolicy: AutoApprovalPolicyApiState;
   canExpand: boolean;
   saving: boolean;
   capDraftEpoch: number;
   onRequestChange: (
     request: AutoApprovalPatchRequest,
-    before: AutoApprovalThreshold | null,
-    after: AutoApprovalThreshold | null,
+    before: PolicyExposure,
+    after: PolicyExposure,
+    completeDisable: boolean,
   ) => void;
-  onRequestDial: (request: AutoApprovalPatchRequest) => void;
+  onRequestDial: (
+    request: AutoApprovalPatchRequest,
+    before: PolicyExposure,
+    after: PolicyExposure,
+  ) => void;
   onDiscardCapDraft: () => void;
 }) {
   const value = location.override.exists
@@ -414,8 +474,10 @@ function LocationPolicyRow({
 
   // GET/PATCH symmetry: the server 409s expansions for a suspended location
   // (not just a suspended account default), so a location-suspended row must
-  // not offer them either. Contractions and dial changes stay enabled.
+  // not offer them either. Contraction controls remain available.
   const expansionBlocked = !canExpand || location.effective.suspended;
+  const beforeExposure = policyExposure(location.effective);
+  const accountExposure = policyExposure(accountPolicy);
 
   return (
     <div className="auto-policy-location-row">
@@ -445,22 +507,44 @@ function LocationPolicyRow({
         disabled={saving}
         onChange={(event) => {
           const selected = event.target.value as SelectValue;
-          const after = selected === 'inherit'
-            ? accountThreshold
-            : thresholdFromValue(selected);
+          const after = locationExposureAfterSelection(
+            location,
+            accountPolicy,
+            selected,
+          );
           const request = locationRequest(location.locationId, selected);
-          onRequestChange(request, location.effective.threshold, after);
+          onRequestChange(
+            request,
+            beforeExposure,
+            after,
+            after.threshold === null,
+          );
         }}
       >
         <option
           value="inherit"
-          disabled={isThresholdExpansion(location.effective.threshold, accountThreshold) && expansionBlocked}
+          disabled={
+            classifyPolicyExposure(beforeExposure, accountExposure, {
+              completeDisable:
+                beforeExposure.threshold !== null
+                && accountExposure.threshold === null,
+            }) === 'expansion' && expansionBlocked
+          }
         >
           Inherit account default
         </option>
         {THRESHOLD_OPTIONS.map((option) => {
           const optionValue = thresholdSelectValue(option.value);
-          const expands = isThresholdExpansion(location.effective.threshold, option.value);
+          const after = locationExposureAfterSelection(
+            location,
+            accountPolicy,
+            optionValue,
+          );
+          const expands = classifyPolicyExposure(beforeExposure, after, {
+            completeDisable:
+              beforeExposure.threshold !== null
+              && option.value === null,
+          }) === 'expansion';
           return (
             <option
               key={optionValue}
@@ -477,8 +561,15 @@ function LocationPolicyRow({
           ariaLabel={`Veto window for ${location.displayName}`}
           value={location.effective.vetoWindowMinutes}
           disabled={saving}
-          onChange={(minutes) =>
-            onRequestDial({ operation: 'set_location_veto_window', locationId: location.locationId, minutes })}
+          expansionBlocked={location.override.exists && expansionBlocked}
+          onChange={(minutes) => onRequestDial(
+            { operation: 'set_location_veto_window', locationId: location.locationId, minutes },
+            beforeExposure,
+            {
+              ...locationDialSeed(location, accountPolicy),
+              vetoWindowMinutes: minutes,
+            },
+          )}
         />
         <DailyCapField
           key={`location-cap-${capDraftEpoch}-${location.override.dailyAutoPostCap ?? 'default'}`}
@@ -491,8 +582,12 @@ function LocationPolicyRow({
           storedCap={location.override.dailyAutoPostCap}
           effectiveDailyCap={location.effective.effectiveDailyCap}
           disabled={saving}
-          onCommit={(cap) =>
-            onRequestDial({ operation: 'set_location_daily_cap', locationId: location.locationId, cap })}
+          expansionBlocked={location.override.exists && expansionBlocked}
+          onCommit={(cap) => onRequestDial(
+            { operation: 'set_location_daily_cap', locationId: location.locationId, cap },
+            beforeExposure,
+            { ...locationDialSeed(location, accountPolicy), dailyAutoPostCap: cap },
+          )}
           onDiscardDraft={onDiscardCapDraft}
         />
       </div>
@@ -504,11 +599,13 @@ function VetoWindowField({
   ariaLabel,
   value,
   disabled,
+  expansionBlocked,
   onChange,
 }: {
   ariaLabel: string;
   value: VetoWindowMinutes;
   disabled: boolean;
+  expansionBlocked: boolean;
   onChange: (minutes: VetoWindowMinutes) => void;
 }) {
   return (
@@ -525,8 +622,24 @@ function VetoWindowField({
           onChange(minutes);
         }}
       >
-        <option value="15">15 minutes</option>
-        <option value="30">30 minutes</option>
+        <option
+          value="15"
+          disabled={
+            expansionBlocked
+            && classifyVetoWindowExposure(value, 15) === 'expansion'
+          }
+        >
+          15 minutes
+        </option>
+        <option
+          value="30"
+          disabled={
+            expansionBlocked
+            && classifyVetoWindowExposure(value, 30) === 'expansion'
+          }
+        >
+          30 minutes
+        </option>
       </select>
       <span className="field-hint">
         How long an auto-approved reply waits before posting, so you can still cancel it.
@@ -545,6 +658,7 @@ function DailyCapField({
   storedCap,
   effectiveDailyCap,
   disabled,
+  expansionBlocked,
   onCommit,
   onDiscardDraft,
 }: {
@@ -552,6 +666,7 @@ function DailyCapField({
   storedCap: number | null;
   effectiveDailyCap: number;
   disabled: boolean;
+  expansionBlocked: boolean;
   onCommit: (cap: number | null) => void;
   onDiscardDraft: () => void;
 }) {
@@ -571,6 +686,13 @@ function DailyCapField({
     const normalized = normalizeCapDraft(draft);
     setDraft(normalized === null ? '' : String(normalized));
     if (normalized === storedCap) return;
+    if (
+      expansionBlocked
+      && classifyDailyCapExposure(storedCap, normalized) === 'expansion'
+    ) {
+      onDiscardDraft();
+      return;
+    }
     onCommit(normalized);
   }
 
@@ -625,6 +747,37 @@ function ReadinessBlock({ copy }: { copy: string[] }) {
       </div>
     </div>
   );
+}
+
+function policyExposure(policy: Pick<
+  AutoApprovalPolicyApiState,
+  'threshold' | 'vetoWindowMinutes' | 'dailyAutoPostCap'
+>): PolicyExposure {
+  return {
+    threshold: policy.threshold,
+    vetoWindowMinutes: policy.vetoWindowMinutes,
+    dailyAutoPostCap: policy.dailyAutoPostCap,
+  };
+}
+
+function locationDialSeed(
+  location: AutoApprovalLocationSettings,
+  accountPolicy: AutoApprovalPolicyApiState,
+): PolicyExposure {
+  if (location.override.exists) return policyExposure(location.effective);
+  return { ...policyExposure(accountPolicy), threshold: null };
+}
+
+function locationExposureAfterSelection(
+  location: AutoApprovalLocationSettings,
+  accountPolicy: AutoApprovalPolicyApiState,
+  selected: SelectValue,
+): PolicyExposure {
+  if (selected === 'inherit') return policyExposure(accountPolicy);
+  return {
+    ...locationDialSeed(location, accountPolicy),
+    threshold: thresholdFromValue(selected),
+  };
 }
 
 function thresholdSelectValue(threshold: AutoApprovalThreshold | null): SelectValue {

@@ -52,8 +52,14 @@ export interface EffectiveAutoApprovalPolicy {
   suspended: boolean;
 }
 
+export type PolicyExposureClassification =
+  | 'expansion'
+  | 'contraction'
+  | 'no_change';
+
 export type AutoApprovalReadinessBlockReason =
   | 'auto_approval_disabled'
+  | 'autopilot_unavailable'
   | 'provider_moderation_disabled'
   | 'provider_moderation_not_validated'
   | 'subscription_not_writable'
@@ -149,9 +155,9 @@ export const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
     locationId: z.uuid(),
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
   }),
-  // Dial operations (spec §2.10). Not exposure expansions — only threshold
-  // loosening expands — so they never require a confirmation level, but the
-  // optional field is kept for uniformity with the rest of the union.
+  // Dial operations (WS8 §4.3): veto shortening and cap raising/removal are
+  // exposure expansions and require `standard`; contractions and exact no-ops
+  // do not. The optional field preserves that one-operation PATCH shape.
   z.strictObject({
     operation: z.literal('set_account_veto_window'),
     minutes: VetoWindowMinutesSchema,

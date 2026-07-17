@@ -47,7 +47,7 @@ const {
     if (/subscription_activated_at[\s\S]*FROM businesses b[\s\S]*JOIN accounts a/.test(raw)) {
       return Promise.resolve([{
         subscription_status: 'active',
-        subscription_tier: 'standard',
+        subscription_tier: 'copilot',
         subscription_activated_at: txScenario.accountSubscriptionActivatedAt,
       }]);
     }
@@ -244,7 +244,7 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
         (value as { business_id?: string }).business_id === SECONDARY_LOCATION_ID,
     ) as { subscription_tier?: string; subscription_activated_at?: string } | undefined;
     expect(payload).toMatchObject({
-      subscription_tier: 'standard',
+      subscription_tier: 'copilot',
       subscription_activated_at: '2026-05-01T00:00:00.000Z',
     });
   });

@@ -19,10 +19,10 @@ describe('ContactContent', () => {
     expect(html).toContain('href="mailto:security@repworth.net"');
   });
 
-  it('preserves the response targets and help topics copy', () => {
+  it('describes current-plan support without unsupported tier-specific SLAs', () => {
     const html = renderToStaticMarkup(createElement(ContactContent));
-    expect(html).toContain('Basic and Founders: we aim to respond within 24 business hours');
-    expect(html).toContain('Premium: we aim to respond within 2 business hours');
+    expect(html).toContain('Copilot and Autopilot support is available');
+    expect(html).not.toContain('business hours');
     expect(html).toContain('Importing locations by CSV');
   });
 

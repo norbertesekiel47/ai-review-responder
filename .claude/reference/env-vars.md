@@ -93,7 +93,9 @@ are NEVER gated.
 **Required when on:**
 - `REDIS_CACHE_URL`
 - `NEXT_PUBLIC_APP_URL`
-- `STRIPE_PAYMENT_LINK_STARTER` + `STRIPE_PAYMENT_LINK_PREMIUM`
+- all six Copilot/Autopilot `STRIPE_PRICE_*` variables listed under Stripe
+- strict UTC `FOUNDING_DEADLINE` and the required positive Copilot/Autopilot
+  cost ceilings
 - Worker startup assertion fails without these.
 
 **Supabase email template requirements:**
@@ -204,46 +206,64 @@ the flag is consumed through three helpers in
 `src/lib/locations/multi-location-mode.ts`:
 - `shouldShowLocationsSettings(flag)` — visibility. The Locations tab +
   `/settings/locations` now appear whenever the flag is ON, **even for
-  one-location accounts** (so a freshly-paid Standard/Premium owner can add
+  one-location accounts** (so a freshly-paid Copilot/Autopilot owner can add
   their second location).
 - `shouldUseMultiLocationSettings(flag, count)` — true multi-location MODE
   (`count > 1`). Drives the switcher, aggregate scope, and the
   Voice/Notifications multi-loc content. `/settings/voice` stays gated on
   this; single-location Brand Voice links to `/settings#brand-voice`.
 - `canAddLocationForAccount(flag, tier, status)` — eligibility (flag +
-  `status === active` + `multiLocAllowed`). Basic resolves to a locked
-  upgrade panel on `/settings/locations` (no add-location link, no API call).
+  `subscriptionGrantsFullAccess(status)` + launch-tier multi-location access).
+  Both Copilot and Autopilot support paid extra locations; `trialing` retains
+  full access.
 
 Server-authoritative. Schema (migrations 034–041) ships on regardless
 of the flag — flipping the flag only exposes the user surface. The
 `accounts` table is populated for every business either way.
 
-**Required when on:**
-- `STRIPE_PRICE_STANDARD_OVERAGE`
-- `STRIPE_PRICE_PREMIUM_OVERAGE`
-- `STRIPE_PRICE_FOUNDERS_OVERAGE` (when founders tier is in use)
-  Each is the Stripe Price ID for the per-extra-location overage line
-  on the corresponding tier. The `UpdateStripeOverageWorker` reads
-  these via `getOveragePriceId(tier)` and refuses to run otherwise.
+**Required when on:** `STRIPE_PRICE_COPILOT_OVERAGE` and
+`STRIPE_PRICE_AUTOPILOT_OVERAGE`. `UpdateStripeOverageWorker` resolves them
+through the variant-aware Price map and refuses to run when configuration is
+missing.
 
 **Tier configuration** (`src/lib/accounts/tier-config.ts`):
 
 | Tier | Base | Included | Overage / extra | Multi-loc |
 |---|---|---|---|---|
-| basic | $29 | 1 | n/a | No |
-| standard | $79 | 1 | $25 | Yes |
-| premium | $199 | 5 | $20 | Yes |
-| founders | $19 | 1 | $25 | Yes |
+| Copilot list / founding | $29 / $19 | 1 | $15 | Yes |
+| Autopilot list / founding | $69 / $49 | 1 | $20 | Yes |
 
-Source of truth: `src/lib/accounts/tier-config.ts` (`TIER_CONFIG`). Values above verified against the live file (2026-05-27). Note: billing snapshot reads `accounts.locations_included`, `accounts.locations_overage_price_cents`, and `accounts.base_price_cents` (stored, grandfathered via migration 054) — not live `TIER_CONFIG` (invariant #9a).
+Source of truth: `src/lib/accounts/tier-config.ts`. New-account and tier-change
+writes resolve `(subscription_tier, price_variant)` once, then persist the
+complete snapshot. Billing reads `accounts.locations_included`,
+`accounts.locations_overage_price_cents`, and `accounts.base_price_cents`; it
+never re-derives historical charges from the live registry (invariant #9a).
 
 **Price-change procedure** (new customers pay new prices; existing customers keep theirs — grandfathered):
 
-1. Create a **new** Stripe Price (Prices are immutable — you never edit `unit_amount`) with the new amount (+ `tax_behavior='exclusive'` if Tax is on).
-2. Point the `STRIPE_PRICE_*` env var → the new ID in **dev + staging + prod lockstep** (`startup-assert.ts` enforces presence of all 7).
-3. Update `TIER_CONFIG` cents to match the new Price.
-4. Run `pnpm verify:stripe-prices` against staging, then prod — must pass.
-5. Existing customers are unaffected (grandfathered via the stored `accounts` snapshot); only new signups + tier-changers get the new price. Repricing *existing* customers is a separate cohort migration + ARL §17602(g) fee-change notice (out of scope).
+1. Create a **new** Stripe Price (Prices are immutable — you never edit
+   `unit_amount`) with the new amount (+ `tax_behavior='exclusive'` if Tax is
+   on). Leave every outgoing overage Price active.
+2. Prepare one release that adds the outgoing Price ID to the typed
+   `RETAINED_STRIPE_PRICE_HISTORY` registry in
+   `src/lib/payments/price-tier-map.ts` (including base/overage kind, tier, and
+   base variant; overage entries also record immutable `unitAmountCents`) and
+   updates `TIER_CONFIG` to the new cents. Do not serve billing traffic from a
+   mixed old-code/new-env or new-code/old-env state.
+3. Quiesce Checkout, tier changes, and overage workers for the target
+   environment. Drain in-flight billing mutations before changing code or env.
+4. While quiesced, point the appropriate `STRIPE_PRICE_*` env var to the new ID
+   and deploy the prepared release. Wait for old instances to drain completely.
+   Never rotate all environments as one unverified action.
+5. Still quiesced, run `pnpm verify:stripe-prices`. It verifies all six live
+   Prices plus every retained overage Price (active, exact recorded cents, USD,
+   monthly interval, and Tax shape). Any mismatch is a hard no-resume blocker.
+6. Resume billing only after parity passes; repeat staging first, then
+   production.
+7. Existing customers are unaffected (grandfathered via the stored `accounts`
+   snapshot); only new signups + tier-changers get the new price. Repricing
+   *existing* customers is a separate cohort migration + ARL §17602(g)
+   fee-change notice (out of scope).
 
 **Stripe model:** one subscription per account, two subscription
 items — base price (qty 1) + overage price (qty = active locations
@@ -295,10 +315,31 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 |---|---|
 | `STRIPE_SECRET_KEY` | Server-only Stripe API key |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification (Railway ingress) |
-| `STRIPE_PAYMENT_LINK_STARTER` | Payment Link URL for Starter plan |
-| `STRIPE_PAYMENT_LINK_PREMIUM` | Payment Link URL for Premium plan |
-| `STRIPE_PRICE_STARTER` | Stripe Price ID for Starter |
-| `STRIPE_PRICE_PREMIUM` | Stripe Price ID for Premium |
+| `STRIPE_PRICE_COPILOT_LIST` | Immutable USD monthly Copilot list base Price; exactly 2900 cents |
+| `STRIPE_PRICE_COPILOT_FOUNDING` | Immutable USD monthly Copilot founding base Price; exactly 1900 cents |
+| `STRIPE_PRICE_AUTOPILOT_LIST` | Immutable USD monthly Autopilot list base Price; exactly 6900 cents |
+| `STRIPE_PRICE_AUTOPILOT_FOUNDING` | Immutable USD monthly Autopilot founding base Price; exactly 4900 cents |
+| `STRIPE_PRICE_COPILOT_OVERAGE` | Immutable USD monthly Copilot extra-location Price; exactly 1500 cents |
+| `STRIPE_PRICE_AUTOPILOT_OVERAGE` | Immutable USD monthly Autopilot extra-location Price; exactly 2000 cents |
+| `FOUNDING_DEADLINE` | Exact launch value `2027-01-01T00:00:00Z`. Parsed as strict UTC; founding eligibility is exactly `now() < deadline`. Missing/malformed fails closed to list pricing and emits an operational alert. |
+
+All six launch IDs are required, unique, active, USD, and monthly recurring.
+When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.
+`pnpm verify:stripe-prices` validates that provider shape without checking an
+invented metadata convention. Existing Prices are immutable: any commercial
+price change creates a new Stripe Price, while every still-referenced ID remains
+resolvable.
+
+During the WS8 rollback window, deployment configuration must also retain these
+seven old Price IDs, although strict WS8 runtime code does not read them:
+`STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
+`STRIPE_PRICE_FOUNDERS_OVERAGE`, `STRIPE_PRICE_STANDARD`,
+`STRIPE_PRICE_STANDARD_OVERAGE`, `STRIPE_PRICE_PREMIUM`, and
+`STRIPE_PRICE_PREMIUM_OVERAGE`. The provider-wide
+`pnpm ws8:stripe-preflight` command reads this retained set only to identify and
+block open legacy-Price Checkout Sessions. Remove them only after the rollback
+window closes. The only executable cutover order and rollback boundaries are in
+[`docs/runbooks/ws8-tier-cutover.md`](../../docs/runbooks/ws8-tier-cutover.md).
 
 ---
 
@@ -371,21 +412,21 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 
 ---
 
-## Cost Ceilings (all optional; defaults in code)
+## Cost Ceilings
 
 Daily LLM/external spend caps enforced by the cost-guard (`src/lib/costs/tracker.ts`).
 A reservation precedes every LLM call, so these caps are spend-safe; **exceeding a
 cap is TERMINAL** (the draft is dropped) and now also emits a Sentry alert
 (`cost_event:limit_exceeded`, from `generate-draft.ts`) so dropped paid work is
-never silent (beta-launch gate B3). Set explicit **production** values — the
-in-code defaults are dev-scale.
+never silent (beta-launch gate B3). WS8 requires explicit operator-approved,
+positive-integer per-tier values before strict code boots; there are no legacy
+tier mappings and no invented defaults.
 
 | Var | Default | Notes |
 |---|---|---|
 | `GLOBAL_DAILY_COST_LIMIT_CENTS` | `10000` ($100/day) | Platform-wide shared daily ceiling, checked against the 15¢ pessimistic reserve. A single fairness-free counter — size it well above plausible concurrent fleet reserves (re-dimensioning / non-terminal redesign tracked in the worker-scaling backlog). |
-| `DAILY_COST_LIMIT_CENTS_FOUNDING` | `500` | Per-business daily ceiling, founding/founders tier. |
-| `DAILY_COST_LIMIT_CENTS_STANDARD` | `1000` | Per-business daily ceiling, standard tier. |
-| `DAILY_COST_LIMIT_CENTS_PREMIUM` | `2000` | Per-business daily ceiling, premium tier. |
+| `DAILY_COST_LIMIT_CENTS_COPILOT` | **Required; no default** | Positive-integer per-account Copilot ceiling. `price_variant` does not change it. Missing/malformed configuration fails the owning worker/server config gate. |
+| `DAILY_COST_LIMIT_CENTS_AUTOPILOT` | **Required; no default** | Positive-integer per-account Autopilot ceiling. Operator supplies the amount; do not derive it from an old tier. |
 
 (The onboarding-demo lane has its own separate ceiling — see `ONBOARDING_DEMO_DAILY_CENTS` below.)
 
@@ -433,12 +474,13 @@ in-code defaults are dev-scale.
 | Flag | Status | Prerequisite |
 |---|---|---|
 | `RANKING_TRACKING_ENABLED` | Off | Enable when ranking worker is ready |
-| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + Stripe payment links configured |
+| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + six Stripe Prices + required deadline/cost configuration |
 | `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
 | `ZERNIO_PUBLISHING_ENABLED` | **ON (prod, 2026-04-28)** | Migrations 026+028+029+030 applied |
 | `AUTO_APPROVAL_ENABLED` | Off | Server-only kill switch for the auto-approval runtime path. `false`/unset means generated drafts stay on normal owner review; any unposted `approval_method='auto_policy'` publish job is downgraded back to `pending_approval` and not posted. `true` permits auto-approval only for `live_ingest_new` v1 jobs that pass current review hash, active location/connection, subscription, policy threshold, and provider moderation gates. **WS4 (spec §2.12): the flag now ALSO governs the whole veto-window lane** — candidate evaluation, the delayed `publish_response` enqueue (`available_at = NOW() + veto_window_minutes`), the `pending_post_notice` send-time re-check (`PendingPostNoticeWorker` completes without sending when off), and the publisher's downgrade backstop (which also catches responses caught mid-window by a kill-switch flip). No new WS4 flags — everything rides this one. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
+| `AUTOPILOT_PURCHASABLE` | Off | Server-only commercial and policy-expansion gate. Effective purchasability is exactly this flag **AND** `autoApprovalRuntimeEnabled()`; closing either side blocks new Autopilot Checkout and autonomy-expanding trust-dial edits, while contractions remain allowed. Keep `false` throughout the WS8 data/code cutover. Independent authorization to set `true` requires WS4/migration 074 live, WS6/migration 076 live, WS7 eval green, documented cadence limits, and `AUTO_APPROVAL_ENABLED=true`; the composed runtime remains the live backstop. No `NEXT_PUBLIC_*` companion. |
 | `JUDGE_ENABLED` | Off | **Server-only WS6 safety kill switch**, read through `readFlag` by `judgeEnabled()`. `false`/unset stops the judge sweep and JudgeWorker before work; the publisher also treats the judge as unavailable and downgrades every unposted `auto_policy` response to owner review. Therefore `AUTO_APPROVAL_ENABLED=true` **requires** `JUDGE_ENABLED=true` for auto-posting to proceed. Worker startup accepts only exact `true`/`false`. No `NEXT_PUBLIC_*` companion. Roll out staging first after migration 076: enable `JUDGE_ENABLED` with `GOVERNOR_ENABLED`, smoke an auto-post→verdict and forced-flag suspension→admin-unsuspend drill, then leave production off until the ordered Autopilot go-live flip (`TRIAGE_ENABLED` → `ESCALATION_ENABLED` → WS6 flags with `AUTO_APPROVAL_ENABLED`). |
 | `GOVERNOR_ENABLED` | Off | **Server-only WS6 scheduler kill switch**, read through `readFlag` by `governorEnabled()`. `false`/unset stops the account-level autonomy governor; it does not resume suspended policies. Worker startup accepts only exact `true`/`false`. No `NEXT_PUBLIC_*` companion. Enable in staging together with `JUDGE_ENABLED` after migration 076 and the suspension drill; keep production off until the same ordered Autopilot go-live flip. |
 | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | Off | Server-only ops readiness marker after target-environment provider moderation validation. This does not by itself enable runtime auto-approval; `OPENAI_MODERATION_ENABLED=true` and a clean provider result are runtime gates, while this marker gates settings expansion/readiness. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |

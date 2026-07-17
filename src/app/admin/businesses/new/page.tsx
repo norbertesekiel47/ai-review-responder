@@ -32,7 +32,6 @@ export default function NewBusinessPage() {
     resolver: zodResolver(FormSchema),
     defaultValues: {
       tone: 'professional and friendly',
-      subscriptionTier: 'founders',
     },
   });
   const { errors } = formState;

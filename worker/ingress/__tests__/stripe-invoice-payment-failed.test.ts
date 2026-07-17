@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 
 /**
  * invoice.payment_failed handler (worker/ingress/stripe/invoice-payment-failed.ts):
@@ -12,15 +12,20 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // ── Hoisted mocks (shared stripe-webhook harness) ──────────────────
 const {
   mockSql,
+  sqlReturnQueue,
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
   mockWriteAccountAuditLog,
   resetStripeWebhookMocks,
   queueInvoicePaymentFailed,
+  mockRetrieveSubscription,
 } = await vi.hoisted(async () => {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
-  return createStripeWebhookHarness();
+  return {
+    ...createStripeWebhookHarness(),
+    mockRetrieveSubscription: vi.fn(),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -30,6 +35,7 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
     webhooks = { constructEvent: mockConstructEvent };
+    subscriptions = { retrieve: mockRetrieveSubscription };
   },
 }));
 
@@ -48,6 +54,19 @@ afterAll(restoreStripeWebhookEnv);
 
 beforeEach(() => {
   resetStripeWebhookMocks();
+  mockRetrieveSubscription.mockReset();
+  mockRetrieveSubscription.mockResolvedValue({
+    id: TEST_SUBSCRIPTION_ID,
+    customer: TEST_CUSTOMER_ID,
+    status: 'past_due',
+    trial_end: null,
+    metadata: {},
+    items: { data: [] },
+  });
+});
+
+afterEach(() => {
+  expect(sqlReturnQueue).toEqual([]);
 });
 
 describe('invoice.payment_failed — sets account to past_due', () => {
@@ -80,6 +99,8 @@ describe('invoice.payment_failed — sets account to past_due', () => {
         payload: { fromStatus: 'active', toStatus: 'past_due' },
       }),
     );
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 
   it('already past_due → no-op (idempotent)', async () => {
@@ -106,6 +127,8 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     // Log should indicate already past_due
     const logText = consoleSpy.mock.calls.flat().join(' ');
     expect(logText).toMatch(/already/);
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(4);
 
     consoleSpy.mockRestore();
   });
@@ -125,6 +148,8 @@ describe('invoice.payment_failed — sets account to past_due', () => {
     expect(status).toHaveBeenCalledWith(200);
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
     expect(warnedText).toMatch(/missing customer/);
+    expect(mockRetrieveSubscription).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(1);
 
     consoleSpy.mockRestore();
   });
@@ -150,5 +175,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
+    expect(mockRetrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(7);
   });
 });

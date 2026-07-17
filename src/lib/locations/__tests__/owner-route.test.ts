@@ -166,7 +166,7 @@ describe('location owner route helpers', () => {
     }
   });
 
-  it('builds the standard account mismatch response', async () => {
+  it('builds the canonical account mismatch response', async () => {
     const response = ownerAccountMismatchResponse();
 
     expect(response.status).toBe(403);

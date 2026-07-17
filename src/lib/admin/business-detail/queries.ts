@@ -71,6 +71,7 @@ export interface AutoApprovalPolicyRow {
 }
 
 export interface AutoApprovalAccountRow {
+  subscription_tier: string;
   subscription_status: string;
   past_due_at: Date | string | null;
   flags: AccountFlagsInput;
@@ -293,7 +294,7 @@ export async function fetchBusinessDetailBatch2(
       ORDER BY location_id NULLS FIRST
     `,
     sql<AutoApprovalAccountRow[]>`
-      SELECT subscription_status, past_due_at, flags
+      SELECT subscription_tier, subscription_status, past_due_at, flags
       FROM accounts
       WHERE id = ${accountId}
       LIMIT 1

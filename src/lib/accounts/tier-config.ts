@@ -2,12 +2,7 @@
 //
 // Central SubscriptionTier type/const and tier configuration map.
 // Every piece of code that references subscription tier values must use
-// these — never bare string literals like 'standard' or 'founding'.
-//
-// IMPORTANT: The tier previously called 'founding' in the legacy codebase
-// is now 'founders' in the multi-location model. The spec tier table uses
-// 'founders'; the billing system uses STRIPE_PRICE_FOUNDING env var but
-// the application-level enum is 'founders'.
+// these — never bare subscription-tier string literals.
 //
 // Validation contract: VAL-BILLING-028, VAL-BILLING-042.
 
@@ -15,31 +10,53 @@
 // ── Const object (enum-like) ──────────────────────────────────────────────────
 
 export const SubscriptionTier = {
-  BASIC: 'basic',
-  STANDARD: 'standard',
-  PREMIUM: 'premium',
-  FOUNDERS: 'founders',
+  COPILOT: 'copilot',
+  AUTOPILOT: 'autopilot',
 } as const;
 
 // ── Derived type ─────────────────────────────────────────────────────────────
 
+export type PriceVariant = 'list' | 'founding';
+
+const PRICE_VARIANTS = ['list', 'founding'] as const satisfies readonly PriceVariant[];
+
 export type SubscriptionTierValue =
-  (typeof SubscriptionTier)[keyof typeof SubscriptionTier];
+  | typeof SubscriptionTier.COPILOT
+  | typeof SubscriptionTier.AUTOPILOT;
 
 // ── Type guard ───────────────────────────────────────────────────────────────
 
 const ALL_TIERS: readonly string[] = Object.values(SubscriptionTier);
 
-/** Returns true when `value` is one of the four canonical subscription tiers. */
-export function isSubscriptionTier(value: string): value is SubscriptionTierValue {
+/** Returns true when `value` is one of the two paid launch tiers. */
+export function isSubscriptionTier(
+  value: string,
+): value is SubscriptionTierValue {
   return ALL_TIERS.includes(value);
+}
+
+/**
+ * Single authoritative autopilot-entitlement predicate — the tier analogue of
+ * `subscriptionGrantsFullAccess` for status. Every "does this tier permit
+ * autonomous posting?" decision routes through here (2026-07-16 review
+ * finding #6); never compare tiers to `SubscriptionTier.AUTOPILOT` inline.
+ * Deliberately DISTINCT from `autopilotPurchasable()` (tier-purchasability),
+ * which gates NEW purchases only — an existing subscriber keeps entitlement
+ * during a sales pause.
+ */
+export function tierGrantsAutopilot(tier: string | null | undefined): boolean {
+  return tier === SubscriptionTier.AUTOPILOT;
+}
+
+export function isPriceVariant(value: string): value is PriceVariant {
+  return PRICE_VARIANTS.includes(value as PriceVariant);
 }
 
 // ── Tier configuration map ──────────────────────────────────────────────────
 
 export interface TierConfig {
-  /** Monthly base price in cents (e.g. 2900 = $29.00). */
-  baseCents: number;
+  /** Immutable list/founding launch amounts. */
+  baseByVariant: Readonly<Record<PriceVariant, number>>;
   /** Number of locations included in the base price. */
   included: number;
   /** Monthly per-location overage price in cents (0 = no overage allowed). */
@@ -53,34 +70,55 @@ export interface TierConfig {
  * billing parameters. Used by Checkout Session creation, quota checks, and
  * billing snapshot computation.
  *
- * VAL-BILLING-028: all 4 tiers with correct values.
+ * VAL-BILLING-028: both tiers with exact immutable values.
  */
 export const TIER_CONFIG: Record<SubscriptionTierValue, TierConfig> = {
-  basic: {
-    baseCents: 2900,
+  copilot: {
+    baseByVariant: { list: 2900, founding: 1900 },
     included: 1,
-    overageCents: 0,
-    multiLocAllowed: false,
-  },
-  standard: {
-    baseCents: 7900,
-    included: 1,
-    overageCents: 2500,
+    overageCents: 1500,
     multiLocAllowed: true,
   },
-  premium: {
-    baseCents: 19900,
-    included: 5,
+  autopilot: {
+    baseByVariant: { list: 6900, founding: 4900 },
+    included: 1,
     overageCents: 2000,
     multiLocAllowed: true,
   },
-  founders: {
-    baseCents: 1900,
-    included: 1,
-    overageCents: 2500,
-    multiLocAllowed: true,
-  },
 };
+
+export interface ResolvedTierSnapshot {
+  tier: SubscriptionTierValue;
+  variant: PriceVariant;
+  baseCents: number;
+  overageCents: number;
+  included: number;
+}
+
+/**
+ * Canonical write-time billing resolver. Existing-account reads must continue
+ * to use their stored snapshot instead of calling this function.
+ */
+export function resolveTierSnapshot(
+  tier: SubscriptionTierValue,
+  variant: PriceVariant,
+): ResolvedTierSnapshot {
+  if (!isSubscriptionTier(tier)) {
+    throw new Error(`Unknown WS8 subscription tier: ${String(tier)}`);
+  }
+  if (!isPriceVariant(variant)) {
+    throw new Error(`Unknown price variant: ${String(variant)}`);
+  }
+
+  const config = TIER_CONFIG[tier];
+  return {
+    tier,
+    variant,
+    baseCents: config.baseByVariant[variant],
+    overageCents: config.overageCents,
+    included: config.included,
+  };
+}
 
 /**
  * Look up tier config by tier name. Throws for unknown tier values

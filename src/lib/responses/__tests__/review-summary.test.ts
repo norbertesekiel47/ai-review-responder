@@ -110,7 +110,7 @@ describe('generateReviewSummary', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(5), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(5), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     expect(result!.summaryText).toBe(summaryText);
@@ -121,7 +121,7 @@ describe('generateReviewSummary', () => {
 
   it('returns null for empty reviews', async () => {
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, [], 'biz-001');
+    const result = await generateReviewSummary(mockSql, [], 'biz-001', 'copilot');
 
     expect(result).toBeNull();
     expect(openaiCreate).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe('generateReviewSummary', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(50), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(50), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     // The user prompt should reference 30 reviews, not 50
@@ -146,7 +146,7 @@ describe('generateReviewSummary', () => {
     mockModeEnabled = true;
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     expect(result!.provider).toBe('mock');
@@ -162,7 +162,7 @@ describe('generateReviewSummary', () => {
     anthropicCreate.mockResolvedValueOnce(anthropicResponse(summaryText));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     expect(result!.summaryText).toBe(summaryText);
@@ -174,7 +174,7 @@ describe('generateReviewSummary', () => {
     anthropicCreate.mockRejectedValueOnce(new Error('Anthropic down'));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).toBeNull();
   });
@@ -187,7 +187,7 @@ describe('generateReviewSummary', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     expect(result!.summaryText).toBe(summaryText);
@@ -198,10 +198,10 @@ describe('generateReviewSummary', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
 
     const generateReviewSummary = await getSut();
-    await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
-    // Default tier is 'standard' when not specified
-    expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'standard');
+    // Default tier is 'copilot' when not specified
+    expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'copilot');
     expect(mockFinalizeCost).toHaveBeenCalledWith('biz-001', expect.any(Number), '2026-04-14');
     expect(mockReleaseCost).not.toHaveBeenCalled();
   });
@@ -211,7 +211,7 @@ describe('generateReviewSummary', () => {
     anthropicCreate.mockRejectedValueOnce(new Error('Anthropic down'));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).toBeNull();
     expect(mockReleaseCost).toHaveBeenCalledWith('biz-001', '2026-04-14');
@@ -223,7 +223,7 @@ describe('generateReviewSummary', () => {
     mockReserveCost.mockRejectedValueOnce(new CostLimitExceededError('biz-001'));
 
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).toBeNull();
     expect(openaiCreate).not.toHaveBeenCalled();
@@ -239,7 +239,7 @@ describe('generateReviewSummary', () => {
 
     const { recordApiCost } = await import('@/lib/costs/audit');
     const generateReviewSummary = await getSut();
-    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001');
+    const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).not.toBeNull();
     expect(result!.summaryText).toBe(summaryText);

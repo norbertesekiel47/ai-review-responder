@@ -377,7 +377,7 @@ const STEPS = [
     sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
     bullets: [
       'Reacts in near-real-time via webhook, with a ~5-minute safety-net poll',
-      'Multi-location supported on Premium',
+      'Multi-location supported on Copilot and Autopilot',
       'Star rating, reviewer name, and full text captured',
     ],
     Artifact: Step1Artifact,

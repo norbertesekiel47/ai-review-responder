@@ -94,7 +94,7 @@ vi.mock('@/lib/zernio/client', () => ({
 
 // ── Mock ONLY the route auth/csrf/tier seams (NOT the DB) ────────────────────
 // The /retry + /restore-original route handlers gate on same-origin, owner
-// scope, and the premium tier check before their real `sql.begin` tx. None of
+// scope and current paid-tier eligibility before their real `sql.begin` tx. None of
 // those touch the orphan/locking logic under test; stub them so the route's
 // REAL transaction body runs against the real DB with our seeded scope.
 const { mockResolveOwnerScope } = vi.hoisted(() => ({ mockResolveOwnerScope: vi.fn() }));
@@ -189,12 +189,19 @@ async function seedReviewWithExistingReply(): Promise<{
       VALUES (${userId}, 'Edit Int Owner', ${ownerEmail}, 'owner', ${accountId})
     `;
     await tx`
-      INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
-      VALUES (${accountId}, ${userId}, 'Edit Int Account', 'pro', 'active')
+      INSERT INTO accounts (
+        id, owner_user_id, display_name, subscription_tier, price_variant,
+        subscription_status, base_price_cents, locations_overage_price_cents,
+        locations_included, locations_paid
+      )
+      VALUES (
+        ${accountId}, ${userId}, 'Edit Int Account', 'copilot', 'list',
+        'active', 2900, 1500, 1, 0
+      )
     `;
     await tx`
-      INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
-      VALUES (${businessId}, 'Edit Int Biz', 'Edit Int Owner', ${ownerEmail}, ${accountId}, 'active')
+      INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_tier, subscription_status)
+      VALUES (${businessId}, 'Edit Int Biz', 'Edit Int Owner', ${ownerEmail}, ${accountId}, 'copilot', 'active')
     `;
     await tx`
       INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, status)

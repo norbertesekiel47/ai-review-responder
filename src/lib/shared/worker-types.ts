@@ -4,6 +4,7 @@
  *
  * DemoJobPayload lives in src/lib/demos/types.ts (already exists).
  */
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 /**
  * Base interface for all outbox job payloads.
@@ -225,8 +226,8 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
   business_id: string;
   zernio_account_id: string;
   zernio_location_id: string;
-  /** Subscription tier string (forward-compat, use SubscriptionTier.FOUNDERS etc.) */
-  subscription_tier: string;
+  /** Canonical Copilot/Autopilot subscription tier. */
+  subscription_tier: SubscriptionTierValue;
   /** ISO timestamp from accounts.subscription_activated_at */
   subscription_activated_at: string;
   /** Initial connect is one-shot; reactivation catch-up may run after archive/restore. */
@@ -236,6 +237,10 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
 export interface StripeCheckoutReconcilePayload extends BasePayload {
   account_id: string;
   checkout_session_id: string;
+}
+
+export interface StripeSubscriptionMirrorSyncPayload extends BasePayload {
+  account_id: string;
 }
 
 export interface AccountOffboardingBillingSchedulePayload extends BasePayload {
