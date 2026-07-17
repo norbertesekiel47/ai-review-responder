@@ -492,6 +492,18 @@ autopilot_purchasable_verified_at_utc = 2026-07-16T23:49:39Z
   push to `staging` (below) triggers the full-stack redeploy that makes both platforms' restored flags effective.
   **Prod-run note: a Railway variable change alone must never be recorded as "resumed" — require a fresh boot.**
 
+### Resume COMPLETE — 2026-07-16T23:59:25Z
+Evidence commit `10a6838a` pushed to `staging` (b994d3a0..10a6838a) = the full-stack resume redeploy. Verified:
+worker **fresh boot** (`uptime_seconds=147` → restored flags live in-process) · `/api/health` status=ok ·
+`/ready` 200 · Stripe webhook `enabled` · Vercel staging UI serving (302 at `/`). One pre-push finding:
+`ci:static-policy` flagged the driver's bare `'founding'` literals as possible retired-tier usage — resolved with
+a variant-named constant (`FOUNDING_PRICE_VARIANT`) so the audit's PriceVariant exemption applies; audit passed
+(943 files).
+
+**resume_recorded_at_utc = 2026-07-16T23:59:25Z.
+STAGING CUTOVER PHASES 1–7 COMPLETE. Next gate: owner acceptance of this evidence record, then production
+phases 1–5 (nothing started), then merge PR #469 (= prod deploy), then prod smoke → prod 078 → prod resume.**
+
 **Fixture debt:** disposable `@ws8smoke.invalid` accounts and their open test Sessions remain on staging. They do
 not block preflight (new Prices, correctly projected, no nonterminal subscriptions), but
 `ws8-staging-smoke.ts cleanup` MUST run before phase 7 and a `--require-status-convergence` gate must be re-run
