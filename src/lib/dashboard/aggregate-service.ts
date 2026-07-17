@@ -19,6 +19,7 @@ import {
   DEFAULT_DASHBOARD_WINDOW,
 } from '@/lib/kpi/types';
 import { mapRecentReviews } from './active-mappers';
+import { widgetOrFallback } from './service';
 import { sumRatingBreakdowns } from './rating-breakdown';
 import {
   fetchPerLocationAggregateSlices,
@@ -115,8 +116,12 @@ async function buildAggregateDashboardData(
   accountId: string,
   window: DashboardWindow,
 ): Promise<AggregateDashboardData> {
-  const [locations, accountRows] = await Promise.all([
-    getLocationsForAccount(sql, accountId),
+  // P10 (plan R2): the locations-list query stays FATAL — an aggregate over
+  // unknown locations is meaningless (the analog of the business lookup in
+  // getActiveDashboardData). The billing query degrades: its `??` defaults
+  // below already render a sane KPI strip without it.
+  const locationsPromise = getLocationsForAccount(sql, accountId);
+  const accountSettledPromise = Promise.allSettled([
     // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
     // A location's KPI shows "Billing update pending" when the Stripe overage
     // webhook has not yet confirmed the quantity update (i.e., the active
@@ -129,6 +134,14 @@ async function buildAggregateDashboardData(
       FROM accounts WHERE id = ${accountId}::uuid
     `,
   ]);
+  const locations = await locationsPromise;
+  const [accountRowsSettled] = await accountSettledPromise;
+  const accountRows = widgetOrFallback(
+    accountRowsSettled,
+    [] as { locations_included: number; locations_paid: number }[],
+    'accountBillingRows',
+    { accountId },
+  );
   const [accountRow] = accountRows;
   const locationsIncluded = accountRow?.locations_included ?? 1;
   const locationsPaid = accountRow?.locations_paid ?? 0;
@@ -161,10 +174,23 @@ async function buildAggregateDashboardData(
   // assembled from the per-location slices exactly as before — only the fetch
   // layer changed, so the output is byte-identical (bar the two signed-off
   // deltas: windowed currentResponseRate, and partialFailures removed).
-  const [slices, recentReviews] = await Promise.all([
-    fetchPerLocationAggregateSlices(sql, accountId, window),
+  // P10 on the #476 set-based shape: the slice wave is atomic — it IS the
+  // aggregate view (every widget derives from it), so like the locations list
+  // it stays FATAL; degrading it to empty slices would render an all-zeros
+  // dashboard that misreports the business. The account-wide recent-reviews
+  // feed is an independent widget and degrades to an empty feed, reported.
+  const slicesPromise = fetchPerLocationAggregateSlices(sql, accountId, window);
+  const recentReviewsSettledPromise = Promise.allSettled([
     getAccountRecentReviews(sql, accountId),
   ]);
+  const slices = await slicesPromise;
+  const [recentReviewsSettled] = await recentReviewsSettledPromise;
+  const recentReviews = widgetOrFallback(
+    recentReviewsSettled,
+    [] as AggregateReviewItem[],
+    'accountRecentReviews',
+    { accountId },
+  );
 
   const sliceFor = (locationId: string): PerLocationAggregateSlice =>
     slices.get(locationId) ?? EMPTY_SLICE;
