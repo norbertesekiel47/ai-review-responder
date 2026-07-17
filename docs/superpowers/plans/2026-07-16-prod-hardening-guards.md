@@ -33,28 +33,28 @@ Append to the existing `describe` block in `worker/jobs/zernio/__tests__/ingest-
 
 ```ts
 describe('last-resort crash guard', () => {
-  it('resolves without rejecting when the review_exceptions INSERT throws, captures to Sentry, and best-effort fails the outbox row', async () => {
-    // First sql call (the INSERT inside handleReviewNotFound) rejects.
-    mockSql.mockImplementationOnce(() => Promise.reject(new Error('pgbouncer down')));
-    const job = makeJob();
+  // NON-coupled path (generic-error branch, bare markOutboxFailed): the crash
+  // guard MAY best-effort-fail the row. (Coupled-tx behavior is tested below.)
+  it('captures to Sentry and best-effort fails the row when the generic-branch markOutboxFailed throws', async () => {
+    mockMarkOutboxFailed
+      .mockRejectedValueOnce(new Error('pgbouncer down')) // generic-branch mark
+      .mockResolvedValueOnce(true);                       // best-effort mark inside the capture
     await expect(
-      handleIngestFailed(mockSql, job, new ZernioIngestReviewNotFoundError('biz-1', 'acct-1', 'loc-1', 'rev-abc', 1, 0)),
+      handleIngestFailed(mockSql, makeJob(), new Error('some non-zernio failure')),
     ).resolves.toBeUndefined();
     expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ tags: { worker: 'ingest_zernio_review', kind: 'on_failed_handler_crash' } }),
     );
-    // Best-effort terminal close so the row doesn't sit in `dispatched` limbo.
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+    expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
       mockSql, 'outbox-1', expect.stringContaining('on_failed_crash'), 1,
     );
   });
 
   it('resolves without rejecting even when the best-effort markOutboxFailed also throws', async () => {
-    mockSql.mockImplementationOnce(() => Promise.reject(new Error('insert failed')));
-    mockMarkOutboxFailed.mockRejectedValueOnce(new Error('mark failed too'));
+    mockMarkOutboxFailed.mockRejectedValue(new Error('mark failed too'));
     await expect(
-      handleIngestFailed(mockSql, makeJob(), new ZernioIngestReviewNotFoundError('biz-1', 'acct-1', 'loc-1', 'rev-abc', 1, 0)),
+      handleIngestFailed(mockSql, makeJob(), new Error('boom')),
     ).resolves.toBeUndefined();
   });
 });
@@ -81,7 +81,7 @@ Adapt the `sql.begin` mock to the file's existing `sql` mock shape (if the mock 
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
 Run: `pnpm vitest run worker/jobs/zernio/__tests__/ingest-failed-hook.test.ts`
-Expected: the two new tests FAIL (the first with an unhandled rejection / rejected promise), all pre-existing tests PASS.
+Expected: the three new tests FAIL (crash-path ones with rejected promises), all pre-existing tests PASS.
 
 - [ ] **Step 3: Implement the wrap**
 
@@ -89,7 +89,7 @@ In `worker/jobs/zernio/ingest-failed-hook.ts`, rename the current body of `handl
 
 **R2 (adversarial review): the three per-error handlers do multiple sequential writes** (exception INSERT → optional `notify_admin` outbox INSERT → `markOutboxFailed`) with no transaction. The crash guard must not terminally fail the source row when a coupled sequence dies halfway (that would cut off watchdog recovery and permanently lose the admin notification). Therefore, in the same change:
 
-1. Wrap EACH handler's writes in `sql.begin(async (tx) => { … })`, using `tx` for every statement including its `markOutboxFailed` — terminal bookkeeping becomes atomic (invariant #2). Move `handlePaginationCapExhausted`'s Sentry `captureMessage` AFTER its tx commits (observability must not sit inside the tx).
+1. Wrap EACH handler's writes in `sql.begin(async (tx) => { … })`, using `tx` for every statement — terminal bookkeeping becomes atomic (invariant #2). **R3 — ownership first:** inside the tx, run the `markOutboxFailed` CAS FIRST and branch on its boolean (per the `markOutboxFailed` JSDoc contract in `src/lib/shared/outbox.ts`): `true` → this executor owns the terminal transition, proceed with the exception INSERT (+ optional `notify_admin` outbox INSERT); `false` (stale attempt / row not in `dispatched`) → perform NO writes and return — a stale hook invocation must not commit exception/notification rows it doesn't own. Move `handlePaginationCapExhausted`'s Sentry `captureMessage` AFTER its tx commits, and only when the CAS returned `true` (observability must not sit inside the tx).
 2. Add `coupledTerminalTxStarted: boolean` to the guard's state (publisher's `PublisherFailedHookState` pattern): set `true` immediately before invoking a handler that runs a coupled tx, back to `false` after it returns. `captureIngestFailedHookCrash` skips its best-effort `markOutboxFailed` when the flag is `true` — a rolled-back tx leaves the row `dispatched` so the OutboxPoller watchdog recovers it atomically later.
 3. The generic else-branch (bare single-statement `markOutboxFailed`) needs no tx and no flag.
 
@@ -528,28 +528,36 @@ interface ErrorEmitting {
   on(event: 'error', listener: (err: Error) => void): unknown;
 }
 
-// R2: ioredis reconnect loops emit one error per failed attempt, across ~46
-// emitters — an unthrottled Sentry capture per event is a self-inflicted
-// alert storm during any Redis outage. Structured log every event (cheap,
-// local); Sentry-capture at most once per source per window.
-const SENTRY_CAPTURE_WINDOW_MS = 60_000;
-const lastCaptureBySource = new Map<string, number>();
+// R2/R3: ioredis reconnect loops emit one error per failed attempt, across
+// ~46 emitters — unthrottled reporting is a self-inflicted log flood AND
+// Sentry alert storm during any Redis outage. Per source: report the first
+// error in each window (structured log + Sentry warning), count-and-suppress
+// the rest, and surface the suppressed count when the next window opens.
+const ERROR_REPORT_WINDOW_MS = 60_000;
+interface SourceErrorWindow { windowStartedAt: number; suppressed: number }
+const windowBySource = new Map<string, SourceErrorWindow>();
 
 export function attachEmitterErrorLogger(emitter: ErrorEmitting, source: string): void {
   emitter.on('error', (err: Error) => {
     // An error listener must never throw — that WOULD be an uncaughtException.
     try {
-      logger.warn(`${source} emitted error: ${err.message}`);
       const now = Date.now();
-      const last = lastCaptureBySource.get(source) ?? 0;
-      if (now - last >= SENTRY_CAPTURE_WINDOW_MS) {
-        lastCaptureBySource.set(source, now);
-        Sentry.captureMessage('worker_emitter_error', {
-          level: 'warning',
-          tags: { subsystem: 'worker_emitter', source },
-          extra: { message: err.message, stack: err.stack },
-        });
+      const win = windowBySource.get(source);
+      if (win && now - win.windowStartedAt < ERROR_REPORT_WINDOW_MS) {
+        win.suppressed += 1; // storm in progress: count, don't flood
+        return;
       }
+      const suppressedInPriorWindow = win?.suppressed ?? 0;
+      windowBySource.set(source, { windowStartedAt: now, suppressed: 0 });
+      logger.warn(
+        `${source} emitted error: ${err.message}` +
+          (suppressedInPriorWindow ? ` (${suppressedInPriorWindow} similar suppressed in prior window)` : ''),
+      );
+      Sentry.captureMessage('worker_emitter_error', {
+        level: 'warning',
+        tags: { subsystem: 'worker_emitter', source },
+        extra: { message: err.message, stack: err.stack, suppressed_in_prior_window: suppressedInPriorWindow },
+      });
     } catch {
       // Swallow: last-resort sink.
     }
@@ -626,6 +634,7 @@ Create `worker/config/__tests__/fastify-options.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
+import Fastify from 'fastify';
 import { buildFastifyOptions } from '../fastify-options';
 
 describe('buildFastifyOptions', () => {
@@ -850,7 +859,7 @@ git commit -m "fix(worker): alert on terminal generate_response and failed inbou
   const [totalReviewSettled, /* …11 more… */] = await settledPromise;
 ```
 
-3. **R2 — `getAggregateDashboardData` (src/lib/dashboard/aggregate-service.ts) degrades its OWN queries too** (the plan previously left them fatal; the spec says both paths): the locations-list query stays fatal (an aggregate over unknown locations is meaningless — the analog of the business lookup); its per-location fan-out and account-total queries degrade with the same `widgetOrFallback` helper (export it from service.ts or a small shared module — do not duplicate it), each degraded slice reported via `reportCaughtError`. A failed per-location slice must not drop the whole location silently: degrade that location's widgets and report.
+3. **R2/R3 — `getAggregateDashboardData` (src/lib/dashboard/aggregate-service.ts) degrades its OWN queries too** (the plan previously left them fatal; the spec says both paths): the locations-list query stays fatal (an aggregate over unknown locations is meaningless — the analog of the business lookup); account-total queries degrade with the same `widgetOrFallback` helper (export it from service.ts — do not duplicate it) using `{ accountId }` context. **R3 — per-location slice semantics pinned:** the DTO's per-location entries are non-nullable, so a failed `getActiveDashboardData` slice is EXCLUDED from the aggregate response — but never silently: report via `reportCaughtError` with `{ accountId, locationId, widget: 'locationSlice', degraded: true }`. Add aggregate regression tests: (a) one location slice rejecting → response still returns with the remaining locations and the failure reported; (b) an account-total query rejecting → zero/empty fallback + report; (c) all-healthy aggregate unchanged.
 4. **R2 — `readPendingMarker` (service.ts ~:448-460)** already swallows Redis failures to `null` with a console-level log only; route its catch through `reportCaughtError` (same `{ widget: 'pendingMarker', degraded: true }` context) so this pre-existing degradation stops being silent. Its `widgetOrFallback(pendingSettled, null, …)` wrapper stays — harmless belt-and-braces.
 
 Owner decision preserved: only the business lookup (and the aggregate locations list) stays fatal; everything else degrades, never silently.
@@ -915,10 +924,10 @@ function widgetOrFallback<T>(
   result: PromiseSettledResult<T>,
   fallback: T,
   widget: string,
-  businessId: string,
+  context: Record<string, string>, // R3: explicit — { businessId } here, { accountId }/{ accountId, locationId } in the aggregate path
 ): T {
   if (result.status === 'fulfilled') return result.value;
-  reportCaughtError('dashboard/service', result.reason, { businessId, widget, degraded: true });
+  reportCaughtError('dashboard/service', result.reason, { ...context, widget, degraded: true });
   return fallback;
 }
 
@@ -948,18 +957,18 @@ function requireFulfilled<T>(result: PromiseSettledResult<T>): T {
     pendingSettled,
   ] = await settledPromise;
 
-  const totalReviewRows = widgetOrFallback(totalReviewSettled, [], 'totalReviewRows', businessId);
-  const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [], 'totalRespondedRows', businessId);
-  const velocityRows = widgetOrFallback(velocitySettled, [], 'velocityRows', businessId);
-  const rankingRows = widgetOrFallback(rankingSettled, [], 'rankingRows', businessId);
-  const recentReviewRows = widgetOrFallback(recentReviewSettled, [], 'recentReviewRows', businessId);
-  const monthlyBriefRows = widgetOrFallback(monthlyBriefSettled, [], 'monthlyBriefRows', businessId);
-  const weeklyBriefRows = widgetOrFallback(weeklyBriefSettled, [], 'weeklyBriefRows', businessId);
-  const zernioConnectionRows = widgetOrFallback(zernioConnectionSettled, [], 'zernioConnectionRows', businessId);
-  const queuedReconnectRows = widgetOrFallback(queuedReconnectSettled, [], 'queuedReconnectRows', businessId);
-  const unresolvedIncidentRows = widgetOrFallback(unresolvedIncidentSettled, [], 'unresolvedIncidentRows', businessId);
-  const ratingBreakdownRows = widgetOrFallback(ratingBreakdownSettled, [], 'ratingBreakdownRows', businessId);
-  const pendingRaw = widgetOrFallback(pendingSettled, null, 'pendingRaw', businessId);
+  const totalReviewRows = widgetOrFallback(totalReviewSettled, [], 'totalReviewRows', { businessId });
+  const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [], 'totalRespondedRows', { businessId });
+  const velocityRows = widgetOrFallback(velocitySettled, [], 'velocityRows', { businessId });
+  const rankingRows = widgetOrFallback(rankingSettled, [], 'rankingRows', { businessId });
+  const recentReviewRows = widgetOrFallback(recentReviewSettled, [], 'recentReviewRows', { businessId });
+  const monthlyBriefRows = widgetOrFallback(monthlyBriefSettled, [], 'monthlyBriefRows', { businessId });
+  const weeklyBriefRows = widgetOrFallback(weeklyBriefSettled, [], 'weeklyBriefRows', { businessId });
+  const zernioConnectionRows = widgetOrFallback(zernioConnectionSettled, [], 'zernioConnectionRows', { businessId });
+  const queuedReconnectRows = widgetOrFallback(queuedReconnectSettled, [], 'queuedReconnectRows', { businessId });
+  const unresolvedIncidentRows = widgetOrFallback(unresolvedIncidentSettled, [], 'unresolvedIncidentRows', { businessId });
+  const ratingBreakdownRows = widgetOrFallback(ratingBreakdownSettled, [], 'ratingBreakdownRows', { businessId });
+  const pendingRaw = widgetOrFallback(pendingSettled, null, 'pendingRaw', { businessId });
 ```
 
 TypeScript note: `Promise.allSettled` over the tuple keeps per-element types, so each `widgetOrFallback` call infers `T` from its settled result; the empty-array fallbacks need `as` only if inference complains — prefer typing the fallback (`[] as DashboardRankingRow[]`) over widening. `pendingRaw`'s fallback must match `readPendingMarker`'s return type (check it — likely `string | null`).

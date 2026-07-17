@@ -18,3 +18,17 @@ Round-1 run also independently surfaced the P1 unguarded-Sentry concern and
 | 10 | P10: fatal business lookup inside allSettled delays rejection up to ~30s | ACCEPT | Business query awaited separately (fail-fast) alongside the allSettled of the 12 auxiliaries |
 
 All 10 accepted; none rejected. Round 2 re-submission pending.
+
+# Round 2 (same session)
+
+Verdict: REVISE (5 findings). All accepted → plan R3:
+
+| # | Finding (condensed) | Triage | Resolution (R3) |
+|---|---|---|---|
+| 1 | markOutboxFailed is a CAS returning boolean; coupled writes could commit without ownership on a stale attempt | ACCEPT | CAS runs FIRST inside each handler's tx; `false` → no writes (ownership contract from outbox.ts JSDoc) |
+| 2 | Sentry throttled but logs still flood during reconnect storms | ACCEPT | Per-source window: first error logged+captured, rest count-and-suppress, suppressed count surfaced next window |
+| 3 | Fastify test snippet missing `import Fastify from 'fastify'` | ACCEPT | Import added |
+| 4 | widgetOrFallback hardcodes businessId — mislabels aggregate telemetry | ACCEPT | Helper takes explicit `context: Record<string,string>` |
+| 5 | Aggregate per-location fallback underspecified (DTO non-nullable, current code returns null) | ACCEPT | Failed slice EXCLUDED but loudly reported (`locationSlice` context); 3 aggregate regression tests specified |
+
+Consequential fix: Task 1's original test examples rewritten — coupled-tx crashes must NOT best-effort-fail the row (watchdog recovers); best-effort mark now tested on the non-coupled generic branch.
