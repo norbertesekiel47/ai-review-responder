@@ -64,7 +64,11 @@ WITH ranked AS (
     AND payload->>'week_start_date' IS NOT NULL
 )
 UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
-WHERE id IN (SELECT id FROM ranked WHERE rn > 1 AND status = 'pending');
+WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+  AND status = 'pending';   -- LIVE CAS: re-checked under EvalPlanQual after row-lock,
+                            -- so a row the OutboxPoller concurrently claimed
+                            -- (pending→dispatching) between the CTE snapshot and this
+                            -- UPDATE is skipped, never overwritten (r3 defect 1).
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_outbox_weekly_summary_week
   ON job_outbox(aggregate_id, (payload->>'week_start_date'))
@@ -216,6 +220,22 @@ the real acceptance criteria the mocks cannot:
   `completed`-but-not-sent row does NOT block re-enqueue (finding-1 regression
   guard).
 - sent_at / period-marker guard still excludes already-recorded businesses.
+- **Preflight/dedup regression (r3 defect 6).** CI applies 079 to an EMPTY DB,
+  so the migration's one-time preflight never runs against real dups — it must
+  be exercised explicitly. Seed duplicate in-flight fixtures, then execute the
+  preflight `UPDATE` statement (the test carries a copy of it; a `-- SOURCE OF
+  TRUTH: supabase/migrations/079…` comment names the authoritative owner) and
+  assert outcomes for each shape:
+  · two `pending` dups → exactly one survives, the other `failed`;
+  · older-`pending` + newer-`dispatched` → the `dispatched` row is KEPT and the
+    `pending` failed (NOT the other way — the pre-fix bug);
+  · 3-way `dispatched` + `dispatching` + `pending` → only the `pending` is
+    failed; `dispatched`/`dispatching` untouched;
+  · NULL-period rows → untouched.
+  (The live-CAS concurrency race can't be unit-simulated; it's guarded by the
+  outer `AND status='pending'` and covered by reasoning. The RUNTIME dedup — the
+  unique index + `ON CONFLICT` — is the ongoing production guarantee and is
+  exercised by the index-semantics tests above.)
 Follow `summary-schedulers-archived.integration.test.ts` for the skip harness;
 confirm `.github/actions/test-db` globs `supabase/migrations/*.sql` so 079 is
 applied (it does today — verify, don't assume).
