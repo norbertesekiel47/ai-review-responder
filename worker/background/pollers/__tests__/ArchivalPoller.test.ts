@@ -17,7 +17,13 @@ vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql, jsonb: (v: unknown) => v }));
 
 // Import AFTER mocks are wired
-import { startArchivalPoller, stopArchivalPoller } from '../ArchivalPoller';
+import {
+  startArchivalPoller,
+  stopArchivalPoller,
+  AGENT_SPINE_RETENTION_DAYS,
+} from '../ArchivalPoller';
+import { DASHBOARD_WINDOWS, dashboardWindowParams } from '@/lib/kpi/types';
+import { GOVERNOR_WINDOW_DAYS } from '@/lib/auto-approval/governor';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -53,6 +59,27 @@ function queueArchivalResults(counts: {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
+
+// ── Invariants ─────────────────────────────────────────────────────
+//
+// The spine retention window is the OUTER bound: it must strictly exceed
+// EVERY window a live consumer reads back over the run spine. If a consumer
+// window is ever raised past retention, retention would silently prune rows
+// those consumers still expect — under-serving getAgentTeamSummary (dashboard
+// windows) and the auto-approval governor (its suspension lookback). This
+// guard fails the build the moment that invariant is violated, forcing the
+// retention constant to be raised in lockstep rather than drifting silently.
+
+describe('ArchivalPoller retention-window invariants', () => {
+  const maxDashboardWindowDays = Math.max(
+    ...DASHBOARD_WINDOWS.map((w) => dashboardWindowParams(w).windowDays),
+  );
+
+  it('keeps the 180-day spine retention window above every consumer window', () => {
+    expect(AGENT_SPINE_RETENTION_DAYS).toBeGreaterThan(maxDashboardWindowDays);
+    expect(AGENT_SPINE_RETENTION_DAYS).toBeGreaterThan(GOVERNOR_WINDOW_DAYS);
+  });
+});
 
 describe('ArchivalPoller', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
