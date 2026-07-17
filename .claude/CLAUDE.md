@@ -95,7 +95,7 @@ Detailed inventories load on demand — read the matching file before the work:
 
 Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
 `cost-guard`, `onboarding-demo-cost-guard`. Also invoke: `repworth-brand-design`
-(any RepWorth UI), `supabase-postgres-best-practices` (Postgres query/schema perf).
+(any RepWorth UI), `supabase:supabase-postgres-best-practices` (Postgres query/schema perf).
 
 Code map: `docs/directory.md` · Layout reasoning: `docs/currents.md` ·
 ADRs: `docs/adr/` · Ops runbooks: `docs/runbooks/`.
