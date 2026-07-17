@@ -38,6 +38,7 @@ function queueArchivalResults(counts: {
   costs: number;
   notifications: number;
   analytics?: number;
+  agentOutcomes?: number;
 }): void {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
@@ -46,6 +47,7 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.push([{ count: String(counts.costs) }]);
   sqlReturnQueue.push([{ count: String(counts.notifications) }]);
   sqlReturnQueue.push([{ count: String(counts.analytics ?? 0) }]);
+  sqlReturnQueue.push([{ count: String(counts.agentOutcomes ?? 0) }]);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -67,16 +69,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 6 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events)', async () => {
+  it('issues 7 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(6);
+    expect(mockSql).toHaveBeenCalledTimes(7);
   });
 
-  it('logs all 6 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7 });
+  it('logs all 7 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3 });
 
     await runOneCycle();
 
@@ -91,6 +93,7 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"api_costs":100');
     expect(msg).toContain('"notifications":50');
     expect(msg).toContain('"analytics_events":7');
+    expect(msg).toContain('"agent_outcomes":3');
   });
 
   it('logs "Nothing to archive" when all 6 targets return 0', async () => {
@@ -142,6 +145,44 @@ describe('ArchivalPoller', () => {
     expect(fullSql).toContain("status = 'failed' AND occurred_at < NOW() - INTERVAL '90 days'");
     expect(fullSql).toContain('LIMIT 5000');
     expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+  });
+
+  it('agent_outcomes query enforces the 180-day spine retention window (query shape assertion)', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // The 7th sql() call (index 6) is the agent_outcomes spine-retention block.
+    const agentOutcomesCall = mockSql.mock.calls[6];
+    expect(agentOutcomesCall).toBeDefined();
+    const templateStrings = agentOutcomesCall![0] as TemplateStringsArray;
+    const fullSql = templateStrings.join(' ');
+    expect(fullSql).toContain('agent_outcomes');
+    expect(fullSql).toContain('occurred_at < NOW() - make_interval(days =>');
+    expect(fullSql).toContain('LIMIT 5000');
+    expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+  });
+
+  it('logs the agent_outcomes count in the Archived log', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, agentOutcomes: 42 });
+
+    await runOneCycle();
+
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
+    );
+    expect(archivedLog).toBeDefined();
+    expect(archivedLog![0] as string).toContain('"agent_outcomes":42');
+  });
+
+  it('includes agent_outcomes in the saturation warning when it hits the limit', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, agentOutcomes: 5000 });
+
+    await runOneCycle();
+
+    expect(warnSpy).toHaveBeenCalled();
+    const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
+    expect(warnMsg).toContain('agent_outcomes');
   });
 
   it('does not warn when all counts are below 5000', async () => {

@@ -11,6 +11,12 @@ const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 // tick instead of pinning it forever and silently disabling archival.
 const ARCHIVAL_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 
+// Agent-run spine retention (migration 071: agent_runs, agent_run_steps,
+// agent_outcomes). Uniform 180-day window. The binding constraint is the
+// dashboard team-summary, which reads agent_outcomes up to 90 days back — the
+// retention window MUST exceed that read window, so 180 > 90.
+export const AGENT_SPINE_RETENTION_DAYS = 180;
+
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().ARCHIVAL_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
@@ -18,9 +24,9 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-// Six independent batched-DELETE arms + count/saturation reporting; the length
-// is the retention vocabulary, one block per table. Pre-existing size — the
-// perf pass only added the failed-outbox arm to the first block.
+// Seven independent batched-DELETE arms + count/saturation reporting; the
+// length is the retention vocabulary, one block per table. Pre-existing size —
+// the perf pass only added the failed-outbox arm to the first block.
 // fallow-ignore-next-line complexity
 async function runArchival(logger: WorkerLogger): Promise<void> {
   try {
@@ -173,15 +179,44 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 7. agent_outcomes (migration 071 spine) older than 180 days. The window
+    // must exceed the 90-day dashboard team-summary read window, so it is held
+    // at AGENT_SPINE_RETENTION_DAYS (180). agent_outcomes references its parent
+    // run via ON DELETE SET NULL — deleting a run does NOT cascade to it, so it
+    // needs its own retention arm rather than riding the run cascade.
+    //
+    // FOR UPDATE SKIP LOCKED: same concurrent-cycle count-accuracy rationale as
+    // notification_deliveries above.
+    const [agentOutcomesResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM agent_outcomes
+        WHERE occurred_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS})
+        LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      deleted AS (
+        DELETE FROM agent_outcomes WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
     const costsCount = parseInt(costsResult?.count ?? '0', 10);
     const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
     const analyticsCount = parseInt(analyticsResult?.count ?? '0', 10);
+    const agentOutcomesCount = parseInt(agentOutcomesResult?.count ?? '0', 10);
 
     const totalArchived =
-      outboxCount + eventsCount + demosCount + costsCount + notificationsCount + analyticsCount;
+      outboxCount +
+      eventsCount +
+      demosCount +
+      costsCount +
+      notificationsCount +
+      analyticsCount +
+      agentOutcomesCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -191,6 +226,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
         api_costs: costsCount,
         notifications: notificationsCount,
         analytics_events: analyticsCount,
+        agent_outcomes: agentOutcomesCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -201,6 +237,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       if (costsCount >= BATCH_LIMIT) saturated.push('api_costs');
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');
       if (analyticsCount >= BATCH_LIMIT) saturated.push('analytics_events');
+      if (agentOutcomesCount >= BATCH_LIMIT) saturated.push('agent_outcomes');
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.
