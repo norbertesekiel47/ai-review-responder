@@ -1,9 +1,7 @@
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
-import type { SendMonthlyImpactPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[MonthlyImpactScheduler]';
 const logger = createWorkerLogger(LOG_PREFIX);
@@ -28,10 +26,6 @@ function getPreviousMonthStart(now: Date): string {
     .slice(0, 10);
 }
 
-// Complexity is inherited — PR 262 added a single `archived_at IS NULL` SQL
-// predicate; the surrounding function shape predates it. Decomposition tracked
-// in the multi-location fast-follow spec.
-// fallow-ignore-next-line complexity
 async function checkAndSchedule(): Promise<void> {
   try {
     const now = new Date();
@@ -41,8 +35,27 @@ async function checkAndSchedule(): Promise<void> {
 
     const monthStartDate = getPreviousMonthStart(now);
 
-    const businesses = await sql<{ id: string }[]>`
-      SELECT b.id FROM businesses b
+    // Set-based enqueue: merge the candidate scan with the outbox insert. The
+    // candidate-level in-flight NOT EXISTS is a cheap pre-filter; the partial
+    // unique index (migration 079) + ON CONFLICT DO NOTHING is the correctness
+    // owner for dedup under concurrent schedulers / restarts. gen_random_uuid()
+    // (not app UUIDv7) supplies id + correlation_id because a set-based
+    // INSERT…SELECT cannot call the JS generator per row and job_outbox.id has
+    // no ordering contract — see migration 079 lab note.
+    const result = await sql`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      SELECT
+        gen_random_uuid(),
+        ${QUEUE_NAMES.SEND_MONTHLY_IMPACT},
+        'business',
+        b.id,
+        jsonb_build_object(
+          'business_id', b.id,
+          'month_start_date', ${monthStartDate}::text,
+          'correlation_id', gen_random_uuid()
+        ),
+        'pending'
+      FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE a.subscription_status IN ('active', 'past_due', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .PAST_DUE / .TRIALING
         AND b.archived_at IS NULL
@@ -53,35 +66,17 @@ async function checkAndSchedule(): Promise<void> {
             AND mie.month_start_date = ${monthStartDate}::date
             AND mie.sent_at IS NOT NULL
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM job_outbox jo
+          WHERE jo.topic = ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}
+            AND jo.aggregate_id = b.id
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
+            AND jo.payload->>'month_start_date' = ${monthStartDate}
+        )
+      ON CONFLICT DO NOTHING
     `;
 
-    let queued = 0;
-    for (const biz of businesses) {
-      const payload: SendMonthlyImpactPayload = {
-        business_id: biz.id,
-        month_start_date: monthStartDate,
-        correlation_id: uuidv7(),
-      };
-      try {
-        const inserted = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}, ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}, 'business', ${biz.id}, ${jsonb(payload)}, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}
-              AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatching', 'dispatched')
-              AND jo.payload->>'month_start_date' = ${monthStartDate}
-          )
-        `;
-        if (inserted.count > 0) queued++;
-      } catch (err: unknown) {
-        const code = (err as { code?: string }).code;
-        if (code === '23505') continue;
-        logger.error(`Failed to queue monthly impact for business ${biz.id}`, err);
-      }
-    }
-
+    const queued = result.count;
     if (queued > 0) {
       logger.log(`Queued ${queued} send_monthly_impact outbox entries for month ${monthStartDate}`);
     }
