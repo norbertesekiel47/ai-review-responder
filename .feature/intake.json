@@ -53,6 +53,7 @@
     "worker/background/pollers/HealthAlertPoller.ts",
     "worker/background/pollers/health-alert/**",
     "worker/background/pollers/__tests__/**",
+    "src/**/__tests__/**",
     "worker/index.ts",
     "src/lib/db/server.ts",
     "src/lib/config/worker.ts",

@@ -35,10 +35,10 @@ Assertion source: `worker/config/startup-assert.ts`.
 
 | Var | Notes |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (PgBouncer pooled) |
+| `DATABASE_URL` | Postgres connection string. **Historically labeled "PgBouncer pooled", but on staging this is the DIRECT :5432 route** (verified 2026-07-18): the pooled URL the worker actually runs on is `DATABASE_POOL_URL` (Supavisor transaction pooler, :6543). The pool-wedge reaper (#500) treats `DATABASE_URL` as a direct-route candidate (`DIRECT_URL ?? DATABASE_URL`) but never trusts the label — it verifies genuine directness at runtime (see `DIRECT_URL`). |
 | | > ⚠️ Local `.env.local` must point these at a local Supabase stack (`supabase start`), never the prod/staging project ref (audit FIND-ENV, 2026-06-23). |
 | `DB_POOL_MAX` | Optional, default `10`. Postgres.js per-process connection-pool ceiling (`src/lib/db/server.ts`). The default matches the Railway worker's needs; **set `3` on Vercel** (prod + staging Custom Env + preview) so each serverless instance stays small against the Supabase pooler's client-connection ceiling. The other pool bounds (`idle_timeout: 30`, `max_lifetime: 1800`, `connect_timeout: 10` — Postgres.js takes seconds) are fixed in code, deep-scan §3.5. |
-| `DIRECT_URL` | Postgres direct connection (for migrations, bypasses PgBouncer) |
+| `DIRECT_URL` | Optional. Postgres direct (:5432, non-pooler) connection — used for migrations (bypasses PgBouncer) and, since #500, as the pool-wedge reaper's preferred route. The reaper resolves `DIRECT_URL ?? DATABASE_URL`, then RUNTIME-VERIFIES the route is genuinely direct: it connects with `application_name='rw-wedge-reaper'` and confirms `current_setting('application_name')` echoes it back. A direct :5432 route echoes it; the **Supavisor** transaction pooler swallows it to `'Supavisor'`. Only an exact echo counts as verified-direct — otherwise the reaper stays disabled and raises a Sentry warning (never falls back onto the pooler it is meant to heal). |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (browser-safe) |
 | `SUPABASE_SERVICE_KEY` | Server-only. NEVER expose to browser. |
@@ -458,6 +458,11 @@ tier mappings and no invented defaults.
 | `GOVERNOR_INTERVAL_MS` | 900000 (15min) | `AutonomyGovernorScheduler` cadence. Parsed with `parseInt`; a positive parsed millisecond value is accepted, while invalid, zero, or negative values fall back to 15min. The scheduler itself remains inert unless server-only `GOVERNOR_ENABLED=true`. |
 | `HEALTH_ALERT_PENDING_AGE_S` · `_STALE_DISPATCHING_S` · `_FAILED_WINDOW_S` · `_FAILED_THRESHOLD` · `_FLAGGED_OPEN_THRESHOLD` · `_ZERO_DELIVERY_WINDOW_S` | 900 · 600 · 3600 · 0 · 5 · 3600 | Per-signal thresholds — see `docs/runbooks/beta-launch-alerting.md` §5. |
 | `HEALTH_ALERT_MONITOR_SLUG` | `health-alert-poller` | Sentry Cron monitor slug for the probe's dead-man heartbeat (alerts if the probe stops checking in). |
+| `POOL_WEDGE_REAPER_ENABLED` | `true` | #500 pool-wedge self-heal. `false` → `PoolWedgeReaperPoller` never starts. Even when enabled the reaper self-disables (+ Sentry warning) unless it obtains a runtime-verified-direct route (see `DIRECT_URL`). |
+| `POOL_WEDGE_REAPER_INTERVAL_MS` | 60000 (1min) | Reaper sweep cadence — a slow out-of-band backstop to the in-process health-poller self-heal. |
+| `POOL_WEDGE_REAPER_AGE_S` | 300 (5min) | Minimum `now() - state_change` age before a wedge candidate (`active` + `wait_event='ClientRead'`, query begins with the `/* rw-reapable */` marker) is eligible for `pg_terminate_backend`. Keys on `state_change` (continuously-active), not `query_start`. |
+| `POOL_WEDGE_REAPER_MAX_PER_SWEEP` | 3 | Runaway guard — max backends terminated per sweep; the count dropped by the cap is logged. |
+| `POOL_WEDGE_REAPER_OP_TIMEOUT_MS` | 8000 (8s) | Per-sweep `withTimeout` bound on the reaper's DB work; on expiry the reaper recycles its own dedicated client and skips the cycle (no crash). |
 | `EMAIL_SEND_TIMEOUT_MS` | 10000 (10s) | Per-send Resend timeout enforced by the `sendEmail` chokepoint (`src/lib/notifications/email/send-email.ts`). A hung send must not head-of-line-block the concurrency-1 notification worker. |
 
 > **Wave 1 launch-risk controls are unconditional — no kill-switch (since 2026-05-25, PR #85):**

@@ -11,24 +11,78 @@ function readPoolMax(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
 }
 
-export const sql = postgres(process.env.DATABASE_POOL_URL!, {
+// Pinned postgres.js pool bounds (deep-scan §3.5), shared by the `sql` singleton
+// AND every dedicated client built via createDedicatedPostgresClient — one
+// authoritative owner for these constants. Postgres.js takes these in SECONDS.
+//   idle_timeout    — reap idle connections (matters most on quiet serverless instances)
+//   max_lifetime    — bound connection age; tolerates pooler restarts/failovers
+//   connect_timeout — fail fast; a connect taking >10s is already an incident
+// `prepare: false` is REQUIRED behind the Supabase PgBouncer transaction pooler.
+const BASE_POSTGRES_OPTIONS = {
   prepare: false,
-  // Explicit pool bounds (deep-scan §3.5). Postgres.js takes these in SECONDS.
+  idle_timeout: 30,
+  max_lifetime: 1800,
+  connect_timeout: 10,
+} as const;
+
+// Supabase PgBouncer has a short default statement_timeout (~8s). The OutboxPoller
+// watchdog CTE can exceed this when updating locked rows. 30s is generous but safe.
+// Postgres.js takes SECONDS everywhere EXCEPT connection.statement_timeout, which
+// is milliseconds. Dedicated clients inherit this default unless they override
+// `connection.statement_timeout`.
+const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
+
+export const sql = postgres(process.env.DATABASE_POOL_URL!, {
+  ...BASE_POSTGRES_OPTIONS,
   // One client serves two roles, so `max` is env-tunable: the Railway worker
   // keeps the default 10; Vercel sets DB_POOL_MAX=3 per serverless instance
   // (the Supabase pooler multiplexes behind it — keep per-instance demand low).
   max: readPoolMax(),
-  idle_timeout: 30, // reap idle connections — matters most on quiet serverless instances
-  max_lifetime: 1800, // bound connection age; tolerates pooler restarts/failovers
-  connect_timeout: 10, // fail fast — a connect taking >10s is already an incident
-  // Supabase PgBouncer has a short default statement_timeout (~8s).
-  // The OutboxPoller watchdog CTE can exceed this when updating locked rows.
-  // 30s is generous but safe — the poller runs every 10s, so a long query
-  // blocks the next cycle but doesn't cascade.
   connection: {
-    statement_timeout: 30_000, // 30 seconds in ms
+    statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
   },
 });
+
+/** Tight overrides a dedicated client may pass; both are optional. */
+type DedicatedClientOverrides = {
+  /** Pool ceiling for this dedicated client. Defaults to 2 (dedicated clients are small). */
+  max?: number;
+  /**
+   * Postgres.js connection parameters. Merged over the pinned
+   * `statement_timeout` default, so a caller can pass a tighter
+   * `statement_timeout` (ms) and/or an `application_name`.
+   */
+  connection?: Partial<postgres.ConnectionParameters>;
+};
+
+/**
+ * Build a NEW postgres.js client — distinct from the shared `sql` singleton —
+ * on the SAME pinned base config (`prepare: false`, idle/lifetime/connect
+ * timeouts, 30s statement_timeout), but pointed at `url` (not DATABASE_POOL_URL)
+ * with tight per-caller overrides.
+ *
+ * Purpose: give a poller its OWN small, isolated pool so a wedged connection on
+ * it cannot starve the shared singleton (bulkhead). Callers own the returned
+ * client's lifecycle and MUST `.end()` it in the worker shutdown path
+ * (invariant #15). Created only here (the DB-client owner) and passed down to
+ * composition-root pollers.
+ *
+ * Postgres.js does not connect until the first query, so constructing a client
+ * is side-effect-free (safe offline / in tests).
+ */
+export function createDedicatedPostgresClient(
+  url: string,
+  overrides?: DedicatedClientOverrides,
+): ReturnType<typeof postgres> {
+  return postgres(url, {
+    ...BASE_POSTGRES_OPTIONS,
+    max: overrides?.max ?? 2,
+    connection: {
+      statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
+      ...overrides?.connection,
+    },
+  });
+}
 
 /**
  * Bind a value to a JSONB column or parameter. Use this instead of

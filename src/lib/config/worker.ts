@@ -71,6 +71,10 @@ const workerSchema = z.object({
   // worker boot). Never logged.
   WORKER_INTERNAL_SECRET: opt,
   DATABASE_URL: opt,
+  // Reaper's preferred direct (non-pooler) route; resolved DIRECT_URL ?? DATABASE_URL
+  // at the reaper call site (T1), then runtime-verified genuinely-direct via the
+  // application_name echo. Shape-only here (opt), call-site owns defaults/resolution.
+  DIRECT_URL: opt,
   // Migrated raw read: StripeLocationsReconcilePoller owns its own
   // `envInterval ? parseInt(envInterval, 10) : NaN` parse + default, so
   // rawOptionalVar preserves ''/'   '/unset exactly like the old raw read (#7).
@@ -126,6 +130,18 @@ const workerSchema = z.object({
   HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD: rawOpt,
   HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S: rawOpt,
   HEALTH_ALERT_MONITOR_SLUG: rawOpt,
+  // Pool-wedge reaper (#500) tuning vars. Shape-only here, exactly like the
+  // *_INTERVAL_MS neighbors: PoolWedgeReaperPoller reads each raw at its call
+  // site with its own parse + default (ENABLED default `true`, INTERVAL_MS
+  // `60000`, AGE_S `300`, MAX_PER_SWEEP `3`, OP_TIMEOUT_MS `8000`), so
+  // rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7); no asserting
+  // accessor (#5). DIRECT_URL (below, alongside DATABASE_URL) is the reaper's
+  // preferred direct route (resolved DIRECT_URL ?? DATABASE_URL at the call site).
+  POOL_WEDGE_REAPER_ENABLED: rawOpt,
+  POOL_WEDGE_REAPER_INTERVAL_MS: rawOpt,
+  POOL_WEDGE_REAPER_AGE_S: rawOpt,
+  POOL_WEDGE_REAPER_MAX_PER_SWEEP: rawOpt,
+  POOL_WEDGE_REAPER_OP_TIMEOUT_MS: rawOpt,
 
   // ── Stage-3 worker-jobs batch ─────────────────────────────────────────────
   // worker/jobs/** non-flag reads. All worker-only (no Next-route consumer) →
