@@ -2,7 +2,20 @@
 
 **Resume with:** `/feature-resume fix-500-pool-wedge-selfheal` **from inside the
 worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-500-pool-wedge-selfheal`.
-Re-run the ARM CHECK first, then continue at **Step 6 (adversarial review)**.
+Re-run the ARM CHECK first, then continue at **Step 7 (dual review)** — or Step 8
+(ship) if the dual review is already triaged clean per `docs/reviews/<branch>/`.
+
+## Step 6 adversarial review: DONE (Codex `needs-attention` → fixed)
+- F1 [high] (transient boot outage permanently disabled the reaper) + F2 [medium]
+  (recycled clients bypassed direct-route verification) — BOTH accepted, fixed in
+  `0ad2647a`, triage recorded in `docs/superpowers/plans/fix-500-pool-wedge-selfheal-review-triage.md`.
+  Fix: 3-way `acquireVerifiedClient` outcome (verified/pooler/transient); permanent
+  disable only on a definitive pooler echo or absent config; transient → fail-closed
+  retry on the poll cadence; recycle end+nulls so every (re)acquire re-verifies.
+  Invariant strengthened to hold across the whole lifecycle. Gate GREEN post-fix.
+- STILL PENDING for Step 8: the staging active+ClientRead termination tracer
+  (direct routing, actual termination, reconnect, shared-pool isolation) + REVERT
+  `HEALTH_ALERT_POLL_INTERVAL_MS` 86400000→300000 on the Railway staging worker.
 
 ## Status (updated 2026-07-18, step 5→6 boundary)
 - Steps 0–5 DONE. Classification: **RISK=high · backend · db_touching=false ·
