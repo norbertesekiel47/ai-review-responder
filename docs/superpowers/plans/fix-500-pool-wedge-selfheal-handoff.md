@@ -2,15 +2,24 @@
 
 **Resume with:** `/feature-resume fix-500-pool-wedge-selfheal` **from inside the
 worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-500-pool-wedge-selfheal`.
-Re-run the ARM CHECK first, then continue at **Step 4 (EXECUTE)**.
+Re-run the ARM CHECK first, then continue at **Step 6 (adversarial review)**.
 
-## Status
-- Steps 0–3 DONE. Classification: **RISK=high · backend · db_touching=false ·
+## Status (updated 2026-07-18, step 5→6 boundary)
+- Steps 0–5 DONE. Classification: **RISK=high · backend · db_touching=false ·
   SIZE=normal · ticket-seeded** (map #472 → #500).
 - Intake locked + amended, plan Codex-cleared (3 rounds), **user signed off**.
-- Next: Step 4 execute T0→T3 via fresh per-task subagents (TDD), then Step 5 gate,
-  Step 6 (adversarial review — RISK=high, user-invoked `/codex:adversarial-review`),
-  Step 7 dual review, Step 8 ship via staging.
+- **Step 4 EXECUTE complete** — all tracers implemented + committed on branch:
+  - `04625945` T0 dedicated-client factory (`createDedicatedPostgresClient`) + reaper config vars + `DIRECT_URL` + env-vars.md.
+  - `2972ea1b` intake test-surface tightened to `src/lib/db/__tests__/**` + `src/lib/config/__tests__/**` (user-approved; T0 impl had widened to `src/**/__tests__/**`).
+  - `43ba9e3f` T1 PoolWedgeReaperPoller (select-terminations pure fn + reaper-query + poller + worker/index.ts register).
+  - `37763f08` T2 health-poller bulkhead + self-heal (health-db.ts + marker on 5 checks + recycle-on-timeout).
+  - `c33ec854` closeDb integration — `closeAllPostgresClients([closeReaperClient, closeHealthSql])` in `src/lib/db/server.ts`, delegated from `worker/index.ts` closeDb (option (c): in-surface testable helper; no boot-guard / shutdown.ts edit / surface expansion — see deviations D6).
+  - `8acb7dc8` T3 docs — ADR 0007, CONTEXT.md glossary, lab-notes.
+  - `b08588d4` stale-comment cleanup on `closeReaperClient` (now wired) + dropped its unused-export fallow-ignore.
+- **Step 5 VERIFY GATE: GREEN** — 14/14 (lint, typecheck, test, + 11 ci audits incl. db-imports, rls-audit, tenant-scope, static-policy). `.feature/gate-status.json` (gitignored) `passed:true`, newer than HEAD.
+- Deviations: `docs/superpowers/plans/fix-500-pool-wedge-selfheal-deviations.md` (D1/D2 = `unnest(int[],timestamptz[])` + timestamptz-as-text vs postgres.js 3.4.9 row-value `IN` mis-render; D4/D5 = invariant-#15 builder injection into health-db; D6 = closeDb option (c)).
+- **Note:** T2/integration agents' `git commit --amend` on their OWN same-session commits tripped a harness "destructive git" heuristic — verified benign via reflog (only the agent's just-created commit was rewritten; no pre-session/tracer history touched; branch unpushed).
+- **Next: Step 6** — PAUSED awaiting the user to run `/codex:adversarial-review` on the branch (user-invocable only). Then Step 7 dual review, Step 8 ship via staging.
 
 ## Read these (do NOT restate — they are authoritative)
 - Scope contract: `.feature/intake.json`
