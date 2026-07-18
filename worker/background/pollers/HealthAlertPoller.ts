@@ -7,14 +7,33 @@
 // dispatching (watchdog down), and the held-flag backlog. Each cycle also emits
 // a Sentry Cron check-in so the probe's own death is detected (dead-man switch).
 import { getWorkerConfig } from '../../../src/lib/config/worker';
-import { sql } from '../../../src/lib/db/server';
+import { createDedicatedPostgresClient } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
-import { withTimeout } from '../../../src/lib/shared/with-timeout';
+import { TimeoutError, withTimeout } from '../../../src/lib/shared/with-timeout';
 import { notePollerActivity, maybeLogPollerHeartbeat } from '../poller-heartbeat';
 import { runHealthChecks } from './health-alert/checks';
+import { getHealthSql, recycleHealthSql } from './health-alert/health-db';
 import { emitHealthFindings, recordProbeCheckIn } from './health-alert/emit';
 
 const LOG_PREFIX = '[HealthAlertPoller]';
+
+// This composition root owns the db/server factory import + the client's config
+// (invariant #15) and injects the builder into the health-db lifecycle helper.
+// Points at DATABASE_POOL_URL — the SAME pooled route the checks ran against when
+// they used the shared singleton — so only the pool is isolated, not semantics.
+// max:2: five checks per single-flight cycle need no more.
+/**
+ * The queue-health endpoint's backlog count runs on the SAME bulkhead client as
+ * the poller's checks, so the shared pool is never exposed to the #500 wedge
+ * class from an externally-triggered request (PR #501 review finding F2).
+ */
+export function healthBulkheadSql(): ReturnType<typeof getHealthSql> {
+  return getHealthSql(buildHealthClient);
+}
+
+function buildHealthClient(): ReturnType<typeof createDedicatedPostgresClient> {
+  return createDedicatedPostgresClient(getWorkerConfig().DATABASE_POOL_URL, { max: 2 });
+}
 
 // A hung health-check query (e.g. a stale pooled connection where server-side
 // statement_timeout never fires) must not wedge the single-flight poller: without
@@ -40,8 +59,12 @@ export async function pollHealthAlerts(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
   const pollIntervalMs = readPollIntervalMs();
   try {
+    // Run on the dedicated bulkhead client (#500), never the shared `sql`
+    // singleton — a wedged health-check connection must not starve the ~20 other
+    // loops. getHealthSql() lazily builds it and returns the fresh client after a
+    // recycle.
     const findings = await withTimeout(
-      runHealthChecks(sql),
+      runHealthChecks(getHealthSql(buildHealthClient)),
       HEALTH_CHECK_TIMEOUT_MS,
       'health-alert-checks',
     );
@@ -58,6 +81,13 @@ export async function pollHealthAlerts(): Promise<void> {
   } catch (err) {
     logger.error('Health alert poll cycle failed', toError(err));
     recordProbeCheckIn('error', pollIntervalMs);
+    // On the client-side timeout the health-check connection is (likely) wedged
+    // in active+ClientRead and will never return to the dedicated pool. End+
+    // rebuild the client so the next cycle runs on fresh connections (reclaim at
+    // source). Only the TimeoutError path recycles — an ordinary DB error does
+    // not imply a wedged socket. recycleHealthSql never throws (log-swallow +
+    // unconditional rebuild), so it cannot escape this catch.
+    if (err instanceof TimeoutError) await recycleHealthSql(buildHealthClient, logger);
   } finally {
     isPolling = false;
   }

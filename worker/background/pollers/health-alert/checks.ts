@@ -9,6 +9,16 @@ import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
 
+// Cooperative opt-in identity marker (#500). Every health-check query below
+// BEGINS WITH this literal comment so the PoolWedgeReaperPoller's anchored-prefix
+// match (`query LIKE '/* rw-reapable */%'`) can identify + server-side-kill a
+// wedged health backend as the backstop to the in-process self-heal. It MUST be
+// the very first characters of the query text postgres.js sends — placed
+// immediately after the opening backtick with no leading whitespace — because the
+// driver seeds the sent string with `strings[0]` verbatim (no trimming) and
+// pg_stat_activity exposes it as received. Read-only marker; changes no results.
+// Keep in lockstep with REAPABLE_MARKER in pool-wedge-reaper/reaper-query.ts.
+
 export interface HealthFinding {
   key: string;
   level: 'warning' | 'error';
@@ -51,7 +61,7 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
   // is still inside the window by its failure time. (Codex review: window by
   // failure time, not dispatch time.)
-  const rows = await sql<{ topic: string; count: number }[]>`
+  const rows = await sql<{ topic: string; count: number }[]>`/* rw-reapable */
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
@@ -72,7 +82,7 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
 // Oldest claimable pending row — a climbing age means dispatch is backed up or
 // the OutboxPoller has stalled.
 export async function checkOldestPendingOutbox(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ age: number | null }[]>`
+  const [row] = await sql<{ age: number | null }[]>`/* rw-reapable */
     SELECT EXTRACT(EPOCH FROM (NOW() - MIN(available_at)))::int AS age
     FROM job_outbox
     WHERE status = 'pending' AND available_at <= NOW()
@@ -90,7 +100,7 @@ export async function checkOldestPendingOutbox(sql: postgres.Sql, cfg: HealthAle
 // Rows stuck mid-dispatch far longer than the OutboxPoller watchdog's 2-min
 // recovery window — a sign the watchdog itself isn't running.
 export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`
+  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
     SELECT COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'dispatching'
@@ -109,7 +119,7 @@ export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertC
 // Unreviewed high-severity held drafts. A growing backlog means nobody is
 // working /admin/flagged, so safe-but-held drafts never reach owners.
 export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`
+  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
     SELECT COUNT(*)::int AS count FROM flagged_responses WHERE status = 'open'
   `;
   const count = row?.count ?? 0;
@@ -132,7 +142,7 @@ export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAl
 // archived/offboarding) which legitimately complete with no delivery row, while
 // keeping the genuine "owner has no channel / never notified" signal.
 export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`
+  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
     SELECT COUNT(*)::int AS count
     FROM job_outbox jo
     JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid

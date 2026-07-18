@@ -90,7 +90,9 @@ import { startCancellationGracePoller, stopCancellationGracePoller } from './bac
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
-import { startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
+import { healthBulkheadSql, startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
+import { closeHealthSql } from './background/pollers/health-alert/health-db';
+import { startPoolWedgeReaperPoller, stopPoolWedgeReaperPoller, closeReaperClient } from './background/pollers/PoolWedgeReaperPoller';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
 import {
   startAutonomyGovernorScheduler,
@@ -104,7 +106,7 @@ import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeard
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
-import { sql, supabaseServer } from '../src/lib/db/server';
+import { sql, supabaseServer, closeAllPostgresClients } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
 import { isCrashNetRecoverableDbError } from '../src/lib/db/transient-error';
 import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
@@ -474,7 +476,7 @@ async function main(): Promise<void> {
       },
       // Composition root passes the Postgres singleton (invariant #15); the
       // handler owns the best-effort timeout + degrade-to-null behavior.
-      getBacklogDepth: () => queryBacklogDepth(sql),
+      getBacklogDepth: () => queryBacklogDepth(healthBulkheadSql()),
     }),
   );
 
@@ -520,6 +522,7 @@ async function main(): Promise<void> {
   startAccountOffboardingReactivationResetPoller();
   startAccountOffboardingTeardownRetryPoller();
   startHealthAlertPoller();
+  startPoolWedgeReaperPoller();
   startJudgeSweepPoller();
   startAutonomyGovernorScheduler();
   console.log(`Worker service running on port ${PORT}`);
@@ -567,6 +570,7 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
+    stopPoolWedgeReaperPoller();
     stopJudgeSweepPoller();
     stopAutonomyGovernorScheduler();
   },
@@ -591,10 +595,10 @@ const shutdown = createGracefulShutdown({
     const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
     await shutdownAnalytics();
   },
-  closeDb: async () => {
-    const { sql } = await import('../src/lib/db/server');
-    await sql.end();
-  },
+  // End the dedicated reaper + health clients before the shared pool; the
+  // close-order + best-effort contract lives in closeAllPostgresClients (the
+  // db/server owner) so it is testable without booting the worker (#500).
+  closeDb: () => closeAllPostgresClients([closeReaperClient, closeHealthSql]),
   exit: (code) => process.exit(code),
   armWatchdog: (onTimeout, ms) => {
     const timer = setTimeout(onTimeout, ms);
