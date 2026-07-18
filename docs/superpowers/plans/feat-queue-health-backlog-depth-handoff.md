@@ -2,7 +2,16 @@
 
 **Branch:** `feat-queue-health-backlog-depth`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-queue-health-backlog-depth` (session cwd MUST stay here)
-**Current step:** 6 — REVIEW 0 (adversarial, RISK=high). Steps 0–5 complete; verify gate GREEN.
+**Current step:** 8 — SHIP (RISK=high lane). Steps 0–7 complete; verify gate GREEN at `321ca990`.
+
+## Review outcomes (steps 6–7)
+- **Step 6 adversarial (Codex):** needs-attention → 2 findings FIXED in `e5221006`. F-high: DB op now bounded by `SET LOCAL statement_timeout=4000` in `queryBacklogDepth` (releases the pooled connection; no pool-exhaustion amplification). F-medium: `checkBacklogDepth` isolated via `.catch` so it can't suppress the other 5 health checks. Triage: `docs/reviews/.../step6-adversarial-triage.md`.
+- **Step 7 dual review:** both axes clean; 2 LOW findings FIXED in `321ca990` (stale timeout comment in queue-health.ts; added `docs/reviews/**` to surface). Spec agent verified every intake field faithful. Triage: `docs/reviews/.../step7-triage.md`.
+- **Deferred follow-up ticket:** harden `runHealthChecks` to per-check isolation (`allSettled`) so ANY single check failure can't blank the cycle (pre-existing, out of #480 scope).
+
+## Ship notes (step 8)
+- RISK=high lane: ride staging → PR to main → PAUSE for explicit merge approval. NO migration (both partial pending indexes pre-exist) → no lockstep migration step.
+- **#500 caveat:** HealthAlertPoller is PAUSED on staging, so the ALERT half + the #474 burst-drain drill cannot be fully smoked until it resumes. The ENDPOINT half (`GET /internal/queue-health` `backlog` key) IS verifiable on staging now. Burst/alert drills documented in `beta-launch-alerting.md` §4 for when #500 resumes.
 
 ## Resume bootstrap (read in this order)
 1. `.feature/intake.json` — authoritative intake contract (drift detector).
