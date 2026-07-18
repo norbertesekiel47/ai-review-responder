@@ -20,6 +20,17 @@ performed). Facts re-verified against the repo before accepting.
 - 5 reaper env vars: `POOL_WEDGE_REAPER_{ENABLED,AGE_S,INTERVAL_MS,MAX_PER_SWEEP,OP_TIMEOUT_MS}`.
 - `DIRECT_URL` sole consumer = the reaper (`resolveDirectUrl`). No other reader.
 
+## Codex round 2 (VERDICT: REVISE — 3 remaining) + triage
+Confirmed addressed: root-cause framing now honest; reaper-deletion mechanics complete (6 markers, 5 env vars, DIRECT_URL, closers/tests/health-db/CONTEXT/ADR); OP4 removal fine.
+
+| # | Finding | Verdict | Action |
+|---|---------|---------|--------|
+| R2-1 | T1's pre-write `debug` hook can't observe whether `socket.write()` completed/stalled/half-wrote (the open transport question); T1 also doesn't specify observing permanence / state_change fixity / poison-migration before self-cleanup. | **ACCEPT** | T1 must (a) characterize the wedge: observe permanence (persists after boot settles), state_change fixity vs query_start restamp (sample pg_stat_activity over time), and migration (terminate → watch re-wedge) BEFORE self-clean; (b) instrument beyond pre-write — best-effort wrap the connection `socket.write` to capture completion/backpressure; (c) state honestly that the transport mechanism MAY stay unproven → cure validation is EMPIRICAL (treatment-negative across repeated fresh boots), not mechanism-based. |
+| R2-2 | Shutdown cancels the `staggerBoot` handle but NOT the bounded readiness WAIT — its listener/continuation can outlive shutdown and still schedule loops / resume workers. | **ACCEPT** | One cancellation token (AbortSignal) spans readiness-await + stagger + worker-resume; shutdown aborts it; the readiness continuation checks the shutting-down flag before scheduling/resuming; readiness listener/resources disposed on abort. |
+| R2-3 | Worker "resume" (autorun) not ordered relative to `staggerBoot.done` → could recreate a concurrent DB burst; exactly-once activation during shutdown unresolved. | **ACCEPT** | Define ordering: resume DB-backed workers AFTER `staggerBoot.done` (or fold worker `.run()` into the staggered schedule as additional starts), guarded exactly-once + skipped if shutting down. |
+
+Round 3 dispatched to confirm. Max 3 rounds — if R3 still REVISE on something material, surface to user rather than loop.
+
 ## Surface expansion required (needs user sign-off — hook enforces declared surface)
 Add to allowed_edit_surface: `worker/background/**` (boot-stagger + its tests),
 `worker/shutdown.ts`, `src/lib/db/**` (server.ts + __tests__),

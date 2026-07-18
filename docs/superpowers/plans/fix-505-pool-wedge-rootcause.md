@@ -34,16 +34,22 @@ evidence across repeated fresh boots (intake edge case).
   scheduler=setTimeout) → { cancel(): void; done: Promise<void> }` (Codex F4:
   cancellable + awaitable, NOT `void`). Implementation hides delay/jitter/scheduling
   + timer bookkeeping. Pure-core + thin-shell mirrors `select-terminations.ts`.
-- **Boot-readiness coordinator (Codex F3)** — the cure is more than poller stagger:
-  BullMQ Workers autorun at module scope and run DB-backed handlers before pollers
-  start. Set worker `autorun:false` at construction (or an async coordinator), await
-  bounded Redis/BullMQ readiness, THEN `staggerBoot` the DB loops AND resume the
-  workers. Lives in `worker/index.ts` boot path + `worker/queues.ts`/worker
-  construction.
+- **Boot-readiness coordinator (Codex F3, R2-2, R2-3)** — the cure is more than
+  poller stagger: BullMQ Workers autorun at module scope and run DB-backed handlers
+  before pollers start. Construct workers `autorun:false`; await **bounded**
+  Redis/BullMQ readiness; then `staggerBoot` the DB loops; **then, AFTER
+  `staggerBoot.done`, resume the workers** (`.run()`) — worker activation is ordered
+  strictly after the staggered DB-loop starts so it can't recreate a concurrent DB
+  burst. Exactly-once; skipped if shutting down. Lives in `worker/index.ts` boot
+  path. **One `AbortSignal` (R2-2)** spans the readiness-await + `staggerBoot` + the
+  worker-resume: shutdown aborts it; every stage checks the shutting-down flag; the
+  readiness listener/resources are disposed on abort so no continuation outlives
+  shutdown.
 - **Deepen** `src/lib/db/server.ts` `closeAllPostgresClients` — drop the reaper
   closer; keep health + shared-`sql` close order + resilience.
-- **Shutdown (Codex F4)** — `worker/shutdown.ts` `stopBackgroundLoops` cancels the
-  `staggerBoot` handle FIRST, then stops loops; readiness stays false until `done`.
+- **Shutdown (Codex F4, R2-2)** — `worker/shutdown.ts` `stopBackgroundLoops` aborts
+  the coordinator signal FIRST (cancelling readiness-await + pending staggered starts
+  + pending worker-resume), then stops loops; readiness stays false until settled.
 - **Delete** `PoolWedgeReaperPoller.ts` + `pool-wedge-reaper/**` + tests; the SIX
   `/* rw-reapable */` marker sites; the marker test.
 - **Untouched (kept):** the #502 HealthAlertPoller **bulkhead** + recycle.
@@ -53,13 +59,23 @@ evidence across repeated fresh boots (intake edge case).
 ### T1 — Faithful boot repro harness (root-cause tracer) · blocked by: none
 Boots the REAL worker, **fresh process per trial**, against the **staging** pooler
 (positive staging-project match; unconditional prod REJECT) with the real 30
-`Queue`/30 `Worker` constructions + actual start functions. Instruments the
-postgres.js `debug` hook (pre-write transport timing) + polls `pg_stat_activity`
-(unique per-trial query marker) for an `active/ClientRead` backend; self-cleans via
-`pg_terminate_backend`. Exposes an env toggle for the T2 boot-readiness seam so the
-SAME harness runs baseline (cure off) and treatment (cure on). Lives `scripts/`,
-run via `tsx` (NO package.json script). Acceptance: baseline reproduces the wedge;
-treatment = **zero wedge across repeated fresh boots** (not first-boot-self-healed).
+`Queue`/30 `Worker` constructions + actual start functions. Exposes an env toggle
+for the T2 coordinator so the SAME harness runs baseline (cure off) and treatment
+(cure on). Lives `scripts/`, run via `tsx` (NO package.json script). Self-cleans via
+`pg_terminate_backend`.
+**Characterize the wedge (R2-1)** — before self-clean, observe and log the three
+persistence behaviors any mechanism must explain: (1) **permanence** — the backend
+stays `active/ClientRead` after the boot window settles; (2) **state_change fixity**
+— sample `pg_stat_activity` over time, confirming `query_start` restamps while
+`state_change` stays pinned; (3) **migration** — terminate the wedged pid, watch a
+different connection re-wedge.
+**Instrument the transport (R2-1)** — the postgres.js `debug` hook fires PRE-write
+(shows messages queued, not `socket.write()` completion); best-effort wrap the
+connection `socket.write` to capture write-callback completion / backpressure. If
+the transport mechanism stays opaque, say so — **cure validation is EMPIRICAL**
+(treatment-negative across repeated fresh boots), not mechanism-based.
+Acceptance: baseline reproduces + characterizes the wedge; treatment = **zero wedge
+across repeated fresh boots** (not first-boot-self-healed).
 
 ### T2 — Boot-readiness cure · blocked by: T1 (validation), not code
 `boot-stagger.ts` (pure `computeBootSchedule` + cancellable `staggerBoot`) +
@@ -68,8 +84,10 @@ DB-loop starts, wired in `index.ts`/`queues.ts`; shutdown cancels pending timers
 (`shutdown.ts`). Bound: total spread ≤ ~10s; Stripe's in-`start()` 45s preserved.
 Tests (TDD): `computeBootSchedule` bounded + strictly monotonic + covers `count`
 (property/example); `staggerBoot` invokes each start once at its delay via injected
-fake scheduler AND `cancel()` prevents un-fired starts + resolves `done`; readiness
-gate holds until `done`. Cure-CLAIM gated on OP2. If T1 can't reproduce or treatment
+fake scheduler AND `cancel()` prevents un-fired starts + resolves `done`; the
+coordinator resumes workers ONLY after `staggerBoot.done` (ordering, R2-3);
+**abort during the readiness-await fires NO start and NO worker-resume** (R2-2)
+and disposes the readiness listener. Cure-CLAIM gated on OP2. If T1 can't reproduce or treatment
 still wedges → ship as hardening, say so, keep the bulkhead, escalate (`.cancel()`
 client-side timeout experiment as ADDED containment).
 
