@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **078** — next migration is **079**
+Current head: **079** — next migration is **080**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -952,6 +952,23 @@ Revisit triggers:
   database only; no staging or production migration was run during WS8 execution.
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
+
+- **079** — Agent-run-spine archival-scan indexes. Adds two archival indexes so
+  the ArchivalPoller's new 180-day retention arms
+  (`worker/background/pollers/ArchivalPoller.ts`, arms 7 and 8) can prune the
+  migration-071 run spine without seq-scanning: `idx_agent_outcomes_archival`
+  on `agent_outcomes (occurred_at)` serves the `occurred_at < NOW() -
+  make_interval(days => 180)` claim, and the partial
+  `idx_agent_runs_archival` on `agent_runs (ended_at) WHERE ended_at IS NOT
+  NULL` serves the `ended_at < …` claim (the predicate implies non-NULL, same
+  pattern as 065's `idx_jo_recovery`). `agent_run_steps` needs no arm of its
+  own — its `agent_run_id` FK is `ON DELETE CASCADE`, so steps prune with their
+  parent run. Both use `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, so this
+  migration is **non-transactional** (uncheck the Supabase SQL editor's single-
+  transaction box); a partial failure can leave an INVALID index — check
+  `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
+  production, both projects in lockstep. Supports the 180-day retention arms
+  added in the same PR.
 
 ## Key Tables Reference
 
