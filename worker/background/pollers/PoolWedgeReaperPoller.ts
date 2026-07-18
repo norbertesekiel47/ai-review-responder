@@ -221,12 +221,11 @@ export function stopPoolWedgeReaperPoller(): void {
 }
 
 /**
- * End the dedicated reaper client. Exported and ready for the shutdown path, but
- * NOT yet wired into worker/index.ts's `closeDb` step — a later integration task
- * awaits this alongside health's `closeHealthSql()`. Best-effort: a failing end
- * must not block shutdown.
+ * End the dedicated reaper client. Wired into worker/index.ts's `closeDb` step
+ * via `closeAllPostgresClients([closeReaperClient, closeHealthSql])`, which
+ * closes both dedicated clients (best-effort) before the shared pool. Best-effort:
+ * a failing end must not block shutdown.
  */
-// fallow-ignore-next-line unused-export
 export async function closeReaperClient(): Promise<void> {
   const client = reaperSql;
   reaperSql = null;
