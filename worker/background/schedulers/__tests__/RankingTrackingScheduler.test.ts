@@ -17,8 +17,7 @@ const { sqlReturnQueue, mockSql, mockIsMockMode } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql, mockIsMockMode };
 });
 
-vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql }));
 
 vi.mock('../../../../src/lib/shared/mock-mode', () => ({
   isMockMode: mockIsMockMode,
@@ -128,27 +127,29 @@ describe('RankingTrackingScheduler', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('queries eligible businesses on even-week Sunday at 22 UTC', async () => {
+  it('issues one set-based INSERT on even-week Sunday at 22 UTC', async () => {
     process.env.RANKING_TRACKING_ENABLED = 'true';
 
     // 2026-01-11 is Sunday of ISO week 2 (even)
     vi.setSystemTime(new Date('2026-01-11T22:05:00Z'));
 
-    // Candidates query returns empty
-    sqlReturnQueue.push([]);
+    // Merged INSERT…SELECT inserts 0 rows
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));
 
     const mod = await import('../RankingTrackingScheduler');
     await mod.runRankingCheck();
 
-    // SQL was called (the candidates query)
+    // Exactly one merged statement per cycle (candidate scan + enqueue fused)
     expect(mockSql).toHaveBeenCalledTimes(1);
-    const candidatesCall = mockSql.mock.calls[0];
-    const queryText = Array.from(candidatesCall[0] as TemplateStringsArray).join('');
+    const call = mockSql.mock.calls[0];
+    const queryText = Array.from(call[0] as TemplateStringsArray).join('');
+    expect(queryText).toContain('INSERT INTO job_outbox');
     expect(queryText).toContain('subscription_status');
     expect(queryText).toContain('tracked_keywords');
+    expect(queryText).toContain('ON CONFLICT DO NOTHING');
     // Topic is an interpolated QUEUE_NAMES value, not a template literal —
     // check the bound values, not the raw strings array.
-    expect(candidatesCall.slice(1)).toContain('track_ranking');
+    expect(call.slice(1)).toContain('track_ranking');
   });
 
   it('creates outbox entries for eligible businesses', async () => {
@@ -157,61 +158,56 @@ describe('RankingTrackingScheduler', () => {
     // 2026-01-11 is Sunday of ISO week 2 (even)
     vi.setSystemTime(new Date('2026-01-11T22:15:00Z'));
 
-    // Candidates query returns 2 businesses
-    sqlReturnQueue.push([
-      { id: 'biz-1', google_place_id: 'ChIJ_place_1' },
-      { id: 'biz-2', google_place_id: 'ChIJ_place_2' },
-    ]);
-    // INSERT results for each business
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));
+    // Merged INSERT…SELECT reports 2 rows inserted (count = queued)
+    sqlReturnQueue.push(Object.assign([], { count: 2 }));
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const mod = await import('../RankingTrackingScheduler');
     await mod.runRankingCheck();
 
-    // 1 candidates query + 2 INSERT queries
-    expect(mockSql).toHaveBeenCalledTimes(3);
-
-    // Verify INSERT calls contain track_ranking. Topic is an interpolated
-    // QUEUE_NAMES value, not a template literal — check the bound values.
-    const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
-      const text = Array.from(call[0] as TemplateStringsArray).join('');
-      return text.includes('INSERT') && call.slice(1).includes('track_ranking');
-    });
-    expect(insertCalls).toHaveLength(2);
+    // One merged INSERT…SELECT, not 1 SELECT + N inserts.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    const call = mockSql.mock.calls[0];
+    const queryText = Array.from(call[0] as TemplateStringsArray).join('');
+    expect(queryText).toContain('INSERT INTO job_outbox');
+    // Payload keys are literal SQL text inside jsonb_build_object.
+    expect(queryText).toContain("'business_id'");
+    expect(queryText).toContain("'google_place_id'");
+    expect(queryText).toContain("'run_date'");
+    expect(queryText).toContain("'correlation_id'");
+    // Two independent gen_random_uuid() calls: row id + correlation_id.
+    expect(queryText.match(/gen_random_uuid\(\)/g)).toHaveLength(2);
+    expect(call.slice(1)).toContain('track_ranking');
 
     const queuedLine = consoleSpy.mock.calls
       .map((c) => String(c[0]))
       .find((l) => l.includes('"message":"Queued track_ranking outbox entries"'));
     expect(queuedLine).toBeDefined();
     expect(queuedLine).toContain('"queued":2');
-    expect(queuedLine).toContain('"candidates_checked":2');
+    // The standalone candidate count is gone with the merge — only queued logs.
+    expect(queuedLine).not.toContain('candidates_checked');
 
     consoleSpy.mockRestore();
   });
 
-  it('handles 23505 duplicate violation gracefully', async () => {
+  it('relies on ON CONFLICT DO NOTHING for dedup (no JS-side 23505 catch)', async () => {
     process.env.RANKING_TRACKING_ENABLED = 'true';
 
     vi.setSystemTime(new Date('2026-01-11T22:00:00Z'));
 
-    sqlReturnQueue.push([{ id: 'biz-1', google_place_id: 'ChIJ_place_1' }]);
-    // Simulate unique constraint violation
-    mockSql.mockImplementationOnce(() => Promise.resolve(sqlReturnQueue.shift()))
-      .mockImplementationOnce(() => Promise.reject({ code: '23505' }));
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));
 
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const mod = await import('../RankingTrackingScheduler');
     await mod.runRankingCheck();
 
-    // Should not have logged an error (23505 is expected)
-    const rankingErrors = consoleErrorSpy.mock.calls.filter(
-      (c) => typeof c[0] === 'string' && c[0].includes('Ranking check failed'),
-    );
-    expect(rankingErrors).toHaveLength(0);
-
-    consoleErrorSpy.mockRestore();
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    const queryText = Array.from(
+      mockSql.mock.calls[0][0] as TemplateStringsArray,
+    ).join('');
+    // Concurrency dedup is now owned by the DB, not a per-row 23505 catch.
+    expect(queryText).toContain('ON CONFLICT DO NOTHING');
+    expect(queryText).toContain("'google_place_id'");
+    expect(queryText).toContain("'run_date'");
   });
 
   describe('getIsoWeekNumber', () => {

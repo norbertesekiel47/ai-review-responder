@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **079** — next migration is **080**
+Current head: **080** — next migration is **081**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -953,6 +953,49 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
+- **080** — Scheduler set-based outbox dedup indexes + race-safe preflight
+  (ticket #484, parent #472 audit item 10). Renumbered 079→080: migration 079
+  (`079_agent_run_spine_archival_indexes.sql`, agent-run-spine archival) rode
+  `staging` first and claimed 079; this migration takes 080. Both land on `main`
+  via separate PRs (archival's 079 must precede this 080). Two PARTIAL UNIQUE indexes on
+  `job_outbox` so the weekly/monthly summary schedulers can collapse their
+  per-row insert loop into one `INSERT…SELECT…ON CONFLICT DO NOTHING` (Task 2)
+  with the dedup guarantee owned by the DB instead of a JS-side `WHERE NOT
+  EXISTS` (which cannot close the concurrent-scheduler / restart race):
+  `uniq_outbox_weekly_summary_week` on `(aggregate_id, (payload->>'week_start_date'))
+  WHERE topic = 'weekly_summary' AND status IN ('pending','dispatching','dispatched')`
+  and `uniq_outbox_monthly_impact_month` on `(aggregate_id, (payload->>'month_start_date'))
+  WHERE topic = 'send_monthly_impact' AND status IN ('pending','dispatching','dispatched')`.
+  **Predicate is in-flight-only, NOT `<> 'failed'`** (deliberate divergence from
+  ranking's `uniq_outbox_track_ranking_run`, which is untouched): weekly/monthly
+  have a `sent_at` completion guard, and the worker `markOutboxCompleted`'s a row
+  WITHOUT `sent_at` in three skip cases (archived / subscription-not-allowed /
+  bounced email), so a `<> 'failed'` predicate would wrongly block those
+  legitimate re-enqueues. The in-flight-only predicate EXACTLY mirrors the
+  existing NOT EXISTS → behavior preserved; a `completed`/`failed` row never
+  blocks re-enqueue. Each index is preceded by a **race-safe preflight**: rank
+  in-flight rows per `(aggregate_id, period)` most-advanced-then-oldest
+  (`dispatched` > `dispatching` > `pending`, then `created_at`) and fail ONLY
+  currently-`pending` extras via a LIVE compare-and-swap (the outer UPDATE's
+  `AND status = 'pending'`, re-checked under EvalPlanQual after row-lock) — an
+  actively-dispatched row is NEVER overwritten and the OutboxPoller cannot lose a
+  concurrent dispatch. NULL-period rows excluded. If two non-pending in-flight
+  duplicates for one key coexist (near-impossible under the single-flight
+  guarded-poll), the CREATE UNIQUE INDEX fails LOUDLY rather than killing an
+  active job — surfaced staging-first. Additive, transactional (non-CONCURRENTLY;
+  sub-second ACCESS EXCLUSIVE at 100-business scale). Apply staging-first, then
+  production, both Supabase projects in lockstep.
+
+  > **Deliberate deviation — `gen_random_uuid()` (UUIDv4) for the set-based
+  > INSERT path (Task 2):** the collapsed schedulers supply `job_outbox.id` and
+  > `payload.correlation_id` via SQL `gen_random_uuid()` instead of the app-side
+  > JS UUIDv7 generator. Justification: prod Postgres has no `uuidv7()` function,
+  > and a set-based `INSERT…SELECT` cannot call the per-row JS generator.
+  > `job_outbox.id` has NO ordering contract — migration 002 DROPPED its DEFAULT,
+  > the INSERT supplies `id` explicitly, and the OutboxPoller orders by
+  > `available_at`, never `id`. `correlation_id` is an opaque trace string. Rows
+  > are 7-day pruned. This is the RepWorth-wide "all tables use UUIDv7" note's
+  > one sanctioned exception, scoped to these two set-based scheduler INSERTs.
 - **079** — Agent-run-spine archival-scan indexes. Adds two archival indexes so
   the ArchivalPoller's new 180-day retention arms
   (`worker/background/pollers/ArchivalPoller.ts`, arms 7 and 8) can prune the
