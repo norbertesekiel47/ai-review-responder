@@ -81,6 +81,7 @@ import {
   runOnce,
   reconcileCycle,
   resetAccountCursorForTests,
+  resetTruncationStateForTests,
   beginCursorLoadForTests,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
@@ -453,6 +454,8 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlCalls.length = 0;
     // The keyset resume cursor is module state; reset so tests are independent.
     resetAccountCursorForTests();
+    // The sustained-truncation counter is also module state.
+    resetTruncationStateForTests();
     mockCaptureMessage.mockClear();
     mockStripeRetrieve.mockClear();
     mockStripeList.mockClear();
@@ -1760,6 +1763,164 @@ describe('StripeLocationsReconcilePoller', () => {
       .map((c: any[]) => c[0])
       .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
     expect(skipLine).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  // ── Sustained-truncation alert (T3, ADR 0006 + #479) ─────────────
+  // Classification wiring driven through runOnce: a cycle that hits the 240s
+  // deadline before draining its batch is a truncation; three consecutive
+  // truncations (no full drain in between) fire ONE warning-level alert. With
+  // SENTRY_DSN unset the alert lands on console.warn as a structured log line.
+
+  const SUSTAINED_TRUNCATION = 'Sustained reconcile truncation';
+  const truncationAlertCount = (): number =>
+    warnSpy.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes(SUSTAINED_TRUNCATION),
+    ).length;
+
+  // Park every Stripe retrieve forever. reconcileAccount reaches the retrieve
+  // before any DB read, so a parked retrieve means the per-account withTimeout is
+  // the only thing that ever settles the account — the cycle can never drain its
+  // batch before the 240s cycle deadline.
+  function parkStripeRetrieveForever(): void {
+    mockStripeRetrieve.mockImplementation(() => new Promise(() => {}));
+  }
+
+  // One deadline-truncated cycle: 100 parked accounts, so at the 240s cycle
+  // deadline only a handful (~12) have been CLAIMED (dispatched << total) → the
+  // finally classifies `truncated`. Requires fake timers + parked Stripe.
+  async function runTruncatedCycle(): Promise<void> {
+    sqlReturnQueue.push(
+      Array.from({ length: 100 }, (_, i) =>
+        makeAccountRow({ id: `trunc-${String(i).padStart(3, '0')}` }),
+      ),
+    );
+    const run = runOnce();
+    await vi.advanceTimersByTimeAsync(240_000 + 1_000); // past CYCLE_TIMEOUT_MS
+    await run;
+  }
+
+  // One drained cycle via an empty account list (queryCompleted && total === 0).
+  // Resolves on microtasks — no timer advance needed.
+  async function runEmptyDrainedCycle(): Promise<void> {
+    sqlReturnQueue.push([]);
+    await runOnce();
+  }
+
+  it('a single truncated cycle stays log-only — no sustained-truncation alert', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+
+    await runTruncatedCycle();
+
+    expect(truncationAlertCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('emits exactly one alert after 3 consecutive truncations and never re-fires', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+
+    await runTruncatedCycle(); // consecutive = 1
+    expect(truncationAlertCount()).toBe(0);
+    await runTruncatedCycle(); // consecutive = 2
+    expect(truncationAlertCount()).toBe(0);
+    await runTruncatedCycle(); // consecutive = 3 → alert
+    expect(truncationAlertCount()).toBe(1);
+
+    // A 4th truncation is clamped and must NOT re-fire.
+    await runTruncatedCycle();
+    expect(truncationAlertCount()).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it('a fully-dispatched cycle (dispatched === total) is drained — no alert', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+    // 3 accounts == fan-out concurrency: all claimed in one wave (dispatched ===
+    // total), each parks and hits its 60s per-account timeout, then the cycle
+    // RETURNS normally (before the 240s cycle deadline) with dispatched === total
+    // → the finally classifies `drained`, not `truncated`.
+    sqlReturnQueue.push([
+      makeAccountRow({ id: 'full-a' }),
+      makeAccountRow({ id: 'full-b' }),
+      makeAccountRow({ id: 'full-c' }),
+    ]);
+
+    const run = runOnce();
+    await vi.advanceTimersByTimeAsync(60_000 + 1_000); // past ACCOUNT_TIMEOUT_MS
+    await run;
+
+    expect(truncationAlertCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('a boot/query stall is classified stalled — it neither advances nor resets the counter', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+
+    await runTruncatedCycle(); // consecutive = 1
+    await runTruncatedCycle(); // consecutive = 2
+    expect(truncationAlertCount()).toBe(0);
+
+    // A stall: the accounts query itself never returns (queryCompleted stays
+    // false). The cycle deadline fires → classified `stalled`.
+    mockSql.mockImplementationOnce(() => new Promise(() => {})); // accounts SELECT parks
+    const stalled = runOnce();
+    await vi.advanceTimersByTimeAsync(240_000 + 1_000);
+    await stalled;
+
+    // Stalled left the counter at 2 (not reset to 0, not advanced to 3): still no alert.
+    expect(truncationAlertCount()).toBe(0);
+
+    // The next truncation reaches 3 → the alert fires now, proving the stall
+    // neither reset the run nor pre-fired it.
+    await runTruncatedCycle();
+    expect(truncationAlertCount()).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it('an empty account list is a drain that resets the truncation counter', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+
+    await runTruncatedCycle(); // consecutive = 1
+    await runTruncatedCycle(); // consecutive = 2
+    expect(truncationAlertCount()).toBe(0);
+
+    await runEmptyDrainedCycle(); // drained → counter reset to 0
+    expect(truncationAlertCount()).toBe(0);
+
+    // After the reset it takes a FRESH run of 3 truncations to alert.
+    await runTruncatedCycle(); // 1
+    await runTruncatedCycle(); // 2
+    expect(truncationAlertCount()).toBe(0);
+    await runTruncatedCycle(); // 3 → alert
+    expect(truncationAlertCount()).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it('runOnce re-entered immediately after a truncating timeout runs cleanly (inProgress released)', async () => {
+    vi.useFakeTimers();
+    parkStripeRetrieveForever();
+
+    await runTruncatedCycle(); // cycle deadline fired; finally released inProgress
+
+    // Immediately re-enter with a clean empty cycle: it must actually RUN (not hit
+    // the single-flight skip path) and return a zero result.
+    logSpy.mockClear();
+    sqlReturnQueue.push([]);
+    const second = await runOnce();
+
+    expect(second).toEqual({ accountsChecked: 0, driftsFound: 0, errors: 0 });
+    const skipLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
+    expect(skipLine).toBeUndefined();
+
     vi.useRealTimers();
   });
 });

@@ -21,3 +21,10 @@ export const CURSOR_SAVE_TIMEOUT_MS = 10_000;
 // that parks on pool acquisition before the first tick cannot hold a connection
 // forever.
 export const CURSOR_LOAD_TIMEOUT_MS = 10_000;
+
+// Consecutive deadline-truncated cycles (no full drain in between) that trip the
+// sustained-truncation alert (ADR 0006, #479). A single truncation self-heals
+// via the keyset cursor next cycle and stays log-only; only a SUSTAINED run
+// pages. Fire-once at the crossing — a drain resets the run, a stall leaves it
+// untouched.
+export const TRUNCATION_ALERT_THRESHOLD = 3;

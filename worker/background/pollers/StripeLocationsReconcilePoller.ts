@@ -27,15 +27,22 @@ import { stripeLocationsReconcileDisabled } from '../../../src/lib/payments/flag
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
+import { emitTruncationAlert } from './billing-reconciliation/truncation-alert';
 import { reconcileAccount } from './billing-reconciliation/reconcile-account';
 import {
   LOG_PREFIX,
   POLLER_NAME,
   CURSOR_SAVE_TIMEOUT_MS,
   CURSOR_LOAD_TIMEOUT_MS,
+  TRUNCATION_ALERT_THRESHOLD,
 } from './billing-reconciliation/constants';
 import { loadCursor, saveCursor } from './billing-reconciliation/cursor-store';
-import { nextCursor } from './billing-reconciliation/reconcile-progress';
+import {
+  nextCursor,
+  classifyCycle,
+  evaluateTruncation,
+  type ReconcileProgress,
+} from './billing-reconciliation/reconcile-progress';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { withTimeout, TimeoutError } from '../../../src/lib/shared/with-timeout';
 import type { AccountWithLocations } from './billing-reconciliation/types';
@@ -98,6 +105,14 @@ let accountCursor: string | null = null;
 // stale; bumped synchronously (submission order) before each save.
 let writeSeq = 0;
 
+// Consecutive deadline-truncated cycles with no full drain in between (ADR 0006,
+// #479 sustained-truncation alert). Updated in runOnce.finally from the cycle
+// classification: a drain resets it, a stall leaves it untouched, a truncation
+// bumps it (clamped at TRUNCATION_ALERT_THRESHOLD). Emits ONE warning-level alert
+// when it first reaches the threshold. NOT persisted — an operational-capacity
+// signal that a fresh boot is welcome to re-observe from zero.
+let consecutiveTruncations = 0;
+
 // Resolves once the boot cursor load has settled (seeding accountCursor +
 // writeSeq, or logging and defaulting to a top-of-rotation scan on failure).
 // null until start() kicks the load; reconcileCycle awaits it — when present —
@@ -124,6 +139,10 @@ export function resetAccountCursorForTests(): void {
   accountCursor = null;
   writeSeq = 0;
   cursorLoaded = null;
+}
+
+export function resetTruncationStateForTests(): void {
+  consecutiveTruncations = 0;
 }
 
 /**
@@ -156,9 +175,14 @@ export async function runOnce(): Promise<ReconcileResult> {
   }
   inProgress = true;
   const controller = new AbortController();
+  // Per-cycle progress snapshot (ADR 0006). reconcileCycle mutates it in place;
+  // runOnce.finally classifies the cycle from it for the sustained-truncation
+  // alert — even a deadline-aborted cycle leaves behind whatever it set before
+  // unwinding.
+  const progress: ReconcileProgress = { queryCompleted: false, total: 0, dispatched: 0 };
 
   try {
-    return await withTimeout(reconcileCycle(controller.signal), CYCLE_TIMEOUT_MS, 'reconcile cycle');
+    return await withTimeout(reconcileCycle(controller.signal, progress), CYCLE_TIMEOUT_MS, 'reconcile cycle');
   } catch (err) {
     // The detached cycle promise may still settle later. Abort so it stops
     // launching NEW per-account work (the in-flight account finishes under its
@@ -175,6 +199,29 @@ export async function runOnce(): Promise<ReconcileResult> {
     );
     return { accountsChecked: 0, driftsFound: 0, errors: 1 };
   } finally {
+    // Sustained-truncation classification + alert (ADR 0006, #479). BEST-EFFORT
+    // and fully guarded: it runs BEFORE the cursor persist and must never throw
+    // out of finally nor block the persist / inProgress release (invariant #3).
+    // Reads the progress snapshot (mutated by reconcileCycle, even on the aborted
+    // path): a drain resets the counter, a stall leaves it untouched, a truncation
+    // bumps it and fires ONE alert on the first crossing to the threshold.
+    try {
+      const cycle = classifyCycle(progress);
+      const evaluated = evaluateTruncation(consecutiveTruncations, cycle, TRUNCATION_ALERT_THRESHOLD);
+      consecutiveTruncations = evaluated.consecutive;
+      if (evaluated.alert) {
+        emitTruncationAlert({
+          pollerName: POLLER_NAME,
+          consecutive: evaluated.consecutive,
+          dispatched: progress.dispatched,
+          total: progress.total,
+          cycleDeadlineMs: CYCLE_TIMEOUT_MS,
+        });
+      }
+    } catch (classifyErr) {
+      logger.error('Truncation classification/alert failed — continuing to cursor persist', classifyErr);
+    }
+
     // Single serialized cursor persist (ADR 0006). Assign the seq SYNCHRONOUSLY
     // (submission order) BEFORE awaiting, so the write_seq CAS rejects any
     // stale/detached/reordered save that lands later. The save is
@@ -205,7 +252,10 @@ export async function runOnce(): Promise<ReconcileResult> {
  * under its own bounded Stripe timeout — Stripe SDK v22 has no request
  * AbortSignal, so this only halts the loop, it cannot cancel an open HTTP call.
  */
-export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResult> {
+export async function reconcileCycle(
+  signal: AbortSignal,
+  progress: ReconcileProgress = { queryCompleted: false, total: 0, dispatched: 0 },
+): Promise<ReconcileResult> {
   // Seed accountCursor + writeSeq from the durable boot load before reading the
   // cursor. Awaited INSIDE the cycle deadline (runOnce wraps this cycle in
   // withTimeout), so a never-settling load is released by the cycle timeout —
@@ -257,6 +307,12 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
     ORDER BY a.id ASC
   `;
 
+  // The accounts query returned: the cycle got past the query, so a later
+  // deadline classifies as truncated/drained (not stalled), and `total` records
+  // the batch the fan-out must drain to count as a full drain.
+  progress.queryCompleted = true;
+  progress.total = accounts.length;
+
   if (accounts.length === 0) {
     if (cursor !== null) {
       // Reached the end of a resumed rotation — wrap to the top next cycle.
@@ -292,6 +348,7 @@ export async function reconcileCycle(signal: AbortSignal): Promise<ReconcileResu
         if (signal.aborted) return;
         const account = accounts[nextIndex]!;
         nextIndex += 1;
+        progress.dispatched += 1;
         try {
           const outcome = await withTimeout(
             reconcileAccount(sql, stripe, account),
