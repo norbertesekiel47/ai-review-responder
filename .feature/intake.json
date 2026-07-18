@@ -14,7 +14,7 @@
   ],
   "user_visible_behavior": [
     "No externally observable behavior change: the same eligible businesses get the same job_outbox rows enqueued with the same payload shape ({business_id, week_start_date|month_start_date|(google_place_id,run_date), correlation_id}).",
-    "Dedup for weekly_summary and send_monthly_impact is now enforced by a partial unique index (migration 079) plus ON CONFLICT DO NOTHING, closing the concurrent-scheduler / restart race that WHERE NOT EXISTS alone could not.",
+    "Dedup for weekly_summary and send_monthly_impact is now enforced by a partial unique index (migration 080) plus ON CONFLICT DO NOTHING, closing the concurrent-scheduler / restart race that WHERE NOT EXISTS alone could not.",
     "Each cycle now issues ONE set-based INSERT per scheduler instead of 1 candidate SELECT + N per-row inserts."
   ],
   "invariants": [
@@ -28,23 +28,23 @@
     "gen_random_uuid() (UUIDv4) replaces app-generated UUIDv7 for job_outbox.id and payload.correlation_id in the set-based path — deliberate, documented deviation. Justification: prod Postgres has no uuidv7() function; a set-based INSERT…SELECT cannot call the JS UUIDv7 generator per row; job_outbox.id has NO ordering contract (002 DROPPED its default; the INSERT supplies id explicitly; OutboxPoller orders by available_at, not id); rows are 7-day-pruned; correlation_id is an opaque trace string. Requires code comment + lab note.",
     "Empty candidate set: INSERT…SELECT inserts 0 rows and logs nothing (queued=0) — no error.",
     "A 'completed'-but-not-sent weekly/monthly outbox row must NOT block re-enqueue (worker markOutboxCompleted's without sent_at on archived/subscription/bounced skips) — hence the in-flight-only index predicate, preserving current behavior; a 'failed' row is likewise not blocked (retry preserved).",
-    "Migration 079 preflight (race-safe, NOT plain keep-oldest): BEFORE each CREATE UNIQUE INDEX, rank in-flight rows per (aggregate_id, period) most-advanced-then-oldest (dispatched>dispatching>pending, then created_at) and fail ONLY currently-pending extras via a LIVE CAS (outer UPDATE re-checks status='pending' under row-lock) so an actively-dispatched row is NEVER overwritten and the OutboxPoller cannot lose a concurrent dispatch. NULL-period rows excluded. If two non-pending in-flight duplicates for one key coexist (near-impossible under the single-flight guarded-poll), the build fails LOUDLY rather than killing an active job — surfaced staging-first for operator investigation.",
+    "Migration 080 preflight (race-safe, NOT plain keep-oldest): BEFORE each CREATE UNIQUE INDEX, rank in-flight rows per (aggregate_id, period) most-advanced-then-oldest (dispatched>dispatching>pending, then created_at) and fail ONLY currently-pending extras via a LIVE CAS (outer UPDATE re-checks status='pending' under row-lock) so an actively-dispatched row is NEVER overwritten and the OutboxPoller cannot lose a concurrent dispatch. NULL-period rows excluded. If two non-pending in-flight duplicates for one key coexist (near-impossible under the single-flight guarded-poll), the build fails LOUDLY rather than killing an active job — surfaced staging-first for operator investigation.",
     "Concurrent scheduler processes / restart both passing the NOT EXISTS pre-filter: the second INSERT's conflicting rows are absorbed by ON CONFLICT DO NOTHING (no 23505 surfaced).",
     "Ranking: the pre-merge `if (candidates.length === 0) return` micro-guard is removed; runDate is computed unconditionally (cheap) and a 0-row INSERT is a no-op."
   ],
   "existing_patterns_to_follow": [
     "RankingTrackingScheduler.ts current INSERT…VALUES…ON CONFLICT DO NOTHING (target-less) — the ON CONFLICT idiom for outbox dedup.",
-    "supabase/migrations/014_retention_expansion.sql uniq_outbox_track_ranking_run and uniq_outbox_onboarding_drip — the partial-unique-index-on-job_outbox pattern to mirror for migration 079.",
+    "supabase/migrations/014_retention_expansion.sql uniq_outbox_track_ranking_run and uniq_outbox_onboarding_drip — the partial-unique-index-on-job_outbox pattern to mirror for migration 080.",
     "jsonb_build_object(...) in SQL for set-based payload construction (replaces the JS-side jsonb() helper, which cannot run per-row inside INSERT…SELECT).",
     "scripts/ci/tenant-scope-allowlist.ts *_CANDIDATES_SQL constants — update in place; keep the 8 scheduler entries (background-global-scan) matching the new merged statement text.",
-    ".claude/reference/migrations-log.md — append the 079 entry and bump head 078 -> 079."
+    ".claude/reference/migrations-log.md — append the 080 entry and bump head to 080 (079 is the concurrent agent-run-spine archival migration on staging)."
   ],
   "allowed_edit_surface": [
     "worker/background/schedulers/WeeklySummaryScheduler.ts",
     "worker/background/schedulers/MonthlyImpactScheduler.ts",
     "worker/background/schedulers/RankingTrackingScheduler.ts",
     "worker/background/schedulers/__tests__/**",
-    "supabase/migrations/079_scheduler_outbox_dedup_indexes.sql",
+    "supabase/migrations/080_scheduler_outbox_dedup_indexes.sql",
     "scripts/ci/tenant-scope-allowlist.ts",
     "scripts/ci/static-policy-audit.ts",
     ".claude/reference/migrations-log.md"
@@ -56,7 +56,7 @@
     "sent_at / period-marker guard still excludes already-recorded businesses (weekly_summaries / monthly_impact_emails).",
     "Payload shape assertion: business_id, period date, and correlation_id are present and correctly typed; correlation_id values are distinct per row.",
     "queued count reflects inserted.count (rows actually inserted, not candidates scanned).",
-    "Migration 079 (integration, DB-available): partial unique index blocks a second IN-FLIGHT row (status IN pending/dispatching/dispatched) for the same (aggregate_id, period), and PERMITS a fresh row when the prior row is 'completed' OR 'failed' (completed-but-not-sent must remain re-enqueueable)."
+    "Migration 080 (integration, DB-available): partial unique index blocks a second IN-FLIGHT row (status IN pending/dispatching/dispatched) for the same (aggregate_id, period), and PERMITS a fresh row when the prior row is 'completed' OR 'failed' (completed-but-not-sent must remain re-enqueueable)."
   ],
   "verification_commands": [
     "pnpm ci:tenant-scope",

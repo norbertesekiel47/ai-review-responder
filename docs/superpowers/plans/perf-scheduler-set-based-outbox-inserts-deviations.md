@@ -23,19 +23,19 @@ guidance to note the split instead of exporting internals:
 - `summary-schedulers-archived.integration.test.ts` (live DB, Task 1-era) — drives
   the real `start*Scheduler()` seam end-to-end and asserts the enqueued row +
   period-marker exclusion against Postgres.
-- `migration-079-outbox-dedup.integration.test.ts` (live DB, Task 1) — owns the
+- `migration-080-outbox-dedup.integration.test.ts` (live DB, Task 1) — owns the
   weekly index-semantics + preflight regression guards (in-flight-only predicate,
   completed-but-not-sent re-enqueueable, most-advanced-then-oldest preflight).
 
 Net: ranking's collapsed output is proven directly; weekly/monthly output is
-proven through the pre-existing live-DB archived suite + the 079 index/preflight
+proven through the pre-existing live-DB archived suite + the 080 index/preflight
 suite + the mocked shape pins. No scheduler interface was widened for tests.
 
-### Migration-079 preflight test isolation (codex adversarial finding)
+### Migration-080 preflight test isolation (codex adversarial finding)
 
-The preflight-regression scenarios in `migration-079-outbox-dedup.integration.test.ts`
+The preflight-regression scenarios in `migration-080-outbox-dedup.integration.test.ts`
 seed TWO in-flight duplicates for one (aggregate_id, period). Against the REAL
-job_outbox — already carrying 079's partial unique indexes — the second insert
+job_outbox — already carrying 080's partial unique indexes — the second insert
 hit 23505 and the CI `test` job went red (it only passed locally because the
 suite self-skips without `TEST_DATABASE_POOL_URL`). Fix: each preflight scenario
 now runs inside one `sql().begin()` transaction against a session-local

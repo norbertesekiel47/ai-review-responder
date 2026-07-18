@@ -48,11 +48,11 @@ async function checkAndSchedule(): Promise<void> {
 
     // Set-based enqueue: merge the candidate scan with the outbox insert. The
     // candidate-level in-flight NOT EXISTS is a cheap pre-filter; the partial
-    // unique index (migration 079) + ON CONFLICT DO NOTHING is the correctness
+    // unique index (migration 080) + ON CONFLICT DO NOTHING is the correctness
     // owner for dedup under concurrent schedulers / restarts. gen_random_uuid()
     // (not app UUIDv7) supplies id + correlation_id because a set-based
     // INSERT…SELECT cannot call the JS generator per row and job_outbox.id has
-    // no ordering contract — see migration 079 lab note.
+    // no ordering contract — see migration 080 lab note.
     const result = await sql`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       SELECT

@@ -62,7 +62,7 @@ export async function runRankingCheck(): Promise<void> {
     // duplicate SerpAPI spend under concurrent schedulers or restarts.
     // gen_random_uuid() (not app UUIDv7) supplies id + correlation_id because a
     // set-based INSERT…SELECT cannot call the JS generator per row and
-    // job_outbox.id has no ordering contract — see migration 079 lab note.
+    // job_outbox.id has no ordering contract — see migration 080 lab note.
     const result = await sql`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       SELECT

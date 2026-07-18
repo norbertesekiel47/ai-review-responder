@@ -1,13 +1,13 @@
-// worker/background/schedulers/__tests__/migration-079-outbox-dedup.integration.test.ts
+// worker/background/schedulers/__tests__/migration-080-outbox-dedup.integration.test.ts
 //
-// Behavioral DB-level coverage for migration 079's two guarantees on
-// job_outbox, exercised against a real Postgres where 079 is ALREADY applied
+// Behavioral DB-level coverage for migration 080's two guarantees on
+// job_outbox, exercised against a real Postgres where 080 is ALREADY applied
 // (CI applies every supabase/migrations/*.sql to an empty DB before this suite):
 //
-//   (a) PREFLIGHT REGRESSION — 079's one-time race-safe preflight ran against an
+//   (a) PREFLIGHT REGRESSION — 080's one-time race-safe preflight ran against an
 //       EMPTY DB in CI, so it never collapsed a real duplicate. We prove the
 //       preflight UPDATE against a PRE-INDEX state: because the real job_outbox
-//       is already indexed by 079, seeding two in-flight duplicates into it would
+//       is already indexed by 080, seeding two in-flight duplicates into it would
 //       hit the partial unique index (23505) before the preflight could run. So
 //       each preflight scenario runs inside ONE transaction against a session-
 //       local `CREATE TEMP TABLE job_outbox (LIKE public.job_outbox …)` that
@@ -17,7 +17,7 @@
 //       isolates the preflight from the shared table and from concurrent test
 //       files. Each scenario proves: most-advanced-then-oldest is KEPT, only
 //       currently-`pending` extras are failed, `dispatching`/`dispatched` rows are
-//       never touched, NULL-period rows are excluded — then rebuilds the real 079
+//       never touched, NULL-period rows are excluded — then rebuilds the real 080
 //       unique index on the temp table to prove the preflight left a conflict-free
 //       state.
 //
@@ -60,7 +60,7 @@ let db: postgresType.Sql | undefined;
 const seededAggregateIds = new Set<string>();
 
 function sql(): postgresType.Sql {
-  if (!db) throw new Error('migration-079 integration database was not initialized');
+  if (!db) throw new Error('migration-080 integration database was not initialized');
   return db;
 }
 
@@ -118,12 +118,12 @@ async function statusOfTemp(tx: postgresType.TransactionSql, id: string): Promis
 }
 
 /**
- * An EXACT copy of migration 079's weekly_summary preflight UPDATE, run against
+ * An EXACT copy of migration 080's weekly_summary preflight UPDATE, run against
  * the UNQUALIFIED (temp) job_outbox. The temp table holds ONLY this scenario's
  * rows, so the migration's `aggregate_id = ANY(...)` namespace filter is dropped
  * and this is byte-identical to the migration statement.
  *
- * -- SOURCE OF TRUTH: supabase/migrations/079_scheduler_outbox_dedup_indexes.sql
+ * -- SOURCE OF TRUTH: supabase/migrations/080_scheduler_outbox_dedup_indexes.sql
  */
 async function runWeeklyPreflight(tx: postgresType.TransactionSql): Promise<void> {
   await tx`
@@ -138,17 +138,17 @@ async function runWeeklyPreflight(tx: postgresType.TransactionSql): Promise<void
         AND status IN ('pending','dispatching','dispatched')
         AND payload->>'week_start_date' IS NOT NULL
     )
-    UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+    UPDATE job_outbox SET status = 'failed', last_error = 'migration 080: collapsed pending duplicate'
     WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
       AND status = 'pending'
   `;
 }
 
 /**
- * An EXACT copy of migration 079's send_monthly_impact preflight UPDATE, run
+ * An EXACT copy of migration 080's send_monthly_impact preflight UPDATE, run
  * against the UNQUALIFIED (temp) job_outbox. Same reasoning as the weekly copy.
  *
- * -- SOURCE OF TRUTH: supabase/migrations/079_scheduler_outbox_dedup_indexes.sql
+ * -- SOURCE OF TRUTH: supabase/migrations/080_scheduler_outbox_dedup_indexes.sql
  */
 async function runMonthlyPreflight(tx: postgresType.TransactionSql): Promise<void> {
   await tx`
@@ -163,18 +163,18 @@ async function runMonthlyPreflight(tx: postgresType.TransactionSql): Promise<voi
         AND status IN ('pending','dispatching','dispatched')
         AND payload->>'month_start_date' IS NOT NULL
     )
-    UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+    UPDATE job_outbox SET status = 'failed', last_error = 'migration 080: collapsed pending duplicate'
     WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
       AND status = 'pending'
   `;
 }
 
 /**
- * Rebuilds migration 079's real unique index on the temp table. It BUILDS only
+ * Rebuilds migration 080's real unique index on the temp table. It BUILDS only
  * if the preflight left a conflict-free in-flight set — the strongest proof the
  * preflight did its job. Byte-identical predicate to the migration.
  *
- * -- SOURCE OF TRUTH: supabase/migrations/079_scheduler_outbox_dedup_indexes.sql
+ * -- SOURCE OF TRUTH: supabase/migrations/080_scheduler_outbox_dedup_indexes.sql
  */
 async function buildWeeklyIndex(tx: postgresType.TransactionSql): Promise<void> {
   await tx`
@@ -218,7 +218,7 @@ async function insertRealWeeklyRow(opts: {
   return id;
 }
 
-describeWithDb('Migration 079 outbox dedup — preflight + index semantics (live DB)', () => {
+describeWithDb('Migration 080 outbox dedup — preflight + index semantics (live DB)', () => {
   beforeAll(() => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
   });
@@ -266,7 +266,7 @@ describeWithDb('Migration 079 outbox dedup — preflight + index semantics (live
       expect(await statusOfTemp(tx, kept)).toBe('pending');
       expect(await statusOfTemp(tx, collapsed)).toBe('failed');
 
-      // Preflight left a conflict-free in-flight set → the real 079 index builds.
+      // Preflight left a conflict-free in-flight set → the real 080 index builds.
       await buildWeeklyIndex(tx);
     });
   });

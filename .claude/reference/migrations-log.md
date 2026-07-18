@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **079** — next migration is **080**
+Current head: **080** — next migration is **081**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -953,8 +953,11 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
-- **079** — Scheduler set-based outbox dedup indexes + race-safe preflight
-  (ticket #484, parent #472 audit item 10). Two PARTIAL UNIQUE indexes on
+- **080** — Scheduler set-based outbox dedup indexes + race-safe preflight
+  (ticket #484, parent #472 audit item 10). Renumbered 079→080: migration 079
+  (`079_agent_run_spine_archival_indexes.sql`, agent-run-spine archival) rode
+  `staging` first and claimed 079; this migration takes 080. Both land on `main`
+  via separate PRs (archival's 079 must precede this 080). Two PARTIAL UNIQUE indexes on
   `job_outbox` so the weekly/monthly summary schedulers can collapse their
   per-row insert loop into one `INSERT…SELECT…ON CONFLICT DO NOTHING` (Task 2)
   with the dedup guarantee owned by the DB instead of a JS-side `WHERE NOT

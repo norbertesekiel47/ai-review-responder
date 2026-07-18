@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Ticket #484: scheduler set-based outbox dedup indexes + race-safe preflight
--- Migration: 079_scheduler_outbox_dedup_indexes.sql
+-- Migration: 080_scheduler_outbox_dedup_indexes.sql
 --
 -- WHY: WeeklySummaryScheduler and MonthlyImpactScheduler are being collapsed
 -- (Task 2) from a `1 SELECT + N per-row INSERT` loop into ONE set-based
@@ -71,7 +71,7 @@ WITH ranked AS (
     AND status IN ('pending','dispatching','dispatched')
     AND payload->>'week_start_date' IS NOT NULL
 )
-UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+UPDATE job_outbox SET status = 'failed', last_error = 'migration 080: collapsed pending duplicate'
 WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
   AND status = 'pending';   -- LIVE CAS (re-checked under EvalPlanQual): never overwrite a concurrently-claimed dispatch
 
@@ -93,7 +93,7 @@ WITH ranked AS (
     AND status IN ('pending','dispatching','dispatched')
     AND payload->>'month_start_date' IS NOT NULL
 )
-UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+UPDATE job_outbox SET status = 'failed', last_error = 'migration 080: collapsed pending duplicate'
 WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
   AND status = 'pending';   -- LIVE CAS (re-checked under EvalPlanQual): never overwrite a concurrently-claimed dispatch
 

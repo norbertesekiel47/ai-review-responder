@@ -12,7 +12,7 @@ internal `1 SELECT + N per-row INSERT` loop with **one merged set-based
 the candidate predicates, the in-flight dedup pre-filter, the payload
 construction (`jsonb_build_object`), and the conflict enforcement all live in
 one statement the DB owns. No new module, no widened interface, no new
-abstraction. The migration (079) is additive.
+abstraction. The migration (080) is additive.
 
 **One-owner note:** outbox dedup for these three topics becomes owned by
 partial unique indexes on `job_outbox` (mirroring `uniq_outbox_track_ranking_run`
@@ -23,9 +23,9 @@ correctness owner.
 
 ## Tracer-bullet tasks
 
-### Task 1 — Migration 079 + docs  (blocking edge: none; must land before Task 2)
+### Task 1 — Migration 080 + docs  (blocking edge: none; must land before Task 2)
 
-**File:** `supabase/migrations/079_scheduler_outbox_dedup_indexes.sql`
+**File:** `supabase/migrations/080_scheduler_outbox_dedup_indexes.sql`
 
 Mirror migration 015's dedupe-then-index shape. **Predicate is in-flight-only**
 (`status IN ('pending','dispatching','dispatched')`), NOT `status <> 'failed'` —
@@ -63,7 +63,7 @@ WITH ranked AS (
     AND status IN ('pending','dispatching','dispatched')
     AND payload->>'week_start_date' IS NOT NULL
 )
-UPDATE job_outbox SET status = 'failed', last_error = 'migration 079: collapsed pending duplicate'
+UPDATE job_outbox SET status = 'failed', last_error = 'migration 080: collapsed pending duplicate'
 WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
   AND status = 'pending';   -- LIVE CAS: re-checked under EvalPlanQual after row-lock,
                             -- so a row the OutboxPoller concurrently claimed
@@ -104,8 +104,8 @@ it will not occur. (Note it would NOT self-heal within the period, since the
 scheduler window recurs weekly/monthly, not next cycle — but at that probability
 the point is moot.)
 
-**Docs:** `.claude/reference/migrations-log.md` — bump head `078 → 079`, add the
-079 entry. Add a lab note (this file's log section / lab-notes) recording the
+**Docs:** `.claude/reference/migrations-log.md` — bump head `078 → 080`, add the
+080 entry. Add a lab note (this file's log section / lab-notes) recording the
 deliberate `gen_random_uuid()` deviation for the set-based path.
 
 ### Task 2 — Collapse the three schedulers + allowlist + tests  (blocked by Task 1)
@@ -220,11 +220,11 @@ the real acceptance criteria the mocks cannot:
   `completed`-but-not-sent row does NOT block re-enqueue (finding-1 regression
   guard).
 - sent_at / period-marker guard still excludes already-recorded businesses.
-- **Preflight/dedup regression (r3 defect 6).** CI applies 079 to an EMPTY DB,
+- **Preflight/dedup regression (r3 defect 6).** CI applies 080 to an EMPTY DB,
   so the migration's one-time preflight never runs against real dups — it must
   be exercised explicitly. Seed duplicate in-flight fixtures, then execute the
   preflight `UPDATE` statement (the test carries a copy of it; a `-- SOURCE OF
-  TRUTH: supabase/migrations/079…` comment names the authoritative owner) and
+  TRUTH: supabase/migrations/080…` comment names the authoritative owner) and
   assert outcomes for each shape:
   · two `pending` dups → exactly one survives, the other `failed`;
   · older-`pending` + newer-`dispatched` → the `dispatched` row is KEPT and the
@@ -237,7 +237,7 @@ the real acceptance criteria the mocks cannot:
   unique index + `ON CONFLICT` — is the ongoing production guarantee and is
   exercised by the index-semantics tests above.)
 Follow `summary-schedulers-archived.integration.test.ts` for the skip harness;
-confirm `.github/actions/test-db` globs `supabase/migrations/*.sql` so 079 is
+confirm `.github/actions/test-db` globs `supabase/migrations/*.sql` so 080 is
 applied (it does today — verify, don't assume).
 
 ## Verify gate (step 5)
@@ -248,7 +248,7 @@ surface → no `pnpm build` required by the gate, but it runs the full test suit
 
 ## Ship (step 8, high-risk lane)
 
-Ride `staging` first (apply 079 to staging Supabase FIRST, then push branch →
+Ride `staging` first (apply 080 to staging Supabase FIRST, then push branch →
 staging full-stack redeploy), smoke the scheduler path if a runbook applies,
-then PR to `main`, CI green, pause for merge approval, apply 079 to prod
+then PR to `main`, CI green, pause for merge approval, apply 080 to prod
 Supabase in lockstep at promotion.
