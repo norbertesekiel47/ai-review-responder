@@ -107,3 +107,38 @@ synchronously is contained: other starts run and done still resolves (FIX F2)`.
 Gates after F1/F2: typecheck clean, `worker/**` 1772 passed, boot-stagger suite 22
 passed, `ci:db-imports` strict, lint clean. The optional `abortBootCoordinator?` dep
 (D4) stays as-is per the reviewer (out-of-surface test edit needs sign-off).
+
+## T2 — CLOSED. Spec ✅ + code-quality Approved (F1/F2 re-reviewed Approved).
+Spec review verified OFF-path worker-resume + all three abort-race points non-trivially.
+Code-quality Approved-with-minor → F1/F2 applied → focused re-review Approved (race
+closed, throw contained, non-trivial regression tests, gates green). Commits
+`4529395c` (cure) → `28c232a9` (F1/F2). Toggle `BOOT_STAGGER_ENABLED` default ON
+(only literal `"false"` disables). D4 optional dep deferred to a sign-off-gated follow-up.
+
+## D7 — T1: transport instrumentation DECLARED OPAQUE (no `server.ts` edit)
+
+The plan offered an opt-in, default-off `PG_DEBUG_TRACE` gate wiring postgres.js's
+`debug` hook into the production DB singleton (`src/lib/db/server.ts`). Not built.
+Rationale: (a) the `debug` hook fires PRE-write (messages queued, not `socket.write()`
+completion) so it cannot prove the transport mechanism; (b) the cork/uncork theory was
+already falsified for postgres.js 3.4.9; (c) the harness's PRIMARY signal is external
+`pg_stat_activity` observation + the empirical treatment result, which stand on their
+own; (d) even a strictly-gated hook adds surface to the prod singleton. Per the task's
+minimal-production-intrusion preference, the harness prints "TRANSPORT TRACE: not wired
+— declared OPAQUE" in its summary and falls back to the empirical signal. Judgment call
+— `server.ts` left untouched.
+
+## D8 — T1: guard test lives in `scripts/ci/__tests__/` (vitest include glob)
+
+The task suggested `scripts/__tests__/wedge-repro.test.ts`. The vitest `include` glob is
+`scripts/ci/**/__tests__/**/*.test.ts` — a bare `scripts/__tests__/` file is NOT
+collected (and a CLI path filter cannot override `include`). Placed the guard test at
+`scripts/ci/__tests__/wedge-repro.test.ts` importing `../../wedge-repro`, matching the
+existing precedent where `scripts/ci/__tests__/verify-stripe-price-parity.test.ts` tests
+the root-level `scripts/verify-stripe-price-parity.ts`. Both files stay inside the T1
+`scripts/**` surface; no config edit (vitest.config.ts is out-of-surface).
+
+## T1 — harness delivered. `scripts/wedge-repro.ts` (fresh-process-per-trial, direct
+observer, staging-only guard) + `scripts/ci/__tests__/wedge-repro.test.ts` (11 guard
+tests green). typecheck / `ci:db-imports` strict / lint all clean. Operational baseline
+(OP1) + treatment (OP2) results are produced by the operator running the harness via MCP.
