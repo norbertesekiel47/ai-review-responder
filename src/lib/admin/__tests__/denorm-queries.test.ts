@@ -257,6 +257,7 @@ describe('Admin denormalized account_id queries', () => {
         is_primary: true,
       }]);
       sqlReturnQueue.push([]); // reviews
+      sqlReturnQueue.push([{ count: 0 }]); // reviews COUNT
       sqlReturnQueue.push([]); // ranking_snapshots
       sqlReturnQueue.push([]); // zernio
       sqlReturnQueue.push([]); // awaiting_owner_connect
@@ -347,6 +348,7 @@ describe('Admin denormalized account_id queries', () => {
         account_id: 'acct-1', display_label: null, is_primary: true,
       }]);
       sqlReturnQueue.push([]); // reviews
+      sqlReturnQueue.push([{ count: 0 }]); // reviews COUNT
       sqlReturnQueue.push([]); // ranking
       sqlReturnQueue.push([]); // zernio
       sqlReturnQueue.push([]); // awaiting
@@ -384,6 +386,7 @@ describe('Admin denormalized account_id queries', () => {
         ranking_search_location: null, google_place_address: null, owner_email_bounced: false,
         account_id: 'acct-1', display_label: null, is_primary: true,
       }]);
+      sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);

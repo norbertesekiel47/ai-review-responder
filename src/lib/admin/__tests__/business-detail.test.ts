@@ -179,15 +179,16 @@ const AUTO_APPROVAL_ACCOUNT_ROW = {
 };
 
 /**
- * Queue results for all 12 queries in call order. The order and COUNT are
+ * Queue results for all 13 queries in call order. The order and COUNT are
  * load-bearing: results are consumed positionally as `sql` is invoked
  * (batch-1's 6 parallel queries, then batch-2's 6). Adding/removing a query
  * in queries.ts means updating every manual push sequence in this file.
  */
 function queueAllResults() {
-  // Batch 1 (6 parallel queries)
+  // Batch 1 (7 parallel queries)
   sqlReturnQueue.push([BUSINESS_ROW]);            // 0: business
   sqlReturnQueue.push([REVIEW_ROW]);              // 1: reviews
+  sqlReturnQueue.push([{ count: 1 }]);            // 2: reviews COUNT (true total)
   sqlReturnQueue.push([RANKING_ROW]);             // 2: ranking_snapshots
   sqlReturnQueue.push([ZERNIO_CONNECTION_ROW]);   // 3: zernio_connections
   sqlReturnQueue.push([AWAITING_ROW]);            // 4: awaiting_owner_connect
@@ -297,6 +298,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
     // ── reviews ─────────────────────────────────────────────────────
 
     expect(res.reviews).toHaveLength(1);
+    expect(res.reviewsTotal).toBe(1);
     expect(res.reviews[0]).toEqual({
       id: 'rev-1',
       reviewerName: 'Happy Customer',
@@ -419,6 +421,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
     // be consumed because Promise.all resolves before the null guard fires.
     sqlReturnQueue.push([]);   // 0: business → empty → returns null
     sqlReturnQueue.push([]);   // 1: reviews (consumed in parallel)
+    sqlReturnQueue.push([{ count: 0 }]);   // 2: reviews COUNT
     sqlReturnQueue.push([]);   // 2: ranking_snapshots
     sqlReturnQueue.push([]);   // 3: zernio
     sqlReturnQueue.push([]);   // 4: awaiting_owner_connect
@@ -439,13 +442,14 @@ describe('getBusinessDetail — full DTO characterization', () => {
       [],
       [],
       [],
+      [],
     );
 
     await expect(getBusinessDetail(sql, 'biz-abc')).rejects.toThrow(
       'invalid_ws8_subscription_tier:retired_tier',
     );
 
-    expect(sqlCalls).toHaveLength(6);
+    expect(sqlCalls).toHaveLength(7);
     expect(sqlReturnQueue).toHaveLength(0);
     expect(sqlCalls.some((call) => call.text.includes('FROM auto_approval_policies'))).toBe(false);
   });
@@ -461,6 +465,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     sqlReturnQueue.push([BUSINESS_ROW]);
     sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ count: 0 }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -494,6 +499,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     sqlReturnQueue.push([BUSINESS_ROW]);
     sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ count: 0 }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -529,6 +535,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     sqlReturnQueue.push([businessWithNullDates]);
     sqlReturnQueue.push([reviewWithNullDates]);
+    sqlReturnQueue.push([{ count: 1 }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -551,6 +558,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     sqlReturnQueue.push([BUSINESS_ROW]);
     sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ count: 0 }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]); // no zernio connection row
     sqlReturnQueue.push([]);

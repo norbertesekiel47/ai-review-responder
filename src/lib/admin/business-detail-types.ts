@@ -236,6 +236,8 @@ export interface BusinessDetailResponse {
     snapshotDate: string;
     source: string;
   }>;
+  /** True total review count; `reviews` is capped at the newest 100. */
+  reviewsTotal: number;
   reviews: Array<{
     id: string;
     reviewerName: string;
