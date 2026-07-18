@@ -81,6 +81,7 @@ import {
   runOnce,
   reconcileCycle,
   resetAccountCursorForTests,
+  beginCursorLoadForTests,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
@@ -1466,15 +1467,19 @@ describe('StripeLocationsReconcilePoller', () => {
 
   it('delays the first run past the boot-storm window (does not query immediately)', async () => {
     vi.useFakeTimers();
-    sqlReturnQueue.push([]); // if/when it runs, no accounts to reconcile
+    sqlReturnQueue.push([]); // boot cursor-load: no persisted cursor
+    sqlReturnQueue.push([]); // if/when the reconcile runs, no accounts
 
     startStripeLocationsReconcilePoller();
-    // Immediately after start, the initial run has NOT fired (no accounts query yet).
-    expect(mockSql).not.toHaveBeenCalled();
+    // start() kicks the durable cursor boot-load, but the reconcile CYCLE (the
+    // accounts query with ORDER BY a.id) must NOT fire immediately.
+    const accountsQueriedAtBoot = sqlCalls.some((c) => c.template.includes('ORDER BY a.id ASC'));
+    expect(accountsQueriedAtBoot).toBe(false);
 
-    // After the boot-delay, the initial run fires.
+    // After the boot-delay, the initial reconcile run fires the accounts query.
     await vi.advanceTimersByTimeAsync(45_000 + 100); // past INITIAL_RUN_DELAY_MS
-    expect(mockSql).toHaveBeenCalled();
+    const accountsQueriedAfterDelay = sqlCalls.some((c) => c.template.includes('ORDER BY a.id ASC'));
+    expect(accountsQueriedAfterDelay).toBe(true);
 
     stopStripeLocationsReconcilePoller();
     vi.useRealTimers();
@@ -1673,5 +1678,88 @@ describe('StripeLocationsReconcilePoller', () => {
     await reconcileCycle(new AbortController().signal);
     expect(sqlCalls[0]!.values).toContain(null);
     expect(sqlCalls[0]!.values).not.toContain('acct-b');
+  });
+
+  // ── Durable cursor persistence (T1, migration 079 + ADR 0006) ────
+
+  it('boot-load seeds accountCursor before the first cycle reads it', async () => {
+    // Persisted cursor from a prior rotation; boot must seed it so the first
+    // cycle resumes AFTER it rather than re-walking the head.
+    sqlReturnQueue.push([{ cursor: 'acct-boot', write_seq: 12 }]); // cursor load
+    await beginCursorLoadForTests();
+
+    sqlReturnQueue.push([]); // accounts query → empty (end of resumed rotation)
+    await reconcileCycle(new AbortController().signal);
+
+    const accountsQuery = sqlCalls.find((c) => c.template.includes('ORDER BY a.id ASC'))!;
+    expect(accountsQuery.values).toContain('acct-boot');
+  });
+
+  it('boot-load seeds writeSeq so the first post-restart save carries a higher seq (not CAS-rejected)', async () => {
+    sqlReturnQueue.push([{ cursor: 'acct-seed', write_seq: 42 }]); // cursor load
+    await beginCursorLoadForTests();
+
+    sqlReturnQueue.push([]); // accounts query → empty
+    await runOnce();
+
+    const persist = sqlCalls.find((c) => c.template.includes('INSERT INTO poller_cursors'))!;
+    expect(persist).toBeDefined();
+    // values = [POLLER_NAME, cursor, writeSeq]; seq must be loaded (42) + 1 = 43,
+    // strictly greater than the persisted seq → the CAS accepts it.
+    expect(persist.values[2]).toBe(43);
+  });
+
+  it('a never-settling boot-load does not wedge the poller — inProgress is released and the next tick runs', async () => {
+    vi.useFakeTimers();
+    // Boot cursor-load parks forever; its own withTimeout settles cursorLoaded so
+    // the cycle proceeds and the finally releases inProgress. (The cycle deadline
+    // is a further backstop.)
+    mockSql.mockImplementationOnce(() => new Promise(() => {})); // cursor SELECT parks
+    beginCursorLoadForTests();
+    sqlReturnQueue.push([]); // accounts query once the load settles
+
+    const firstRun = runOnce();
+    await vi.advanceTimersByTimeAsync(240_000 + 1_000); // past every bound
+    await firstRun;
+
+    // inProgress MUST be released: a second tick actually RUNS (not the skip path).
+    logSpy.mockClear();
+    sqlReturnQueue.push([]);
+    await runOnce();
+    const skipLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
+    expect(skipLine).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('a cursor persist timeout in finally is swallowed and inProgress is still released', async () => {
+    vi.useFakeTimers();
+    // call 1: accounts query → empty; call 2: the finally saveCursor INSERT parks
+    // forever → its withTimeout(CURSOR_SAVE_TIMEOUT_MS) rejects → .catch swallows.
+    mockSql
+      .mockImplementationOnce(() => Promise.resolve([])) // accounts query
+      .mockImplementationOnce(() => new Promise(() => {})); // saveCursor parks
+
+    const run = runOnce();
+    await vi.advanceTimersByTimeAsync(10_000 + 100); // past CURSOR_SAVE_TIMEOUT_MS
+    const result = await run;
+
+    // The persist failure must NOT fail the run.
+    expect(result.errors).toBe(0);
+    const persistFail = errorSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Cursor persist failed'));
+    expect(persistFail).toBeDefined();
+
+    // inProgress released → the next tick runs (not skipped).
+    logSpy.mockClear();
+    sqlReturnQueue.push([]);
+    await runOnce();
+    const skipLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
+    expect(skipLine).toBeUndefined();
+    vi.useRealTimers();
   });
 });

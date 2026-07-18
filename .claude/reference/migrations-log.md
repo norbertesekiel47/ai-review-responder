@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **078** — next migration is **079**
+Current head: **079** — next migration is **080**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -952,6 +952,26 @@ Revisit triggers:
   database only; no staging or production migration was run during WS8 execution.
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
+
+- **079** — `poller_cursors` durable keyset resume cursor for
+  `StripeLocationsReconcilePoller` (#479, map #472; ADR
+  `docs/adr/0006-poller-cursor-persistence-ordering.md`). Creates
+  `poller_cursors (poller_name TEXT PRIMARY KEY, cursor UUID, write_seq BIGINT
+  NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())` — one row
+  per poller. Persists the in-memory keyset cursor added in #487 so a worker
+  restart resumes the rotation instead of re-walking the head. `write_seq` is the
+  ordering guard: the poller holds an in-memory `writeSeq` seeded at boot from
+  this column and stamps a fresh monotonic seq per save; `saveCursor`'s UPSERT
+  applies only `WHERE EXCLUDED.write_seq > poller_cursors.write_seq`, so a
+  stale/detached/reordered save (withTimeout races rather than cancels — a
+  timed-out save can land late) is a DB no-op. **Deny-all RLS** (enabled, NO
+  policies — same posture as `impersonation_sessions`/048, `agent_runs`/071);
+  holds NO tenant data (no `account_id` — just a poller name + an opaque
+  last-claimed account id), so server reaches it via the RLS-bypassing
+  `postgres` role only and it is NOT a tenant table. Additive, transactional (no
+  CONCURRENTLY — brand-new table, instant build), re-runnable
+  (`CREATE TABLE IF NOT EXISTS`). Apply staging first, then production, both
+  Supabase projects in lockstep.
 
 ## Key Tables Reference
 
