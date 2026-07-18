@@ -77,6 +77,48 @@ This mirrors the reaper precedent (the factory lives in the registered
 Interface change vs the plan: `getHealthSql`/`recycleHealthSql` take the builder;
 `closeHealthSql()` is unchanged (it never rebuilds). No behavior change.
 
+## closeDb integration (shutdown wiring)
+
+### D6 — the shutdown-wiring test needed a testable seam; option (c) chosen — extract the close-order contract into the db owner (`closeAllPostgresClients`)
+
+**Plan text (`tests_to_add`):** "Shutdown closes both dedicated clients (reaper +
+health) — `closeHealthSql` and the reaper client `end()` are invoked from the
+worker shutdown path."
+
+**The obstacle:** the wiring first landed **inline** in the `closeDb` dep in
+`worker/index.ts`. `worker/index.ts` boots unconditionally on import (`main()`,
+`createGracefulShutdown`, `process.on(...)` — no `require.main`/`import.meta`
+boot guard), so the real inline `closeDb` cannot be reached from a unit test
+without booting the whole worker. Its canonical test home
+`worker/__tests__/shutdown.test.ts` is **outside** the allowed surface, and there
+`closeDb` is only exercised via an injected fake — so even surface-expansion
+alone would not have tested the real body. A test in the allowed
+`pollers/__tests__/**` could only exercise a reconstructed copy (brittle "test
+the copy" anti-pattern).
+
+**Resolution — option (c), fully in-surface (chosen by the coordinator):** rather
+than a boot guard, a `shutdown.ts` dep change, or expanding the test surface, the
+close-order + best-effort contract was extracted into
+`closeAllPostgresClients(dedicatedClosers)` in `src/lib/db/server.ts` — the DB
+owner that already owns `sql`. It runs `Promise.allSettled(dedicatedClosers)`
+FIRST, then `await sql.end()`, so a wedged/rejecting dedicated `.end()` can never
+skip the shared pool close. `worker/index.ts`'s `closeDb` dep reduces to a
+one-liner: `() => closeAllPostgresClients([closeReaperClient, closeHealthSql])`
+(delegation; the argument list is composition-root wiring left to code review).
+The seam is unit-tested in `src/lib/db/__tests__/server.test.ts` (in surface):
+both closers invoked → then `sql.end()` (mocked, no real connection); a REJECTING
+closer still runs the other AND still calls `sql.end()` (the load-bearing
+resilience invariant); and close-ordering (`reaper`, `health`, then `sql.end`).
+Combined with T1/T2's leaf tests (that `closeReaperClient`/`closeHealthSql`
+actually `.end()` their clients), this genuinely covers the `tests_to_add` item.
+
+No boot guard, no `worker/shutdown.ts` change, no surface expansion, no
+`intake.json` edit were needed. Import style: `closeAllPostgresClients` is
+imported statically at the top of `worker/index.ts` (added to the existing
+`import { sql, supabaseServer } from '../src/lib/db/server'`), matching that
+file's established static db-import precedent — the earlier dynamic `import()`
+inside `closeDb` was the redundant outlier and is gone.
+
 ### D5 — `recycleHealthSql` log-swallows via the injected `WorkerLogger` (not a silent catch)
 
 The plan's `recycleHealthSql` sketch shows a bare `catch { /* log-swallow */ }`.

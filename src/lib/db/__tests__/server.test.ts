@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { createDedicatedPostgresClient, sql } from '../server';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { closeAllPostgresClients, createDedicatedPostgresClient, sql } from '../server';
 
 // Constructing a postgres.js client does NOT open a connection (it connects
 // lazily on the first query), so these assertions are offline and side-effect
@@ -41,5 +41,60 @@ describe('createDedicatedPostgresClient', () => {
     expect(client.options.connection.statement_timeout).toBe(5_000);
     expect(client.options.connection.application_name).toBe('rw-wedge-reaper');
     void client.end({ timeout: 0 });
+  });
+});
+
+// The shutdown close-order contract used by worker/index.ts's `closeDb` dep.
+// `sql.end` is stubbed so no real connection is opened; combined with T1/T2's
+// leaf tests (that closeReaperClient/closeHealthSql actually .end() their
+// clients), this proves both dedicated clients are ended from the shutdown path.
+describe('closeAllPostgresClients', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('invokes every dedicated closer and then the shared sql.end()', async () => {
+    const endSpy = vi.spyOn(sql, 'end').mockResolvedValue(undefined);
+    const reaperClose = vi.fn().mockResolvedValue(undefined);
+    const healthClose = vi.fn().mockResolvedValue(undefined);
+
+    await closeAllPostgresClients([reaperClose, healthClose]);
+
+    expect(reaperClose).toHaveBeenCalledTimes(1);
+    expect(healthClose).toHaveBeenCalledTimes(1);
+    expect(endSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('still closes the shared pool when a dedicated closer REJECTS (resilience — load-bearing)', async () => {
+    const endSpy = vi.spyOn(sql, 'end').mockResolvedValue(undefined);
+    const wedgedClose = vi.fn().mockRejectedValue(new Error('dedicated .end() wedged'));
+    const healthClose = vi.fn().mockResolvedValue(undefined);
+
+    // Must not throw — allSettled absorbs the rejection.
+    await expect(closeAllPostgresClients([wedgedClose, healthClose])).resolves.toBeUndefined();
+
+    // The OTHER closer still ran, AND the shared pool was still closed.
+    expect(wedgedClose).toHaveBeenCalledTimes(1);
+    expect(healthClose).toHaveBeenCalledTimes(1);
+    expect(endSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the dedicated closers BEFORE sql.end() (close-order)', async () => {
+    const order: string[] = [];
+    const endSpy = vi.spyOn(sql, 'end').mockImplementation(async () => {
+      order.push('sql.end');
+      return undefined as never;
+    });
+    const reaperClose = vi.fn().mockImplementation(async () => {
+      order.push('reaper');
+    });
+    const healthClose = vi.fn().mockImplementation(async () => {
+      order.push('health');
+    });
+
+    await closeAllPostgresClients([reaperClose, healthClose]);
+
+    expect(order).toEqual(['reaper', 'health', 'sql.end']);
+    expect(endSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -85,6 +85,24 @@ export function createDedicatedPostgresClient(
 }
 
 /**
+ * Close every Postgres client for worker shutdown: the caller's dedicated
+ * clients FIRST (best-effort, in parallel), then the shared `sql` singleton.
+ *
+ * This is the shutdown close-order contract, owned here because `server.ts`
+ * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
+ * (e.g. `closeReaperClient`, `closeHealthSql`). They run through
+ * `Promise.allSettled`, so a wedged or rejecting dedicated `.end()` — the exact
+ * failure mode #500 self-heals — can NEVER skip the shared `sql.end()`. Each
+ * dedicated closer is expected to bound its own `.end({ timeout })`.
+ */
+export async function closeAllPostgresClients(
+  dedicatedClosers: Array<() => Promise<void>>,
+): Promise<void> {
+  await Promise.allSettled(dedicatedClosers.map((close) => close()));
+  await sql.end();
+}
+
+/**
  * Bind a value to a JSONB column or parameter. Use this instead of
  * `${JSON.stringify(x)}::jsonb` (which double-encodes — Postgres.js wraps
  * string values going to a jsonb position in JSON quotes, producing a
