@@ -177,10 +177,16 @@ ingestZernioReviewWorker.on('failed', (job, err) => handleIngestFailed(sql, job,
 // (reserveCost) precedes every LLM call and acquireConcurrencySlot bounds
 // parallel LLM work per business, so parallel jobs can't over-spend. Without
 // this a 30-review burst drains serially (~1 LLM call at a time).
+//
+// Summed-LLM-concurrency cap (ADR 0005 addendum): the LLM-calling queues —
+// this one (5; triage shares these slots), WEEKLY_SUMMARY (1),
+// SEND_MONTHLY_IMPACT (1), ONBOARDING_DEMO_RESPONSE (1), JUDGE_VERDICT (1,
+// flag-gated) — must sum to ≤8 flags-off. Raising the sum past ~10 requires
+// building the global Redis semaphore first.
 const responseGenWorker = new Worker(
   QUEUE_NAMES.GENERATE_RESPONSE,
   withJobLogContext(handleResponseGeneration),
-  { ...workerOpts, concurrency: 6 },
+  { ...workerOpts, concurrency: 5 },
 );
 
 const notificationWorker = new Worker(
