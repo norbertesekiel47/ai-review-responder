@@ -10,8 +10,7 @@ const { sqlReturnQueue, mockSql, sqlCalls, resetMockSql } = await vi.hoisted(asy
   return { ...createMockSql() };
 });
 
-vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql }));
 
 /**
  * Drains the candidate query then any follow-up microtasks. The shared mock's
