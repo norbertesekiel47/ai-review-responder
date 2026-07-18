@@ -189,12 +189,17 @@ function parseArgs(argv: string[]): HarnessConfig {
     }
   }
 
-  const num = (key: string, fallback: number): number => {
+  const num = (key: string, fallback: number, opts: { integer?: boolean } = {}): number => {
     const raw = flags.get(key);
     if (raw === undefined) return fallback;
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       throw new Error(`--${key} must be a positive number`);
+    }
+    // Count-like args (trial count, port) index loops / listen ports directly — a
+    // fractional value like 1.5 would silently round the loop count, so reject it.
+    if (opts.integer && !Number.isInteger(parsed)) {
+      throw new Error(`--${key} must be a positive integer`);
     }
     return parsed;
   };
@@ -202,12 +207,12 @@ function parseArgs(argv: string[]): HarnessConfig {
   return {
     command,
     confirmRef: flags.get('confirm-staging') ?? '',
-    trials: num('trials', DEFAULTS.trials),
+    trials: num('trials', DEFAULTS.trials, { integer: true }),
     bootWindowMs: num('boot-window-ms', DEFAULTS.bootWindowMs),
     settleMs: num('settle-ms', DEFAULTS.settleMs),
     sampleIntervalMs: num('sample-interval-ms', DEFAULTS.sampleIntervalMs),
     migrationWindowMs: num('migration-window-ms', DEFAULTS.migrationWindowMs),
-    workerPortBase: num('worker-port-base', DEFAULTS.workerPortBase),
+    workerPortBase: num('worker-port-base', DEFAULTS.workerPortBase, { integer: true }),
     verbose,
   };
 }
@@ -284,8 +289,12 @@ interface SpawnedWorker {
   child: ChildProcess;
   /** Resolves 'ready' on the boot-complete log line, 'exited' if the child dies first, 'timeout' otherwise. */
   waitForBoot: (timeoutMs: number) => Promise<'ready' | 'exited' | 'timeout'>;
+  /** Last N stderr lines from the child — surfaced on any non-'ready' boot outcome for diagnosis. */
+  recentStderr: () => string[];
   kill: () => Promise<void>;
 }
+
+const STDERR_RING_MAX = 50;
 
 /**
  * Spawn the REAL worker (`pnpm run worker` → `tsx worker/index.ts`) as a fresh,
@@ -314,8 +323,16 @@ function spawnWorker(opts: { staggerEnabled: boolean; port: number; verbose: boo
   let booted = false;
   let exited = false;
   const bootWaiters: Array<(outcome: 'ready' | 'exited') => void> = [];
+  // Ring buffer of the child's most recent stderr — printed on ANY non-'ready'
+  // boot outcome (timeout / early exit / spawn error), regardless of --verbose,
+  // so an operator debugging a failed staging boot sees the actual error.
+  const stderrRing: string[] = [];
 
   const handleLine = (line: string, stream: 'out' | 'err'): void => {
+    if (stream === 'err') {
+      stderrRing.push(line);
+      if (stderrRing.length > STDERR_RING_MAX) stderrRing.shift();
+    }
     if (opts.verbose) console.log(`[worker-child:${stream}] ${line}`);
     // Boot-complete signal — emitted by worker/index.ts after app.listen resolves.
     if (!booted && line.includes('Worker service running on port')) {
@@ -345,6 +362,16 @@ function spawnWorker(opts: { staggerEnabled: boolean; port: number; verbose: boo
     if (!booted) {
       console.error(`[worker-child] exited before boot (code=${code} signal=${signal})`);
     }
+    for (const w of bootWaiters.splice(0)) w('exited');
+  });
+
+  // Spawn-level failure (ENOENT etc.). Without a listener the ChildProcess emits
+  // an unhandled 'error' that would crash the whole harness; instead surface it as
+  // a clean per-trial boot failure and capture the reason for the stderr dump.
+  child.on('error', (err) => {
+    exited = true;
+    stderrRing.push(`[spawn error] ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[worker-child] spawn failed: ${err instanceof Error ? err.message : String(err)}`);
     for (const w of bootWaiters.splice(0)) w('exited');
   });
 
@@ -389,7 +416,7 @@ function spawnWorker(opts: { staggerEnabled: boolean; port: number; verbose: boo
     if (!exited) signalGroup('SIGKILL');
   };
 
-  return { child, waitForBoot, kill };
+  return { child, waitForBoot, recentStderr: () => [...stderrRing], kill };
 }
 
 // ── per-trial run ─────────────────────────────────────────────────────────────
@@ -460,6 +487,15 @@ async function runTrial(
     if (result.bootOutcome !== 'ready') {
       result.note = `boot ${result.bootOutcome} — no observation performed`;
       console.error(`[trial ${index}/${mode}] boot ${result.bootOutcome}`);
+      // Dump the child's recent stderr regardless of --verbose: on a failed staging
+      // boot this is the diagnostic the operator actually needs.
+      const stderr = worker.recentStderr();
+      if (stderr.length > 0) {
+        console.error(`[trial ${index}/${mode}] last ${stderr.length} child stderr line(s):`);
+        for (const stderrLine of stderr) console.error(`  [worker-child:err] ${stderrLine}`);
+      } else {
+        console.error(`[trial ${index}/${mode}] (child produced no stderr)`);
+      }
       return result;
     }
     console.log(`[trial ${index}/${mode}] boot complete — observing for ${config.settleMs}ms (worker idle)`);

@@ -159,3 +159,21 @@ exported `runEmergencyCleanup({killChildren, terminateBackends, closeObserver})`
 CHILDREN FIRST (source of new wedges), THEN backends, THEN the observer — order is
 regression-tested (2 new cases, incl. later-steps-run-when-an-earlier-step-rejects). Normal
 + error paths (runTrial finally) untouched. Guard suite now 13 green.
+
+## F4 — T1: three code-quality polish items (operability, in spawn/arg area)
+
+Approved-with-minor follow-ups, all in the spawn/arg surface:
+1. **Child stderr was dropped unless `--verbose`.** `spawnWorker` now keeps a 50-line
+   stderr ring buffer (`recentStderr()`); `runTrial` dumps it on ANY non-`ready` boot
+   outcome (timeout / early exit / spawn error), regardless of `--verbose` — the exact
+   diagnostic an operator needs on a failed staging boot.
+2. **No `child.on('error')` handler.** A `spawn` failure (ENOENT etc.) emitted an
+   unhandled `'error'` that would crash the whole harness. Added a handler that flips the
+   boot waiters to `'exited'`, records the reason into the stderr ring, and logs it — a
+   spawn failure is now a clean per-trial boot failure, not a crash.
+3. **Non-integer count args.** `--trials 1.5` passed the finite/`>0` check and silently
+   ran 2 trials. `num()` takes an `{ integer }` option; `--trials` and `--worker-port-base`
+   now reject non-integers cleanly.
+#1/#2 are stream/process-level (not cleanly unit-testable via injected fakes without
+exporting the arg parser); the pure `runEmergencyCleanup`/`assertStagingTarget` and their
+13 tests are untouched. typecheck / `ci:db-imports` strict / lint all clean.
