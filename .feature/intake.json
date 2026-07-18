@@ -1,67 +1,75 @@
 {
-  "ticket": "#479",
-  "map": "#472",
+  "ticket": "#480",
+  "parent_map": "wayfinder map #472 (capacity & scale)",
   "classification": "high",
   "surface": "backend",
-  "db_touching": true,
-  "goal": "Complete the #479 remainders on StripeLocationsReconcilePoller: persist the keyset resume cursor across worker restarts, and emit a sustained-truncation alert when the cycle deadline keeps aborting the sweep. (The planned composite reconcile index was evaluated at the mandatory staging EXPLAIN gate and DROPPED with user sign-off — the planner prefers the accounts PK and both envs are empty pre-launch; see deviations.)",
+  "db_touching": false,
+  "goal": "Expose job_outbox and analytics_events backlog depth (total pending-row count) in GET /internal/queue-health, and add a per-table HealthAlertPoller warning that fires when either backlog depth exceeds the ~1500-row Capacity target from #474.",
   "non_goals": [
-    "Do NOT auto-correct drift (poller stays detect-and-alert only).",
-    "Do NOT change ACCOUNT_FAN_OUT_CONCURRENCY, ACCOUNT_TIMEOUT_MS, CYCLE_TIMEOUT_MS, or INITIAL_RUN_DELAY_MS.",
-    "Do NOT change which subscription statuses are reconciled (active/past_due/trialing).",
-    "Do NOT build a generic poller-cursor framework — poller_cursors is a real table but this poller is its only writer for now (no abstraction before a 2nd use).",
-    "Do NOT add a Discord/queue-health routing rule (the residual feature:stripe_reconciliation routing gap noted in drift-alert.ts stays out of scope).",
-    "Do NOT change the in-memory cursor + bounded fan-out already shipped in #487 — only add durability + the alert underneath them."
+    "No drain-rate change — #487's 5s OutboxPoller interval already ships the drain half; this is the observability half only.",
+    "No admin UI change — the ticket names only the /internal/queue-health endpoint and the alert. No src/app or src/components edits.",
+    "No schema change / migration — both tables already have partial WHERE status='pending' indexes (idx_jo_pending migration 001, idx_analytics_events_pending migration 046).",
+    "No un-pausing of HealthAlertPoller on staging (#500) — we only WIRE the check so it fires whenever the poller resumes.",
+    "No combined-sum or job_outbox-only alerting — per-table independent findings on the same threshold.",
+    "No new required env var — threshold is optional/defaulted, so no config-coverage baseline bump."
   ],
   "user_visible_behavior": [
-    "Ops-observable: after a worker restart the reconcile rotation RESUMES from the persisted cursor instead of restarting from the top of the account list.",
-    "Ops-observable: when the cycle deadline truncates the sweep for 3 consecutive cycles (no full drain in between), a warning-level Sentry alert fires (tag feature:stripe_reconciliation, structured-log fallback when SENTRY_DSN unset).",
-    "Ops-observable: a single truncated cycle still self-heals via the cursor next cycle and stays log-only (designed behavior, not an alert)."
+    "GET /internal/queue-health 200 response gains an additive top-level `backlog` key alongside `queues`: { job_outbox: <int>, analytics_events: <int> } = COUNT(*) of status='pending' rows per table.",
+    "When HealthAlertPoller runs and job_outbox pending depth > threshold, it emits a Sentry warning finding key `backlog_depth:job_outbox`.",
+    "When analytics_events pending depth > threshold, it emits a Sentry warning finding key `backlog_depth:analytics_events`.",
+    "New optional env var HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD (default 1500) tunes the threshold."
   ],
   "invariants": [
-    "Tenant isolation: poller_cursors holds no tenant data (poller_name + uuid + updated_at); reconcile query scoping is unchanged.",
-    "Invariant #15: cursor-store is a worker helper taking sql as an explicit parameter; only the poller (a composition root registered in worker/index.ts) imports the singleton and passes it down.",
-    "Invariant #3 backstop: the single-flight guard + cycle deadline still release inProgress on every path; persistence must not introduce a path that holds inProgress or blocks a tick.",
-    "Cursor correctness: persisted value equals the in-memory working copy at all times (one owner of the cursor value); rotation-complete persists null.",
-    "Boot ordering: the first runOnce must not read the cursor before the boot load resolves (INITIAL_RUN_DELAY_MS gives 45s of slack, but the read is gated on the load promise regardless)."
+    "Backlog depth = COUNT(*) WHERE status='pending' (total pending, includes not-yet-due retry rows) — locked decision, both tables identical semantics.",
+    "The pending-count query is a SINGLE authoritative owner (queryBacklogDepth(sql) in src/lib/shared/) consumed by BOTH the endpoint dep and the health check — no duplicated count SQL.",
+    "queryBacklogDepth is a domain module: takes sql as an explicit param, never imports @/lib/db/server (invariant #15). worker/index.ts (composition root) passes the singleton.",
+    "queue-health endpoint stays dependency-injected + unit-testable without booting queues/DB (invariant #12); backlog is a new injected dep, not an inline query.",
+    "Endpoint auth unchanged: 503 when WORKER_INTERNAL_SECRET unset, 401 on bad bearer, returns no PII (only integer counts).",
+    "Alert severity = 'warning' (saturation signal, not dropped work) — consistent with checkOldestPendingOutbox.",
+    "Both count queries hit the existing partial pending indexes (index-only friendly); they run inside the poller's existing single 30s withTimeout budget — no new unbounded query.",
+    "Endpoint response change is additive/backward-compatible: the Next.js server-side consumer reads `queues`; a new sibling key does not break it."
   ],
   "edge_cases": [
-    "poller_cursors row absent on first-ever boot -> treat as null (start from top).",
-    "poller_cursors read fails at boot -> log and start from null (safe: a from-top rotation is always correct); do not crash the poller.",
-    "Cursor upsert fails mid-cycle -> log-and-swallow (best-effort after the primary side effect, per the crash-net rule); in-memory cursor still advances so the running process stays correct; next successful upsert re-persists.",
-    "Single truncation then full drain next cycle -> counter resets, no alert.",
-    "Rotation completes (cursor -> null) across multiple cycles -> counts as a drain, resets the truncation counter.",
-    "Empty account list (accounts.length === 0) -> drain state, resets the truncation counter, persists null.",
-    "Truncation is defined as dispatched < accounts.length. An abort with dispatched === 0 (fully stalled, e.g. parked on pool acquisition then deadline) DOES count as a truncation for the counter — a cycle that made zero progress is exactly the sustained-truncation signal; the cursor is left untouched in that case (nothing was claimed)."
+    "Zero pending rows in a table → depth 0, no finding (strict > threshold, not >=).",
+    "Depth exactly at threshold → no finding (> is strict; mirrors existing checks' > semantics).",
+    "The #474 verification burst is 1000 events < 1500 threshold → depth climbs to ~1000 then drains; the alert must NOT fire during a healthy burst (headroom validation).",
+    "COUNT returning bigint from Postgres → cast ::int in SQL (matches existing checks' COUNT(*)::int).",
+    "Threshold env var unset/invalid/negative → falls back to 1500 via the existing num() helper (>=0 guard).",
+    "A DB error inside queryBacklogDepth during a poll cycle → surfaces to the poller's existing catch (logs + 'error' Sentry check-in), same as other checks; does not wedge the single-flight poller (30s timeout)."
   ],
   "existing_patterns_to_follow": [
-    "worker/background/pollers/billing-reconciliation/drift-alert.ts (Sentry-or-log alert emitter, feature tag, level selection) -> sibling truncation-alert.ts.",
-    "worker/background/pollers/StripeLocationsReconcilePoller.ts lines 70-81 (keyset cursor pattern, resetAccountCursorForTests).",
-    "worker/background/pollers/health-alert/emit.ts (warning-level emission shape) for cross-reference.",
-    "ZernioRecentReviewPoller keyset cursor precedent (referenced in the poller comments).",
-    "migrations-log.md CONCURRENTLY convention (IF NOT EXISTS, staging-first, both Supabase projects in lockstep, pre-flight gate in migration header).",
-    "src/lib/reviews/__tests__/sentiment.test.ts 'invariants' describe block (fast-check house style)."
+    "worker/background/pollers/health-alert/checks.ts — checkFailedOutboxByTopic (returns HealthFinding[], filters over threshold, key `topic:...`) is the nearest precedent for a multi-finding check.",
+    "resolveHealthAlertConfig + num() helper for the env-tunable threshold.",
+    "worker/internal/queue-health.ts QueueHealthDeps dependency-injection shape (getSecret/getQueueCounts) → add getBacklogDepth.",
+    "src/lib/shared/queue-health-states.ts / queue-names.ts — side-effect-free shared module owned once, imported by both worker + tests, is the model for src/lib/shared/backlog-depth.ts.",
+    "worker/internal/__tests__/queue-health.test.ts and health-alert/__tests__/checks.test.ts for test style."
   ],
   "allowed_edit_surface": [
-    "worker/background/pollers/StripeLocationsReconcilePoller.ts",
-    "worker/background/pollers/billing-reconciliation/**",
-    "worker/background/pollers/__tests__/**",
-    "supabase/migrations/081_poller_cursors.sql",
-    ".claude/reference/migrations-log.md",
-    "scripts/ci/**",
-    ".feature/**",
-    "docs/**"
+    "worker/internal/queue-health.ts",
+    "worker/internal/__tests__/**",
+    "worker/background/pollers/health-alert/checks.ts",
+    "worker/background/pollers/health-alert/__tests__/**",
+    "src/lib/shared/backlog-depth.ts",
+    "src/lib/shared/__tests__/**",
+    "worker/index.ts",
+    "src/lib/config/worker.ts",
+    ".claude/reference/env-vars.md",
+    ".env.example",
+    "docs/runbooks/beta-launch-alerting.md",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    ".feature/**"
   ],
   "tests_to_add": [
-    "PROPERTY (fast-check): cursor persistence round-trips — for any uuid|null, load after upsert returns the same value; rotation-complete persists null. (invariant: persisted == in-memory working copy)",
-    "PROPERTY (fast-check): truncation-alert state machine — over any sequence of {truncated, drained} cycles, the alert fires exactly on the cycle where consecutiveTruncations first reaches 3, and never after a drain resets the counter. (invariant: sustained-only alerting)",
-    "UNIT: boot load seeds accountCursor from poller_cursors before the first runOnce reads it (gated on the load promise).",
-    "UNIT: cursor upsert failure mid-cycle is log-and-swallowed; the in-memory cursor still advances and inProgress is released.",
-    "UNIT: emitTruncationAlert emits Sentry at warning with feature:stripe_reconciliation tag when SENTRY_DSN set, structured-log fallback otherwise (mirror drift-alert.test)."
+    "queryBacklogDepth: returns per-table pending counts (mocked sql) — invariant: single-owner count logic.",
+    "checkBacklogDepth: emits per-table warning finding only when depth > threshold; no finding at/under threshold; correct keys backlog_depth:job_outbox / backlog_depth:analytics_events; independent per-table (one over, one under → exactly one finding).",
+    "checkBacklogDepth: respects HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD override and the 1500 default.",
+    "queue-health handler: 200 response includes backlog:{job_outbox,analytics_events} from getBacklogDepth; still 503/401 on unset secret / bad bearer; getBacklogDepth not called on the disabled/unauthorized paths.",
+    "runHealthChecks: includes checkBacklogDepth findings in the aggregated result."
   ],
   "verification_commands": [
-    "pnpm ci:tenant-scope",
-    "pnpm ci:rls-audit"
+    "pnpm test -- backlog-depth queue-health checks",
+    "STAGING SMOKE (manual, ride-staging): synthetic burst per #474 — inject 1000 ingest events in 10 min, confirm /internal/queue-health backlog.job_outbox climbs then drains to baseline within 30 min, and NO backlog_depth warning fires (1000 < 1500 headroom)."
   ],
   "open_questions": []
 }
