@@ -3,7 +3,13 @@
 **Branch/worktree:** `perf-scheduler-set-based-outbox-inserts` at
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/perf-scheduler-set-based-outbox-inserts`
 **Lane:** RISK=high · backend · db_touching=true · staging-ride. Ticket-seeded from map #472 (audit item 10).
-**Current step:** entering **step 4 (EXECUTE)** — plan signed off by user; step-3 gate passed.
+**Current step:** **step 8 (SHIP)** — implementation done, verify gate GREEN, steps 6 & 7 complete.
+
+## Review verdicts (steps 6–7 — all triaged, gate re-green after each fix)
+- **Step 6 codex adversarial (build):** 1 HIGH — migration-079 preflight test seeded pre-index dups into an already-indexed table (would fail CI). FIXED: temp-table pre-index isolation; VERIFIED green against a real bootstrapped Postgres 16 (commit 465d4d52).
+- **Step 7 spec & correctness:** no ≥80% findings — faithful to intake (predicate/payload parity confirmed). Report: docs/reviews/perf-scheduler-set-based-outbox-inserts/spec-correctness.md.
+- **Step 7 standards & maintainability:** APPROVE + 2 LOW. #1 dead uuid/jsonb mocks → FIXED (commit "drop dead uuid/jsonb mocks"). #2 payload decoupled from typed *Payload contract → REJECTED (inherent to set-based inserts; mitigated by consumer TS types + mocked key-name asserts + DB integration test). Report: docs/reviews/.../standards-maintainability.md.
+- Plan gate (step 3): 3 codex rounds, all fixes applied (in-flight predicate, race-safe preflight, live CAS, preflight test).
 
 ## Read these (do NOT restate — open on demand)
 - Intake contract: `.feature/intake.json` (the drift detector — surface, tests, edit surface).
