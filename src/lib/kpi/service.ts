@@ -5,6 +5,7 @@
 // Does NOT overload valueSummary (lifetime). No real-DB test — keep SQL standard.
 
 import type { Sql } from 'postgres';
+import { getCacheRedis } from '@/lib/db/redis-cache';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
@@ -16,6 +17,21 @@ import {
 } from './types';
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
+
+// Short TTL read cache for the KPI summaries, mirroring the #487
+// aggregate-service fail-open block. The dashboard KPI strip is polled and
+// re-fetched on tab switches; 45s of staleness is invisible next to the
+// pipeline's own multi-second latency. Pure TTL, no dogpile lock — read and
+// write both fail open to a fresh DB compute.
+const KPI_CACHE_TTL_SECONDS = 45;
+
+function locationKpiCacheKey(businessId: string, window: DashboardWindow): string {
+  return `kpi:location:${businessId}:${window}`;
+}
+
+function accountKpiCacheKey(accountId: string, window: DashboardWindow): string {
+  return `kpi:account:${accountId}:${window}`;
+}
 
 function round(value: number | null | undefined, decimals: number): number | null {
   if (value == null || Number.isNaN(value)) return null;
@@ -141,6 +157,17 @@ export async function getLocationKpiSummary(
   businessId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
+  // Cache read fails open: a Redis blip degrades to a fresh computation.
+  const cacheKey = locationKpiCacheKey(businessId, window);
+  try {
+    const cached = await getCacheRedis().get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as DashboardKpiSummary;
+    }
+  } catch (err) {
+    console.error('[kpi/service] cache read failed (computing fresh):', err);
+  }
+
   // Window intervals are PARAMETERIZED: windowDays / trendWeeks come from the
   // fixed lookup in ./types and reach SQL only as bound integers via
   // make_interval(...) — never interpolated text (issue #403). `30d` (default)
@@ -216,11 +243,20 @@ export async function getLocationKpiSummary(
     `,
   ]);
 
-  return assembleSummary(
+  const summary = assembleSummary(
     { kind: 'location', businessId },
     windowDays,
     rateRows, starRows, volumeRows, ttrRows, trendRows,
   );
+
+  // Cache write fails open: serve the fresh result even if the write throws.
+  try {
+    await getCacheRedis().set(cacheKey, JSON.stringify(summary), 'EX', KPI_CACHE_TTL_SECONDS);
+  } catch (err) {
+    console.error('[kpi/service] cache write failed (serving fresh):', err);
+  }
+
+  return summary;
 }
 
 export async function getAccountKpiSummary(
@@ -228,6 +264,17 @@ export async function getAccountKpiSummary(
   accountId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<DashboardKpiSummary> {
+  // Cache read fails open: a Redis blip degrades to a fresh computation.
+  const cacheKey = accountKpiCacheKey(accountId, window);
+  try {
+    const cached = await getCacheRedis().get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as DashboardKpiSummary;
+    }
+  } catch (err) {
+    console.error('[kpi/service] cache read failed (computing fresh):', err);
+  }
+
   // Same parameterized-window contract as getLocationKpiSummary, across all
   // active locations of the account (b.archived_at IS NULL). Intervals are bound
   // integers via make_interval(...), never interpolated text (issue #403).
@@ -309,9 +356,18 @@ export async function getAccountKpiSummary(
     `,
   ]);
 
-  return assembleSummary(
+  const summary = assembleSummary(
     { kind: 'account', accountId },
     windowDays,
     rateRows, starRows, volumeRows, ttrRows, trendRows,
   );
+
+  // Cache write fails open: serve the fresh result even if the write throws.
+  try {
+    await getCacheRedis().set(cacheKey, JSON.stringify(summary), 'EX', KPI_CACHE_TTL_SECONDS);
+  } catch (err) {
+    console.error('[kpi/service] cache write failed (serving fresh):', err);
+  }
+
+  return summary;
 }
