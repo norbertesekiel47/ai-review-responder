@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **080** — next migration is **081**
+Current head: **082** — next migration is **083**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -953,7 +953,13 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
-- **079** — `poller_cursors` durable keyset resume cursor for
+> Numbers **079** (`agent_run_spine_archival_indexes`) and **080**
+> (`scheduler_outbox_dedup_indexes`) are claimed by parallel works that rode
+> staging first; this feature's two migrations were renumbered 079→081, 080→082
+> to avoid the collision (staging-first ordering wins). That is why this log jumps
+> 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **081** — `poller_cursors` durable keyset resume cursor for
   `StripeLocationsReconcilePoller` (#479, map #472; ADR
   `docs/adr/0006-poller-cursor-persistence-ordering.md`). Creates
   `poller_cursors (poller_name TEXT PRIMARY KEY, cursor UUID, write_seq BIGINT
@@ -973,7 +979,7 @@ Revisit triggers:
   (`CREATE TABLE IF NOT EXISTS`). Apply staging first, then production, both
   Supabase projects in lockstep.
 
-- **080** — `idx_accounts_reconcile_status_id` composite index backing
+- **082** — `idx_accounts_reconcile_status_id` composite index backing
   `StripeLocationsReconcilePoller`'s accounts query (#479, map #472). **Adds**
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_reconcile_status_id ON
   accounts (subscription_status, id)`. The reconcile query filters

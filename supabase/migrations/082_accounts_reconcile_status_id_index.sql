@@ -1,4 +1,4 @@
--- Migration 080: idx_accounts_reconcile_status_id — composite index for the
+-- Migration 082: idx_accounts_reconcile_status_id — composite index for the
 -- StripeLocationsReconcilePoller accounts query (#479, map #472).
 --
 -- IMPORTANT: this file uses CREATE INDEX CONCURRENTLY, which cannot run inside a

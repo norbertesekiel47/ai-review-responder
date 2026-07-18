@@ -7,7 +7,7 @@
 export const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
 
 // poller_cursors.poller_name for StripeLocationsReconcilePoller's durable keyset
-// resume cursor (migration 079). One authoritative row key for load + save.
+// resume cursor (migration 081). One authoritative row key for load + save.
 export const POLLER_NAME = 'stripe_locations_reconcile';
 
 // Hard deadline on the single cursor persist in runOnce's finally. withTimeout

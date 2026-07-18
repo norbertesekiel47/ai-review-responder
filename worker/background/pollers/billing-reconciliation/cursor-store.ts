@@ -1,6 +1,6 @@
 // worker/background/pollers/billing-reconciliation/cursor-store.ts
 //
-// Durable keyset resume cursor for background pollers (migration 079). One row
+// Durable keyset resume cursor for background pollers (migration 081). One row
 // per poller in poller_cursors. Owns the read/write shape of that table so the
 // poller never inlines the table's SQL — including the write-sequence CAS that
 // makes cursor persistence provably ordered under a non-cancelling deadline

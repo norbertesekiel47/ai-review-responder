@@ -91,7 +91,7 @@ let inProgress = false;
 // head — without it, the same late-sorting accounts were never reconciled once
 // the list outgrew the deadline.
 //
-// Persisted across restarts via poller_cursors (migration 079, ADR 0006). The
+// Persisted across restarts via poller_cursors (migration 081, ADR 0006). The
 // never-skip invariant is preserved WITHOUT requiring "fully processed": on
 // restart we resume AFTER the persisted id (accounts <= it were claimed this
 // rotation); a claimed-but-timed-out account is simply re-checked on the NEXT

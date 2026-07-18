@@ -87,9 +87,9 @@ reconcile timed out is *attempted, not guaranteed processed*. Consequences:
 
 ## Tracer bullets (each runs end-to-end; blocking edges noted)
 
-### T1 — Persisted cursor (migration 079 + cursor-store CAS + runOnce.finally save)
+### T1 — Persisted cursor (migration 081 + cursor-store CAS + runOnce.finally save)
 **Blocked by:** none.
-1. `supabase/migrations/079_poller_cursors.sql`: `CREATE TABLE poller_cursors
+1. `supabase/migrations/081_poller_cursors.sql`: `CREATE TABLE poller_cursors
    (poller_name text PRIMARY KEY, cursor uuid, write_seq bigint NOT NULL DEFAULT 0,
    updated_at timestamptz NOT NULL DEFAULT now())`. `ENABLE ROW LEVEL SECURITY`,
    **no policies** (deny-all; service role bypasses — `flagged_responses`
@@ -127,9 +127,9 @@ reconcile timed out is *attempted, not guaranteed processed*. Consequences:
    - UNIT: a `saveCursor` rejection/timeout in `finally` is swallowed and
      `inProgress` is still released.
 
-### T2 — Composite index (migration 080 + migrations-log)
+### T2 — Composite index (migration 082 + migrations-log)
 **Blocked by:** T1 (shares `migrations-log.md`).
-1. `supabase/migrations/080_accounts_reconcile_status_id_index.sql`:
+1. `supabase/migrations/082_accounts_reconcile_status_id_index.sql`:
    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_reconcile_status_id
    ON accounts (subscription_status, id)`. **No partial predicate** — the query
    binds the `IN` statuses as params (contrast migration 065's literal `status =`).

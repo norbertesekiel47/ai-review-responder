@@ -19,6 +19,14 @@ Intake invariant #4's "persisted == in-memory **at all times**" wording overprom
 ADR 0006 documents a bounded one-cycle lag on the truncation path (never-skip-safe,
 explicitly accepted). Wording-only; no code change.
 
+## Post-review migration renumber (step 8 prep)
+Reviewed as migrations **079/080**; renumbered to **081/082** before the staging
+ride because parallel works claimed 079 (`agent_run_spine_archival_indexes`) and
+080 (`scheduler_outbox_dedup_indexes`) on staging first. Files, migrations-log,
+intake `allowed_edit_surface`, ADR/plan/handoff, and code comments updated in
+lockstep. The `spec-correctness.md` / `standards-maintainability.md` reports keep
+the 079/080 numbers they were written against (point-in-time review evidence).
+
 ## Post-triage gate
 `scripts/verify-gate.sh` re-run after the fixes → **GREEN** (16/16; 8703 tests pass,
 0 fail). All triage changes are comment-only except the added lock-in test, so no

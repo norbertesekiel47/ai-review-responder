@@ -59,9 +59,11 @@ Bootstrap order: this doc → intake → plan → ADR → (later) deviations + r
 
 ## Remaining work
 - **Step 8 — SHIP (RISK=high lane) (NEXT).** Land on `staging` (full-stack auto-deploy),
-  apply migrations 079+080 to the **staging** Supabase project FIRST, run the
-  **mandatory `EXPLAIN (ANALYZE, BUFFERS)`** on the reconcile query (cursor-null +
-  cursor-set) to validate/decide index 080, smoke the poller. Then PR to `main`,
+  apply migrations 081+082 to the **staging** Supabase project FIRST (renumbered
+  from 079/080 — those numbers were claimed by parallel archival/scheduler works
+  that rode staging first), run the **mandatory `EXPLAIN (ANALYZE, BUFFERS)`** on
+  the reconcile query (cursor-null + cursor-set) to validate/decide index 082,
+  smoke the poller. Then PR to `main`,
   all CI green, PAUSE for explicit merge approval; apply migrations to prod Supabase
   in lockstep at promotion. After merge: `git pull --ff-only` main, ff `staging` onto
   `main`, remove the worktree, `document-feature` sweep, bump the arch-review counter.

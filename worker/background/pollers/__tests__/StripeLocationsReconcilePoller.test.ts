@@ -1695,7 +1695,7 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(sqlCalls[0]!.values).not.toContain('acct-b');
   });
 
-  // ── Durable cursor persistence (T1, migration 079 + ADR 0006) ────
+  // ── Durable cursor persistence (T1, migration 081 + ADR 0006) ────
 
   it('boot-load seeds accountCursor before the first cycle reads it', async () => {
     // Persisted cursor from a prior rotation; boot must seed it so the first

@@ -1,4 +1,4 @@
--- Migration 079: poller_cursors — durable keyset resume cursor + write-sequence CAS
+-- Migration 081: poller_cursors — durable keyset resume cursor + write-sequence CAS
 --
 -- #479 (map #472): persists StripeLocationsReconcilePoller's in-memory keyset
 -- resume cursor (added in #487) across worker restarts so a restart resumes the
