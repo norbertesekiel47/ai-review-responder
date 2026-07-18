@@ -2,61 +2,83 @@
   "classification": "normal",
   "surface": "backend",
   "db_touching": false,
-  "ticket": "#478 (wayfinder map #472) — remaining scope after #487",
-  "goal": "Add a 45s fail-open Upstash read cache, keyed per-tenant + window, to the KPI summaries (src/lib/kpi/service.ts) and the per-location dashboard payload (getActiveDashboardData in src/lib/dashboard/service.ts), mirroring the aggregate-dashboard 45s cache shipped in #487.",
+  "ticket": "#476",
+  "map": "#472",
+  "goal": "Replace the account-dashboard per-location fan-out with a set-based per-account aggregate (fixed GROUP BY business_id queries, location-count-independent) and window the two account-wide response-rate counts by the dashboard window param, with byte-identical output for every retained field.",
+  "glossary_coined": {
+    "per-location fan-out": "The current aggregate-service pattern of running the full per-location dashboard batch once per active location via mapWithConcurrency (~14 queries x N locations per aggregate page view). Being replaced.",
+    "set-based per-account aggregate": "A fixed, location-count-independent set of GROUP BY business_id queries producing every per-location slice the aggregate view consumes in one wave, bucketed by business_id and fed through the EXISTING per-location mappers (buildRanking, buildRatingBreakdown, buildValueSummary, brief-picking) so output is identical by construction.",
+    "windowed account response rate": "The All-Locations currentResponseRate computed over the selected dashboard window (reviews detected_at in window), matching reputationSummary.rate semantics, replacing the all-time COUNT(*)."
+  },
   "non_goals": [
-    "Refactoring the per-location fan-out into set-based SQL (#476, the blocking edge) — out of scope here; #487 already cached the composed aggregate result.",
-    "Write-path cache invalidation on approve/post — LOCKED: pure TTL (matches #487).",
-    "Single-flight / dogpile lock — LOCKED: no lock; bounded by capacity target #474 (peak ~10 concurrent renders, single replica).",
-    "Modifying the shipped #487 aggregate cache beyond optionally sharing a read-through helper (leave its partialFailures write-guard intact).",
-    "Dropping force-dynamic or adding route-level caching (map: 'not yet specified').",
-    "Caching any other surface (admin/margin, past-replies, etc.).",
-    "Changing any SQL query text (so tenant-scope audit allowlist is untouched)."
+    "Do NOT touch getActiveDashboardData / the single-location dashboard path (service.ts) — it stays the per-location owner.",
+    "Do NOT change the account-wide LIMIT-20 recentReviews feed added by #487 (getAccountRecentReviews stays as-is).",
+    "Do NOT add a migration, index, or any schema change — read path only.",
+    "Do NOT change the 45s aggregate cache TTL/key behavior (only simplify the partial-failure cache gate now that failures are atomic).",
+    "Do NOT window per-location valueSummary.totalReviewsHandled — it stays all-time (byte-identical). Only the two account-wide totals feeding currentResponseRate get windowed.",
+    "Do NOT alter tenant-scoping rules or introduce RLS."
   ],
   "user_visible_behavior": [
-    "Repeated dashboard + KPI loads for the same tenant+window within 45s are served from Upstash: lower DB load (read load becomes proportional to tenants, not page views) and faster response.",
-    "Served data can be up to 45s stale — pending-approval count, recent-reviews feed, response-rate, and the Zernio connect banner (LOCKED: freeze-with-payload).",
-    "No change on a cold cache, and no change when Upstash is unreachable (fail-open to a fresh DB compute)."
+    "All-Locations dashboard currentResponseRate becomes windowed by the selected dashboard window (30d default) instead of all-time; it will differ from the all-time rate on single-location cards by design.",
+    "partialFailures is removed from the AggregateDashboardData contract; the aggregate now succeeds atomically or the request errors (same failure surface as any DB outage).",
+    "Every other field (totalReviewsHandled, totalTimeSavedMinutes, baselineResponseRate, per-location KPIs, reviewVelocity, ranking, ratingBreakdown, recentReviews feed, perLocationBriefs, activeLocationCount) is byte-identical to today."
+  ],
+  "locked_decisions": [
+    "Windowed-rate numerator/denominator defined to match reputationSummary.rate: denominator = reviews with detected_at in window AND status<>DELETED; numerator = distinct reviews with detected_at in window that have a HANDLED-status response. Scoped by account_id.",
+    "Set-based queries feed the SAME mappers the per-location path uses; the rewrite changes only the fetch layer, guaranteeing byte-identical retained fields.",
+    "The authoritative pending-count rule stays owned by pending-count.ts; a plural set-based function is ADDED there rather than duplicating the NOT-EXISTS-flagged-open predicate in aggregate code (one authoritative owner).",
+    "New module src/lib/dashboard/aggregate-queries.ts hides the set-based SQL + business_id bucketing behind a narrow interface; aggregate-service.ts stays pure composition. mapWithConcurrency (now dead) is deleted."
   ],
   "invariants": [
-    "Tenant isolation: every cache key is namespaced by the tenant id (businessId for location scope, accountId for account scope) plus window (plus the reputation-metrics flag for the per-location payload). No two distinct tenants/scopes/windows can ever collide on a key.",
-    "Fail-open: a Redis read OR write failure degrades to (or serves) a fresh DB result — never surfaces an error to the caller. Exact try/catch + console.error shape from aggregate-service.ts.",
-    "Cache-miss parity: a cached payload is byte-identical (after JSON round-trip) to a freshly computed one for the same key — no Date/shape drift between the two paths.",
-    "getActiveDashboardData's BusinessNotFoundError propagates and is NEVER cached.",
-    "No SQL query text changes — the tenant-scope audit and RLS audit remain green with no allowlist edits."
+    "Tenant isolation: every aggregate query scoped by account_id via JOIN businesses b WHERE b.account_id = accountId; no cross-account leak (invariant #8; ci:tenant-scope).",
+    "Domain modules receive sql as an explicit parameter, never import @/lib/db/server (invariant #15; ci:db-imports).",
+    "Moderation hold respected: pending count and any response join exclude drafts with an open flagged_responses row.",
+    "Query count is independent of active-location count (the core perf guarantee) — constant number of sql round-trips per aggregate build.",
+    "Archived and DELETED rows excluded exactly as the per-location path does (b.archived_at IS NULL, rev.status <> DELETED)."
   ],
   "edge_cases": [
-    "Upstash GET throws → compute fresh, swallow+log.",
-    "Upstash SET throws → return the fresh result, swallow+log.",
-    "Empty/zeroed KPI result → cacheable (no partial-failure concept in KPI/per-location, unlike aggregate).",
-    "getActiveDashboardData throws (business row vanished) → propagates, not cached.",
-    "Distinct windows (7d/30d/90d/12w) and reputation-on vs reputation-off must key separately.",
-    "JSON round-trip fidelity: any Date-typed DTO field must serialize+parse to the same value the fresh path returns (verify DTOs are JSON-safe; test a representative payload).",
-    "Connect-banner staleness up to TTL accepted (LOCKED decision)."
+    "Account with zero active locations: same all-zero AggregateDashboardData as today (early return).",
+    "Location with no reviews / no responses / no ranking / no brief: bucket absent from GROUP BY result -> mapper must receive an empty bucket and produce the same zero-filled slice the per-location path does (velocity zero-fill weeks, empty rating breakdown, null ranking, null brief).",
+    "recentReviewCount per location = LEAST(count of non-deleted reviews, 10) to reproduce the old sliced-array length exactly.",
+    "Window selector 90d/etc: velocity, ratingBreakdown, AND the windowed rate all move together off the same window param.",
+    "Primary-location baselineResponseRate: needs initial_review_count/initial_responded_count/baseline_captured_at columns (not in LocationRow) — fetch them set-based for the account.",
+    "detected_at vs review_date: windowed counts use detected_at (ingestion recency), matching the per-location windowed metrics."
   ],
   "existing_patterns_to_follow": [
-    "src/lib/dashboard/aggregate-service.ts :: getAggregateDashboardData cache block (#487) — key format `dashboard:aggregate:${accountId}:${window}`, getCacheRedis().get → JSON.parse; compute; getCacheRedis().set(key, JSON.stringify(data), 'EX', 45); console.error on both failures.",
-    "src/lib/db/redis-cache.ts :: getCacheRedis() — the cache (not queue) Redis client.",
-    "AGGREGATE_CACHE_TTL_SECONDS = 45 constant + aggregateCacheKey() helper naming."
+    "src/lib/dashboard/service.ts velocity/ratingBreakdown/ranking queries (window params via dashboardWindowParams + make_interval; generate_series zero-fill) — reproduce with an added GROUP BY business_id.",
+    "src/lib/dashboard/service-mappers.ts (buildValueSummary, buildRanking, getBaselineResponseRate), rating-breakdown.ts (buildRatingBreakdown, sumRatingBreakdowns) — REUSE per business_id bucket.",
+    "src/lib/dashboard/pending-count.ts getPendingApprovalCount — add a plural set-based sibling.",
+    "Existing account-scoped counts getTotalReviewsForAccount/getTotalRespondedForAccount — window them in place.",
+    "worker/__tests__/helpers/mock-sql.ts fragment-aware createMockSql harness — used by the current aggregate-service.test.ts."
   ],
   "allowed_edit_surface": [
-    "src/lib/kpi/service.ts",
-    "src/lib/kpi/__tests__/**",
-    "src/lib/dashboard/service.ts",
+    "src/lib/dashboard/aggregate-service.ts",
+    "src/lib/dashboard/aggregate-queries.ts",
+    "src/lib/dashboard/pending-count.ts",
+    "src/lib/dashboard/types.ts",
     "src/lib/dashboard/__tests__/**",
-    "src/lib/db/redis-cache.ts",
-    "src/lib/db/__tests__/**",
-    "src/app/api/dashboard/__tests__/route.test.ts",
-    ".feature/**",
-    "docs/superpowers/**",
-    "docs/reviews/**"
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "scripts/ci/static-policy-audit.ts",
+    "docs/superpowers/plans/**",
+    ".feature/**"
+  ],
+  "surface_amendments": [
+    "2026-07-17: added scripts/ci/tenant-scope-allowlist.ts (user sign-off) — deleting getTotalRespondedForAccount per the locked fold-and-delete orphaned its allowlist entry; removing the dead entry is a forced dangling-reference cleanup.",
+    "2026-07-17: added scripts/ci/static-policy-audit.ts (same approved principle) — removing the partialFailures field from types.ts shifted the already-allowlisted 'past_due' discriminant literal from line 285 to 283; the line-pinned SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST entry must move in lockstep. Forced audit-tick fix, no new literal introduced."
   ],
   "tests_to_add": [
-    "KPI location+account: cache HIT returns cached summary without issuing SQL; cache MISS computes then writes; Upstash GET failure → falls through to SQL (fail-open); Upstash SET failure → returns fresh; keys distinct per (scope, window).",
-    "Per-location dashboard: same HIT/MISS/fail-open-read/fail-open-write set for getActiveDashboardData; key varies by window AND includeReputationMetrics; BusinessNotFoundError not cached; JSON round-trip fidelity of a representative payload (cached === fresh).",
-    "Tenant-isolation: two different businessIds (and two accountIds) never share a cache key.",
-    "If a shared read-through helper is extracted into redis-cache.ts: unit tests for read-through hit/miss and fail-open in both directions."
+    "Byte-identical parity: set-based build produces the SAME AggregateDashboardData (retained fields) as the current fan-out on a shared multi-location fixture.",
+    "Windowed rate: currentResponseRate reflects the window param and uses detected_at-in-window numerator/denominator (reputationSummary.rate parity).",
+    "Query-count-constant: number of sql calls in the aggregate build does not grow with active-location count.",
+    "Tenant isolation: rows from another account_id never contribute to any bucket (mock harness + ci:tenant-scope).",
+    "Empty-bucket parity: a location with no reviews/responses/ranking/brief yields the same zero-filled slice as the per-location path.",
+    "Regression retained: #346 authoritative pending-count (>10, not capped slice) and #405 rating-breakdown rollup still hold.",
+    "partialFailures removed: AggregateDashboardData no longer carries the field (typecheck + explicit assertion)."
   ],
-  "verification_commands": [],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit",
+    "pnpm ci:db-imports"
+  ],
   "open_questions": []
 }
