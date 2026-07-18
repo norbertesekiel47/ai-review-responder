@@ -92,7 +92,6 @@ import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './b
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
 import { healthBulkheadSql, startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
 import { closeHealthSql } from './background/pollers/health-alert/health-db';
-import { startPoolWedgeReaperPoller, stopPoolWedgeReaperPoller, closeReaperClient } from './background/pollers/PoolWedgeReaperPoller';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
 import {
   startAutonomyGovernorScheduler,
@@ -522,7 +521,6 @@ async function main(): Promise<void> {
   startAccountOffboardingReactivationResetPoller();
   startAccountOffboardingTeardownRetryPoller();
   startHealthAlertPoller();
-  startPoolWedgeReaperPoller();
   startJudgeSweepPoller();
   startAutonomyGovernorScheduler();
   console.log(`Worker service running on port ${PORT}`);
@@ -570,7 +568,6 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
-    stopPoolWedgeReaperPoller();
     stopJudgeSweepPoller();
     stopAutonomyGovernorScheduler();
   },
@@ -595,10 +592,10 @@ const shutdown = createGracefulShutdown({
     const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
     await shutdownAnalytics();
   },
-  // End the dedicated reaper + health clients before the shared pool; the
-  // close-order + best-effort contract lives in closeAllPostgresClients (the
-  // db/server owner) so it is testable without booting the worker (#500).
-  closeDb: () => closeAllPostgresClients([closeReaperClient, closeHealthSql]),
+  // End the dedicated health client before the shared pool; the close-order +
+  // best-effort contract lives in closeAllPostgresClients (the db/server
+  // owner) so it is testable without booting the worker (#500).
+  closeDb: () => closeAllPostgresClients([closeHealthSql]),
   exit: (code) => process.exit(code),
   armWatchdog: (onTimeout, ms) => {
     const timer = setTimeout(onTimeout, ms);

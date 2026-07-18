@@ -32,10 +32,7 @@ export async function queryBacklogDepth(sql: postgres.Sql): Promise<BacklogDepth
     // SET LOCAL scopes the timeout to THIS transaction (safe under PgBouncer
     // transaction pooling); the value is a compile-time integer const (no injection).
     await tx.unsafe(`SET LOCAL statement_timeout = ${BACKLOG_QUERY_STATEMENT_TIMEOUT_MS}`);
-    // The leading marker MUST be the first characters of the statement text —
-    // PR #502's PoolWedgeReaperPoller identifies reapable read-only backends by
-    // an anchored prefix match (query LIKE '/* rw-reapable */%').
-    const [row] = await tx<{ job_outbox: number; analytics_events: number }[]>`/* rw-reapable */
+    const [row] = await tx<{ job_outbox: number; analytics_events: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM job_outbox        WHERE status = 'pending') AS job_outbox,
         (SELECT COUNT(*)::int FROM analytics_events  WHERE status = 'pending') AS analytics_events
