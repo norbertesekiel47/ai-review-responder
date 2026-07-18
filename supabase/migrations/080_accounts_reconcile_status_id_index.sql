@@ -1,0 +1,48 @@
+-- Migration 080: idx_accounts_reconcile_status_id — composite index for the
+-- StripeLocationsReconcilePoller accounts query (#479, map #472).
+--
+-- IMPORTANT: this file uses CREATE INDEX CONCURRENTLY, which cannot run inside a
+-- transaction. Apply non-transactionally — uncheck the "single transaction" box
+-- in the Supabase SQL editor. If the build fails partway it can leave an INVALID
+-- index behind; check with
+--   SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
+-- then DROP INDEX the invalid one and re-run. (`accounts` is billing-critical, so
+-- CONCURRENTLY is mandatory: a plain CREATE INDEX takes an ACCESS EXCLUSIVE lock
+-- that would block billing writes for the whole build.)
+--
+-- Supports reconcileCycle's accounts query
+-- (worker/background/pollers/StripeLocationsReconcilePoller.ts ~223-258):
+--   WHERE a.subscription_status IN ($1, $2, $3)          -- active/past_due/trialing
+--     AND ($4::uuid IS NULL OR a.id > $4::uuid)          -- keyset resume cursor
+--   ORDER BY a.id ASC
+-- (subscription_status, id) is the exact keyset shape: the leading equality
+-- column filters to the IN-list statuses, and the trailing `id` gives both the
+-- `a.id > cursor` range scan AND the `ORDER BY a.id ASC` ordering for free within
+-- each status group — the planner can walk the index in id order per matched
+-- status and merge, avoiding a sort of the whole billable-accounts set each cycle.
+--
+-- WHY NON-PARTIAL (contrast migration 065): 065's watchdog queries filter on
+-- LITERAL status values (`status = 'processed'`, `status IN ('dispatched',
+-- 'dispatching')`), so a literal partial predicate is provably implied by the
+-- query predicate and Postgres can use the partial index under a generic plan.
+-- HERE the three statuses are bound as PARAMETERS ($1,$2,$3) — under a generic
+-- (parameterized) plan the planner cannot prove a literal partial predicate
+-- (e.g. `WHERE subscription_status IN ('active','past_due','trialing')`) is
+-- implied by an opaque `IN ($1,$2,$3)`, so it would ignore the partial index.
+-- A full index on the leading column stays usable regardless of how the values
+-- arrive, so this index is deliberately NON-partial.
+--
+-- MANDATORY RIDE-TIME GATE (step 8, staging): run
+--   EXPLAIN (ANALYZE, BUFFERS) <the reconcile accounts query>
+-- for BOTH cursor forms — cursor-null ($4 IS NULL, first cycle of a rotation) and
+-- cursor-set ($4 = some account id, a resumed cycle) — and confirm the planner
+-- picks idx_accounts_reconcile_status_id (Index/Index-Only Scan, not a Seq Scan +
+-- Sort). If at current account volume the planner still prefers a seq scan
+-- (small-table cost), this index stays as documented future-proofing OR is
+-- dropped — decided with the EXPLAIN evidence, never assumed.
+--
+-- Additive (index only; no table/column/data/RLS change). Apply staging first,
+-- then production, both Supabase projects in lockstep.
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_reconcile_status_id
+  ON accounts (subscription_status, id);
