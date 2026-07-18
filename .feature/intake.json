@@ -46,6 +46,7 @@
     "worker/background/schedulers/__tests__/**",
     "supabase/migrations/079_scheduler_outbox_dedup_indexes.sql",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "scripts/ci/static-policy-audit.ts",
     ".claude/reference/migrations-log.md"
   ],
   "tests_to_add": [
