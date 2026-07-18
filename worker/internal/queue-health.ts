@@ -96,8 +96,10 @@ export function createQueueHealthHandler(
     // Start the timed + already-caught backlog read BEFORE the sequential queue
     // loop so its 4000ms deadline overlaps queue collection (no added latency)
     // and its rejection is handled immediately (no unhandled-rejection window).
-    // The timeout bounds the WAIT, not the query — a timed-out count detaches
-    // and stays bounded by the 30s server-side statement_timeout.
+    // This withTimeout bounds the WAIT; the query itself is separately bounded to
+    // ~4s by queryBacklogDepth's `SET LOCAL statement_timeout`, so a slow count is
+    // cancelled server-side and its pooled connection is released — it never
+    // lingers to the 30s global statement_timeout.
     const backlogResult: Promise<BacklogDepth | null> = withTimeout(
       deps.getBacklogDepth(),
       BACKLOG_ENDPOINT_TIMEOUT_MS,

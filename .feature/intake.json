@@ -62,6 +62,7 @@
     "docs/runbooks/beta-launch-alerting.md",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
+    "docs/reviews/**",
     ".feature/**"
   ],
   "tests_to_add": [
