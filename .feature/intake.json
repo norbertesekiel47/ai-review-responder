@@ -7,7 +7,7 @@
     "Completing the 24h clean-soak within this session (inherently async; owner-gated before the #505 PR merges to main).",
     "Removing #502's HealthAlertPoller bulkhead (dedicated max:2 client + recycle-on-timeout) — kept as defense-in-depth even if the cure holds.",
     "Arming the reaper or solving Railway's IPv4→Supabase-IPv6 direct-route problem — deferred to the #477-tied re-arm ticket.",
-    "Folding #501's backlog-depth instrumentation into this branch — #501 lands as its own rebased PR.",
+    "Re-implementing #501's backlog-depth instrumentation — #501 is already MERGED to main (2026-07-18T21:18:57Z); this branch only removes the now-orphaned /* rw-reapable */ marker from its query.",
     "Any migration or schema change.",
     "Re-litigating map #472 decisions (capacity target #474, ADR 0005 posture #475, single-replica posture)."
   ],
@@ -31,10 +31,12 @@
     "If the repro harness does NOT reproduce the wedge, the cure stays UNPROVEN — ship the stagger as defensible boot-storm hardening (precedented) and keep the bulkhead; do not claim a cure.",
     "StripeLocationsReconcilePoller already defers 45s (INITIAL_RUN_DELAY_MS) — the stagger must not double-delay or conflict with it.",
     "closeAllPostgresClients currently takes [closeReaperClient, closeHealthSql]; removing the reaper must keep closeHealthSql wired and preserve the shutdown-resilience test (a rejecting closer still closes sql).",
-    "Dangling references to POOL_WEDGE_REAPER_ENABLED / DIRECT_URL in env-vars.md, startup-assert, lab-notes must be cleaned in the same change.",
+    "Reaper removal must clean ALL FIVE POOL_WEDGE_REAPER_* env vars (ENABLED, AGE_S, INTERVAL_MS, MAX_PER_SWEEP, OP_TIMEOUT_MS) + DIRECT_URL (sole consumer was the reaper) across worker/config/worker.ts + __tests__, startup-assert, env-vars.md, lab-notes.md — preserve the direct-route concept in the #477 re-arm ticket.",
+    "boot-stagger lifecycle race (Codex F4): staggerBoot must return a cancellable handle + done promise; shutdown cancels pending start timers BEFORE stopping loops, so a delayed start can never begin DB work mid-SIGTERM.",
+    "Cure root cause is UNPROVEN (Codex F1): T1 must reproduce against the REAL worker (fresh process per trial) + instrument the postgres.js debug hook; any mechanism must explain permanence + state_change fixity + poison-migration.",
     "Repro harness runs against the STAGING pooler only (never prod) and must terminate any backend it wedges (self-cleanup).",
     "Post-cure, the first (boot) health cycle may still self-heal via bulkhead recycle — acceptable; steady-state cycles must be clean.",
-    "Marker fate DECIDED: remove the /* rw-reapable */ marker from the 5 health queries along with the reaper (no consumer left); mark ADR 0007 Superseded, preserving the app_name-flattening + route knowledge for the #477 re-arm ticket."
+    "Marker fate DECIDED: remove the /* rw-reapable */ marker from ALL SIX query-sites (5× worker/background/pollers/health-alert/checks.ts + 1× src/lib/shared/backlog-depth.ts:37) + comment refs (health-db.ts, CONTEXT.md) along with the reaper (no consumer left); mark ADR 0007 Superseded, preserving the app_name-flattening + route knowledge for the #477 re-arm ticket."
   ],
   "existing_patterns_to_follow": [
     "worker/background/pollers/StripeLocationsReconcilePoller.ts:71,515-523 — INITIAL_RUN_DELAY_MS boot-connection-storm dodge (the cure precedent).",
@@ -45,12 +47,12 @@
   ],
   "allowed_edit_surface": [
     "worker/index.ts",
-    "worker/background/pollers/**",
-    "worker/background/schedulers/**",
-    "worker/background/guarded-poll.ts",
+    "worker/background/**",
     "worker/config/**",
-    "src/lib/db/server.ts",
-    "src/lib/config/worker.ts",
+    "worker/shutdown.ts",
+    "src/lib/db/**",
+    "src/lib/config/**",
+    "src/lib/shared/backlog-depth.ts",
     ".claude/reference/env-vars.md",
     ".claude/reference/lab-notes.md",
     "docs/adr/**",
@@ -62,17 +64,11 @@
     "CONTEXT.md"
   ],
   "tests_to_add": [
-    "Stagger: unit test that boot-fired loops schedule their first cycle with a bounded staggered/jittered delay rather than firing immediately (asserts non-simultaneous first-cycle scheduling).",
+    "boot-stagger: computeBootSchedule is bounded + strictly monotonic + covers count (property/example); staggerBoot invokes each start exactly once at its delay via an injected fake scheduler; cancel() prevents un-fired starts and resolves done (shutdown-race guard).",
     "Reaper deletion: closeAllPostgresClients still closes the health client then the shared sql after the reaper closer is removed; shutdown-resilience invariant (a rejecting closer still calls sql.end()) preserved (src/lib/db/__tests__/server.test.ts).",
     "Config: removing POOL_WEDGE_REAPER_ENABLED (and reaper-only env) does not break worker config parsing (src/lib/config/__tests__/worker.test.ts).",
     "Existing health-alert bundle/bulkhead tests remain green; the marker test (worker/background/pollers/__tests__/health-alert-markers.test.ts) is removed with the marker."
   ],
-  "verification_commands": [
-    "pnpm lint",
-    "pnpm typecheck",
-    "pnpm test",
-    "pnpm ci:db-imports (critical after reaper deletion — composition-root wiring)",
-    "OPERATIONAL (owner-gated, MCP-driven, NOT part of the in-session Stop gate): repro harness vs staging pooler; staging HEALTH_ALERT_POLL_INTERVAL_MS removal + steady-state pg_stat_activity observation; #501 rebase+land→staging; #480 burst drill (1000 events/10min, drained <=30min, alert ~1500 fires+clears); 24h clean 5-min-cycle soak"
-  ],
+  "verification_commands": [],
   "open_questions": []
 }
