@@ -163,6 +163,7 @@ describe('getAdminOverview — shape', () => {
       totalBusinesses: 1,
       limit: 20,
       offset: 0,
+      responseMetricsWindowDays: 30,
       businesses: [
         {
           id: 'biz-shape',
@@ -497,5 +498,47 @@ describe('getAdminOverview — pagination', () => {
 
     expect(result.businesses).toEqual([]);
     expect(result.totalBusinesses).toBe(1);
+  });
+});
+
+describe('getAdminOverview — response-metric windowing (SQL contract)', () => {
+  // The mock does not execute SQL, so windowing is verified as a query contract:
+  // the trailing-window FILTER on created_at is exactly what excludes >window
+  // rows from the rate/avg aggregates. Behavioral exclusion IS this pinned FILTER.
+  it('windows total/completed/avg-time by created_at, leaving pending/reconnect/last-activity all-time', async () => {
+    queueBaseQueries(harness, { businessRows: [], businessCount: [{ total: 0 }] });
+
+    await getAdminOverview(mockSql, { limit: 20, offset: 0 });
+    const businessQuery = harness.sqlCalls[5]!;
+
+    // Windowed aggregates carry the trailing-window FILTER on created_at, with the
+    // window value bound (the ? placeholder) rather than hard-coded — single owner.
+    expect(businessQuery.text).toContain('resp.created_at >= CURRENT_DATE - ?::int');
+    expect(businessQuery.text).toContain('AS total_responses');
+    expect(businessQuery.text).toContain('AS completed_responses');
+    expect(businessQuery.text).toContain('AS avg_response_time_hours');
+    expect(businessQuery.values).toContain(30);
+
+    // Current-state / all-time aggregates must NOT be windowed — old still-pending
+    // items and a dormant business's last activity are the churn signals.
+    expect(businessQuery.text).toContain(
+      "COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count",
+    );
+    expect(businessQuery.text).toContain(
+      "COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count",
+    );
+    expect(businessQuery.text).toContain(
+      'MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity',
+    );
+  });
+
+  it('surfaces responseMetricsWindowDays and binds the same value into the businessRows query', async () => {
+    queueBaseQueries(harness, { businessRows: [], businessCount: [{ total: 0 }] });
+
+    const result = await getAdminOverview(mockSql, { limit: 20, offset: 0 });
+
+    expect(result.responseMetricsWindowDays).toBe(30);
+    // Single owner: the DTO field and the SQL window derive from one constant.
+    expect(harness.sqlCalls[5]!.values).toContain(result.responseMetricsWindowDays);
   });
 });
