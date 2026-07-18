@@ -102,6 +102,7 @@ import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller }
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
 import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
+import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from './background/boot-stagger';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
@@ -112,6 +113,22 @@ import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
 import { createTransientRejectionGovernor } from './transient-rejection-governor';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// Boot-readiness cure (#505). The staggered boot spreads the DB-backed loops'
+// first cycles across this bounded window (<=~10s so a real boot-time incident
+// still pages promptly); readiness awaits the queue Redis connection, bounded and
+// fail-open so boot never hangs.
+const BOOT_STAGGER_TOTAL_SPREAD_MS = 8_000;
+const BOOT_READINESS_TIMEOUT_MS = 5_000;
+
+// One AbortController spans the whole boot-readiness sequence (readiness await →
+// staggered loop starts → worker resume). main() assigns it; the graceful
+// shutdown handler aborts it FIRST (before stopping loops) so no pending
+// continuation begins DB work mid-SIGTERM. Null-safe before main() assigns it.
+let bootAbortController: AbortController | null = null;
+function abortBootCoordinator(): void {
+  bootAbortController?.abort();
+}
 
 // NotificationFailoverPoller gate (Phase 0 update).
 //
@@ -152,7 +169,14 @@ const redisOpts = getRedisOptions();
 // Reduce Redis polling frequency to cut egress costs.
 // Default drainDelay is 200ms (5 polls/sec/worker × 7 workers = 35 polls/sec).
 // 5000ms cuts that by 25× — still picks up jobs within 5s, which is fine for our SLAs.
-const workerOpts = { connection: redisOpts, drainDelay: 5_000 };
+//
+// autorun:false (#505 boot-readiness cure): a Worker built with this does NOT
+// start polling at construction. The boot coordinator resumes every worker via
+// worker.run() only AFTER the DB-backed loops have finished their bounded
+// staggered start, so worker-poll pressure and first-cycle DB opens don't all
+// land on the same boot tick. assertSingleConcurrencyWorker reads .opts.concurrency
+// and is unaffected by autorun.
+const workerOpts = { connection: redisOpts, drainDelay: 5_000, autorun: false };
 
 const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, workerOpts);
 
@@ -496,33 +520,90 @@ async function main(): Promise<void> {
   app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
-  startOutboxPoller();
+
+  // --- Boot-readiness cure (#505) --------------------------------------------
+  // Each DB-backed loop fires its first cycle inside start(); firing all ~24 at
+  // once (plus every BullMQ worker beginning to poll) is the boot burst this cure
+  // spreads out. Build the ordered first-cycle list, then either stagger it behind
+  // bounded queue readiness (default) or boot legacy-synchronously (toggle off,
+  // baseline for the T1 repro harness). Stripe's own INITIAL_RUN_DELAY_MS (45s)
+  // still applies on top of the (<=~10s) stagger — no double-delay conflict.
   const failoverDecision = shouldRunFailoverPoller();
-  if (failoverDecision.run) {
-    startNotificationFailoverPoller();
-  } else {
+  if (!failoverDecision.run) {
     console.log(`[NotificationFailover] Skipped — ${failoverDecision.reason}`);
   }
-  startWeeklySummaryScheduler();
-  startArchivalPoller();
-  startMonthlyImpactScheduler();
-  startEngagementMonitorPoller();
-  startRankingTrackingScheduler();
-  startOnboardingDripScheduler();
-  startCleanupAbandonedSignupsPoller();
-  startEmailChannelReconcilePoller();
-  startCancellationGracePoller();
-  startStripeLocationsReconcilePoller();
-  startZernioRecentReviewPoller();
-  startAnalyticsDispatchPoller();
-  startAccountOffboardingAccessEndPoller();
-  startAccountOffboardingPurgePoller();
-  startAccountOffboardingPurgeReminderPoller();
-  startAccountOffboardingReactivationResetPoller();
-  startAccountOffboardingTeardownRetryPoller();
-  startHealthAlertPoller();
-  startJudgeSweepPoller();
-  startAutonomyGovernorScheduler();
+  const loopStarts: Array<() => void> = [
+    () => startOutboxPoller(),
+    ...(failoverDecision.run ? [() => startNotificationFailoverPoller()] : []),
+    () => startWeeklySummaryScheduler(),
+    () => startArchivalPoller(),
+    () => startMonthlyImpactScheduler(),
+    () => startEngagementMonitorPoller(),
+    () => startRankingTrackingScheduler(),
+    () => startOnboardingDripScheduler(),
+    () => startCleanupAbandonedSignupsPoller(),
+    () => startEmailChannelReconcilePoller(),
+    () => startCancellationGracePoller(),
+    () => startStripeLocationsReconcilePoller(),
+    () => startZernioRecentReviewPoller(),
+    () => startAnalyticsDispatchPoller(),
+    () => startAccountOffboardingAccessEndPoller(),
+    () => startAccountOffboardingPurgePoller(),
+    () => startAccountOffboardingPurgeReminderPoller(),
+    () => startAccountOffboardingReactivationResetPoller(),
+    () => startAccountOffboardingTeardownRetryPoller(),
+    () => startHealthAlertPoller(),
+    () => startJudgeSweepPoller(),
+    () => startAutonomyGovernorScheduler(),
+  ];
+
+  // Resume the autorun-deferred workers. run() returns a promise that resolves
+  // when the worker STOPS — never await it. A rare connection-layer rejection is
+  // logged and swallowed so it can't reach the crash-net and kill all queues.
+  const resumeWorkers = (): void => {
+    for (const worker of workers) {
+      worker.run().catch((err) =>
+        createWorkerLogger('[worker]').error(
+          'Worker run loop rejected',
+          err instanceof Error ? err : new Error(String(err)),
+        ),
+      );
+    }
+  };
+
+  bootAbortController = new AbortController();
+
+  if (isBootStaggerEnabled(getWorkerConfig().BOOT_STAGGER_ENABLED)) {
+    // Await bounded, fail-open queue readiness, spread the first cycles across the
+    // bounded jittered window, THEN resume workers. The one boot signal cancels
+    // any pending continuation on SIGTERM (workers are not resumed if aborted).
+    const readinessQueue = Object.values(queues)[0]!;
+    void runBootCoordinator({
+      awaitReadiness: (signal) =>
+        awaitQueueReadiness(
+          () => readinessQueue.waitUntilReady(),
+          { timeoutMs: BOOT_READINESS_TIMEOUT_MS },
+          signal,
+        ),
+      starts: loopStarts,
+      staggerOptions: { totalSpreadMs: BOOT_STAGGER_TOTAL_SPREAD_MS, jitter: 0.5 },
+      resumeWorkers,
+      signal: bootAbortController.signal,
+      log: (message) => console.log(message),
+    }).catch((err) =>
+      createWorkerLogger('[worker]').error(
+        'Boot coordinator failed',
+        err instanceof Error ? err : new Error(String(err)),
+      ),
+    );
+  } else {
+    // Legacy baseline (BOOT_STAGGER_ENABLED=false): fire every first cycle and
+    // resume every worker all at once — reproduces the pre-cure boot burst.
+    console.log('[boot] BOOT_STAGGER_ENABLED=false — legacy synchronous boot (baseline repro)');
+    for (const start of loopStarts) start();
+    resumeWorkers();
+  }
+
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -548,6 +629,9 @@ const SHUTDOWN_GRACE_MS = ((): number => {
 const shutdown = createGracefulShutdown({
   graceMs: SHUTDOWN_GRACE_MS,
   isFatalExitInProgress: () => fatalExitInProgress,
+  // Abort the boot coordinator FIRST (before stopBackgroundLoops): a pending
+  // staggered start or worker-resume must not begin DB work mid-SIGTERM (#505).
+  abortBootCoordinator,
   stopBackgroundLoops: () => {
     stopOutboxPoller();
     stopNotificationFailoverPoller();
