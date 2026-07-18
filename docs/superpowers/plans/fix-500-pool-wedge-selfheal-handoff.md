@@ -2,8 +2,34 @@
 
 **Resume with:** `/feature-resume fix-500-pool-wedge-selfheal` **from inside the
 worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-500-pool-wedge-selfheal`.
-Re-run the ARM CHECK first, then continue at **Step 7 (dual review)** — or Step 8
-(ship) if the dual review is already triaged clean per `docs/reviews/<branch>/`.
+Re-run the ARM CHECK first, then continue at **Step 8 (SHIP — RISK=high, staging first)**.
+
+## Step 7 dual review: DONE — BOTH AXES CLEAN
+- Spec & correctness + Standards & maintainability both returned NO HIGH-CONFIDENCE
+  FINDINGS. Full reports + triage: `docs/reviews/fix-500-pool-wedge-selfheal/`
+  (`spec-correctness.md`, `standards-maintainability.md`, `TRIAGE.md`). No code
+  change from triage → gate stays GREEN at HEAD.
+
+## Step 8 SHIP checklist (RISK=high → staging FIRST, then PR to main, then PAUSE for user merge)
+1. **Set/confirm `DIRECT_URL`** on the Railway **staging** worker = a real direct
+   `:5432` route (staging `DATABASE_URL` already is direct; reaper resolves
+   `DIRECT_URL ?? DATABASE_URL`). Without it the default-ON reaper self-disables +
+   Sentry-warns. Same confirmation needed on **prod** at promotion.
+2. **Land branch on `staging`** (push → full stack auto-deploys; no migration —
+   db_touching=false). Then **revert `HEALTH_ALERT_POLL_INTERVAL_MS`
+   86400000→300000** on the Railway staging worker (ENV change).
+3. **Staging tracer** (proves the fix end-to-end): open an `active+ClientRead`
+   backend running a `/* rw-reapable */`-marked query on staging; assert (a) reaper
+   URL routes direct (app_name echo / non-6543 port), (b) stable pid+backend_start +
+   monotonic age, (c) backend DISAPPEARS after the sweep, (d) shared pool unaffected.
+   Runbook: none specific yet — see the plan "Verify → Staging tracer" section.
+4. **Open PR to `main`**, confirm all GitHub CI green (incl. fallow), then PAUSE for
+   the user's explicit merge approval. No prod migration (db_touching=false).
+5. **After merge:** `git pull --ff-only` main; `git merge --ff-only main` onto staging;
+   remove worktree + delete branch; `document-feature` sweep; domain-modeling sweep
+   (fold Connection wedge / Wedge reaper / rw-reapable marker terms — already in
+   CONTEXT.md via T3); increment merge counter in `.claude/reference/arch-review-log.md`.
+   Confirm `DIRECT_URL` genuinely direct on prod; lab-note/ADR 0007 already landed (T3).
 
 ## Step 6 adversarial review: DONE (Codex `needs-attention` → fixed)
 - F1 [high] (transient boot outage permanently disabled the reaper) + F2 [medium]
