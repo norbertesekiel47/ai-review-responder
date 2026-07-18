@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **082** — next migration is **083**
+Current head: **081** — next migration is **082**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -953,11 +953,17 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
-> Numbers **079** (`agent_run_spine_archival_indexes`) and **080**
-> (`scheduler_outbox_dedup_indexes`) are claimed by parallel works that rode
-> staging first; this feature's two migrations were renumbered 079→081, 080→082
-> to avoid the collision (staging-first ordering wins). That is why this log jumps
-> 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+> This feature (#479) originally planned two migrations. **079**
+> (`agent_run_spine_archival_indexes`) and **080** (`scheduler_outbox_dedup_indexes`)
+> are claimed by parallel works that rode staging first, so #479's cursor table was
+> renumbered 079→**081**. The second planned migration — a composite
+> `(subscription_status, id)` reconcile index (would have been 082) — was
+> **evaluated and dropped at the mandatory staging EXPLAIN gate**: the planner
+> prefers the existing `accounts_pkey` for the keyset query even with seq-scan
+> disabled, and both prod and staging are empty pre-launch, so there is no evidence
+> the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
+> migration, re-addable later if a future prod EXPLAIN shows need. That is why this
+> log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
 - **081** — `poller_cursors` durable keyset resume cursor for
   `StripeLocationsReconcilePoller` (#479, map #472; ADR
@@ -978,31 +984,6 @@ Revisit triggers:
   CONCURRENTLY — brand-new table, instant build), re-runnable
   (`CREATE TABLE IF NOT EXISTS`). Apply staging first, then production, both
   Supabase projects in lockstep.
-
-- **082** — `idx_accounts_reconcile_status_id` composite index backing
-  `StripeLocationsReconcilePoller`'s accounts query (#479, map #472). **Adds**
-  `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_reconcile_status_id ON
-  accounts (subscription_status, id)`. The reconcile query filters
-  `subscription_status IN (active, past_due, trialing)` then keyset-resumes on
-  `a.id > cursor` with `ORDER BY a.id ASC`; `(subscription_status, id)` is that
-  exact shape — leading equality on status, trailing `id` serving both the range
-  scan and the ordering per status group (no whole-set sort each cycle).
-  **NON-partial by design** (contrast 065): 065's watchdog queries use LITERAL
-  status values so a literal partial predicate is provably implied; here the
-  three statuses bind as PARAMETERS, so under a generic plan the planner cannot
-  prove a literal partial predicate is implied by `IN ($1,$2,$3)` and would
-  ignore a partial index — a full index on the leading column stays usable
-  regardless. **CONCURRENTLY ⇒ non-transactional**: uncheck "single transaction"
-  in the Supabase SQL editor (`accounts` is billing-critical — a plain build's
-  ACCESS EXCLUSIVE lock would block billing writes); on partial failure check
-  `pg_index WHERE NOT indisvalid`, drop the invalid index, re-run. **Mandatory
-  ride-time gate (step 8, staging):** `EXPLAIN (ANALYZE, BUFFERS)` the reconcile
-  accounts query for BOTH the cursor-null ($4 IS NULL) and cursor-set forms and
-  confirm the planner uses the index (not Seq Scan + Sort); if at current volume
-  it still prefers a seq scan, the index stays as documented future-proofing OR
-  is dropped — decided with the EXPLAIN evidence, not assumed. No table/RLS
-  change. Apply staging first, then production, both Supabase projects in
-  lockstep.
 
 ## Key Tables Reference
 

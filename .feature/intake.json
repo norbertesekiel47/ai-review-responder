@@ -4,7 +4,7 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": true,
-  "goal": "Complete the #479 remainders on StripeLocationsReconcilePoller: add a composite partial index for the reconcile accounts query, persist the keyset resume cursor across worker restarts, and emit a sustained-truncation alert when the cycle deadline keeps aborting the sweep.",
+  "goal": "Complete the #479 remainders on StripeLocationsReconcilePoller: persist the keyset resume cursor across worker restarts, and emit a sustained-truncation alert when the cycle deadline keeps aborting the sweep. (The planned composite reconcile index was evaluated at the mandatory staging EXPLAIN gate and DROPPED with user sign-off — the planner prefers the accounts PK and both envs are empty pre-launch; see deviations.)",
   "non_goals": [
     "Do NOT auto-correct drift (poller stays detect-and-alert only).",
     "Do NOT change ACCOUNT_FAN_OUT_CONCURRENCY, ACCOUNT_TIMEOUT_MS, CYCLE_TIMEOUT_MS, or INITIAL_RUN_DELAY_MS.",
@@ -47,7 +47,6 @@
     "worker/background/pollers/billing-reconciliation/**",
     "worker/background/pollers/__tests__/**",
     "supabase/migrations/081_poller_cursors.sql",
-    "supabase/migrations/082_accounts_reconcile_status_id_index.sql",
     ".claude/reference/migrations-log.md",
     "scripts/ci/**",
     ".feature/**",

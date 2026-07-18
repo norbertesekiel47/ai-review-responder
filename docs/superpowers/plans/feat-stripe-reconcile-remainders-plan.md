@@ -127,20 +127,17 @@ reconcile timed out is *attempted, not guaranteed processed*. Consequences:
    - UNIT: a `saveCursor` rejection/timeout in `finally` is swallowed and
      `inProgress` is still released.
 
-### T2 — Composite index (migration 082 + migrations-log)
-**Blocked by:** T1 (shares `migrations-log.md`).
-1. `supabase/migrations/082_accounts_reconcile_status_id_index.sql`:
-   `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_reconcile_status_id
-   ON accounts (subscription_status, id)`. **No partial predicate** — the query
-   binds the `IN` statuses as params (contrast migration 065's literal `status =`).
-   Non-transactional (uncheck single transaction), CONCURRENTLY header (invalid-index
-   recovery note), staging-first, both projects lockstep.
-2. `.claude/reference/migrations-log.md`: head → 080, entries for 079/080.
-3. **Mandatory ride-time gate**: staging `EXPLAIN (ANALYZE, BUFFERS)` on the exact
-   reconcile query (cursor-null and cursor-set). Record whether the planner uses the
-   index; if not at current scale → keep as documented future-proofing or drop 080
-   — decide with evidence.
-4. Existing `reconcileCycle` tests must still pass.
+### T2 — Composite index — ❌ DROPPED at the ride-time EXPLAIN gate (step 8)
+**Outcome:** built as migration 082 (`idx_accounts_reconcile_status_id` on
+`accounts (subscription_status, id)`), applied to staging, then **dropped with
+user sign-off** after the mandatory `EXPLAIN (ANALYZE, BUFFERS)` gate — which is
+exactly the "decide with evidence" branch this step required. The planner picks
+`accounts_pkey` for the keyset query even with `enable_seqscan=off` (the PK already
+serves `id > cursor ORDER BY id`; the low-selectivity `subscription_status` filter
+doesn't earn the lead column), and both prod and staging are empty pre-launch, so
+there is no evidence the index helps. It is a one-line CONCURRENTLY migration,
+re-addable later if a future prod EXPLAIN shows need. Evidence + decision recorded
+in the #479 deviations file. **T1 (cursor) and T3 (alert) ship; T2 does not.**
 
 ### T3 — Sustained-truncation alert (snapshot classification + emitter)
 **Blocked by:** T1 (shares the poller file).

@@ -57,16 +57,26 @@ Bootstrap order: this doc → intake → plan → ADR → (later) deviations + r
   was chosen by the user after the 3-round cap was reached; not re-submitted to
   Codex. The built code still gets step-6 (adversarial) + step-7 (dual-axis) review.
 
-## Remaining work
-- **Step 8 — SHIP (RISK=high lane) (NEXT).** Land on `staging` (full-stack auto-deploy),
-  apply migrations 081+082 to the **staging** Supabase project FIRST (renumbered
-  from 079/080 — those numbers were claimed by parallel archival/scheduler works
-  that rode staging first), run the **mandatory `EXPLAIN (ANALYZE, BUFFERS)`** on
-  the reconcile query (cursor-null + cursor-set) to validate/decide index 082,
-  smoke the poller. Then PR to `main`,
-  all CI green, PAUSE for explicit merge approval; apply migrations to prod Supabase
-  in lockstep at promotion. After merge: `git pull --ff-only` main, ff `staging` onto
-  `main`, remove the worktree, `document-feature` sweep, bump the arch-review counter.
+## Step 8 — SHIP (RISK=high lane) — IN PROGRESS
+- **DONE:** feature merged onto `staging` (`50c26b99`) + pushed (full-stack auto-deploy).
+  Merged tree typechecks + 100 reconcile tests pass. Migrations renumbered 079→081,
+  080→082 (parallel archival/scheduler works claimed 079/080 on staging first).
+- **DONE — migration 081 (poller_cursors):** applied to staging Supabase
+  `kubdiqdhqbhwmqfditeg`; table created, deny-all RLS confirmed. Ships.
+- **DONE — migration 082 (composite index): DROPPED with user sign-off** at the
+  mandatory `EXPLAIN (ANALYZE, BUFFERS)` gate. Planner picks `accounts_pkey` for the
+  keyset query even with `enable_seqscan=off`; prod + staging both empty pre-launch →
+  no evidence it helps. Index removed from the branch; being DROPped on staging DB and
+  the staging branch. Re-addable later (one-line CONCURRENTLY). See deviations.
+- **REMAINING:**
+  1. DROP `idx_accounts_reconcile_status_id` on staging Supabase (CONCURRENTLY) +
+     remove 082 from the `staging` branch (keep staging = shipping scope).
+  2. Smoke the poller on staging (worker deploy logs; poller boots, no cursor error).
+  3. Re-run the verify gate on feat after the 082 removal (must be GREEN + fresh).
+  4. PR feat → `main`, all CI green, **PAUSE for explicit merge approval**. Only
+     migration 081 applies to prod Supabase at promotion (082 is gone).
+  5. After merge: `git pull --ff-only` main, ff `staging` onto `main`, remove the
+     worktree, `document-feature` sweep, bump the arch-review counter.
 
 ## Gate (step 5) — GREEN
 `scripts/verify-gate.sh` — lint, typecheck, test (8696), all `ci:*` incl. tenant-scope

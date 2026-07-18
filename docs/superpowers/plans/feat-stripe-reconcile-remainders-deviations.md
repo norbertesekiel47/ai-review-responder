@@ -123,3 +123,34 @@ Small, in-scope departures from the plan, recorded per the T1 instructions.
   tests use a mock-`sql` FIFO queue that would mis-account those. `beforeEach` now
   simulates a completed successful boot-load (no SELECT) so bulk tests keep their
   pre-persistence FIFO accounting; boot-load-specific tests reset back to null.
+
+## Step 8 — T2 composite index DROPPED at the ride-time EXPLAIN gate
+
+- **Migration 082 (`idx_accounts_reconcile_status_id` on `accounts
+  (subscription_status, id)`) was built, applied to staging, then dropped with user
+  sign-off.** T2's plan step 3 mandated a staging `EXPLAIN (ANALYZE, BUFFERS)` and
+  said explicitly: "if not [used] at current scale → keep as documented
+  future-proofing or drop — decide with evidence." The evidence:
+  - **Default plan (both cursor forms):** Seq Scan on `accounts` (staging table
+    empty — 0 rows).
+  - **Forced `enable_seqscan = off` (both cursor-null and cursor-set):** planner
+    chose **`accounts_pkey`** (the existing PK on `id`), NOT the composite index —
+    `Index Cond: (id > cursor)` with `subscription_status` as an inline filter.
+  - **Selectivity check:** both prod (`udeyaqnvpojbwgoaxwdg`) and staging
+    (`kubdiqdhqbhwmqfditeg`) have **0 accounts** — RepWorth is pre-launch, so the
+    status filter's selectivity cannot be measured and the index has no data to help.
+  - **Structural reason:** the reconcile query is a bulk keyset scan
+    (`status IN (billable) AND id > cursor ORDER BY id`, no LIMIT). The PK serves the
+    `id > cursor` range + `ORDER BY id` directly; leading with the low-selectivity
+    `subscription_status` only pays off with a large non-billable (churned) tail,
+    which does not exist at the beta/100-business capacity target (ADR 0006: a full
+    rotation drains in one cycle).
+  - **Decision:** DROP. Keeping an index the planner won't pick is pure write
+    overhead + space on the billing-critical `accounts` table. It is a one-line
+    CONCURRENTLY migration, re-addable in seconds if a future prod EXPLAIN (with real,
+    churn-heavy data) ever shows it wins. Aligns with the repo's "no infra before
+    proven need" rule. T1 (cursor persistence) and T3 (truncation alert) still ship.
+  - **Applied removal:** index DROPped on the staging DB (CONCURRENTLY); migration
+    082 file + all references (migrations-log, intake goal + surface, plan T2,
+    handoff) removed on the feat branch and the staging branch. Intake goal amended
+    with user sign-off (scope reduction: two deliverables, not three).
