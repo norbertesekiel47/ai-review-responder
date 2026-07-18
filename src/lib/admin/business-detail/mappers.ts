@@ -222,6 +222,7 @@ function buildAutoApprovalDiagnostics({
 export interface MapBusinessDetailResponseArgs {
   business: BusinessRow;
   reviewRows: ReviewRow[];
+  reviewsTotal: number;
   rankingSnapshots: RankingSnapshotRow[];
   zernioConnectionRows: ZernioConnectionRow[];
   awaitingOwnerConnectRows: AwaitingOwnerConnectRow[];
@@ -242,6 +243,7 @@ export interface MapBusinessDetailResponseArgs {
 export function mapBusinessDetailResponse({
   business,
   reviewRows,
+  reviewsTotal,
   rankingSnapshots,
   zernioConnectionRows,
   awaitingOwnerConnectRows,
@@ -324,6 +326,7 @@ export function mapBusinessDetailResponse({
       snapshotDate: s.snapshot_date,
       source: s.source,
     })),
+    reviewsTotal,
     reviews: reviewRows.map((row) => ({
       id: row.id,
       reviewerName: row.reviewer_name,
