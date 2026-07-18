@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted sql mock (mirrors OutboxPoller.test.ts) ──────────────────
+// queryBacklogDepth (via checkBacklogDepth) now runs its count inside
+// sql.begin(): `.begin(cb)` runs the callback against the same tagged-template
+// stub as tx, and `.unsafe(...)` (the SET LOCAL statement_timeout call) resolves
+// WITHOUT draining sqlReturnQueue — so the transaction body's single SELECT
+// still consumes exactly one queued row, keeping every existing push count valid.
 const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const shiftFrom = (q: unknown[]) => {
@@ -8,6 +13,8 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
     return Promise.resolve(Array.isArray(r) ? r : [r]);
   };
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => shiftFrom(sqlReturnQueue));
+  mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => unknown) => cb(mockSql));
+  mockSql.unsafe = vi.fn(() => Promise.resolve([]));
   return { sqlReturnQueue, mockSql };
 });
 
@@ -205,6 +212,30 @@ describe('health-alert checks', () => {
         'flagged_open_backlog',
         'outbox_failed:publish_response',
       ]);
+    });
+
+    // F-medium regression: a backlog-count failure (checkBacklogDepth uses
+    // sql.begin) must NOT reject Promise.all and swallow the critical findings.
+    it('isolates a backlog-check failure: other findings survive, failure becomes a warning', async () => {
+      // First five checks (dispatch order) drain the queue synchronously; the
+      // backlog check's sql.begin rejects (as it would under the DB pressure it
+      // detects) and consumes no queue entry.
+      sqlReturnQueue.push([]);              // failedByTopic → []
+      sqlReturnQueue.push([{ age: null }]); // oldestPending → null
+      sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
+      sqlReturnQueue.push([{ count: 10 }]); // openFlagged → finding (>5 default)
+      sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+      mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
+
+      const findings = await runHealthChecks(mockSql);
+      const keys = findings.map((f) => f.key);
+
+      // The unrelated check's finding is NOT suppressed.
+      expect(keys).toContain('flagged_open_backlog');
+      // The backlog failure degrades to a diagnostic warning, not a thrown batch.
+      const errFinding = findings.find((f) => f.key === 'health_check_error:backlog_depth');
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.detail).toEqual({ check: 'backlog_depth' });
     });
   });
 });

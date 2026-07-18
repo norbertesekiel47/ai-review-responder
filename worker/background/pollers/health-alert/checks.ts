@@ -7,6 +7,7 @@ import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
+import { toError } from '../../../../src/lib/shared/logger';
 
 export interface HealthFinding {
   key: string;
@@ -179,7 +180,18 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
     checkStaleDispatching(sql, cfg),
     checkOpenFlaggedResponses(sql, cfg),
     checkZeroDeliveryNotifications(sql, cfg),
-    checkBacklogDepth(sql, cfg),
+    // Isolate the new backlog check: it reads the DB precisely when the DB is
+    // under pressure, so its rejection must NOT reject the whole Promise.all and
+    // suppress the critical findings (failed-publish, zero-delivery). A failure
+    // degrades to a diagnostic warning finding instead (adversarial-review
+    // F-medium). The other 5 checks keep their pre-existing shared-fate — out of
+    // scope for this fix.
+    checkBacklogDepth(sql, cfg).catch((err): HealthFinding[] => [{
+      key: 'health_check_error:backlog_depth',
+      level: 'warning',
+      title: `Backlog depth check failed: ${toError(err).message}`,
+      detail: { check: 'backlog_depth' },
+    }]),
   ]);
   const findings: HealthFinding[] = [];
   for (const result of results) {
