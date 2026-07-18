@@ -1,0 +1,94 @@
+# Handoff — #500 Pool-wedge self-heal
+
+**Resume with:** `/feature-resume fix-500-pool-wedge-selfheal` **from inside the
+worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-500-pool-wedge-selfheal`.
+Re-run the ARM CHECK first, then continue at **Step 4 (EXECUTE)**.
+
+## Status
+- Steps 0–3 DONE. Classification: **RISK=high · backend · db_touching=false ·
+  SIZE=normal · ticket-seeded** (map #472 → #500).
+- Intake locked + amended, plan Codex-cleared (3 rounds), **user signed off**.
+- Next: Step 4 execute T0→T3 via fresh per-task subagents (TDD), then Step 5 gate,
+  Step 6 (adversarial review — RISK=high, user-invoked `/codex:adversarial-review`),
+  Step 7 dual review, Step 8 ship via staging.
+
+## Read these (do NOT restate — they are authoritative)
+- Scope contract: `.feature/intake.json`
+- Plan (tracer tickets T0–T3, seams, verify): `docs/superpowers/plans/fix-500-pool-wedge-selfheal.md`
+- Glossary: `CONTEXT.md` (T3 coins *Connection wedge*, *Wedge reaper*, *rw-reapable marker*)
+- Ticket: `gh issue view 500 --repo RepWorth/ai-review-responder` (+ its evidence comment)
+
+## Verified facts (already investigated — trust, don't redo)
+- **Supavisor tx-pooler flattens client `application_name` → `'Supavisor'`** server-side
+  (proven on staging). So backend identity = the `/* rw-reapable */` query-comment
+  marker (anchored PREFIX match), never app_name. Same flattening is reused as the
+  reaper's direct-route self-check (set app_name, confirm it echoes back).
+- **`DATABASE_URL` is the DIRECT :5432 connection on staging** (`<ref>.supabase.co:5432`)
+  despite `env-vars.md:38` calling it "pooled". The pooler is `pooler.supabase.com:6543`
+  (= `DATABASE_POOL_URL`). No `DIRECT_URL`/`STAGING_DIRECT_URL` exists yet — T0 adds
+  `DIRECT_URL` (opt) to `src/lib/config/worker.ts`; reaper resolves `DIRECT_URL ?? DATABASE_URL`.
+- **postgres.js 3.4.9.** API: `PendingQuery.cancel()`, `sql.reserve()/.release()`,
+  `sql.end({timeout})`. `.end()` → `socket.end()` (FIN, not destroy) → EOF plausible
+  not guaranteed → reaper backstops. `.cancel()` REJECTED (unproven vs socket wedge).
+- **No existing `pg_terminate_backend`/`pg_stat_activity` usage in the repo** — reaper
+  is new territory. OutboxPoller's "watchdog" reclaims ROWS, not backends (cadence
+  precedent only).
+- **`withTimeout` does not cancel work** (`src/lib/shared/with-timeout.ts:23-28`) — the
+  root leak mechanism: wedged query's connection never returns to the pool.
+- Sentry emit pattern: `Sentry.captureMessage(title,{level,tags,extra})`
+  (`worker/background/pollers/health-alert/emit.ts`). Reaper emits its own warning
+  (tag `subsystem:'pool_wedge_reaper'`), decoupled from health-alert.
+- Poller wiring: `worker/index.ts` imports `{start*,stop*}` (~L14-102), `start*()`
+  ~L494-519, `stop*()` ~L547-566. Shutdown: `worker/shutdown.ts` — `stopBackgroundLoops()`
+  is SYNC (clearInterval); the async dedicated-client `.end()`s MUST be awaited in the
+  `closeDb` dep (the awaited `db close` step, `shutdown.ts:99`), alongside `sql.end()`.
+- Staging DB access: parent `.env.staging.local` → `STAGING_DATABASE_URL` (direct :5432),
+  `STAGING_DATABASE_POOL_URL` (pooler :6543). For psql, strip `?pgbouncer=true` and add
+  `?sslmode=require`. Role `postgres` is member of `pg_signal_backend` (can terminate).
+
+## Locked defaults (T0 config)
+`POOL_WEDGE_REAPER_ENABLED=true`, `POOL_WEDGE_REAPER_INTERVAL_MS=60000`,
+`POOL_WEDGE_REAPER_AGE_S=300`, `POOL_WEDGE_REAPER_MAX_PER_SWEEP=3`,
+`POOL_WEDGE_REAPER_OP_TIMEOUT_MS=8000`, `DIRECT_URL` (opt).
+
+## Enforcement state (IMPORTANT)
+- **Edit-surface guard: ARMED** (file-anchored on the edited file's repo root; blocks
+  out-of-surface + wrong-checkout edits). All Edit/Write must use absolute WORKTREE
+  paths. Never edit repo files via Bash (`sed -i`, `>`, `mv`).
+- **Stop-gate: effectively DISARMED** under this harness — cwd resets to the parent each
+  turn and `CLAUDE_PROJECT_DIR` is UNSET, so at real stop time it finds no `.feature/`.
+  COMPENSATE: manually run `scripts/verify-gate.sh` and confirm green
+  `.feature/gate-status.json` (newer than HEAD) before any completion claim.
+- **Stale-`.feature/intake.json`-on-main gotcha:** main carries a committed
+  `.feature/intake.json` from prior features; this worktree's copy was overwritten with
+  #500's and committed (`cc9320d4`). Watch for it on future branches.
+
+## Tracer tickets (blocking edges)
+- **T0** (blocks T1,T2): `createDedicatedPostgresClient` factory in `src/lib/db/server.ts`
+  + reaper/`DIRECT_URL` config in `src/lib/config/worker.ts` + `env-vars.md` docs.
+- **T1** (⊂ T0): `worker/background/pollers/pool-wedge-reaper/{reaper-query,select-terminations}.ts`
+  + `PoolWedgeReaperPoller.ts` + register in `worker/index.ts`. Tests: fast-check on
+  `selectTerminations` (targets⊆input, ≤cap, oldest-first), disabled-without-verified-direct,
+  already-gone-tuple tolerance.
+- **T2** (⊂ T0): `worker/background/pollers/health-alert/health-db.ts` +
+  `HealthAlertPoller.ts` edit + prepend `/* rw-reapable */` to the 5 queries in
+  `health-alert/checks.ts`. Tests: recycle-on-timeout (unconditional rebuild), shared-pool
+  isolation, marker present, `'error'` check-in preserved.
+- **Integration** (⊂ T1,T2): wire `closeHealthSql()` + `closeReaperClient()` (both async)
+  into `worker/index.ts` `closeDb`.
+- **T3** (⊂ T1,T2, docs-exempt): `docs/adr/0007-supavisor-app-name-flattening.md`,
+  `CONTEXT.md` glossary, `.claude/reference/lab-notes.md`.
+
+## Step-8 ship reminders (RISK=high → ride staging FIRST)
+- Staging tracer (proves Codex F2+F3): open an `active+ClientRead` backend running a
+  `/* rw-reapable */`-marked query on staging; assert (a) reaper URL routes direct
+  (app_name echo), (b) stable pid+backend_start + monotonic age, (c) backend DISAPPEARS
+  after the sweep, (d) shared pool unaffected.
+- **REVERT the staging mitigation** `HEALTH_ALERT_POLL_INTERVAL_MS=86400000 → 300000`
+  on the Railway staging worker (ENV change, not code).
+- Confirm prod has a genuinely-direct URL for the reaper (else it self-disables + alerts).
+- Lab note + ADR 0007 on close.
+
+## Codex reviewer
+Same session resumable: agentId `a5f640e547aa256b1` (SendMessage) if the built code
+needs another adversarial pass.
