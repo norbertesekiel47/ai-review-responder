@@ -110,6 +110,15 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   check to page.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
+- [ ] **Backlog depth over threshold** — insert `> HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD`
+  (default 1500) `job_outbox` rows `status='pending'`; expect
+  `backlog_depth:job_outbox` (`warning`).
+- [ ] **#474 capacity burst (headroom, ticket #480)** — inject 1000 ingest events
+  in 10 min. Watch `GET /internal/queue-health` `backlog.job_outbox` climb toward
+  ~1000 then drain to baseline **within 30 min**, and confirm **no** `backlog_depth`
+  warning fires (1000 < 1500 headroom). Validates the observability + drain path
+  without tripping the alert. *(HealthAlertPoller is paused on staging per #500;
+  run this drill once it resumes — the check is already wired.)*
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 
@@ -122,6 +131,7 @@ poll interval (the cost-cap drill fires immediately at the throw site):
 | `HEALTH_ALERT_FAILED_THRESHOLD` | `0` | Failed public-path jobs tolerated (0 → any pages). |
 | `HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD` | `5` | Open `flagged_responses` before warning. |
 | `HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S` | `3600` | Window for completed-but-undelivered notifications. |
+| `HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD` | `1500` | Per-table pending backlog depth (`job_outbox`, `analytics_events`) before warning (`backlog_depth:<table>`). Sized to the #474 capacity target. |
 | `HEALTH_ALERT_MONITOR_SLUG` | `health-alert-poller` | Sentry Cron monitor slug. |
 | `EMAIL_SEND_TIMEOUT_MS` | `10000` | Per-send Resend timeout (chokepoint). |
 
