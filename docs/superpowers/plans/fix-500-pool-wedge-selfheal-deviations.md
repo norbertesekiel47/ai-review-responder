@@ -176,3 +176,47 @@ per test, the module-under-test imports a FRESH `with-timeout` (fresh
 after the reset (same fresh module graph) so the `instanceof` identity aligns — a
 statically-imported `TimeoutError` would silently never match and the recycle
 branch would look untested-but-passing.
+
+## Step 8 staging validation (blocker discovered)
+
+### D8 — reaper's genuine-direct route is unreachable from Railway (Supabase direct = IPv6-only, Railway egress = IPv4-only) → Supabase IPv4 add-on required
+
+**What the staging tracer prerequisite surfaced (2026-07-18):** after landing the
+branch on `staging` and deploying the Railway worker, the reaper logged, every
+boot/tick:
+
+```
+[ERRO] Direct-route verification errored (will retry)
+  error="connect ENETUNREACH 2600:1f14:359d:...:5432 - Local (:::0)"
+[WARN] Direct-route verification deferred (transient error at boot) — will retry on the loop
+```
+
+**Root cause (evidence):**
+- `db.kubdiqdhqbhwmqfditeg.supabase.co` (staging direct host, the reaper's
+  `DIRECT_URL ?? DATABASE_URL` target) has **only an AAAA record** (IPv6
+  `2600:1f14:...`), **no A record** — Supabase direct connections are IPv6-only
+  unless the dedicated-IPv4 add-on is enabled.
+- The Railway worker's external egress is **IPv4-only** → `ENETUNREACH` to that
+  IPv6 address. (Same class of gotcha CLAUDE.md already documents for the
+  *internal* Railway network — here it bites the *external* direct route.)
+- The worker's normal transactional client uses `DATABASE_POOL_URL` (the IPv4
+  Supavisor pooler, `src/lib/db/server.ts:35`), so nothing exercised the IPv6
+  direct route until the reaper. Local `psql` staging tests passed because the
+  developer laptop has IPv6 — "works locally, fails on Railway."
+- The only IPv4 path to the DB is the Supavisor pooler, which the reaper
+  deliberately refuses (ADR 0007 app_name flattening → self-disable).
+
+**Impact:** T1 reaper is **permanently inert** on Railway→Supabase as-is (F1 fix
+behaving correctly: classifies ENETUNREACH as transient, retries every 60s,
+never crashes, never permanently disables). **T2** (health-poller bulkhead +
+recycle-on-timeout self-heal) is UNAFFECTED — it runs on the IPv4 pooler and
+deployed cleanly; it is the primary #500 mitigation.
+
+**Decision (user, 2026-07-18):** enable the **Supabase dedicated-IPv4 add-on**
+(~$4/mo per project) on **staging AND prod** so `db.<ref>.supabase.co` gains an A
+record reachable from Railway. No code change; reaper works as designed.
+- Staging: enable now (unblocks the tracer). Prod: pre-merge prerequisite (reaper
+  is default-ON → prod reaper would be inert without it).
+- Meanwhile staging `HEALTH_ALERT_POLL_INTERVAL_MS` restored to `86400000` (24h
+  mitigation) until the reaper works AND T2's self-heal is proven end-to-end,
+  then reverted to `300000`.

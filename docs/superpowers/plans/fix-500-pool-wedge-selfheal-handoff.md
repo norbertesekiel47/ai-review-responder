@@ -4,6 +4,23 @@
 worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-500-pool-wedge-selfheal`.
 Re-run the ARM CHECK first, then continue at **Step 8 (SHIP — RISK=high, staging first)**.
 
+## Step 8 PROGRESS (2026-07-18, in flight)
+- **Gate refreshed GREEN at HEAD** (docs-only commits had made it stale); stop-gate probe now exit 0.
+- **Branch landed on `staging`** (`git push origin HEAD:staging`, clean 15-commit FF; origin/staging was == origin/main, no other rides). Full staging stack auto-deployed.
+- **BLOCKER found by staging validation (see deviations D8):** the T1 reaper's
+  `DIRECT_URL ?? DATABASE_URL` route = `db.kubdiqdhqbhwmqfditeg.supabase.co:5432`
+  is **IPv6-only** (no A record); Railway egress is IPv4-only → `ENETUNREACH` →
+  reaper permanently inert (F1 retry loop working as designed). T2 (health-poller
+  self-heal on the IPv4 pooler) is fine.
+- **Decision (user):** enable **Supabase dedicated-IPv4 add-on** (~$4/mo/project)
+  on staging (now) + prod (pre-merge). Restore staging `HEALTH_ALERT_POLL_INTERVAL_MS=86400000`
+  meanwhile (DONE) → revert to `300000` once reaper proven.
+- **WAITING ON:** user to enable staging IPv4 add-on in Supabase dashboard
+  (RepWorth-staging → Settings → Add Ons → IPv4 Address). Then: restart worker →
+  confirm reaper verifies direct route in logs → run active+ClientRead tracer →
+  revert poll interval to 300000 → open PR to `main` (pause for merge) → enable
+  prod IPv4 before merge.
+
 ## Step 7 dual review: DONE — BOTH AXES CLEAN
 - Spec & correctness + Standards & maintainability both returned NO HIGH-CONFIDENCE
   FINDINGS. Full reports + triage: `docs/reviews/fix-500-pool-wedge-selfheal/`
