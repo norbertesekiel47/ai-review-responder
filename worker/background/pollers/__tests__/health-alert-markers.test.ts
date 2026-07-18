@@ -6,6 +6,7 @@ import {
   checkOpenFlaggedResponses,
   checkZeroDeliveryNotifications,
   type HealthAlertConfig,
+  checkBacklogDepth,
 } from '../health-alert/checks';
 import { REAPABLE_MARKER } from '../pool-wedge-reaper/reaper-query';
 
@@ -16,6 +17,7 @@ const CFG: HealthAlertConfig = {
   staleDispatchingThresholdS: 600,
   flaggedOpenThreshold: 5,
   zeroDeliveryWindowS: 3600,
+  backlogDepthThreshold: 1500,
 };
 
 // A tagged-template `sql` stand-in that captures the FIRST template chunk
@@ -26,11 +28,18 @@ const CFG: HealthAlertConfig = {
 // asserting the reaper's anchored match `query LIKE '/* rw-reapable */%'` fires.
 function capturingSql() {
   const firstChunks: string[] = [];
-  const sql = ((strings: TemplateStringsArray) => {
+  const capture = ((strings: TemplateStringsArray) => {
     firstChunks.push(strings[0] ?? '');
     return Promise.resolve([]);
   }) as unknown as import('postgres').Sql;
-  return { sql, firstChunks };
+  // checkBacklogDepth wraps its count in sql.begin + a SET LOCAL via tx.unsafe;
+  // neither is a marker-bearing statement, so begin hands back the same capture
+  // and unsafe is a no-op — only tagged-template statements are asserted.
+  // Loose casts: postgres.js's own unsafe/begin signatures are far richer than
+  // this capture needs.
+  (capture as { unsafe: unknown }).unsafe = () => Promise.resolve([]);
+  (capture as { begin: unknown }).begin = (fn: (tx: unknown) => Promise<unknown>) => fn(capture);
+  return { sql: capture, firstChunks };
 }
 
 describe('health-alert checks — /* rw-reapable */ marker (reaper backstop identity)', () => {
@@ -40,6 +49,7 @@ describe('health-alert checks — /* rw-reapable */ marker (reaper backstop iden
     ['checkStaleDispatching', checkStaleDispatching],
     ['checkOpenFlaggedResponses', checkOpenFlaggedResponses],
     ['checkZeroDeliveryNotifications', checkZeroDeliveryNotifications],
+    ['checkBacklogDepth', checkBacklogDepth],
   ];
 
   it.each(checks)('%s emits a query that BEGINS WITH the marker (no leading whitespace)', async (_name, check) => {
@@ -50,7 +60,7 @@ describe('health-alert checks — /* rw-reapable */ marker (reaper backstop iden
     expect((firstChunks[0] ?? '').startsWith(REAPABLE_MARKER)).toBe(true);
   });
 
-  it('marks all five checks (the full opt-in set the reaper backstops)', () => {
-    expect(checks).toHaveLength(5);
+  it('marks all six checks (the full opt-in set the reaper backstops)', () => {
+    expect(checks).toHaveLength(6);
   });
 });

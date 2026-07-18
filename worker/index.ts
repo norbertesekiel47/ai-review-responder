@@ -9,6 +9,7 @@ import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues, topicToQueue } from './queues';
 import { createQueueHealthHandler, QUEUE_HEALTH_JOB_STATES } from './internal/queue-health';
+import { queryBacklogDepth } from '../src/lib/shared/backlog-depth';
 import { withJobLogContext } from './job-log-context';
 import { createGracefulShutdown } from './shutdown';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
@@ -89,7 +90,7 @@ import { startCancellationGracePoller, stopCancellationGracePoller } from './bac
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
-import { startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
+import { healthBulkheadSql, startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
 import { closeHealthSql } from './background/pollers/health-alert/health-db';
 import { startPoolWedgeReaperPoller, stopPoolWedgeReaperPoller, closeReaperClient } from './background/pollers/PoolWedgeReaperPoller';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
@@ -473,6 +474,9 @@ async function main(): Promise<void> {
         if (!queue) throw new Error(`No queue registered for ${name}`);
         return queue.getJobCounts(...QUEUE_HEALTH_JOB_STATES);
       },
+      // Composition root passes the Postgres singleton (invariant #15); the
+      // handler owns the best-effort timeout + degrade-to-null behavior.
+      getBacklogDepth: () => queryBacklogDepth(healthBulkheadSql()),
     }),
   );
 

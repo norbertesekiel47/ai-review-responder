@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted sql mock (mirrors OutboxPoller.test.ts) ──────────────────
+// queryBacklogDepth (via checkBacklogDepth) now runs its count inside
+// sql.begin(): `.begin(cb)` runs the callback against the same tagged-template
+// stub as tx, and `.unsafe(...)` (the SET LOCAL statement_timeout call) resolves
+// WITHOUT draining sqlReturnQueue — so the transaction body's single SELECT
+// still consumes exactly one queued row, keeping every existing push count valid.
 const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const shiftFrom = (q: unknown[]) => {
@@ -8,6 +13,8 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
     return Promise.resolve(Array.isArray(r) ? r : [r]);
   };
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => shiftFrom(sqlReturnQueue));
+  mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => unknown) => cb(mockSql));
+  mockSql.unsafe = vi.fn(() => Promise.resolve([]));
   return { sqlReturnQueue, mockSql };
 });
 
@@ -19,9 +26,11 @@ import {
   checkOpenFlaggedResponses,
   checkFailedOutboxByTopic,
   checkZeroDeliveryNotifications,
+  checkBacklogDepth,
   runHealthChecks,
   type HealthAlertConfig,
 } from '../checks';
+import { resetWorkerConfigForTests } from '../../../../../src/lib/config/worker';
 
 const CFG: HealthAlertConfig = {
   pendingAgeThresholdS: 900,
@@ -30,6 +39,7 @@ const CFG: HealthAlertConfig = {
   staleDispatchingThresholdS: 600,
   flaggedOpenThreshold: 5,
   zeroDeliveryWindowS: 3600,
+  backlogDepthThreshold: 1500,
 };
 
 const HEALTH_ENV = [
@@ -39,6 +49,7 @@ const HEALTH_ENV = [
   'HEALTH_ALERT_STALE_DISPATCHING_S',
   'HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD',
   'HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S',
+  'HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD',
 ];
 
 describe('health-alert checks', () => {
@@ -46,6 +57,7 @@ describe('health-alert checks', () => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
     for (const k of HEALTH_ENV) delete process.env[k];
+    resetWorkerConfigForTests();
   });
 
   describe('checkOldestPendingOutbox', () => {
@@ -120,19 +132,110 @@ describe('health-alert checks', () => {
     });
   });
 
+  describe('checkBacklogDepth', () => {
+    it('emits one warning finding per table over the threshold', async () => {
+      sqlReturnQueue.push([{ job_outbox: 1600, analytics_events: 2000 }]);
+      const findings = await checkBacklogDepth(mockSql, CFG);
+      expect(findings).toHaveLength(2);
+      const byKey = Object.fromEntries(findings.map((f) => [f.key, f]));
+      expect(byKey['backlog_depth:job_outbox']?.level).toBe('warning');
+      expect(byKey['backlog_depth:job_outbox']?.detail).toEqual({
+        table: 'job_outbox',
+        count: 1600,
+        threshold: 1500,
+      });
+      expect(byKey['backlog_depth:analytics_events']?.detail).toEqual({
+        table: 'analytics_events',
+        count: 2000,
+        threshold: 1500,
+      });
+    });
+    it('returns no finding at the threshold (strict >)', async () => {
+      sqlReturnQueue.push([{ job_outbox: 1500, analytics_events: 1500 }]);
+      expect(await checkBacklogDepth(mockSql, CFG)).toEqual([]);
+    });
+    it('returns no finding under the threshold', async () => {
+      sqlReturnQueue.push([{ job_outbox: 10, analytics_events: 0 }]);
+      expect(await checkBacklogDepth(mockSql, CFG)).toEqual([]);
+    });
+    it('reports each table independently — one over, one under → exactly one finding', async () => {
+      sqlReturnQueue.push([{ job_outbox: 1600, analytics_events: 100 }]);
+      const findings = await checkBacklogDepth(mockSql, CFG);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.key).toBe('backlog_depth:job_outbox');
+    });
+  });
+
+  // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
+  // Promise.all order: failedByTopic, oldestPending, staleDispatching, openFlagged,
+  // zeroDelivery, backlogDepth — push a queue entry per check in that order.
+  function pushQuietChecksBeforeBacklog(): void {
+    sqlReturnQueue.push([]);              // failedByTopic → []
+    sqlReturnQueue.push([{ age: null }]); // oldestPending → null
+    sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
+    sqlReturnQueue.push([{ count: 0 }]);  // openFlagged → null
+    sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+  }
+
+  describe('backlog-depth threshold config', () => {
+    it('uses the 1500 default when HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD is unset', async () => {
+      pushQuietChecksBeforeBacklog();
+      sqlReturnQueue.push([{ job_outbox: 1600, analytics_events: 0 }]); // 1600 > 1500 default
+      const findings = await runHealthChecks(mockSql);
+      expect(findings.map((f) => f.key)).toContain('backlog_depth:job_outbox');
+    });
+    it('honors a HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD env override', async () => {
+      process.env.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD = '5000';
+      resetWorkerConfigForTests();
+      pushQuietChecksBeforeBacklog();
+      sqlReturnQueue.push([{ job_outbox: 1600, analytics_events: 0 }]); // 1600 < 5000 override
+      const findings = await runHealthChecks(mockSql);
+      expect(findings.map((f) => f.key)).not.toContain('backlog_depth:job_outbox');
+    });
+  });
+
   describe('runHealthChecks', () => {
     it('aggregates findings across all checks (env defaults)', async () => {
       // Order matches Promise.all dispatch order in runHealthChecks:
-      // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery
+      // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery, backlogDepth
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
       sqlReturnQueue.push([{ count: 0 }]);                             // stale → null
       sqlReturnQueue.push([{ count: 10 }]);                            // flagged → finding (>5 default)
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
+      sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
       const findings = await runHealthChecks(mockSql);
       const keys = findings.map((f) => f.key).sort();
-      expect(keys).toEqual(['flagged_open_backlog', 'outbox_failed:publish_response']);
+      expect(keys).toEqual([
+        'backlog_depth:job_outbox',
+        'flagged_open_backlog',
+        'outbox_failed:publish_response',
+      ]);
+    });
+
+    // F-medium regression: a backlog-count failure (checkBacklogDepth uses
+    // sql.begin) must NOT reject Promise.all and swallow the critical findings.
+    it('isolates a backlog-check failure: other findings survive, failure becomes a warning', async () => {
+      // First five checks (dispatch order) drain the queue synchronously; the
+      // backlog check's sql.begin rejects (as it would under the DB pressure it
+      // detects) and consumes no queue entry.
+      sqlReturnQueue.push([]);              // failedByTopic → []
+      sqlReturnQueue.push([{ age: null }]); // oldestPending → null
+      sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
+      sqlReturnQueue.push([{ count: 10 }]); // openFlagged → finding (>5 default)
+      sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+      mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
+
+      const findings = await runHealthChecks(mockSql);
+      const keys = findings.map((f) => f.key);
+
+      // The unrelated check's finding is NOT suppressed.
+      expect(keys).toContain('flagged_open_backlog');
+      // The backlog failure degrades to a diagnostic warning, not a thrown batch.
+      const errFinding = findings.find((f) => f.key === 'health_check_error:backlog_depth');
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.detail).toEqual({ check: 'backlog_depth' });
     });
   });
 });

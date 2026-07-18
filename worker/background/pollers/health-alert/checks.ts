@@ -6,6 +6,8 @@
 import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
+import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
+import { toError } from '../../../../src/lib/shared/logger';
 
 // Cooperative opt-in identity marker (#500). Every health-check query below
 // BEGINS WITH this literal comment so the PoolWedgeReaperPoller's anchored-prefix
@@ -31,6 +33,7 @@ export interface HealthAlertConfig {
   staleDispatchingThresholdS: number;
   flaggedOpenThreshold: number;
   zeroDeliveryWindowS: number;
+  backlogDepthThreshold: number;
 }
 
 function num(value: string | undefined, fallback: number): number {
@@ -47,6 +50,7 @@ function resolveHealthAlertConfig(): HealthAlertConfig {
     staleDispatchingThresholdS: num(cfg.HEALTH_ALERT_STALE_DISPATCHING_S, 600),
     flaggedOpenThreshold: num(cfg.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
     zeroDeliveryWindowS: num(cfg.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
+    backlogDepthThreshold: num(cfg.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD, 1500),
   };
 }
 
@@ -163,6 +167,21 @@ export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: Hea
   };
 }
 
+// Pending backlog depth per dispatch-queue table over the #474 capacity target
+// (~1500 rows). A saturation warning — the 5s OutboxPoller normally drains it;
+// a human should look, but it is not dropped work. Per-table independent findings.
+export async function checkBacklogDepth(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
+  const depth = await queryBacklogDepth(sql);
+  return BACKLOG_DEPTH_TABLES
+    .filter((table) => depth[table] > cfg.backlogDepthThreshold)
+    .map((table) => ({
+      key: `backlog_depth:${table}`,
+      level: 'warning' as const,
+      title: `${table} backlog depth is ${depth[table]} pending rows (> ${cfg.backlogDepthThreshold}) — dispatch behind the ${cfg.backlogDepthThreshold}-row capacity target`,
+      detail: { table, count: depth[table], threshold: cfg.backlogDepthThreshold },
+    }));
+}
+
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
   const results = await Promise.all([
@@ -171,6 +190,18 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
     checkStaleDispatching(sql, cfg),
     checkOpenFlaggedResponses(sql, cfg),
     checkZeroDeliveryNotifications(sql, cfg),
+    // Isolate the new backlog check: it reads the DB precisely when the DB is
+    // under pressure, so its rejection must NOT reject the whole Promise.all and
+    // suppress the critical findings (failed-publish, zero-delivery). A failure
+    // degrades to a diagnostic warning finding instead (adversarial-review
+    // F-medium). The other 5 checks keep their pre-existing shared-fate — out of
+    // scope for this fix.
+    checkBacklogDepth(sql, cfg).catch((err): HealthFinding[] => [{
+      key: 'health_check_error:backlog_depth',
+      level: 'warning',
+      title: `Backlog depth check failed: ${toError(err).message}`,
+      detail: { check: 'backlog_depth' },
+    }]),
   ]);
   const findings: HealthFinding[] = [];
   for (const result of results) {

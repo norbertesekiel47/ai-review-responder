@@ -22,6 +22,15 @@ const LOG_PREFIX = '[HealthAlertPoller]';
 // Points at DATABASE_POOL_URL — the SAME pooled route the checks ran against when
 // they used the shared singleton — so only the pool is isolated, not semantics.
 // max:2: five checks per single-flight cycle need no more.
+/**
+ * The queue-health endpoint's backlog count runs on the SAME bulkhead client as
+ * the poller's checks, so the shared pool is never exposed to the #500 wedge
+ * class from an externally-triggered request (PR #501 review finding F2).
+ */
+export function healthBulkheadSql(): ReturnType<typeof getHealthSql> {
+  return getHealthSql(buildHealthClient);
+}
+
 function buildHealthClient(): ReturnType<typeof createDedicatedPostgresClient> {
   return createDedicatedPostgresClient(getWorkerConfig().DATABASE_POOL_URL, { max: 2 });
 }

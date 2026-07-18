@@ -129,6 +129,7 @@ const workerSchema = z.object({
   HEALTH_ALERT_STALE_DISPATCHING_S: rawOpt,
   HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD: rawOpt,
   HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S: rawOpt,
+  HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD: rawOpt,
   HEALTH_ALERT_MONITOR_SLUG: rawOpt,
   // Pool-wedge reaper (#500) tuning vars. Shape-only here, exactly like the
   // *_INTERVAL_MS neighbors: PoolWedgeReaperPoller reads each raw at its call
