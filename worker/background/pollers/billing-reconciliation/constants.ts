@@ -5,3 +5,27 @@
 // reconcile step all emit under the same prefix.
 
 export const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
+
+// poller_cursors.poller_name for StripeLocationsReconcilePoller's durable keyset
+// resume cursor (migration 081). One authoritative row key for load + save.
+export const POLLER_NAME = 'stripe_locations_reconcile';
+
+// Hard deadline on the single cursor persist in runOnce's finally. withTimeout
+// does NOT cancel, so a save that outruns this bound keeps running detached and
+// is rejected at the DB by the write-sequence CAS (ADR 0006) if a later save has
+// already landed — the bound only stops it wedging inProgress (invariant #3).
+export const CURSOR_SAVE_TIMEOUT_MS = 10_000;
+
+// Hard deadline on the boot cursor load. The load is lazily kicked on the FIRST
+// runOnce tick (FIX 3), not from start(), so its SELECT lands after the boot
+// connection storm. Its own bound (the cycle deadline additionally bounds
+// reconcileCycle's await of it) so a load that parks on pool acquisition before
+// the first tick cannot hold a connection forever.
+export const CURSOR_LOAD_TIMEOUT_MS = 10_000;
+
+// Consecutive deadline-truncated cycles (no full drain in between) that trip the
+// sustained-truncation alert (ADR 0006, #479). A single truncation self-heals
+// via the keyset cursor next cycle and stays log-only; only a SUSTAINED run
+// pages. Fire-once at the crossing — any non-truncated cycle (a drain OR a stall)
+// resets the run, so only a literal, unbroken streak of truncations pages (FIX 2b).
+export const TRUNCATION_ALERT_THRESHOLD = 3;

@@ -1,62 +1,63 @@
 {
-  "ticket": "#484",
-  "parent_map": "#472 (wayfinder), audit item 10",
+  "ticket": "#479",
+  "map": "#472",
   "classification": "high",
   "surface": "backend",
   "db_touching": true,
-  "goal": "Collapse the three scheduler per-row outbox insert loops (WeeklySummaryScheduler, MonthlyImpactScheduler, RankingTrackingScheduler) each into one set-based INSERT…SELECT…ON CONFLICT DO NOTHING that merges the candidate SELECT with the enqueue.",
+  "goal": "Complete the #479 remainders on StripeLocationsReconcilePoller: persist the keyset resume cursor across worker restarts, and emit a sustained-truncation alert when the cycle deadline keeps aborting the sweep. (The planned composite reconcile index was evaluated at the mandatory staging EXPLAIN gate and DROPPED with user sign-off — the planner prefers the accounts PK and both envs are empty pre-launch; see deviations.)",
   "non_goals": [
-    "Do NOT change the time-gate windows, feature-flag gates, mock-mode gate, or subscription-status predicates of any scheduler.",
-    "Do NOT touch OnboardingDripScheduler or AutonomyGovernorScheduler (out of ticket scope).",
-    "Do NOT change what the consuming workers (WeeklySummaryWorker, SendMonthlyImpactWorker, RankingTrackingWorker) do with the payload.",
-    "Do NOT introduce sql.begin()/multi-statement transactions — each scheduler's only state write is the single job_outbox INSERT, which is already atomic.",
-    "Do NOT preserve ranking's separate candidates_checked log field (merge removes the standalone candidate count; only queued is logged, consistent with the other two)."
+    "Do NOT auto-correct drift (poller stays detect-and-alert only).",
+    "Do NOT change ACCOUNT_FAN_OUT_CONCURRENCY, ACCOUNT_TIMEOUT_MS, CYCLE_TIMEOUT_MS, or INITIAL_RUN_DELAY_MS.",
+    "Do NOT change which subscription statuses are reconciled (active/past_due/trialing).",
+    "Do NOT build a generic poller-cursor framework — poller_cursors is a real table but this poller is its only writer for now (no abstraction before a 2nd use).",
+    "Do NOT add a Discord/queue-health routing rule (the residual feature:stripe_reconciliation routing gap noted in drift-alert.ts stays out of scope).",
+    "Do NOT change the in-memory cursor + bounded fan-out already shipped in #487 — only add durability + the alert underneath them."
   ],
   "user_visible_behavior": [
-    "No externally observable behavior change: the same eligible businesses get the same job_outbox rows enqueued with the same payload shape ({business_id, week_start_date|month_start_date|(google_place_id,run_date), correlation_id}).",
-    "Dedup for weekly_summary and send_monthly_impact is now enforced by a partial unique index (migration 080) plus ON CONFLICT DO NOTHING, closing the concurrent-scheduler / restart race that WHERE NOT EXISTS alone could not.",
-    "Each cycle now issues ONE set-based INSERT per scheduler instead of 1 candidate SELECT + N per-row inserts."
+    "Ops-observable: after a worker restart the reconcile rotation RESUMES from the persisted cursor instead of restarting from the top of the account list.",
+    "Ops-observable: when the cycle deadline truncates the sweep for 3 consecutive cycles (no full drain in between), a warning-level Sentry alert fires (tag feature:stripe_reconciliation, structured-log fallback when SENTRY_DSN unset).",
+    "Ops-observable: a single truncated cycle still self-heals via the cursor next cycle and stays log-only (designed behavior, not an alert)."
   ],
   "invariants": [
-    "Outbox invariant #2: state change + enqueue in one transaction — satisfied trivially; the single INSERT is the only write and is atomic.",
-    "Idempotency: a business already enqueued (in-flight) or already recorded complete for the same period must not be re-enqueued. Enforced by candidate-level NOT EXISTS (in-flight pre-filter) + partial unique index + ON CONFLICT DO NOTHING.",
-    "Tenant scoping: schedulers intentionally scan tenant rows globally (background-global-scan) before enqueueing scoped work — must remain allowlisted in tenant-scope-allowlist.ts.",
-    "Payload shape and field types are byte-compatible with the current per-row payloads (business_id/google_place_id as JSON strings, dates as 'YYYY-MM-DD' strings, correlation_id as a UUID string).",
-    "Weekly/monthly partial unique index predicate is status IN ('pending','dispatching','dispatched') — EXACTLY mirrors the current in-flight WHERE NOT EXISTS so behavior is preserved (a 'completed'-but-not-sent row must NOT block re-enqueue; the worker legitimately markOutboxCompleted's without setting sent_at in 3 skip cases: archived, subscription-not-allowed, bounced email). Ranking keeps its existing status <> 'failed' index (no sent_at guard; the outbox completion IS its done-record)."
+    "Tenant isolation: poller_cursors holds no tenant data (poller_name + uuid + updated_at); reconcile query scoping is unchanged.",
+    "Invariant #15: cursor-store is a worker helper taking sql as an explicit parameter; only the poller (a composition root registered in worker/index.ts) imports the singleton and passes it down.",
+    "Invariant #3 backstop: the single-flight guard + cycle deadline still release inProgress on every path; persistence must not introduce a path that holds inProgress or blocks a tick.",
+    "Cursor correctness: persisted value equals the in-memory working copy at all times (one owner of the cursor value); rotation-complete persists null.",
+    "Boot ordering: the first runOnce must not read the cursor before the boot load resolves (INITIAL_RUN_DELAY_MS gives 45s of slack, but the read is gated on the load promise regardless)."
   ],
   "edge_cases": [
-    "gen_random_uuid() (UUIDv4) replaces app-generated UUIDv7 for job_outbox.id and payload.correlation_id in the set-based path — deliberate, documented deviation. Justification: prod Postgres has no uuidv7() function; a set-based INSERT…SELECT cannot call the JS UUIDv7 generator per row; job_outbox.id has NO ordering contract (002 DROPPED its default; the INSERT supplies id explicitly; OutboxPoller orders by available_at, not id); rows are 7-day-pruned; correlation_id is an opaque trace string. Requires code comment + lab note.",
-    "Empty candidate set: INSERT…SELECT inserts 0 rows and logs nothing (queued=0) — no error.",
-    "A 'completed'-but-not-sent weekly/monthly outbox row must NOT block re-enqueue (worker markOutboxCompleted's without sent_at on archived/subscription/bounced skips) — hence the in-flight-only index predicate, preserving current behavior; a 'failed' row is likewise not blocked (retry preserved).",
-    "Migration 080 preflight (race-safe, NOT plain keep-oldest): BEFORE each CREATE UNIQUE INDEX, rank in-flight rows per (aggregate_id, period) most-advanced-then-oldest (dispatched>dispatching>pending, then created_at) and fail ONLY currently-pending extras via a LIVE CAS (outer UPDATE re-checks status='pending' under row-lock) so an actively-dispatched row is NEVER overwritten and the OutboxPoller cannot lose a concurrent dispatch. NULL-period rows excluded. If two non-pending in-flight duplicates for one key coexist (near-impossible under the single-flight guarded-poll), the build fails LOUDLY rather than killing an active job — surfaced staging-first for operator investigation.",
-    "Concurrent scheduler processes / restart both passing the NOT EXISTS pre-filter: the second INSERT's conflicting rows are absorbed by ON CONFLICT DO NOTHING (no 23505 surfaced).",
-    "Ranking: the pre-merge `if (candidates.length === 0) return` micro-guard is removed; runDate is computed unconditionally (cheap) and a 0-row INSERT is a no-op."
+    "poller_cursors row absent on first-ever boot -> treat as null (start from top).",
+    "poller_cursors read fails at boot -> log and start from null (safe: a from-top rotation is always correct); do not crash the poller.",
+    "Cursor upsert fails mid-cycle -> log-and-swallow (best-effort after the primary side effect, per the crash-net rule); in-memory cursor still advances so the running process stays correct; next successful upsert re-persists.",
+    "Single truncation then full drain next cycle -> counter resets, no alert.",
+    "Rotation completes (cursor -> null) across multiple cycles -> counts as a drain, resets the truncation counter.",
+    "Empty account list (accounts.length === 0) -> drain state, resets the truncation counter, persists null.",
+    "Truncation is defined as dispatched < accounts.length. An abort with dispatched === 0 (fully stalled, e.g. parked on pool acquisition then deadline) DOES count as a truncation for the counter — a cycle that made zero progress is exactly the sustained-truncation signal; the cursor is left untouched in that case (nothing was claimed)."
   ],
   "existing_patterns_to_follow": [
-    "RankingTrackingScheduler.ts current INSERT…VALUES…ON CONFLICT DO NOTHING (target-less) — the ON CONFLICT idiom for outbox dedup.",
-    "supabase/migrations/014_retention_expansion.sql uniq_outbox_track_ranking_run and uniq_outbox_onboarding_drip — the partial-unique-index-on-job_outbox pattern to mirror for migration 080.",
-    "jsonb_build_object(...) in SQL for set-based payload construction (replaces the JS-side jsonb() helper, which cannot run per-row inside INSERT…SELECT).",
-    "scripts/ci/tenant-scope-allowlist.ts *_CANDIDATES_SQL constants — update in place; keep the 8 scheduler entries (background-global-scan) matching the new merged statement text.",
-    ".claude/reference/migrations-log.md — append the 080 entry and bump head to 080 (079 is the concurrent agent-run-spine archival migration on staging)."
+    "worker/background/pollers/billing-reconciliation/drift-alert.ts (Sentry-or-log alert emitter, feature tag, level selection) -> sibling truncation-alert.ts.",
+    "worker/background/pollers/StripeLocationsReconcilePoller.ts lines 70-81 (keyset cursor pattern, resetAccountCursorForTests).",
+    "worker/background/pollers/health-alert/emit.ts (warning-level emission shape) for cross-reference.",
+    "ZernioRecentReviewPoller keyset cursor precedent (referenced in the poller comments).",
+    "migrations-log.md CONCURRENTLY convention (IF NOT EXISTS, staging-first, both Supabase projects in lockstep, pre-flight gate in migration header).",
+    "src/lib/reviews/__tests__/sentiment.test.ts 'invariants' describe block (fast-check house style)."
   ],
   "allowed_edit_surface": [
-    "worker/background/schedulers/WeeklySummaryScheduler.ts",
-    "worker/background/schedulers/MonthlyImpactScheduler.ts",
-    "worker/background/schedulers/RankingTrackingScheduler.ts",
-    "worker/background/schedulers/__tests__/**",
-    "supabase/migrations/080_scheduler_outbox_dedup_indexes.sql",
-    "scripts/ci/tenant-scope-allowlist.ts",
-    "scripts/ci/static-policy-audit.ts",
-    ".claude/reference/migrations-log.md"
+    "worker/background/pollers/StripeLocationsReconcilePoller.ts",
+    "worker/background/pollers/billing-reconciliation/**",
+    "worker/background/pollers/__tests__/**",
+    "supabase/migrations/081_poller_cursors.sql",
+    ".claude/reference/migrations-log.md",
+    "scripts/ci/**",
+    ".feature/**",
+    "docs/**"
   ],
   "tests_to_add": [
-    "Per scheduler: the set-based INSERT enqueues exactly the eligible businesses (parity with the old loop) given a candidate fixture.",
-    "Dedup: a business with an in-flight (pending/dispatching/dispatched) outbox row for the same period is NOT re-enqueued.",
-    "Dedup: ON CONFLICT DO NOTHING absorbs a duplicate insert without surfacing 23505 (unique-index conflict path).",
-    "sent_at / period-marker guard still excludes already-recorded businesses (weekly_summaries / monthly_impact_emails).",
-    "Payload shape assertion: business_id, period date, and correlation_id are present and correctly typed; correlation_id values are distinct per row.",
-    "queued count reflects inserted.count (rows actually inserted, not candidates scanned).",
-    "Migration 080 (integration, DB-available): partial unique index blocks a second IN-FLIGHT row (status IN pending/dispatching/dispatched) for the same (aggregate_id, period), and PERMITS a fresh row when the prior row is 'completed' OR 'failed' (completed-but-not-sent must remain re-enqueueable)."
+    "PROPERTY (fast-check): cursor persistence round-trips — for any uuid|null, load after upsert returns the same value; rotation-complete persists null. (invariant: persisted == in-memory working copy)",
+    "PROPERTY (fast-check): truncation-alert state machine — over any sequence of {truncated, drained} cycles, the alert fires exactly on the cycle where consecutiveTruncations first reaches 3, and never after a drain resets the counter. (invariant: sustained-only alerting)",
+    "UNIT: boot load seeds accountCursor from poller_cursors before the first runOnce reads it (gated on the load promise).",
+    "UNIT: cursor upsert failure mid-cycle is log-and-swallowed; the in-memory cursor still advances and inProgress is released.",
+    "UNIT: emitTruncationAlert emits Sentry at warning with feature:stripe_reconciliation tag when SENTRY_DSN set, structured-log fallback otherwise (mirror drift-alert.test)."
   ],
   "verification_commands": [
     "pnpm ci:tenant-scope",

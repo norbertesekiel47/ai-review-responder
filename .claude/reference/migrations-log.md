@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **080** — next migration is **081**
+Current head: **081** — next migration is **082**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -953,6 +953,37 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
+> This feature (#479) originally planned two migrations. **079**
+> (`agent_run_spine_archival_indexes`) and **080** (`scheduler_outbox_dedup_indexes`)
+> are claimed by parallel works that rode staging first, so #479's cursor table was
+> renumbered 079→**081**. The second planned migration — a composite
+> `(subscription_status, id)` reconcile index (would have been 082) — was
+> **evaluated and dropped at the mandatory staging EXPLAIN gate**: the planner
+> prefers the existing `accounts_pkey` for the keyset query even with seq-scan
+> disabled, and both prod and staging are empty pre-launch, so there is no evidence
+> the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
+> migration, re-addable later if a future prod EXPLAIN shows need. That is why this
+> log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **081** — `poller_cursors` durable keyset resume cursor for
+  `StripeLocationsReconcilePoller` (#479, map #472; ADR
+  `docs/adr/0006-poller-cursor-persistence-ordering.md`). Creates
+  `poller_cursors (poller_name TEXT PRIMARY KEY, cursor UUID, write_seq BIGINT
+  NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())` — one row
+  per poller. Persists the in-memory keyset cursor added in #487 so a worker
+  restart resumes the rotation instead of re-walking the head. `write_seq` is the
+  ordering guard: the poller holds an in-memory `writeSeq` seeded at boot from
+  this column and stamps a fresh monotonic seq per save; `saveCursor`'s UPSERT
+  applies only `WHERE EXCLUDED.write_seq > poller_cursors.write_seq`, so a
+  stale/detached/reordered save (withTimeout races rather than cancels — a
+  timed-out save can land late) is a DB no-op. **Deny-all RLS** (enabled, NO
+  policies — same posture as `impersonation_sessions`/048, `agent_runs`/071);
+  holds NO tenant data (no `account_id` — just a poller name + an opaque
+  last-claimed account id), so server reaches it via the RLS-bypassing
+  `postgres` role only and it is NOT a tenant table. Additive, transactional (no
+  CONCURRENTLY — brand-new table, instant build), re-runnable
+  (`CREATE TABLE IF NOT EXISTS`). Apply staging first, then production, both
+  Supabase projects in lockstep.
 - **080** — Scheduler set-based outbox dedup indexes + race-safe preflight
   (ticket #484, parent #472 audit item 10). Renumbered 079→080: migration 079
   (`079_agent_run_spine_archival_indexes.sql`, agent-run-spine archival) rode
