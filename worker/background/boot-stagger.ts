@@ -29,6 +29,13 @@ export interface BootStaggerOptions {
   jitter?: number;
   /** Injectable [0,1) source so callers/tests stay deterministic. */
   rng?: () => number;
+  /**
+   * Reports an error thrown SYNCHRONOUSLY by a scheduled start. Best-effort
+   * (log-and-swallow): the start's throw is contained so it neither escapes the
+   * timer as a fatal `uncaughtException` nor stalls `done` (the failing start
+   * still counts toward completion). Omit to swallow silently.
+   */
+  onStartError?: (error: unknown) => void;
 }
 
 const DEFAULT_JITTER = 0.5;
@@ -137,7 +144,14 @@ export function staggerBoot(
   starts.forEach((start, i) => {
     const handle = scheduler(() => {
       if (cancelled) return;
-      start();
+      try {
+        start();
+      } catch (error) {
+        // Contain a synchronous throw: it must not escape the timer as a fatal
+        // uncaughtException (crash-net kills all loops+workers) nor stall `done`.
+        // The failing start still counts toward completion below.
+        opts.onStartError?.(error);
+      }
       fired += 1;
       if (fired === starts.length) settle();
     }, schedule[i]!);

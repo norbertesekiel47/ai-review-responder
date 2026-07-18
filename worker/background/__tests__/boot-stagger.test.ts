@@ -168,6 +168,30 @@ describe('staggerBoot', () => {
     await expect(done).resolves.toBeUndefined();
     expect(calls).toEqual([0]);
   });
+
+  it('a start that throws synchronously is contained: other starts run and done still resolves (FIX F2)', async () => {
+    const calls: number[] = [];
+    const onStartError = vi.fn();
+    const starts = [
+      () => calls.push(0),
+      () => {
+        throw new Error('start 1 blew up');
+      },
+      () => calls.push(2),
+    ];
+    const fake = makeFakeScheduler();
+
+    const { done } = staggerBoot(starts, { ...opts, onStartError }, fake.scheduler);
+    fake.fireAll();
+
+    // done resolves even though the middle start threw...
+    await expect(done).resolves.toBeUndefined();
+    // ...and the surrounding starts still ran.
+    expect(calls).toEqual([0, 2]);
+    // The throw is reported, not re-thrown out of the timer.
+    expect(onStartError).toHaveBeenCalledTimes(1);
+    expect(onStartError.mock.calls[0]![0]).toBeInstanceOf(Error);
+  });
 });
 
 describe('awaitQueueReadiness', () => {
@@ -260,7 +284,11 @@ describe('runBootCoordinator', () => {
     expect(resumeWorkers).toHaveBeenCalledTimes(1);
   });
 
-  it('abort BEFORE readiness fires no start and no worker-resume', async () => {
+  // FIX F1 (listen-window race): the module-scope AbortController means a SIGTERM
+  // during app.listen() aborts the SAME signal the coordinator later observes. An
+  // already-aborted signal must make the coordinator bail at its first line —
+  // readiness is never awaited, nothing is scheduled, and workers are NOT resumed.
+  it('signal already aborted before coordinator starts: no readiness, no start, no worker-resume (FIX F1)', async () => {
     const fake = makeFakeScheduler();
     const starts = [vi.fn(), vi.fn()];
     const resumeWorkers = vi.fn();

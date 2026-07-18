@@ -79,4 +79,31 @@ resume together via `worker.run()` once the staggered DB-loop starts finish. Tha
 reintroduces a burst of *Redis* (Railway) connection opens — NOT Postgres/Supavisor
 pooler opens, which are the wedge surface and ARE spread by the loop stagger. Job
 handlers touch Postgres only as jobs actually arrive (naturally spread), so this does
-not re-create the boot pooler burst. Left as-is intentionally.
+not re-create the boot pooler burst. Left as-is intentionally. (D6 rationale is now
+also captured as an inline comment at the resume site per the review, so a future
+reader doesn't "fix" it.)
+
+## Code-quality review fixes (Approved-with-minor) — F1, F2
+
+**F1 (race) — `bootAbortController` hoisted to module scope.** It was created AFTER
+`await app.listen()`, so a SIGTERM arriving WHILE listen was pending hit
+`abortBootCoordinator()` with the controller still null (`?.abort()` no-op); listen
+then resolved and `main()` built a FRESH un-aborted controller and launched the
+coordinator concurrently with the running teardown — the exact "begin DB work
+mid-SIGTERM" the abort-first ordering exists to prevent. Fix: the controller is now a
+module-scope `const` created at load (before the signal handlers can fire), and `main()`
+no longer reassigns it. An early abort sets `signal.aborted` and `runBootCoordinator`
+bails at line 1. Proven by the renamed test `signal already aborted before coordinator
+starts: no readiness, no start, no worker-resume (FIX F1)`.
+
+**F2 (fail-inside-boundaries) — per-start try/catch in `staggerBoot`.** A scheduled
+`start()` throwing synchronously previously never incremented `fired` (so `done` never
+resolved) AND escaped the timer as a fatal `uncaughtException` (crash-net kills all
+loops+workers). Each start invocation is now wrapped: the throw is reported via a new
+optional `onStartError` hook (index.ts logs it) and swallowed, the start still counts
+toward completion, and the other starts run. Proven by `a start that throws
+synchronously is contained: other starts run and done still resolves (FIX F2)`.
+
+Gates after F1/F2: typecheck clean, `worker/**` 1772 passed, boot-stagger suite 22
+passed, `ci:db-imports` strict, lint clean. The optional `abortBootCoordinator?` dep
+(D4) stays as-is per the reviewer (out-of-surface test edit needs sign-off).

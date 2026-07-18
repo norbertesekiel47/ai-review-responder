@@ -122,12 +122,15 @@ const BOOT_STAGGER_TOTAL_SPREAD_MS = 8_000;
 const BOOT_READINESS_TIMEOUT_MS = 5_000;
 
 // One AbortController spans the whole boot-readiness sequence (readiness await →
-// staggered loop starts → worker resume). main() assigns it; the graceful
-// shutdown handler aborts it FIRST (before stopping loops) so no pending
-// continuation begins DB work mid-SIGTERM. Null-safe before main() assigns it.
-let bootAbortController: AbortController | null = null;
+// staggered loop starts → worker resume). Created at MODULE LOAD — before the
+// SIGTERM/SIGINT handlers can fire — so a signal arriving WHILE app.listen() is
+// still pending aborts THIS controller; runBootCoordinator then bails at its
+// first line instead of a fresh un-aborted controller staggering DB work
+// concurrently with the already-running graceful teardown. The shutdown handler
+// aborts it FIRST (before stopping loops).
+const bootAbortController = new AbortController();
 function abortBootCoordinator(): void {
-  bootAbortController?.abort();
+  bootAbortController.abort();
 }
 
 // NotificationFailoverPoller gate (Phase 0 update).
@@ -560,6 +563,13 @@ async function main(): Promise<void> {
   // Resume the autorun-deferred workers. run() returns a promise that resolves
   // when the worker STOPS — never await it. A rare connection-layer rejection is
   // logged and swallowed so it can't reach the crash-net and kill all queues.
+  //
+  // All workers resume together (not staggered) AFTER the loop stagger: this is
+  // an intentional burst of Railway-Redis connection opens, NOT a Postgres/
+  // Supavisor pooler burst (the wedge surface). The pooler first-cycle opens are
+  // the DB-backed loops, which ARE staggered above; job handlers touch Postgres
+  // only as jobs actually arrive (naturally spread), so this resume does not
+  // recreate the boot wedge. Do not "fix" it into a staggered resume.
   const resumeWorkers = (): void => {
     for (const worker of workers) {
       worker.run().catch((err) =>
@@ -570,8 +580,6 @@ async function main(): Promise<void> {
       );
     }
   };
-
-  bootAbortController = new AbortController();
 
   if (isBootStaggerEnabled(getWorkerConfig().BOOT_STAGGER_ENABLED)) {
     // Await bounded, fail-open queue readiness, spread the first cycles across the
@@ -586,7 +594,15 @@ async function main(): Promise<void> {
           signal,
         ),
       starts: loopStarts,
-      staggerOptions: { totalSpreadMs: BOOT_STAGGER_TOTAL_SPREAD_MS, jitter: 0.5 },
+      staggerOptions: {
+        totalSpreadMs: BOOT_STAGGER_TOTAL_SPREAD_MS,
+        jitter: 0.5,
+        onStartError: (error) =>
+          createWorkerLogger('[worker]').error(
+            'Background loop start() threw during staggered boot',
+            error instanceof Error ? error : new Error(String(error)),
+          ),
+      },
       resumeWorkers,
       signal: bootAbortController.signal,
       log: (message) => console.log(message),
