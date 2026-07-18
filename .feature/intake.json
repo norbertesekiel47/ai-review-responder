@@ -6,12 +6,12 @@
   "db_touching": false,
   "goal": "Expose job_outbox and analytics_events backlog depth (total pending-row count) in GET /internal/queue-health, and add a per-table HealthAlertPoller warning that fires when either backlog depth exceeds the ~1500-row Capacity target from #474.",
   "non_goals": [
-    "No drain-rate change — #487's 5s OutboxPoller interval already ships the drain half; this is the observability half only.",
-    "No admin UI change — the ticket names only the /internal/queue-health endpoint and the alert. No src/app or src/components edits.",
-    "No schema change / migration — both tables already have partial WHERE status='pending' indexes (idx_jo_pending migration 001, idx_analytics_events_pending migration 046).",
-    "No un-pausing of HealthAlertPoller on staging (#500) — we only WIRE the check so it fires whenever the poller resumes.",
-    "No combined-sum or job_outbox-only alerting — per-table independent findings on the same threshold.",
-    "No new required env var — threshold is optional/defaulted, so no config-coverage baseline bump."
+    "No drain-rate change \u2014 #487's 5s OutboxPoller interval already ships the drain half; this is the observability half only.",
+    "No admin UI change \u2014 the ticket names only the /internal/queue-health endpoint and the alert. No src/app or src/components edits.",
+    "No schema change / migration \u2014 both tables already have partial WHERE status='pending' indexes (idx_jo_pending migration 001, idx_analytics_events_pending migration 046).",
+    "No un-pausing of HealthAlertPoller on staging (#500) \u2014 we only WIRE the check so it fires whenever the poller resumes.",
+    "No combined-sum or job_outbox-only alerting \u2014 per-table independent findings on the same threshold.",
+    "No new required env var \u2014 threshold is optional/defaulted, so no config-coverage baseline bump."
   ],
   "user_visible_behavior": [
     "GET /internal/queue-health 200 response gains an additive top-level `backlog` key alongside `queues`: { job_outbox: <int>, analytics_events: <int> } = COUNT(*) of status='pending' rows per table. `backlog` is best-effort: it is null when the bounded count times out/errors, and `queues` is always still returned.",
@@ -20,32 +20,32 @@
     "New optional env var HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD (default 1500) tunes the threshold."
   ],
   "invariants": [
-    "Backlog depth = COUNT(*) WHERE status='pending' (total pending, includes not-yet-due retry rows) — locked decision, both tables identical semantics.",
-    "The pending-count query is a SINGLE authoritative owner (queryBacklogDepth(sql) in src/lib/shared/) consumed by BOTH the endpoint dep and the health check — no duplicated count SQL.",
+    "Backlog depth = COUNT(*) WHERE status='pending' (total pending, includes not-yet-due retry rows) \u2014 locked decision, both tables identical semantics.",
+    "The pending-count query is a SINGLE authoritative owner (queryBacklogDepth(sql) in src/lib/shared/) consumed by BOTH the endpoint dep and the health check \u2014 no duplicated count SQL.",
     "queryBacklogDepth is a domain module: takes sql as an explicit param, never imports @/lib/db/server (invariant #15). worker/index.ts (composition root) passes the singleton.",
     "queue-health endpoint stays dependency-injected + unit-testable without booting queues/DB (invariant #12); backlog is a new injected dep, not an inline query.",
     "Endpoint auth unchanged: 503 when WORKER_INTERNAL_SECRET unset, 401 on bad bearer, returns no PII (only integer counts).",
-    "Alert severity = 'warning' (saturation signal, not dropped work) — consistent with checkOldestPendingOutbox.",
-    "Both count queries hit the existing partial pending indexes (index-only friendly). Poller path runs inside the existing single 30s withTimeout budget. Endpoint path bounds the handler WAIT with a client-side withTimeout (4000ms, under the consumer's 5s AbortSignal deadline) and builds the timed-AND-caught backlog promise (withTimeout(...).catch(()=>null)) BEFORE the sequential getQueueCounts loop — so both the 4000ms clock and the rejection handler are live during collection and the await afterward reads an already-settled value (no additive wait, no unhandled-rejection window), keeping total handler latency within budget.",
-    "queryBacklogDepth bounds the actual DB OP (adversarial-review F-high): it runs inside sql.begin() with `SET LOCAL statement_timeout = 4000` so the Postgres server cancels a slow count at ~4s and RELEASES the pooled connection — a timed-out endpoint request cannot leave a detached query holding one of the shared worker pool's ~10 connections until the 30s global statement_timeout. This is the safety property that lets the observability read never amplify DB degradation.",
-    "checkBacklogDepth failure is ISOLATED (adversarial-review F-medium): it is wrapped so it can never reject runHealthChecks' Promise.all and suppress the critical checks (failed-publish, zero-delivery). A backlog-count failure emits a `warning` diagnostic finding (health_check_error:backlog_depth) instead. (The pre-existing shared-fate of the other 5 checks is out of scope — tracked as a separate follow-up.)",
-    "Endpoint backlog is BEST-EFFORT (orthogonality): a slow/failed backlog count degrades to `backlog: null` and NEVER takes down the primary queue-depth signal — `queues` is always returned. (Existing getQueueCounts fail-whole behavior is unchanged/out-of-scope.)",
+    "Alert severity = 'warning' (saturation signal, not dropped work) \u2014 consistent with checkOldestPendingOutbox.",
+    "Both count queries hit the existing partial pending indexes (index-only friendly). Poller path runs inside the existing single 30s withTimeout budget. Endpoint path bounds the handler WAIT with a client-side withTimeout (4000ms, under the consumer's 5s AbortSignal deadline) and builds the timed-AND-caught backlog promise (withTimeout(...).catch(()=>null)) BEFORE the sequential getQueueCounts loop \u2014 so both the 4000ms clock and the rejection handler are live during collection and the await afterward reads an already-settled value (no additive wait, no unhandled-rejection window), keeping total handler latency within budget.",
+    "queryBacklogDepth bounds the actual DB OP (adversarial-review F-high): it runs inside sql.begin() with `SET LOCAL statement_timeout = 4000` so the Postgres server cancels a slow count at ~4s and RELEASES the pooled connection \u2014 a timed-out endpoint request cannot leave a detached query holding one of the shared worker pool's ~10 connections until the 30s global statement_timeout. This is the safety property that lets the observability read never amplify DB degradation.",
+    "checkBacklogDepth failure is ISOLATED (adversarial-review F-medium): it is wrapped so it can never reject runHealthChecks' Promise.all and suppress the critical checks (failed-publish, zero-delivery). A backlog-count failure emits a `warning` diagnostic finding (health_check_error:backlog_depth) instead. (The pre-existing shared-fate of the other 5 checks is out of scope \u2014 tracked as a separate follow-up.)",
+    "Endpoint backlog is BEST-EFFORT (orthogonality): a slow/failed backlog count degrades to `backlog: null` and NEVER takes down the primary queue-depth signal \u2014 `queues` is always returned. (Existing getQueueCounts fail-whole behavior is unchanged/out-of-scope.)",
     "Endpoint response change is additive/backward-compatible: the Next.js server-side consumer (src/app/api/admin/jobs/route.ts) reads `body.queues`; a new sibling `backlog` key does not break it."
   ],
   "edge_cases": [
-    "Zero pending rows in a table → depth 0, no finding (strict > threshold, not >=).",
-    "Depth exactly at threshold → no finding (> is strict; mirrors existing checks' > semantics).",
-    "The #474 verification burst is 1000 events < 1500 threshold → depth climbs to ~1000 then drains; the alert must NOT fire during a healthy burst (headroom validation).",
-    "COUNT returning bigint from Postgres → cast ::int in SQL (matches existing checks' COUNT(*)::int).",
-    "Threshold env var unset/invalid/negative → falls back to 1500 via the existing num() helper (>=0 guard).",
-    "A DB error inside queryBacklogDepth during a poll cycle → surfaces to the poller's existing catch (logs + 'error' Sentry check-in), same as other checks; does not wedge the single-flight poller (30s timeout).",
-    "A slow/failed backlog count at the ENDPOINT → bounded by the 4000ms withTimeout, degrades to `backlog: null`, logs a warning, and still returns `queues` (best-effort)."
+    "Zero pending rows in a table \u2192 depth 0, no finding (strict > threshold, not >=).",
+    "Depth exactly at threshold \u2192 no finding (> is strict; mirrors existing checks' > semantics).",
+    "The #474 verification burst is 1000 events < 1500 threshold \u2192 depth climbs to ~1000 then drains; the alert must NOT fire during a healthy burst (headroom validation).",
+    "COUNT returning bigint from Postgres \u2192 cast ::int in SQL (matches existing checks' COUNT(*)::int).",
+    "Threshold env var unset/invalid/negative \u2192 falls back to 1500 via the existing num() helper (>=0 guard).",
+    "A DB error inside queryBacklogDepth during a poll cycle \u2192 surfaces to the poller's existing catch (logs + 'error' Sentry check-in), same as other checks; does not wedge the single-flight poller (30s timeout).",
+    "A slow/failed backlog count at the ENDPOINT \u2192 bounded by the 4000ms withTimeout, degrades to `backlog: null`, logs a warning, and still returns `queues` (best-effort)."
   ],
   "existing_patterns_to_follow": [
-    "worker/background/pollers/health-alert/checks.ts — checkFailedOutboxByTopic (returns HealthFinding[], filters over threshold, key `topic:...`) is the nearest precedent for a multi-finding check.",
+    "worker/background/pollers/health-alert/checks.ts \u2014 checkFailedOutboxByTopic (returns HealthFinding[], filters over threshold, key `topic:...`) is the nearest precedent for a multi-finding check.",
     "resolveHealthAlertConfig + num() helper for the env-tunable threshold.",
-    "worker/internal/queue-health.ts QueueHealthDeps dependency-injection shape (getSecret/getQueueCounts) → add getBacklogDepth.",
-    "src/lib/shared/queue-health-states.ts / queue-names.ts — side-effect-free shared module owned once, imported by both worker + tests, is the model for src/lib/shared/backlog-depth.ts.",
+    "worker/internal/queue-health.ts QueueHealthDeps dependency-injection shape (getSecret/getQueueCounts) \u2192 add getBacklogDepth.",
+    "src/lib/shared/queue-health-states.ts / queue-names.ts \u2014 side-effect-free shared module owned once, imported by both worker + tests, is the model for src/lib/shared/backlog-depth.ts.",
     "worker/internal/__tests__/queue-health.test.ts and health-alert/__tests__/checks.test.ts for test style."
   ],
   "allowed_edit_surface": [
@@ -63,17 +63,21 @@
     "CONTEXT.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
-    ".feature/**"
+    ".feature/**",
+    "worker/background/pollers/__tests__/health-alert-markers.test.ts",
+    "worker/background/pollers/HealthAlertPoller.ts"
   ],
   "tests_to_add": [
-    "queryBacklogDepth: returns per-table pending counts (mocked sql); asserts a SINGLE tagged-template invocation and pins the SQL semantics — contains status='pending' and ::int for both tables, and does NOT contain available_at (total-pending, not claimable) — locks the single-owner count logic against silent drift.",
-    "checkBacklogDepth: emits per-table warning finding only when depth > threshold; no finding at/under threshold; correct keys backlog_depth:job_outbox / backlog_depth:analytics_events; independent per-table (one over, one under → exactly one finding).",
+    "queryBacklogDepth: returns per-table pending counts (mocked sql); asserts a SINGLE tagged-template invocation and pins the SQL semantics \u2014 contains status='pending' and ::int for both tables, and does NOT contain available_at (total-pending, not claimable) \u2014 locks the single-owner count logic against silent drift.",
+    "checkBacklogDepth: emits per-table warning finding only when depth > threshold; no finding at/under threshold; correct keys backlog_depth:job_outbox / backlog_depth:analytics_events; independent per-table (one over, one under \u2192 exactly one finding).",
     "checkBacklogDepth: respects HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD override and the 1500 default.",
     "queue-health handler: 200 response includes backlog:{job_outbox,analytics_events} from getBacklogDepth; still 503/401 on unset secret / bad bearer; getBacklogDepth not called on the disabled/unauthorized paths.",
     "queue-health handler: when getBacklogDepth rejects (error or timeout), 200 still returns with backlog:null AND queues present (best-effort degrade).",
     "runHealthChecks: aggregation test includes an over-threshold backlog result and asserts a backlog_depth:<table> finding key reaches the aggregated output (wiring proof, not just the standalone check)."
   ],
-  "verification_commands": ["pnpm build"],
-  "staging_verification": "Ride-staging (step 8, NOT an executable gate command): synthetic burst per #474 — inject 1000 ingest events in 10 min, confirm GET /internal/queue-health backlog.job_outbox climbs then drains to baseline within 30 min, and NO backlog_depth warning fires (1000 < 1500 headroom). The step-5 gate covers unit tests via the standard `pnpm test`; `verification_commands` adds `pnpm build` per the user's AGENTS.md rule (run build before claiming behavior-affecting work complete), even though verify-gate.sh would otherwise skip build for a backend surface.",
+  "verification_commands": [
+    "pnpm build"
+  ],
+  "staging_verification": "Ride-staging (step 8, NOT an executable gate command): synthetic burst per #474 \u2014 inject 1000 ingest events in 10 min, confirm GET /internal/queue-health backlog.job_outbox climbs then drains to baseline within 30 min, and NO backlog_depth warning fires (1000 < 1500 headroom). The step-5 gate covers unit tests via the standard `pnpm test`; `verification_commands` adds `pnpm build` per the user's AGENTS.md rule (run build before claiming behavior-affecting work complete), even though verify-gate.sh would otherwise skip build for a backend surface.",
   "open_questions": []
 }

@@ -28,20 +28,18 @@ const CFG: HealthAlertConfig = {
 // asserting the reaper's anchored match `query LIKE '/* rw-reapable */%'` fires.
 function capturingSql() {
   const firstChunks: string[] = [];
-  type CapturingSql = import('postgres').Sql & {
-    unsafe: (q: string) => Promise<unknown[]>;
-    begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
-  };
   const capture = ((strings: TemplateStringsArray) => {
     firstChunks.push(strings[0] ?? '');
     return Promise.resolve([]);
-  }) as unknown as CapturingSql;
+  }) as unknown as import('postgres').Sql;
   // checkBacklogDepth wraps its count in sql.begin + a SET LOCAL via tx.unsafe;
   // neither is a marker-bearing statement, so begin hands back the same capture
   // and unsafe is a no-op — only tagged-template statements are asserted.
-  capture.unsafe = () => Promise.resolve([]);
-  capture.begin = (fn) => fn(capture);
-  return { sql: capture as import('postgres').Sql, firstChunks };
+  // Loose casts: postgres.js's own unsafe/begin signatures are far richer than
+  // this capture needs.
+  (capture as { unsafe: unknown }).unsafe = () => Promise.resolve([]);
+  (capture as { begin: unknown }).begin = (fn: (tx: unknown) => Promise<unknown>) => fn(capture);
+  return { sql: capture, firstChunks };
 }
 
 describe('health-alert checks — /* rw-reapable */ marker (reaper backstop identity)', () => {
