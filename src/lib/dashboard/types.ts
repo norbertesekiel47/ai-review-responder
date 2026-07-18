@@ -279,8 +279,6 @@ export interface AggregateDashboardData {
   locationKpis: PerLocationKpi[];
   /** Number of active locations (for UI display). */
   activeLocationCount: number;
-  /** Locations whose per-location dashboard query failed while building aggregate data. */
-  partialFailures?: Array<{ locationId: string; displayName: string }>;
   /** Present when the account is past_due but aggregate read access remains available. */
   subscriptionStatus?: 'past_due';
   accountId?: string;

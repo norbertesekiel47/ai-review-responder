@@ -212,7 +212,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'src/lib/dashboard/types.ts:148',
   'src/lib/dashboard/types.ts:167',
   'src/lib/dashboard/types.ts:176',
-  'src/lib/dashboard/types.ts:285',
+  'src/lib/dashboard/types.ts:283',
 ]);
 
 /** True when the trimmed line begins a line/block comment (so a status literal

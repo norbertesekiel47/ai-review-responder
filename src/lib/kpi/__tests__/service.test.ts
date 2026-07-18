@@ -2,11 +2,17 @@
 // @/lib/db/server no longer needs mocking here — the fragment-aware
 // createMockSql harness stands in for `sql` directly (worker/__tests__/helpers/mock-sql.ts).
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 import { getAccountKpiSummary, getLocationKpiSummary } from '../service';
 import { DEFAULT_DASHBOARD_WINDOW } from '../types';
+
+// Always-miss cache stub so these tests keep exercising the fresh DB compute
+// (the read cache is covered separately in service.cache.test.ts).
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
+}));
 
 let harness: MockSqlHarness;
 let mockSql: Sql;

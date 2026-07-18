@@ -33,6 +33,7 @@ export interface DetailData {
   business: BusinessDetail;
   account: AccountContext;
   reviews: ReviewRow[];
+  reviewsTotal: BusinessDetailResponse['reviewsTotal'];
   rankingSnapshots: RankingSnapshot[];
   zernio: ZernioPanelData;
   approvalAuditLog: ApprovalAuditLogEntry[];

@@ -996,6 +996,22 @@ Revisit triggers:
   > `available_at`, never `id`. `correlation_id` is an opaque trace string. Rows
   > are 7-day pruned. This is the RepWorth-wide "all tables use UUIDv7" note's
   > one sanctioned exception, scoped to these two set-based scheduler INSERTs.
+- **079** — Agent-run-spine archival-scan indexes. Adds two archival indexes so
+  the ArchivalPoller's new 180-day retention arms
+  (`worker/background/pollers/ArchivalPoller.ts`, arms 7 and 8) can prune the
+  migration-071 run spine without seq-scanning: `idx_agent_outcomes_archival`
+  on `agent_outcomes (occurred_at)` serves the `occurred_at < NOW() -
+  make_interval(days => 180)` claim, and the partial
+  `idx_agent_runs_archival` on `agent_runs (ended_at) WHERE ended_at IS NOT
+  NULL` serves the `ended_at < …` claim (the predicate implies non-NULL, same
+  pattern as 065's `idx_jo_recovery`). `agent_run_steps` needs no arm of its
+  own — its `agent_run_id` FK is `ON DELETE CASCADE`, so steps prune with their
+  parent run. Both use `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, so this
+  migration is **non-transactional** (uncheck the Supabase SQL editor's single-
+  transaction box); a partial failure can leave an INVALID index — check
+  `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
+  production, both projects in lockstep. Supports the 180-day retention arms
+  added in the same PR.
 
 ## Key Tables Reference
 
