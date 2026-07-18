@@ -156,9 +156,9 @@ export async function loadPastRepliesPageView(
     // Pagination: orphan rows are not offset-paginated separately — they are a
     // small, bounded set (one per review that has ever orphaned without recovery).
     // They are merged into whichever bucket their review_date falls into alongside
-    // the current page of posted rows. On large accounts with many orphans this
-    // could exceed PAGE_SIZE; that edge case is acceptable for now (orphans are
-    // rare, and recovery resolves them).
+    // the current page of posted rows, capped at the newest 50 so a pathological
+    // account can't blow up the payload (orphans are rare, and recovery
+    // resolves them; anything past the cap surfaces once earlier ones recover).
     sql<OrphanRow[]>`
       SELECT
         r.id                           AS review_id,
@@ -201,6 +201,7 @@ export async function loadPastRepliesPageView(
             AND posted_check.status = 'posted'
         )
       ORDER BY r.review_date DESC
+      LIMIT 50
     `,
 
     sql<{ count: number }[]>`

@@ -15,6 +15,15 @@ import type { Sql } from 'postgres';
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 
+// Response-rate and average-response-time are reported over a trailing window so
+// the admin churn view reflects RECENT responsiveness rather than a lifetime
+// average diluted by history (and so those aggregates don't grow unboundedly
+// over the years). This is the SINGLE OWNER of the window: it is applied to the
+// businessRows FILTERs below AND surfaced on OverviewData.responseMetricsWindowDays
+// so the UI column labels derive from the same number. It is deliberately NOT the
+// same concept as the churn-metrics CTE's own 7/30/35-day signal windows below.
+const RESPONSE_METRICS_WINDOW_DAYS = 30;
+
 interface SystemHealthRow {
   count: number;
 }
@@ -95,6 +104,8 @@ export interface OverviewData {
   totalBusinesses: number;
   limit: number;
   offset: number;
+  /** Trailing window (days) that responseRate + avgResponseTimeHours cover. */
+  responseMetricsWindowDays: number;
   businesses: BusinessSummary[];
 }
 
@@ -217,16 +228,22 @@ export async function getAdminOverview(
         COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
       FROM notification_deliveries
     `,
-    // Fetch ALL businesses (no LIMIT/OFFSET) so we can sort by churn score
-    // server-side before paginating. At MVP scale (10-50 businesses) this is fine.
+    // Fetch ALL businesses (no LIMIT/OFFSET): the churn sort is computed in app
+    // code from the pure churn-score formula (single owner: churn-score.ts), so
+    // pagination can only happen after scoring. Fine at the capacity target
+    // (250 locations). total_responses / completed_responses / avg_response_time
+    // are windowed to the trailing RESPONSE_METRICS_WINDOW_DAYS (recent
+    // responsiveness); pending/reconnect counts and last_activity stay ALL-TIME —
+    // old still-pending items and a dormant business's last activity are the churn
+    // signals and must not be windowed away.
     sql<BusinessRow[]>`
       SELECT
         b.id, b.name, a.subscription_status, b.last_sync_at,
         COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
         COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
-        COUNT(resp.id)::int AS total_responses,
-        COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses,
-        ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours,
+        COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses,
+        COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses,
+        ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours,
         MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
@@ -313,6 +330,7 @@ export async function getAdminOverview(
     totalBusinesses: businessCountRows[0]?.total ?? 0,
     limit,
     offset,
+    responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS,
     businesses: paginatedBusinesses,
   };
 }
