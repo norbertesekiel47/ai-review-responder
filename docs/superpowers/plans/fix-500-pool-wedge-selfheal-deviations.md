@@ -126,3 +126,53 @@ Made the logger an explicit required parameter and `logger.warn(...)` the failed
 `end()` (mirrors the reaper's `recycleReaperClient`), so the catch is genuinely
 log-and-swallow, not silent (engineering.md: no silent catches). The rebuild is
 still unconditional in `finally`.
+
+## Step 6 adversarial-review fixes (Codex F1 + F2)
+
+### D7 — direct-route verification unified across the reaper's FULL lifecycle (three-way outcome), with the poll cadence as the retry backoff
+
+**What the review found** (`fix-500-pool-wedge-selfheal-review-triage.md`):
+- **F1 [high]:** `initPoolWedgeReaper` swallowed ANY verify error into
+  `verified=false`, which fed `disableWithAlert` (process-lifetime `disabled`). A
+  transient DB/network blip at boot therefore PERMANENTLY removed the backstop
+  until process restart — the exact degraded-dependency case the reaper exists to
+  survive.
+- **F2 [medium]:** `recycleReaperClient` rebuilt a client into `reaperSql`
+  WITHOUT re-verifying, so a post-recycle route change (DNS/failover/topology)
+  could run a sweep through Supavisor — violating the runtime-verified-direct
+  invariant.
+
+**Root cause (shared):** verification ran exactly once at boot and conflated a
+*transient* verify failure with a *definitive* non-direct answer.
+
+**Resolution — one unified verify path, three-way outcome.** Replaced the boolean
+`isVerifiedDirect(client)` with `acquireVerifiedClient(logger): AcquireOutcome`
+returning `{status:'verified',client}` | `{status:'pooler'}` |
+`{status:'transient'}`. The load-bearing distinction: a verify query that RETURNS
+a row whose `application_name` ≠ `rw-wedge-reaper` is a *definitive* pooler route
+(permanent disable); a verify query that THROWS/times out is *indeterminate*
+(transient → retry). Both `initPoolWedgeReaper` (boot) and `pollPoolWedgeReaper`
+(acquire-on-demand when `reaperSql` is null) go through this single path, so the
+strengthened invariant — **the reaper only ever sweeps on a verified-direct
+connection at every point in its lifecycle** — holds at boot, steady-state, AND
+post-recycle. `recycleReaperClient` now only ends+nulls the client (no rebuild);
+the next tick re-acquires + re-verifies (fixes F2). Permanent disable now happens
+ONLY on a definitive pooler echo or absent config (env immutable after boot); a
+transient error defers without setting `disabled` (fixes F1).
+
+**Deliberate choice — poll cadence IS the retry backoff.** A transient outcome
+does not spin up a separate jittered retry loop; it simply returns and the
+existing `setInterval` cadence (default 60s) re-attempts the acquire on the next
+tick. This matches the poller precedent and design.md's "fewer moving parts"
+bias — the loop already exists and already runs on a slow cadence, so reusing it
+as the backoff avoids a second timer/state machine. Only an outage that outlasts
+successive poll ticks keeps the backstop deferred; a brief boot blip self-heals
+on the very next tick.
+
+**Test note (non-obvious):** the recycle-on-timeout branch keys on
+`err instanceof TimeoutError`. Because the test suite uses `vi.resetModules()`
+per test, the module-under-test imports a FRESH `with-timeout` (fresh
+`TimeoutError` class); the F2 tests therefore import `TimeoutError` DYNAMICALLY
+after the reset (same fresh module graph) so the `instanceof` identity aligns — a
+statically-imported `TimeoutError` would silently never match and the recycle
+branch would look untested-but-passing.
