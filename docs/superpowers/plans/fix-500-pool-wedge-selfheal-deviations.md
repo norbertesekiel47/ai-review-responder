@@ -49,3 +49,38 @@ check. Omitted deliberately: the `application_name`-echo self-check is the
 authoritative proof, and a URL-parsing heuristic would only add a second, weaker
 source of truth (engineering.md: one authoritative owner per fact). No behavior
 change — an unverified route still disables + Sentry-alerts.
+
+## T2
+
+### D4 — `health-db.ts` receives an injected `buildClient`, does NOT import the db/server factory
+
+**Plan text:** "`getHealthSql()` — returns the module-held dedicated client,
+building it lazily on first use via `createDedicatedPostgresClient(<url>, { max: 2 })`
+… it may create the dedicated client via the `server.ts` factory."
+
+**What I found:** `ci:db-imports` (`scripts/ci/db-imports-audit.ts`) is STRICT with
+no allowlist — only composition roots (the fixed set + worker modules **registered
+in `worker/index.ts`**) may import `src/lib/db/server`. `health-db.ts` is a helper
+under `background/pollers/health-alert/`, not a registered root, so importing the
+factory there fails the audit (confirmed: "not a composition root"). This is
+exactly invariant #15's rule — domain modules receive their DB client as an
+explicit parameter; only roots import the singleton owner.
+
+**Resolution:** the factory import + the `DATABASE_POOL_URL`/`max:2` choice live in
+the registered composition root `HealthAlertPoller.ts` (which already imported
+db/server for the shared `sql`), exposed as a module-level `buildHealthClient()`.
+`health-db.ts` imports nothing from db/server; it holds only the module-level
+client state + reclaim semantics and receives `buildClient: BuildHealthClient` as
+an explicit parameter to `getHealthSql(buildClient)` / `recycleHealthSql(buildClient, logger)`.
+This mirrors the reaper precedent (the factory lives in the registered
+`PoolWedgeReaperPoller.ts`, never a helper) and keeps `ci:db-imports` green.
+Interface change vs the plan: `getHealthSql`/`recycleHealthSql` take the builder;
+`closeHealthSql()` is unchanged (it never rebuilds). No behavior change.
+
+### D5 — `recycleHealthSql` log-swallows via the injected `WorkerLogger` (not a silent catch)
+
+The plan's `recycleHealthSql` sketch shows a bare `catch { /* log-swallow */ }`.
+Made the logger an explicit required parameter and `logger.warn(...)` the failed
+`end()` (mirrors the reaper's `recycleReaperClient`), so the catch is genuinely
+log-and-swallow, not silent (engineering.md: no silent catches). The rebuild is
+still unconditional in `finally`.
