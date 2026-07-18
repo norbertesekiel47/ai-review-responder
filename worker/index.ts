@@ -9,6 +9,7 @@ import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues, topicToQueue } from './queues';
 import { createQueueHealthHandler, QUEUE_HEALTH_JOB_STATES } from './internal/queue-health';
+import { queryBacklogDepth } from '../src/lib/shared/backlog-depth';
 import { withJobLogContext } from './job-log-context';
 import { createGracefulShutdown } from './shutdown';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
@@ -471,6 +472,9 @@ async function main(): Promise<void> {
         if (!queue) throw new Error(`No queue registered for ${name}`);
         return queue.getJobCounts(...QUEUE_HEALTH_JOB_STATES);
       },
+      // Composition root passes the Postgres singleton (invariant #15); the
+      // handler owns the best-effort timeout + degrade-to-null behavior.
+      getBacklogDepth: () => queryBacklogDepth(sql),
     }),
   );
 
