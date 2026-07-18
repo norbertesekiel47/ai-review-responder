@@ -2,7 +2,7 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": false,
-  "goal": "Stop a wedged postgres.js pool connection (active+ClientRead socket stall) from poisoning the worker pool: bulkhead HealthAlertPoller onto its own dedicated client that self-heals by destroy+rebuild on withTimeout expiry, and add a slow-cadence PoolWedgeReaperPoller that pg_terminate_backends the wedge signature (active+ClientRead, state_change age > threshold, RepWorth-owned-table query fingerprint) on a dedicated pooler-bypassing connection.",
+  "goal": "Stop a wedged postgres.js pool connection (active+ClientRead socket stall) from poisoning the worker pool: bulkhead HealthAlertPoller onto its own dedicated client that self-heals by end+rebuild on withTimeout expiry, and add a slow-cadence PoolWedgeReaperPoller that pg_terminate_backends the wedge signature (active+ClientRead, state_change age > threshold, query begins with our cooperative /* rw-reapable */ marker) on a dedicated, runtime-verified-direct connection that bypasses the Supavisor pooler.",
   "non_goals": [
     "Reproducing or eliminating the root-cause driver/socket stall itself — the trigger is a rare stall; the bisect (#490 concurrency, Supavisor server-slots) is opportunistic/time-boxed only, and the fix heals regardless of trigger.",
     "Implementing #477's worker-vs-dashboard pool split or pool-wait observability (separate ticket, blocked by #474). The reaper's dedicated client is wedge-containment, not the pool split.",
@@ -14,28 +14,30 @@
   "user_visible_behavior": [
     "A wedged health-check connection self-heals within one poll cycle (<=~30s) instead of permanently starving the pool.",
     "HealthAlertPoller's wedge no longer starves the shared pool / the other ~20 loops — it is bulkheaded onto its own dedicated client.",
-    "New PoolWedgeReaperPoller terminates any RepWorth-owned backend stuck in active+ClientRead beyond the age threshold, emitting a warning-level structured log (and health finding) on each termination.",
-    "When the worker has no DATABASE_URL, the reaper logs once and stays disabled — no crash, no fallback onto the pooler it is meant to heal.",
+    "New PoolWedgeReaperPoller terminates any /* rw-reapable */-marked backend stuck in active+ClientRead beyond the age threshold, emitting a warning-level structured log (and health finding) on each termination.",
+    "When the worker cannot obtain a runtime-verified-direct connection, the reaper stays disabled and raises a Sentry warning — no crash, no fallback onto the pooler it is meant to heal.",
     "On ticket close, the HEALTH_ALERT_POLL_INTERVAL_MS=86400000 staging mitigation is reverted to the 300000 default."
   ],
   "invariants": [
-    "The reaper NEVER terminates a backend unless it is BOTH pathologically stuck (active AND wait_event='ClientRead' AND now()-state_change > threshold) AND running a query against a RepWorth-owned table (job_outbox/flagged_responses/responses/notification_deliveries) — so it can never kill another Supavisor client's backend.",
+    "The reaper NEVER terminates a backend whose current query does not BEGIN WITH the cooperative marker '/* rw-reapable */' in the current database, and only when also pathologically stuck (active AND wait_event='ClientRead' AND now()-state_change > threshold). The marker is opt-in SCOPE, not authentication (it is forgeable and only RepWorth code injects it today, on the five read-only health-check queries) — so the honest guarantee is 'never an UNMARKED backend', which by construction spares publisher/approval/billing writes.",
     "A per-sweep termination cap (runaway guard) is never exceeded; when candidates exceed the cap the dropped count is logged.",
+    "The terminate is a SINGLE statement that revalidates (pid, backend_start) plus the full signature atomically, closing the select/kill TOCTOU and PID-reuse race down to a residual microsecond-scale window inside pg_terminate_backend that is accepted (single-replica worker per ADR 0005; the statement is idempotent if ever scaled).",
     "Best-effort/observability failures in the reaper or the health-client recycle never crash the worker nor flip a completed job to failed (production.md log-and-swallow; crash-net stays intact).",
     "Health checks remain read-only; the reaper's pg_terminate_backend is the only new server-side side effect and runs solely on the reaper's own dedicated connection.",
-    "Invariant #15: dedicated postgres clients are created only via the src/lib/db/server owner factory and used only by composition-root pollers registered in worker/index.ts.",
-    "The reaper runs on a connection that BYPASSES the (possibly-saturated) transaction pooler (DATABASE_URL, session mode), so it can heal even during a full-pool outage.",
+    "Invariant #15: dedicated postgres clients are created only via the src/lib/db/server owner factory and used only by composition-root pollers registered in worker/index.ts; both dedicated clients (reaper + health) are closed in the worker shutdown path.",
+    "The reaper runs only on a connection RUNTIME-VERIFIED as genuinely direct (it sets application_name at connect and confirms it echoes back — Supavisor swallows it to 'Supavisor'); if it cannot get a verified-direct route it DISABLES + ALERTS (Sentry warning), never falling back to the pooler it is meant to heal, so it can heal even during a full-pool outage.",
     "No change to approval/auto-approval/billing/moderation paths; tenant-scope and RLS audits stay green."
   ],
   "edge_cases": [
-    "Supavisor flattens client application_name to 'Supavisor' server-side -> backend identity must use query fingerprint, not app_name (captured as ADR 0007).",
-    "query_start may restamp each cycle -> the age filter keys on state_change (continuously-stuck-active), not query_start.",
-    "Multiple wedged backends in one sweep -> apply the cap, terminate oldest-first (by state_change), log the count dropped by the cap.",
-    "DATABASE_URL absent on the worker -> reaper disabled + logged once (fail-safe), never crashed, never pooler-fallback.",
-    "healthSql.end() on a wedged connection must force-close within a short timeout because the query never settles -> end({ timeout: small }) then rebuild a fresh client.",
-    "The reaper's own dedicated (direct) connection may fail to connect -> log, skip the cycle, retry next cadence; no crash.",
-    "pg_terminate_backend returns false if the pid already vanished (self-heal/redeploy race) -> tolerate.",
-    "Reaper fingerprint may also match the now-bulkheaded health poller's own wedge; self-heal should win first, but an overlapping terminate is harmless (both kill the same stuck backend)."
+    "Supavisor flattens client application_name to 'Supavisor' server-side -> backend identity uses a cooperative query-comment marker, not app_name (captured as ADR 0007); the same flattening is reused as the reaper's direct-route self-check.",
+    "The marker match is anchored to the query PREFIX (LIKE '/* rw-reapable */%'), not a substring, to avoid matching the marker buried in another query's comment/string literal.",
+    "query_start may restamp each cycle -> the age filter keys on state_change (continuously-stuck-active), not query_start; the candidate SELECT also returns backend_start for atomic revalidation.",
+    "Multiple wedged backends in one sweep -> apply the cap, terminate oldest-first (by state_change/age), log the count dropped by the cap.",
+    "No verified-direct URL (DIRECT_URL ?? DATABASE_URL both absent or route resolves to the pooler) -> reaper disabled + Sentry-alerted (fail-safe), never crashed, never pooler-fallback.",
+    "healthSql.end() on a wedged connection sends FIN (socket.end, not destroy) so server EOF is PLAUSIBLE not guaranteed -> recycle wraps end({timeout:1}) in try/catch and rebuilds UNCONDITIONALLY; the reaper server-side-kills the marked health backend as the backstop if EOF does not land.",
+    "The reaper's own dedicated (direct) connection may fail to connect or itself stall -> bounded op-timeout per sweep, self-recycle, skip the cycle; no crash.",
+    "pg_terminate_backend returns false if the pid/tuple already vanished (self-heal/redeploy race) -> tolerate.",
+    "Reaper marker also matches the now-bulkheaded health poller's own wedge; the in-process self-heal should win first, but an overlapping terminate is harmless (both kill the same stuck backend)."
   ],
   "existing_patterns_to_follow": [
     "worker/background/pollers/HealthAlertPoller.ts — single-flight isPolling guard, setInterval cadence, createWorkerLogger, catch-and-checkin, readIntervalMs-at-runtime.",
@@ -62,11 +64,12 @@
     ".feature/**"
   ],
   "tests_to_add": [
-    "PoolWedgeReaperPoller: pure decision function selects only signature+owned-table candidate rows, respects the per-sweep cap, orders oldest-first by state_change, and reports the dropped-by-cap count (fast-check property: output is a subset of signature-matching input and |output| <= cap).",
-    "PoolWedgeReaperPoller: DATABASE_URL absent -> poller disabled, no throw.",
-    "PoolWedgeReaperPoller: terminate tolerates an already-gone pid (pg_terminate_backend returns false) without throwing.",
-    "HealthAlertPoller: on withTimeout expiry the dedicated health client is ended+rebuilt (reclaim) and the next cycle uses a fresh client; single-flight preserved; catch path still records an 'error' probe check-in.",
-    "HealthAlertPoller: health queries run on the dedicated client, never on the shared sql singleton (isolation)."
+    "select-terminations pure fn: selects only candidate rows, respects the per-sweep cap, orders oldest-first by age, returns {pid, backendStart} targets and the dropped-by-cap count (fast-check property: targets is a subset of the input and |targets| <= cap).",
+    "PoolWedgeReaperPoller: no verified-direct URL (absent, or route resolves to pooler / app_name does not echo back) -> poller disabled + Sentry-alerted, no throw.",
+    "PoolWedgeReaperPoller: terminate tolerates an already-gone (pid, backend_start) tuple (returns false) without throwing.",
+    "HealthAlertPoller: on withTimeout expiry the dedicated health client is ended+rebuilt (reclaim, unconditional even if end rejects/hangs) and the next cycle uses a fresh client; single-flight preserved; catch path still records an 'error' probe check-in.",
+    "HealthAlertPoller: health queries run on the dedicated client, never on the shared sql singleton (isolation), and each check query begins with the /* rw-reapable */ marker.",
+    "Shutdown closes both dedicated clients (reaper + health) — closeHealthSql and the reaper client end() are invoked from the worker shutdown path."
   ],
   "verification_commands": [],
   "open_questions": []
