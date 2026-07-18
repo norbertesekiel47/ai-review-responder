@@ -194,10 +194,10 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:124',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',
-  'worker/background/schedulers/MonthlyImpactScheduler.ts:47',
+  'worker/background/schedulers/MonthlyImpactScheduler.ts:60',
   'worker/background/schedulers/OnboardingDripScheduler.ts:40',
-  'worker/background/schedulers/RankingTrackingScheduler.ts:61',
-  'worker/background/schedulers/WeeklySummaryScheduler.ts:59',
+  'worker/background/schedulers/RankingTrackingScheduler.ts:82',
+  'worker/background/schedulers/WeeklySummaryScheduler.ts:71',
   'worker/ingress/stripe/apply-subscription-state.ts:343',
   'worker/ingress/stripe/apply-subscription-state.ts:356',
   'worker/ingress/stripe/apply-subscription-state.ts:369',
@@ -212,7 +212,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'src/lib/dashboard/types.ts:148',
   'src/lib/dashboard/types.ts:167',
   'src/lib/dashboard/types.ts:176',
-  'src/lib/dashboard/types.ts:285',
+  'src/lib/dashboard/types.ts:283',
 ]);
 
 /** True when the trimmed line begins a line/block comment (so a status literal

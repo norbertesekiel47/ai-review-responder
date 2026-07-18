@@ -52,6 +52,7 @@ export default function BusinessDetailPage() {
   const {
     business,
     reviews,
+    reviewsTotal,
     rankingSnapshots,
     zernio,
     account,
@@ -184,7 +185,7 @@ export default function BusinessDetailPage() {
         />
 
         {/* Review list */}
-        <ReviewsList reviews={reviews} />
+        <ReviewsList reviews={reviews} totalCount={reviewsTotal} />
 
         {/* Engagement / churn risk */}
         {business.churnScore && (

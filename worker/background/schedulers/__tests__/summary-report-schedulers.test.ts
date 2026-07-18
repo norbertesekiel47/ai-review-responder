@@ -10,8 +10,7 @@ const { sqlReturnQueue, mockSql, sqlCalls, resetMockSql } = await vi.hoisted(asy
   return { ...createMockSql() };
 });
 
-vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql }));
 
 /**
  * Drains the candidate query then any follow-up microtasks. The shared mock's
@@ -37,6 +36,10 @@ interface SchedulerCase {
    * the joined `accounts a`, NOT the deprecated per-business column.
    */
   digestColumn: string;
+  /** The payload date key this scheduler writes via jsonb_build_object. */
+  payloadDateKey: string;
+  /** Substring unique to this scheduler's "Queued N …" log message. */
+  queuedLogNeedle: string;
   load: () => Promise<{ start: () => void; stop: () => void }>;
 }
 
@@ -48,6 +51,8 @@ const schedulerCases: SchedulerCase[] = [
     systemTime: '2026-06-01T08:30:00Z',
     candidateMarker: 'weekly_summaries',
     digestColumn: 'weekly_summary_enabled',
+    payloadDateKey: 'week_start_date',
+    queuedLogNeedle: 'weekly_summary outbox entries',
     load: async () => {
       const mod = await import('../WeeklySummaryScheduler');
       return { start: mod.startWeeklySummaryScheduler, stop: mod.stopWeeklySummaryScheduler };
@@ -60,6 +65,8 @@ const schedulerCases: SchedulerCase[] = [
     systemTime: '2026-06-01T09:30:00Z',
     candidateMarker: 'monthly_impact_emails',
     digestColumn: 'monthly_impact_enabled',
+    payloadDateKey: 'month_start_date',
+    queuedLogNeedle: 'send_monthly_impact outbox entries',
     load: async () => {
       const mod = await import('../MonthlyImpactScheduler');
       return { start: mod.startMonthlyImpactScheduler, stop: mod.stopMonthlyImpactScheduler };
@@ -67,7 +74,7 @@ const schedulerCases: SchedulerCase[] = [
   },
 ];
 
-describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, digestColumn, load }) => {
+describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, digestColumn, payloadDateKey, queuedLogNeedle, load }) => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -137,6 +144,53 @@ describe.each(schedulerCases)('$name', ({ envVar, systemTime, candidateMarker, d
     expect(queryText).toContain(`a.${digestColumn} = TRUE`);
     expect(queryText).not.toContain(`a.${digestColumn} IS NULL`);
 
+    scheduler.stop();
+  });
+
+  it('issues exactly one set-based INSERT…SELECT per cycle', async () => {
+    vi.setSystemTime(new Date(systemTime));
+    sqlReturnQueue.push([]); // 0 rows inserted
+
+    const scheduler = await load();
+    scheduler.start();
+    await flush();
+
+    // The candidate scan and the enqueue are fused into a single statement.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    const queryText = sqlCalls[0]!.text;
+
+    expect(queryText).toContain('INSERT INTO job_outbox');
+    expect(queryText).toContain('ON CONFLICT DO NOTHING');
+    // Payload keys are literal SQL text inside jsonb_build_object.
+    expect(queryText).toContain("'business_id'");
+    expect(queryText).toContain(`'${payloadDateKey}'`);
+    expect(queryText).toContain("'correlation_id'");
+    // Two independent gen_random_uuid() calls: row id + correlation_id.
+    expect(queryText.match(/gen_random_uuid\(\)/g)).toHaveLength(2);
+    // In-flight dedup pre-filter against job_outbox survives the merge.
+    expect(queryText).toContain('FROM job_outbox jo');
+    expect(queryText).toContain("jo.status IN ('pending', 'dispatching', 'dispatched')");
+
+    scheduler.stop();
+  });
+
+  it('logs queued count reflecting the INSERT row count', async () => {
+    vi.setSystemTime(new Date(systemTime));
+    sqlReturnQueue.push(Object.assign([], { count: 2 })); // 2 rows inserted
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const scheduler = await load();
+    scheduler.start();
+    await flush();
+
+    const queuedLine = consoleSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((l) => l.includes(queuedLogNeedle));
+    expect(queuedLine).toBeDefined();
+    expect(queuedLine).toContain('Queued 2');
+
+    consoleSpy.mockRestore();
     scheduler.stop();
   });
 });

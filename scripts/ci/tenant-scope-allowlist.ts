@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 393;
+export const ALLOWLIST_BASELINE = 394;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -94,16 +94,16 @@ export const CATEGORY_PATH_RULES: Partial<
 // per entry.
 
 const MONTHLY_IMPACT_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'month_start_date', ${monthStartDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_MONTHLY_IMPACT} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') AND jo.payload->>'month_start_date' = ${monthStartDate} ) ON CONFLICT DO NOTHING";
 
 const ONBOARDING_DRIP_CANDIDATES_SQL =
   "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status IN ('active', 'trialing') AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.ONBOARDING_DRIP} AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )";
 
 const WEEKLY_SUMMARY_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.WEEKLY_SUMMARY}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'week_start_date', ${weekStartDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.WEEKLY_SUMMARY} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') AND jo.payload->>'week_start_date' = ${weekStartDate} ) ON CONFLICT DO NOTHING";
 
 const RANKING_TRACKING_CANDIDATES_SQL =
-  "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.TRACK_RANKING} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.TRACK_RANKING}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'google_place_id', b.google_place_id, 'run_date', ${runDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.TRACK_RANKING} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ON CONFLICT DO NOTHING";
 
 const DASHBOARD_SETTINGS_SELECT_SQL =
   "SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts, b.sample_responses, b.owner_phone, b.owner_email, a.weekly_summary_enabled, a.monthly_impact_enabled, b.category, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1";
@@ -579,6 +579,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Global archival poller performs retention cleanup independent of tenant request scope.",
   },
   {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "agent_outcomes",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_outcomes WHERE occurred_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_outcomes WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_outcomes has no account/business column.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "agent_runs",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_runs WHERE ended_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_runs WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_runs has no account/business column.",
+  },
+  {
     file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
     table: "accounts",
     sqlSnippet: "SELECT u.id AS user_id, u.email AS owner_email, u.auth_id FROM users u LEFT JOIN accounts a ON a.owner_user_id = u.id WHERE u.role = 'owner' AND u.auth_id IS NOT NULL AND u.created_at < NOW() - INTERVAL '7 days' AND a.id IS NULL ORDER BY u.created_at ASC, u.id ASC LIMIT ${batchSize}",
@@ -875,21 +889,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/overview-service.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/overview-service.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/overview-service.ts",
     table: "responses",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
@@ -1281,7 +1295,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/business-detail/queries.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.approval_method, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, approval_method, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC",
+    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.approval_method, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, approval_method, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC LIMIT 100",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
@@ -1305,13 +1319,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT u.role, u.account_id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${authUser.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/lib/dashboard/aggregate-service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND r.status <> ${REVIEW_STATUS.DELETED} AND resp.status = ANY(${statusArraySql(sql, HANDLED_STATUSES)})",
-    category: 'tenant-root-lookup',
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
   },
   {
     file: "src/lib/dashboard/service.ts",
@@ -1967,14 +1974,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "reviews",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
