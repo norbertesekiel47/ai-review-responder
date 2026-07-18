@@ -5,8 +5,20 @@ root `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-stripe-re
 Bootstrap order: this doc → intake → plan → ADR → (later) deviations + review tables.
 
 ## State
-- **Current step: 4 (EXECUTE).** Steps 0-3 complete and signed off.
-- Branch `feat/stripe-reconcile-remainders`; first commit = the intake contract.
+- **Current step: 7 (DUAL REVIEW) — next up.** Steps 0-6 complete.
+- Branch `feat/stripe-reconcile-remainders`. Commits: intake → plan/ADR/handoff →
+  T1 `1c1ae829` (cursor+CAS) → T2 (index 080) → T3 `4f3b8d35` (truncation alert) →
+  review fixes `cce0de91` (1a/2a/2b/3).
+- **Verify gate: GREEN** (re-run after `cce0de91`); `.feature/gate-status.json` fresh.
+- **Step 6 adversarial review DONE**: ran via the Codex rescue agent (the
+  `/codex:adversarial-review` slash command is user-only). Triage:
+  - FIXED: 1a boot-load-failure CAS re-seed; 2a non-timeout-error no longer
+    classified truncated (outcome threaded into `classifyCycle`); 2b literal
+    consecutiveness (stall resets the streak); 3 boot-load deferred to first tick.
+  - REJECTED (documented): 1b cross-process fencing (single-replica posture,
+    map #474 / update_stripe_overage); 2c thrown-emit retry (emitter non-throwing,
+    warning-level); 4 persist-previous-frontier-on-truncation (documented never-skip
+    re-walk, safe); 5 index shape (staging EXPLAIN gate is the validation).
 - RISK=high, backend, db-touching → staging ride before `main` (step 8).
 
 ## Enforcement environment (important)
@@ -33,20 +45,29 @@ Bootstrap order: this doc → intake → plan → ADR → (later) deviations + r
   was chosen by the user after the 3-round cap was reached; not re-submitted to
   Codex. The built code still gets step-6 (adversarial) + step-7 (dual-axis) review.
 
-## Remaining work (tracer order T1 → T2 → T3)
-- **T1** migration 079 (`poller_cursors` w/ `write_seq`) + `cursor-store.ts` CAS +
-  `runOnce.finally` save + boot-seed + tests (incl. the decisive detached-save CAS
-  regression). Blocked by: none.
-- **T2** migration 080 (plain composite `(subscription_status, id)` CONCURRENTLY) +
-  migrations-log; staging `EXPLAIN` is a ride-time gate. Blocked by: T1.
-- **T3** `truncation-alert.ts` + `reconcile-progress.ts` (`classifyCycle`,
-  `evaluateTruncation`) + `runOnce` wiring + tests. Blocked by: T1.
+## Remaining work
+- **Step 7 — dual-axis review (NEXT).** Two fresh agents on the branch diff since the
+  fork point: (a) spec & correctness vs `.feature/intake.json` (field by field);
+  (b) standards & maintainability (`/thermo-nuclear-code-quality-review`, fallback
+  `/code-review` high). Confidence ≥80% findings only → full reports to
+  `docs/reviews/feat-stripe-reconcile-remainders/`, findings tables in context.
+  Triage with `receiving-code-review`, re-run the gate, then update this handoff.
+- **Step 8 — SHIP (RISK=high lane).** Land on `staging` (full-stack auto-deploy),
+  apply migrations 079+080 to the **staging** Supabase project FIRST, run the
+  **mandatory `EXPLAIN (ANALYZE, BUFFERS)`** on the reconcile query (cursor-null +
+  cursor-set) to validate/decide index 080, smoke the poller. Then PR to `main`,
+  all CI green, PAUSE for explicit merge approval; apply migrations to prod Supabase
+  in lockstep at promotion. After merge: `git pull --ff-only` main, ff `staging` onto
+  `main`, remove the worktree, `document-feature` sweep, bump the arch-review counter.
 
-## Gate (step 5)
-`scripts/verify-gate.sh` — lint, typecheck, test, all `ci:*` (incl. tenant-scope,
-rls-audit). `pnpm build` N/A (backend). Property tests (fast-check) required for the
-CAS-monotonicity and truncation state-machine invariants.
+## Gate (step 5) — GREEN
+`scripts/verify-gate.sh` — lint, typecheck, test (8696), all `ci:*` incl. tenant-scope
++ rls-audit. `pnpm build` N/A (backend). Property tests (fast-check) cover the
+CAS-monotonicity + truncation state-machine invariants. Re-run after each fix round.
 
-## Next actions after execute
-Step 6 adversarial review (user runs `/codex:adversarial-review`), step 7 dual review,
-step 8 SHIP via staging (migrations staging-first, both Supabase projects lockstep).
+## Enforcement reminder for the resumed session
+Re-run the ARM CHECK on resume. The stop-gate arms from `$CLAUDE_PROJECT_DIR`
+(= worktree at real Stop time); a Bash-subshell probe reports it "disarmed" (no
+`$CLAUDE_PROJECT_DIR` there) — that's a false negative, trust the real Stop firing.
+Manual gate-evidence discipline also applies: cite a fresh `.feature/gate-status.json`
+before any completion claim, staging ride, or PR.
