@@ -83,11 +83,14 @@ import {
   resetAccountCursorForTests,
   resetTruncationStateForTests,
   beginCursorLoadForTests,
+  simulateBootLoadedForTests,
   startStripeLocationsReconcilePoller,
   stopStripeLocationsReconcilePoller,
 } from '../StripeLocationsReconcilePoller';
 import { emitDriftAlert } from '../billing-reconciliation/drift-alert';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
+import { resetServerConfigForTests } from '../../../../src/lib/config/server';
+import { resetStripeClientForTests } from '../../../../src/lib/payments/stripe-client';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -454,6 +457,12 @@ describe('StripeLocationsReconcilePoller', () => {
     sqlCalls.length = 0;
     // The keyset resume cursor is module state; reset so tests are independent.
     resetAccountCursorForTests();
+    // Default posture for the many runOnce-driving tests: pretend the durable
+    // boot-load already completed (empty cursor, seeded writeSeq) so runOnce does
+    // NOT issue a first-tick cursor-load (FIX 3) or an unseeded re-seed (FIX 1a)
+    // that would steal a mock-`sql` FIFO entry. Boot-load-specific tests below
+    // reset back to the null/unseeded state explicitly.
+    simulateBootLoadedForTests();
     // The sustained-truncation counter is also module state.
     resetTruncationStateForTests();
     mockCaptureMessage.mockClear();
@@ -1468,21 +1477,24 @@ describe('StripeLocationsReconcilePoller', () => {
     stopStripeLocationsReconcilePoller();
   });
 
-  it('delays the first run past the boot-storm window (does not query immediately)', async () => {
+  it('defers the cursor boot-load past the boot-storm — start() queries NOTHING; the first tick kicks the load AND the accounts query (FIX 3)', async () => {
     vi.useFakeTimers();
-    sqlReturnQueue.push([]); // boot cursor-load: no persisted cursor
-    sqlReturnQueue.push([]); // if/when the reconcile runs, no accounts
+    // Undo the default simulated boot-load so runOnce genuinely lazily kicks it.
+    resetAccountCursorForTests();
+    sqlReturnQueue.push([]); // first-tick cursor-load: no persisted cursor
+    sqlReturnQueue.push([]); // reconcile accounts query: no accounts
 
     startStripeLocationsReconcilePoller();
-    // start() kicks the durable cursor boot-load, but the reconcile CYCLE (the
-    // accounts query with ORDER BY a.id) must NOT fire immediately.
-    const accountsQueriedAtBoot = sqlCalls.some((c) => c.template.includes('ORDER BY a.id ASC'));
-    expect(accountsQueriedAtBoot).toBe(false);
+    // FIX 3: start() no longer kicks the cursor boot-load — it is deferred to the
+    // first tick so its SELECT lands post boot-storm. So NOTHING queries at boot:
+    // neither the cursor load nor the reconcile CYCLE (ORDER BY a.id) fires yet.
+    expect(sqlCalls.length).toBe(0);
 
-    // After the boot-delay, the initial reconcile run fires the accounts query.
+    // After the boot-delay, the first tick lazily kicks the cursor-load (SELECT
+    // cursor, write_seq) AND fires the accounts query.
     await vi.advanceTimersByTimeAsync(45_000 + 100); // past INITIAL_RUN_DELAY_MS
-    const accountsQueriedAfterDelay = sqlCalls.some((c) => c.template.includes('ORDER BY a.id ASC'));
-    expect(accountsQueriedAfterDelay).toBe(true);
+    expect(sqlCalls.some((c) => c.template.includes('SELECT cursor, write_seq'))).toBe(true);
+    expect(sqlCalls.some((c) => c.template.includes('ORDER BY a.id ASC'))).toBe(true);
 
     stopStripeLocationsReconcilePoller();
     vi.useRealTimers();
@@ -1712,6 +1724,70 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(persist.values[2]).toBe(43);
   });
 
+  it('a FAILED boot-load re-seeds writeSeq in the persist path so a valid save is not CAS-rejected (FIX 1a)', async () => {
+    // Boot-load rejects (writeSeq left UNSEEDED at its module default 0) while the
+    // store already holds write_seq=5. Blindly saving seq 1 would be CAS-rejected
+    // (1 < 5), silently disabling persistence. The persist path must re-seed from
+    // the durable write_seq (5) first, so THIS cycle's save carries seq 6 (> 5).
+    mockSql.mockImplementationOnce(() => Promise.reject(new Error('boot-load transport blip')));
+    await beginCursorLoadForTests(); // its .catch swallows → cursorLoaded resolves, unseeded
+
+    sqlReturnQueue.push([]); // accounts query → empty (drained)
+    sqlReturnQueue.push([{ cursor: null, write_seq: 5 }]); // re-seed loadCursor sees the durable seq
+    // saveCursor INSERT falls through to the default [] return.
+
+    await runOnce();
+
+    const reseedSelect = sqlCalls.filter((c) => c.template.includes('SELECT cursor, write_seq'));
+    // Two cursor SELECTs total: the rejected boot-load is a mockImplementationOnce
+    // (not a real SELECT template call), so this counts the accounts-side loads:
+    // the re-seed load in the persist path is the one that returned write_seq=5.
+    expect(reseedSelect.length).toBeGreaterThanOrEqual(1);
+
+    const persist = sqlCalls.find((c) => c.template.includes('INSERT INTO poller_cursors'))!;
+    expect(persist).toBeDefined();
+    // Re-seeded to 5, then bumped to 6 — strictly greater than the durable seq, so
+    // the CAS accepts it instead of silently no-op'ing.
+    expect(persist.values[2]).toBe(6);
+  });
+
+  it('a failed boot-load AND a failed re-seed skip the persist this cycle (no save) but still release inProgress', async () => {
+    vi.useFakeTimers();
+    // Boot-load rejects → unseeded. Then the re-seed load in the persist path also
+    // parks forever → its withTimeout rejects → the persist is skipped entirely.
+    mockSql.mockImplementationOnce(() => Promise.reject(new Error('boot-load blip')));
+    await beginCursorLoadForTests();
+
+    mockSql
+      .mockImplementationOnce(() => Promise.resolve([])) // accounts query → empty
+      .mockImplementationOnce(() => new Promise(() => {})); // re-seed load parks
+
+    const run = runOnce();
+    await vi.advanceTimersByTimeAsync(10_000 + 100); // past CURSOR_LOAD_TIMEOUT_MS
+    const result = await run;
+
+    expect(result.errors).toBe(0); // the skipped persist must not fail the run
+    const reseedFail = errorSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Cursor re-seed failed'));
+    expect(reseedFail).toBeDefined();
+    // No save was attempted this cycle.
+    const persist = sqlCalls.find((c) => c.template.includes('INSERT INTO poller_cursors'));
+    expect(persist).toBeUndefined();
+
+    // inProgress released → the next tick runs (not skipped). It is still unseeded,
+    // so this tick's persist path re-seeds again (successfully now).
+    logSpy.mockClear();
+    sqlReturnQueue.push([]); // accounts query → empty
+    sqlReturnQueue.push([{ cursor: null, write_seq: 9 }]); // re-seed load succeeds now
+    await runOnce();
+    const skipLine = logSpy.mock.calls
+      .map((c: any[]) => c[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('Previous run still in progress'));
+    expect(skipLine).toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it('a never-settling boot-load does not wedge the poller — inProgress is released and the next tick runs', async () => {
     vi.useFakeTimers();
     // Boot cursor-load parks forever; its own withTimeout settles cursorLoaded so
@@ -1856,7 +1932,7 @@ describe('StripeLocationsReconcilePoller', () => {
     vi.useRealTimers();
   });
 
-  it('a boot/query stall is classified stalled — it neither advances nor resets the counter', async () => {
+  it('a boot/query stall is classified stalled — it RESETS the truncation streak (FIX 2b: "consecutive" is literal)', async () => {
     vi.useFakeTimers();
     parkStripeRetrieveForever();
 
@@ -1871,12 +1947,17 @@ describe('StripeLocationsReconcilePoller', () => {
     await vi.advanceTimersByTimeAsync(240_000 + 1_000);
     await stalled;
 
-    // Stalled left the counter at 2 (not reset to 0, not advanced to 3): still no alert.
+    // The stall broke the run: the counter reset to 0, so no alert.
     expect(truncationAlertCount()).toBe(0);
 
-    // The next truncation reaches 3 → the alert fires now, proving the stall
-    // neither reset the run nor pre-fired it.
-    await runTruncatedCycle();
+    // Because the stall RESET the streak, it now takes a FRESH run of 3
+    // truncations to alert — two more alone must NOT fire...
+    await runTruncatedCycle(); // 1
+    await runTruncatedCycle(); // 2
+    expect(truncationAlertCount()).toBe(0);
+    // ...the third fresh truncation reaches the threshold and fires exactly once,
+    // proving the stall reset the pre-stall run of 2.
+    await runTruncatedCycle(); // 3 → alert
     expect(truncationAlertCount()).toBe(1);
 
     vi.useRealTimers();
@@ -1901,6 +1982,41 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(truncationAlertCount()).toBe(1);
 
     vi.useRealTimers();
+  });
+
+  it('a NON-timeout error after the accounts query does NOT increment the truncation counter (FIX 2a)', async () => {
+    // Force getStripe() to throw AFTER the accounts query returns: STRIPE_SECRET_KEY
+    // unset + fresh memos → getStripe() throws a NON-timeout error, so reconcileCycle
+    // rejects with queryCompleted=true (the query ran) but dispatched=0. Without the
+    // outcome thread this snapshot reads as `truncated`; three such cycles would page.
+    // With FIX 2a it is `error → stalled`, so the counter never advances → no alert.
+    delete process.env.STRIPE_SECRET_KEY;
+    resetServerConfigForTests();
+    resetStripeClientForTests();
+    try {
+      const runErrorCycle = async (): Promise<void> => {
+        sqlReturnQueue.push([
+          makeAccountRow({ id: 'err-a' }),
+          makeAccountRow({ id: 'err-b' }),
+        ]);
+        const result = await runOnce();
+        // The cycle threw a non-timeout error → counted as one cycle error.
+        expect(result.errors).toBe(1);
+      };
+
+      await runErrorCycle();
+      await runErrorCycle();
+      await runErrorCycle();
+
+      // Under the pre-fix classification these three would be truncations → alert;
+      // as errors they are stalls → the counter stayed at 0 → never pages.
+      expect(truncationAlertCount()).toBe(0);
+    } finally {
+      // Restore so getStripe() works for every later test (server memo + singleton).
+      process.env.STRIPE_SECRET_KEY = 'sk_test_123';
+      resetServerConfigForTests();
+      resetStripeClientForTests();
+    }
   });
 
   it('runOnce re-entered immediately after a truncating timeout runs cleanly (inProgress released)', async () => {

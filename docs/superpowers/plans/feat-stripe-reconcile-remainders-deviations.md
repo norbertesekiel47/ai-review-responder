@@ -89,3 +89,37 @@ Small, in-scope departures from the plan, recorded per the T1 instructions.
   whole classify→evaluate→emit block in a `try/catch` (log-and-swallow) that runs
   BEFORE the cursor persist, so an emitter failure can never throw out of finally,
   block the persist, or wedge `inProgress` (invariant #3 / T1 contract preserved).
+
+## Adversarial-review fixes (post-plan, #479 remainders)
+
+- **FIX 1a — boot-load failure no longer poisons the write-seq CAS.** A failed
+  cursor boot-load left `writeSeq=0` while the store could hold `write_seq=N`, so
+  saves were CAS-rejected for N cycles (persistence silently disabled). Added a
+  `writeSeqSeeded` flag; `runOnce.finally` re-seeds `writeSeq` (+`accountCursor`)
+  from a fresh `loadCursor` before its first save, and SKIPS the persist if the
+  re-seed also fails (in-memory cursor still advances; restart re-walks safely).
+  Proven by the seq-6-after-a-rejected-boot-load test + a skip-on-double-failure test.
+
+- **FIX 2a — a non-timeout cycle error is no longer mis-scored as a truncation.**
+  Threaded a `CycleOutcome ('ok'|'timeout'|'error')` into `classifyCycle`: `ok`→
+  drained, `error`→stalled, `timeout`→existing snapshot logic. A post-query throw
+  (e.g. `getStripe()` failing) is now `stalled`, not `truncated`. Proven by a runOnce
+  test forcing `getStripe()` to throw across 3 cycles → zero sustained-truncation alerts.
+
+- **FIX 2b — "consecutive" truncations are now literal.** `evaluateTruncation`
+  resets the counter to 0 on ANYTHING that is not `truncated` (both `drained` and
+  `stalled`), so T,S,T,S,T no longer pages as three consecutive. Proven by the
+  updated fast-check property test + a T,S,T,S,T streak-break test + the updated
+  poller stall test (a stall now resets, so a fresh run of 3 is needed to alert).
+
+- **FIX 3 — cursor boot-load deferred past the boot storm.** `start()` no longer
+  kicks `beginCursorLoad()`; `runOnce` lazily kicks it on the first tick
+  (`if (cursorLoaded === null)`), so the SELECT lands at +INITIAL_RUN_DELAY_MS
+  (post-storm). Proven by the updated defer test (start() queries nothing at boot;
+  the first tick issues both the cursor-load and the accounts query).
+
+- **Test-harness seam `simulateBootLoadedForTests()`.** FIX 3's lazy load and FIX
+  1a's re-seed each issue an extra `loadCursor` SELECT; the many `runOnce`-driving
+  tests use a mock-`sql` FIFO queue that would mis-account those. `beforeEach` now
+  simulates a completed successful boot-load (no SELECT) so bulk tests keep their
+  pre-persistence FIFO accounting; boot-load-specific tests reset back to null.

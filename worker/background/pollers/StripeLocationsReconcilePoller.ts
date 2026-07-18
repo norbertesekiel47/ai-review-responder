@@ -42,6 +42,7 @@ import {
   classifyCycle,
   evaluateTruncation,
   type ReconcileProgress,
+  type CycleOutcome,
 } from './billing-reconciliation/reconcile-progress';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { withTimeout, TimeoutError } from '../../../src/lib/shared/with-timeout';
@@ -103,7 +104,23 @@ let accountCursor: string | null = null;
 // In-memory write sequence for the cursor CAS (ADR 0006). Seeded at boot from
 // the persisted write_seq so the first post-restart save is never rejected as
 // stale; bumped synchronously (submission order) before each save.
+//
+// CORRECTNESS SCOPE: the CAS proves ordering for a SINGLE writer (the
+// single-replica worker posture — one instance of this poller, serialized with
+// update_stripe_overage per map #474). A second replica would have its own
+// in-memory writeSeq and could interleave saves the CAS cannot fence across
+// processes — cross-process fencing (a claim frontier / owner token) must be
+// revisited before this poller ever runs on more than one replica.
 let writeSeq = 0;
+
+// Whether `writeSeq` has been seeded from the durable `poller_cursors.write_seq`.
+// A boot-load FAILURE leaves it false: `writeSeq` still reads its module default
+// 0 while the store may already hold write_seq=N, so blindly saving seq 1,2,…
+// would be CAS-rejected until the seq climbed past N — silently disabling
+// persistence for the process. runOnce.finally re-seeds (a fresh loadCursor)
+// before its first save when this is still false, so a valid save is never
+// rejected against a durable seq the failed boot-load never observed.
+let writeSeqSeeded = false;
 
 // Consecutive deadline-truncated cycles with no full drain in between (ADR 0006,
 // #479 sustained-truncation alert). Updated in runOnce.finally from the cycle
@@ -128,21 +145,41 @@ function beginCursorLoad(): void {
     .then((loaded) => {
       accountCursor = loaded.cursor;
       writeSeq = loaded.writeSeq;
+      writeSeqSeeded = true;
     })
     .catch((err) => {
+      // Boot-load failed: start the rotation from the top, and mark writeSeq
+      // UNSEEDED so runOnce.finally re-seeds it from the durable write_seq before
+      // its first save (otherwise the module-default seq 0 would be CAS-rejected
+      // against a store that already holds a higher seq — disabling persistence).
       logger.error('Cursor boot-load failed — starting rotation from the top', err);
       accountCursor = null;
+      writeSeqSeeded = false;
     });
 }
 
 export function resetAccountCursorForTests(): void {
   accountCursor = null;
   writeSeq = 0;
+  writeSeqSeeded = false;
   cursorLoaded = null;
 }
 
 export function resetTruncationStateForTests(): void {
   consecutiveTruncations = 0;
+}
+
+/**
+ * Test-only: simulate a COMPLETED, successful boot-load (empty cursor, seeded
+ * writeSeq) WITHOUT issuing a SELECT. Lets tests that drive `runOnce` directly
+ * skip both the first-tick lazy boot-load (FIX 3) and the unseeded re-seed
+ * (FIX 1a) so their mock-`sql` FIFO accounting matches the pre-persistence
+ * behavior. Boot-load-specific tests reset back to null via
+ * resetAccountCursorForTests() / beginCursorLoadForTests().
+ */
+export function simulateBootLoadedForTests(): void {
+  cursorLoaded = Promise.resolve();
+  writeSeqSeeded = true;
 }
 
 /**
@@ -174,12 +211,21 @@ export async function runOnce(): Promise<ReconcileResult> {
     return { accountsChecked: 0, driftsFound: 0, errors: 0 };
   }
   inProgress = true;
+  // Lazily kick the durable cursor boot-load on the FIRST tick — deferred out of
+  // start() so the SELECT lands AFTER the boot connection storm (the first tick
+  // fires at +INITIAL_RUN_DELAY_MS). reconcileCycle awaits `cursorLoaded` inside
+  // the cycle deadline before reading the cursor.
+  if (cursorLoaded === null) beginCursorLoad();
   const controller = new AbortController();
   // Per-cycle progress snapshot (ADR 0006). reconcileCycle mutates it in place;
-  // runOnce.finally classifies the cycle from it for the sustained-truncation
-  // alert — even a deadline-aborted cycle leaves behind whatever it set before
-  // unwinding.
+  // runOnce.finally classifies the cycle from it (with the outcome below) for the
+  // sustained-truncation alert — even a deadline-aborted cycle leaves behind
+  // whatever it set before unwinding.
   const progress: ReconcileProgress = { queryCompleted: false, total: 0, dispatched: 0 };
+  // The cycle outcome, threaded into classifyCycle so a NON-timeout throw is not
+  // mistaken for a demand-driven truncation (FIX 2a). 'ok' = reconcileCycle
+  // returned; set to 'timeout'/'error' in catch.
+  let outcome: CycleOutcome = 'ok';
 
   try {
     return await withTimeout(reconcileCycle(controller.signal, progress), CYCLE_TIMEOUT_MS, 'reconcile cycle');
@@ -191,8 +237,9 @@ export async function runOnce(): Promise<ReconcileResult> {
     // the in-flight HTTP call — the per-request timeout (reconcile-account.ts)
     // bounds it instead. Bounds a detached cycle to <=1 in-flight account.
     controller.abort();
+    outcome = err instanceof TimeoutError ? 'timeout' : 'error';
     logger.error(
-      err instanceof TimeoutError
+      outcome === 'timeout'
         ? 'Reconcile cycle exceeded its deadline — releasing the run so the next tick proceeds'
         : 'Reconcile cycle failed — releasing the run so the next tick proceeds',
       err,
@@ -206,7 +253,7 @@ export async function runOnce(): Promise<ReconcileResult> {
     // path): a drain resets the counter, a stall leaves it untouched, a truncation
     // bumps it and fires ONE alert on the first crossing to the threshold.
     try {
-      const cycle = classifyCycle(progress);
+      const cycle = classifyCycle(progress, outcome);
       const evaluated = evaluateTruncation(consecutiveTruncations, cycle, TRUNCATION_ALERT_THRESHOLD);
       consecutiveTruncations = evaluated.consecutive;
       if (evaluated.alert) {
@@ -228,13 +275,46 @@ export async function runOnce(): Promise<ReconcileResult> {
     // withTimeout-bounded — a parked save can never wedge inProgress
     // (invariant #3) — and best-effort: a persist failure must not fail the run,
     // the next tick re-saves with a higher seq.
-    writeSeq += 1;
-    const seq = writeSeq;
-    await withTimeout(
-      saveCursor(sql, POLLER_NAME, accountCursor, seq),
-      CURSOR_SAVE_TIMEOUT_MS,
-      'cursor save',
-    ).catch((err) => logger.error('Cursor persist failed — will retry next tick', err));
+    //
+    // FIX 1a: if the boot-load never seeded writeSeq (it failed), re-seed it from
+    // the durable write_seq HERE before assigning the next seq — else the
+    // module-default seq would be CAS-rejected against a higher stored seq,
+    // silently disabling persistence for the whole process. If the re-seed ALSO
+    // fails, skip the persist this cycle: the in-memory cursor still advanced, so
+    // a restart re-walks the batch safely (never-skip, ADR 0006) and the next
+    // tick retries the seed.
+    //
+    // ADR 0006 lag note: on a deadline-truncated cycle the persisted cursor lags
+    // the in-memory advance by one cycle, so a restart mid-truncation re-walks
+    // that batch — bounded and safe per the never-skip invariant.
+    let canPersist = true;
+    if (!writeSeqSeeded) {
+      try {
+        const reseeded = await withTimeout(
+          loadCursor(sql, POLLER_NAME),
+          CURSOR_LOAD_TIMEOUT_MS,
+          'cursor re-seed',
+        );
+        writeSeq = reseeded.writeSeq;
+        accountCursor = reseeded.cursor;
+        writeSeqSeeded = true;
+      } catch (reseedErr) {
+        canPersist = false;
+        logger.error(
+          'Cursor re-seed failed — skipping persist this cycle (in-memory cursor still advanced; restart re-walks safely)',
+          reseedErr,
+        );
+      }
+    }
+    if (canPersist) {
+      writeSeq += 1;
+      const seq = writeSeq;
+      await withTimeout(
+        saveCursor(sql, POLLER_NAME, accountCursor, seq),
+        CURSOR_SAVE_TIMEOUT_MS,
+        'cursor save',
+      ).catch((err) => logger.error('Cursor persist failed — will retry next tick', err));
+    }
     inProgress = false;
   }
 }
@@ -421,11 +501,10 @@ export function startStripeLocationsReconcilePoller(): void {
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
-  // Kick the durable cursor boot-load now so accountCursor + writeSeq are seeded
-  // before the first tick fires (INITIAL_RUN_DELAY_MS later). Its own withTimeout
-  // bounds a parked load; reconcileCycle awaits it inside the cycle deadline.
-  beginCursorLoad();
-
+  // The durable cursor boot-load is NOT kicked here (FIX 3): issuing its SELECT
+  // in start() lands it inside the boot connection storm that INITIAL_RUN_DELAY_MS
+  // exists to dodge. runOnce lazily kicks it on the first tick instead, so the
+  // load fires post-storm at +INITIAL_RUN_DELAY_MS.
   logger.log(`Starting (interval=${interval}ms, initial delay=${INITIAL_RUN_DELAY_MS}ms)`);
   initialTimer = setTimeout(() => {
     initialTimer = null;
