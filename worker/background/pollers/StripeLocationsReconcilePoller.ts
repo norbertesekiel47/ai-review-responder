@@ -8,7 +8,7 @@
 //
 // Scope conditions:
 //   - Checks paid accounts whether stripe_subscription_id is present or missing
-//   - Only checks accounts with subscription_status = 'active' or 'past_due'
+//   - Only checks accounts with subscription_status = 'active', 'past_due', or 'trialing'
 //   - Accepts accounts with no overage item when expected overage is zero
 //   - Uses the stored billing snapshot to determine expected overage/invoice totals
 //
@@ -124,10 +124,11 @@ let writeSeqSeeded = false;
 
 // Consecutive deadline-truncated cycles with no full drain in between (ADR 0006,
 // #479 sustained-truncation alert). Updated in runOnce.finally from the cycle
-// classification: a drain resets it, a stall leaves it untouched, a truncation
-// bumps it (clamped at TRUNCATION_ALERT_THRESHOLD). Emits ONE warning-level alert
-// when it first reaches the threshold. NOT persisted — an operational-capacity
-// signal that a fresh boot is welcome to re-observe from zero.
+// classification: any non-truncated cycle (a drain OR a stall) resets it to 0 —
+// "consecutive" is literal, so a stall breaks the streak too (FIX 2b) — and a
+// truncation bumps it (clamped at TRUNCATION_ALERT_THRESHOLD). Emits ONE
+// warning-level alert when it first reaches the threshold. NOT persisted — an
+// operational-capacity signal that a fresh boot is welcome to re-observe from zero.
 let consecutiveTruncations = 0;
 
 // Resolves once the boot cursor load has settled (seeding accountCursor +
@@ -250,8 +251,8 @@ export async function runOnce(): Promise<ReconcileResult> {
     // and fully guarded: it runs BEFORE the cursor persist and must never throw
     // out of finally nor block the persist / inProgress release (invariant #3).
     // Reads the progress snapshot (mutated by reconcileCycle, even on the aborted
-    // path): a drain resets the counter, a stall leaves it untouched, a truncation
-    // bumps it and fires ONE alert on the first crossing to the threshold.
+    // path): any non-truncated cycle (a drain OR a stall) resets the counter, a
+    // truncation bumps it and fires ONE alert on the first crossing to the threshold.
     try {
       const cycle = classifyCycle(progress, outcome);
       const evaluated = evaluateTruncation(consecutiveTruncations, cycle, TRUNCATION_ALERT_THRESHOLD);
@@ -283,6 +284,16 @@ export async function runOnce(): Promise<ReconcileResult> {
     // fails, skip the persist this cycle: the in-memory cursor still advanced, so
     // a restart re-walks the batch safely (never-skip, ADR 0006) and the next
     // tick retries the seed.
+    //
+    // The re-seed restores accountCursor from the durable frontier too, not just
+    // writeSeq — and this is deliberate, not incidental. A failed boot-load left
+    // accountCursor=null (top of rotation); on a truncated cycle this cycle's own
+    // advance lands in the detached tail (the lag note below), so accountCursor
+    // here is null/racy. Taking the durable cursor DETERMINISTICALLY recovers the
+    // real rotation progress the failed boot-load never observed and keeps the
+    // persisted value race-free w.r.t. that tail. Safe under never-skip either way:
+    // a durable frontier only defers re-checks to the next rotation, it never
+    // permanently skips (the head is re-checked when the rotation wraps).
     //
     // ADR 0006 lag note: on a deadline-truncated cycle the persisted cursor lags
     // the in-memory advance by one cycle, so a restart mid-truncation re-walks

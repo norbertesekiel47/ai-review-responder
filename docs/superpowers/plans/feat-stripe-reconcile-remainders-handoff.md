@@ -5,11 +5,23 @@ root `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-stripe-re
 Bootstrap order: this doc → intake → plan → ADR → (later) deviations + review tables.
 
 ## State
-- **Current step: 7 (DUAL REVIEW) — next up.** Steps 0-6 complete.
+- **Current step: 8 (SHIP) — next up.** Steps 0-7 complete.
 - Branch `feat/stripe-reconcile-remainders`. Commits: intake → plan/ADR/handoff →
   T1 `1c1ae829` (cursor+CAS) → T2 (index 080) → T3 `4f3b8d35` (truncation alert) →
-  review fixes `cce0de91` (1a/2a/2b/3).
-- **Verify gate: GREEN** (re-run after `cce0de91`); `.feature/gate-status.json` fresh.
+  review fixes `cce0de91` (1a/2a/2b/3) → step-7 triage fixes (this commit).
+- **Verify gate: GREEN** (re-run after the step-7 triage fixes); `.feature/gate-status.json`
+  fresh (ts 1784344125; 16/16, 8703 tests pass).
+- **Step 7 dual-axis review DONE.** Two fresh agents on the branch diff since fork
+  `96b4f28c`. Full reports + triage verdicts in `docs/reviews/feat-stripe-reconcile-remainders/`
+  (`spec-correctness.md`, `standards-maintainability.md`, `TRIAGE.md`). Both axes
+  passed; 4 confidence-filtered findings, all comment-level:
+  - S1 (MED), S2 (LOW), S3 (LOW): ACCEPTED — stale-comment fixes (stall-resets-counter
+    per FIX 2b; boot-load is lazy first-tick per FIX 3; file-header scope includes
+    `trialing`). Comment-only, no behavior change.
+  - F1 (LOW): behavioral change REJECTED (removing the `accountCursor` re-seed would
+    discard durable rotation progress and make the persisted value race-dependent —
+    the durable re-seed is deliberate + safe under never-skip; see TRIAGE.md). Accepted
+    as a doc gap: clarified the finally comment + added a lock-in regression test.
 - **Step 6 adversarial review DONE**: ran via the Codex rescue agent (the
   `/codex:adversarial-review` slash command is user-only). Triage:
   - FIXED: 1a boot-load-failure CAS re-seed; 2a non-timeout-error no longer
@@ -46,13 +58,7 @@ Bootstrap order: this doc → intake → plan → ADR → (later) deviations + r
   Codex. The built code still gets step-6 (adversarial) + step-7 (dual-axis) review.
 
 ## Remaining work
-- **Step 7 — dual-axis review (NEXT).** Two fresh agents on the branch diff since the
-  fork point: (a) spec & correctness vs `.feature/intake.json` (field by field);
-  (b) standards & maintainability (`/thermo-nuclear-code-quality-review`, fallback
-  `/code-review` high). Confidence ≥80% findings only → full reports to
-  `docs/reviews/feat-stripe-reconcile-remainders/`, findings tables in context.
-  Triage with `receiving-code-review`, re-run the gate, then update this handoff.
-- **Step 8 — SHIP (RISK=high lane).** Land on `staging` (full-stack auto-deploy),
+- **Step 8 — SHIP (RISK=high lane) (NEXT).** Land on `staging` (full-stack auto-deploy),
   apply migrations 079+080 to the **staging** Supabase project FIRST, run the
   **mandatory `EXPLAIN (ANALYZE, BUFFERS)`** on the reconcile query (cursor-null +
   cursor-set) to validate/decide index 080, smoke the poller. Then PR to `main`,

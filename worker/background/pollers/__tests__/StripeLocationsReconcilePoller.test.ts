@@ -1751,6 +1751,30 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(persist.values[2]).toBe(6);
   });
 
+  it('a failed boot-load re-seed restores the durable cursor FRONTIER, not just writeSeq (FIX 1a)', async () => {
+    // Boot-load rejects → unseeded, accountCursor defaults to null (top of rotation).
+    // The persist-path re-seed must recover BOTH the durable write_seq AND the durable
+    // cursor frontier the failed boot-load never observed — deterministically, so the
+    // persisted value is race-free w.r.t. the detached truncation tail (ADR 0006 lag).
+    // Recovering the frontier is safe under never-skip and preferable to discarding
+    // durable progress (which resuming from null would do). This locks the intent:
+    // dropping the accountCursor re-seed would persist null here instead.
+    mockSql.mockImplementationOnce(() => Promise.reject(new Error('boot-load blip')));
+    await beginCursorLoadForTests(); // .catch → unseeded, accountCursor=null
+
+    sqlReturnQueue.push([]); // accounts query → empty (drained); in-memory cursor stays null
+    sqlReturnQueue.push([{ cursor: 'acct-frontier', write_seq: 7 }]); // re-seed sees the durable frontier
+
+    await runOnce();
+
+    const persist = sqlCalls.find((c) => c.template.includes('INSERT INTO poller_cursors'))!;
+    expect(persist).toBeDefined();
+    // values = [POLLER_NAME, cursor, writeSeq]: the durable frontier is recovered
+    // (not the null in-memory cursor), seq re-seeded 7 → 8.
+    expect(persist.values[1]).toBe('acct-frontier');
+    expect(persist.values[2]).toBe(8);
+  });
+
   it('a failed boot-load AND a failed re-seed skip the persist this cycle (no save) but still release inProgress', async () => {
     vi.useFakeTimers();
     // Boot-load rejects → unseeded. Then the re-seed load in the persist path also
