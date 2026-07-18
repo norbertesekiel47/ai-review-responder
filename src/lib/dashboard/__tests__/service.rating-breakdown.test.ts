@@ -7,9 +7,9 @@ import { REVIEW_STATUS } from '@/lib/reviews/status';
 // @/lib/db/server no longer needs mocking here — the fragment-aware
 // createMockSql harness stands in for `sql` directly (worker/__tests__/helpers/mock-sql.ts).
 
-// readPendingMarker reads Redis; tests don't exercise the connect flow.
+// readPendingMarker + the payload read cache both hit Redis; always-miss stub.
 vi.mock('@/lib/db/redis-cache', () => ({
-  getCacheRedis: () => ({ get: vi.fn(async () => null) }),
+  getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
 }));
 
 import { getActiveDashboardData } from '../service';
