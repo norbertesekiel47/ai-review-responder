@@ -193,6 +193,15 @@ describe('PoolWedgeReaperPoller — lifecycle verification (F1 + F2)', () => {
 });
 
 describe('startPoolWedgeReaperPoller — enable gate', () => {
+  it('skips entirely (no client built) when POOL_WEDGE_REAPER_ENABLED is unset — dormant by default', async () => {
+    mockGetWorkerConfig.mockReturnValue({});
+    const { startPoolWedgeReaperPoller } = await import('../PoolWedgeReaperPoller');
+
+    expect(() => startPoolWedgeReaperPoller()).not.toThrow();
+    expect(mockCreateClient).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
   it('skips entirely (no client built) when POOL_WEDGE_REAPER_ENABLED is not "true"', async () => {
     mockGetWorkerConfig.mockReturnValue({ POOL_WEDGE_REAPER_ENABLED: 'false' });
     const { startPoolWedgeReaperPoller } = await import('../PoolWedgeReaperPoller');

@@ -51,9 +51,10 @@ const LOG_PREFIX = '[PoolWedgeReaperPoller]';
 //    after boot, so these return the same value a once-at-import const would) ──
 function readEnabled(): boolean {
   const raw = getWorkerConfig().POOL_WEDGE_REAPER_ENABLED?.trim();
-  // Default ON: the reaper is a safety backstop, so unset/blank means enabled;
-  // only an explicit non-'true' value (e.g. 'false') disables it.
-  if (raw === undefined || raw === '') return true;
+  // Default OFF: the ticket #500 brief ships the reaper DORMANT — it has never
+  // performed a live termination, so arming it is an explicit operator opt-in
+  // (review finding on PR #502: an unset env var must not arm a backstop that
+  // terminates backends).
   return raw === 'true';
 }
 
@@ -95,6 +96,7 @@ function buildReaperClient(url: string): ReaperClient {
 
 // ── module state ────────────────────────────────────────────────────────────
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
+let transientVerifyWarned = false;
 let reaperSql: ReaperClient | null = null;
 let isPolling = false;
 let disabled = false;
@@ -154,7 +156,13 @@ async function acquireVerifiedClient(
     // Thrown/timed-out verify is INDETERMINATE — a transient DB/network blip must
     // not be mistaken for a proven pooler route (F1). Retry on the next poll.
     await endQuietly(client);
-    logger.error('Direct-route verification errored (will retry)', toError(err));
+    if (!transientVerifyWarned) {
+      transientVerifyWarned = true;
+      logger.warn(
+        'Direct-route verification errored (will retry; further occurrences suppressed — expected on Railway, whose IPv4 egress cannot reach the direct route)',
+        toError(err),
+      );
+    }
     return { status: 'transient' };
   }
 }
