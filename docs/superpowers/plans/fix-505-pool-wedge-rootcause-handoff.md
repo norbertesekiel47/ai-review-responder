@@ -26,9 +26,10 @@ need the prior transcript. **Re-run the ARM CHECK first** (below).
 - Marker: **REMOVE** from all 6 sites; supersede ADR 0007.
 - #501: **already MERGED** (backlog-depth alert on main) — no land step.
 
-## Gate status
-- Step 3 plan adversarial review: Codex R1 = REVISE (addressed). **Codex R2 = <PENDING — record verdict here before EXECUTE>**.
-- User sign-off: plan decisions + surface amendment + F5 sequencing = GIVEN. Final plan sign-off after R2 APPROVED.
+## Gate status — STEP 3 COMPLETE, READY FOR STEP 4 (EXECUTE)
+- Plan adversarial review: Codex R1 REVISE (7) → R2 REVISE (3) → **R3 APPROVED**. All in plan-review doc.
+- User sign-off: all grill forks + surface amendment + F5 sequencing = GIVEN.
+- Next action on resume: run ARM CHECK, then EXECUTE via superpowers:subagent-driven-development (T1 + T3 parallelizable, T2 validated by T1, T4 last).
 
 ## Step 4 (EXECUTE) — dispatch fresh per-task subagents (subagent-driven-development), TDD where specifiable
 Order: **T1 harness** and **T3 reaper-delete** are independent (parallelizable); **T2 cure** code independent but validated by T1; **T4 docs** last.

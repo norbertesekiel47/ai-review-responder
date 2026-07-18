@@ -29,7 +29,9 @@ Confirmed addressed: root-cause framing now honest; reaper-deletion mechanics co
 | R2-2 | Shutdown cancels the `staggerBoot` handle but NOT the bounded readiness WAIT — its listener/continuation can outlive shutdown and still schedule loops / resume workers. | **ACCEPT** | One cancellation token (AbortSignal) spans readiness-await + stagger + worker-resume; shutdown aborts it; the readiness continuation checks the shutting-down flag before scheduling/resuming; readiness listener/resources disposed on abort. |
 | R2-3 | Worker "resume" (autorun) not ordered relative to `staggerBoot.done` → could recreate a concurrent DB burst; exactly-once activation during shutdown unresolved. | **ACCEPT** | Define ordering: resume DB-backed workers AFTER `staggerBoot.done` (or fold worker `.run()` into the staggered schedule as additional starts), guarded exactly-once + skipped if shutting down. |
 
-Round 3 dispatched to confirm. Max 3 rounds — if R3 still REVISE on something material, surface to user rather than loop.
+## Codex round 3 (VERDICT: APPROVED)
+R2-1/R2-2/R2-3 all confirmed RESOLVED. Plan adversarially approved after 3 rounds.
+Gate complete: Codex APPROVED + user sign-off on all grill forks + surface amend + F5 sequencing.
 
 ## Surface expansion required (needs user sign-off — hook enforces declared surface)
 Add to allowed_edit_surface: `worker/background/**` (boot-stagger + its tests),
