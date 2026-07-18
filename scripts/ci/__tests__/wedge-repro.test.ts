@@ -5,6 +5,7 @@ import {
   describeConnectionTarget,
   KNOWN_STAGING_REF,
   PROD_PROJECT_REFS,
+  runEmergencyCleanup,
 } from '../../wedge-repro';
 
 const STAGING_REF = KNOWN_STAGING_REF;
@@ -82,5 +83,42 @@ describe('describeConnectionTarget', () => {
       `postgresql://postgres.${PROD_REF}:pw@aws-0-us-west-1.pooler.supabase.com:6543/postgres`,
     );
     expect(() => assertStagingTarget(target, STAGING_REF)).toThrow(/PRODUCTION project ref/);
+  });
+});
+
+describe('runEmergencyCleanup (signal-path ordering — F3)', () => {
+  it('kills worker children BEFORE terminating backends, THEN closes the observer', async () => {
+    const order: string[] = [];
+    await runEmergencyCleanup({
+      killChildren: async () => {
+        order.push('kill-children');
+      },
+      terminateBackends: async () => {
+        order.push('terminate-backends');
+      },
+      closeObserver: async () => {
+        order.push('close-observer');
+      },
+    });
+    // Load-bearing: a child left alive can re-wedge backends AFTER the terminate
+    // pass, so children must die first.
+    expect(order).toEqual(['kill-children', 'terminate-backends', 'close-observer']);
+  });
+
+  it('still runs the later steps when an earlier step rejects', async () => {
+    const order: string[] = [];
+    await runEmergencyCleanup({
+      killChildren: async () => {
+        order.push('kill-children');
+        throw new Error('child kill blew up');
+      },
+      terminateBackends: async () => {
+        order.push('terminate-backends');
+      },
+      closeObserver: async () => {
+        order.push('close-observer');
+      },
+    });
+    expect(order).toEqual(['kill-children', 'terminate-backends', 'close-observer']);
   });
 });

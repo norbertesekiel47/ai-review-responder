@@ -142,3 +142,20 @@ the root-level `scripts/verify-stripe-price-parity.ts`. Both files stay inside t
 observer, staging-only guard) + `scripts/ci/__tests__/wedge-repro.test.ts` (11 guard
 tests green). typecheck / `ci:db-imports` strict / lint all clean. Operational baseline
 (OP1) + treatment (OP2) results are produced by the operator running the harness via MCP.
+
+## F3 — T1: SIGINT/SIGTERM path orphaned the worker child (spec item 6 gap)
+
+Spec review caught a real hole in "cleanup on EVERY exit path". The worker child was
+killed only in `runTrial`'s `finally`; the signal handler's `emergencyCleanup` terminated
+only the attributed DB backends + closed the observer, then `process.exit(130)` aborted
+the stack so `runTrial`'s `finally` (and `worker.kill()`) never ran. Because the child is
+spawned `detached: true`, it is in its own process group and never received the terminal
+signal either — so on SIGINT the real worker survived on staging and, still booting, could
+open/re-wedge NEW pooler backends AFTER the one-shot terminate pass (staging-bounded by the
+guard, but exactly what item 6 forbids). Fix: spawned children are now tracked in a
+main-scope `Set<SpawnedWorker>` (`liveWorkers`), registered before the first await and
+deregistered in `runTrial`'s finally after kill. Cleanup ordering extracted to a PURE,
+exported `runEmergencyCleanup({killChildren, terminateBackends, closeObserver})` that kills
+CHILDREN FIRST (source of new wedges), THEN backends, THEN the observer — order is
+regression-tested (2 new cases, incl. later-steps-run-when-an-earlier-step-rejects). Normal
++ error paths (runTrial finally) untouched. Guard suite now 13 green.

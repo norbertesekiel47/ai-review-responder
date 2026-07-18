@@ -410,6 +410,8 @@ interface TrialResult {
  * One fresh-process trial. `attributedPids` accumulates EVERY backend this trial
  * attributed to itself (new-since-spawn AND wedge-signature), so the caller's
  * finally-block can terminate all of them even if this function throws midway.
+ * `liveWorkers` tracks the spawned child at MAIN scope so the SIGINT/SIGTERM path
+ * (which `process.exit`s past this function's `finally`) can still kill it.
  */
 async function runTrial(
   observer: Sql,
@@ -417,6 +419,7 @@ async function runTrial(
   index: number,
   mode: 'baseline' | 'treatment',
   attributedPids: Set<number>,
+  liveWorkers: Set<SpawnedWorker>,
 ): Promise<TrialResult> {
   const result: TrialResult = {
     index,
@@ -444,6 +447,9 @@ async function runTrial(
 
   const port = config.workerPortBase + index;
   const worker = spawnWorker({ staggerEnabled: mode === 'treatment', port, verbose: config.verbose });
+  // Register at main scope BEFORE any await, so the signal path can kill it even
+  // if this trial is interrupted mid-boot. Deregistered in the finally after kill.
+  liveWorkers.add(worker);
   console.log(
     `[trial ${index}/${mode}] spawned worker (port ${port}, ` +
       `BOOT_STAGGER_ENABLED=${mode === 'treatment' ? 'unset→cure ON' : 'false→legacy boot'})`,
@@ -558,6 +564,7 @@ async function runTrial(
     return result;
   } finally {
     await worker.kill();
+    liveWorkers.delete(worker);
     // Terminate every still-attributed backend this trial wedged, then verify.
     for (const pid of attributedPids) await terminateBackend(observer, pid);
     await sleep(500);
@@ -575,15 +582,42 @@ async function runTrial(
 
 // ── entry point ───────────────────────────────────────────────────────────────
 
+/**
+ * Ordered cleanup for the signal path (SIGINT/SIGTERM), extracted PURE so the
+ * ordering is unit-testable without real processes. The order is LOAD-BEARING:
+ * kill the worker CHILDREN FIRST — a child left alive is detached (its own process
+ * group, so it never received the terminal signal) and keeps booting, which can
+ * re-wedge pooler backends AFTER a one-shot terminate pass; THEN terminate the
+ * attributed DB backends; THEN close the observer. Each step is awaited in turn,
+ * and a step that rejects is logged, never skipping the later steps.
+ */
+export async function runEmergencyCleanup(deps: {
+  killChildren: () => Promise<void>;
+  terminateBackends: () => Promise<void>;
+  closeObserver: () => Promise<void>;
+}): Promise<void> {
+  const step = async (label: string, fn: () => Promise<void>): Promise<void> => {
+    try {
+      await fn();
+    } catch (error) {
+      console.error(`[cleanup] ${label} step failed`, error);
+    }
+  };
+  await step('kill-children', deps.killChildren);
+  await step('terminate-backends', deps.terminateBackends);
+  await step('close-observer', deps.closeObserver);
+}
+
 async function runMode(
   observer: Sql,
   config: HarnessConfig,
   mode: 'baseline' | 'treatment',
   liveTrialPids: Set<number>,
+  liveWorkers: Set<SpawnedWorker>,
 ): Promise<TrialResult[]> {
   const results: TrialResult[] = [];
   for (let i = 0; i < config.trials; i++) {
-    const result = await runTrial(observer, config, i, mode, liveTrialPids);
+    const result = await runTrial(observer, config, i, mode, liveTrialPids, liveWorkers);
     results.push(result);
   }
   return results;
@@ -646,23 +680,32 @@ async function main(): Promise<number> {
     connection: { application_name: OBSERVER_APP_NAME, statement_timeout: 10_000 },
   });
 
-  // Backends this run has attributed to itself and must guarantee are cleaned up
-  // on EVERY exit path (success, error, SIGINT). runTrial clears it per trial, but
-  // this outer set + the signal handler close the window during an in-flight trial.
+  // Resources this run must guarantee are cleaned up on EVERY exit path (success,
+  // error, SIGINT/SIGTERM): the spawned worker CHILDREN (source of new wedges) and
+  // the attributed DB backends. runTrial's finally handles the normal + error
+  // paths; these main-scope sets + the signal handler close the window during an
+  // in-flight trial, where process.exit() would otherwise skip that finally.
   const liveTrialPids = new Set<number>();
+  const liveWorkers = new Set<SpawnedWorker>();
   let cleaningUp = false;
-  const emergencyCleanup = async (): Promise<void> => {
-    if (cleaningUp) return;
+  const emergencyCleanup = (): Promise<void> => {
+    if (cleaningUp) return Promise.resolve();
     cleaningUp = true;
-    for (const pid of liveTrialPids) await terminateBackend(observer, pid);
-    try {
-      await observer.end({ timeout: 5 });
-    } catch {
-      /* best-effort */
-    }
+    return runEmergencyCleanup({
+      // Kill children FIRST — they are the source of NEW pooler wedges.
+      killChildren: async () => {
+        for (const worker of liveWorkers) await worker.kill();
+        liveWorkers.clear();
+      },
+      terminateBackends: async () => {
+        for (const pid of liveTrialPids) await terminateBackend(observer, pid);
+        liveTrialPids.clear();
+      },
+      closeObserver: () => observer.end({ timeout: 5 }),
+    });
   };
   const onSignal = (): void => {
-    console.error('\n[wedge-repro] signal received — terminating attributed backends and exiting');
+    console.error('\n[wedge-repro] signal received — killing worker children + terminating backends, then exiting');
     void emergencyCleanup().finally(() => process.exit(130));
   };
   process.on('SIGINT', onSignal);
@@ -672,10 +715,10 @@ async function main(): Promise<number> {
   let treatment: TrialResult[] = [];
   try {
     if (config.command === 'baseline' || config.command === 'both') {
-      baseline = await runMode(observer, config, 'baseline', liveTrialPids);
+      baseline = await runMode(observer, config, 'baseline', liveTrialPids, liveWorkers);
     }
     if (config.command === 'treatment' || config.command === 'both') {
-      treatment = await runMode(observer, config, 'treatment', liveTrialPids);
+      treatment = await runMode(observer, config, 'treatment', liveTrialPids, liveWorkers);
     }
   } finally {
     process.off('SIGINT', onSignal);
