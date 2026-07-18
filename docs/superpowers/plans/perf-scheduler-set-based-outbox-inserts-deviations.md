@@ -31,6 +31,21 @@ Net: ranking's collapsed output is proven directly; weekly/monthly output is
 proven through the pre-existing live-DB archived suite + the 079 index/preflight
 suite + the mocked shape pins. No scheduler interface was widened for tests.
 
+### Migration-079 preflight test isolation (codex adversarial finding)
+
+The preflight-regression scenarios in `migration-079-outbox-dedup.integration.test.ts`
+seed TWO in-flight duplicates for one (aggregate_id, period). Against the REAL
+job_outbox — already carrying 079's partial unique indexes — the second insert
+hit 23505 and the CI `test` job went red (it only passed locally because the
+suite self-skips without `TEST_DATABASE_POOL_URL`). Fix: each preflight scenario
+now runs inside one `sql().begin()` transaction against a session-local
+`CREATE TEMP TABLE job_outbox (LIKE public.job_outbox …) ON COMMIT DROP` (copies
+no indexes, pg_temp shadows public → unqualified `job_outbox` resolves to it),
+isolating it from the shared table and other test files. The index-SEMANTICS
+scenarios stay against the real indexed table (they test the runtime guarantee).
+Temp-table isolation was used — the beforeAll/afterAll drop-and-recreate fallback
+was NOT needed.
+
 ### No new tenant-scope entries
 
 The merged statement targets `job_outbox` in addition to the scanned tenant
