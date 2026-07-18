@@ -90,6 +90,10 @@ import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
 import { startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
+// closeReaperClient is exported and ready but intentionally NOT wired into the
+// shutdown closeDb step yet — a later integration task awaits it alongside
+// health's closeHealthSql() (#500 T2 shutdown wiring).
+import { startPoolWedgeReaperPoller, stopPoolWedgeReaperPoller } from './background/pollers/PoolWedgeReaperPoller';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
 import {
   startAutonomyGovernorScheduler,
@@ -516,6 +520,7 @@ async function main(): Promise<void> {
   startAccountOffboardingReactivationResetPoller();
   startAccountOffboardingTeardownRetryPoller();
   startHealthAlertPoller();
+  startPoolWedgeReaperPoller();
   startJudgeSweepPoller();
   startAutonomyGovernorScheduler();
   console.log(`Worker service running on port ${PORT}`);
@@ -563,6 +568,7 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
+    stopPoolWedgeReaperPoller();
     stopJudgeSweepPoller();
     stopAutonomyGovernorScheduler();
   },
