@@ -15,11 +15,24 @@ Re-run the ARM CHECK first, then continue at **Step 8 (SHIP — RISK=high, stagi
 - **Decision (user):** enable **Supabase dedicated-IPv4 add-on** (~$4/mo/project)
   on staging (now) + prod (pre-merge). Restore staging `HEALTH_ALERT_POLL_INTERVAL_MS=86400000`
   meanwhile (DONE) → revert to `300000` once reaper proven.
-- **WAITING ON:** user to enable staging IPv4 add-on in Supabase dashboard
-  (RepWorth-staging → Settings → Add Ons → IPv4 Address). Then: restart worker →
-  confirm reaper verifies direct route in logs → run active+ClientRead tracer →
-  revert poll interval to 300000 → open PR to `main` (pause for merge) → enable
-  prod IPv4 before merge.
+- **COURSE CHANGE (user):** skip the IPv4 add-on for now → ship T2 with the reaper
+  DORMANT (`POOL_WEDGE_REAPER_ENABLED=false`), keep the 24h mitigation. See D9.
+- **Staging tracer DONE — T2 self-heal VALIDATED live:** #500 wedge reproduced
+  (`active`+`ClientRead`, marked, aging 3→46s+); T2 contains it (≤1 marked
+  backend, recycle flips it `active→idle`, shared pool + all other pollers
+  unaffected); reaper confirmed dormant. NEW finding: health poller wedges 100% of
+  cycles (pre-existing Supavisor/postgres.js stall) → health alerting
+  non-functional → root-cause deferred to follow-up. Full results: deviations D9.
+- **Staging env now:** `POOL_WEDGE_REAPER_ENABLED=false`,
+  `HEALTH_ALERT_POLL_INTERVAL_MS=86400000` (mitigation kept).
+- **REMAINING Step 8:** refresh gate → push branch + FF staging → open PR to `main`
+  with dormant-reaper context → file 2 follow-up tickets (Supavisor health-client
+  root cause; reaper-enable-once-IPv4) → PAUSE for user merge.
+- **PROD pre-merge prerequisites (before the merge deploys prod):**
+  `POOL_WEDGE_REAPER_ENABLED=false` AND `HEALTH_ALERT_POLL_INTERVAL_MS=86400000`
+  must be set on the Railway **production** worker, or prod ships a default-ON
+  inert reaper + an unmitigated wedging health poller. (Both are prod env changes
+  — do with explicit user go-ahead; the classifier blocks prod var writes.)
 
 ## Step 7 dual review: DONE — BOTH AXES CLEAN
 - Spec & correctness + Standards & maintainability both returned NO HIGH-CONFIDENCE

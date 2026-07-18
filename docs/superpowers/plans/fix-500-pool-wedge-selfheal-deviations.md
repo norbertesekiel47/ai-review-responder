@@ -220,3 +220,52 @@ record reachable from Railway. No code change; reaper works as designed.
 - Meanwhile staging `HEALTH_ALERT_POLL_INTERVAL_MS` restored to `86400000` (24h
   mitigation) until the reaper works AND T2's self-heal is proven end-to-end,
   then reverted to `300000`.
+
+> **SUPERSEDED by D9.** The user subsequently chose NOT to buy the IPv4 add-on
+> now, and to ship the reaper DORMANT (`POOL_WEDGE_REAPER_ENABLED=false`) with the
+> mitigation kept. D8's root-cause evidence still stands; only its "buy IPv4 now +
+> revert to 300000" resolution is replaced.
+
+### D9 — ship T2 (validated) with the reaper DORMANT; keep the 24h mitigation; root-cause + reaper-enable deferred to follow-ups
+
+**Staging tracer RESULTS (2026-07-18, reaper set `POOL_WEDGE_REAPER_ENABLED=false`,
+health interval temporarily 60000):**
+- **#500 wedge reproduces live.** A marked health backend parks in
+  `state=active, wait_event=ClientRead`, age climbing monotonically (sampled
+  3s→46s+) — the exact signature `selectWedgeCandidates` targets. Root mechanism:
+  the health checks' `Promise.all` batch through postgres.js on the **Supavisor
+  transaction pooler** stalls at the protocol layer even though each query is
+  fast (<40ms measured direct). NOT a slow query.
+- **T2 containment VALIDATED.** Only ~1 marked backend exists at a time (no
+  accumulation); the recycle's client-FIN flips the prior cycle's wedged backend
+  `active→idle`; all other ~20 pollers keep running throughout — the **shared
+  `sql` pool is never affected**. Bulkhead + recycle-on-timeout work exactly as
+  designed.
+- **Reaper dormant** confirmed (`Skipped — POOL_WEDGE_REAPER_ENABLED is not
+  "true"`, no ENETUNREACH spam).
+- **NEW finding:** the health poller wedges on **100% of cycles** → health
+  alerting is entirely non-functional (only ever times out). This is
+  **pre-existing** (the root wedge that caused #500 and prompted the 24h
+  mitigation); T2 contains the blast radius but does NOT cure the Supavisor
+  protocol stall — that was never in the self-heal's scope.
+
+**Decisions (user, 2026-07-18):**
+1. **Ship T2 now** (validated containment + marker + shutdown wiring) with the
+   reaper **shipped dormant** via env `POOL_WEDGE_REAPER_ENABLED=false` on staging
+   AND prod. Code default stays ON (backstop intent); the env flag gates it off
+   until a direct route exists.
+2. **Keep `HEALTH_ALERT_POLL_INTERVAL_MS=86400000`** (24h mitigation) on staging
+   AND prod — do NOT revert to 300000. Running the poller at short cadence now
+   would only spam timeouts with zero health signal (still wedges every cycle).
+3. **Two follow-up tickets** (NOT in this PR's scope):
+   - Root-cause the postgres.js↔Supavisor transaction-pooler wedge on the health
+     client (likely: run the 5 checks sequentially, or give each its own
+     connection / bump `max`, or a Supavisor-compat connection option) so the
+     poller completes → then it's safe to revert to 300000.
+   - Enable the reaper (`POOL_WEDGE_REAPER_ENABLED=true`) once a genuine-direct
+     route is reachable from Railway (Supabase IPv4 add-on, or an alternative
+     routing), and run the T1 termination tracer then.
+
+**Net:** this branch is a strict improvement — it contains a pre-existing wedge
+that previously starved the shared pool (#500) — and lands the infra needed to
+later re-enable the poller safely. Nothing regresses; the mitigation stays.
