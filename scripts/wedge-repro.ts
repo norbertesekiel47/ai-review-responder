@@ -40,96 +40,11 @@ import { fileURLToPath } from 'node:url';
 
 import { createDedicatedPostgresClient } from '../src/lib/db/server';
 import { runDirectCli } from './run-direct-cli';
-
-// ── safety guard (the most important part; the one part that MUST have tests) ──
-
-/**
- * Production Supabase project refs — the UNCONDITIONAL denylist. Refs are
- * non-secret discriminators (they appear in public connection hosts / usernames),
- * so hardcoding them here is intentional and correct; never add a password. If
- * the connection target matches ANY of these, the harness aborts regardless of
- * any flag. Source: docs/runbooks/deployment-guide.md ("Concrete IDs").
- */
-export const PROD_PROJECT_REFS = ['udeyaqnvpojbwgoaxwdg'] as const;
-
-/** The staging ref, for operator-facing messages only. NOT a security check. */
-export const KNOWN_STAGING_REF = 'kubdiqdhqbhwmqfditeg';
-
-/**
- * PURE, unit-tested gate. `host` is a ref-BEARING connection descriptor built by
- * describeConnectionTarget() — `user@hostname:port`, never a password — so the
- * project ref is present whether the URL is a Supabase pooler (`postgres.<ref>@…`)
- * or a direct connection (`db.<ref>.supabase.co`). Throws to reject; returns void
- * to accept.
- *
- * Order matters: the prod denylist is checked FIRST and wins over any flag, so a
- * staging `--confirm-staging` value can never authorize a prod-looking target.
- */
-export function assertStagingTarget(host: string, confirmRef: string): void {
-  const target = host.toLowerCase();
-
-  // 1. Unconditional prod reject — denylist beats every flag.
-  for (const prodRef of PROD_PROJECT_REFS) {
-    if (target.includes(prodRef)) {
-      throw new Error(
-        `REFUSING TO RUN: connection target matches a PRODUCTION project ref (${prodRef}). ` +
-          `This harness boots a real worker and runs pg_terminate_backend — staging only.`,
-      );
-    }
-  }
-
-  // 2. Positive staging confirmation required — the operator must pass the ref AND
-  //    it must actually be present in the connection target.
-  const ref = confirmRef.trim().toLowerCase();
-  if (!ref) {
-    throw new Error(
-      'REFUSING TO RUN: pass --confirm-staging <project-ref> with the expected staging Supabase project ref.',
-    );
-  }
-  if (PROD_PROJECT_REFS.some((prodRef) => ref === prodRef || ref.includes(prodRef))) {
-    throw new Error(
-      `REFUSING TO RUN: --confirm-staging was given a production project ref (${ref}).`,
-    );
-  }
-  if (!target.includes(ref)) {
-    throw new Error(
-      `REFUSING TO RUN: connection target does not contain the confirmed staging ref (${ref}). ` +
-        `The --confirm-staging value must match the DB the harness is pointed at.`,
-    );
-  }
-}
-
-// ── connection-target parsing (never surfaces the password) ───────────────────
-
-/**
- * A ref-bearing, password-FREE descriptor of a Postgres URL: `user@hostname:port`.
- * Fed to assertStagingTarget and used for logging. Throws on an unparseable URL.
- */
-export function describeConnectionTarget(url: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('connection URL is not parseable');
-  }
-  const user = parsed.username || '(no-user)';
-  const port = parsed.port || '(no-port)';
-  return `${user}@${parsed.hostname}:${port}`;
-}
-
-/** Best-effort extract of the project ref for logging (host `db.<ref>.` or user `postgres.<ref>`). */
-function extractProjectRefForLog(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const hostMatch = /^db\.([a-z0-9]{16,})\./i.exec(parsed.hostname);
-    if (hostMatch) return hostMatch[1]!;
-    const userMatch = /^[^.]+\.([a-z0-9]{16,})$/i.exec(parsed.username);
-    if (userMatch) return userMatch[1]!;
-    return '(ref-not-found)';
-  } catch {
-    return '(unparseable)';
-  }
-}
+import {
+  assertStagingTarget,
+  describeConnectionTarget,
+  extractProjectRefForLog,
+} from './staging-guard';
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
