@@ -384,6 +384,10 @@ export function buildReleaseHint(config: Pick<InjectConfig, 'availableInMin' | '
 
 // ── subcommand runners ────────────────────────────────────────────────────────
 
+// Staging operational harness, live-DB CLI (like scripts/wedge-repro.ts) — 0%
+// runtime coverage BY DESIGN, not risk; the pure helpers it calls (computeInjectionSchedule,
+// buildReleaseHint, insertDrillBatch's row builder) ARE unit-tested.
+// fallow-ignore-next-line complexity
 async function runInject(config: InjectConfig, sql: Sql): Promise<number> {
   const schedule = computeInjectionSchedule(config.events, config.durationMin, config.batchSize);
   const arm = config.availableInMin > 0 ? `over-threshold(hold +${config.availableInMin}min)` : 'headroom(drain)';

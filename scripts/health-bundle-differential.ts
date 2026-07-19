@@ -399,6 +399,10 @@ async function main(): Promise<number> {
 
   const liveClients = new Set<Sql>();
   let cleaningUp = false;
+  // Staging operational harness, live-DB CLI (like scripts/wedge-repro.ts) — 0%
+  // runtime coverage BY DESIGN, not risk; the pure helpers (classifyArm, collapseArmOutcome,
+  // evaluateRun) ARE unit-tested.
+  // fallow-ignore-next-line complexity
   const emergencyCleanup = async (): Promise<void> => {
     if (cleaningUp) return;
     cleaningUp = true;
