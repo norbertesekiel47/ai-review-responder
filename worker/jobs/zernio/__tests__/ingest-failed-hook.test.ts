@@ -76,7 +76,9 @@ describe('handleIngestFailed', () => {
       const sqlCall = mockSql.mock.calls[0]!;
       const stringPart = (sqlCall[0] as TemplateStringsArray).join('?');
       expect(stringPart).toContain('INSERT INTO review_exceptions');
-      expect(stringPart).toContain("'zernio_review_not_found'");
+      // The exception type is a bound value now (single-owner INSERT helper),
+      // not a literal in the SQL text.
+      expect(sqlCall.slice(1)).toContain('zernio_review_not_found');
       expect(stringPart).toContain("ON CONFLICT (business_id, type, (payload->>'provider_review_id'))");
       expect(stringPart).toContain('DO NOTHING');
 
@@ -150,7 +152,8 @@ describe('handleIngestFailed', () => {
       const sqlCall = mockSql.mock.calls[0]!;
       const stringPart = (sqlCall[0] as TemplateStringsArray).join('?');
       expect(stringPart).toContain('INSERT INTO review_exceptions');
-      expect(stringPart).toContain("'zernio_pagination_cap_exhausted'");
+      // Bound value, not SQL text — see the review_not_found test.
+      expect(sqlCall.slice(1)).toContain('zernio_pagination_cap_exhausted');
 
       // Verify error fields flow into the SQL interpolations.
       const interpolatedValues = sqlCall.slice(1);
@@ -223,7 +226,8 @@ describe('handleIngestFailed', () => {
       const firstSqlCall = mockSql.mock.calls[0]!;
       const firstSql = (firstSqlCall[0] as TemplateStringsArray).join('?');
       expect(firstSql).toContain('INSERT INTO review_exceptions');
-      expect(firstSql).toContain("'zernio_unparseable_review_name'");
+      // Bound value, not SQL text — see the review_not_found test.
+      expect(firstSqlCall.slice(1)).toContain('zernio_unparseable_review_name');
       expect(firstSql).toContain('RETURNING id');
 
       const firstInterpolated = firstSqlCall.slice(1);

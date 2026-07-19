@@ -111,7 +111,7 @@ describe('getAggregateDashboardData degradation', () => {
     expect(result.locationKpis.map((k) => k.billingPending)).toEqual([false, true]);
     expect(result.locationKpis).toHaveLength(2); // slices unaffected
     expect(mockReportCaughtError).toHaveBeenCalledWith(
-      expect.any(String),
+      'dashboard/aggregate',
       expect.any(Error),
       expect.objectContaining({
         accountId: 'acc-1',
@@ -134,7 +134,7 @@ describe('getAggregateDashboardData degradation', () => {
     expect(result.locationKpis).toHaveLength(2); // slices unaffected
     expect(result.valueSummary.currentResponseRate).toBe(80); // 16/20 windowed
     expect(mockReportCaughtError).toHaveBeenCalledWith(
-      expect.any(String),
+      'dashboard/aggregate',
       expect.any(Error),
       expect.objectContaining({
         accountId: 'acc-1',

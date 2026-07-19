@@ -19,7 +19,7 @@ import {
   DEFAULT_DASHBOARD_WINDOW,
 } from '@/lib/kpi/types';
 import { mapRecentReviews } from './active-mappers';
-import { widgetOrFallback } from './service';
+import { widgetOrFallbackFor } from './service';
 import { sumRatingBreakdowns } from './rating-breakdown';
 import {
   fetchPerLocationAggregateSlices,
@@ -66,6 +66,10 @@ const AGGREGATE_CACHE_TTL_SECONDS = 45;
 function aggregateCacheKey(accountId: string, window: DashboardWindow): string {
   return `dashboard:aggregate:${accountId}:${window}`;
 }
+
+// Aggregate degradations report under this module's own source tag (matching
+// its log prefix), not the per-location path's 'dashboard/service'.
+const widgetOrFallback = widgetOrFallbackFor('dashboard/aggregate');
 
 /**
  * Builds aggregate dashboard data for all active locations in an account.

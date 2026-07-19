@@ -48,6 +48,23 @@ function isCostCapError(err: unknown): err is CostLimitExceededError | GlobalCos
   return err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError;
 }
 
+// Single owner of the retryable-generation classification (primary catch, inner
+// guardrail catch, outer guardrail catch all defer here): these classes mean no
+// spend happened and no budget decision was made — provider outage/rate-limit
+// (TransientLLMError), pre-LLM cost-guard Redis transport blip
+// (CostInfraUnavailableError), or concurrency-slot contention
+// (ConcurrencyLimitExceededError) — so the job re-throws for BullMQ retry.
+// A future transient class is added HERE, not at each catch site.
+function isTransientGenerationError(
+  err: unknown,
+): err is TransientLLMError | CostInfraUnavailableError | ConcurrencyLimitExceededError {
+  return (
+    err instanceof TransientLLMError ||
+    err instanceof CostInfraUnavailableError ||
+    err instanceof ConcurrencyLimitExceededError
+  );
+}
+
 // Dropped paid work must not be silent: a cap exhaustion terminally drops a draft
 // the owner is paying for. Surface to the non-email alert sink (Sentry →
 // Slack/PagerDuty) even though the failure stays terminal. (Beta-launch gate B3.)
@@ -121,24 +138,18 @@ export async function generateDraft(
       alertCostCapExhausted(err, businessId, reviewId, version);
       return { kind: 'failed', reason: err.message };
     }
-    if (err instanceof ConcurrencyLimitExceededError) {
-      // Transient — other jobs will finish, then this one can proceed
-      throw err;
-    }
-    if (err instanceof CostInfraUnavailableError) {
-      // Pre-LLM cost-guard Redis (Upstash) transport failure — re-throw so
-      // BullMQ retries (3 attempts + backoff) and, if those exhaust, the outbox
-      // watchdog re-dispatches after the 1h stale window. Matches the already-
-      // retryable checkRegenBudget path; the cost RESERVATION precedes the LLM
-      // call, so no spend has occurred. Budget-exceeded errors stay terminal above.
-      logger.warn(`Cost-guard infra unavailable for review ${reviewId} (will retry): ${err.message}`);
-      throw err;
-    }
-    if (err instanceof TransientLLMError) {
-      // Provider outage / rate-limit / network — rethrow so BullMQ retries
-      // (3 attempts + exponential backoff) and, if those exhaust, the outbox
-      // watchdog re-dispatches after the 1h stale window.
-      logger.warn(`Transient LLM error for review ${reviewId} (will retry): ${err.message}`);
+    if (isTransientGenerationError(err)) {
+      // Re-throw so BullMQ retries (3 attempts + backoff) and, if those
+      // exhaust, the outbox watchdog re-dispatches after the 1h stale window.
+      // For CostInfraUnavailableError the cost RESERVATION precedes the LLM
+      // call, so no spend has occurred (budget-exceeded errors stay terminal
+      // above); ConcurrencyLimitExceededError simply waits out other jobs, so
+      // it re-throws without a warning.
+      if (err instanceof CostInfraUnavailableError) {
+        logger.warn(`Cost-guard infra unavailable for review ${reviewId} (will retry): ${err.message}`);
+      } else if (err instanceof TransientLLMError) {
+        logger.warn(`Transient LLM error for review ${reviewId} (will retry): ${err.message}`);
+      }
       throw err;
     }
     // Permanent LLM/config error (auth, bad request, validation)
@@ -172,11 +183,7 @@ export async function generateDraft(
       alertCostCapExhausted(err, businessId, reviewId, version);
       return { kind: 'failed', reason: err.message };
     }
-    if (
-      err instanceof TransientLLMError ||
-      err instanceof CostInfraUnavailableError ||
-      err instanceof ConcurrencyLimitExceededError
-    ) {
+    if (isTransientGenerationError(err)) {
       logger.warn(`Transient failure during avoid-facts guardrail for review ${reviewId} (will retry): ${err.message}`);
       throw err;
     }
@@ -267,13 +274,7 @@ async function applyAvoidFactsGuardrail(
     // attempts budget.
     // (Owner decision 2026-07-16: includes CostInfraUnavailableError, replacing
     // the earlier anti-respend carve-out — see the prod-hardening-guards spec.)
-    if (
-      err instanceof TransientLLMError ||
-      err instanceof CostInfraUnavailableError ||
-      err instanceof ConcurrencyLimitExceededError
-    ) {
-      throw err;
-    }
+    if (isTransientGenerationError(err)) throw err;
     // Retry failed or still violates — do NOT fall back to the violating draft.
     // Throw so the worker marks this as failed and creates a review exception.
     const message = err instanceof Error ? err.message : String(err);

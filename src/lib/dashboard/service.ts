@@ -85,23 +85,29 @@ export class BusinessNotFoundError extends Error {
  * (never silent) and the widget renders its empty state. Only the business
  * lookup stays fatal — a dashboard for a missing business is meaningless.
  *
- * Shared with the aggregate path (aggregate-service.ts), which passes
- * `{ accountId }` context instead of `{ businessId }`.
+ * Curried on `source` so each consumer's degradations report under its own
+ * Sentry source tag: this module binds `'dashboard/service'` below; the
+ * aggregate path (aggregate-service.ts) binds `'dashboard/aggregate'` and
+ * passes `{ accountId }` context instead of `{ businessId }`.
  */
-export function widgetOrFallback<T>(
-  result: PromiseSettledResult<T>,
-  fallback: T,
-  widget: string,
-  context: Record<string, string>,
-): T {
-  if (result.status === 'fulfilled') return result.value;
-  reportCaughtError('dashboard/service', result.reason, {
-    ...context,
-    widget,
-    degraded: true,
-  });
-  return fallback;
+export function widgetOrFallbackFor(source: string) {
+  return function widgetOrFallback<T>(
+    result: PromiseSettledResult<T>,
+    fallback: T,
+    widget: string,
+    context: Record<string, string>,
+  ): T {
+    if (result.status === 'fulfilled') return result.value;
+    reportCaughtError(source, result.reason, {
+      ...context,
+      widget,
+      degraded: true,
+    });
+    return fallback;
+  };
 }
+
+const widgetOrFallback = widgetOrFallbackFor('dashboard/service');
 
 export async function getActiveDashboardData(
   sql: Sql,
