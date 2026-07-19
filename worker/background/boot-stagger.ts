@@ -242,25 +242,56 @@ export async function runBootCoordinator(deps: BootCoordinatorDeps): Promise<voi
     return;
   }
 
-  const outcome = await awaitReadiness(signal);
-  if (signal.aborted || outcome === 'aborted') {
-    log?.('[boot] aborted during readiness wait — nothing started');
-    return;
-  }
-  if (outcome === 'timeout') {
-    log?.('[boot] queue readiness not confirmed within timeout — proceeding (system is spend-safe)');
-  }
+  // Tracks whether staggerBoot was reached: past that point every start() has
+  // either fired or been contained by onStartError, so the failure recovery
+  // below must not re-fire starts (loops are not guaranteed re-entrant).
+  let staggerBegan = false;
+  try {
+    const outcome = await awaitReadiness(signal);
+    if (signal.aborted || outcome === 'aborted') {
+      log?.('[boot] aborted during readiness wait — nothing started');
+      return;
+    }
+    if (outcome === 'timeout') {
+      log?.('[boot] queue readiness not confirmed within timeout — proceeding (system is spend-safe)');
+    }
 
-  const { done } = staggerBoot(starts, staggerOptions, scheduler, signal);
-  await done;
+    staggerBegan = true;
+    const { done } = staggerBoot(starts, staggerOptions, scheduler, signal);
+    await done;
 
-  if (signal.aborted) {
-    log?.('[boot] aborted during staggered start — not resuming workers');
-    return;
+    if (signal.aborted) {
+      log?.('[boot] aborted during staggered start — not resuming workers');
+      return;
+    }
+
+    resumeWorkers();
+    log?.('[boot] readiness cure complete — background loops staggered, workers resumed');
+  } catch (err) {
+    // An unexpected coordinator failure must NEVER leave a zombie worker (up
+    // and listening but draining zero jobs, with no loops and therefore no
+    // paging). Deliberate aborts return above; anything else fails OPEN to the
+    // legacy synchronous boot: fire the starts (only if the stagger never
+    // began — past that point per-start errors were already contained) and
+    // always resume the BullMQ workers, then rethrow so the caller still logs
+    // the root failure.
+    if (signal.aborted) {
+      log?.('[boot] aborted during coordinator failure — not resuming workers');
+      throw err;
+    }
+    log?.('[boot] coordinator failed — failing OPEN to synchronous start so the worker cannot zombie');
+    if (!staggerBegan) {
+      for (const start of starts) {
+        try {
+          start();
+        } catch (startErr) {
+          staggerOptions.onStartError?.(startErr);
+        }
+      }
+    }
+    resumeWorkers();
+    throw err;
   }
-
-  resumeWorkers();
-  log?.('[boot] readiness cure complete — background loops staggered, workers resumed');
 }
 
 /**

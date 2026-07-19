@@ -367,6 +367,57 @@ describe('runBootCoordinator', () => {
     expect(ran).toEqual([0]);
     expect(resumeWorkers).not.toHaveBeenCalled();
   });
+
+  // FIX F2 (zombie worker): an UNEXPECTED coordinator failure (not an abort)
+  // must fail OPEN — fire the starts synchronously and resume the workers —
+  // otherwise the process sits "up" while draining zero jobs with no paging.
+  it('readiness rejection fails OPEN: starts fired, workers resumed, error rethrown', async () => {
+    const order: string[] = [];
+    const starts = [0, 1].map((i) => () => order.push(`start${i}`));
+    const resumeWorkers = vi.fn(() => {
+      order.push('resume');
+    });
+    const controller = new AbortController();
+
+    await expect(
+      runBootCoordinator({
+        awaitReadiness: async () => {
+          throw new Error('readiness infra exploded');
+        },
+        starts,
+        staggerOptions,
+        resumeWorkers,
+        signal: controller.signal,
+        scheduler: makeFakeScheduler().scheduler,
+      }),
+    ).rejects.toThrow('readiness infra exploded');
+
+    expect(order).toEqual(['start0', 'start1', 'resume']);
+    expect(resumeWorkers).toHaveBeenCalledTimes(1);
+  });
+
+  it('failure recovery does NOT fire starts or resume workers when the signal aborted', async () => {
+    const start = vi.fn();
+    const resumeWorkers = vi.fn();
+    const controller = new AbortController();
+
+    await expect(
+      runBootCoordinator({
+        awaitReadiness: async () => {
+          controller.abort();
+          throw new Error('failed while aborting');
+        },
+        starts: [start],
+        staggerOptions,
+        resumeWorkers,
+        signal: controller.signal,
+        scheduler: makeFakeScheduler().scheduler,
+      }),
+    ).rejects.toThrow('failed while aborting');
+
+    expect(start).not.toHaveBeenCalled();
+    expect(resumeWorkers).not.toHaveBeenCalled();
+  });
 });
 
 describe('isBootStaggerEnabled', () => {
