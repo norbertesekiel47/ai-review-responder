@@ -213,7 +213,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   // server-side in state=active / wait_event=ClientRead and never returns — a
   // PERMANENT connection wedge every poller cycle on the max:2 health client.
   // Proven by the #505 staging differential repro (6/6 concurrent iterations
-  // wedged vs 0/6 sequential). Sequential naturally preserves the 5 core checks'
+  // wedged vs 0/6 sequential). Sequential naturally preserves the core checks'
   // shared-fate: a core-check rejection propagates and fails the cycle, and the
   // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes.md.
   collect(await checkFailedOutboxByTopic(sql, cfg));

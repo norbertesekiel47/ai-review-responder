@@ -139,8 +139,8 @@ export async function generateDraft(
       return { kind: 'failed', reason: err.message };
     }
     if (isTransientGenerationError(err)) {
-      // Re-throw so BullMQ retries (3 attempts + backoff) and, if those
-      // exhaust, the outbox watchdog re-dispatches after the 1h stale window.
+      // Re-throw so BullMQ retries (the queue's attempts budget + backoff) and, if those
+      // exhaust, the outbox watchdog re-dispatches after its stale window.
       // For CostInfraUnavailableError the cost RESERVATION precedes the LLM
       // call, so no spend has occurred (budget-exceeded errors stay terminal
       // above); ConcurrencyLimitExceededError simply waits out other jobs, so
