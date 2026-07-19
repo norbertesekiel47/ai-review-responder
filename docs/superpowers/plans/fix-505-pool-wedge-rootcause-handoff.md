@@ -26,7 +26,21 @@ need the prior transcript. **Re-run the ARM CHECK first** (below).
 - Marker: **REMOVE** from all 6 sites; supersede ADR 0007.
 - #501: **already MERGED** (backlog-depth alert on main) — no land step.
 
-## Gate status — STEPS 4, 5, 7 COMPLETE; READY FOR STEP 6 (user) + STEP 8 (SHIP)
+## Gate status — SHIPPED as PR #506 (cure PROVEN + validated on staging)
+- **BREAKTHROUGH:** the boot-stagger was NOT the cure. Staging validation (OP3, 5-min cadence)
+  showed the wedge recurs EVERY cycle; a differential repro proved the real cause is
+  `runHealthChecks` firing 6 queries via `Promise.all` on a max:2 client over the Supavisor
+  transaction pooler → pipelined response parks in ClientRead. Fix = sequential bundle
+  (commit `a10f5eb`). Differential 6/6→0/6; shipped-fn 0/6; unit test peak-concurrency==1;
+  end-to-end staging steady-state (post-cure, 5-min cadence, ~4 cycles): ZERO failures, ZERO wedges.
+- Boot-stagger reclassified as hardening; reaper deletion stands; docs corrected (ADR 0008,
+  investigation, lab note); broader-pattern audit → `*-pipelining-audit-ticket.md`.
+- **PR #506** → main: https://github.com/RepWorth/ai-review-responder/pull/506
+- Staging left CURED (cure deployed, `HEALTH_ALERT_POLL_INTERVAL_MS` removed, poller at 5-min).
+- Remaining: user's optional adversarial review; CI-green then merge; prod-env cleanup at promotion
+  (remove `HEALTH_ALERT_POLL_INTERVAL_MS` + all `POOL_WEDGE_REAPER_*`); ff `staging`→`main`.
+
+## (historical) Prior gate status — STEPS 4, 5, 7 COMPLETE; READY FOR STEP 6 + STEP 8
 - Plan adversarial review: Codex R1 REVISE (7) → R2 REVISE (3) → **R3 APPROVED**. All in plan-review doc.
 - User sign-off: all grill forks + surface amendment + F5 sequencing = GIVEN.
 - **Step 4 EXECUTE done** — T3→T2→T1→T4 (order deviation D0), each through spec + code-quality
