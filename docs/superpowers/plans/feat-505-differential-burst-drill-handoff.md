@@ -39,14 +39,21 @@ staging with recorded numbers. Remainder 2 (24h soak) is **#507**, out of scope.
 ## Current step
 
 **Step 3 (PLAN) — plan gate in progress.** Codex round 1 → `REVISE` (9 findings,
-all triaged in D2, plan revised + committed `fb33fdc7`). **Codex round 2
-re-review is running** (resume agent `a2d0d603ab752b74a` / ref `059e61`).
+triaged in **D2**, revised, `fb33fdc7`). Codex round 2 → `REVISE` (sharper
+findings incl. a real cleanup-reliability bug: `end()` doesn't reliably kill a
+wedged backend, #477; triaged in **D3**, revised, `aa754354`). **Codex round 3
+(the final allowed round) is running** (resume agent `a2d0d603ab752b74a` / ref
+`059e61`).
 
 ### Immediate next actions (in order)
 
-1. **Receive codex round-2 verdict.** If `REVISE`: triage (receiving-code-review),
-   revise plan, re-submit (max 3 rounds total; after that surface disagreement to
-   the user). If `APPROVED`: proceed.
+1. **Receive codex round-3 verdict** (read via the task-notification, not the
+   transcript file). This is round 3 of the 3-round cap:
+   - `APPROVED` → go to #2.
+   - `REVISE` → do NOT loop further. Separate BLOCKING items (unsafe on staging /
+     wouldn't prove the wedge) from polish; apply any quick blocking fixes, then
+     **surface the residual disagreement to the user** with a recommendation
+     (workflow rule) rather than a round 4.
 2. **User sign-off on the revised plan** (step 3 requires it for RISK=high), INCLUDING
    the two intake amendments (positive-allowlist guard; db_touching clarification)
    and the D2#4 scope narrowing (drill proves outbox dispatch-drain, not full LLM
