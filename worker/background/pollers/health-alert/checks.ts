@@ -9,16 +9,6 @@ import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
 
-// Cooperative opt-in identity marker (#500). Every health-check query below
-// BEGINS WITH this literal comment so the PoolWedgeReaperPoller's anchored-prefix
-// match (`query LIKE '/* rw-reapable */%'`) can identify + server-side-kill a
-// wedged health backend as the backstop to the in-process self-heal. It MUST be
-// the very first characters of the query text postgres.js sends — placed
-// immediately after the opening backtick with no leading whitespace — because the
-// driver seeds the sent string with `strings[0]` verbatim (no trimming) and
-// pg_stat_activity exposes it as received. Read-only marker; changes no results.
-// Keep in lockstep with REAPABLE_MARKER in pool-wedge-reaper/reaper-query.ts.
-
 export interface HealthFinding {
   key: string;
   level: 'warning' | 'error';
@@ -61,7 +51,7 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
   // is still inside the window by its failure time. (Codex review: window by
   // failure time, not dispatch time.)
-  const rows = await sql<{ topic: string; count: number }[]>`/* rw-reapable */
+  const rows = await sql<{ topic: string; count: number }[]>`
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
@@ -82,7 +72,7 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
 // Oldest claimable pending row — a climbing age means dispatch is backed up or
 // the OutboxPoller has stalled.
 export async function checkOldestPendingOutbox(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ age: number | null }[]>`/* rw-reapable */
+  const [row] = await sql<{ age: number | null }[]>`
     SELECT EXTRACT(EPOCH FROM (NOW() - MIN(available_at)))::int AS age
     FROM job_outbox
     WHERE status = 'pending' AND available_at <= NOW()
@@ -100,7 +90,7 @@ export async function checkOldestPendingOutbox(sql: postgres.Sql, cfg: HealthAle
 // Rows stuck mid-dispatch far longer than the OutboxPoller watchdog's 2-min
 // recovery window — a sign the watchdog itself isn't running.
 export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
+  const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'dispatching'
@@ -119,7 +109,7 @@ export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertC
 // Unreviewed high-severity held drafts. A growing backlog means nobody is
 // working /admin/flagged, so safe-but-held drafts never reach owners.
 export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
+  const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count FROM flagged_responses WHERE status = 'open'
   `;
   const count = row?.count ?? 0;
@@ -142,7 +132,7 @@ export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAl
 // archived/offboarding) which legitimately complete with no delivery row, while
 // keeping the genuine "owner has no channel / never notified" signal.
 export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
-  const [row] = await sql<{ count: number }[]>`/* rw-reapable */
+  const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM job_outbox jo
     JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid
@@ -184,29 +174,43 @@ export async function checkBacklogDepth(sql: postgres.Sql, cfg: HealthAlertConfi
 
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
-  const results = await Promise.all([
-    checkFailedOutboxByTopic(sql, cfg),
-    checkOldestPendingOutbox(sql, cfg),
-    checkStaleDispatching(sql, cfg),
-    checkOpenFlaggedResponses(sql, cfg),
-    checkZeroDeliveryNotifications(sql, cfg),
-    // Isolate the new backlog check: it reads the DB precisely when the DB is
-    // under pressure, so its rejection must NOT reject the whole Promise.all and
-    // suppress the critical findings (failed-publish, zero-delivery). A failure
-    // degrades to a diagnostic warning finding instead (adversarial-review
-    // F-medium). The other 5 checks keep their pre-existing shared-fate — out of
-    // scope for this fix.
-    checkBacklogDepth(sql, cfg).catch((err): HealthFinding[] => [{
+  const findings: HealthFinding[] = [];
+  const collect = (result: HealthFinding[] | HealthFinding | null): void => {
+    if (Array.isArray(result)) findings.push(...result);
+    else if (result) findings.push(result);
+  };
+
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). Firing them concurrently on ONE postgres.js
+  // client over the Supabase Supavisor TRANSACTION pooler pipelines the extra
+  // queries onto a shared connection; a pipelined query's response parks
+  // server-side in state=active / wait_event=ClientRead and never returns — a
+  // PERMANENT connection wedge every poller cycle on the max:2 health client.
+  // Proven by the #505 staging differential repro (6/6 concurrent iterations
+  // wedged vs 0/6 sequential). Sequential naturally preserves the 5 core checks'
+  // shared-fate: a core-check rejection propagates and fails the cycle, and the
+  // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes.md.
+  collect(await checkFailedOutboxByTopic(sql, cfg));
+  collect(await checkOldestPendingOutbox(sql, cfg));
+  collect(await checkStaleDispatching(sql, cfg));
+  collect(await checkOpenFlaggedResponses(sql, cfg));
+  collect(await checkZeroDeliveryNotifications(sql, cfg));
+
+  // Isolate the backlog check: it reads the DB precisely when the DB is under
+  // pressure, so its rejection must NOT fail the whole cycle and suppress the
+  // critical findings above. A failure degrades to a diagnostic warning finding
+  // instead (adversarial-review F-medium) — preserved exactly from the prior
+  // `.catch(...)` behavior, now expressed as a try/catch around this one call.
+  try {
+    collect(await checkBacklogDepth(sql, cfg));
+  } catch (err) {
+    findings.push({
       key: 'health_check_error:backlog_depth',
       level: 'warning',
       title: `Backlog depth check failed: ${toError(err).message}`,
       detail: { check: 'backlog_depth' },
-    }]),
-  ]);
-  const findings: HealthFinding[] = [];
-  for (const result of results) {
-    if (Array.isArray(result)) findings.push(...result);
-    else if (result) findings.push(result);
+    });
   }
+
   return findings;
 }

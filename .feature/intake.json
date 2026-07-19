@@ -1,83 +1,74 @@
 {
-  "ticket": "#480",
-  "parent_map": "wayfinder map #472 (capacity & scale)",
   "classification": "high",
   "surface": "backend",
   "db_touching": false,
-  "goal": "Expose job_outbox and analytics_events backlog depth (total pending-row count) in GET /internal/queue-health, and add a per-table HealthAlertPoller warning that fires when either backlog depth exceeds the ~1500-row Capacity target from #474.",
+  "goal": "Root-cause the #500 boot-burst pool wedge, ship a stagger cure for the boot connection storm, delete the unreachable PoolWedgeReaperPoller, and resume the HealthAlertPoller behind #502's bulkhead — validated on staging.",
   "non_goals": [
-    "No drain-rate change \u2014 #487's 5s OutboxPoller interval already ships the drain half; this is the observability half only.",
-    "No admin UI change \u2014 the ticket names only the /internal/queue-health endpoint and the alert. No src/app or src/components edits.",
-    "No schema change / migration \u2014 both tables already have partial WHERE status='pending' indexes (idx_jo_pending migration 001, idx_analytics_events_pending migration 046).",
-    "No un-pausing of HealthAlertPoller on staging (#500) \u2014 we only WIRE the check so it fires whenever the poller resumes.",
-    "No combined-sum or job_outbox-only alerting \u2014 per-table independent findings on the same threshold.",
-    "No new required env var \u2014 threshold is optional/defaulted, so no config-coverage baseline bump."
+    "Completing the 24h clean-soak within this session (inherently async; owner-gated before the #505 PR merges to main).",
+    "Removing #502's HealthAlertPoller bulkhead (dedicated max:2 client + recycle-on-timeout) — kept as defense-in-depth even if the cure holds.",
+    "Arming the reaper or solving Railway's IPv4→Supabase-IPv6 direct-route problem — deferred to the #477-tied re-arm ticket.",
+    "Re-implementing #501's backlog-depth instrumentation — #501 is already MERGED to main (2026-07-18T21:18:57Z); this branch only removes the now-orphaned /* rw-reapable */ marker from its query.",
+    "Any migration or schema change.",
+    "Re-litigating map #472 decisions (capacity target #474, ADR 0005 posture #475, single-replica posture)."
   ],
   "user_visible_behavior": [
-    "GET /internal/queue-health 200 response gains an additive top-level `backlog` key alongside `queues`: { job_outbox: <int>, analytics_events: <int> } = COUNT(*) of status='pending' rows per table. `backlog` is best-effort: it is null when the bounded count times out/errors, and `queues` is always still returned.",
-    "When HealthAlertPoller runs and job_outbox pending depth > threshold, it emits a Sentry warning finding key `backlog_depth:job_outbox`.",
-    "When analytics_events pending depth > threshold, it emits a Sentry warning finding key `backlog_depth:analytics_events`.",
-    "New optional env var HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD (default 1500) tunes the threshold."
+    "Worker boot no longer parks a pooler backend active+ClientRead; the HealthAlertPoller 5-query bundle completes each cycle with no per-cycle 30s timeout.",
+    "Background loops' first cycles are staggered out of the boot window instead of all firing simultaneously on the first tick.",
+    "HealthAlertPoller resumes 5-min cadence on staging (HEALTH_ALERT_POLL_INTERVAL_MS override removed), then prod at promotion.",
+    "PoolWedgeReaperPoller, the POOL_WEDGE_REAPER_ENABLED flag, and the /* rw-reapable */ health-query marker no longer exist in the codebase (ADR 0007 superseded).",
+    "Backlog-depth alert fires at ~1500 pending and clears (validated by the #480 drill; alert code ships via #501, not this branch)."
   ],
   "invariants": [
-    "Backlog depth = COUNT(*) WHERE status='pending' (total pending, includes not-yet-due retry rows) \u2014 locked decision, both tables identical semantics.",
-    "The pending-count query is a SINGLE authoritative owner (queryBacklogDepth(sql) in src/lib/shared/) consumed by BOTH the endpoint dep and the health check \u2014 no duplicated count SQL.",
-    "queryBacklogDepth is a domain module: takes sql as an explicit param, never imports @/lib/db/server (invariant #15). worker/index.ts (composition root) passes the singleton.",
-    "queue-health endpoint stays dependency-injected + unit-testable without booting queues/DB (invariant #12); backlog is a new injected dep, not an inline query.",
-    "Endpoint auth unchanged: 503 when WORKER_INTERNAL_SECRET unset, 401 on bad bearer, returns no PII (only integer counts).",
-    "Alert severity = 'warning' (saturation signal, not dropped work) \u2014 consistent with checkOldestPendingOutbox.",
-    "Both count queries hit the existing partial pending indexes (index-only friendly). Poller path runs inside the existing single 30s withTimeout budget. Endpoint path bounds the handler WAIT with a client-side withTimeout (4000ms, under the consumer's 5s AbortSignal deadline) and builds the timed-AND-caught backlog promise (withTimeout(...).catch(()=>null)) BEFORE the sequential getQueueCounts loop \u2014 so both the 4000ms clock and the rejection handler are live during collection and the await afterward reads an already-settled value (no additive wait, no unhandled-rejection window), keeping total handler latency within budget.",
-    "queryBacklogDepth bounds the actual DB OP (adversarial-review F-high): it runs inside sql.begin() with `SET LOCAL statement_timeout = 4000` so the Postgres server cancels a slow count at ~4s and RELEASES the pooled connection \u2014 a timed-out endpoint request cannot leave a detached query holding one of the shared worker pool's ~10 connections until the 30s global statement_timeout. This is the safety property that lets the observability read never amplify DB degradation.",
-    "checkBacklogDepth failure is ISOLATED (adversarial-review F-medium): it is wrapped so it can never reject runHealthChecks' Promise.all and suppress the critical checks (failed-publish, zero-delivery). A backlog-count failure emits a `warning` diagnostic finding (health_check_error:backlog_depth) instead. (The pre-existing shared-fate of the other 5 checks is out of scope \u2014 tracked as a separate follow-up.)",
-    "Endpoint backlog is BEST-EFFORT (orthogonality): a slow/failed backlog count degrades to `backlog: null` and NEVER takes down the primary queue-depth signal \u2014 `queues` is always returned. (Existing getQueueCounts fail-whole behavior is unchanged/out-of-scope.)",
-    "Endpoint response change is additive/backward-compatible: the Next.js server-side consumer (src/app/api/admin/jobs/route.ts) reads `body.queues`; a new sibling `backlog` key does not break it."
+    "Tenant isolation unaffected — no query scope or account_id/business_id scoping changes.",
+    "Invariant #15: reaper deletion must not break closeAllPostgresClients wiring or the ci:db-imports composition-root audit.",
+    "Invariant #2 outbox / Invariant #1 worker-only boundaries untouched.",
+    "withTimeout still bounds the health bundle; the bulkhead recycle-on-timeout path is retained.",
+    "Shutdown still closes every postgres client (shared sql + health) via closeAllPostgresClients after the reaper closer is removed.",
+    "Server-authoritative flags — env removal only, no NEXT_PUBLIC_* companion introduced.",
+    "The stagger cure must not delay the first health cycle so long that a real boot-time incident goes unpaged (bounded jitter)."
   ],
   "edge_cases": [
-    "Zero pending rows in a table \u2192 depth 0, no finding (strict > threshold, not >=).",
-    "Depth exactly at threshold \u2192 no finding (> is strict; mirrors existing checks' > semantics).",
-    "The #474 verification burst is 1000 events < 1500 threshold \u2192 depth climbs to ~1000 then drains; the alert must NOT fire during a healthy burst (headroom validation).",
-    "COUNT returning bigint from Postgres \u2192 cast ::int in SQL (matches existing checks' COUNT(*)::int).",
-    "Threshold env var unset/invalid/negative \u2192 falls back to 1500 via the existing num() helper (>=0 guard).",
-    "A DB error inside queryBacklogDepth during a poll cycle \u2192 surfaces to the poller's existing catch (logs + 'error' Sentry check-in), same as other checks; does not wedge the single-flight poller (30s timeout).",
-    "A slow/failed backlog count at the ENDPOINT \u2192 bounded by the 4000ms withTimeout, degrades to `backlog: null`, logs a warning, and still returns `queues` (best-effort)."
+    "If the repro harness does NOT reproduce the wedge, the cure stays UNPROVEN — ship the stagger as defensible boot-storm hardening (precedented) and keep the bulkhead; do not claim a cure.",
+    "StripeLocationsReconcilePoller already defers 45s (INITIAL_RUN_DELAY_MS) — the stagger must not double-delay or conflict with it.",
+    "closeAllPostgresClients currently takes [closeReaperClient, closeHealthSql]; removing the reaper must keep closeHealthSql wired and preserve the shutdown-resilience test (a rejecting closer still closes sql).",
+    "Reaper removal must clean ALL FIVE POOL_WEDGE_REAPER_* env vars (ENABLED, AGE_S, INTERVAL_MS, MAX_PER_SWEEP, OP_TIMEOUT_MS) + DIRECT_URL (sole consumer was the reaper) across worker/config/worker.ts + __tests__, startup-assert, env-vars.md, lab-notes.md — preserve the direct-route concept in the #477 re-arm ticket.",
+    "boot-stagger lifecycle race (Codex F4): staggerBoot must return a cancellable handle + done promise; shutdown cancels pending start timers BEFORE stopping loops, so a delayed start can never begin DB work mid-SIGTERM.",
+    "Cure root cause is UNPROVEN (Codex F1): T1 must reproduce against the REAL worker (fresh process per trial) + instrument the postgres.js debug hook; any mechanism must explain permanence + state_change fixity + poison-migration.",
+    "Repro harness runs against the STAGING pooler only (never prod) and must terminate any backend it wedges (self-cleanup).",
+    "Post-cure, the first (boot) health cycle may still self-heal via bulkhead recycle — acceptable; steady-state cycles must be clean.",
+    "Marker fate DECIDED: remove the /* rw-reapable */ marker from ALL SIX query-sites (5× worker/background/pollers/health-alert/checks.ts + 1× src/lib/shared/backlog-depth.ts:37) + comment refs (health-db.ts, CONTEXT.md) along with the reaper (no consumer left); mark ADR 0007 Superseded, preserving the app_name-flattening + route knowledge for the #477 re-arm ticket."
   ],
   "existing_patterns_to_follow": [
-    "worker/background/pollers/health-alert/checks.ts \u2014 checkFailedOutboxByTopic (returns HealthFinding[], filters over threshold, key `topic:...`) is the nearest precedent for a multi-finding check.",
-    "resolveHealthAlertConfig + num() helper for the env-tunable threshold.",
-    "worker/internal/queue-health.ts QueueHealthDeps dependency-injection shape (getSecret/getQueueCounts) \u2192 add getBacklogDepth.",
-    "src/lib/shared/queue-health-states.ts / queue-names.ts \u2014 side-effect-free shared module owned once, imported by both worker + tests, is the model for src/lib/shared/backlog-depth.ts.",
-    "worker/internal/__tests__/queue-health.test.ts and health-alert/__tests__/checks.test.ts for test style."
+    "worker/background/pollers/StripeLocationsReconcilePoller.ts:71,515-523 — INITIAL_RUN_DELAY_MS boot-connection-storm dodge (the cure precedent).",
+    ".scratch/wedge-repro.ts — the prior isolation repro harness to extend with boot-pressure (concurrent socket/Redis/DNS fan-out).",
+    "worker/background/guarded-poll.ts:119 — start()/runOnce() immediate-first-cycle pattern being staggered.",
+    "docs/superpowers/plans/fix-500-pool-wedge-selfheal-deviations.md — closeAllPostgresClients + bulkhead wiring precedent.",
+    "src/lib/db/server.ts:73-103 — dedicated client factory + closeAllPostgresClients owner."
   ],
   "allowed_edit_surface": [
-    "worker/internal/queue-health.ts",
-    "worker/internal/__tests__/**",
-    "worker/background/pollers/health-alert/checks.ts",
-    "worker/background/pollers/health-alert/__tests__/**",
-    "src/lib/shared/backlog-depth.ts",
-    "src/lib/shared/__tests__/**",
     "worker/index.ts",
-    "src/lib/config/worker.ts",
+    "worker/background/**",
+    "worker/config/**",
+    "worker/shutdown.ts",
+    "src/lib/db/**",
+    "src/lib/config/**",
+    "src/lib/shared/backlog-depth.ts",
     ".claude/reference/env-vars.md",
-    ".env.example",
-    "docs/runbooks/beta-launch-alerting.md",
-    "CONTEXT.md",
+    ".claude/reference/lab-notes.md",
+    "docs/adr/**",
+    "docs/runbooks/**",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
+    "scripts/**",
     ".feature/**",
-    "worker/background/pollers/__tests__/health-alert-markers.test.ts",
-    "worker/background/pollers/HealthAlertPoller.ts"
+    "CONTEXT.md"
   ],
   "tests_to_add": [
-    "queryBacklogDepth: returns per-table pending counts (mocked sql); asserts a SINGLE tagged-template invocation and pins the SQL semantics \u2014 contains status='pending' and ::int for both tables, and does NOT contain available_at (total-pending, not claimable) \u2014 locks the single-owner count logic against silent drift.",
-    "checkBacklogDepth: emits per-table warning finding only when depth > threshold; no finding at/under threshold; correct keys backlog_depth:job_outbox / backlog_depth:analytics_events; independent per-table (one over, one under \u2192 exactly one finding).",
-    "checkBacklogDepth: respects HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD override and the 1500 default.",
-    "queue-health handler: 200 response includes backlog:{job_outbox,analytics_events} from getBacklogDepth; still 503/401 on unset secret / bad bearer; getBacklogDepth not called on the disabled/unauthorized paths.",
-    "queue-health handler: when getBacklogDepth rejects (error or timeout), 200 still returns with backlog:null AND queues present (best-effort degrade).",
-    "runHealthChecks: aggregation test includes an over-threshold backlog result and asserts a backlog_depth:<table> finding key reaches the aggregated output (wiring proof, not just the standalone check)."
+    "boot-stagger: computeBootSchedule is bounded + strictly monotonic + covers count (property/example); staggerBoot invokes each start exactly once at its delay via an injected fake scheduler; cancel() prevents un-fired starts and resolves done (shutdown-race guard).",
+    "Reaper deletion: closeAllPostgresClients still closes the health client then the shared sql after the reaper closer is removed; shutdown-resilience invariant (a rejecting closer still calls sql.end()) preserved (src/lib/db/__tests__/server.test.ts).",
+    "Config: removing POOL_WEDGE_REAPER_ENABLED (and reaper-only env) does not break worker config parsing (src/lib/config/__tests__/worker.test.ts).",
+    "Existing health-alert bundle/bulkhead tests remain green; the marker test (worker/background/pollers/__tests__/health-alert-markers.test.ts) is removed with the marker."
   ],
-  "verification_commands": [
-    "pnpm build"
-  ],
-  "staging_verification": "Ride-staging (step 8, NOT an executable gate command): synthetic burst per #474 \u2014 inject 1000 ingest events in 10 min, confirm GET /internal/queue-health backlog.job_outbox climbs then drains to baseline within 30 min, and NO backlog_depth warning fires (1000 < 1500 headroom). The step-5 gate covers unit tests via the standard `pnpm test`; `verification_commands` adds `pnpm build` per the user's AGENTS.md rule (run build before claiming behavior-affecting work complete), even though verify-gate.sh would otherwise skip build for a backend surface.",
+  "verification_commands": [],
   "open_questions": []
 }

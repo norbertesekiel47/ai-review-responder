@@ -315,46 +315,6 @@ describe('config/worker', () => {
     expect(cfg.WHATSAPP_APPROVAL_TEMPLATE_SID).toBe('   ');
   });
 
-  // ── #500 pool-wedge reaper batch ──────────────────────────────────────────
-
-  it('the reaper tuning vars + DIRECT_URL are exposed RAW via getWorkerConfig (present)', async () => {
-    process.env = {
-      ...CORE, NODE_ENV: 'test',
-      POOL_WEDGE_REAPER_ENABLED: 'true',
-      POOL_WEDGE_REAPER_INTERVAL_MS: '60000',
-      POOL_WEDGE_REAPER_AGE_S: '300',
-      POOL_WEDGE_REAPER_MAX_PER_SWEEP: '3',
-      POOL_WEDGE_REAPER_OP_TIMEOUT_MS: '8000',
-      DIRECT_URL: 'postgres://d:d@localhost:5432/d',
-    } as NodeJS.ProcessEnv;
-    const { getWorkerConfig } = await import('../worker');
-    const cfg = getWorkerConfig();
-    expect(cfg.POOL_WEDGE_REAPER_ENABLED).toBe('true');
-    expect(cfg.POOL_WEDGE_REAPER_INTERVAL_MS).toBe('60000');
-    expect(cfg.POOL_WEDGE_REAPER_AGE_S).toBe('300');
-    expect(cfg.POOL_WEDGE_REAPER_MAX_PER_SWEEP).toBe('3');
-    expect(cfg.POOL_WEDGE_REAPER_OP_TIMEOUT_MS).toBe('8000');
-    expect(cfg.DIRECT_URL).toBe('postgres://d:d@localhost:5432/d');
-  });
-
-  it('the reaper tuning vars + DIRECT_URL are undefined when unset — tolerate-absent (no throw)', async () => {
-    process.env = { ...CORE, NODE_ENV: 'test' } as NodeJS.ProcessEnv;
-    delete process.env.POOL_WEDGE_REAPER_ENABLED;
-    delete process.env.POOL_WEDGE_REAPER_INTERVAL_MS;
-    delete process.env.POOL_WEDGE_REAPER_AGE_S;
-    delete process.env.POOL_WEDGE_REAPER_MAX_PER_SWEEP;
-    delete process.env.POOL_WEDGE_REAPER_OP_TIMEOUT_MS;
-    delete process.env.DIRECT_URL;
-    const { getWorkerConfig } = await import('../worker');
-    const cfg = getWorkerConfig();
-    expect(cfg.POOL_WEDGE_REAPER_ENABLED).toBeUndefined();
-    expect(cfg.POOL_WEDGE_REAPER_INTERVAL_MS).toBeUndefined();
-    expect(cfg.POOL_WEDGE_REAPER_AGE_S).toBeUndefined();
-    expect(cfg.POOL_WEDGE_REAPER_MAX_PER_SWEEP).toBeUndefined();
-    expect(cfg.POOL_WEDGE_REAPER_OP_TIMEOUT_MS).toBeUndefined();
-    expect(cfg.DIRECT_URL).toBeUndefined();
-  });
-
   it('resetWorkerConfigForTests clears the memo so the next read re-parses env', async () => {
     process.env = { ...CORE, NODE_ENV: 'test', OUTBOX_BATCH_SIZE: '50' } as NodeJS.ProcessEnv;
     const { getWorkerConfig, resetWorkerConfigForTests } = await import('../worker');

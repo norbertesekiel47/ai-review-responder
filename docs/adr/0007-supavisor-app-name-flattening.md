@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-07-18 (ticket #500, map #472)
+Superseded by #505 — 2026-07-18 (ticket #500, map #472)
+
+> **#505:** the `PoolWedgeReaperPoller` this ADR was written for was deleted under #505 (its verified-direct precondition is architecturally unreachable from Railway's IPv4-only egress against Supabase's IPv6-only direct `:5432` host, so it never fired live; replaced by an explicit boot-readiness cure — ADR 0008) — the app-name-flattening + genuine-direct-route reasoning below remains accurate and is preserved for a future re-arm under #477 (draft: `docs/superpowers/plans/fix-505-pool-wedge-rootcause-rearm-ticket.md`).
 
 ## Context
 

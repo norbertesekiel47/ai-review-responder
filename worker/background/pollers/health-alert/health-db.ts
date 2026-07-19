@@ -7,15 +7,14 @@
 //
 // On `withTimeout` expiry the poller calls `recycleHealthSql`, which end+rebuilds
 // this client: the client-side FIN gives the wedged backend an EOF (plausible but
-// not guaranteed — hence the PoolWedgeReaperPoller server-side backstop, which is
-// why the health-check queries carry the `/* rw-reapable */` marker).
+// not guaranteed). A server-side backstop for the non-guaranteed case is tracked
+// under #477 (re-arm on a genuinely-reachable direct route); the prior #505-deleted
+// PoolWedgeReaperPoller was architecturally unreachable on Railway and never fired.
 //
 // Per invariant #15 this helper does NOT import the db/server factory: it holds
 // the module-level client + reclaim semantics and receives a `buildClient`
 // builder from its ONLY caller, the registered composition-root HealthAlertPoller
-// (which owns the factory import + the DATABASE_POOL_URL/max choice). Mirrors the
-// reaper's client lifecycle (buildReaperClient / recycleReaperClient /
-// closeReaperClient), but keeps the factory in the root rather than a helper.
+// (which owns the factory import + the DATABASE_POOL_URL/max choice).
 import type postgres from 'postgres';
 import type { WorkerLogger } from '../../../../src/lib/shared/logger';
 import { toError } from '../../../../src/lib/shared/logger';
@@ -60,10 +59,9 @@ export async function recycleHealthSql(
 }
 
 /**
- * End the dedicated health client WITHOUT rebuilding — for worker shutdown. A
- * later integration task awaits this inside worker/index.ts's `closeDb` step
- * alongside the shared `sql.end()` and the reaper's `closeReaperClient()`.
- * Best-effort: a failing end must not block shutdown.
+ * End the dedicated health client WITHOUT rebuilding — for worker shutdown.
+ * Awaited inside worker/index.ts's `closeDb` step alongside the shared
+ * `sql.end()`. Best-effort: a failing end must not block shutdown.
  */
 export async function closeHealthSql(): Promise<void> {
   const client = healthSql;

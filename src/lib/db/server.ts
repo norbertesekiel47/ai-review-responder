@@ -90,10 +90,10 @@ export function createDedicatedPostgresClient(
  *
  * This is the shutdown close-order contract, owned here because `server.ts`
  * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
- * (e.g. `closeReaperClient`, `closeHealthSql`). They run through
- * `Promise.allSettled`, so a wedged or rejecting dedicated `.end()` — the exact
- * failure mode #500 self-heals — can NEVER skip the shared `sql.end()`. Each
- * dedicated closer is expected to bound its own `.end({ timeout })`.
+ * (e.g. `closeHealthSql`). They run through `Promise.allSettled`, so a
+ * wedged or rejecting dedicated `.end()` — the exact failure mode #500
+ * self-heals — can NEVER skip the shared `sql.end()`. Each dedicated closer
+ * is expected to bound its own `.end({ timeout })`.
  */
 export async function closeAllPostgresClients(
   dedicatedClosers: Array<() => Promise<void>>,

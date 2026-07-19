@@ -92,7 +92,6 @@ import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './b
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
 import { healthBulkheadSql, startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
 import { closeHealthSql } from './background/pollers/health-alert/health-db';
-import { startPoolWedgeReaperPoller, stopPoolWedgeReaperPoller, closeReaperClient } from './background/pollers/PoolWedgeReaperPoller';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
 import {
   startAutonomyGovernorScheduler,
@@ -103,8 +102,9 @@ import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller }
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
 import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
+import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from './background/boot-stagger';
 import { isMockMode } from '../src/lib/shared/mock-mode';
-import { createWorkerLogger } from '../src/lib/shared/logger';
+import { createWorkerLogger, toError } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
 import { sql, supabaseServer, closeAllPostgresClients } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
@@ -113,6 +113,25 @@ import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
 import { createTransientRejectionGovernor } from './transient-rejection-governor';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// Boot-readiness cure (#505). The staggered boot spreads the DB-backed loops'
+// first cycles across this bounded window (<=~10s so a real boot-time incident
+// still pages promptly); readiness awaits the queue Redis connection, bounded and
+// fail-open so boot never hangs.
+const BOOT_STAGGER_TOTAL_SPREAD_MS = 8_000;
+const BOOT_READINESS_TIMEOUT_MS = 5_000;
+
+// One AbortController spans the whole boot-readiness sequence (readiness await →
+// staggered loop starts → worker resume). Created at MODULE LOAD — before the
+// SIGTERM/SIGINT handlers can fire — so a signal arriving WHILE app.listen() is
+// still pending aborts THIS controller; runBootCoordinator then bails at its
+// first line instead of a fresh un-aborted controller staggering DB work
+// concurrently with the already-running graceful teardown. The shutdown handler
+// aborts it FIRST (before stopping loops).
+const bootAbortController = new AbortController();
+function abortBootCoordinator(): void {
+  bootAbortController.abort();
+}
 
 // NotificationFailoverPoller gate (Phase 0 update).
 //
@@ -153,7 +172,14 @@ const redisOpts = getRedisOptions();
 // Reduce Redis polling frequency to cut egress costs.
 // Default drainDelay is 200ms (5 polls/sec/worker × 7 workers = 35 polls/sec).
 // 5000ms cuts that by 25× — still picks up jobs within 5s, which is fine for our SLAs.
-const workerOpts = { connection: redisOpts, drainDelay: 5_000 };
+//
+// autorun:false (#505 boot-readiness cure): a Worker built with this does NOT
+// start polling at construction. The boot coordinator resumes every worker via
+// worker.run() only AFTER the DB-backed loops have finished their bounded
+// staggered start, so worker-poll pressure and first-cycle DB opens don't all
+// land on the same boot tick. assertSingleConcurrencyWorker reads .opts.concurrency
+// and is unaffected by autorun.
+const workerOpts = { connection: redisOpts, drainDelay: 5_000, autorun: false };
 
 const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, workerOpts);
 
@@ -497,34 +523,103 @@ async function main(): Promise<void> {
   app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
-  startOutboxPoller();
+
+  // --- Boot-readiness cure (#505) --------------------------------------------
+  // Each DB-backed loop fires its first cycle inside start(); firing all ~24 at
+  // once (plus every BullMQ worker beginning to poll) is the boot burst this cure
+  // spreads out. Build the ordered first-cycle list, then either stagger it behind
+  // bounded queue readiness (default) or boot legacy-synchronously (toggle off,
+  // baseline for the T1 repro harness). Stripe's own INITIAL_RUN_DELAY_MS (45s)
+  // still applies on top of the (<=~10s) stagger — no double-delay conflict.
   const failoverDecision = shouldRunFailoverPoller();
-  if (failoverDecision.run) {
-    startNotificationFailoverPoller();
-  } else {
+  if (!failoverDecision.run) {
     console.log(`[NotificationFailover] Skipped — ${failoverDecision.reason}`);
   }
-  startWeeklySummaryScheduler();
-  startArchivalPoller();
-  startMonthlyImpactScheduler();
-  startEngagementMonitorPoller();
-  startRankingTrackingScheduler();
-  startOnboardingDripScheduler();
-  startCleanupAbandonedSignupsPoller();
-  startEmailChannelReconcilePoller();
-  startCancellationGracePoller();
-  startStripeLocationsReconcilePoller();
-  startZernioRecentReviewPoller();
-  startAnalyticsDispatchPoller();
-  startAccountOffboardingAccessEndPoller();
-  startAccountOffboardingPurgePoller();
-  startAccountOffboardingPurgeReminderPoller();
-  startAccountOffboardingReactivationResetPoller();
-  startAccountOffboardingTeardownRetryPoller();
-  startHealthAlertPoller();
-  startPoolWedgeReaperPoller();
-  startJudgeSweepPoller();
-  startAutonomyGovernorScheduler();
+  const loopStarts: Array<() => void> = [
+    () => startOutboxPoller(),
+    ...(failoverDecision.run ? [() => startNotificationFailoverPoller()] : []),
+    () => startWeeklySummaryScheduler(),
+    () => startArchivalPoller(),
+    () => startMonthlyImpactScheduler(),
+    () => startEngagementMonitorPoller(),
+    () => startRankingTrackingScheduler(),
+    () => startOnboardingDripScheduler(),
+    () => startCleanupAbandonedSignupsPoller(),
+    () => startEmailChannelReconcilePoller(),
+    () => startCancellationGracePoller(),
+    () => startStripeLocationsReconcilePoller(),
+    () => startZernioRecentReviewPoller(),
+    () => startAnalyticsDispatchPoller(),
+    () => startAccountOffboardingAccessEndPoller(),
+    () => startAccountOffboardingPurgePoller(),
+    () => startAccountOffboardingPurgeReminderPoller(),
+    () => startAccountOffboardingReactivationResetPoller(),
+    () => startAccountOffboardingTeardownRetryPoller(),
+    () => startHealthAlertPoller(),
+    () => startJudgeSweepPoller(),
+    () => startAutonomyGovernorScheduler(),
+  ];
+
+  // Resume the autorun-deferred workers. run() returns a promise that resolves
+  // when the worker STOPS — never await it. A rare connection-layer rejection is
+  // logged and swallowed so it can't reach the crash-net and kill all queues.
+  //
+  // All workers resume together (not staggered) AFTER the loop stagger: this is
+  // an intentional burst of Railway-Redis connection opens, NOT a Postgres/
+  // Supavisor pooler burst (the wedge surface). The pooler first-cycle opens are
+  // the DB-backed loops, which ARE staggered above; job handlers touch Postgres
+  // only as jobs actually arrive (naturally spread), so this resume does not
+  // recreate the boot wedge. Do not "fix" it into a staggered resume.
+  const resumeWorkers = (): void => {
+    for (const worker of workers) {
+      worker.run().catch((err) =>
+        createWorkerLogger('[worker]').error(
+          'Worker run loop rejected',
+          toError(err),
+        ),
+      );
+    }
+  };
+
+  if (isBootStaggerEnabled(getWorkerConfig().BOOT_STAGGER_ENABLED)) {
+    // Await bounded, fail-open queue readiness, spread the first cycles across the
+    // bounded jittered window, THEN resume workers. The one boot signal cancels
+    // any pending continuation on SIGTERM (workers are not resumed if aborted).
+    const readinessQueue = Object.values(queues)[0]!;
+    void runBootCoordinator({
+      awaitReadiness: (signal) =>
+        awaitQueueReadiness(
+          () => readinessQueue.waitUntilReady(),
+          { timeoutMs: BOOT_READINESS_TIMEOUT_MS },
+          signal,
+        ),
+      starts: loopStarts,
+      staggerOptions: {
+        totalSpreadMs: BOOT_STAGGER_TOTAL_SPREAD_MS,
+        jitter: 0.5,
+        onStartError: (error) =>
+          createWorkerLogger('[worker]').error(
+            'Background loop start() threw during staggered boot',
+            toError(error),
+          ),
+      },
+      resumeWorkers,
+      signal: bootAbortController.signal,
+      log: (message) => console.log(message),
+    }).catch((err) =>
+      createWorkerLogger('[worker]').error(
+        'Boot coordinator failed',
+        toError(err),
+      ),
+    );
+  } else {
+    // Legacy baseline (BOOT_STAGGER_ENABLED=false): fire every first cycle and
+    // resume every worker all at once — reproduces the pre-cure boot burst.
+    console.log('[boot] BOOT_STAGGER_ENABLED=false — legacy synchronous boot (baseline repro)');
+    for (const start of loopStarts) start();
+    resumeWorkers();
+  }
+
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -550,6 +645,9 @@ const SHUTDOWN_GRACE_MS = ((): number => {
 const shutdown = createGracefulShutdown({
   graceMs: SHUTDOWN_GRACE_MS,
   isFatalExitInProgress: () => fatalExitInProgress,
+  // Abort the boot coordinator FIRST (before stopBackgroundLoops): a pending
+  // staggered start or worker-resume must not begin DB work mid-SIGTERM (#505).
+  abortBootCoordinator,
   stopBackgroundLoops: () => {
     stopOutboxPoller();
     stopNotificationFailoverPoller();
@@ -570,7 +668,6 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingReactivationResetPoller();
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
-    stopPoolWedgeReaperPoller();
     stopJudgeSweepPoller();
     stopAutonomyGovernorScheduler();
   },
@@ -595,10 +692,10 @@ const shutdown = createGracefulShutdown({
     const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
     await shutdownAnalytics();
   },
-  // End the dedicated reaper + health clients before the shared pool; the
-  // close-order + best-effort contract lives in closeAllPostgresClients (the
-  // db/server owner) so it is testable without booting the worker (#500).
-  closeDb: () => closeAllPostgresClients([closeReaperClient, closeHealthSql]),
+  // End the dedicated health client before the shared pool; the close-order +
+  // best-effort contract lives in closeAllPostgresClients (the db/server
+  // owner) so it is testable without booting the worker (#500).
+  closeDb: () => closeAllPostgresClients([closeHealthSql]),
   exit: (code) => process.exit(code),
   armWatchdog: (onTimeout, ms) => {
     const timer = setTimeout(onTimeout, ms);

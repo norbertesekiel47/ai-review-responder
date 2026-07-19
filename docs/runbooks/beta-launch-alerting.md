@@ -70,6 +70,51 @@ because admin email shares the Resend provider with the product.
 > `subsystem:health_alert` / cost-cap are still unchecked). Until then, billing-reconcile
 > drift pages only via the high-priority → email path.
 
+## 1b. Poller-resume — restoring the 5-minute `HealthAlertPoller` cadence (post-#505)
+
+`HEALTH_ALERT_POLL_INTERVAL_MS` was overridden on staging to `86400000` (24h)
+during #500/#502 as a mitigation: while the wedge was unmitigated, slowing the
+poller's own health-check queries reduced how often it could trigger or
+observe the wedge. Ticket #505 shipped the **boot-readiness cure**
+(`worker/background/boot-stagger.ts`, ADR 0008 — spreads the boot-window
+concurrency that is the leading, still-unproven, candidate for wedge
+formation) and **kept** the #502 client-side bulkhead (dedicated health
+client, `max:2`, recycle-on-timeout) as defense-in-depth. Together they make
+the designed 5-minute cadence safe again — this is the procedure to restore it.
+
+**Precondition:** the cure must be validated first — OP2 (repeated staging
+treatment runs of `scripts/wedge-repro.ts`, zero wedge) and ideally OP3
+(clean staging soak at the normal cadence, see below) before touching prod.
+
+**Procedure — staging first, then prod at promotion:**
+
+1. Confirm OP2 passed (T1 harness treatment run: zero wedge across repeated
+   fresh boots) and the branch is deployed to staging with the cure enabled
+   (`BOOT_STAGGER_ENABLED` unset/default — do not set it to `false`).
+2. Railway → `repworth-staging` → worker service → Variables → **remove**
+   `HEALTH_ALERT_POLL_INTERVAL_MS` entirely (don't set it to `300000`
+   explicitly — per the "Poller cadence" glossary rule in `CONTEXT.md`, the
+   code default is the authoritative value; the env var is only a per-env
+   override, and removing it is how you hand ownership back to the default).
+3. Redeploy/restart the staging worker so the env change takes effect.
+4. Watch for several consecutive 5-minute cycles: the Sentry Cron check-in
+   (`health-alert-poller` slug) should land every cycle with no missed
+   check-ins, and `pg_stat_activity` should show no backend parked
+   `active/ClientRead` and no bulkhead recycle log lines
+   (`recycleHealthSql`). This clean-cycle observation **is** OP3 in the
+   #505 plan.
+5. Once OP3 is clean, repeat step 2 on the Railway **production** worker
+   service at the same PR-to-`main` promotion that ships #505 — this is one
+   of the two prod env removals the promotion requires (the other being any
+   leftover `POOL_WEDGE_REAPER_*` variables from before T3 deleted the
+   reaper's code path; the vars themselves may still be set in Railway even
+   though nothing reads them anymore).
+6. **Rollback:** if a wedge or a bulkhead recycle recurs at the 5-minute
+   cadence on either environment, immediately re-set
+   `HEALTH_ALERT_POLL_INTERVAL_MS=86400000` on the affected environment and
+   treat it as a cure regression — re-open the escalation levers in ADR 0008
+   rather than re-tuning the interval as a permanent fix.
+
 ## 2. External liveness — the probe cannot watch its own death
 
 - [ ] **Sentry Cron Monitor** with slug `health-alert-poller` (must equal
@@ -117,8 +162,9 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   in 10 min. Watch `GET /internal/queue-health` `backlog.job_outbox` climb toward
   ~1000 then drain to baseline **within 30 min**, and confirm **no** `backlog_depth`
   warning fires (1000 < 1500 headroom). Validates the observability + drain path
-  without tripping the alert. *(HealthAlertPoller is paused on staging per #500;
-  run this drill once it resumes — the check is already wired.)*
+  without tripping the alert. Full step-by-step procedure:
+  `docs/runbooks/pool-wedge-burst-drill.md`. Run after §1b's poller-resume so the
+  `HealthAlertPoller` is back on its designed 5-minute cadence for the drill.
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 
