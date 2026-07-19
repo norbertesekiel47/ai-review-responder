@@ -38,30 +38,24 @@ staging with recorded numbers. Remainder 2 (24h soak) is **#507**, out of scope.
 
 ## Current step
 
-**Step 3 (PLAN) — plan gate in progress.** Codex round 1 → `REVISE` (9 findings,
-triaged in **D2**, revised, `fb33fdc7`). Codex round 2 → `REVISE` (sharper
-findings incl. a real cleanup-reliability bug: `end()` doesn't reliably kill a
-wedged backend, #477; triaged in **D3**, revised, `aa754354`). **Codex round 3
-(the final allowed round) is running** (resume agent `a2d0d603ab752b74a` / ref
-`059e61`).
+**Step 3 (PLAN) COMPLETE — plan SIGNED OFF by the user.** Codex ran the full
+3-round cap: R1 `REVISE` (D2, `fb33fdc7`), R2 `REVISE` (D3, `aa754354`), R3
+`REVISE` — R3 surfaced the ADR-0007 blocker (Supavisor flattens `application_name`)
+which the user resolved by choosing the **ephemeral-branch** design (**D5**,
+`<branch-redesign commit>`). All substantive findings folded in; only non-gating
+polish remains (fold in during the build — see below). User signed off.
 
 ### Immediate next actions (in order)
 
-1. **Receive codex round-3 verdict** (read via the task-notification, not the
-   transcript file). This is round 3 of the 3-round cap:
-   - `APPROVED` → go to #2.
-   - `REVISE` → do NOT loop further. Separate BLOCKING items (unsafe on staging /
-     wouldn't prove the wedge) from polish; apply any quick blocking fixes, then
-     **surface the residual disagreement to the user** with a recommendation
-     (workflow rule) rather than a round 4.
-2. **User sign-off on the revised plan** (step 3 requires it for RISK=high), INCLUDING
-   the two intake amendments (positive-allowlist guard; db_touching clarification)
-   and the D2#4 scope narrowing (drill proves outbox dispatch-drain, not full LLM
-   pipeline throughput — confirm acceptable).
-3. **Step 4 (EXECUTE)** via `superpowers:subagent-driven-development`: dispatch
-   fresh per-task subagents in blocking-edge order — **T1 → {T2, T3} → T4**. Each
-   subagent gets its plan slice + the CONTEXT.md glossary excerpt + "edits target
-   the worktree root". TDD the pure helpers. Commit per task.
+1. **Step 4 (EXECUTE) — IN PROGRESS.** `superpowers:subagent-driven-development`:
+   fresh per-task subagents in blocking-edge order **T1 → {T2, T3} → T4**. Each
+   subagent gets its plan slice (from the plan doc) + the relevant D-notes + the
+   CONTEXT.md glossary excerpt + "ALL edits target the worktree root
+   `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-505-differential-burst-drill/…`".
+   TDD the pure helpers; commit per task. Non-gating polish to fold in: exact
+   `40_000`ms constant + documented observer cadence; scrub stale "ingest events"/
+   "kill children" wording; correct the "mirror-sync worker never fails" overclaim
+   (its own test proves transient DB errors can reject it).
 4. **Step 5 VERIFY GATE**: `scripts/verify-gate.sh` (in the worktree) → green
    `.feature/gate-status.json` (read by the Stop hook via the symlink).
 5. **Step 6 REVIEW 0 (RISK=high)**: pause, ask the user to run
