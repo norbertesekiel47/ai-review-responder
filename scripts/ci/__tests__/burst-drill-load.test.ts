@@ -265,17 +265,18 @@ describe('buildReleaseHint (release-hint gating by arm type)', () => {
   it('over-threshold arm (availableInMin > 0) needs a release and prints the command', () => {
     const hint = buildReleaseHint({ ...base, availableInMin: 15 });
     expect(hint.needsRelease).toBe(true);
-    if (hint.needsRelease) {
-      expect(hint.command).toContain('release --drill-tag burst-abc');
-      expect(hint.command).toContain('--confirm-staging kubdiqdhqbhwmqfditeg');
-    }
+    expect(hint.command).toContain('release --drill-tag burst-abc');
+    expect(hint.command).toContain('--confirm-staging kubdiqdhqbhwmqfditeg');
   });
 
-  it('headroom arm (availableInMin === 0) does NOT need a release — rows self-drain', () => {
+  it('headroom arm (availableInMin === 0) is not REQUIRED to release but still gets the command as a safety valve', () => {
     const hint = buildReleaseHint({ ...base, availableInMin: 0 });
     expect(hint.needsRelease).toBe(false);
     expect(hint.message).toMatch(/self-drain/);
-    expect(hint).not.toHaveProperty('command');
+    // PR #509 review: if drain fails, the operator must still hold the tag +
+    // cleanup command — the safety valve is never suppressed.
+    expect(hint.command).toContain('release --drill-tag burst-abc');
+    expect(hint.command).toContain('--confirm-staging kubdiqdhqbhwmqfditeg');
   });
 });
 

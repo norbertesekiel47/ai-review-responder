@@ -357,28 +357,37 @@ function sleep(ms: number): Promise<void> {
 
 // ── post-inject release hint (pure) ───────────────────────────────────────────
 
-export type ReleaseHint =
-  | { needsRelease: true; message: string; command: string }
-  | { needsRelease: false; message: string };
+export interface ReleaseHint {
+  needsRelease: boolean;
+  message: string;
+  /** Always present — the release command is a safety valve on both arms. */
+  command: string;
+}
 
 /**
  * The over-threshold arm's rows hold `pending` (future-dated, never claimed) and
  * need the scoped `release` DELETE. The headroom arm's rows self-complete as the
- * OutboxPoller claims them, so printing the release command there is misleading —
- * there is nothing pending left to release. Gated on `availableInMin` (0 = headroom).
+ * OutboxPoller claims them — but the release command is ALWAYS emitted as a
+ * safety valve (PR #509 review): if drain fails (paused queue, drain >30 min —
+ * the exact failure the drill exists to catch), the synthetic rows linger as
+ * `pending` in shared staging job_outbox and inflate backlog_depth, and the
+ * operator must not be left without the tag or the cleanup command.
  */
 export function buildReleaseHint(config: Pick<InjectConfig, 'availableInMin' | 'drillTag' | 'confirmRef'>): ReleaseHint {
+  const command = `pnpm tsx scripts/burst-drill-load.ts release --drill-tag ${config.drillTag} --confirm-staging ${config.confirmRef}`;
   if (config.availableInMin > 0) {
     return {
       needsRelease: true,
       message: 'CLEANUP — run this when the drill is done (never lose the tag):',
-      command: `pnpm tsx scripts/burst-drill-load.ts release --drill-tag ${config.drillTag} --confirm-staging ${config.confirmRef}`,
+      command,
     };
   }
   return {
     needsRelease: false,
     message:
-      'headroom arm — rows self-drain to status=completed as the OutboxPoller claims them; no release needed.',
+      'headroom arm — rows should self-drain to status=completed as the OutboxPoller claims them. ' +
+      'If drain fails or stalls, release the synthetic backlog with (never lose the tag):',
+    command,
   };
 }
 
@@ -407,7 +416,7 @@ async function runInject(config: InjectConfig, sql: Sql): Promise<number> {
   console.log(`[burst-drill] injected ${injected} row(s) tagged '${config.drillTag}'.`);
   const hint = buildReleaseHint(config);
   console.log(`[burst-drill] ${hint.message}`);
-  if (hint.needsRelease) console.log(`  ${hint.command}`);
+  console.log(`  ${hint.command}`);
   return 0;
 }
 
