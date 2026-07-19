@@ -31,7 +31,6 @@
 // baseline barrier before the next arm. Final branch teardown is the operator's
 // delete_branch.
 import { createDedicatedPostgresClient } from '../src/lib/db/server';
-import { getWorkerConfig } from '../src/lib/config/worker';
 import {
   checkFailedOutboxByTopic,
   checkOldestPendingOutbox,
@@ -40,6 +39,7 @@ import {
   checkZeroDeliveryNotifications,
   checkBacklogDepth,
   runHealthChecks,
+  resolveHealthAlertConfig,
   type HealthAlertConfig,
 } from '../worker/background/pollers/health-alert/checks';
 import { runDirectCli } from './run-direct-cli';
@@ -58,33 +58,6 @@ export const DIFFERENTIAL_DEADLINE_MS = 40_000;
 
 const ARM_NAMES = ['concurrent-max2', 'sequential-max2', 'concurrent-max6'] as const;
 type ArmName = (typeof ARM_NAMES)[number];
-
-// ── config (replicated — canonical owner is checks.ts) ─────────────────────────
-
-// resolveHealthAlertConfig is NOT exported from checks.ts and worker/ is out of
-// T2's edit surface, so its logic is replicated here VERBATIM. The config values
-// are LIVE SQL query parameters (`make_interval(secs => …)` at checks.ts:59,97,142),
-// so a wrong value silently changes the queries the differential fires — the
-// concurrent arms MUST use the exact resolved config runHealthChecks uses.
-// Canonical owner: resolveHealthAlertConfig in
-// worker/background/pollers/health-alert/checks.ts — keep in lockstep.
-function num(value: string | undefined, fallback: number): number {
-  const parsed = parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-function resolveHealthAlertConfig(): HealthAlertConfig {
-  const cfg = getWorkerConfig();
-  return {
-    pendingAgeThresholdS: num(cfg.HEALTH_ALERT_PENDING_AGE_S, 900),
-    failedWindowS: num(cfg.HEALTH_ALERT_FAILED_WINDOW_S, 3600),
-    failedThreshold: num(cfg.HEALTH_ALERT_FAILED_THRESHOLD, 0),
-    staleDispatchingThresholdS: num(cfg.HEALTH_ALERT_STALE_DISPATCHING_S, 600),
-    flaggedOpenThreshold: num(cfg.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
-    zeroDeliveryWindowS: num(cfg.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
-    backlogDepthThreshold: num(cfg.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD, 1500),
-  };
-}
 
 // ── CLI args (PURE) ────────────────────────────────────────────────────────────
 

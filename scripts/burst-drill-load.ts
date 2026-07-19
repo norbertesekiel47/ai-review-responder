@@ -316,20 +316,24 @@ async function deleteScopedDrillRows(sql: Sql, predicate: ScopedDeletePredicate)
   return deleted.count;
 }
 
-interface RemainingRow {
+export interface RemainingRow {
   id: string;
   status: string;
   created_at: string;
 }
 
-/** Post-run inventory: ALL rows still carrying this tag (any status, any age).
- * A non-zero count is a HARD-FAIL — the release did not fully clean up. */
-async function listRemainingDrillRows(sql: Sql, drillTag: string): Promise<RemainingRow[]> {
+/** Post-run inventory: PENDING rows still carrying this tag — the same status the
+ * scoped-delete predicate targets. A non-zero count is a HARD-FAIL — the release
+ * did not fully clean up. Rows that self-completed (the headroom arm's expected
+ * happy outcome) are NOT counted here: they self-purge via ArchivalPoller and
+ * must never trip a false HARD-FAIL. */
+export async function listRemainingDrillRows(sql: Sql, drillTag: string): Promise<RemainingRow[]> {
   const rows = await sql<RemainingRow[]>`
     SELECT id, status, created_at
     FROM job_outbox
     WHERE topic = ${DRILL_TOPIC}
       AND payload->>${DRILL_MARKER_KEY} = ${drillTag}
+      AND status = ${OUTBOX_STATUS_PENDING}
     ORDER BY created_at
     LIMIT 100
   `;
@@ -351,6 +355,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── post-inject release hint (pure) ───────────────────────────────────────────
+
+export type ReleaseHint =
+  | { needsRelease: true; message: string; command: string }
+  | { needsRelease: false; message: string };
+
+/**
+ * The over-threshold arm's rows hold `pending` (future-dated, never claimed) and
+ * need the scoped `release` DELETE. The headroom arm's rows self-complete as the
+ * OutboxPoller claims them, so printing the release command there is misleading —
+ * there is nothing pending left to release. Gated on `availableInMin` (0 = headroom).
+ */
+export function buildReleaseHint(config: Pick<InjectConfig, 'availableInMin' | 'drillTag' | 'confirmRef'>): ReleaseHint {
+  if (config.availableInMin > 0) {
+    return {
+      needsRelease: true,
+      message: 'CLEANUP — run this when the drill is done (never lose the tag):',
+      command: `pnpm tsx scripts/burst-drill-load.ts release --drill-tag ${config.drillTag} --confirm-staging ${config.confirmRef}`,
+    };
+  }
+  return {
+    needsRelease: false,
+    message:
+      'headroom arm — rows self-drain to status=completed as the OutboxPoller claims them; no release needed.',
+  };
+}
+
 // ── subcommand runners ────────────────────────────────────────────────────────
 
 async function runInject(config: InjectConfig, sql: Sql): Promise<number> {
@@ -370,10 +401,9 @@ async function runInject(config: InjectConfig, sql: Sql): Promise<number> {
   }
 
   console.log(`[burst-drill] injected ${injected} row(s) tagged '${config.drillTag}'.`);
-  console.log('[burst-drill] CLEANUP — run this when the drill is done (never lose the tag):');
-  console.log(
-    `  pnpm tsx scripts/burst-drill-load.ts release --drill-tag ${config.drillTag} --confirm-staging ${config.confirmRef}`,
-  );
+  const hint = buildReleaseHint(config);
+  console.log(`[burst-drill] ${hint.message}`);
+  if (hint.needsRelease) console.log(`  ${hint.command}`);
   return 0;
 }
 
@@ -384,12 +414,14 @@ async function runRelease(config: ReleaseConfig, sql: Sql): Promise<number> {
   const deleted = await deleteScopedDrillRows(sql, predicate);
   console.log(`[burst-drill] deleted ${deleted} pending drill row(s).`);
 
-  // Post-run inventory — a HARD-FAIL, not a warning (D3-E).
+  // Post-run inventory — PENDING rows only (a completed row is the expected
+  // happy outcome for the headroom arm, not a leak). A non-zero PENDING count
+  // is a HARD-FAIL, not a warning (D3-E).
   const remaining = await listRemainingDrillRows(sql, config.drillTag);
   if (remaining.length > 0) {
     console.error(
-      `[burst-drill] HARD-FAIL: ${remaining.length} row(s) tagged '${config.drillTag}' remain after release ` +
-        `(non-pending, or created before the ${config.horizonHours}h horizon). Investigate before re-running:`,
+      `[burst-drill] HARD-FAIL: ${remaining.length} PENDING row(s) tagged '${config.drillTag}' remain after release ` +
+        `(likely created before the ${config.horizonHours}h horizon). Investigate before re-running:`,
     );
     for (const row of remaining) {
       console.error(`  remaining id=${row.id} status=${row.status} created_at=${row.created_at}`);
@@ -397,7 +429,7 @@ async function runRelease(config: ReleaseConfig, sql: Sql): Promise<number> {
     return 1;
   }
 
-  console.log(`[burst-drill] inventory clean — 0 row(s) tagged '${config.drillTag}' remain.`);
+  console.log(`[burst-drill] inventory clean — 0 PENDING row(s) tagged '${config.drillTag}' remain.`);
   return 0;
 }
 

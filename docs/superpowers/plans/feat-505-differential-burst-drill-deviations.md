@@ -74,10 +74,16 @@ Read-only Explore spike to resolve the one open design detail for T3. Evidence
   (`StripeSubscriptionMirrorSyncWorker.ts:19-78`) is DB-only (no LLM/external
   spend), takes only an advisory lock (no contention across distinct ids), runs
   at normal concurrency, and on a missing account unconditionally calls
-  `markOutboxCompleted` → row ends `completed`, **never `failed`**. So it never
-  trips `checkFailedOutboxByTopic` (scoped to `publish_response`/`send_notification`
-  only) or `checkStaleDispatching`. No in-flight dedup index → bulk distinct-id
-  inserts don't collide. Rows self-purge via `ArchivalPoller` (7d).
+  `markOutboxCompleted` → row ends `completed`. Not an absolute "never `failed`":
+  the worker's own test (`StripeSubscriptionMirrorSyncWorker.test.ts` — "throws
+  transient database failures and leaves the outbox incomplete") proves a
+  transient DB error CAN reject the job, in which case the OutboxPoller retries
+  it (`max_attempts` defaults to 5). This is fine for the drill either way — the
+  topic is not one of the two `checkFailedOutboxByTopic` watches
+  (`publish_response`/`send_notification`), so even an exhausted-retries
+  `failed` row would not trip that check or `checkStaleDispatching`. No in-flight
+  dedup index → bulk distinct-id inserts don't collide. Rows self-purge via
+  `ArchivalPoller` (7d).
 - Insert precedent: `src/lib/shared/job-outbox-helpers.ts:558-571` (the mirror-sync
   INSERT — `uuidv7()` id, `tx.json({account_id})`, `JOB_OUTBOX_STATUS_PENDING`).
   [Corrected in D3: the round-1 note wrongly said `src/lib/shared/outbox.ts`
@@ -264,9 +270,9 @@ found a **documented, verified** repo fact that breaks the cleanup design:
 
 Round-2 items 1/6/8/9 RESOLVED; 2/4/5/7 partial; item 3 (client/config fidelity)
 NOT resolved (fix above). Nice-to-haves (non-gating): exact `40_000` constant +
-observer cadence; scrub stale "ingest events"/"kill children" wording; correct the
-"mirror-sync worker never fails" overclaim (its test proves transient DB errors can
-reject it); keep child-process isolation as optional defense-in-depth only.
+observer cadence; scrub stale "ingest events"/"kill children" wording; keep
+child-process isolation as optional defense-in-depth only. The "mirror-sync
+worker never fails" overclaim is corrected above (D1).
 
 ## D5 — DECISION: ephemeral Supabase branch (resolves the D4 blocker)
 

@@ -8,6 +8,8 @@ import {
   scopedDeleteWhereClauses,
   assertLoadTarget,
   generateDrillTag,
+  buildReleaseHint,
+  listRemainingDrillRows,
   DRILL_TOPIC,
   DRILL_AGGREGATE_TYPE,
   DRILL_MARKER_KEY,
@@ -254,5 +256,74 @@ describe('generateDrillTag', () => {
     const tag = generateDrillTag();
     expect(tag).toMatch(/^burst-/);
     expect(tag).not.toMatch(/[:.]/); // colons/dots stripped so it is safe on a CLI
+  });
+});
+
+describe('buildReleaseHint (release-hint gating by arm type)', () => {
+  const base = { drillTag: 'burst-abc', confirmRef: 'kubdiqdhqbhwmqfditeg' };
+
+  it('over-threshold arm (availableInMin > 0) needs a release and prints the command', () => {
+    const hint = buildReleaseHint({ ...base, availableInMin: 15 });
+    expect(hint.needsRelease).toBe(true);
+    if (hint.needsRelease) {
+      expect(hint.command).toContain('release --drill-tag burst-abc');
+      expect(hint.command).toContain('--confirm-staging kubdiqdhqbhwmqfditeg');
+    }
+  });
+
+  it('headroom arm (availableInMin === 0) does NOT need a release — rows self-drain', () => {
+    const hint = buildReleaseHint({ ...base, availableInMin: 0 });
+    expect(hint.needsRelease).toBe(false);
+    expect(hint.message).toMatch(/self-drain/);
+    expect(hint).not.toHaveProperty('command');
+  });
+});
+
+describe('listRemainingDrillRows (post-run inventory scoped to pending)', () => {
+  // Fakes the postgres.js tagged-template Sql call — no live DB. Filters an
+  // in-memory fixture table the same way the real SQL WHERE clause does, so this
+  // proves the query is scoped to status='pending' (a completed row from the
+  // headroom arm's expected happy path must not be counted, per Fix 2).
+  interface FixtureRow {
+    id: string;
+    status: string;
+    created_at: string;
+    topic: string;
+    drillTag: string;
+  }
+
+  function fakeSql(fixtures: FixtureRow[]): Parameters<typeof listRemainingDrillRows>[0] {
+    return (async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      const [topic, , drillTag, status] = values as [string, string, string, string];
+      return fixtures
+        .filter((row) => row.topic === topic && row.drillTag === drillTag && row.status === status)
+        .map(({ id, status: rowStatus, created_at }) => ({ id, status: rowStatus, created_at }));
+    }) as unknown as Parameters<typeof listRemainingDrillRows>[0];
+  }
+
+  it('does not count a self-completed row as remaining (headroom arm happy path)', async () => {
+    const fixtures: FixtureRow[] = [
+      { id: 'row-1', status: 'completed', created_at: '2026-07-19T00:00:00Z', topic: DRILL_TOPIC, drillTag: 'burst-abc' },
+    ];
+    const remaining = await listRemainingDrillRows(fakeSql(fixtures), 'burst-abc');
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('still counts a genuinely-stuck pending row as remaining (real HARD-FAIL)', async () => {
+    const fixtures: FixtureRow[] = [
+      { id: 'row-2', status: 'pending', created_at: '2026-07-19T00:00:00Z', topic: DRILL_TOPIC, drillTag: 'burst-abc' },
+    ];
+    const remaining = await listRemainingDrillRows(fakeSql(fixtures), 'burst-abc');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.status).toBe('pending');
+  });
+
+  it('does not cross-contaminate across tags or topics', async () => {
+    const fixtures: FixtureRow[] = [
+      { id: 'row-3', status: 'pending', created_at: '2026-07-19T00:00:00Z', topic: DRILL_TOPIC, drillTag: 'burst-other' },
+      { id: 'row-4', status: 'pending', created_at: '2026-07-19T00:00:00Z', topic: 'some_other_topic', drillTag: 'burst-abc' },
+    ];
+    const remaining = await listRemainingDrillRows(fakeSql(fixtures), 'burst-abc');
+    expect(remaining).toHaveLength(0);
   });
 });
