@@ -162,6 +162,8 @@ const DEFAULTS = {
   workerPortBase: 4310,
 };
 
+// CLI arg parsing; one branch per flag.
+// fallow-ignore-next-line complexity
 function parseArgs(argv: string[]): HarnessConfig {
   const command = argv[2] as Command | undefined;
   if (command !== 'baseline' && command !== 'treatment' && command !== 'both') {
@@ -189,6 +191,8 @@ function parseArgs(argv: string[]): HarnessConfig {
     }
   }
 
+  // CLI numeric-arg parsing with bounds; branchy by nature.
+  // fallow-ignore-next-line complexity
   const num = (key: string, fallback: number, opts: { integer?: boolean } = {}): number => {
     const raw = flags.get(key);
     if (raw === undefined) return fallback;
@@ -328,6 +332,8 @@ function spawnWorker(opts: { staggerEnabled: boolean; port: number; verbose: boo
   // so an operator debugging a failed staging boot sees the actual error.
   const stderrRing: string[] = [];
 
+  // Line-classifier over subprocess output — one branch per recognized marker.
+  // fallow-ignore-next-line complexity
   const handleLine = (line: string, stream: 'out' | 'err'): void => {
     if (stream === 'err') {
       stderrRing.push(line);
@@ -392,6 +398,8 @@ function spawnWorker(opts: { staggerEnabled: boolean; port: number; verbose: boo
     });
   };
 
+  // Best-effort process teardown ladder — each branch is a distinct kill escalation.
+  // fallow-ignore-next-line complexity
   const kill = async (): Promise<void> => {
     if (exited || child.pid === undefined) return;
     const pid = child.pid;
@@ -440,6 +448,8 @@ interface TrialResult {
  * `liveWorkers` tracks the spawned child at MAIN scope so the SIGINT/SIGTERM path
  * (which `process.exit`s past this function's `finally`) can still kill it.
  */
+// Protocol-level repro steps are inherently branchy; splitting them would scatter the trial narrative the harness exists to keep linear.
+// fallow-ignore-next-line complexity
 async function runTrial(
   observer: Sql,
   config: HarnessConfig,
@@ -682,6 +692,8 @@ function printSummary(baseline: TrialResult[], treatment: TrialResult[]): void {
   console.log('====================================================\n');
 }
 
+// Diagnostic-harness orchestration; correctness is pinned by scripts/ci/__tests__/wedge-repro.test.ts, not unit granularity.
+// fallow-ignore-next-line complexity
 async function main(): Promise<number> {
   const config = parseArgs(process.argv);
 
