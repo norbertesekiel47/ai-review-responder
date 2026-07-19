@@ -203,3 +203,15 @@ ticket draft `fix-505-pool-wedge-rootcause-rearm-ticket.md`. Review found one st
 Commit `70aeaffc` (docs) + `a3e3c4de` (path fix).
 
 ## STEP 4 (EXECUTE) COMPLETE — all of T1-T4 through both review gates. Next: step 5 verify-gate.
+
+## BREAKTHROUGH — the planned boot-stagger was NOT the cure; the real root cause was proven on staging (T5/T6)
+
+Staging validation of the boot-stagger cure (OP3, HEALTH_ALERT_POLL_INTERVAL_MS override removed → 5-min cadence) revealed the wedge is **per-cycle, not boot-burst**: the health cycle failed every 5 min (03:49:26 / 03:54:27 / 03:59:28), with a live `active/ClientRead` wedge on a health-bundle `job_outbox` count query. The boot-stagger (T2) targeted the wrong mechanism.
+
+**Proven root cause (differential repro on the staging pooler):** `runHealthChecks` fired 6 queries via `Promise.all` on the `max:2` bulkhead client over the Supavisor **transaction pooler**; postgres.js pipelines the overflow queries onto shared connections, and a pipelined response parks permanently in `ClientRead`. Differential: **concurrent-max2 6/6 wedged, sequential-max2 0/6, concurrent-max6 0/6**. This explains the permanence #500 couldn't; #500's isolation repro was clean because it used *uniform* queries (count>max is necessary but not sufficient — the query mix matters).
+
+**T5 — the real cure (commit a10f5eb, review Approved):** `runHealthChecks` now runs its 6 checks **sequentially** (one query in flight → no pipelining), preserving the backlog-depth `.catch` isolation + core-check throw propagation; `max:2` bulkhead kept. Regression test asserts peak query concurrency === 1 (reviewer empirically confirmed it's a real discriminator: reverting to Promise.all → test fails "expected 5 to be 1"). Shipped `runHealthChecks` validated **0/6** against the staging pooler.
+
+**T6 — audit (commit 3c53d1ad):** the same shape (concurrent queries on a shared postgres.js client over the tx-pooler) exists at ~15 candidate sites (mostly Vercel dashboard/KPI/admin on shared `max:3`), but they are UNVERIFIED SUSPECTS (query-mix-dependent trigger; Vercel's ephemeral functions may mask it; worker paths are the real danger). Most are OUTSIDE #505's edit surface → drafted a separate follow-up ticket (`fix-505-pool-wedge-rootcause-pipelining-audit-ticket.md`). Lab note added (`.claude/reference/lab-notes.md`); ADR 0008 + investigation reframed to the proven finding.
+
+**Net #505 outcome:** goal achieved (wedge cured, poller safe to resume) via a DIFFERENT mechanism than planned. Ships: sequential-bundle **cure** (proven) + boot-stagger **hardening** + reaper **deletion** + corrected docs. The PR→main cure-validation gate is now genuinely satisfied.
