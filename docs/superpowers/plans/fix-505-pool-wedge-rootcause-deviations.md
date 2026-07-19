@@ -191,3 +191,15 @@ prod-reject beats every flag; guard precedes ALL destructive actions. Fixes:
 - **D8:** guard tests at `scripts/ci/__tests__/` per the vitest include glob (verify-stripe-price-parity precedent).
 Commits `0cd5fc9a` → `9cc4340e` (F3) → `db07afaa` (F4). Invoked via
 `railway run --environment staging --service repworth-worker -- pnpm tsx scripts/wedge-repro.ts <baseline|treatment|both> --confirm-staging kubdiqdhqbhwmqfditeg`.
+
+## T4 — CLOSED. Docs faithful + complete (single accuracy review).
+ADR 0008 verified FAITHFUL to boot-stagger.ts + index.ts (autorun:false, 5s fail-open
+readiness, 8s strictly-monotonic stagger, module-scope AbortController, shutdown-aborts-first,
+BOOT_STAGGER_ENABLED default-on). Honest UNPROVEN/empirical framing confirmed throughout.
+Deliverables: ADR `docs/adr/0008-boot-readiness-cure.md`; CONTEXT.md (+ boot burst, boot-readiness
+cure); poller-resume §1b in `beta-launch-alerting.md`; new `pool-wedge-burst-drill.md`; re-arm
+ticket draft `fix-505-pool-wedge-rootcause-rearm-ticket.md`. Review found one stale path
+(`worker/config/worker.ts` → `src/lib/config/worker.ts` in the re-arm ticket) — fixed in `a3e3c4de`.
+Commit `70aeaffc` (docs) + `a3e3c4de` (path fix).
+
+## STEP 4 (EXECUTE) COMPLETE — all of T1-T4 through both review gates. Next: step 5 verify-gate.
