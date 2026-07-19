@@ -270,28 +270,42 @@ export async function runBootCoordinator(deps: BootCoordinatorDeps): Promise<voi
   } catch (err) {
     // An unexpected coordinator failure must NEVER leave a zombie worker (up
     // and listening but draining zero jobs, with no loops and therefore no
-    // paging). Deliberate aborts return above; anything else fails OPEN to the
-    // legacy synchronous boot: fire the starts (only if the stagger never
-    // began — past that point per-start errors were already contained) and
-    // always resume the BullMQ workers, then rethrow so the caller still logs
-    // the root failure.
+    // paging). Deliberate aborts return above; anything else fails OPEN via
+    // failOpenAfterBootFailure, then rethrows so the caller still logs the
+    // root failure.
     if (signal.aborted) {
       log?.('[boot] aborted during coordinator failure — not resuming workers');
       throw err;
     }
-    log?.('[boot] coordinator failed — failing OPEN to synchronous start so the worker cannot zombie');
-    if (!staggerBegan) {
-      for (const start of starts) {
-        try {
-          start();
-        } catch (startErr) {
-          staggerOptions.onStartError?.(startErr);
-        }
-      }
-    }
-    resumeWorkers();
+    failOpenAfterBootFailure({ starts, staggerOptions, resumeWorkers, staggerBegan, log });
     throw err;
   }
+}
+
+/**
+ * F2 recovery: degrade to the legacy synchronous boot. Fires the starts only
+ * if the stagger never began (past that point per-start errors were already
+ * contained by onStartError, and loops are not guaranteed re-entrant), then
+ * always resumes the autorun-deferred BullMQ workers.
+ */
+function failOpenAfterBootFailure(args: {
+  starts: Array<() => void>;
+  staggerOptions: BootStaggerOptions;
+  resumeWorkers: () => void;
+  staggerBegan: boolean;
+  log?: (message: string) => void;
+}): void {
+  args.log?.('[boot] coordinator failed — failing OPEN to synchronous start so the worker cannot zombie');
+  if (!args.staggerBegan) {
+    for (const start of args.starts) {
+      try {
+        start();
+      } catch (startErr) {
+        args.staggerOptions.onStartError?.(startErr);
+      }
+    }
+  }
+  args.resumeWorkers();
 }
 
 /**
