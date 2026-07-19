@@ -21,8 +21,8 @@
   "invariants": [
     "Safety gate is absolute in every mode: the PROD_PROJECT_REFS denylist beats every flag and no password ever surfaces. Two target modes (extracted + hardened from wedge-repro.ts): assertStagingTarget (positive allowlist — ref must EQUAL KNOWN_STAGING_REF; used by wedge-repro + burst-drill-load on shared staging) and assertEphemeralBranchTarget (ref must equal --confirm-branch AND be neither prod nor KNOWN_STAGING_REF; used by the differential on a throwaway branch)",
     "db_touching=false means no schema/migration and no new production tenant-scoped query site (so the tenant-scope/RLS audits are unaffected); the staging scripts DO perform operational INSERT/DELETE against job_outbox at runtime, guarded by the safety gate + scoped-delete predicate + their tests",
-    "No production runtime change — the health bundle stays sequential (ADR 0008); the differential reproduces the wedge with its OWN concurrent client, never by reverting runHealthChecks",
-    "Single owner of the health-bundle query mix — the differential reuses the exported checkXxx functions, never re-copies their SQL",
+    "No production runtime BEHAVIOR change — the health bundle stays sequential (ADR 0008); the differential reproduces the wedge with its OWN concurrent client, never by reverting runHealthChecks. The ONLY production edit is adding `export` to the existing pure resolveHealthAlertConfig in checks.ts (visibility only, zero behavior change, no new production caller — approved surface amendment for the single-owner fix)",
+    "Single owner of the health-bundle query mix AND its config — the differential reuses the exported checkXxx functions and the exported resolveHealthAlertConfig, never re-copies their SQL or config resolution (so both concurrent and sequential arms fire byte-identical query parameters)",
     "Single owner of backlog-depth counting — the drill reads backlog via queryBacklogDepth / GET /internal/queue-health, never a re-implemented count",
     "Never log raw review/response text, tokens, or secrets — the scripts observe pids/counts only",
     "No new runtime dependency; no package.json / pnpm-lock change",
@@ -45,6 +45,7 @@
     "scripts/run-direct-cli.ts — the CLI entry wrapper"
   ],
   "allowed_edit_surface": [
+    "worker/background/pollers/health-alert/checks.ts",
     "scripts/health-bundle-differential.ts",
     "scripts/burst-drill-load.ts",
     "scripts/staging-guard.ts",

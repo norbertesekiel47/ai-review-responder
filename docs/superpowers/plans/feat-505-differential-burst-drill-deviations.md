@@ -314,3 +314,35 @@ shared-staging / #507-soak contamination. This replaces the entire
   the branch, the harness reports it honestly as inconclusive (a branch-pooler-mode
   difference to investigate — fall back to Opt 2 marker on shared staging), never a
   false "cure regression".
+
+## D6 — Step-7 dual review + triage
+
+Two parallel reviewers on `git diff 8e48bb74..HEAD`. Spec+correctness: diff
+faithfully implements the contract, every high-risk area verified correct (4-way
+classifier, terminate-all + barrier, config replication, sequential arm uses shipped
+`runHealthChecks`, branch guard on both URLs, scoped-DELETE 4-clause, hard-fail
+inventory, no `any`, import-only). Standards: clean (deep `staging-guard` module,
+justified wedge-signature duplication, no glossary renames, strong tests).
+
+Findings triaged (receiving-code-review):
+- **[Med] ACCEPTED** — config resolver copied into the differential (drift → arms
+  fire different query params → invalidates the experiment). Fix (`2b58db10`, user
+  approved surface amendment to `checks.ts`): `export resolveHealthAlertConfig`
+  (visibility-only, zero behavior change), differential imports it → single owner of
+  both the query mix AND its config; both arms now fire byte-identical parameters.
+- **[Low] ACCEPTED** — `inject` printed the `release` hint + inventory hard-failed
+  on the headroom arm whose rows self-complete to `status='completed'` (false
+  failure). Fix (`2b58db10`): inventory scoped to `status='pending'` (what release
+  deletes); release hint gated to the over-threshold arm; headroom prints a
+  self-drain note. Tests added.
+- **[non-gating] ACCEPTED** — D1 "never `failed`" overclaim corrected (the
+  mirror-sync worker's own test proves a transient DB error can reject the job; safe
+  for the drill because it retries and isn't a `checkFailedOutboxByTopic` topic).
+- Low-confidence appendix notes (triplicated flag-parse loop; per-row INSERT vs
+  set-based; second untested DELETE-clause representation) — **REJECTED for now**:
+  the scoped-DELETE safety holds via direct predicate parameterization (the
+  clause-list is belt), and per-row INSERT is acceptable for a one-shot staging
+  drill (not a hot path). Not worth churn on a launch-blocker tooling PR.
+
+Fix commit `2b58db10`; gate re-run green after it (step 5 re-run). Full reports:
+`$CLAUDE_JOB_DIR/tmp/review-{spec,standards}.md`.
