@@ -19,7 +19,8 @@
     "Executed-drill results recorded on #505 and in the burst-drill runbook"
   ],
   "invariants": [
-    "Staging safety gate is absolute: the PROD_PROJECT_REFS denylist beats every flag; --confirm-staging must match the connection target; no password ever surfaces (carried from wedge-repro.ts)",
+    "Staging safety gate is absolute AND a positive allowlist: the PROD_PROJECT_REFS denylist beats every flag, the target ref must EQUAL KNOWN_STAGING_REF (not merely 'not prod'), --confirm-staging must equal it too, and no password ever surfaces (extracted + hardened from wedge-repro.ts)",
+    "db_touching=false means no schema/migration and no new production tenant-scoped query site (so the tenant-scope/RLS audits are unaffected); the staging scripts DO perform operational INSERT/DELETE against job_outbox at runtime, guarded by the safety gate + scoped-delete predicate + their tests",
     "No production runtime change — the health bundle stays sequential (ADR 0008); the differential reproduces the wedge with its OWN concurrent client, never by reverting runHealthChecks",
     "Single owner of the health-bundle query mix — the differential reuses the exported checkXxx functions, never re-copies their SQL",
     "Single owner of backlog-depth counting — the drill reads backlog via queryBacklogDepth / GET /internal/queue-health, never a re-implemented count",
@@ -58,9 +59,9 @@
     ".feature/**"
   ],
   "tests_to_add": [
-    "scripts/ci/__tests__/staging-guard.test.ts — prod-denylist beats flags, ref-match required, no password surfaced (extracted from the wedge-repro test)",
-    "scripts/ci/__tests__/health-bundle-differential.test.ts — arm classification (wedge>0 vs clean), wedge-signature attribution, expected-outcome gating, cleanup ordering",
-    "scripts/ci/__tests__/burst-drill-load.test.ts — pacing-schedule math (N events over M minutes), arg parsing/bounds, safety-gate wiring, row-shape builder"
+    "scripts/ci/__tests__/staging-guard.test.ts — prod-denylist beats every flag, target ref must EQUAL KNOWN_STAGING_REF (positive allowlist; a non-prod non-staging ref is rejected), empty/mismatched confirm rejected, no password surfaced",
+    "scripts/ci/__tests__/health-bundle-differential.test.ts — arm-outcome classification (queries resolved vs timed-out-past-deadline → wedged?), expected-vs-actual gating, the bounded-deadline wrapper, arg parsing/bounds",
+    "scripts/ci/__tests__/burst-drill-load.test.ts — pacing-schedule math (N over M), arg parsing/bounds, row-shape builder, safety-gate wiring, and the scoped-delete predicate builder (always includes topic + drill-tag + status='pending' + horizon)"
   ],
   "verification_commands": [
     "pnpm vitest run scripts/ci/__tests__/staging-guard.test.ts scripts/ci/__tests__/health-bundle-differential.test.ts scripts/ci/__tests__/burst-drill-load.test.ts"

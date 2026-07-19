@@ -44,6 +44,13 @@ worktree probe → exit 2, in-surface `scripts/staging-guard.ts` → exit 0 (pro
 it reads *this* intake). stop-gate: empty payload → exit 2 from both parent and
 worktree cwd (blocks until verify-gate populates the symlinked gate-status).
 
+**LIVE CONFIRMATION (step 3).** The real Stop hook fired at a turn boundary and
+blocked with "Stop blocked: no gate evidence" — anchoring on the parent and
+reading the (still-dangling) symlinked gate-status. This proves the bridge works
+end-to-end from the actual harness invocation, not just the manual ARM CHECK.
+Once `scripts/verify-gate.sh` runs in the worktree at step 5, the symlink target
+appears and the Stop hook will read the real gate result.
+
 **Teardown ordering note.** Do NOT remove the worktree until after the final
 green stop (or first delete the parent `.feature/intake.json` to exit
 feature-mode) — otherwise the symlink dangles and the Stop hook blocks.
@@ -91,3 +98,55 @@ tagged with a per-run `__drill:<tag>` key in `payload` for scoped cleanup:
   clears at the next tick. Pure alert fire/clear proof (drain is proven by the
   headroom arm). The scoped-delete predicate is safety-critical: topic + drill-tag
   + status='pending' — never touches real or non-pending rows.
+
+## D2 — Codex adversarial plan review (round 1) — triage
+
+Codex returned `VERDICT: REVISE` with 9 findings. Triage (receiving-code-review):
+
+1. **ACCEPT — differential fidelity.** T2 revised: **fresh client per iteration**;
+   the max:2 arm matches the REAL health client options (read
+   `worker/background/pollers/health-alert/health-db.ts` `buildClient()`); the
+   **sequential arm calls the shipped `runHealthChecks(sql)` directly** (proves
+   THE cure, not a hand-rolled sequential); the concurrent arms replicate the
+   exact pre-fix `Promise.all` of the 6 exported `checkXxx`. Throwaway
+   `HealthAlertConfig` literal is fine (thresholds gate emission, not query exec).
+2. **ACCEPT — redesign detection.** Destructive "new-pid-since-arm-start"
+   attribution over a transaction pooler is unsound (pid reuse → could miss the
+   wedge or kill a foreign backend / the live poller / the #507 soak). Replace it:
+   the **PRIMARY signal is whether the arm's queries RESOLVE within a bounded
+   deadline** — concurrent-max2 hangs past the deadline = wedge; sequential-max2
+   (`runHealthChecks`) and concurrent-max6 resolve = clean. Observed in-process;
+   no pg_stat_activity attribution needed for pass/fail.
+3. **ACCEPT — cleanup/crash.** Cleanup = **force-close the arm's OWN client**
+   (`client.end({ timeout })`) — exactly how production recycles a wedged health
+   client (`health-db.ts:53`). SIGINT/SIGTERM force-closes all live arm clients;
+   process exit closes sockets → server backends released. `pg_stat_activity` is
+   read ONLY as best-effort corroboration + to REPORT residual wedges — **never**
+   to `pg_terminate_backend` a backend not provably ours (removes the misfire +
+   soak-contamination risk entirely).
+4. **ACCEPT — scope honesty (framing, not mechanism).** The drill proves **outbox
+   DISPATCH-drain** of a 1000-row burst + `backlog_depth` observability — NOT full
+   ingest→LLM pipeline throughput (user chose cheap/mocked rows for exactly that).
+   Fix all naming/claims to "outbox dispatch drain"; state scope precisely in T4.
+   **Surface the narrowing to the user at sign-off.**
+5. **ACCEPT — explicit clear-evidence.** Check `health-alert/emit.ts` for recovery
+   semantics; the runbook records that a subsequent HealthAlertPoller cycle emits
+   NO `backlog_depth:job_outbox` finding at the sink. Keep "drain" (headroom arm)
+   distinct from "fire+clear" (over-threshold arm).
+6. **ACCEPT — harden release.** Release gets: unique run-tag + creation-window
+   horizon + idempotent DELETE + **post-run inventory** (COUNT remaining
+   drill-tagged rows, assert 0).
+7. **PARTIAL.** ACCEPT positive allowlist — `assertStagingTarget` must require the
+   target ref to **equal `KNOWN_STAGING_REF`** (not merely "not in the prod
+   denylist"). REJECT a script-level "#507 completion" gate as over-engineering —
+   handled by the runbook procedure + T5's blocking edge on the soak.
+8. **ACCEPT steer.** Extract **`staging-guard.ts` only**; do NOT extract a
+   destructive wedge-observer (the redesign removes destructive attribution). The
+   differential owns a minimal **read-only** wedge-signature sampler, commented as
+   implementing CONTEXT.md's canonical "Connection wedge" signature. Keeps churn to
+   `wedge-repro.ts` to just the guard import.
+9. **ACCEPT — clarify intake.** `db_touching:false` is correct for audit-gating
+   (no schema / no new production query site) but the scripts do operational
+   staging INSERT/DELETE at runtime → add an explicit intake note. Precedent path
+   **verified = `src/lib/shared/outbox.ts` (~558-570)** (codex's
+   `job-outbox-helpers.ts` was wrong; the Explore spike was right).

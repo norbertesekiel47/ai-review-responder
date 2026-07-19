@@ -38,10 +38,13 @@ extract them into small deep modules rather than re-copy:
   `describeConnectionTarget`. Security-critical; every staging script that boots
   a worker / terminates backends / injects rows must share ONE owner. →
   `scripts/staging-guard.ts`.
-- **Wedge signature** — the `state=active AND wait_event='ClientRead'` query +
-  `sampleWedged` / `terminateBackend` / `OBSERVER_APP_NAME`. "What a wedge looks
-  like" and "how we kill one" must have one owner shared by the boot-repro
-  harness and the query-level differential. → `scripts/wedge-observer.ts`.
+- **Wedge signature** — `state=active AND wait_event='ClientRead'`. Authoritative
+  owner is CONTEXT.md's **Connection wedge** glossary entry. The differential's
+  use is **read-only corroboration only** (see T2 redesign, D2#2/#8), so it owns a
+  minimal read-only sampler commented as implementing that glossary signature — we
+  do NOT extract a shared destructive observer from the merged `wedge-repro.ts`
+  (churn/regression not worth it once the differential stops doing destructive pid
+  attribution).
 
 Reused production seams (imported, **never edited** — invariant: no runtime
 change): the exported `checkXxx` functions in
@@ -68,16 +71,19 @@ approval/escalation state machines).
 
 - New `scripts/staging-guard.ts`: move `PROD_PROJECT_REFS`, `KNOWN_STAGING_REF`,
   `assertStagingTarget`, `describeConnectionTarget` out of `wedge-repro.ts`.
-- New `scripts/wedge-observer.ts`: move `OBSERVER_APP_NAME`, the wedge-signature
-  `sampleWedged`, `sampleAllPids`, `terminateBackend`.
-- `scripts/wedge-repro.ts`: delete the moved defs, import from the two modules.
-  Everything else (trial/boot orchestration, `runEmergencyCleanup`, summary)
-  untouched.
-- Tests: new `scripts/ci/__tests__/staging-guard.test.ts` (prod-denylist beats
-  every flag; ref must be present in target; empty/absent confirm rejected; no
-  password surfaces) — carried over from the wedge-repro guard tests.
-  `wedge-repro.test.ts` keeps covering wedge-repro's own pure logic and now
-  imports the guard from the new module.
+  **Guard hardened to a positive allowlist (D2#7):** in addition to the prod
+  denylist (which still wins over every flag), the target ref must **equal**
+  `KNOWN_STAGING_REF` and `--confirm-staging` must equal it too — "not prod" is no
+  longer sufficient; the target must be provably staging.
+- Only the guard is extracted (NOT a wedge-observer — D2#8). `wedge-repro.ts`
+  deletes the moved guard defs and imports them; everything else (its observer,
+  trial/boot orchestration, `runEmergencyCleanup`, summary) untouched.
+- Tests: new `scripts/ci/__tests__/staging-guard.test.ts` — prod-denylist beats
+  every flag; **target must equal `KNOWN_STAGING_REF`** (a non-prod, non-staging
+  ref is now rejected); empty/absent/mismatched confirm rejected; no password
+  surfaces. Carried over + extended from the wedge-repro guard tests;
+  `wedge-repro.test.ts` keeps covering wedge-repro's own logic, importing the
+  guard from the new module.
 - **Green:** the extracted-guard tests + the existing `wedge-repro.test.ts` +
   typecheck all pass — proves the refactor preserved behavior end-to-end.
 
@@ -87,30 +93,46 @@ Three-arm, N-iteration (default 6) differential, invoked operator-style like
 wedge-repro:
 `railway run --environment staging --service repworth-worker -- pnpm tsx scripts/health-bundle-differential.ts --confirm-staging <ref> [--iterations N]`.
 
-- Safety: `assertStagingTarget` on the worker pool URL (the client that wedges)
-  AND the observer URL (runs `pg_terminate_backend`) — from `staging-guard.ts`.
-- Arms (each on its OWN dedicated client via `createDedicatedPostgresClient`):
-  - `concurrent-max2`: fire the 6 exported `checkXxx` via **`Promise.all`** on a
-    `max:2` client → EXPECT wedge (baseline reproduces).
-  - `sequential-max2`: fire them **sequentially** on a `max:2` client → EXPECT
-    clean (the shipped cure).
-  - `concurrent-max6`: fire them via `Promise.all` on a `max:6` client → EXPECT
-    clean (proves it's the pool-size×mix pipelining, not concurrency alone — the
-    control that distinguishes this from #500's falsified count>max hypothesis).
-- The 6 checks are the real query mix: `checkFailedOutboxByTopic`,
-  `checkOldestPendingOutbox`, `checkStaleDispatching`, `checkOpenFlaggedResponses`,
-  `checkZeroDeliveryNotifications`, `checkBacklogDepth`. A throwaway
-  `HealthAlertConfig` literal is fine (thresholds gate finding emission, not
-  whether the QUERY runs — the query mix is what wedges).
-- Observe via a SEPARATE direct observer connection (`wedge-observer.ts`):
-  attribute only backends new-since-arm-start with the wedge signature to that
-  arm; `pg_terminate_backend` every attributed backend on every exit path (incl.
-  SIGINT/SIGTERM) — resource-ownership contract carried from wedge-repro.
-- Exit code gates the expected outcome: non-zero if `concurrent-max2` did NOT
-  wedge (repro failed) OR if either cure arm DID wedge (regression) OR any
-  attributed backend survived cleanup. A per-arm non-repro is reported honestly.
-- Pure/testable helpers (the tests): arm-outcome classification (wedged?/count),
-  expected-vs-actual gating, wedge attribution set math, arg parsing/bounds.
+- Safety: `assertStagingTarget` (positive allowlist) on the target pool URL AND
+  the read-only observer URL — from `staging-guard.ts`.
+- **Fresh client per iteration (D2#1):** each of the N iterations builds a NEW
+  dedicated client so a wedged connection can't leak into the next iteration.
+  Client options MUST match the real health client — read
+  `worker/background/pollers/health-alert/health-db.ts` `buildClient()` and mirror
+  its `createDedicatedPostgresClient` options (differing only in `max`).
+- Arms:
+  - `concurrent-max2`: replicate the **exact pre-fix `Promise.all`** of the 6
+    exported `checkXxx` on a `max:2` client → EXPECT wedge.
+  - `sequential-max2`: call the **shipped `runHealthChecks(sql)` directly** on a
+    `max:2` client (proves THE cure, not a hand-rolled sequential) → EXPECT clean.
+  - `concurrent-max6`: the same pre-fix `Promise.all` on a `max:6` client → EXPECT
+    clean (proves pool-size×mix pipelining, not concurrency alone — the control
+    that distinguishes this from #500's falsified count>max hypothesis).
+  The 6 checks (`checkFailedOutboxByTopic`, `checkOldestPendingOutbox`,
+  `checkStaleDispatching`, `checkOpenFlaggedResponses`,
+  `checkZeroDeliveryNotifications`, `checkBacklogDepth`) are the real query mix; a
+  throwaway `HealthAlertConfig` literal is fine (thresholds gate emission, not
+  whether the query runs).
+- **Detection (redesigned — D2#2): the PRIMARY signal is whether the arm's queries
+  RESOLVE within a bounded deadline**, observed in-process — concurrent-max2's
+  `Promise.all` never settles before the deadline = wedge; the two cure arms settle
+  = clean. No destructive `pg_stat_activity` pid-attribution (unsound over the
+  transaction pooler). A SEPARATE read-only observer optionally samples the wedge
+  signature to CORROBORATE + count, and is REPORTED — never used to
+  `pg_terminate_backend` a backend not provably ours.
+- **Cleanup (D2#3): force-close each arm's OWN client** via `client.end({ timeout })`
+  — exactly how production recycles a wedged health client (`health-db.ts:53`);
+  closing the socket releases the ClientRead-wedged server backend. SIGINT/SIGTERM
+  force-closes all live arm clients; process exit closes sockets. Any residual
+  wedge-signature backend after close is REPORTED for manual review, not
+  auto-terminated (soak-safe).
+- Exit code gates the expected outcome: non-zero if `concurrent-max2` did NOT wedge
+  (repro failed) OR if either cure arm DID wedge (regression) OR a residual
+  wedge-signature backend was reported after cleanup. A per-arm non-repro is
+  reported honestly.
+- Pure/testable helpers (the tests): arm-outcome classification (resolved vs
+  timed-out → wedged?), expected-vs-actual gating, the bounded-deadline wrapper,
+  arg parsing/bounds.
 - **Green:** `health-bundle-differential.test.ts` + typecheck.
 
 ### T3 — `scripts/burst-drill-load.ts` (synthetic-load injector)  ·  [blocked by T1]
@@ -118,7 +140,13 @@ wedge-repro:
 Parametrized injector for the capacity-burst drill:
 `railway run --environment staging --service repworth-worker -- pnpm tsx scripts/burst-drill-load.ts --events N --duration-min M --confirm-staging <ref> [--batch-size B]`.
 
-- Safety: `assertStagingTarget` on the inject target (`staging-guard.ts`).
+- Safety: `assertStagingTarget` (positive allowlist) on the inject target
+  (`staging-guard.ts`).
+- **Scope (honest framing — D2#4):** this drill proves **outbox DISPATCH-drain**
+  of a burst of pending `job_outbox` rows + `backlog_depth` observability — it does
+  NOT prove full ingest→draft→notification pipeline throughput (deliberately, per
+  the "cheap drainable rows, mocked externals" decision). All docs/results say
+  "outbox dispatch drain", never "1000-review pipeline capacity".
 - Injection mechanism resolved in **deviations D1** (Explore spike): topic
   **`stripe_subscription_mirror_sync`**, `aggregate_type='account'`, fresh
   `uuidv7()` id, random non-existent `aggregate_id`, `payload = {account_id,
@@ -134,9 +162,15 @@ Parametrized injector for the capacity-burst drill:
   - `inject --available-in-min <K>0>` (**over-threshold arm**): ~1600 **future-
     dated** rows that persist as `pending` (backlog_depth counts them) but the
     poller won't claim → backlog holds >1500 across a poller tick →
-    `backlog_depth:job_outbox` fires. Then `release --drill-tag <tag>` DELETEs
-    **only** `topic=... AND payload->>'__drill'=<tag> AND status='pending'` →
-    backlog clears → alert clears. Scoped-delete predicate is safety-critical.
+    `backlog_depth:job_outbox` fires. Then `release --drill-tag <tag>` clears it.
+- **Release protocol (hardened — D2#6):** every injected row carries a **unique
+  per-run `__drill:<tag>`** (tag = a run id, logged). `release` DELETEs **only**
+  `topic='stripe_subscription_mirror_sync' AND payload->>'__drill'=<tag> AND
+  status='pending' AND created_at >= <run-start horizon>` — never real rows, never
+  non-pending rows, never another run's rows. Release is **idempotent** (re-runnable)
+  and ends with a **post-run inventory**: COUNT remaining rows for `<tag>` and
+  assert 0 (else warn + list). Belt: `inject` also prints the exact `release`
+  command with the tag baked in, so cleanup is never lost.
 - Pacing: pure `computeInjectionSchedule(events, durationMin, batchSize)` → an
   ordered list of `{ batchCount, delayMsAfter }` spreading N rows across M
   minutes (sub-minute precision is not the point).
@@ -144,7 +178,9 @@ Parametrized injector for the capacity-burst drill:
   log the pending climb — counts only, never row content.
 - Pure/testable helpers (the tests): `computeInjectionSchedule` math (N over M,
   remainder handling, batch bounds), arg parsing/bounds (positive ints, sane
-  caps), the row-shape builder, safety-gate wiring.
+  caps), the row-shape builder, safety-gate wiring, and — safety-critical — the
+  **scoped-delete predicate builder** (asserts it ALWAYS includes topic +
+  drill-tag + status='pending' + horizon; a missing clause must be impossible).
 - **Green:** `burst-drill-load.test.ts` + typecheck.
 
 ### T4 — Docs reconciliation + glossary  ·  [blocked by T2, T3]
@@ -162,7 +198,14 @@ Parametrized injector for the capacity-burst drill:
 - `docs/runbooks/beta-launch-alerting.md` §4: reconcile the two bullets so
   "Backlog depth over threshold" and "#474 capacity burst (headroom)" both point
   at `burst-drill-load.ts` and the map's "fires at ~1500 and clears" maps to the
-  over-threshold arm.
+  over-threshold arm. State the scope honestly (outbox dispatch drain, D2#4).
+- **Explicit clear-evidence (D2#5):** the runbook defines exactly what "fires" and
+  "clears" mean at the alert sink — first read `worker/background/pollers/health-alert/emit.ts`
+  to learn whether findings are re-emitted per cycle or have explicit
+  resolution/recovery semantics, then record: **fires** = a `backlog_depth:job_outbox`
+  finding at the Discord/Sentry sink on a cycle where pending>1500; **clears** =
+  the next cycle after `release` emits NO such finding (pending<1500). Keep "drain"
+  (headroom arm) and "fire+clear" (over-threshold arm) as distinct claims.
 - `.claude/reference/lab-notes.md`: the pipelining finding is already noted; add
   only a one-line pointer to the checked-in differential harness if missing.
 - **Green:** standard gate (lint/typecheck/test + all `ci:*` audits); docs-only
