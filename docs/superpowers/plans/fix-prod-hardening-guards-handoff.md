@@ -1,6 +1,6 @@
 # Handoff — fix/prod-hardening-guards
 
-**Current step:** 4 (execute) — Codex plan gate PASSED (REVISE→REVISE→APPROVED; triage log: docs/reviews/fix-prod-hardening-guards/plan-adversarial-round1.md). Implementation waves dispatched: A=Tasks 1+3, B=Tasks 2+7, C=Tasks 4+5+6. Agents do not commit; orchestrator commits per task.
+**Current step:** 8 (ship) — steps 4–7 COMPLETE. Rebased onto origin/main @ 8e48bb74 (2026-07-19, reconciliation d7779e09). Standards review: 5 findings, 4 accepted+fixed (f97ca010), 1 declined (M2, post-merge cleanup). Spec review: 2 comment-only findings, fixed (23dc0204). Verify gate GREEN on the expanded check set. Remaining: staging ride → smoke → PR → owner merge approval (+ optional owner-invoked /codex:adversarial-review).
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-prod-hardening-guards`
 **Branch:** `fix/prod-hardening-guards`, rebased onto `origin/main` @ `10604116` (2026-07-16).
 
