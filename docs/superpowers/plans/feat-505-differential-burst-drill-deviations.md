@@ -78,7 +78,10 @@ Read-only Explore spike to resolve the one open design detail for T3. Evidence
   trips `checkFailedOutboxByTopic` (scoped to `publish_response`/`send_notification`
   only) or `checkStaleDispatching`. No in-flight dedup index → bulk distinct-id
   inserts don't collide. Rows self-purge via `ArchivalPoller` (7d).
-- Insert precedent: `src/lib/shared/outbox.ts:554-571` (uses `tx.json(payload)`).
+- Insert precedent: `src/lib/shared/job-outbox-helpers.ts:558-571` (the mirror-sync
+  INSERT — `uuidv7()` id, `tx.json({account_id})`, `JOB_OUTBOX_STATUS_PENDING`).
+  [Corrected in D3: the round-1 note wrongly said `src/lib/shared/outbox.ts`
+  (that file is only 166 lines); codex was right — the Explore spike misattributed.]
 
 ### T3 mechanism decision (resolves the plan's "per D1" placeholder)
 
@@ -147,6 +150,66 @@ Codex returned `VERDICT: REVISE` with 9 findings. Triage (receiving-code-review)
    `wedge-repro.ts` to just the guard import.
 9. **ACCEPT — clarify intake.** `db_touching:false` is correct for audit-gating
    (no schema / no new production query site) but the scripts do operational
-   staging INSERT/DELETE at runtime → add an explicit intake note. Precedent path
-   **verified = `src/lib/shared/outbox.ts` (~558-570)** (codex's
-   `job-outbox-helpers.ts` was wrong; the Explore spike was right).
+   staging INSERT/DELETE at runtime → added an explicit intake note. Precedent path
+   **[CORRECTED in D3] = `src/lib/shared/job-outbox-helpers.ts:558-571`** — my
+   round-1 "verification" wrongly sided with the Explore spike's `outbox.ts` (an
+   ambiguous `sed` over both files); `outbox.ts` is only 166 lines. Codex was right.
+
+## D3 — Codex adversarial plan review (round 2) — triage
+
+Round-2 verdict `REVISE` (round-1 findings only PARTIALLY resolved). All accepted
+except one partial-reject. Resolutions:
+
+- **A. Detection underspecified → SPECIFY.** Explicit **~40s deadline** (> the 30s
+  server `statement_timeout`; a wedge is `ClientRead`, a wait state, so
+  statement_timeout never heals it → a wedged arm's `Promise.all` never settles).
+  **Four-way per-arm outcome taxonomy:** `fulfilled` (all checks resolved),
+  `rejected` (a check threw), `wedged` (deadline passed AND the read-only observer
+  corroborates the `ClientRead` signature on the arm's OWN backends), `hung-unknown`
+  (deadline passed WITHOUT the signature → NOT the known wedge; report as
+  inconclusive — slow query / pool exhaustion / network, not a repro). The read-only
+  observer corroboration is **MANDATORY, not optional** — a bare timeout does not
+  prove the wedge.
+- **B. `client.end({timeout})` is NOT reliable → REDESIGN cleanup.** `health-db.ts:8-17`
+  documents FIN-based reclamation as "plausible but not guaranteed" (backstop issue
+  **#477**); postgres.js 3.4.9 `end()` initiates shutdown without waiting for the
+  server backend to disappear. A leaked wedged backend would pollute later arms and
+  break "clean"-arm independence. Redesign:
+  1. Set a **unique per-run `application_name`** on the wedge-target client.
+  2. **Startup self-check:** confirm the script's own (non-wedged) connection is
+     visible in `pg_stat_activity` with that `application_name`. If the pooler
+     flattens it so the script can't identify its own backends → **ABORT** (can't
+     guarantee safe cleanup). This is the sound answer to round-1's "attribution is
+     unsound over the pooler": we attribute by a POSITIVE unique `application_name`,
+     not a timing heuristic, and only ever act on backends provably ours.
+  3. Cleanup ladder per arm: `client.end({timeout})` (best-effort FIN, mirroring
+     prod's `end({timeout:1})` raced against a non-cancelling `withTimeout`) →
+     **backstop `pg_terminate_backend` scoped to (wedge-signature AND our unique
+     `application_name`)** — reliable server-side kill of provably-own backends.
+  4. **Baseline barrier between arms:** verify zero wedge-signature backends carrying
+     our `application_name` before the next arm; if residuals persist after the
+     backstop → **ABORT the run** (never continue on a polluted pooler, never
+     terminate a backend not provably ours).
+  - **PARTIAL-REJECT** codex's "per-iteration child-process isolation (mandatory)":
+    child-exit FIN has the SAME #477 uncertainty as `end()`, so it does not remove
+    the need for the `application_name`-scoped `pg_terminate` backstop — which
+    already guarantees cleanup + independence via the barrier. In-process arms with
+    fresh clients + the barrier + backstop are sufficient and simpler. Child-process
+    isolation is kept as a documented FALLBACK only if `application_name` attribution
+    proves unusable on Supavisor at execution (startup self-check fails).
+- **C. Exact health-client construction:** mirror `health-db.ts` `buildClient()`
+  options exactly (already in the plan — keep).
+- **D. "Clear" definition (emit.ts has NO recovery event):** clear =
+  `queryBacklogDepth`/`queue-health` shows pending < threshold **AND** a subsequent
+  HealthAlertPoller cycle completes a **successful check-in emitting no
+  `backlog_depth:job_outbox` finding** — not "no finding" alone.
+- **E. Release inventory → HARD-FAIL:** non-zero remaining drill-tagged rows after
+  `release` = non-zero exit code (not just a warning).
+- **F. T5 gate → evidence-based, not time-based:** the runbook gate requires a
+  RECORDED **#507 PASS/closure comment** + a **clean HealthAlertPoller baseline**
+  before executing — not merely "the ~24h window has closed."
+- **G. Precedent path corrected** everywhere → `job-outbox-helpers.ts:558-571` (see
+  D2#9 correction above).
+- **H. Contradictions removed:** intake self-clean invariant reconciled to the
+  `end()` + `application_name`-scoped `pg_terminate` backstop + abort design; the
+  plan's stale `wedge-observer.ts` risk-section reference removed.

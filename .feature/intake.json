@@ -26,7 +26,7 @@
     "Single owner of backlog-depth counting — the drill reads backlog via queryBacklogDepth / GET /internal/queue-health, never a re-implemented count",
     "Never log raw review/response text, tokens, or secrets — the scripts observe pids/counts only",
     "No new runtime dependency; no package.json / pnpm-lock change",
-    "Every wedged backend the differential creates is self-cleaned (pg_terminate_backend) on every exit path including SIGINT/SIGTERM (resource-ownership contract)"
+    "Every wedged backend the differential creates is self-cleaned on every exit path incl. SIGINT/SIGTERM (client.end + a pg_terminate_backend backstop scoped to the run's unique application_name — provably-own backends ONLY); a residual it cannot prove is its own ABORTS the run rather than terminating a foreign backend (resource-ownership contract, D3-B)"
   ],
   "edge_cases": [
     "Differential baseline arm does NOT wedge on a given iteration → reported honestly as a non-repro finding, not masked (wedge-repro precedent)",

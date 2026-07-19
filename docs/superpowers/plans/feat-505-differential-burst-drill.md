@@ -113,26 +113,37 @@ wedge-repro:
   `checkZeroDeliveryNotifications`, `checkBacklogDepth`) are the real query mix; a
   throwaway `HealthAlertConfig` literal is fine (thresholds gate emission, not
   whether the query runs).
-- **Detection (redesigned — D2#2): the PRIMARY signal is whether the arm's queries
-  RESOLVE within a bounded deadline**, observed in-process — concurrent-max2's
-  `Promise.all` never settles before the deadline = wedge; the two cure arms settle
-  = clean. No destructive `pg_stat_activity` pid-attribution (unsound over the
-  transaction pooler). A SEPARATE read-only observer optionally samples the wedge
-  signature to CORROBORATE + count, and is REPORTED — never used to
-  `pg_terminate_backend` a backend not provably ours.
-- **Cleanup (D2#3): force-close each arm's OWN client** via `client.end({ timeout })`
-  — exactly how production recycles a wedged health client (`health-db.ts:53`);
-  closing the socket releases the ClientRead-wedged server backend. SIGINT/SIGTERM
-  force-closes all live arm clients; process exit closes sockets. Any residual
-  wedge-signature backend after close is REPORTED for manual review, not
-  auto-terminated (soak-safe).
-- Exit code gates the expected outcome: non-zero if `concurrent-max2` did NOT wedge
-  (repro failed) OR if either cure arm DID wedge (regression) OR a residual
-  wedge-signature backend was reported after cleanup. A per-arm non-repro is
-  reported honestly.
-- Pure/testable helpers (the tests): arm-outcome classification (resolved vs
-  timed-out → wedged?), expected-vs-actual gating, the bounded-deadline wrapper,
-  arg parsing/bounds.
+- **Detection (D2#2 + D3-A): explicit ~40s deadline + 4-way taxonomy + MANDATORY
+  signature corroboration.** Deadline is > the 30s server `statement_timeout` (a
+  wedge is `ClientRead`, a wait state, so statement_timeout never heals it). Per-arm
+  outcome: `fulfilled` (all 6 resolved), `rejected` (a check threw), **`wedged`**
+  (deadline passed AND the read-only observer corroborates the `ClientRead`
+  signature on the arm's OWN backends), `hung-unknown` (deadline passed WITHOUT the
+  signature → NOT the known wedge; inconclusive, not a repro). A bare timeout does
+  NOT prove the wedge — the read-only observer is **mandatory**.
+- **Attribution + cleanup (D3-B — safe over the pooler): unique per-run
+  `application_name` on the wedge-target client.** Startup **self-check**: confirm
+  the script's own non-wedged connection appears in `pg_stat_activity` with that
+  `application_name`; if the pooler flattens it (can't identify own backends) →
+  **ABORT** (can't guarantee safe cleanup). Per-arm cleanup ladder:
+  `client.end({ timeout })` (best-effort FIN — NOTE `end()` is documented
+  unreliable, `health-db.ts:8-17` / issue #477, so it is NOT the guarantee) →
+  **backstop `pg_terminate_backend` scoped to (wedge-signature AND our unique
+  `application_name`)** = reliable kill of provably-own backends only. **Baseline
+  barrier** before each next arm: verify zero wedge-signature backends carrying our
+  `application_name`; residuals persisting after the backstop → **ABORT** (never
+  continue on a polluted pooler, never terminate a backend not provably ours).
+  SIGINT/SIGTERM runs the same ladder for all live clients. (In-process arms +
+  fresh client/iteration + this barrier give independence; child-process-per-arm is
+  a documented fallback only if the self-check fails — D3 partial-reject.)
+- Exit code gates the expected outcome: non-zero if `concurrent-max2` is not
+  `wedged` (repro failed) OR a cure arm is `wedged` (regression) OR the run
+  ABORTED (startup self-check failed / a residual persisted after the backstop).
+  `hung-unknown` on the baseline arm is a non-repro reported honestly (not a pass).
+- Pure/testable helpers (the tests): the **4-way arm classifier** (fulfilled /
+  rejected / wedged[=timeout+signature] / hung-unknown[=timeout, no signature]),
+  expected-vs-actual gating, the bounded-deadline wrapper, the self-check/abort
+  decision, arg parsing/bounds.
 - **Green:** `health-bundle-differential.test.ts` + typecheck.
 
 ### T3 — `scripts/burst-drill-load.ts` (synthetic-load injector)  ·  [blocked by T1]
@@ -168,9 +179,10 @@ Parametrized injector for the capacity-burst drill:
   `topic='stripe_subscription_mirror_sync' AND payload->>'__drill'=<tag> AND
   status='pending' AND created_at >= <run-start horizon>` — never real rows, never
   non-pending rows, never another run's rows. Release is **idempotent** (re-runnable)
-  and ends with a **post-run inventory**: COUNT remaining rows for `<tag>` and
-  assert 0 (else warn + list). Belt: `inject` also prints the exact `release`
-  command with the tag baked in, so cleanup is never lost.
+  and ends with a **post-run inventory**: COUNT remaining rows for `<tag>`; a
+  non-zero count is a **HARD-FAIL** (non-zero exit + list), never just a warning
+  (D3-E). Belt: `inject` also prints the exact `release` command with the tag baked
+  in, so cleanup is never lost.
 - Pacing: pure `computeInjectionSchedule(events, durationMin, batchSize)` → an
   ordered list of `{ batchCount, delayMsAfter }` spreading N rows across M
   minutes (sub-minute precision is not the point).
@@ -199,13 +211,14 @@ Parametrized injector for the capacity-burst drill:
   "Backlog depth over threshold" and "#474 capacity burst (headroom)" both point
   at `burst-drill-load.ts` and the map's "fires at ~1500 and clears" maps to the
   over-threshold arm. State the scope honestly (outbox dispatch drain, D2#4).
-- **Explicit clear-evidence (D2#5):** the runbook defines exactly what "fires" and
-  "clears" mean at the alert sink — first read `worker/background/pollers/health-alert/emit.ts`
-  to learn whether findings are re-emitted per cycle or have explicit
-  resolution/recovery semantics, then record: **fires** = a `backlog_depth:job_outbox`
-  finding at the Discord/Sentry sink on a cycle where pending>1500; **clears** =
-  the next cycle after `release` emits NO such finding (pending<1500). Keep "drain"
-  (headroom arm) and "fire+clear" (over-threshold arm) as distinct claims.
+- **Explicit clear-evidence (D2#5 + D3-D):** `emit.ts` has **no recovery/resolution
+  event** (confirm when writing T4). So the runbook records: **fires** = a
+  `backlog_depth:job_outbox` finding at the Discord/Sentry sink on a cycle where
+  pending>1500; **clears** = after `release`, `queryBacklogDepth`/`queue-health`
+  shows pending<1500 **AND** a subsequent HealthAlertPoller cycle **completes a
+  successful check-in emitting no such finding** (absence-of-finding alone is not
+  enough — it must be a completed cycle). Keep "drain" (headroom arm) and
+  "fire+clear" (over-threshold arm) as distinct claims.
 - `.claude/reference/lab-notes.md`: the pipelining finding is already noted; add
   only a one-line pointer to the checked-in differential harness if missing.
 - **Green:** standard gate (lint/typecheck/test + all `ci:*` audits); docs-only
@@ -217,6 +230,11 @@ Not a code task — the operational deliverable, run at SHIP (step 8) **after** 
 #507 soak, so it can't contaminate a launch-blocker verification (the
 differential deliberately wedges the pooler; the burst fires health warnings).
 
+- **Evidence-based execution gate (D3-F) — the T5 runbook step must verify, not
+  assume:** (1) a **recorded #507 PASS/closure comment** exists, AND (2) a **clean
+  HealthAlertPoller baseline** right before starting (recent cycles show no
+  `health-alert-checks timed out` and no standing `backlog_depth` finding). "The
+  ~24h window has closed" is NOT sufficient. Abort the drill if either is unmet.
 - Run the differential (`both`/all arms) → record concurrent-max2 wedge count,
   sequential-max2 = 0, concurrent-max6 = 0.
 - Run the burst drill headroom arm (1000/10 min) → record backlog climb, drain
@@ -239,10 +257,15 @@ T1 (extract shared modules)
 
 - T1 edits the merged `wedge-repro.ts` — keep the extraction surgical; its
   existing tests are the regression net (behavior must be byte-identical).
-- T2 must NOT import/execute `wedge-repro.ts`'s `runDirectCli` side effect — it
-  imports only from `staging-guard.ts` / `wedge-observer.ts` (pure modules).
-- T3 injection mechanism is the one open design detail → resolved by the Explore
-  spike (D1) before implementation; the plan owns the CONTRACT (drainable, no
-  spend, no spurious pages), the module owns the concrete topic.
-- Staging execution (T5) is gated on the #507 soak — do not run mid-soak.
+- T2 imports only `staging-guard.ts` + the exported `checkXxx`/`runHealthChecks`
+  from `checks.ts`; it owns its OWN minimal read-only wedge sampler (no
+  `wedge-observer.ts` extraction — D2#8/D3-H). It must NOT import/execute
+  `wedge-repro.ts`'s `runDirectCli` side effect.
+- T2 cleanup safety is load-bearing: only ever `pg_terminate_backend` a backend
+  carrying the run's unique `application_name`; if the startup self-check can't see
+  that name over the pooler, ABORT rather than guess (D3-B).
+- T3 injection mechanism resolved by the Explore spike (D1); the plan owns the
+  CONTRACT (drainable, no spend, no spurious pages), the module owns the topic.
+- Staging execution (T5) is gated on RECORDED #507 PASS + a clean poller baseline —
+  do not run mid-soak or on an unverified window (D3-F).
 ```
