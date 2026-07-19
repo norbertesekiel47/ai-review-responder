@@ -177,3 +177,17 @@ Approved-with-minor follow-ups, all in the spawn/arg surface:
 #1/#2 are stream/process-level (not cleanly unit-testable via injected fakes without
 exporting the arg parser); the pure `runEmergencyCleanup`/`assertStagingTarget` and their
 13 tests are untouched. typecheck / `ci:db-imports` strict / lint all clean.
+
+## T1 — CLOSED. Spec ✅ (guard airtight) + code-quality Approved (F3 + F4 applied).
+Spec review VERIFIED the safety guard: staging ref `kubdiqdhqbhwmqfditeg` + prod-reject
+ref `udeyaqnvpojbwgoaxwdg` confirmed correct against deployment-guide.md:1150-1151;
+prod-reject beats every flag; guard precedes ALL destructive actions. Fixes:
+- **F3 (spec gap):** SIGINT/SIGTERM path orphaned the detached worker child (skipped
+  runTrial's finally) → could re-wedge after the terminate pass. Fixed: main-scope
+  `Set<SpawnedWorker>` + pure `runEmergencyCleanup` kills children FIRST. Ordering test added.
+- **F4 (operability polish):** child stderr ring-buffer dumped on non-ready boot;
+  `child.on('error')` → clean per-trial failure not a crash; integer-arg guards.
+- **D7:** transport declared OPAQUE (no prod db/server.ts intrusion) — validation is EMPIRICAL.
+- **D8:** guard tests at `scripts/ci/__tests__/` per the vitest include glob (verify-stripe-price-parity precedent).
+Commits `0cd5fc9a` → `9cc4340e` (F3) → `db07afaa` (F4). Invoked via
+`railway run --environment staging --service repworth-worker -- pnpm tsx scripts/wedge-repro.ts <baseline|treatment|both> --confirm-staging kubdiqdhqbhwmqfditeg`.
