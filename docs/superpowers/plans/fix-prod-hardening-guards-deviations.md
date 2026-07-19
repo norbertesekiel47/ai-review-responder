@@ -61,3 +61,22 @@
   account-total query and its `?? 1`/`?? 0` defaults already define the
   fallback shape. Query count matched the plan (13 = 1 fatal + 11 SQL aux +
   1 Redis pending marker).
+- [2026-07-19] **Rebase onto main (#495/#496 dashboard rework) — P10 re-applied
+  to the new shape.** Main's #476 set-based aggregate wave replaced the
+  per-location `getActiveDashboardData` fan-out with one atomic
+  `fetchPerLocationAggregateSlices` call and REMOVED `partialFailures` from the
+  DTO, so the "exclude-but-report failed location slices" premise is obsolete —
+  per-location slice failures can no longer occur independently. Adaptation
+  (same CONTRACT, new shape): locations-list stays fatal; the atomic slice wave
+  is now ALSO fatal (it is the entire view — degrading it to empty slices would
+  render an all-zeros dashboard that misreports the business, the same
+  reasoning that keeps the business lookup fatal); the aggregate's own
+  independent queries degrade reported — billing row (`accountBillingRows`) and
+  the account-wide recent-reviews feed (`accountRecentReviews`, new widget on
+  main's shape). `aggregate-service.degradation.test.ts` rewritten against the
+  seam-mocked wave; `service.degradation.test.ts` gained the #495 cache-layer
+  stub (`set` alongside `get`); the per-location batch also carries main's
+  14th slot (opt-in reputation batch), degraded as ONE widget
+  (`reputationRows` → null). Known trade-off inherited from main's #495 cache:
+  a degraded payload can be cached for its 45s TTL — bounded, and every
+  degradation still reports to Sentry.
