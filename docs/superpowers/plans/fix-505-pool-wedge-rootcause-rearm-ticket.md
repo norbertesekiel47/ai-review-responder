@@ -109,7 +109,7 @@ rewrite from scratch):
   The reaper closer back into `src/lib/db/server.ts`'s
   `closeAllPostgresClients` (alongside the kept `closeHealthSql`).
 - All five `POOL_WEDGE_REAPER_*` env vars + the `DIRECT_URL` config exposure,
-  re-added to `worker/config/worker.ts`, `worker/config/startup-assert.ts`,
+  re-added to `src/lib/config/worker.ts`, `worker/config/startup-assert.ts`,
   and documented in `.claude/reference/env-vars.md` (the entries were removed
   by #505, not just left undocumented — write fresh entries, don't assume the
   old ones are still accurate against whatever routing mechanism #477 lands
