@@ -28,3 +28,9 @@
 4. Step 6: PAUSE — ask owner to run `/codex:adversarial-review` (user-invocable only).
 5. Step 7: two parallel review agents (spec-vs-intake + `/thermo-nuclear-code-quality-review`), reports to `docs/reviews/fix-prod-hardening-guards/`, triage, re-gate.
 6. Step 8 (high lane): push branch to `staging` ride, smoke webhook ingress + dashboard + generation cycle, PR to `main`, CI green, PAUSE for owner merge approval.
+
+## Staging ride evidence (2026-07-19)
+
+- `staging` fast-forwarded to branch tip `323516f3` (was == main @ 8e48bb74); Railway staging worker redeployed and booted clean: all queues + pollers/schedulers registered, boot-stagger readiness cure completed, OutboxPoller watchdog 900000ms, HealthAlertPoller running the 6-check bundle (incl. new inbound_events check), Fastify listening on 8080 — zero errors in deploy logs.
+- PR #508 open to main; CI green except `test`/`fallow` still running at last check.
+- Remaining: owner merge approval (and optional owner-invoked `/codex:adversarial-review`); post-merge: ff-pull main, ff staging onto main, remove worktree, `document-feature` sweep, entropy counter.
