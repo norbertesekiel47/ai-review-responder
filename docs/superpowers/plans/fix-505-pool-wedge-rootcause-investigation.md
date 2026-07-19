@@ -1,8 +1,11 @@
-# #505 — pool-wedge root-cause investigation (hypothesis + evidence)
+# #505 — pool-wedge root-cause investigation (PROVEN — pipelining over Supavisor)
 
 Consolidated from #500's evidence trail, PR #502, ADR 0007, and a fresh boot-burst
-code map (2026-07-18). This is the durable on-disk record of the root-cause
-hypothesis — a resumed session reads this instead of the grilling transcript.
+code map (2026-07-18), then updated the same day once a second differential-repro
+pass against the actual `HealthAlertPoller` code path proved the mechanism. This is
+the durable on-disk record — a resumed session reads this instead of the grilling
+transcript. See ADR 0008 for the shipped decision (sequential health-bundle cure,
+commit a10f5eb) and the retained boot-stagger hardening.
 
 ## The wedge (established, do NOT re-walk)
 
@@ -12,9 +15,10 @@ backend is blocked reading bytes the client never sends. No timeout heals it
 (`statement_timeout` fires only during execution; `idle_timeout`/`max_lifetime`
 spare busy conns). Permanent until `pg_terminate_backend` or redeploy.
 
-- Forms during the **boot burst** (24 BullMQ queues + ~20 loops initializing);
-  reproduces on the **first poller cycle of a fresh container**, not from runtime
-  accumulation (#500 fresh-container soak).
+- Reproduces on the **first poller cycle of a fresh container** (#500
+  fresh-container soak) — originally read as boot-burst-only, but PROVEN
+  (below) to recur on **every** 5-minute health cycle, boot or not; the fresh
+  container just happens to hit its first health cycle early.
 - Signature is **`state_change`-keyed** — `query_start` restamps each 5-min cycle,
   `state_change` does not; age filters must key on `state_change`.
 - **Poison migrates**: terminate the wedged pid → another connection wedges;
@@ -24,39 +28,78 @@ spare busy conns). Permanent until `pg_terminate_backend` or redeploy.
   queries ALONE do not wedge. The trigger requires the worker's full in-process
   boot state.
 
-### Six falsified hypotheses (CLOSED — do not re-litigate)
+### Five falsified hypotheses (CLOSED — do not re-litigate) + one refined, not falsified
 1. slow SQL / missing index (queries <1ms, `job_outbox`=62 rows)
 2. queue-Redis IPv6 hang (`/ready` showed `queue_redis: ok, postgres: failed`)
-3. boot-time-contention-only (failures recur every cycle at steady state pre-#502)
+3. boot-time-contention-only (failures recur every cycle at steady state pre-#502 —
+   this observation held up and pointed at the eventual per-cycle finding below)
 4. `DB_POOL_MAX` misconfig (unset, default 10)
 5. prepared statements over tx-pooler (`prepare:false` is set)
-6. postgres.js pipelining through Supavisor (isolation repro clean)
+6. **postgres.js pipelining through Supavisor — REFINED, NOT falsified.** The
+   original isolation repro (uniform queries, concurrency > `max`) came back
+   21/21 clean and was read at the time as closing this hypothesis. It did not:
+   it only proved that pipelining does not wedge for an *arbitrary* uniform
+   query shape. A second differential repro using the REAL 6-query
+   `HealthAlertPoller` bundle reproduced the wedge 6/6 — pipelining through
+   Supavisor IS the mechanism, triggered by that bundle's specific query mix,
+   not by concurrency-over-`max` alone. See "Root cause (PROVEN)" below.
 
-## Root-cause hypothesis (UNPROVEN candidate — corrected per Codex R1/F1)
+## Root cause (PROVEN) — Promise.all pipelining onto shared connections over Supavisor
 
-**Leading candidate: something in the full-worker boot-burst concurrency leaves a
-Supavisor backend parked `active/ClientRead`.** The mechanism is NOT proven.
+**Confirmed mechanism:** `runHealthChecks` (`worker/background/pollers/health-alert/checks.ts`)
+fired its 6 health checks **concurrently via `Promise.all`** on the dedicated
+bulkhead client (`max:2`). Over the Supabase **Supavisor transaction pooler**,
+postgres.js pipelines the queries that exceed the pool's actual open-connection
+count onto the connections that ARE open. A pipelined query's response then
+parks server-side in `state=active, wait_event=ClientRead` and is never read —
+the issuing client has already moved past that logical slot. The wedge is
+therefore **permanent**, and because `runHealthChecks` runs on every poll cycle,
+it recurs **every 5 minutes at steady state** — this was never a boot-only
+phenomenon; the boot-burst framing above was a plausible but wrong lead, not
+the mechanism.
 
-⚠️ The earlier "cork/uncork flush under starvation" mechanism was WRONG. postgres.js
-3.4.9 does NOT call `socket.cork()/uncork()` — it buffers the full
-Parse/Describe/Bind/Execute/Sync into one buffer, defers small writes via
-`setImmediate`, then does one `socket.write()` (`connection.js:185,246`). And
-temporary event-loop starvation would DELAY the `setImmediate`, not lose it forever
-— so starvation alone does NOT explain the three hardest facts, which any accepted
-mechanism MUST explain:
-- **Permanence** — the wedge never clears after the event loop recovers.
-- **`state_change` fixity vs `query_start` restamp** — why the visible query
-  restamps every 5 min while `state_change` stays pinned.
-- **Poison migration** — terminating the wedged pid re-wedges a different connection
-  after the boot storm has passed.
+This proven mechanism accounts for all three of the hardest facts that the
+boot-burst/starvation theory could not explain:
+- **Permanence** — a pipelined response that's never drained doesn't clear on
+  its own; only client-side FIN (recycle) or server-side kill reclaims it.
+- **`state_change` fixity vs `query_start` restamp** — each 5-min cycle's
+  `Promise.all` bundle restamps `query_start` on the same wedged backend
+  (postgres.js keeps issuing bundle queries against the shared connection
+  pool), while `state_change` stays pinned to the original park.
+- **Poison migration** — killing the wedged pid frees that slot for one cycle,
+  but the very next cycle re-fires the same concurrent bundle and pipelines a
+  *different* shared connection into the same wedge.
 
-The clean isolation repro only tells us "full-worker in-process state is required,"
-not that starvation is the cause. T1's job is to reproduce faithfully AND instrument
-the driver write path (postgres.js `debug` hook, which fires pre-write) to actually
-test a mechanism. Until then the boot-readiness cure is justified as **defensible
-boot-storm hardening**, not a proven fix.
+**Proof — deterministic differential repro against the staging pooler:**
 
-Boot-burst evidence (what IS established — the concurrency surface):
+| Bundle | Client config | Wedge rate |
+|---|---|---|
+| Real 6-query `Promise.all` bundle (the actual pre-fix code) | `max:2` (production bulkhead) | **6/6** |
+| Same 6 queries, run sequentially | `max:2` | **0/6** |
+| Same 6 queries, `Promise.all` | `max:6` (one connection per query) | **0/6** |
+| Actual fixed `runHealthChecks` (now sequential) | `max:2` | **0/6**, validated post-fix |
+
+The observed wedge query was a health-bundle check —
+`SELECT COUNT(*)::int AS count FROM job_outbox WHERE status='dispatching' …` —
+parked `active/ClientRead`, aging past 3+ minutes, recurring at exactly the
+5-minute health cadence.
+
+**Honest nuance — do not overclaim.** Concurrency-exceeding-pool-size is
+*necessary* for pipelining but the earlier isolation repro (uniform queries,
+concurrency > `max`, 21/21 clean — hypothesis 6 above) shows it is not
+*sufficient* by itself: the trigger also depends on the query mix issued by
+the real bundle. State the mechanism as "pipelining of concurrent queries onto
+shared connections over the tx-pooler wedges in `ClientRead`," verified on the
+actual production bundle — not "any concurrent-over-max query set always
+wedges." A broader audit of other concurrent-query-on-shared-client sites is
+tracked separately in
+`fix-505-pool-wedge-rootcause-pipelining-audit-ticket.md`, precisely because
+each candidate site needs its own differential-repro verification rather than
+inheriting this proof by analogy.
+
+Boot-burst context (still true, but now understood as a DIFFERENT, secondary
+concern — Redis/DNS/BullMQ connection-open concurrency at boot, not the
+Postgres wedge):
 - `worker/index.ts:496-523` starts ~20 loops back-to-back after `app.listen()`,
   **none awaited**, and **each `start*()` fires its first cycle immediately**
   (`guarded-poll.ts:119 void runOnce()`; `OutboxPoller.ts:333`; `AnalyticsDispatch:202`;
@@ -65,32 +108,39 @@ Boot-burst evidence (what IS established — the concurrency surface):
 - Concurrently, `queues.ts` (31 `Queue`) + `index.ts:157-305` (24 `Worker`)
   construct at **import time**, opening dozens of Redis connections +
   `*.railway.internal` IPv6 DNS lookups in the same window.
-- With `prepare:false`, postgres.js still uses the **extended protocol** (unnamed
-  statements): Parse/Bind/Describe/Execute/Sync buffered into one `socket.write()`,
-  small writes deferred via `setImmediate` (`connection.js:185,246`) — NO cork/uncork.
-  How the boot burst turns this into a PERMANENT `active/ClientRead` park (a lost/
-  half-written message, a Supavisor server-slot state, a socket-backpressure edge)
-  is the open question T1's `debug`-hook trace must answer.
 - `withTimeout` (`with-timeout.ts:22-39`) is `Promise.race` — it **never cancels**
-  the underlying query, so a stalled first-cycle query leaks its pooled connection
+  the underlying query, so a stalled query leaks its pooled connection
   permanently (only client-recycle or server-kill reclaims). Shared-`sql` loops
   have NO recycle path; only HealthAlert (post-#502) and the reaper do.
 
 **The fix precedent already exists in-tree.** `StripeLocationsReconcilePoller`
 alone defers its first cycle by `INITIAL_RUN_DELAY_MS=45_000` with the comment
-*"issuing its SELECT in start() lands it inside the boot connection storm."* It is
-the only loop that dodges the storm.
+*"issuing its SELECT in start() lands it inside the boot connection storm."* It
+dodges the boot-storm concurrency surface, but that surface is distinct from
+the proven per-cycle wedge mechanism above.
 
-## Cure candidate — bounded boot stagger
+## Shipped cure — sequential health-check bundle (the actual wedge cure)
 
-Spread every boot-fired loop's first cycle across a bounded, jittered window so the
-first-cycle pooler-connection opens don't collide simultaneously with the Redis/DNS
-storm. Design (see plan): a pure `computeBootSchedule(count, opts) → number[]`
+`runHealthChecks` now issues its 6 checks **sequentially**, one query in flight
+at a time, instead of `Promise.all` (commit a10f5eb) — this is what removes
+the pipelining trigger. See ADR 0008 for the full decision record, the
+differential-repro table, and the retained (secondary) boot-stagger hardening.
+
+## Boot-stagger hardening (retained, but NOT the wedge cure)
+
+Spread every boot-fired loop's first cycle across a bounded, jittered window so
+the first-cycle pooler-connection opens don't collide simultaneously with the
+Redis/DNS storm. Design: a pure `computeBootSchedule(count, opts) → number[]`
 behind a thin `staggerBoot(starts, opts, scheduler)` shell, called once from
 `index.ts` in place of the 20 synchronous `startX()` calls. Bounded so no health
-signal is meaningfully delayed (invariant: boot incidents still page).
+signal is meaningfully delayed (invariant: boot incidents still page). This
+hardening did NOT make steady state clean by itself — staging continued
+wedging the health cycle every 5 minutes until the sequential fix above shipped
+— so treat it as defensible boot-storm hardening for the Redis/DNS surface,
+not as a fix for the Postgres wedge.
 
-**Escalation levers if stagger alone doesn't cure** (harness decides):
+**Escalation levers for the boot-storm surface** (harness decides; the wedge
+itself has its own escalation path via the audit ticket, not these):
 - Serialized pool warm-up: open shared-pool connections one-at-a-time (letting each
   TCP+TLS+startup handshake finish) before starting DB loops.
 - Boot-readiness handshake: gate DB-loop starts until the Redis/worker connection
