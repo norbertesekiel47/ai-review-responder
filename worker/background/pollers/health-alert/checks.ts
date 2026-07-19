@@ -174,29 +174,43 @@ export async function checkBacklogDepth(sql: postgres.Sql, cfg: HealthAlertConfi
 
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
-  const results = await Promise.all([
-    checkFailedOutboxByTopic(sql, cfg),
-    checkOldestPendingOutbox(sql, cfg),
-    checkStaleDispatching(sql, cfg),
-    checkOpenFlaggedResponses(sql, cfg),
-    checkZeroDeliveryNotifications(sql, cfg),
-    // Isolate the new backlog check: it reads the DB precisely when the DB is
-    // under pressure, so its rejection must NOT reject the whole Promise.all and
-    // suppress the critical findings (failed-publish, zero-delivery). A failure
-    // degrades to a diagnostic warning finding instead (adversarial-review
-    // F-medium). The other 5 checks keep their pre-existing shared-fate — out of
-    // scope for this fix.
-    checkBacklogDepth(sql, cfg).catch((err): HealthFinding[] => [{
+  const findings: HealthFinding[] = [];
+  const collect = (result: HealthFinding[] | HealthFinding | null): void => {
+    if (Array.isArray(result)) findings.push(...result);
+    else if (result) findings.push(result);
+  };
+
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). Firing them concurrently on ONE postgres.js
+  // client over the Supabase Supavisor TRANSACTION pooler pipelines the extra
+  // queries onto a shared connection; a pipelined query's response parks
+  // server-side in state=active / wait_event=ClientRead and never returns — a
+  // PERMANENT connection wedge every poller cycle on the max:2 health client.
+  // Proven by the #505 staging differential repro (6/6 concurrent iterations
+  // wedged vs 0/6 sequential). Sequential naturally preserves the 5 core checks'
+  // shared-fate: a core-check rejection propagates and fails the cycle, and the
+  // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes.md.
+  collect(await checkFailedOutboxByTopic(sql, cfg));
+  collect(await checkOldestPendingOutbox(sql, cfg));
+  collect(await checkStaleDispatching(sql, cfg));
+  collect(await checkOpenFlaggedResponses(sql, cfg));
+  collect(await checkZeroDeliveryNotifications(sql, cfg));
+
+  // Isolate the backlog check: it reads the DB precisely when the DB is under
+  // pressure, so its rejection must NOT fail the whole cycle and suppress the
+  // critical findings above. A failure degrades to a diagnostic warning finding
+  // instead (adversarial-review F-medium) — preserved exactly from the prior
+  // `.catch(...)` behavior, now expressed as a try/catch around this one call.
+  try {
+    collect(await checkBacklogDepth(sql, cfg));
+  } catch (err) {
+    findings.push({
       key: 'health_check_error:backlog_depth',
       level: 'warning',
       title: `Backlog depth check failed: ${toError(err).message}`,
       detail: { check: 'backlog_depth' },
-    }]),
-  ]);
-  const findings: HealthFinding[] = [];
-  for (const result of results) {
-    if (Array.isArray(result)) findings.push(...result);
-    else if (result) findings.push(result);
+    });
   }
+
   return findings;
 }

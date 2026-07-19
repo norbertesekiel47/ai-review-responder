@@ -238,4 +238,90 @@ describe('health-alert checks', () => {
       expect(errFinding?.detail).toEqual({ check: 'backlog_depth' });
     });
   });
+
+  // ── #505 regression: the health-check bundle MUST run SEQUENTIALLY ─────────
+  // WHY: concurrent queries fired on ONE postgres.js client over the Supabase
+  // Supavisor TRANSACTION pooler get pipelined onto a shared connection, and a
+  // pipelined query's response parks server-side in state=active /
+  // wait_event=ClientRead and never returns — a PERMANENT connection wedge every
+  // poller cycle on the max:2 health client. Proven by the #505 staging
+  // differential repro: the exact Promise.all bundle on max:2 wedged 6/6
+  // iterations; the same 6 queries run sequentially wedged 0/6. Fix = one query
+  // in flight at a time so nothing pipelines. See .claude/reference/lab-notes.md.
+  //
+  // SEAM HONESTY: this is a live-pooler pipelining effect a unit test CANNOT
+  // reproduce (no faithful seam without the real Supavisor pooler). The
+  // max-observed-concurrency === 1 assertion below is the closest unit-level
+  // PROXY for "sequential → no pipelining"; the TRUE validation is the staging
+  // differential repro (already done) + steady-state observation. Do not mistake
+  // this green test for full proof of the cure.
+  describe('#505 sequential execution (no query pipelining on the health client)', () => {
+    // A fake `sql` that (a) resolves every query ASYNCHRONOUSLY (after a
+    // macrotask) so any overlap is observable, and (b) records the peak number
+    // of simultaneously in-flight queries. Sequential execution keeps that peak
+    // at 1; the old Promise.all fires all six before any resolves → peak >> 1.
+    function makeConcurrencyTrackingSql(rows: unknown[]) {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const queue = [...rows];
+      const settleAsync = <T>(value: T): Promise<T> => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise<T>((resolve) => {
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve(value);
+          }, 0);
+        });
+      };
+      const nextRows = (): unknown[] => {
+        const r = queue.shift() ?? [];
+        return Array.isArray(r) ? r : [r];
+      };
+      const sql: any = vi.fn(() => settleAsync(nextRows()));
+      // queryBacklogDepth runs its count inside sql.begin(); the SET LOCAL via
+      // .unsafe() and the inner SELECT both go through settleAsync so they, too,
+      // count toward observed concurrency.
+      sql.begin = vi.fn((cb: (tx: any) => unknown) => Promise.resolve(cb(sql)));
+      sql.unsafe = vi.fn(() => settleAsync([]));
+      return { sql, getMaxConcurrency: () => maxInFlight };
+    }
+
+    // One queue entry per tagged-template QUERY, in sequential dispatch order:
+    // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery,
+    // then backlogDepth's inner SELECT (its SET LOCAL via .unsafe consumes none).
+    function quietRows(): unknown[] {
+      return [
+        [], // failedByTopic → []
+        [{ age: null }], // oldestPending → null
+        [{ count: 0 }], // staleDispatching → null
+        [{ count: 0 }], // openFlagged → null
+        [{ count: 0 }], // zeroDelivery → null
+        [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
+      ];
+    }
+
+    it('runs the checks one-at-a-time — max observed query concurrency is 1', async () => {
+      const { sql, getMaxConcurrency } = makeConcurrencyTrackingSql(quietRows());
+      await runHealthChecks(sql);
+      expect(getMaxConcurrency()).toBe(1);
+    });
+
+    it('propagates a core-check rejection (fails the cycle → the poller recycles the client)', async () => {
+      const { sql } = makeConcurrencyTrackingSql(quietRows());
+      // The first core check (checkFailedOutboxByTopic) rejects with a transient
+      // DB error; sequential await must let it propagate — NOT swallow it.
+      sql.mockImplementationOnce(() => Promise.reject(new Error('connection terminated unexpectedly')));
+      await expect(runHealthChecks(sql)).rejects.toThrow('connection terminated unexpectedly');
+    });
+
+    it('isolates a backlog-depth failure — degrades to a warning, does not reject the cycle', async () => {
+      const { sql } = makeConcurrencyTrackingSql(quietRows());
+      sql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
+      const findings = await runHealthChecks(sql);
+      const errFinding = findings.find((f) => f.key === 'health_check_error:backlog_depth');
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.detail).toEqual({ check: 'backlog_depth' });
+    });
+  });
 });
