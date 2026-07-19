@@ -213,3 +213,57 @@ except one partial-reject. Resolutions:
 - **H. Contradictions removed:** intake self-clean invariant reconciled to the
   `end()` + `application_name`-scoped `pg_terminate` backstop + abort design; the
   plan's stale `wedge-observer.ts` risk-section reference removed.
+
+## D4 — Codex round 3 (final) — BLOCKER: the cleanup design is inoperable
+
+Round-3 verdict `REVISE`. **3-round codex cap reached → surface to user** (workflow
+rule). Round-3 RESOLVED the detection classifier (40s deadline + mandatory
+ClientRead-signature corroboration — confirmed sound vs the 30s `statement_timeout`
+`src/lib/db/server.ts:28` and the 4s backlog timeout `backlog-depth.ts:24`). But it
+found a **documented, verified** repo fact that breaks the cleanup design:
+
+- **BLOCKER — Supavisor flattens `application_name` (ADR 0007).**
+  `docs/adr/0007-supavisor-app-name-flattening.md` (verified on staging 2026-07-18):
+  the Supavisor **transaction pooler** (`:6543`) rewrites EVERY client's
+  `application_name` to the literal `'Supavisor'` server-side. So the round-2/3
+  `application_name`-scoped ownership + `pg_terminate` backstop + self-check are
+  **inoperable** — the self-check fails closed and aborts, meaning the harness
+  cannot run on the real staging pooler at all. The ADR records the real solution:
+  a cooperative **anchored query-comment marker** `/* rw-reapable */` in the query
+  TEXT (survives the pooler via `pg_stat_activity.query`; matched anchored, not
+  substring). It was on the 5 health-check queries but was **REMOVED when #505
+  deleted the `PoolWedgeReaperPoller`** (checks.ts queries are currently unmarked).
+- **Fidelity fix (codex #2, NOT resolved before):** the real health client is
+  `buildHealthClient()` = `createDedicatedPostgresClient(DATABASE_POOL_URL, { max: 2 })`
+  (`HealthAlertPoller.ts:34-35`), with a 30s client-side `withTimeout`
+  (`HEALTH_CHECK_TIMEOUT_MS`). The health config values are **live SQL query
+  parameters** (`checks.ts:54,92,134` — `make_interval(secs => failedWindowS)` etc.),
+  NOT just finding-emission thresholds — so the concurrent arms must fire with the
+  EXACT resolved config `runHealthChecks` uses, never an arbitrary literal. [My
+  earlier "throwaway config literal is fine" was WRONG.] Fix regardless of the
+  attribution option chosen.
+
+### Options surfaced to the user (attribution/cleanup for a pooler-safe differential)
+
+- **Opt 1 — ephemeral Supabase branch (lean, sidesteps attribution):** run the
+  differential against a throwaway branch DB where it is the SOLE client → cleanup
+  = terminate-all-wedge / drop the branch; no per-backend attribution; zero shared-
+  staging/#507 contamination. Needs a feasibility check that a branch pooler
+  reproduces the transaction-pooling wedge.
+- **Opt 2 — query-comment marker on shared staging (ADR-0007 approach):** the
+  differential injects `/* rw-diff:<runid> */` into its queries; observer attributes
+  + terminates ONLY marked wedge backends over the pooler; runs in the controlled
+  post-soak window. Requires marked query copies (mild single-owner tradeoff vs
+  checks.ts) — no production change.
+- **Opt 3 — re-add the marker to production `checks.ts`:** restore `/* rw-reapable */`
+  on the health queries (re-arms the #477 reaper capability too). Production change
+  (worker/, scope expansion) but restores single-owner + a documented capability.
+- **Opt 4 — lighter obligation satisfaction:** checked-in harness + a formally
+  recorded operator run; cleanup via pooler-connection restart / manual, no
+  auto-attribution. Minimal complexity; accepts operator-driven cleanup.
+
+Round-2 items 1/6/8/9 RESOLVED; 2/4/5/7 partial; item 3 (client/config fidelity)
+NOT resolved (fix above). Nice-to-haves (non-gating): exact `40_000` constant +
+observer cadence; scrub stale "ingest events"/"kill children" wording; correct the
+"mirror-sync worker never fails" overclaim (its test proves transient DB errors can
+reject it); keep child-process isolation as optional defense-in-depth only.
