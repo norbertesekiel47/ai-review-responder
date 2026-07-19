@@ -104,7 +104,7 @@ import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingR
 import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
 import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from './background/boot-stagger';
 import { isMockMode } from '../src/lib/shared/mock-mode';
-import { createWorkerLogger } from '../src/lib/shared/logger';
+import { createWorkerLogger, toError } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
 import { sql, supabaseServer, closeAllPostgresClients } from '../src/lib/db/server';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
@@ -575,7 +575,7 @@ async function main(): Promise<void> {
       worker.run().catch((err) =>
         createWorkerLogger('[worker]').error(
           'Worker run loop rejected',
-          err instanceof Error ? err : new Error(String(err)),
+          toError(err),
         ),
       );
     }
@@ -600,7 +600,7 @@ async function main(): Promise<void> {
         onStartError: (error) =>
           createWorkerLogger('[worker]').error(
             'Background loop start() threw during staggered boot',
-            error instanceof Error ? error : new Error(String(error)),
+            toError(error),
           ),
       },
       resumeWorkers,
@@ -609,7 +609,7 @@ async function main(): Promise<void> {
     }).catch((err) =>
       createWorkerLogger('[worker]').error(
         'Boot coordinator failed',
-        err instanceof Error ? err : new Error(String(err)),
+        toError(err),
       ),
     );
   } else {
