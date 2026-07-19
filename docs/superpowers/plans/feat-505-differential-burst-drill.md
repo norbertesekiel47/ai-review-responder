@@ -70,36 +70,42 @@ approval/escalation state machines).
 ### T1 — Extract shared staging modules from `wedge-repro.ts`  ·  [no blockers]
 
 - New `scripts/staging-guard.ts`: move `PROD_PROJECT_REFS`, `KNOWN_STAGING_REF`,
-  `assertStagingTarget`, `describeConnectionTarget` out of `wedge-repro.ts`.
-  **Guard hardened to a positive allowlist (D2#7):** in addition to the prod
-  denylist (which still wins over every flag), the target ref must **equal**
-  `KNOWN_STAGING_REF` and `--confirm-staging` must equal it too — "not prod" is no
-  longer sufficient; the target must be provably staging.
+  `assertStagingTarget`, `describeConnectionTarget` out of `wedge-repro.ts`. The
+  **prod denylist wins over every flag** in all modes. Two target modes:
+  - **`assertStagingTarget` (positive allowlist — D2#7):** target ref must **equal**
+    `KNOWN_STAGING_REF` and `--confirm-staging` must equal it too. Used by
+    `wedge-repro.ts` and `burst-drill-load.ts` (they run against shared staging).
+  - **`assertEphemeralBranchTarget` (branch mode — D5):** target ref must equal
+    `--confirm-branch <ref>` AND be **neither** the prod ref **nor** `KNOWN_STAGING_REF`
+    (a throwaway branch is distinct from both long-lived envs). Used by the
+    differential (T2).
 - Only the guard is extracted (NOT a wedge-observer — D2#8). `wedge-repro.ts`
-  deletes the moved guard defs and imports them; everything else (its observer,
-  trial/boot orchestration, `runEmergencyCleanup`, summary) untouched.
+  deletes the moved guard defs and imports `assertStagingTarget`; everything else
+  (its observer, trial/boot orchestration, `runEmergencyCleanup`, summary) untouched.
 - Tests: new `scripts/ci/__tests__/staging-guard.test.ts` — prod-denylist beats
-  every flag; **target must equal `KNOWN_STAGING_REF`** (a non-prod, non-staging
-  ref is now rejected); empty/absent/mismatched confirm rejected; no password
-  surfaces. Carried over + extended from the wedge-repro guard tests;
-  `wedge-repro.test.ts` keeps covering wedge-repro's own logic, importing the
-  guard from the new module.
+  every flag in BOTH modes; `assertStagingTarget` requires `== KNOWN_STAGING_REF`;
+  `assertEphemeralBranchTarget` rejects prod AND staging refs and requires a matching
+  distinct branch ref; empty/mismatched confirm rejected; no password surfaces.
+  `wedge-repro.test.ts` keeps covering wedge-repro's own logic, importing the guard.
 - **Green:** the extracted-guard tests + the existing `wedge-repro.test.ts` +
   typecheck all pass — proves the refactor preserved behavior end-to-end.
 
 ### T2 — `scripts/health-bundle-differential.ts` (the differential)  ·  [blocked by T1]
 
-Three-arm, N-iteration (default 6) differential, invoked operator-style like
-wedge-repro:
-`railway run --environment staging --service repworth-worker -- pnpm tsx scripts/health-bundle-differential.ts --confirm-staging <ref> [--iterations N]`.
+Three-arm, N-iteration (default 6) differential run against an **ephemeral Supabase
+branch** off staging (D5) — the differential is the SOLE client, so cleanup needs
+no per-backend attribution (ADR-0007 dissolved). Branch create/drop is the operator's
+T5 step; the script takes the branch's **transaction-pooler URL**:
+`pnpm tsx scripts/health-bundle-differential.ts --branch-pool-url <url> --confirm-branch <branch-ref> [--iterations N]`.
 
-- Safety: `assertStagingTarget` (positive allowlist) on the target pool URL AND
-  the read-only observer URL — from `staging-guard.ts`.
-- **Fresh client per iteration (D2#1):** each of the N iterations builds a NEW
-  dedicated client so a wedged connection can't leak into the next iteration.
-  Client options MUST match the real health client — read
-  `worker/background/pollers/health-alert/health-db.ts` `buildClient()` and mirror
-  its `createDedicatedPostgresClient` options (differing only in `max`).
+- Safety (`staging-guard.ts`, branch mode — D5): hard-reject the prod denylist
+  (defense-in-depth), and require `--confirm-branch <ref>` that matches the target
+  AND is NEITHER the prod NOR the staging ref (must be a throwaway branch). Applied
+  to the target pool URL AND the read-only observer URL.
+- **Fresh client per iteration (D2#1)** with the REAL construction (fixes codex #3):
+  `createDedicatedPostgresClient(<branch pool url>, { max: 2 })` — mirrors the real
+  `buildHealthClient()` at `worker/background/pollers/HealthAlertPoller.ts:34-35`.
+  A wedged connection can't leak into the next iteration.
 - Arms:
   - `concurrent-max2`: replicate the **exact pre-fix `Promise.all`** of the 6
     exported `checkXxx` on a `max:2` client → EXPECT wedge.
@@ -110,9 +116,11 @@ wedge-repro:
     that distinguishes this from #500's falsified count>max hypothesis).
   The 6 checks (`checkFailedOutboxByTopic`, `checkOldestPendingOutbox`,
   `checkStaleDispatching`, `checkOpenFlaggedResponses`,
-  `checkZeroDeliveryNotifications`, `checkBacklogDepth`) are the real query mix; a
-  throwaway `HealthAlertConfig` literal is fine (thresholds gate emission, not
-  whether the query runs).
+  `checkZeroDeliveryNotifications`, `checkBacklogDepth`) are the real query mix,
+  fired with the **EXACT resolved health config** `runHealthChecks` uses — NOT a
+  throwaway literal (fixes codex #3: `failedWindowS`/`staleDispatchingThresholdS`/
+  `zeroDeliveryWindowS` are live SQL query parameters, `checks.ts:54,92,134`, so a
+  wrong value changes the queries themselves).
 - **Detection (D2#2 + D3-A): explicit ~40s deadline + 4-way taxonomy + MANDATORY
   signature corroboration.** Deadline is > the 30s server `statement_timeout` (a
   wedge is `ClientRead`, a wait state, so statement_timeout never heals it). Per-arm
@@ -121,29 +129,26 @@ wedge-repro:
   signature on the arm's OWN backends), `hung-unknown` (deadline passed WITHOUT the
   signature → NOT the known wedge; inconclusive, not a repro). A bare timeout does
   NOT prove the wedge — the read-only observer is **mandatory**.
-- **Attribution + cleanup (D3-B — safe over the pooler): unique per-run
-  `application_name` on the wedge-target client.** Startup **self-check**: confirm
-  the script's own non-wedged connection appears in `pg_stat_activity` with that
-  `application_name`; if the pooler flattens it (can't identify own backends) →
-  **ABORT** (can't guarantee safe cleanup). Per-arm cleanup ladder:
-  `client.end({ timeout })` (best-effort FIN — NOTE `end()` is documented
-  unreliable, `health-db.ts:8-17` / issue #477, so it is NOT the guarantee) →
-  **backstop `pg_terminate_backend` scoped to (wedge-signature AND our unique
-  `application_name`)** = reliable kill of provably-own backends only. **Baseline
-  barrier** before each next arm: verify zero wedge-signature backends carrying our
-  `application_name`; residuals persisting after the backstop → **ABORT** (never
-  continue on a polluted pooler, never terminate a backend not provably ours).
-  SIGINT/SIGTERM runs the same ladder for all live clients. (In-process arms +
-  fresh client/iteration + this barrier give independence; child-process-per-arm is
-  a documented fallback only if the self-check fails — D3 partial-reject.)
+- **Cleanup (D5 — no attribution needed on the isolated branch):** the differential
+  is the branch's SOLE client, so EVERY wedge-signature backend is provably ours.
+  Per-arm ladder: `client.end({ timeout })` (best-effort FIN; documented unreliable
+  per `HealthAlertPoller`/#477, so NOT the guarantee) → **`pg_terminate_backend`
+  every wedge-signature backend on the branch** (safe — nothing else is there). Then
+  a **baseline barrier**: verify a zero wedge-signature baseline before the next arm;
+  a residual that survives terminate-all → ABORT (branch is misbehaving). SIGINT/
+  SIGTERM runs the same ladder for all live clients. **Final teardown = operator
+  `delete_branch`** (T5) nukes any residual regardless. The prod denylist still
+  guards terminate-all as defense-in-depth (never run this against a prod-shaped
+  target).
 - Exit code gates the expected outcome: non-zero if `concurrent-max2` is not
-  `wedged` (repro failed) OR a cure arm is `wedged` (regression) OR the run
-  ABORTED (startup self-check failed / a residual persisted after the backstop).
-  `hung-unknown` on the baseline arm is a non-repro reported honestly (not a pass).
+  `wedged` (repro failed / branch pooler didn't reproduce — reported as inconclusive,
+  see feasibility note) OR a cure arm is `wedged` (regression) OR the run ABORTED (a
+  residual survived terminate-all). `hung-unknown` on the baseline arm is a non-repro
+  reported honestly (not a pass), and signals a possible branch-pooler-mode mismatch.
 - Pure/testable helpers (the tests): the **4-way arm classifier** (fulfilled /
   rejected / wedged[=timeout+signature] / hung-unknown[=timeout, no signature]),
-  expected-vs-actual gating, the bounded-deadline wrapper, the self-check/abort
-  decision, arg parsing/bounds.
+  expected-vs-actual gating, the bounded-deadline wrapper, the branch-target guard
+  (rejects prod + staging refs, requires a distinct branch ref), arg parsing/bounds.
 - **Green:** `health-bundle-differential.test.ts` + typecheck.
 
 ### T3 — `scripts/burst-drill-load.ts` (synthetic-load injector)  ·  [blocked by T1]
@@ -226,21 +231,27 @@ Parametrized injector for the capacity-burst drill:
 
 ### T5 — EXECUTE on staging (post-soak) + record numbers  ·  [blocked by T1–T4 AND the #507 soak window closing ~2026-07-20 07:00 UTC]
 
-Not a code task — the operational deliverable, run at SHIP (step 8) **after** the
-#507 soak, so it can't contaminate a launch-blocker verification (the
-differential deliberately wedges the pooler; the burst fires health warnings).
+Not a code task — the operational deliverable, run at SHIP (step 8).
 
-- **Evidence-based execution gate (D3-F) — the T5 runbook step must verify, not
-  assume:** (1) a **recorded #507 PASS/closure comment** exists, AND (2) a **clean
-  HealthAlertPoller baseline** right before starting (recent cycles show no
-  `health-alert-checks timed out` and no standing `backlog_depth` finding). "The
-  ~24h window has closed" is NOT sufficient. Abort the drill if either is unmet.
-- Run the differential (`both`/all arms) → record concurrent-max2 wedge count,
-  sequential-max2 = 0, concurrent-max6 = 0.
-- Run the burst drill headroom arm (1000/10 min) → record backlog climb, drain
-  time (≤30 min target), and that `backlog_depth` did NOT fire.
-- Run the over-threshold arm → record the `backlog_depth:job_outbox` alert firing
-  and clearing on drain.
+- **Differential (branch-isolated — D5):** operator `create_branch` off STAGING
+  (Supabase MCP/CLI) → pass the branch's transaction-pooler URL + `--confirm-branch
+  <branch-ref>` → run the differential (all arms) → record concurrent-max2 =
+  `wedged` (+ the ClientRead corroboration), sequential-max2 + concurrent-max6 =
+  clean → operator `delete_branch`. Because it's on an isolated branch it does NOT
+  contaminate the #507 soak, but still run it post-soak to avoid project-level
+  resource contention. If concurrent-max2 does NOT wedge on the branch, record it as
+  inconclusive (branch-pooler-mode difference to investigate — do NOT claim the cure
+  regressed).
+- **Burst drill (shared staging — needs the #507 gate, D3-F):** the runbook step
+  must VERIFY, not assume: (1) a **recorded #507 PASS/closure comment** exists, AND
+  (2) a **clean HealthAlertPoller baseline** right before starting (recent cycles
+  show no `health-alert-checks timed out` and no standing `backlog_depth` finding).
+  "The ~24h window has closed" is NOT sufficient — abort if either is unmet.
+  - Headroom arm (1000/10 min) → record backlog climb, drain time (≤30 min target),
+    and that `backlog_depth` did NOT fire.
+  - Over-threshold arm → record `backlog_depth:job_outbox` firing, then clearing per
+    the D3-D clear-evidence (pending<1500 + a successful poller check-in with no
+    finding); run `release` and confirm the zero-residual inventory.
 - Fill the runbook **Results** section; comment the numbers on **#505**.
 - Prod `HEALTH_ALERT_POLL_INTERVAL_MS` removal stays out of scope (#507 / launch
   promotion).
@@ -261,11 +272,14 @@ T1 (extract shared modules)
   from `checks.ts`; it owns its OWN minimal read-only wedge sampler (no
   `wedge-observer.ts` extraction — D2#8/D3-H). It must NOT import/execute
   `wedge-repro.ts`'s `runDirectCli` side effect.
-- T2 cleanup safety is load-bearing: only ever `pg_terminate_backend` a backend
-  carrying the run's unique `application_name`; if the startup self-check can't see
-  that name over the pooler, ABORT rather than guess (D3-B).
+- T2 runs on an **ephemeral branch** where it is the sole client, so terminate-all-
+  wedge is safe (no ADR-0007 attribution needed — D5); the prod denylist still
+  guards terminate-all as defense-in-depth. `application_name` is NOT usable for
+  identity through Supavisor (ADR 0007) — do not reintroduce it.
+- Branch feasibility is self-verified by the concurrent-max2 arm; a non-wedge there
+  is reported as inconclusive (branch-pooler-mode), never a cure regression.
 - T3 injection mechanism resolved by the Explore spike (D1); the plan owns the
   CONTRACT (drainable, no spend, no spurious pages), the module owns the topic.
-- Staging execution (T5) is gated on RECORDED #507 PASS + a clean poller baseline —
-  do not run mid-soak or on an unverified window (D3-F).
+- Burst-drill execution (T5, shared staging) is gated on RECORDED #507 PASS + a
+  clean poller baseline — do not run mid-soak or on an unverified window (D3-F).
 ```

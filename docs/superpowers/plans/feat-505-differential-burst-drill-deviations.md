@@ -267,3 +267,44 @@ NOT resolved (fix above). Nice-to-haves (non-gating): exact `40_000` constant +
 observer cadence; scrub stale "ingest events"/"kill children" wording; correct the
 "mirror-sync worker never fails" overclaim (its test proves transient DB errors can
 reject it); keep child-process isolation as optional defense-in-depth only.
+
+## D5 — DECISION: ephemeral Supabase branch (resolves the D4 blocker)
+
+User chose **Opt 1**. The differential runs against a **throwaway Supabase branch
+off staging**, where it is the SOLE client → the ADR-0007 attribution problem
+DISSOLVES (every wedge-signature backend is provably ours), and there is zero
+shared-staging / #507-soak contamination. This replaces the entire
+`application_name`-ownership machinery from D3-B.
+
+### Revised T2 design (ephemeral branch)
+
+- **Branch lifecycle is an OPERATOR step (T5 runbook), not the script's job** —
+  keeps the risky infra ops with a human: operator creates a branch off STAGING
+  (Supabase MCP/CLI `create_branch`), passes its **transaction-pooler URL**
+  (`:6543`, transaction mode — must match staging's topology or the wedge won't
+  form) + a confirm flag to the script, runs it, then `delete_branch`. The script
+  focuses on the differential.
+- **Safety gate adapts (supersedes D2#7's KNOWN_STAGING_REF equality — a branch has
+  its OWN ref, distinct from staging):** the guard still (a) hard-rejects the prod
+  denylist (defense-in-depth: never run-all / terminate-all against anything
+  prod-shaped), and (b) requires an explicit `--confirm-branch <ref>` that matches
+  the target AND is NEITHER the prod NOR the staging ref (it must be a throwaway
+  branch, not a long-lived env). `staging-guard.ts` gains a branch-target mode;
+  the wedge-repro caller keeps the equality mode.
+- **Detection unchanged (D3-A):** 40s deadline + 4-way taxonomy + mandatory
+  ClientRead-signature corroboration via a read-only observer on the SAME branch.
+- **Cleanup simplifies (no attribution):** between arms, terminate ALL
+  wedge-signature backends on the branch (safe — sole client) + verify a zero
+  baseline before the next arm; on any exit incl. SIGINT/SIGTERM, `client.end()` +
+  terminate-all-wedge. Final teardown = operator `delete_branch` (nukes residuals).
+- **Fidelity (fixes codex #3):** each iteration builds a fresh client with the REAL
+  construction — `createDedicatedPostgresClient(<branch pool url>, { max: 2 })`
+  (mirrors `HealthAlertPoller.ts:34-35 buildHealthClient`), and fires with the
+  EXACT resolved health config `runHealthChecks` uses (the config values are live
+  query parameters, `checks.ts:54,92,134`). Sequential arm calls the shipped
+  `runHealthChecks(sql)`. max:6 control arm = same construction, `max: 6`.
+- **Feasibility is self-verifying:** the `concurrent-max2` arm IS the "does this
+  branch's transaction pooler reproduce the wedge" test. If it does NOT wedge on
+  the branch, the harness reports it honestly as inconclusive (a branch-pooler-mode
+  difference to investigate — fall back to Opt 2 marker on shared staging), never a
+  false "cure regression".
