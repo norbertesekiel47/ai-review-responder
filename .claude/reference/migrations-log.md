@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **081** — next migration is **082**
+Current head: **082** — next migration is **083**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -965,6 +965,27 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **082** — NotificationFailoverPoller lookup indexes (scalability-verification
+  item 8). Two partial indexes so the failover poller stops seq-scanning at
+  scale: `idx_jo_send_notification_by_aggregate` on `job_outbox
+  (aggregate_id, created_at DESC) WHERE topic = 'send_notification'` serves the
+  `recoverFailoverCorrelationId` lookup
+  (`worker/background/pollers/NotificationFailoverPoller.ts` — topic +
+  aggregate_id, `ORDER BY created_at DESC LIMIT 1`; exact mirror of 018's
+  `idx_jo_generate_response_by_review` for the generate_response twin), and
+  `idx_responses_pending_approval_created` on `responses (created_at)
+  WHERE status = 'pending_approval'` serves both global sweeps (all-failed and
+  stale: `status = 'pending_approval' AND created_at < NOW() - INTERVAL '4
+  hours' ORDER BY created_at ASC`, cross-tenant by design). No INCLUDE columns
+  yet — staging `EXPLAIN (ANALYZE, BUFFERS)` evidence for the three target
+  queries is captured at ship BEFORE any INCLUDE-column refinement (evidence
+  rule). Both use `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, so this migration
+  is **non-transactional** (uncheck the Supabase SQL editor's
+  single-transaction box) and the two statements are **NOT atomic** — the first
+  can succeed and the second fail. Recovery for an interrupted build (062
+  lesson: `IF NOT EXISTS` silently skips an INVALID index): check
+  `pg_index.indisvalid` for each; if false, `DROP INDEX CONCURRENTLY <name>;`
+  and re-run. Apply staging first, then production, both projects in lockstep.
 - **081** — `poller_cursors` durable keyset resume cursor for
   `StripeLocationsReconcilePoller` (#479, map #472; ADR
   `docs/adr/0006-poller-cursor-persistence-ordering.md`). Creates
