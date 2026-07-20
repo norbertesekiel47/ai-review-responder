@@ -37,7 +37,8 @@ Assertion source: `worker/config/startup-assert.ts`.
 |---|---|
 | `DATABASE_URL` | Postgres connection string. **Historically labeled "PgBouncer pooled", but on staging this is the DIRECT :5432 route** (verified 2026-07-18): the pooled URL the worker actually runs on is `DATABASE_POOL_URL` (Supavisor transaction pooler, :6543). |
 | | > ⚠️ Local `.env.local` must point these at a local Supabase stack (`supabase start`), never the prod/staging project ref (audit FIND-ENV, 2026-06-23). |
-| `DB_POOL_MAX` | Optional, default `10`. Postgres.js per-process connection-pool ceiling (`src/lib/db/server.ts`). The default matches the Railway worker's needs; **set `3` on Vercel** (prod + staging Custom Env + preview) so each serverless instance stays small against the Supabase pooler's client-connection ceiling. The other pool bounds (`idle_timeout: 30`, `max_lifetime: 1800`, `connect_timeout: 10` — Postgres.js takes seconds) are fixed in code, deep-scan §3.5. |
+| `DB_POOL_MAX` | Optional, code default `10`. Postgres.js per-process ceiling on the SHARED write client `sql` (`src/lib/db/server.ts`), env-tunable via `readPoolMax()`. **Set `20` on the Railway worker (staging + prod); set `3` on Vercel** (prod + staging Custom Env + preview); code default stays `10` for anything unset. **Why 20 on the worker:** the hot-four BullMQ workers all contend for this one pool, and their summed concurrency = ingest 5 + generate 5 + notif 4 + publish 4 = **18** (`worker/index.ts` ~194–236), above the old `max:10` — so under the #474 design burst the pool would queue reservations. (18 is worker *concurrency*, NOT 18 held backend connections: a job holds a connection only while its transaction is active, so steady-state demand is lower and bursty.) `20` covers the hot-four + ~2 poller headroom; the `HealthAlertPoller` is already off this pool on its own dedicated `max:2` client, so it does not draw here. `20` is a **ceiling-aware STARTING value blessed only by the staging burst-drill gate** (ADR 0009), bounded above by the measured 60-conn / 57-usable backend ceiling — raise it only with a drill + `pg_stat_activity` evidence, never blind. **Why 3 on Vercel:** each serverless isolate stays small against the Supavisor Max-Clients budget (see note below). The other pool bounds (`idle_timeout: 30`, `max_lifetime: 1800`, `connect_timeout: 10` — Postgres.js takes seconds; `statement_timeout: 30_000` ms) are fixed in code, deep-scan §3.5. |
+| `DB_READ_POOL_MAX` | Optional, default `8`. Postgres.js ceiling on the dedicated **read** client `sqlRead` (`src/lib/db/server.ts`) — the Vercel-side read bulkhead that hosts ONLY `GET /api/dashboard/kpis` (≤6 concurrent) + `GET /api/dashboard/past-replies/draft-status` (≤2 concurrent), so their `Promise.all` waves run one-connection-per-query (the proven #505 non-wedge shape). **Code-floored at `WEDGE_SAFE_READ_MIN = 8`** (`readReadPoolMax()` does `Math.max(8, parsed)`): the env can only RAISE it, never drop below 8, so a mis-set low value cannot reintroduce the #505 fan-out wedge (a fan-out > open connections wedges PERMANENTLY in `ClientRead` on the Supavisor transaction pooler). Read directly via `process.env` in `server.ts`; also declared in the `src/lib/config/server.ts` schema for inventory parity (the config value is not the runtime source — the floor in `server.ts` is). Tighter 8s read `statement_timeout`. Isolation is LOCAL write-slots only, NOT backend capacity — `sqlRead` shares the same `DATABASE_POOL_URL` / user / db / transaction-mode as `sql`, so it draws from the SAME Supavisor backend pool (ADR 0009). |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (browser-safe) |
 | `SUPABASE_SERVICE_KEY` | Server-only. NEVER expose to browser. |
@@ -47,6 +48,25 @@ Assertion source: `worker/config/startup-assert.ts`.
 | `ANTHROPIC_API_KEY` | Claude Haiku fallback (`claude-haiku-4-5-20251001`) |
 | `RESEND_API_KEY` | Transactional email + custom SMTP password |
 | `NEXT_PUBLIC_APP_URL` | Full origin e.g. `https://repworth.app` |
+
+> **Postgres pool sizing is ceiling-bounded — measured capacity (2026-07-19, Supabase MCP; full reasoning ADR 0009):**
+> prod + staging BOTH run `max_connections = 60`, `superuser_reserved_connections = 3`,
+> `reserved_connections = 0` → **57 usable backend connections**; org plan = free →
+> **Nano** compute tier (NOT inferable from `max_connections=60`, which is identical on
+> Nano + Micro). **Three distinct limits each bind independently:** (a) the postgres.js
+> client `max` = app-side ceiling *per client* (`DB_POOL_MAX`, `DB_READ_POOL_MAX`); (b)
+> Supavisor "Max Clients" ≈ 200 = accepted client connections; (c) Postgres
+> `max_connections=60` → 57 usable = backend session ceiling; (d) Supavisor backend
+> `pool_size` = backend sessions Supavisor actually opens (NOT SQL-queryable — confirm in
+> the Supabase dashboard at the staging gate). Backend sessions active OR **idle** each
+> consume a slot. **Vercel Max-Clients budget:** one fully-expanded Vercel isolate owns
+> write 3 + read 8 = **11** client connections, so worker 20 + health 2 + isolates×11 ≤ 200
+> → **≤16 warm Vercel isolates**. Peak is 10 concurrent dashboard renders (#474); Fluid
+> Compute packs several renders per isolate, so ≤16 is comfortable but IS a real bound. If
+> approached, the levers are: raise the Supabase compute tier (higher Max-Clients) or lower
+> `DB_POOL_MAX` — **NOT** lower `DB_READ_POOL_MAX` (floored at 8). The drill-proven final
+> `DB_POOL_MAX` and the observed `pg_stat_activity` / Supavisor `pool_size` numbers are
+> **TO BE RECORDED at the staging burst-drill gate** (ADR 0009).
 
 ---
 
