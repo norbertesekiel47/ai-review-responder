@@ -106,7 +106,12 @@ import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from '.
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger, toError } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
-import { sql, supabaseServer, closeAllPostgresClients } from '../src/lib/db/server';
+import { sql, supabaseServer, closeAllPostgresClients, SHARED_POOL_MAX } from '../src/lib/db/server';
+import {
+  probePoolWait,
+  DEFAULT_POOL_WAIT_TIMEOUT_MS,
+  DEFAULT_POOL_SATURATING_MS,
+} from '../src/lib/shared/pool-wait';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
 import { isCrashNetRecoverableDbError } from '../src/lib/db/transient-error';
 import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
@@ -503,6 +508,15 @@ async function main(): Promise<void> {
       // Composition root passes the Postgres singleton (invariant #15); the
       // handler owns the best-effort timeout + degrade-to-null behavior.
       getBacklogDepth: () => queryBacklogDepth(healthBulkheadSql()),
+      // Probe the SHARED write pool the workers actually contend for (NOT the
+      // health bulkhead) so the sample reflects real saturation. Single-flight +
+      // self-bounded inside probePoolWait; handler degrades to pool:null only on
+      // a genuine reserve() rejection.
+      getPoolWait: () => probePoolWait(sql, {
+        timeoutMs: DEFAULT_POOL_WAIT_TIMEOUT_MS,
+        saturatingThresholdMs: DEFAULT_POOL_SATURATING_MS,
+        max: SHARED_POOL_MAX,
+      }),
     }),
   );
 

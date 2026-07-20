@@ -21,6 +21,7 @@ import { QUEUE_HEALTH_JOB_STATES } from '../../src/lib/shared/queue-health-state
 import { withTimeout } from '../../src/lib/shared/with-timeout';
 import { createWorkerLogger, toError } from '../../src/lib/shared/logger';
 import type { BacklogDepth } from '../../src/lib/shared/backlog-depth';
+import type { PoolWait } from '../../src/lib/shared/pool-wait';
 
 // Single owner is src/lib/shared/queue-health-states.ts (shared with the admin
 // UI, src/app/admin/jobs); re-exported here so worker/index.ts and this
@@ -65,17 +66,22 @@ export interface QueueHealthDeps {
    * error/timeout — it never regresses the primary `queues` signal.
    */
   getBacklogDepth: () => Promise<BacklogDepth>;
+  /** Best-effort single-flight shared-pool saturation probe. Rejects → pool:null. */
+  getPoolWait: () => Promise<PoolWait>;
 }
 
 /**
  * Builds the `GET /internal/queue-health` Fastify handler. Responds:
  *   - 503 {disabled:true}                 when the secret is unset (no data exposed),
  *   - 401 {error:'unauthorized'}          on missing/malformed/mismatched bearer token,
- *   - 200 {queues, backlog}               per-queue depths + best-effort Postgres backlog.
+ *   - 200 {queues, backlog, pool}         per-queue depths + best-effort Postgres backlog + shared-pool wait.
  *
- * `queues` is ALWAYS returned. `backlog` is `BacklogDepth | null`: a
- * best-effort add-on that degrades to `null` on any error/timeout and must not
- * regress the primary `queues` signal. Returns ONLY integer counts — no PII.
+ * `queues` is ALWAYS returned. `backlog` (`BacklogDepth | null`) and `pool`
+ * (`PoolWait | null`) are independent best-effort add-ons that each degrade to
+ * `null` on any error/timeout — neither must regress the primary `queues`
+ * signal, nor each other. A `pool` with `timedOut:true` is a saturation SAMPLE
+ * (not an error) and is surfaced as an object, never null. Returns ONLY integer
+ * counts / booleans — no PII.
  */
 export function createQueueHealthHandler(
   deps: QueueHealthDeps,
@@ -109,12 +115,22 @@ export function createQueueHealthHandler(
       return null;
     });
 
+    // Same best-effort pattern as backlog: start before the queue loop so the
+    // probe overlaps queue collection and its rejection is handled immediately.
+    // The probe self-bounds (its own withTimeout) and returns timedOut:true on
+    // saturation — only a genuine reserve() rejection lands here → pool:null.
+    const poolResult: Promise<PoolWait | null> = deps.getPoolWait().catch((err: unknown) => {
+      logger.warn('queue-health pool-wait unavailable', toError(err));
+      return null;
+    });
+
     const queues: Record<string, Record<string, number>> = {};
     for (const name of ALL_QUEUE_NAMES) {
       queues[name] = await deps.getQueueCounts(name);
     }
 
     const backlog = await backlogResult; // already settled → no extra wait
-    reply.code(200).send({ queues, backlog });
+    const pool = await poolResult; // already settled → no extra wait
+    reply.code(200).send({ queues, backlog, pool });
   };
 }
