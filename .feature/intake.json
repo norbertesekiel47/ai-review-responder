@@ -1,71 +1,75 @@
 {
+  "ticket": "#477 (wayfinder map #472)",
   "classification": "high",
-  "surface": "backend",
+  "surface": "mixed",
   "db_touching": false,
-  "goal": "Land the two open #505 proof artifacts from wayfinder map #472: (a) a checked-in health-bundle differential experiment that isolates Promise.all-vs-sequential (× pool size) on the real health bundle and reproduces the connection wedge on the concurrent-max2 baseline arm, and (b) a synthetic-load script plus an executed capacity-burst drill on staging with recorded numbers — a 1000-event/10-min headroom arm draining within 30 minutes with no alert, and an over-threshold arm that makes the backlog depth alert fire at ~1500 and then clear.",
+  "goal": "Split Postgres.js pools so heavy dashboard/KPI reads bulkhead off the write path (dedicated Vercel read client), raise the Railway worker pool to cover merged BullMQ concurrency, and surface a worker pool-wait/saturation metric in queue-health.",
   "non_goals": [
-    "The 24h HealthAlertPoller soak (tracked on #507) and the prod HEALTH_ALERT_POLL_INTERVAL_MS removal (beta-launch-alerting §1b step 5)",
-    "Re-litigating the six falsified #500 hypotheses",
-    "Modifying production worker/health-poller runtime (checks.ts, boot-stagger, OutboxPoller) — the differential IMPORTS the exported check functions, it never edits or reverts them",
-    "Replacing or repurposing scripts/wedge-repro.ts — it remains the boot-stagger (BOOT_STAGGER_ENABLED) boot-repro harness",
-    "The #505 pipelining-audit follow-up on the ~15 suspect Vercel/worker sites",
-    "Executing either drill DURING the in-flight #507 soak window (execution happens after ~2026-07-20 07:00 UTC)"
+    "No schema change / no migration (pure client + config + observability).",
+    "No read replica or second database URL — the read client points at the same DATABASE_POOL_URL (bulkhead = separate pool instance, not separate DB).",
+    "No alerting on pool-wait this ticket — queue-health payload observability only; HealthAlertPoller integration is a documented follow-up.",
+    "No change to worker BullMQ concurrency values (gen 5, ingest 5, notif 4, pub 4 stay; this ticket sizes the POOL to them).",
+    "No switch of settings/write pages or OAuth-handshake routes onto the read client — read-only dashboard/KPI paths only.",
+    "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised."
   ],
   "user_visible_behavior": [
-    "New scripts/health-bundle-differential.ts: a three-arm differential (concurrent-max2 → wedge, sequential-max2 → clean, concurrent-max6 → clean) run against an EPHEMERAL Supabase branch (sole client), reusing the exported health-bundle checks with the exact resolved config; detection = 40s deadline + MANDATORY ClientRead-signature corroboration (bare timeout != wedge); cleanup = terminate-all-wedge on the isolated branch + baseline barrier; gates on the expected outcome",
-    "New scripts/burst-drill-load.ts: a parametrized synthetic-load injector (--events N --duration-min M --confirm-staging <ref>) that paces OutboxPoller-drainable job_outbox rows for the capacity-burst drill without real LLM spend or downstream error-pages",
-    "New scripts/staging-guard.ts: the shared prod-denylist / --confirm-staging safety gate extracted from wedge-repro.ts and reused by all three staging scripts",
-    "Reconciled runbooks documenting the two-arm capacity-burst drill (headroom + over-threshold) with recorded execution numbers",
-    "Executed-drill results recorded on #505 and in the burst-drill runbook"
+    "GET /internal/queue-health response gains a `pool` field: { waitMs, saturating, max } (best-effort; null on genuine probe error, saturating:true on probe timeout).",
+    "Admin jobs panel surfaces the worker pool-wait/saturation signal alongside per-queue depth + backlog.",
+    "No customer-facing behavior change; dashboard/KPI responses identical (served from a separate read pool)."
   ],
   "invariants": [
-    "Safety gate is absolute in every mode: the PROD_PROJECT_REFS denylist beats every flag and no password ever surfaces. Two target modes (extracted + hardened from wedge-repro.ts): assertStagingTarget (positive allowlist — ref must EQUAL KNOWN_STAGING_REF; used by wedge-repro + burst-drill-load on shared staging) and assertEphemeralBranchTarget (ref must equal --confirm-branch AND be neither prod nor KNOWN_STAGING_REF; used by the differential on a throwaway branch)",
-    "db_touching=false means no schema/migration and no new production tenant-scoped query site (so the tenant-scope/RLS audits are unaffected); the staging scripts DO perform operational INSERT/DELETE against job_outbox at runtime, guarded by the safety gate + scoped-delete predicate + their tests",
-    "No production runtime BEHAVIOR change — the health bundle stays sequential (ADR 0008); the differential reproduces the wedge with its OWN concurrent client, never by reverting runHealthChecks. The ONLY production edit is adding `export` to the existing pure resolveHealthAlertConfig in checks.ts (visibility only, zero behavior change, no new production caller — approved surface amendment for the single-owner fix)",
-    "Single owner of the health-bundle query mix AND its config — the differential reuses the exported checkXxx functions and the exported resolveHealthAlertConfig, never re-copies their SQL or config resolution (so both concurrent and sequential arms fire byte-identical query parameters)",
-    "Single owner of backlog-depth counting — the drill reads backlog via queryBacklogDepth / GET /internal/queue-health, never a re-implemented count",
-    "Never log raw review/response text, tokens, or secrets — the scripts observe pids/counts only",
-    "No new runtime dependency; no package.json / pnpm-lock change",
-    "The differential runs against an EPHEMERAL Supabase branch where it is the sole client (ADR-0007 app_name flattening makes pooler attribution impossible; the branch dissolves it). Cleanup on every exit path incl. SIGINT/SIGTERM: client.end + pg_terminate_backend of ALL wedge-signature backends on the isolated branch (safe — nothing else is there) + a zero baseline barrier between arms; final teardown = operator delete_branch. The prod denylist still guards terminate-all as defense-in-depth (resource-ownership contract, D5)"
+    "#15: the second (read) pool is wired at composition roots ONLY (route handlers / server components pass the read client); domain modules keep receiving sql as a parameter and never import db/server.",
+    "#1: Vercel stays UI-only; the pool-wait metric lives on the worker (queue-health is a Railway-side endpoint Vercel fetches server-side).",
+    "Tenant isolation unchanged — read client runs the same account_id/business_id-scoped queries; only the connection pool differs.",
+    "Shutdown close-order contract preserved: the pool-wait probe never leaks a reserved connection (release even if our timeout already fired).",
+    "postgres.js dedicated-client base config stays single-owner (BASE_POSTGRES_OPTIONS): prepare:false, idle/lifetime/connect timeouts."
   ],
   "edge_cases": [
-    "Differential baseline arm does NOT wedge on a given iteration → reported honestly as a non-repro finding, not masked (wedge-repro precedent)",
-    "Injected drill rows must dispatch cleanly (mocked/benign) so the drill produces no spurious outbox_failed / stale_dispatching health alerts beyond the intended backlog_depth",
-    "Over-threshold arm must drain back under 1500 so backlog_depth CLEARS — otherwise the alert stays latched and pollutes later drills",
-    "The drill must not run concurrently with wedge-repro.ts or the differential (both perturb the pooler / backlog observation)",
-    "Drain is dispatch-bound (OutboxPoller ~600/min), not LLM-completion-bound — the 30-min target is on job_outbox pending count; documented so the number isn't misread",
-    "SIGINT/SIGTERM mid-run must still kill children + terminate attributed backends before exit"
+    "reserve() probe on a saturated pool WAITS — bound it with a timeout; a timeout is reported as saturating:true (not null).",
+    "reserve() that resolves AFTER our timeout must still .release() — attach release to the underlying promise so no reserved connection leaks.",
+    "reserve() rejects (connection error) → pool:null, must not regress the primary `queues` signal (mirror backlog degrade-to-null).",
+    "The pool-wait probe briefly holds ONE connection (immediate release) — negligible added pressure, acceptable.",
+    "sqlRead is a module-level singleton imported by the worker too, but postgres.js is lazy — the worker never queries it, so it opens zero connections there (no worker shutdown closer needed).",
+    "Supavisor client-connection ceiling: worker(20) + Vercel(warm instances × [write 3 + read ≤3]) must stay under the transaction-pooler max — VERIFY on staging before promotion (keep read pool small).",
+    "Vercel serverless has no explicit shutdown — sqlRead idle-timeout-reaps like the existing sql singleton (consistent, no closer)."
   ],
   "existing_patterns_to_follow": [
-    "scripts/wedge-repro.ts — staging safety gate, pg_stat_activity observation, self-clean, runDirectCli entry, fallow-ignore precedent for a branchy CLI harness",
-    "scripts/ci/__tests__/wedge-repro.test.ts — unit tests for the PURE parts (guard, arg parsing, cleanup ordering)",
-    "worker/background/pollers/health-alert/checks.ts — the exported checkXxx functions the differential reuses",
-    "src/lib/shared/backlog-depth.ts + worker/internal/queue-health.ts — the backlog read the drill observes",
-    "docs/runbooks/beta-launch-alerting.md §4 + docs/runbooks/pool-wedge-burst-drill.md — the drill procedures to reconcile",
-    "scripts/run-direct-cli.ts — the CLI entry wrapper"
+    "createDedicatedPostgresClient + closeAllPostgresClients (src/lib/db/server.ts) — the health-poller bulkhead precedent for a separate pool.",
+    "queue-health `backlog` best-effort pattern (worker/internal/queue-health.ts): dependency-injected getter, withTimeout-bounded, degrade-to-null, never regress `queues`.",
+    "KPI read-cache fail-open block (src/lib/kpi/service.ts) — read path already param-injected (sql: Sql) + cache-fronted.",
+    "DB_POOL_MAX env-tunable pool sizing (readPoolMax) — add DB_READ_POOL_MAX in the same shape."
   ],
   "allowed_edit_surface": [
-    "worker/background/pollers/health-alert/checks.ts",
-    "scripts/health-bundle-differential.ts",
-    "scripts/burst-drill-load.ts",
-    "scripts/staging-guard.ts",
-    "scripts/wedge-repro.ts",
-    "scripts/ci/__tests__/**",
-    "docs/runbooks/pool-wedge-burst-drill.md",
-    "docs/runbooks/beta-launch-alerting.md",
-    "CONTEXT.md",
+    "src/lib/db/server.ts",
+    "src/app/api/dashboard/kpis/route.ts",
+    "src/app/api/dashboard/route.ts",
+    "src/app/api/dashboard/agent-team/route.ts",
+    "src/app/api/dashboard/past-replies/**/route.ts",
+    "worker/internal/queue-health.ts",
+    "worker/internal/pool-wait.ts",
+    "worker/index.ts",
+    "src/app/api/admin/jobs/route.ts",
+    "src/app/admin/jobs/page.tsx",
+    "src/lib/shared/queue-health-states.ts",
+    "**/__tests__/**",
+    ".claude/reference/env-vars.md",
     "docs/adr/**",
-    ".claude/reference/lab-notes.md",
-    "docs/superpowers/plans/**",
-    ".feature/**"
+    "docs/superpowers/**",
+    ".feature/**",
+    "CONTEXT.md"
   ],
   "tests_to_add": [
-    "scripts/ci/__tests__/staging-guard.test.ts — prod-denylist beats every flag in BOTH modes; assertStagingTarget requires ==KNOWN_STAGING_REF; assertEphemeralBranchTarget rejects prod AND staging refs and requires a matching distinct branch ref; empty/mismatched confirm rejected; no password surfaced",
-    "scripts/ci/__tests__/health-bundle-differential.test.ts — the 4-way arm classifier (fulfilled/rejected/wedged[=deadline+ClientRead signature]/hung-unknown[=deadline, no signature]), expected-vs-actual gating, the bounded-deadline wrapper, the branch-target guard wiring, arg parsing/bounds",
-    "scripts/ci/__tests__/burst-drill-load.test.ts — pacing-schedule math (N over M), arg parsing/bounds, row-shape builder, safety-gate wiring, and the scoped-delete predicate builder (always includes topic + drill-tag + status='pending' + horizon)"
+    "pool-wait probe: returns { waitMs, saturating, max } on a free pool (waitMs ~0, saturating false).",
+    "pool-wait probe: times out on a saturated/blocked reserve → saturating:true, no leaked reserved connection (release still called).",
+    "pool-wait probe: reserve() rejection → pool:null, primary queues signal unaffected.",
+    "queue-health handler: `pool` field present in 200 payload; degrades independently of `backlog` and `queues`.",
+    "server.ts: sqlRead is a distinct client from sql (separate instance), lazy (no connection on construction).",
+    "dashboard/KPI read route(s): read composition root passes the read client (sqlRead), not the singleton."
   ],
   "verification_commands": [
-    "pnpm vitest run scripts/ci/__tests__/staging-guard.test.ts scripts/ci/__tests__/health-bundle-differential.test.ts scripts/ci/__tests__/burst-drill-load.test.ts"
+    "pnpm ci:db-imports",
+    "pnpm ci:tenant-scope",
+    "pnpm ci:static-policy"
   ],
   "open_questions": []
 }
