@@ -197,3 +197,29 @@ zero timeouts); `job_outbox` pending baseline = 0. Load = the #505/#474
   **prod** at merge, and read the Supavisor `pool_size` on the prod dashboard then.
 - **Follow-up (unchanged):** wire the (now-calibrated) pool-wait saturating signal
   into `HealthAlertPoller` — deferred, tracked separately.
+- **Follow-up (read-pool observability gap):** the pool-wait probe is wired to the
+  shared **write** `sql` (`worker/index.ts` — `probePoolWait(sql, …)`), so the
+  **read** pool (`sqlRead`, the Vercel-side bulkhead) has **no** saturation signal
+  today. This is acceptable for v1 (the write pool is the one the workers contend
+  for, and the read pool is clamped at 8 with wedge-safe per-query connections),
+  but it means the very pool tied to the central Vercel-multiplication hazard
+  (below) is currently unobserved. Future: also probe `sqlRead` (a second
+  `getPoolWait`-style dep, or a `sqlRead` reading in the same payload) so read-pool
+  wait is visible before any read route is scaled up.
+
+## Post-drill note: what the staging drill did and did NOT prove (central-hazard scope)
+
+The 2026-07-20 staging drill validated the **worker write pool** at `DB_POOL_MAX=20`
+(backend sessions peaked ~19 << 57; no queueing). It did **NOT** exercise the
+**central hazard** — Vercel connection multiplication: each warm serverless isolate
+now holds write 3 + **read 8 = 11** client connections against the shared Supavisor
+backend, so the ≤16-warm-isolate budget (16 × 11 + worker 20 + health 2 ≈ 198 < 200
+Max-Clients) rests on **arithmetic, not a Vercel-side load measurement**. The read
+pool being **8** (the wedge-safe floor for the KPI ≤6 fan-out) rather than a #474-
+style ~5 is a deliberate upward deviation that *directly* raises the per-isolate
+count from 8 to 11 — i.e. the wedge-safety choice costs Vercel connection budget.
+To fully discharge the central-hazard gate before relying on it at scale, drive
+concurrent dashboard renders on Vercel staging and record the observed warm-isolate
+count + total client connections + backend sessions against the ≤16 / 200 / 57
+bounds. Until then the Vercel side is **budget-bounded, not measurement-proven** —
+tolerable at current low traffic with the read pool clamped at 8.
