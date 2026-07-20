@@ -11,7 +11,7 @@
     "No change to worker BullMQ concurrency values (gen 5, ingest 5, notif 4, pub 4 stay; this ticket sizes the POOL to them).",
     "No switch of settings/write pages or OAuth-handshake routes onto the read client — read-only dashboard/KPI paths only.",
     "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised.",
-    "Does NOT move the heavy fan-out read routes (dashboard route ~14-wave, aggregate ~8-wave, agent-team) onto sqlRead — their concurrency exceeds a right-sized read pool and they carry the pre-existing #505 pipelining-wedge risk, which stays OWNED by the #505 Vercel pipelining audit (differential-repro required). Only wedge-safe small-fan-out reads (KPI 5-wave, draft-status 1) move.",
+    "Does NOT move the heavy fan-out read routes (dashboard route ~14-wave, aggregate ~8-wave, agent-team) onto sqlRead — their concurrency exceeds a right-sized read pool and they carry the pre-existing #505 pipelining-wedge risk, which stays OWNED by the #505 Vercel pipelining audit (differential-repro required). Only wedge-safe small-fan-out reads (KPI ≤6 concurrent, draft-status ≤2 concurrent / up to 4 reads) move.",
     "Does NOT claim application_name gives pooler attribution — ADR 0007 proved Supavisor flattens it to 'Supavisor'; it is kept only as harmless client intent.",
     "The read bulkhead isolates only LOCAL postgres.js client slots (sqlRead shares the same Supavisor backend pool as sql — same URL/user/db/mode); it does not isolate backend DB capacity."
   ],
@@ -67,6 +67,7 @@
     "pool-wait probe: single-flight REGRESSION (#10) — a timed-out call does NOT release the latch; the second call reuses the still-pending reserve() (reserve() count stays 1); resolution releases once.",
     "pool-wait probe: concurrent probes over a pending reservation share ONE reserve().",
     "pool-wait probe: genuine reserve() rejection is re-thrown → handler maps to pool:null; primary queues signal unaffected.",
+    "pool-wait probe: a rejecting reserve() with 2 concurrent awaiters emits NO unhandledRejection (latch cleanup is rejection-safe — the worker crash-net would otherwise fatally exit).",
     "queue-health handler: `pool` { waitMs, timedOut, saturating, max } present in 200 payload; degrades independently of `backlog` and `queues`.",
     "server.ts: sqlRead is a distinct client from sql, with options.max>=8 and statement_timeout=8000.",
     "server.ts: DB_READ_POOL_MAX=1 is floored to WEDGE_SAFE_READ_MIN (wedge-safety invariant).",

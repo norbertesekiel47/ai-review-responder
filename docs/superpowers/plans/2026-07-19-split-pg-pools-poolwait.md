@@ -6,7 +6,7 @@
 
 **Goal:** Bulkhead the wedge-SAFE small-fan-out dashboard/KPI reads onto a right-sized dedicated Vercel Postgres.js client, raise the Railway worker pool to cover merged BullMQ concurrency (within the real backend-connection ceiling), and surface a bounded single-flight worker pool-wait/saturation metric in `/internal/queue-health`.
 
-**Architecture:** Three seams. (1) `src/lib/db/server.ts` gains a second singleton `sqlRead` sized to the fan-out of the ONLY routes moved onto it (KPI 5-wave, `past-replies/draft-status` 1) so those waves run one-connection-per-query — the proven #505 non-wedge shape; heavier fan-out routes stay on `sql` (owned by the #505 pipelining audit). `closeAllPostgresClients` explicitly owns `sqlRead` shutdown. (2) `src/lib/shared/pool-wait.ts` probes the SHARED pool via a **single-flight** `sql.reserve()` timing (leak-safe, bounded, ≤1 outstanding reservation globally), reporting `{ waitMs, timedOut, saturating, max }`; wired into queue-health as a best-effort dep. (3) The Railway raise is env-only (`DB_POOL_MAX=20`), blessed against the measured **60-connection backend ceiling** (Micro tier, both envs) and validated by the burst-drill watching `pg_stat_activity`.
+**Architecture:** Three seams. (1) `src/lib/db/server.ts` gains a second singleton `sqlRead`, floored at a fan-out-safe `max:8`, hosting ONLY the small-fan-out reads (KPI ≤6 concurrent; `past-replies/draft-status` ≤2 concurrent / up to 4 reads/request) so those waves run one-connection-per-query — the proven #505 non-wedge shape; heavier fan-out routes stay on `sql` (owned by the #505 pipelining audit). `closeAllPostgresClients` explicitly owns `sqlRead` shutdown. (2) `src/lib/shared/pool-wait.ts` probes the SHARED pool via a **single-flight** `sql.reserve()` timing (leak-safe, rejection-safe, ≤1 outstanding reservation globally), reporting `{ waitMs, timedOut, saturating, max }`; wired into queue-health as a best-effort dep. (3) The Railway raise is env-only (`DB_POOL_MAX=20`), sized against the measured **57 usable backend connections** (Nano/free tier, both envs) and **blessed only by the hard staging gate** (burst-drill watching `pg_stat_activity`).
 
 **Tech Stack:** Postgres.js 3.4.9 (Supabase Supavisor transaction pooler, :6543), Fastify queue-health, Next.js 16 route handlers, Vitest.
 
@@ -16,7 +16,7 @@
 
 - **prod + staging both: `max_connections = 60`, `superuser_reserved_connections = 3`, `reserved_connections = 0` (PG17) → 57 usable backend connections.** Org plan = **free → Nano compute tier** (NOT Micro — the tier can't be inferred from `max_connections=60`, which is identical on Nano+Micro). Current usage low (prod 12/1 active; staging 17/1 active).
 - Three DISTINCT limits — ALL can bind independently (do not conflate — codex #4/#12): (a) postgres.js client `max` = app-side ceiling per client; (b) **Supavisor "Max Clients" ≈ 200** = accepted client connections; (c) **Postgres `max_connections = 60` → 57 usable** = backend session ceiling; (d) Supavisor backend `pool_size` = how many backend sessions Supavisor opens (NOT SQL-queryable — confirm in the Supabase dashboard at the staging gate). Backend sessions — **active OR idle** — each consume a `max_connections` slot; do not model this as "active transactions only."
-- **Numeric Vercel Max-Clients budget:** at proposed maxima one fully-expanded Vercel isolate owns write 3 + read 8 = **11** client connections. Worker 20 + health 2 + isolates × 11 ≤ 200 → **≤ 16 warm Vercel isolates**. Peak is 10 concurrent dashboard renders (#474) and Fluid Compute packs several renders per isolate, so ≤16 is comfortable — but it IS a bound; if warm isolates could exceed it, lower `DB_READ_POOL_MAX` first. Record the observed warm-isolate count at the staging gate.
+- **Numeric Vercel Max-Clients budget:** at proposed maxima one fully-expanded Vercel isolate owns write 3 + read 8 = **11** client connections. Worker 20 + health 2 + isolates × 11 ≤ 200 → **≤ 16 warm Vercel isolates**. Peak is 10 concurrent dashboard renders (#474) and Fluid Compute packs several renders per isolate, so ≤16 is comfortable — but it IS a bound. If warm isolates could approach it, the levers are: raise the Supabase compute tier (higher Max-Clients) or lower `DB_POOL_MAX` — NOT lower `DB_READ_POOL_MAX`, which is floored at 8 for wedge-safety and cannot go below it. Record the observed warm-isolate count at the staging gate.
 - **`DB_POOL_MAX=20` is NOT "blessed" until the staging gate.** It is a ceiling-aware STARTING value (20 + health 2 + baseline + Vercel backend share, all multiplexed by Supavisor onto ≤57 backend sessions). The staging burst-drill is a HARD pre-production decision gate: monitor `pg_stat_activity` backend-session count (active AND idle) + the Supavisor `pool_size` from the dashboard; the app-side `probePoolWait` is NOT capacity proof. Land the drill-proven number.
 
 ## Concurrency × pool arithmetic (re-check — record in env-vars.md + ADR)
@@ -29,7 +29,7 @@ The #505 root cause (lab-notes 2026-07-18): concurrent `Promise.all` queries on 
 
 **Decision (user, #6 → "right-size + narrow"):** move onto `sqlRead` ONLY the routes whose fan-out ≤ the read pool, so they run one-connection-per-query (the proven 0/6 shape):
 - `GET /api/dashboard/kpis` — `getLocationKpiSummary`/`getAccountKpiSummary` fire a **5-query** `Promise.all` (`kpi/service.ts:178,283`); plus the subscription gate SELECT runs concurrently → ≤6 peak. `sqlRead max=8` ≥ 6. SAFE.
-- `GET /api/dashboard/past-replies/draft-status` — single read of `job_outbox.payload`. SAFE.
+- `GET /api/dashboard/past-replies/draft-status` — peak postgres.js fan-out 2 (the `resolveOwnerScope` auth preamble runs account-gate + location-scope concurrently), up to 4 SQL reads over the request. ≤8. SAFE. (Auth preamble stays on write `sql` — see Task 1 step 10.)
 - **LEAVE on write `sql`** (fan-out > 8; #505-audit owns them): `src/app/api/dashboard/route.ts` (~14-wave, +nested 5), `agent-team`, and the aggregate path (`aggregate-queries.ts` 8-wave). Moving them would perpetuate the wedge shape.
 
 **Honesty (ADR):** `sqlRead` shares the same `DATABASE_POOL_URL`/user/db/transaction-mode as `sql`, so it draws from the SAME Supavisor backend pool. The bulkhead isolates only LOCAL postgres.js client slots (heavy reads can't consume the 3 write slots); it does NOT isolate backend DB capacity — a slow read still consumes a backend connection + DB CPU.
@@ -79,12 +79,16 @@ describe('sqlRead read bulkhead', () => {
     expect(SHARED_POOL_MAX).toBeGreaterThan(0);
   });
   it('floors DB_READ_POOL_MAX at the wedge-safe minimum — a mis-set 1 cannot reintroduce the #505 wedge (codex #6)', async () => {
-    vi.resetModules();
-    vi.stubEnv('DB_READ_POOL_MAX', '1');
-    const fresh = await import('../server');
-    expect((fresh.sqlRead as unknown as { options: { max: number } }).options.max).toBe(fresh.WEDGE_SAFE_READ_MIN);
-    vi.unstubAllEnvs();
-    vi.resetModules();
+    try {
+      vi.resetModules();
+      vi.stubEnv('DB_READ_POOL_MAX', '1');
+      const fresh = await import('../server');
+      expect((fresh.sqlRead as unknown as { options: { max: number } }).options.max).toBe(fresh.WEDGE_SAFE_READ_MIN);
+    } finally {
+      // cleanup in finally so a failed assertion can't leave the env stubbed / modules reset (codex nit)
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });
 ```
@@ -155,7 +159,7 @@ Then extend `closeAllPostgresClients` to own `sqlRead` shutdown (codex #5 — no
 
 - [ ] **Step 9: Run — expect PASS.** `pnpm vitest run src/app/api/dashboard/kpis/__tests__/route.test.ts`
 
-- [ ] **Step 10: Move `past-replies/draft-status/route.ts` reads to `sqlRead`.** Fan-out inventory (codex #11 — record accurately): `resolveOwnerScope` runs the account-gate + location-scope lookups CONCURRENTLY (peak postgres.js fan-out = 2), plus a `getRequestScope` businesses query, then the `job_outbox.payload` read and (for completed jobs) a second response lookup — up to 4 SQL reads over the request, peak 2 concurrent. Safe at `max:8`. Swap the route's read `sql` uses → `sqlRead` (if the shared auth helper still runs on `sql`, only the route-body `job_outbox`/response reads move; that's fine — still ≤2 on sqlRead). Update its route test. **Do NOT touch** any other `past-replies` route (all writes) or `dashboard/route.ts`/`agent-team` (heavy fan-out — #505-audit owned).
+- [ ] **Step 10: Move `past-replies/draft-status/route.ts` reads to `sqlRead`.** Fan-out inventory (codex #11 — record accurately): `resolveOwnerScope` runs the account-gate + location-scope lookups CONCURRENTLY (peak postgres.js fan-out = 2), plus a `getRequestScope` businesses query, then the `job_outbox.payload` read and (for completed jobs) a second response lookup — up to 4 SQL reads over the request, peak 2 concurrent. Safe at `max:8`. **Wiring decision (codex #4-wiring):** the shared `resolveOwnerScope` auth gate STAYS on write `sql` — it is a shared helper used by many routes; do NOT thread `sqlRead` through it. Move ONLY the route-body reads (`job_outbox.payload` + the completed-job response lookup) onto `sqlRead` (peak ≤2, and since auth is on `sql` the sqlRead peak here is ≤1). Apply the same rule to the KPI route (step 8): `withDashboardOwnerRead`/`resolveOwnerScope` stay on `sql`; only the gate SELECT + `get*KpiSummary` calls move to `sqlRead`. Update each route test's assertion to match. **Do NOT touch** any other `past-replies` route (all writes) or `dashboard/route.ts`/`agent-team` (heavy fan-out — #505-audit owned).
 
 - [ ] **Step 11: Gate + commit.** `pnpm ci:db-imports && pnpm ci:tenant-scope`
 ```bash
@@ -173,7 +177,7 @@ git commit -m "feat(#477): right-sized sqlRead bulkhead for wedge-safe KPI/draft
 
 Design (addresses codex #2 blocker + #3 should-fix):
 - **Single-flight**: a module-level `inflight` promise ensures ≤1 outstanding `reserve()` globally, so repeated queue-health hits (admin polls every 30s, or two concurrent admins) can NEVER accumulate reservations in postgres.js's internal queue under a wedge.
-- **Honest semantics**: report `timedOut: boolean`; on timeout `waitMs` is the timeout value = a censored lower bound (label `>=` in the UI). `waitMs` may include connection-establishment latency (not pure queue wait) — documented; the `saturating` threshold is staging-calibrated, not a magic constant baked as truth.
+- **Honest semantics**: report `timedOut: boolean`; on timeout `waitMs` is the timeout value = a censored lower bound (label `>=` in the UI). `waitMs` may include connection-establishment latency (not pure queue wait) — documented; the `saturating` threshold ships as a PROVISIONAL default and is calibrated on staging (Task 4 step 4.2), not treated as final.
 
 - [ ] **Step 1: Failing tests** (fake `sql` with controllable `reserve()`):
 
@@ -230,6 +234,25 @@ it('REGRESSION (#10): a timed-out call does NOT release the latch — the second
 it('genuine reserve() rejection is re-thrown (handler maps to pool:null)', async () => {
   await expect(probePoolWait(fakeSql(async () => { throw new Error('refused'); }), { timeoutMs: 1000, saturatingThresholdMs: 50, max: 20 })).rejects.toThrow('refused');
 });
+
+it('REGRESSION (blocker): a rejecting reserve() with TWO concurrent awaiters emits NO unhandledRejection (the latch cleanup must not leave a derived rejected promise)', async () => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    let rejectReserve!: (e: Error) => void;
+    const s = fakeSql(() => new Promise<{ release: () => void }>((_, rej) => { rejectReserve = rej; }));
+    const p1 = probePoolWait(s, { timeoutMs: 1000, saturatingThresholdMs: 50, max: 20 });
+    const p2 = probePoolWait(s, { timeoutMs: 1000, saturatingThresholdMs: 50, max: 20 });
+    rejectReserve(new Error('reserve-refused'));
+    await expect(p1).rejects.toThrow('reserve-refused'); // both awaiters see it
+    await expect(p2).rejects.toThrow('reserve-refused');
+    await new Promise((r) => setTimeout(r, 0));           // let any stray rejection surface a tick
+    expect(unhandled).toHaveLength(0);                    // the r.finally() shape would fail HERE
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+});
 ```
 
 - [ ] **Step 2: Run — expect FAIL.** `pnpm vitest run src/lib/shared/__tests__/pool-wait.test.ts`
@@ -278,8 +301,17 @@ function sharedReservation(sql: postgres.Sql): { reservation: Promise<{ release:
   if (!inflightReservation) {
     reservationStartMs = Date.now();
     const r = sql.reserve() as unknown as Promise<{ release: () => void }>;
-    r.then((c) => c.release()).catch(() => { /* propagated to awaiters via withTimeout */ });
-    r.finally(() => { inflightReservation = null; }); // clear ONLY on settlement
+    // ONE caught chain: release on resolve, swallow the rejection (each caller
+    // still observes r's rejection through its own withTimeout race on r), then
+    // clear the latch on settlement. Do NOT attach a standalone `r.finally()` —
+    // finally() returns a DERIVED promise that re-adopts r's rejection with no
+    // handler, so a rejecting reserve() emits an unhandledRejection → the
+    // worker crash-net's fatal path (worker/index.ts). Keeping the latch-clear
+    // INSIDE the caught chain means the only promise deriving from a rejected r
+    // is already handled.
+    r.then((c) => c.release())
+      .catch(() => { /* observed here; also surfaced to awaiters via their race on r */ })
+      .finally(() => { inflightReservation = null; });
     inflightReservation = r;
   }
   return { reservation: inflightReservation, startMs: reservationStartMs };
@@ -404,7 +436,7 @@ Task 4 (docs) ── independent; staging-verify after Task 3 deploys
 |---|---|
 | 1 | leak-safety kept (Task 2 step 3) |
 | 2 | single-flight latch → ≤1 outstanding reservation (Task 2) |
-| 3 | `timedOut` flag + censored-lower-bound labeling + staging-calibrated threshold (Task 2, Task 3 step 7, ADR) |
+| 3 | `timedOut` flag + censored-lower-bound labeling + PROVISIONAL threshold calibrated on staging (Task 2, Task 3 step 7, Task 4 step 4.2, ADR) |
 | 4 | measured 60-conn ceiling + 3-limit hierarchy + Vercel budget + burst-drill watches pg_stat_activity (Capacity §, Task 4) |
 | 5 | `sqlRead.end()` in `closeAllPostgresClients` (Task 1 step 3) |
 | 6 | narrow to wedge-safe fan-out (KPI/draft-status), `max:8 ≥ fan-out`, heavy waves left to #505 audit, honest local-only ADR (§#505, Task 1, Task 4) |
