@@ -2,73 +2,70 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": false,
-  "goal": "Root-cause the #500 boot-burst pool wedge, ship a stagger cure for the boot connection storm, delete the unreachable PoolWedgeReaperPoller, and resume the HealthAlertPoller behind #502's bulkhead — validated on staging.",
+  "goal": "Land the two open #505 proof artifacts from wayfinder map #472: (a) a checked-in health-bundle differential experiment that isolates Promise.all-vs-sequential (× pool size) on the real health bundle and reproduces the connection wedge on the concurrent-max2 baseline arm, and (b) a synthetic-load script plus an executed capacity-burst drill on staging with recorded numbers — a 1000-event/10-min headroom arm draining within 30 minutes with no alert, and an over-threshold arm that makes the backlog depth alert fire at ~1500 and then clear.",
   "non_goals": [
-    "Completing the 24h clean-soak within this session (inherently async; owner-gated before the #505 PR merges to main).",
-    "Removing #502's HealthAlertPoller bulkhead (dedicated max:2 client + recycle-on-timeout) — kept as defense-in-depth even if the cure holds.",
-    "Arming the reaper or solving Railway's IPv4→Supabase-IPv6 direct-route problem — deferred to the #477-tied re-arm ticket.",
-    "Re-implementing #501's backlog-depth instrumentation — #501 is already MERGED to main (2026-07-18T21:18:57Z); this branch only removes the now-orphaned /* rw-reapable */ marker from its query.",
-    "Any migration or schema change.",
-    "Re-litigating map #472 decisions (capacity target #474, ADR 0005 posture #475, single-replica posture)."
+    "The 24h HealthAlertPoller soak (tracked on #507) and the prod HEALTH_ALERT_POLL_INTERVAL_MS removal (beta-launch-alerting §1b step 5)",
+    "Re-litigating the six falsified #500 hypotheses",
+    "Modifying production worker/health-poller runtime (checks.ts, boot-stagger, OutboxPoller) — the differential IMPORTS the exported check functions, it never edits or reverts them",
+    "Replacing or repurposing scripts/wedge-repro.ts — it remains the boot-stagger (BOOT_STAGGER_ENABLED) boot-repro harness",
+    "The #505 pipelining-audit follow-up on the ~15 suspect Vercel/worker sites",
+    "Executing either drill DURING the in-flight #507 soak window (execution happens after ~2026-07-20 07:00 UTC)"
   ],
   "user_visible_behavior": [
-    "Worker boot no longer parks a pooler backend active+ClientRead; the HealthAlertPoller 5-query bundle completes each cycle with no per-cycle 30s timeout.",
-    "Background loops' first cycles are staggered out of the boot window instead of all firing simultaneously on the first tick.",
-    "HealthAlertPoller resumes 5-min cadence on staging (HEALTH_ALERT_POLL_INTERVAL_MS override removed), then prod at promotion.",
-    "PoolWedgeReaperPoller, the POOL_WEDGE_REAPER_ENABLED flag, and the /* rw-reapable */ health-query marker no longer exist in the codebase (ADR 0007 superseded).",
-    "Backlog-depth alert fires at ~1500 pending and clears (validated by the #480 drill; alert code ships via #501, not this branch)."
+    "New scripts/health-bundle-differential.ts: a three-arm differential (concurrent-max2 → wedge, sequential-max2 → clean, concurrent-max6 → clean) run against an EPHEMERAL Supabase branch (sole client), reusing the exported health-bundle checks with the exact resolved config; detection = 40s deadline + MANDATORY ClientRead-signature corroboration (bare timeout != wedge); cleanup = terminate-all-wedge on the isolated branch + baseline barrier; gates on the expected outcome",
+    "New scripts/burst-drill-load.ts: a parametrized synthetic-load injector (--events N --duration-min M --confirm-staging <ref>) that paces OutboxPoller-drainable job_outbox rows for the capacity-burst drill without real LLM spend or downstream error-pages",
+    "New scripts/staging-guard.ts: the shared prod-denylist / --confirm-staging safety gate extracted from wedge-repro.ts and reused by all three staging scripts",
+    "Reconciled runbooks documenting the two-arm capacity-burst drill (headroom + over-threshold) with recorded execution numbers",
+    "Executed-drill results recorded on #505 and in the burst-drill runbook"
   ],
   "invariants": [
-    "Tenant isolation unaffected — no query scope or account_id/business_id scoping changes.",
-    "Invariant #15: reaper deletion must not break closeAllPostgresClients wiring or the ci:db-imports composition-root audit.",
-    "Invariant #2 outbox / Invariant #1 worker-only boundaries untouched.",
-    "withTimeout still bounds the health bundle; the bulkhead recycle-on-timeout path is retained.",
-    "Shutdown still closes every postgres client (shared sql + health) via closeAllPostgresClients after the reaper closer is removed.",
-    "Server-authoritative flags — env removal only, no NEXT_PUBLIC_* companion introduced.",
-    "The stagger cure must not delay the first health cycle so long that a real boot-time incident goes unpaged (bounded jitter)."
+    "Safety gate is absolute in every mode: the PROD_PROJECT_REFS denylist beats every flag and no password ever surfaces. Two target modes (extracted + hardened from wedge-repro.ts): assertStagingTarget (positive allowlist — ref must EQUAL KNOWN_STAGING_REF; used by wedge-repro + burst-drill-load on shared staging) and assertEphemeralBranchTarget (ref must equal --confirm-branch AND be neither prod nor KNOWN_STAGING_REF; used by the differential on a throwaway branch)",
+    "db_touching=false means no schema/migration and no new production tenant-scoped query site (so the tenant-scope/RLS audits are unaffected); the staging scripts DO perform operational INSERT/DELETE against job_outbox at runtime, guarded by the safety gate + scoped-delete predicate + their tests",
+    "No production runtime BEHAVIOR change — the health bundle stays sequential (ADR 0008); the differential reproduces the wedge with its OWN concurrent client, never by reverting runHealthChecks. The ONLY production edit is adding `export` to the existing pure resolveHealthAlertConfig in checks.ts (visibility only, zero behavior change, no new production caller — approved surface amendment for the single-owner fix)",
+    "Single owner of the health-bundle query mix AND its config — the differential reuses the exported checkXxx functions and the exported resolveHealthAlertConfig, never re-copies their SQL or config resolution (so both concurrent and sequential arms fire byte-identical query parameters)",
+    "Single owner of backlog-depth counting — the drill reads backlog via queryBacklogDepth / GET /internal/queue-health, never a re-implemented count",
+    "Never log raw review/response text, tokens, or secrets — the scripts observe pids/counts only",
+    "No new runtime dependency; no package.json / pnpm-lock change",
+    "The differential runs against an EPHEMERAL Supabase branch where it is the sole client (ADR-0007 app_name flattening makes pooler attribution impossible; the branch dissolves it). Cleanup on every exit path incl. SIGINT/SIGTERM: client.end + pg_terminate_backend of ALL wedge-signature backends on the isolated branch (safe — nothing else is there) + a zero baseline barrier between arms; final teardown = operator delete_branch. The prod denylist still guards terminate-all as defense-in-depth (resource-ownership contract, D5)"
   ],
   "edge_cases": [
-    "If the repro harness does NOT reproduce the wedge, the cure stays UNPROVEN — ship the stagger as defensible boot-storm hardening (precedented) and keep the bulkhead; do not claim a cure.",
-    "StripeLocationsReconcilePoller already defers 45s (INITIAL_RUN_DELAY_MS) — the stagger must not double-delay or conflict with it.",
-    "closeAllPostgresClients currently takes [closeReaperClient, closeHealthSql]; removing the reaper must keep closeHealthSql wired and preserve the shutdown-resilience test (a rejecting closer still closes sql).",
-    "Reaper removal must clean ALL FIVE POOL_WEDGE_REAPER_* env vars (ENABLED, AGE_S, INTERVAL_MS, MAX_PER_SWEEP, OP_TIMEOUT_MS) + DIRECT_URL (sole consumer was the reaper) across worker/config/worker.ts + __tests__, startup-assert, env-vars.md, lab-notes.md — preserve the direct-route concept in the #477 re-arm ticket.",
-    "boot-stagger lifecycle race (Codex F4): staggerBoot must return a cancellable handle + done promise; shutdown cancels pending start timers BEFORE stopping loops, so a delayed start can never begin DB work mid-SIGTERM.",
-    "Cure root cause is UNPROVEN (Codex F1): T1 must reproduce against the REAL worker (fresh process per trial) + instrument the postgres.js debug hook; any mechanism must explain permanence + state_change fixity + poison-migration.",
-    "Repro harness runs against the STAGING pooler only (never prod) and must terminate any backend it wedges (self-cleanup).",
-    "Post-cure, the first (boot) health cycle may still self-heal via bulkhead recycle — acceptable; steady-state cycles must be clean.",
-    "Marker fate DECIDED: remove the /* rw-reapable */ marker from ALL SIX query-sites (5× worker/background/pollers/health-alert/checks.ts + 1× src/lib/shared/backlog-depth.ts:37) + comment refs (health-db.ts, CONTEXT.md) along with the reaper (no consumer left); mark ADR 0007 Superseded, preserving the app_name-flattening + route knowledge for the #477 re-arm ticket."
+    "Differential baseline arm does NOT wedge on a given iteration → reported honestly as a non-repro finding, not masked (wedge-repro precedent)",
+    "Injected drill rows must dispatch cleanly (mocked/benign) so the drill produces no spurious outbox_failed / stale_dispatching health alerts beyond the intended backlog_depth",
+    "Over-threshold arm must drain back under 1500 so backlog_depth CLEARS — otherwise the alert stays latched and pollutes later drills",
+    "The drill must not run concurrently with wedge-repro.ts or the differential (both perturb the pooler / backlog observation)",
+    "Drain is dispatch-bound (OutboxPoller ~600/min), not LLM-completion-bound — the 30-min target is on job_outbox pending count; documented so the number isn't misread",
+    "SIGINT/SIGTERM mid-run must still kill children + terminate attributed backends before exit"
   ],
   "existing_patterns_to_follow": [
-    "worker/background/pollers/StripeLocationsReconcilePoller.ts:71,515-523 — INITIAL_RUN_DELAY_MS boot-connection-storm dodge (the cure precedent).",
-    ".scratch/wedge-repro.ts — the prior isolation repro harness to extend with boot-pressure (concurrent socket/Redis/DNS fan-out).",
-    "worker/background/guarded-poll.ts:119 — start()/runOnce() immediate-first-cycle pattern being staggered.",
-    "docs/superpowers/plans/fix-500-pool-wedge-selfheal-deviations.md — closeAllPostgresClients + bulkhead wiring precedent.",
-    "src/lib/db/server.ts:73-103 — dedicated client factory + closeAllPostgresClients owner."
+    "scripts/wedge-repro.ts — staging safety gate, pg_stat_activity observation, self-clean, runDirectCli entry, fallow-ignore precedent for a branchy CLI harness",
+    "scripts/ci/__tests__/wedge-repro.test.ts — unit tests for the PURE parts (guard, arg parsing, cleanup ordering)",
+    "worker/background/pollers/health-alert/checks.ts — the exported checkXxx functions the differential reuses",
+    "src/lib/shared/backlog-depth.ts + worker/internal/queue-health.ts — the backlog read the drill observes",
+    "docs/runbooks/beta-launch-alerting.md §4 + docs/runbooks/pool-wedge-burst-drill.md — the drill procedures to reconcile",
+    "scripts/run-direct-cli.ts — the CLI entry wrapper"
   ],
   "allowed_edit_surface": [
-    "worker/index.ts",
-    "worker/background/**",
-    "worker/config/**",
-    "worker/shutdown.ts",
-    "src/lib/db/**",
-    "src/lib/config/**",
-    "src/lib/shared/backlog-depth.ts",
-    ".claude/reference/env-vars.md",
-    ".claude/reference/lab-notes.md",
+    "worker/background/pollers/health-alert/checks.ts",
+    "scripts/health-bundle-differential.ts",
+    "scripts/burst-drill-load.ts",
+    "scripts/staging-guard.ts",
+    "scripts/wedge-repro.ts",
+    "scripts/ci/__tests__/**",
+    "docs/runbooks/pool-wedge-burst-drill.md",
+    "docs/runbooks/beta-launch-alerting.md",
+    "CONTEXT.md",
     "docs/adr/**",
-    "docs/runbooks/**",
+    ".claude/reference/lab-notes.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**",
-    "scripts/**",
-    ".feature/**",
-    "CONTEXT.md"
+    ".feature/**"
   ],
   "tests_to_add": [
-    "boot-stagger: computeBootSchedule is bounded + strictly monotonic + covers count (property/example); staggerBoot invokes each start exactly once at its delay via an injected fake scheduler; cancel() prevents un-fired starts and resolves done (shutdown-race guard).",
-    "Reaper deletion: closeAllPostgresClients still closes the health client then the shared sql after the reaper closer is removed; shutdown-resilience invariant (a rejecting closer still calls sql.end()) preserved (src/lib/db/__tests__/server.test.ts).",
-    "Config: removing POOL_WEDGE_REAPER_ENABLED (and reaper-only env) does not break worker config parsing (src/lib/config/__tests__/worker.test.ts).",
-    "Existing health-alert bundle/bulkhead tests remain green; the marker test (worker/background/pollers/__tests__/health-alert-markers.test.ts) is removed with the marker."
+    "scripts/ci/__tests__/staging-guard.test.ts — prod-denylist beats every flag in BOTH modes; assertStagingTarget requires ==KNOWN_STAGING_REF; assertEphemeralBranchTarget rejects prod AND staging refs and requires a matching distinct branch ref; empty/mismatched confirm rejected; no password surfaced",
+    "scripts/ci/__tests__/health-bundle-differential.test.ts — the 4-way arm classifier (fulfilled/rejected/wedged[=deadline+ClientRead signature]/hung-unknown[=deadline, no signature]), expected-vs-actual gating, the bounded-deadline wrapper, the branch-target guard wiring, arg parsing/bounds",
+    "scripts/ci/__tests__/burst-drill-load.test.ts — pacing-schedule math (N over M), arg parsing/bounds, row-shape builder, safety-gate wiring, and the scoped-delete predicate builder (always includes topic + drill-tag + status='pending' + horizon)"
   ],
-  "verification_commands": [],
+  "verification_commands": [
+    "pnpm vitest run scripts/ci/__tests__/staging-guard.test.ts scripts/ci/__tests__/health-bundle-differential.test.ts scripts/ci/__tests__/burst-drill-load.test.ts"
+  ],
   "open_questions": []
 }

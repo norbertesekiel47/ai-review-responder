@@ -155,16 +155,27 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   check to page.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
-- [ ] **Backlog depth over threshold** — insert `> HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD`
-  (default 1500) `job_outbox` rows `status='pending'`; expect
-  `backlog_depth:job_outbox` (`warning`).
-- [ ] **#474 capacity burst (headroom, ticket #480)** — inject 1000 ingest events
-  in 10 min. Watch `GET /internal/queue-health` `backlog.job_outbox` climb toward
-  ~1000 then drain to baseline **within 30 min**, and confirm **no** `backlog_depth`
-  warning fires (1000 < 1500 headroom). Validates the observability + drain path
-  without tripping the alert. Full step-by-step procedure:
-  `docs/runbooks/pool-wedge-burst-drill.md`. Run after §1b's poller-resume so the
-  `HealthAlertPoller` is back on its designed 5-minute cadence for the drill.
+- [ ] **Backlog depth over threshold (the drill's over-threshold arm)** — via
+  `scripts/burst-drill-load.ts inject --events ~1600 --available-in-min <K≥15>`,
+  hold `job_outbox` pending `> HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD` (default
+  1500) across a poller tick; expect `backlog_depth:job_outbox` (`warning`) to
+  fire, then run `release --drill-tag <tag>` and confirm it clears (pending
+  drops below 1500 **and** a subsequent poller cycle completes a clean
+  check-in emitting no such finding). Proves outbox dispatch-drain +
+  `backlog_depth` observability under a held burst — **not** full
+  ingest→draft→notification pipeline throughput. Full step-by-step procedure
+  (Part B, over-threshold arm): `docs/runbooks/pool-wedge-burst-drill.md`.
+- [ ] **#474 capacity burst (headroom, ticket #480)** — via
+  `scripts/burst-drill-load.ts inject --events 1000 --duration-min 10`
+  (immediately-claimable, the drill's headroom arm). Watch
+  `GET /internal/queue-health` `backlog.job_outbox` climb then drain to
+  baseline **within 30 min**, and confirm **no** `backlog_depth` warning fires
+  (drain rate outpaces injection). Validates outbox dispatch-drain +
+  observability without tripping the alert — same honest scope caveat as
+  above (dispatch-drain, not full pipeline throughput). Full step-by-step
+  procedure (Part B, headroom arm): `docs/runbooks/pool-wedge-burst-drill.md`.
+  Run after §1b's poller-resume so the `HealthAlertPoller` is back on its
+  designed 5-minute cadence for the drill.
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 

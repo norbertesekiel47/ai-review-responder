@@ -31,7 +31,7 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function resolveHealthAlertConfig(): HealthAlertConfig {
+export function resolveHealthAlertConfig(): HealthAlertConfig {
   const cfg = getWorkerConfig();
   return {
     pendingAgeThresholdS: num(cfg.HEALTH_ALERT_PENDING_AGE_S, 900),
