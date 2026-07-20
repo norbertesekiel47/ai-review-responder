@@ -1,3 +1,10 @@
+> **Correction (2026-07-20):** Migration numbers in this report are pre-renumber —
+> `poller_cursors` shipped as **081**, not 079 (079/080 on `main` are agent-spine
+> retention and scheduler dedup respectively). The `accounts(subscription_status, id)`
+> composite index described here was **DROPPED before merge** per the staging
+> EXPLAIN gate (commit `d93a62e8`) — it does not exist on `main`. See `TRIAGE.md`.
+> Body below is a point-in-time record and is intentionally untouched.
+
 # Spec & Correctness Review — #479 Stripe reconcile remainders
 
 Branch: `feat/stripe-reconcile-remainders` · Diff: `git diff 96b4f28c HEAD`

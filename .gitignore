@@ -92,6 +92,10 @@ supabase/.temp/
 # Local debug artifacts (Zernio connect flow diagnostic log)
 zernio-debug.log
 
+# Stray 0-byte artifact from a staging drill; cursor persistence is the
+# poller_cursors TABLE (migration 081), never a local file.
+poller_cursors.cursor
+
 # local-only tooling and scratch artifacts
 .claude-octopus/
 .graphify_query.py
