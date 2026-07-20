@@ -4,11 +4,21 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEP 8 STAGING DRILL COMPLETE (PASS). PR #510 ready to un-draft + merge (prod DB_POOL_MAX=20 at promotion).
+## Current position: STEP 8 in progress — worker-pool drill PASS; OPEN merge fork (needs user decision). PR #510 draft.
 
-**Staging burst-drill (2026-07-20): PASS** — full record in ADR 0009 "Staging calibration + capacity gate (executed …)". Feature deployed to `staging` (Railway `repworth-worker-staging`, `DB_POOL_MAX=20`); pool-wait metric live. Results: backend sessions baseline 19 → burst peak ~17–19 (never near 57-usable, never near the 20 ceiling); `pool.waitMs`~1ms, `saturating:false` throughout (no queueing induced); warm reserve p99≈3ms / cold 0ms; 1000-row headroom burst held at 50 pending, self-drained to 0, `release` inventory clean. `DEFAULT_POOL_SATURATING_MS=50` **staging-validated** (unchanged; ~16× warm headroom) — promoted from "provisional" in `pool-wait.ts`. `DB_POOL_MAX=20` confirmed. Execution gate met (#507 soak PASS recorded).
+**Latest HEAD:** `d482fd1d` (feat branch, pushed). **Gate: GREEN** (18/18). **PR #510** = DRAFT → `main`, CI green, `mergeState=BLOCKED` (draft). **Staging** = feature deployed at `f7045c8f` (Railway `repworth-worker-staging`, `DB_POOL_MAX=20`, pool-wait metric live). **Prod:** untouched.
 
-**Remaining (needs user):** (1) **prod** `DB_POOL_MAX=20` on Railway at merge + read Supavisor `pool_size` on the prod dashboard (separate authorization — NOT done); (2) un-draft PR #510 → merge; (3) fast-forward `staging` onto `main` after merge. Note: staging currently sits at the pre-drill feature HEAD `f7045c8f`; the drill's ADR/comment commit is a no-behavior-change doc update (threshold value unchanged) so a staging re-deploy is optional.
+**Worker-pool staging burst-drill (2026-07-20): PASS** — full record in ADR 0009 "Staging calibration + capacity gate (executed …)". backend sessions baseline 19 → 1000-row burst peak ~17–19 (never near 57-usable, never near the 20 ceiling); `pool.waitMs`~1ms, `saturating:false` throughout (no queueing induced); warm reserve p99≈3ms / cold 0ms; burst held 50 pending → self-drained to 0, `release` inventory clean. `DEFAULT_POOL_SATURATING_MS=50` **staging-validated** (unchanged) — promoted from "provisional" in `pool-wait.ts`. Execution gate met (#507 soak PASS recorded).
+
+**⚠️ OPEN DECISION — the merge fork (needs the user):** the drill validated the **worker write pool** ONLY. It did NOT exercise the **central hazard** (post-review obs #1) — Vercel connection multiplication: each warm isolate holds write 3 + **read 8 = 11** client conns; the ≤16-warm-isolate budget (16×11 + worker 20 + health 2 ≈ 198 < 200 Max-Clients) rests on ARITHMETIC, not a Vercel-side measurement. So:
+- **(a) Ship on the budget argument** — read pool clamped at 8, current traffic low (~10 peak renders << 16-isolate headroom), Vercel side accepted budget-bounded → un-draft #510 + merge.
+- **(b) Close the gap first** — run a **Vercel-side drill** on staging (concurrent KPI/draft-status renders) and record observed warm-isolate count + total client connections + backend sessions vs the ≤16 / 200 / 57 bounds BEFORE merge. (There is currently NO Vercel-side load harness — would need building/one-off scripting.)
+
+**Post-review observations (2026-07-20, none code bugs) — captured in ADR 0009:** (1) Vercel multiplication = central hazard (the fork above). (2) read=8 vs #474 ~5 is a justified upward deviation (wedge-safe floor) that directly raises per-isolate conns to 11 — links to (1). (3) read-pool (`sqlRead`) saturation is UNOBSERVED — probe watches only write `sql` (`worker/index.ts:515`); ADR follow-up added to also probe `sqlRead`. (4) pool-wait ships as exposure without paging — intentional (intake non-goal; HealthAlertPoller integration is the tracked follow-up).
+
+**Remaining mechanical steps (after the fork is decided):** (1) **prod** `DB_POOL_MAX=20` on Railway at merge + read Supavisor `pool_size` on the prod dashboard (separate authorization — NOT done); (2) un-draft PR #510 → merge; (3) fast-forward `staging` onto `main` after merge. Staging sits at pre-obs-commit `f7045c8f`; the later ADR/comment commits are no-behavior-change docs (threshold value unchanged) so a staging re-deploy is optional.
+
+**Cleanup note:** `DB_POOL_MAX=20` is set on the Railway **staging** worker and the feature is on the `staging` branch — if the fork resolves to NOT shipping, reset staging to `bd9c8ef9` and unset the staging `DB_POOL_MAX` var.
 
 ### (historical) STEPS 4–7 COMPLETE — dual review clean, codex adversarial done + fix landed, GATE GREEN.
 
