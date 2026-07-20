@@ -10,12 +10,15 @@
     "No alerting on pool-wait this ticket — queue-health payload observability only; HealthAlertPoller integration is a documented follow-up.",
     "No change to worker BullMQ concurrency values (gen 5, ingest 5, notif 4, pub 4 stay; this ticket sizes the POOL to them).",
     "No switch of settings/write pages or OAuth-handshake routes onto the read client — read-only dashboard/KPI paths only.",
-    "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised."
+    "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised.",
+    "Does NOT move the heavy fan-out read routes (dashboard route ~14-wave, aggregate ~8-wave, agent-team) onto sqlRead — their concurrency exceeds a right-sized read pool and they carry the pre-existing #505 pipelining-wedge risk, which stays OWNED by the #505 Vercel pipelining audit (differential-repro required). Only wedge-safe small-fan-out reads (KPI 5-wave, draft-status 1) move.",
+    "Does NOT claim application_name gives pooler attribution — ADR 0007 proved Supavisor flattens it to 'Supavisor'; it is kept only as harmless client intent.",
+    "The read bulkhead isolates only LOCAL postgres.js client slots (sqlRead shares the same Supavisor backend pool as sql — same URL/user/db/mode); it does not isolate backend DB capacity."
   ],
   "user_visible_behavior": [
-    "GET /internal/queue-health response gains a `pool` field: { waitMs, saturating, max } (best-effort; null on genuine probe error, saturating:true on probe timeout).",
-    "Admin jobs panel surfaces the worker pool-wait/saturation signal alongside per-queue depth + backlog.",
-    "No customer-facing behavior change; dashboard/KPI responses identical (served from a separate read pool)."
+    "GET /internal/queue-health response gains a `pool` field: { waitMs, timedOut, saturating, max } (best-effort; null on genuine probe error; timedOut:true (=> saturating:true) when the single-flight reserve() probe hits its timeout — waitMs is then a censored lower bound).",
+    "Admin jobs panel surfaces the worker pool-wait/saturation signal (waitMs, shown as `>=` when timedOut) alongside per-queue depth + backlog.",
+    "No customer-facing behavior change; KPI + past-replies/draft-status reads served from the dedicated read pool (identical responses)."
   ],
   "invariants": [
     "#15: the second (read) pool is wired at composition roots ONLY (route handlers / server components pass the read client); domain modules keep receiving sql as a parameter and never import db/server.",
@@ -42,11 +45,10 @@
   "allowed_edit_surface": [
     "src/lib/db/server.ts",
     "src/app/api/dashboard/kpis/route.ts",
-    "src/app/api/dashboard/route.ts",
-    "src/app/api/dashboard/agent-team/route.ts",
-    "src/app/api/dashboard/past-replies/**/route.ts",
+    "src/app/api/dashboard/past-replies/draft-status/route.ts",
+    "src/lib/config/server.ts",
     "worker/internal/queue-health.ts",
-    "worker/internal/pool-wait.ts",
+    "src/lib/shared/pool-wait.ts",
     "worker/index.ts",
     "src/app/api/admin/jobs/route.ts",
     "src/app/admin/jobs/page.tsx",
