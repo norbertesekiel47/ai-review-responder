@@ -4,7 +4,17 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEPS 4 + 5 COMPLETE — GATE GREEN, final holistic review PASS. At STEP 6 (codex adversarial-review offer — needs user).
+## Current position: STEPS 4–7 COMPLETE — dual review clean, codex adversarial review done + fix landed, GATE GREEN. At STEP 8 SHIP (staging ride — needs user/Railway).
+
+**STEP 7 dual review (`/code-review since origin/main`): CLEAN both axes** — Standards: 0 hard violations (4 defensible judgement calls); Spec: 0 findings (faithful to intake + plan).
+**STEP 6 codex adversarial review (`--base origin/main`): needs-attention → BOTH findings resolved.**
+- Finding #1 [high] `DB_READ_POOL_MAX` unbounded upper → **FIXED** (`c6d90a36`): `READ_POOL_MAX_CEILING=8` + clamp-to-`[8,8]` + warn-log; regression test (`=800`→ceiling); docs + intake reconciled. Deviations doc has full record.
+- Finding #2 [high] staging gate pending → **NOT a code fix** — it IS the STEP-8 staging burst-drill (ADR 0009 "TO BE RECORDED" numbers); a hard pre-merge blocker, executed below.
+**Post-fix full verify-gate: GREEN 18/18.** The ceiling fix touched only `server.ts` clamp logic + tests + docs (small, well-tested); a full dual-review re-run is optional — offer it, don't force.
+
+**Next action = STEP 8 SHIP (high-risk lane, needs user + Railway/PR):** (1) set `DB_POOL_MAX=20` on Railway **staging**, redeploy; (2) burst-drill with the pool-wait metric live + `pg_stat_activity` watch → calibrate `DEFAULT_POOL_SATURATING_MS` (warm/cold), confirm backend sessions < 57 & Max-Clients < 200 & KPI p99 < 8s, record ALL pending numbers into ADR 0009's staging-gate section; (3) land the drill-proven `DB_POOL_MAX` on prod Railway at promotion; (4) PR to `main`, pause for merge approval; (5) after merge, fast-forward `staging` onto `main`.
+
+### (historical) STEPS 4 + 5 COMPLETE — GATE GREEN, final holistic review PASS.
 
 **STEP 5 verify-gate: GREEN** — all 18 checks PASS (lint, typecheck, full test suite, `build`, every `ci:*` audit incl. db-imports/tenant-scope/static-policy/rls-audit). `.feature/gate-status.json` `passed:true`.
 **Final holistic (whole-branch) review: Ready to ship — YES** — 0 critical/important. Verified all cross-task seams (shared-`sql` injection not the health bulkhead; 3-hop `PoolWait` type chain byte-identical; 3-client shutdown ordering leak-safe; invariants #1 + #15 whole-branch). 2 Minors: (a) `PoolWaitPayload` mirror comments corrected for accuracy (canonical owner is shared code, local mirror is a deliberate HTTP-boundary DTO convention — fixed, commit after `197d82fa`); (b) KPI/draft-status 8s-vs-30s statement_timeout = STAGING watch-item (in deviations).
