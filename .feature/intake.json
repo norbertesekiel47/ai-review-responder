@@ -1,85 +1,57 @@
 {
-  "ticket": "#477 (wayfinder map #472)",
   "classification": "high",
-  "surface": "mixed",
-  "db_touching": false,
-  "goal": "Split Postgres.js pools so heavy dashboard/KPI reads bulkhead off the write path (dedicated Vercel read client), raise the Railway worker pool to cover merged BullMQ concurrency, and surface a worker pool-wait/saturation metric in queue-health.",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Close verification items 6 and 8: enforce the ADR-0005 summed-LLM-concurrency cap with a boot assert, and add the two partial indexes serving NotificationFailoverPoller's send_notification lookup and global pending_approval sweeps (migration 082), plus the agreed doc/file hygiene.",
   "non_goals": [
-    "No schema change / no migration (pure client + config + observability).",
-    "No read replica or second database URL — the read client points at the same DATABASE_POOL_URL (bulkhead = separate pool instance, not separate DB).",
-    "No alerting on pool-wait this ticket — queue-health payload observability only; HealthAlertPoller integration is a documented follow-up.",
-    "No change to worker BullMQ concurrency values (gen 5, ingest 5, notif 4, pub 4 stay; this ticket sizes the POOL to them).",
-    "No switch of settings/write pages or OAuth-handshake routes onto the read client — read-only dashboard/KPI paths only.",
-    "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised.",
-    "Does NOT move the heavy fan-out read routes (dashboard route ~14-wave, aggregate ~8-wave, agent-team) onto sqlRead — their concurrency exceeds a right-sized read pool and they carry the pre-existing #505 pipelining-wedge risk, which stays OWNED by the #505 Vercel pipelining audit (differential-repro required). Only wedge-safe small-fan-out reads (KPI ≤6 concurrent, draft-status ≤2 concurrent / up to 4 reads) move.",
-    "Does NOT claim application_name gives pooler attribution — ADR 0007 proved Supavisor flattens it to 'Supavisor'; it is kept only as harmless client intent.",
-    "The read bulkhead isolates only LOCAL postgres.js client slots (sqlRead shares the same Supavisor backend pool as sql — same URL/user/db/mode); it does not isolate backend DB capacity.",
-    "SURFACE AMENDMENT (user-approved 2026-07-19): introducing sqlRead exposed a tenant-scope AUDIT blind spot — scripts/ci/tenant-scope-audit.ts only recognized the `sql` tag, so sqlRead-tagged tenant-scoped reads (accounts/responses) dropped out of isolation-audit coverage. Fix (in-scope for correct pool wiring): extractSqlTagNames recognizes sqlRead as a SQL-tag source + regression test. scripts/ci/tenant-scope-audit.ts added to edit surface."
+    "No change to any concurrency VALUE (generate stays 5, etc.) — enforcement only",
+    "No global Redis LLM semaphore (ADR 0005 deferral triggers unchanged)",
+    "No boot guard on zernioBackfill — assertSingleConcurrencyWorker stays exclusive to idempotency-critical workers; comment only",
+    "No accounts(subscription_status, id) index — stays dropped per the d93a62e8 EXPLAIN gate",
+    "No inline rewriting of point-in-time review docs — dated correction banners only",
+    "No behavior change to NotificationFailoverPoller queries themselves"
   ],
   "user_visible_behavior": [
-    "GET /internal/queue-health response gains a `pool` field: { waitMs, timedOut, saturating, max } (best-effort; null on genuine probe error; timedOut:true (=> saturating:true) when the single-flight reserve() probe hits its timeout — waitMs is then a censored lower bound).",
-    "Admin jobs panel surfaces the worker pool-wait/saturation signal (waitMs, shown as `>=` when timedOut) alongside per-queue depth + backlog.",
-    "No customer-facing behavior change; KPI + past-replies/draft-status reads served from the dedicated read pool (identical responses)."
+    "None user-facing. Worker boot now fails fast if the summed non-flag-gated LLM concurrency exceeds 8 or judge_verdict exceeds 1",
+    "Failover-poller lookups become index-served at scale (ops-visible latency only)"
   ],
   "invariants": [
-    "#15: the second (read) pool is wired at composition roots ONLY (route handlers / server components pass the read client); domain modules keep receiving sql as a parameter and never import db/server.",
-    "#1: Vercel stays UI-only; the pool-wait metric lives on the worker (queue-health is a Railway-side endpoint Vercel fetches server-side).",
-    "Tenant isolation unchanged — read client runs the same account_id/business_id-scoped queries; only the connection pool differs.",
-    "Shutdown close-order contract preserved: the pool-wait probe never leaks a reserved connection (release even if our timeout already fired).",
-    "postgres.js dedicated-client base config stays single-owner (BASE_POSTGRES_OPTIONS): prepare:false, idle/lifetime/connect timeouts."
+    "Summed non-flag-gated LLM queue concurrency (generate_response, weekly_summary, send_monthly_impact, onboarding_demo_response) <= 8; judge_verdict <= 1 (ADR 0005 addendum)",
+    "Boot with judge flag ON must still succeed (raw sum 9 is legal; judge is flag-gated and asserted separately)",
+    "assertSingleConcurrencyWorker semantics stay 'double-running corrupts state', never 'we prefer 1'",
+    "Migrations apply staging-first, both Supabase projects in lockstep; migrations-log.md updated in the same change",
+    "New indexes are partial and predicate-scoped, matching their target queries exactly (018 style)"
   ],
   "edge_cases": [
-    "reserve() probe on a saturated pool WAITS — bound it with a timeout; a timeout is reported as saturating:true (not null).",
-    "reserve() that resolves AFTER our timeout must still .release() — attach release to the underlying promise so no reserved connection leaks.",
-    "reserve() rejects (connection error) → pool:null, must not regress the primary `queues` signal (mirror backlog degrade-to-null).",
-    "The pool-wait probe briefly holds ONE connection (immediate release) — negligible added pressure, acceptable.",
-    "sqlRead is a module-level singleton imported by the worker too, but postgres.js is lazy — the worker never queries it (zero connections there). It STILL gets an explicit closer: closeAllPostgresClients ends sqlRead best-effort (alongside dedicated closers), while sql.end() stays awaited directly so its rejection still propagates (shutdown contract preserved).",
-    "sqlRead max is validated + CLAMPED to the reviewed range [WEDGE_SAFE_READ_MIN=8, READ_POOL_MAX_CEILING=8] (both 8 today): a mis-set LOW DB_READ_POOL_MAX cannot reintroduce the #505 fan-out wedge, and an oversized HIGH value cannot silently multiply Vercel-isolate client connections and blow the ADR-0009 ≤16-warm-isolate budget (codex adversarial-review #1). Out-of-range values are clamped to 8 and warn-logged; raising the read pool is a deliberate capacity change (bump READ_POOL_MAX_CEILING + re-run the staging drill), not an unbounded env override.",
-    "Capacity ceiling (MEASURED): Nano/free tier, max_connections=60, reserved_connections=0 → 57 usable backend sessions; Max-Clients ≈200. Idle backend sessions also consume slots. Vercel budget: worker20+health2+isolates×(write3+read8) ≤ 200 → ≤16 warm isolates. DB_POOL_MAX=20 is a ceiling-aware starting value blessed only by the hard staging gate (pg_stat_activity + Supavisor pool_size).",
-    "Vercel serverless has no explicit shutdown — sqlRead idle-timeout-reaps like the existing sql singleton (consistent, no closer)."
+    "Judge flag ON at boot: assert must not trip (judge excluded from the 8-sum, capped at 1 separately)",
+    "Future edit replacing a worker's options object: assert reads EFFECTIVE worker.opts, same as assertSingleConcurrencyWorker, so drift fails boot",
+    "CREATE INDEX CONCURRENTLY vs plain: follow the convention recorded in migrations-log.md for live-table index migrations (018/023/026 were plain due to Supabase SQL-editor transaction mode; 065 used CONCURRENTLY) — resolve at plan time from the log, staging-first either way",
+    "poller_cursors.cursor regeneration: .gitignore entry prevents an untracked stray from reappearing in review noise"
   ],
   "existing_patterns_to_follow": [
-    "createDedicatedPostgresClient + closeAllPostgresClients (src/lib/db/server.ts) — the health-poller bulkhead precedent for a separate pool.",
-    "queue-health `backlog` best-effort pattern (worker/internal/queue-health.ts): dependency-injected getter, withTimeout-bounded, degrade-to-null, never regress `queues`.",
-    "KPI read-cache fail-open block (src/lib/kpi/service.ts) — read path already param-injected (sql: Sql) + cache-fronted.",
-    "DB_POOL_MAX env-tunable pool sizing (readPoolMax) — add DB_READ_POOL_MAX in the same shape."
+    "worker/config/startup-assert.ts assertSingleConcurrencyWorker + its test block (startup-assertion.test.ts:873-888) — the boot-assert precedent",
+    "supabase/migrations/018_correlation_and_dispatching_indexes.sql:68-70 — partial-index style for job_outbox topic-scoped lookups",
+    "src/lib/... migration-080-outbox-dedup.integration.test.ts — DB-gated migration integration-test precedent",
+    "docs/reviews/feat-stripe-reconcile-remainders/TRIAGE.md — the renumber record the correction banners point to"
   ],
   "allowed_edit_surface": [
-    "src/lib/db/server.ts",
-    "src/app/api/dashboard/kpis/route.ts",
-    "src/app/api/dashboard/past-replies/draft-status/route.ts",
-    "src/lib/config/server.ts",
-    "worker/internal/queue-health.ts",
-    "src/lib/shared/pool-wait.ts",
+    "supabase/migrations/082_*.sql",
     "worker/index.ts",
-    "src/app/api/admin/jobs/route.ts",
-    "src/app/admin/jobs/page.tsx",
-    "src/lib/shared/queue-health-states.ts",
-    "scripts/ci/tenant-scope-audit.ts",
-    "**/__tests__/**",
-    ".claude/reference/env-vars.md",
-    "docs/adr/**",
-    "docs/superpowers/**",
+    "worker/config/startup-assert.ts",
+    "worker/config/__tests__/startup-assertion.test.ts",
+    "worker/__tests__/**",
+    "src/lib/shared/__tests__/migration-082*.integration.test.ts",
+    ".claude/reference/migrations-log.md",
+    "docs/reviews/feat-stripe-reconcile-remainders/spec-correctness.md",
+    "docs/reviews/feat-stripe-reconcile-remainders/standards-maintainability.md",
+    ".gitignore",
     ".feature/**",
-    "CONTEXT.md"
+    "docs/superpowers/plans/**"
   ],
   "tests_to_add": [
-    "pool-wait probe: free pool → { waitMs~0, timedOut:false, saturating:false, max }; releases the reserved connection once.",
-    "pool-wait probe: timeout → timedOut:true, saturating:true, waitMs=timeoutMs (censored lower bound); late-resolving reserve still released (no leak).",
-    "pool-wait probe: single-flight REGRESSION (#10) — a timed-out call does NOT release the latch; the second call reuses the still-pending reserve() (reserve() count stays 1); resolution releases once.",
-    "pool-wait probe: concurrent probes over a pending reservation share ONE reserve().",
-    "pool-wait probe: genuine reserve() rejection is re-thrown → handler maps to pool:null; primary queues signal unaffected.",
-    "pool-wait probe: a rejecting reserve() with 2 concurrent awaiters emits NO unhandledRejection (latch cleanup is rejection-safe — the worker crash-net would otherwise fatally exit).",
-    "queue-health handler: `pool` { waitMs, timedOut, saturating, max } present in 200 payload; degrades independently of `backlog` and `queues`.",
-    "server.ts: sqlRead is a distinct client from sql, with options.max>=8 and statement_timeout=8000.",
-    "server.ts: DB_READ_POOL_MAX=1 is floored to WEDGE_SAFE_READ_MIN (wedge-safety invariant); DB_READ_POOL_MAX=800 is capped to READ_POOL_MAX_CEILING (capacity-budget invariant, codex adversarial #1).",
-    "server.ts: closeAllPostgresClients invokes sqlRead.end() AND a rejecting sql.end() still propagates.",
-    "KPI + past-replies/draft-status read routes: composition root passes sqlRead, not the write singleton."
+    "startup-assertion.test.ts: summed cap passes at exactly 8; fails at 9 non-gated; judge=1 passes with sum 8; judge=2 fails; assert reads effective opts (options-object replacement caught)",
+    "migration-082 integration test (DB-gated, skips without TEST_DATABASE_POOL_URL): both indexes exist with the exact partial predicates; planner-visible shape matches the target queries"
   ],
-  "verification_commands": [
-    "pnpm ci:db-imports",
-    "pnpm ci:tenant-scope",
-    "pnpm ci:static-policy"
-  ],
+  "verification_commands": [],
   "open_questions": []
 }
