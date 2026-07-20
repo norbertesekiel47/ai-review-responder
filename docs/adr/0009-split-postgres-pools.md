@@ -207,19 +207,78 @@ zero timeouts); `job_outbox` pending baseline = 0. Load = the #505/#474
   `getPoolWait`-style dep, or a `sqlRead` reading in the same payload) so read-pool
   wait is visible before any read route is scaled up.
 
-## Post-drill note: what the staging drill did and did NOT prove (central-hazard scope)
+## Vercel-side connection-multiplication drill (executed 2026-07-20 — PASS)
 
-The 2026-07-20 staging drill validated the **worker write pool** at `DB_POOL_MAX=20`
+The central-hazard gap flagged in the post-drill note below was closed by a
+Vercel-side load drill on the same staging stack (Supabase ref
+`kubdiqdhqbhwmqfditeg`, feature deployed). This is the deferred measurement that
+the worker-pool drill did not exercise.
+
+**Method.** A bounded ramp of concurrent authenticated `GET /api/dashboard/kpis`
+renders (the heavier of the two `sqlRead` routes — a multi-query per-location KPI
+wave) against `https://staging.repworth.net`. One ephemeral active owner was
+seeded (magic-link session minted through the app's own `/api/auth/callback`
+token_hash lane; the Vercel SSO wall was passed with a Protection-Bypass-for-
+Automation header, not by disabling protection) and deleted after the run — no
+residual rows. Load driven from a one-off concurrent-fetch harness; backend
+sessions sampled every 2 s from a **direct** (5432) connection so the sampler did
+not perturb the Supavisor pool. Phases: 10 concurrent × 20 s → 20 × 20 s →
+40 × 45 s.
+
+**Vercel request health — PASS.** 1,575 requests (≈ 1.6 K invocations incl.
+warm-up), **0 errors, 0 timeouts, 100 % HTTP 200** across all phases. At sustained
+40-concurrent: rps ≈ 22, KPI latency p50 1.6 s / p95 3.2 s / **p99 3.5 s** — under
+the 8 s `sqlRead` `statement_timeout`. Vercel Observability (all-environments,
+Fluid, region iad1) corroborated: Error 0 % / Timeout 0 %, Active CPU p75 191 ms,
+Memory p95 308 MB, TTFB p75 497 ms.
+
+**The three central-hazard bounds — all PASS:**
+- **Backend sessions (vs 57 usable):** baseline 8 → **peak 41 total** (40 net of
+  the sampler's own connection) during the 40-concurrent phase = **≈ 70 % of 57**;
+  peak `active` 12; **`idle in transaction` = 0 throughout** (no #505 wedge —
+  fan-out ≤ pool held). After load stopped the count settled to a ~34 → 31
+  Supavisor **warm-backend-pool** plateau that reaps over minutes (pooler keeps
+  backends warm for reuse; not a leak — all `idle`).
+- **Warm Vercel isolates (vs ≤ 16):** not a first-class Vercel metric, so
+  **derived ≈ 4–6** from the ~32 Vercel-attributable backend sessions
+  (peak 40 − ~8 baseline) at ~6–8 pooled connections per isolate — and
+  **corroborated directly by Start Type = Hot 98.5 % / Cold 1.1 % / Prewarmed
+  0.4 %** under the burst: Fluid served all 1.6 K requests by **reusing a small
+  warm set** rather than fanning out to many isolates. Far under 16.
+- **Total client connections (vs 200 Max-Clients):** at this scale Supavisor held
+  ≈ 1 backend per pooled client connection (they show `idle`/`ClientRead`), so the
+  client-side count ≈ the backend count — **peak ≈ 41 system-wide, Vercel share
+  ≈ 32**, i.e. **~16–20 % of 200**. The ≤16-isolate × 11 arithmetic (≈ 198) is not
+  reached because Fluid packing keeps the isolate count to ~4–6, not 16.
+
+**Net.** Driving ~4× current peak dashboard traffic (40 concurrent vs ~10 today)
+produced ~4–6 isolates, ~41 peak connections (70 % of the 57 backend ceiling,
+~20 % of the 200 client ceiling), and zero connection-exhaustion failures. The
+central hazard is now **measurement-proven**, not merely budget-bounded.
+
+**Residual (honest) — the compound worst case is untested.** This Vercel drill ran
+with a **quiet worker** (baseline 8); the earlier worker burst-drill ran with
+Vercel quiet (peaked ~19). Neither exercised **both bursting simultaneously**. The
+compound worst case (worker #474 burst ~19 + a 40-concurrent Vercel burst ~32, less
+the ~8 shared baseline) ≈ **~52 / 57 (~91 %)** — headroom exists but is the tightest
+scenario, and is precisely what the pool-wait metric surfaces and what the reversal
+trigger below governs (raise the Supabase compute tier before raising `DB_POOL_MAX`
+or `READ_POOL_MAX_CEILING`). At current traffic this compound scenario is far off.
+
+## Post-drill note: what the WORKER-POOL staging drill did and did NOT prove (central-hazard scope)
+
+> **Superseded by the Vercel-side drill above (2026-07-20 — PASS).** The gap this
+> note describes is now closed; the paragraph is retained for the record.
+
+The 2026-07-20 worker-pool drill validated the **worker write pool** at `DB_POOL_MAX=20`
 (backend sessions peaked ~19 << 57; no queueing). It did **NOT** exercise the
 **central hazard** — Vercel connection multiplication: each warm serverless isolate
 now holds write 3 + **read 8 = 11** client connections against the shared Supavisor
 backend, so the ≤16-warm-isolate budget (16 × 11 + worker 20 + health 2 ≈ 198 < 200
-Max-Clients) rests on **arithmetic, not a Vercel-side load measurement**. The read
+Max-Clients) rested on **arithmetic, not a Vercel-side load measurement**. The read
 pool being **8** (the wedge-safe floor for the KPI ≤6 fan-out) rather than a #474-
 style ~5 is a deliberate upward deviation that *directly* raises the per-isolate
 count from 8 to 11 — i.e. the wedge-safety choice costs Vercel connection budget.
-To fully discharge the central-hazard gate before relying on it at scale, drive
-concurrent dashboard renders on Vercel staging and record the observed warm-isolate
-count + total client connections + backend sessions against the ≤16 / 200 / 57
-bounds. Until then the Vercel side is **budget-bounded, not measurement-proven** —
-tolerable at current low traffic with the read pool clamped at 8.
+That gap has since been discharged by the Vercel-side drill above: observed
+warm-isolate count ~4–6, total client connections ~41, backend sessions 41 peak,
+all inside the ≤16 / 200 / 57 bounds.

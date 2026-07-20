@@ -4,7 +4,28 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEP 8 in progress — worker-pool drill PASS; OPEN merge fork (needs user decision). PR #510 draft.
+## Current position: STEP 8 — BOTH drills PASS (worker-pool + Vercel-side); merge fork resolved (b); PR #510 draft, awaiting explicit merge/prod go.
+
+**Merge fork RESOLVED 2026-07-20: user chose (b) close-the-gap-first.** The Vercel-side
+connection-multiplication drill was built + run on staging and **PASSED** — full record in
+ADR 0009 "Vercel-side connection-multiplication drill (executed 2026-07-20 — PASS)".
+Headline: bounded ramp of concurrent `GET /api/dashboard/kpis` (ephemeral owner via
+magic-link + Vercel protection-bypass header; cleaned up, 0 residual rows), 1,575 req at up
+to 40 concurrent, **0 errors / 0 timeouts / 100% 200**, KPI p99 3.5s. Three bounds all clear:
+backend sessions peak **41/57 (~70%)**, `idle in transaction`=0 (no wedge); warm isolates
+**~4–6 (<<16)** — derived + corroborated by Start Type Hot 98.5% under burst; total client
+conns **≈41 (~20% of 200)**. **Residual (honest):** the two drills (worker + Vercel) ran
+separately; compound worst case ≈ **~52/57 (~91%)** — governed by the pool-wait metric +
+the ADR reversal trigger. Drill harness: `$CLAUDE_JOB_DIR/tmp/vercel-drill.mjs` (one-off,
+outside the repo).
+
+**Remaining = merge sequence (a), awaiting EXPLICIT user go** — merging PR #510 to `main`
+auto-deploys prod, and prod `DB_POOL_MAX=20` on Railway is a separately-gated step ("no
+prod without explicit go"). On go: (1) un-draft PR #510 → merge to `main`; (2) at promotion
+set prod `DB_POOL_MAX=20` on Railway + read Supavisor `pool_size` on the prod dashboard;
+(3) fast-forward `staging` onto `main`.
+
+### (historical) STEP 8 sub-state — worker-pool drill PASS; OPEN merge fork (needs user decision). PR #510 draft.
 
 **Latest HEAD:** `d482fd1d` (feat branch, pushed). **Gate: GREEN** (18/18). **PR #510** = DRAFT → `main`, CI green, `mergeState=BLOCKED` (draft). **Staging** = feature deployed at `f7045c8f` (Railway `repworth-worker-staging`, `DB_POOL_MAX=20`, pool-wait metric live). **Prod:** untouched.
 
