@@ -1,8 +1,8 @@
-# Split Postgres Pools + Pool-Wait Observability — Implementation Plan (round 2)
+# Split Postgres Pools + Pool-Wait Observability — Implementation Plan (round 3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Ticket:** #477 (wayfinder map #472). Intake: `.feature/intake.json`. Round-1 codex review + triage + #6 decision + capacity facts: `docs/reviews/feat-477-split-pg-pools-poolwait/plan-review-round1.md`.
+**Ticket:** #477 (wayfinder map #472). Intake: `.feature/intake.json`. Codex reviews + triage + #6 decision + measured capacity facts: `docs/reviews/feat-477-split-pg-pools-poolwait/plan-review-round1.md` + `plan-review-round2.md`.
 
 **Goal:** Bulkhead the wedge-SAFE small-fan-out dashboard/KPI reads onto a right-sized dedicated Vercel Postgres.js client, raise the Railway worker pool to cover merged BullMQ concurrency (within the real backend-connection ceiling), and surface a bounded single-flight worker pool-wait/saturation metric in `/internal/queue-health`.
 
@@ -14,9 +14,10 @@
 
 ## Capacity facts (measured 2026-07-19 via Supabase MCP — the real ceiling)
 
-- **prod + staging both: `max_connections = 60`, `superuser_reserved_connections = 3` → 57 usable backend connections. Micro compute tier, both envs.** Current usage low (prod 12/1 active; staging 17/1 active).
-- Three DISTINCT limits (do not conflate — codex #4): (a) postgres.js client `max` = app-side ceiling per client; (b) Supavisor "Max Clients" = accepted client connections (~200); (c) **Postgres `max_connections = 60` = the BINDING backend ceiling.** Under transaction pooling, Supavisor multiplexes many clients onto ≤57 backend connections; the sum of **concurrently-active transactions** (not idle clients) across worker + all Vercel instances + health(2) must stay < 57.
-- Therefore `DB_POOL_MAX=20` (worker) is plausibly safe (20 + health 2 + baseline ~12 + Vercel active < 57) but **tight** — it is NOT below `default_pool_size` that matters (transaction mode multiplexes), it is the 60-conn backend total. The staging burst-drill must monitor `pg_stat_activity` backend count, NOT treat the app-side `probePoolWait` as capacity proof. Supavisor backend `pool_size` is not SQL-queryable → confirm in the Supabase dashboard during the staging gate.
+- **prod + staging both: `max_connections = 60`, `superuser_reserved_connections = 3`, `reserved_connections = 0` (PG17) → 57 usable backend connections.** Org plan = **free → Nano compute tier** (NOT Micro — the tier can't be inferred from `max_connections=60`, which is identical on Nano+Micro). Current usage low (prod 12/1 active; staging 17/1 active).
+- Three DISTINCT limits — ALL can bind independently (do not conflate — codex #4/#12): (a) postgres.js client `max` = app-side ceiling per client; (b) **Supavisor "Max Clients" ≈ 200** = accepted client connections; (c) **Postgres `max_connections = 60` → 57 usable** = backend session ceiling; (d) Supavisor backend `pool_size` = how many backend sessions Supavisor opens (NOT SQL-queryable — confirm in the Supabase dashboard at the staging gate). Backend sessions — **active OR idle** — each consume a `max_connections` slot; do not model this as "active transactions only."
+- **Numeric Vercel Max-Clients budget:** at proposed maxima one fully-expanded Vercel isolate owns write 3 + read 8 = **11** client connections. Worker 20 + health 2 + isolates × 11 ≤ 200 → **≤ 16 warm Vercel isolates**. Peak is 10 concurrent dashboard renders (#474) and Fluid Compute packs several renders per isolate, so ≤16 is comfortable — but it IS a bound; if warm isolates could exceed it, lower `DB_READ_POOL_MAX` first. Record the observed warm-isolate count at the staging gate.
+- **`DB_POOL_MAX=20` is NOT "blessed" until the staging gate.** It is a ceiling-aware STARTING value (20 + health 2 + baseline + Vercel backend share, all multiplexed by Supavisor onto ≤57 backend sessions). The staging burst-drill is a HARD pre-production decision gate: monitor `pg_stat_activity` backend-session count (active AND idle) + the Supavisor `pool_size` from the dashboard; the app-side `probePoolWait` is NOT capacity proof. Land the drill-proven number.
 
 ## Concurrency × pool arithmetic (re-check — record in env-vars.md + ADR)
 
@@ -77,6 +78,14 @@ describe('sqlRead read bulkhead', () => {
   it('exposes the shared write-pool max as a positive number', () => {
     expect(SHARED_POOL_MAX).toBeGreaterThan(0);
   });
+  it('floors DB_READ_POOL_MAX at the wedge-safe minimum — a mis-set 1 cannot reintroduce the #505 wedge (codex #6)', async () => {
+    vi.resetModules();
+    vi.stubEnv('DB_READ_POOL_MAX', '1');
+    const fresh = await import('../server');
+    expect((fresh.sqlRead as unknown as { options: { max: number } }).options.max).toBe(fresh.WEDGE_SAFE_READ_MIN);
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
 });
 ```
 
@@ -97,9 +106,13 @@ export const SHARED_POOL_MAX = readPoolMax();
  * mind the 60-conn backend ceiling (ADR 0009). Do NOT route >8-fan-out routes
  * onto this client without raising max to match (or they wedge — #505).
  */
+// Wedge-safe minimum: the widest Promise.all fan-out ROUTED onto sqlRead
+// (KPI ≤6) must run one-connection-per-query (#505). Config may RAISE but NEVER
+// set below this floor, so a mis-set env cannot reintroduce the wedge (codex #6).
+export const WEDGE_SAFE_READ_MIN = 8;
 function readReadPoolMax(): number {
   const parsed = parseInt(process.env.DB_READ_POOL_MAX ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(WEDGE_SAFE_READ_MIN, parsed) : WEDGE_SAFE_READ_MIN;
 }
 
 /**
@@ -122,10 +135,13 @@ export const sqlRead = createDedicatedPostgresClient(process.env.DATABASE_POOL_U
 Then extend `closeAllPostgresClients` to own `sqlRead` shutdown (codex #5 — no fragile "unused so never close" assumption). Add after the dedicated closers, before/alongside `sql.end()`:
 
 ```ts
-  await Promise.allSettled(dedicatedClosers.map((close) => close()));
-  await Promise.allSettled([sqlRead.end(), sql.end()]);
+  // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
+  // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
+  // propagates — preserving the existing shutdown contract (codex #13).
+  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end()]);
+  await sql.end();
 ```
-(Harmless no-op on the worker where `sqlRead` never connected; correct if any future path uses it. Vercel has no shutdown — `sqlRead` idle-reaps like `sql`.)
+(Harmless no-op on the worker where `sqlRead` never connected; correct if any future path uses it. Vercel has no shutdown — `sqlRead` idle-reaps like `sql`.) Add a lifecycle test asserting `sqlRead.end()` IS invoked AND that a rejecting `sql.end()` still propagates out of `closeAllPostgresClients` (mirror the existing `server.test.ts:52-92` close-order test).
 
 - [ ] **Step 4: Declare `DB_READ_POOL_MAX` in `src/lib/config/server.ts`** next to `DB_POOL_MAX` (line ~143), same `opt` shape (optional). This keeps the config schema the single owner of pool env vars (codex #9). `server.ts` still reads `process.env.DB_READ_POOL_MAX` directly, exactly as `readPoolMax` reads `DB_POOL_MAX` today — the schema declaration is for validation/inventory parity, not a behavior change.
 
@@ -139,7 +155,7 @@ Then extend `closeAllPostgresClients` to own `sqlRead` shutdown (codex #5 — no
 
 - [ ] **Step 9: Run — expect PASS.** `pnpm vitest run src/app/api/dashboard/kpis/__tests__/route.test.ts`
 
-- [ ] **Step 10: Move `past-replies/draft-status/route.ts` reads to `sqlRead`.** This route only reads `job_outbox.payload` (JSONB-allowlist read site) — swap `sql` → `sqlRead`, update its route test's assertion. **Do NOT touch** any other `past-replies` route (all writes) or `dashboard/route.ts`/`agent-team` (heavy fan-out — #505-audit owned).
+- [ ] **Step 10: Move `past-replies/draft-status/route.ts` reads to `sqlRead`.** Fan-out inventory (codex #11 — record accurately): `resolveOwnerScope` runs the account-gate + location-scope lookups CONCURRENTLY (peak postgres.js fan-out = 2), plus a `getRequestScope` businesses query, then the `job_outbox.payload` read and (for completed jobs) a second response lookup — up to 4 SQL reads over the request, peak 2 concurrent. Safe at `max:8`. Swap the route's read `sql` uses → `sqlRead` (if the shared auth helper still runs on `sql`, only the route-body `job_outbox`/response reads move; that's fine — still ≤2 on sqlRead). Update its route test. **Do NOT touch** any other `past-replies` route (all writes) or `dashboard/route.ts`/`agent-team` (heavy fan-out — #505-audit owned).
 
 - [ ] **Step 11: Gate + commit.** `pnpm ci:db-imports && pnpm ci:tenant-scope`
 ```bash
@@ -186,11 +202,29 @@ it('timeout → timedOut:true, saturating:true, waitMs=timeout, late connection 
   expect(release).toHaveBeenCalledTimes(1);
 });
 
-it('single-flight: concurrent probes share ONE reserve() (≤1 outstanding)', async () => {
-  const reserve = vi.fn(async () => ({ release: vi.fn() }));
+it('single-flight: concurrent probes over a PENDING reservation share ONE reserve()', async () => {
+  const reserve = vi.fn(() => new Promise<{ release: () => void }>(() => { /* never resolves */ }));
   const s = fakeSql(reserve);
-  await Promise.all([probePoolWait(s, { timeoutMs: 1000, saturatingThresholdMs: 50, max: 20 }), probePoolWait(s, { timeoutMs: 1000, saturatingThresholdMs: 50, max: 20 })]);
-  expect(reserve).toHaveBeenCalledTimes(1);
+  await Promise.all([
+    probePoolWait(s, { timeoutMs: 20, saturatingThresholdMs: 50, max: 20 }),
+    probePoolWait(s, { timeoutMs: 20, saturatingThresholdMs: 50, max: 20 }),
+  ]);
+  expect(reserve).toHaveBeenCalledTimes(1); // both timed out; one reservation total
+});
+
+it('REGRESSION (#10): a timed-out call does NOT release the latch — the second call reuses the still-pending reserve(), released once on settlement', async () => {
+  const release = vi.fn();
+  let resolveReserve!: (v: { release: () => void }) => void;
+  const reserve = vi.fn(() => new Promise<{ release: () => void }>((res) => { resolveReserve = res; }));
+  const s = fakeSql(reserve);
+  const first = await probePoolWait(s, { timeoutMs: 20, saturatingThresholdMs: 50, max: 20 });
+  expect(first.timedOut).toBe(true);                 // call 1 times out; reservation still pending
+  const secondP = probePoolWait(s, { timeoutMs: 20, saturatingThresholdMs: 50, max: 20 });
+  expect(reserve).toHaveBeenCalledTimes(1);          // call 2 REUSES it — NO new reserve() (no accumulation)
+  expect((await secondP).timedOut).toBe(true);
+  resolveReserve({ release });                        // reservation finally settles
+  await Promise.resolve(); await Promise.resolve();
+  expect(release).toHaveBeenCalledTimes(1);           // released exactly once
 });
 
 it('genuine reserve() rejection is re-thrown (handler maps to pool:null)', async () => {
@@ -214,7 +248,7 @@ import type postgres from 'postgres';
 import { withTimeout, TimeoutError } from './with-timeout';
 
 export const DEFAULT_POOL_WAIT_TIMEOUT_MS = 1000;   // < backlog 4s < admin 5s abort
-export const DEFAULT_POOL_SATURATING_MS = 50;       // staging-calibrated; not gospel
+export const DEFAULT_POOL_SATURATING_MS = 50;       // PROVISIONAL default — calibrate on staging (Task 4 step 4); not final
 
 export interface PoolWait {
   /** ms waiting for reserve(); on timeout this is a CENSORED LOWER BOUND (>=). May include connect latency, not pure queue wait. */
@@ -228,34 +262,45 @@ export interface PoolWait {
 }
 export interface PoolWaitOptions { timeoutMs: number; saturatingThresholdMs: number; max: number; }
 
-let inflight: Promise<PoolWait> | null = null;
+// The latch is the RESERVATION promise itself, cleared ONLY when it SETTLES
+// (resolve or reject) — NOT when a caller's bounded wait times out. So under a
+// wedge, repeated callers reuse the ONE pending reserve() (no accumulation in
+// postgres.js's internal queue — codex #2/#10), each racing it against their own
+// withTimeout. release() is attached once, fires on settlement even if every
+// caller has already timed out (leak-safe).
+let inflightReservation: Promise<{ release: () => void }> | null = null;
+let reservationStartMs = 0;
 
-/** TEST ONLY: clear the single-flight latch between cases. */
-export function __resetPoolWaitInflight(): void { inflight = null; }
+/** TEST ONLY: clear the reservation latch between cases. */
+export function __resetPoolWaitInflight(): void { inflightReservation = null; }
 
-async function runProbe(sql: postgres.Sql, opts: PoolWaitOptions): Promise<PoolWait> {
-  const start = Date.now();
-  const reservation = sql.reserve();
-  reservation.then((c) => c.release()).catch(() => { /* rejection surfaced below */ });
+function sharedReservation(sql: postgres.Sql): { reservation: Promise<{ release: () => void }>; startMs: number } {
+  if (!inflightReservation) {
+    reservationStartMs = Date.now();
+    const r = sql.reserve() as unknown as Promise<{ release: () => void }>;
+    r.then((c) => c.release()).catch(() => { /* propagated to awaiters via withTimeout */ });
+    r.finally(() => { inflightReservation = null; }); // clear ONLY on settlement
+    inflightReservation = r;
+  }
+  return { reservation: inflightReservation, startMs: reservationStartMs };
+}
+
+/**
+ * Best-effort pool-wait sample. Every caller gets an independently-bounded wait
+ * (withTimeout) over the ONE shared reservation. Timeout → timedOut:true,
+ * saturating:true, waitMs = timeoutMs (censored lower bound). A genuine
+ * reserve() rejection propagates to every awaiter (handler → pool:null).
+ */
+export async function probePoolWait(sql: postgres.Sql, opts: PoolWaitOptions): Promise<PoolWait> {
+  const { reservation, startMs } = sharedReservation(sql);
   try {
     await withTimeout(reservation, opts.timeoutMs, 'pool-wait-probe');
-    const waitMs = Date.now() - start;
+    const waitMs = Date.now() - startMs;
     return { waitMs, timedOut: false, saturating: waitMs >= opts.saturatingThresholdMs, max: opts.max };
   } catch (err) {
     if (err instanceof TimeoutError) return { waitMs: opts.timeoutMs, timedOut: true, saturating: true, max: opts.max };
     throw err;
   }
-}
-
-/**
- * Single-flight probe. If a probe is already outstanding, the caller awaits the
- * SAME one (no second reserve()). A genuine reserve() rejection propagates to
- * every awaiter and clears the latch. Callers degrade a rejection to pool:null.
- */
-export function probePoolWait(sql: postgres.Sql, opts: PoolWaitOptions): Promise<PoolWait> {
-  if (inflight) return inflight;
-  inflight = runProbe(sql, opts).finally(() => { inflight = null; });
-  return inflight;
 }
 ```
 
@@ -279,10 +324,10 @@ git commit -m "feat(#477): single-flight leak-safe pool-wait probe (bounded rese
 
 - [ ] **Step 2: Run — expect FAIL.** `pnpm vitest run worker/internal/__tests__/queue-health.test.ts`
 
-- [ ] **Step 3: Extend the handler.** Add to `QueueHealthDeps`:
+- [ ] **Step 3: Extend the handler.** First add a top-of-file import (the `poolResult` annotation below references the bare `PoolWait` name — codex #14): `import type { PoolWait } from '../../src/lib/shared/pool-wait';`. Then add to `QueueHealthDeps`:
 ```ts
   /** Best-effort single-flight shared-pool saturation probe. Rejects → pool:null. */
-  getPoolWait: () => Promise<import('../../src/lib/shared/pool-wait').PoolWait>;
+  getPoolWait: () => Promise<PoolWait>;
 ```
 Start it alongside backlog (overlaps the queue loop; rejection handled immediately):
 ```ts
@@ -325,9 +370,9 @@ git commit -m "feat(#477): surface single-flight pool-wait/saturation in queue-h
 
 **Files:** Modify `.claude/reference/env-vars.md`; create `docs/adr/0009-split-postgres-pools.md` (**0007 + 0008 are taken — codex #7**).
 
-- [ ] **Step 1: `env-vars.md`.** Document `DB_POOL_MAX=20` (Railway staging+prod; Vercel stays 3) and the new `DB_READ_POOL_MAX` (default 8, Vercel; must stay ≥ the fan-out of any route routed onto `sqlRead`). Include the concurrency×pool arithmetic AND the measured capacity facts (60-conn backend ceiling / Micro tier / the 3-limit hierarchy).
+- [ ] **Step 1: `env-vars.md`.** Document `DB_POOL_MAX=20` (Railway staging+prod; Vercel stays 3) and the new `DB_READ_POOL_MAX` (default 8, Vercel; **code-floored at `WEDGE_SAFE_READ_MIN=8`** — can only raise). Include the concurrency×pool arithmetic AND the measured capacity facts (Nano/free tier, `max_connections=60`, `reserved_connections=0`, 57 usable, Max-Clients ≈200, the 4-limit hierarchy) AND the ≤16-warm-Vercel-isolate budget.
 
-- [ ] **Step 2: ADR 0009.** Capture: (a) separate-client-instance over sizing-alone — LOCAL write-slot isolation (NOT backend isolation: `sqlRead` shares the Supavisor backend pool; honest scope); (b) read scope narrowed to wedge-safe fan-out ≤ pool (KPI, draft-status), heavy waves deferred to the #505 pipelining audit; (c) pool-wait probe measures the shared pool intentionally, single-flight bounded, `timedOut` is a censored lower bound, threshold staging-calibrated, and it CANNOT validate the Supavisor/backend ceiling; (d) `application_name` is NOT attribution (ADR 0007 — Supavisor flattens it); (e) the measured 60-conn backend ceiling and why `DB_POOL_MAX=20` is a ceiling-aware choice; (f) pool-wait ALERTING deferred (HealthAlertPoller integration) as a follow-up.
+- [ ] **Step 2: ADR 0009.** Capture: (a) separate-client-instance over sizing-alone — LOCAL write-slot isolation (NOT backend isolation: `sqlRead` shares the Supavisor backend pool; honest scope); (b) read scope narrowed to wedge-safe fan-out ≤ pool (KPI, draft-status), heavy waves deferred to the #505 pipelining audit; (c) pool-wait probe measures the shared pool intentionally, single-flight over ONE reservation (latch follows reservation settlement — bounded accumulation), `timedOut` is a censored lower bound, threshold calibrated on staging (record warm/cold samples + chosen value), and it CANNOT validate the Supavisor/backend ceiling; (d) `application_name` is NOT attribution (ADR 0007 — Supavisor flattens it); (e) the MEASURED capacity: Nano/free tier, `max_connections=60`, `reserved_connections=0`, 57 usable, Max-Clients ≈200; idle backend sessions ALSO consume slots; the ≤16-warm-Vercel-isolate budget; why `DB_POOL_MAX=20` is a ceiling-aware STARTING value blessed only by the staging gate (with the recorded burst-drill / `pg_stat_activity` / Supavisor `pool_size` numbers); (f) pool-wait ALERTING deferred (HealthAlertPoller integration) as a follow-up.
 
 - [ ] **Step 3: Commit.**
 ```bash
@@ -335,7 +380,13 @@ git add .claude/reference/env-vars.md docs/adr/0009-split-postgres-pools.md
 git commit -m "docs(#477): pool-split arithmetic + measured 60-conn ceiling, DB_POOL_MAX=20, ADR 0009"
 ```
 
-- [ ] **Step 4 (ship-time, feature step 8):** set `DB_POOL_MAX=20` on Railway **staging**, redeploy, run the #480/#505 burst-drill with the pool-wait metric live AND a `pg_stat_activity` backend-connection watch (the app-side probe is NOT capacity proof). Confirm `saturating` stays false at the design burst and backend connections stay well under 57. Record observed numbers in ADR 0009. Land the staging-proven number on prod Railway at promotion.
+- [ ] **Step 4 (ship-time, feature step 8) — the HARD staging capacity + calibration gate:**
+  1. Set `DB_POOL_MAX=20` on Railway **staging**, redeploy.
+  2. **Threshold calibration (codex #3):** sample `probePoolWait` on an idle-then-warm pool: measure warm reserve() latency (repeated back-to-back) vs cold (first probe after > `idle_timeout` 30s reap). Set `DEFAULT_POOL_SATURATING_MS` ABOVE the warm p99 (so a warm checkout never reads as saturation) but below observed real queueing; record the chosen value + the warm/cold samples in ADR 0009.
+  3. **Capacity gate (codex #4/#12):** run the #480/#505 burst-drill with the metric live; watch `pg_stat_activity` backend-session count (active AND idle), read the Supavisor backend `pool_size` from the Supabase dashboard, and record the observed warm-Vercel-isolate count against the ≤16 budget. Confirm backend sessions stay well under 57 and Max-Clients under 200.
+  4. Land the drill-proven `DB_POOL_MAX` on prod Railway at promotion; record all observed numbers in ADR 0009. The app-side probe is NOT capacity proof — the `pg_stat_activity`/dashboard readings are.
+
+- [ ] **Step 5 (final verification — codex #15):** after ALL tasks, run the full `/feature` step-5 gate `scripts/verify-gate.sh` — not only task-local vitest. Surface is `mixed`, so this runs `pnpm lint && pnpm typecheck && pnpm test && pnpm build` PLUS every `ci:*` audit (incl. `ci:db-imports`, `ci:tenant-scope`, `ci:static-policy`). Must be green before review.
 
 ---
 
@@ -361,7 +412,21 @@ Task 4 (docs) ── independent; staging-verify after Task 3 deploys
 | 8 | intake amended round 2 (surface + non-goals + behavior) — sign-off pending |
 | 9 | `DB_READ_POOL_MAX` in `config/server.ts` (Task 1 step 4); `.options` assertions in server.test (Task 1 step 1) |
 
+## How each round-2 codex finding is addressed (round 3)
+
+| # | Fix |
+|---|---|
+| 2/10 (blocker) | latch is now the RESERVATION promise, cleared only on settlement; each caller races it with its own withTimeout → ≤1 outstanding reserve() under a wedge; regression test added (Task 2) |
+| 4/12 (blocker) | Nano/free tier (not Micro), `reserved_connections=0` → 57 usable; idle sessions counted; numeric ≤16-warm-isolate Vercel budget; DB_POOL_MAX=20 = ceiling-aware starting value blessed only by the hard staging gate (Capacity §, Task 4) |
+| 6 (blocker) | `DB_READ_POOL_MAX` code-floored at `WEDGE_SAFE_READ_MIN=8` + floor test (Task 1) |
+| 3 (should-fix) | 50ms = provisional; explicit warm/cold staging calibration procedure + recorded outcome (Task 4 step 4.2) |
+| 8 (should-fix) | intake edge_cases + tests_to_add reconciled (see intake round-3) |
+| 11 (should-fix) | draft-status fan-out inventory corrected: peak 2 concurrent / ≤4 reads (Task 1 step 10) |
+| 13 (should-fix) | `sql.end()` stays awaited directly (propagates); sqlRead best-effort; closer test added (Task 1 step 3) |
+| 14 (nit) | `import type { PoolWait }` added (Task 3 step 3) |
+| 15 (should-fix) | explicit final `scripts/verify-gate.sh` full gate (Task 4 step 5) |
+
 ## Self-Review
-- **Spec coverage:** (a) raise → Task 4; (b) read pool → Task 1 (narrowed, right-sized); (c) metric → Tasks 2+3. Invariant #15 → composition-root wiring only. All `tests_to_add` mapped.
+- **Spec coverage:** (a) raise → Task 4; (b) read pool → Task 1 (narrowed, right-sized, floored); (c) metric → Tasks 2+3. Invariant #15 → composition-root wiring only. All `tests_to_add` mapped.
 - **Placeholder scan:** none — probe/server/handler code complete; UI/route steps name exact precedents.
 - **Type consistency:** `PoolWait { waitMs, timedOut, saturating, max }` identical across Task 2/3 and the locally-mirrored `PoolWaitPayload`; `probePoolWait(sql, opts)` arity consistent; `SHARED_POOL_MAX` exported (T1) + consumed (T3).

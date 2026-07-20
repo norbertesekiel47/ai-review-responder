@@ -32,8 +32,9 @@
     "reserve() that resolves AFTER our timeout must still .release() — attach release to the underlying promise so no reserved connection leaks.",
     "reserve() rejects (connection error) → pool:null, must not regress the primary `queues` signal (mirror backlog degrade-to-null).",
     "The pool-wait probe briefly holds ONE connection (immediate release) — negligible added pressure, acceptable.",
-    "sqlRead is a module-level singleton imported by the worker too, but postgres.js is lazy — the worker never queries it, so it opens zero connections there (no worker shutdown closer needed).",
-    "Supavisor client-connection ceiling: worker(20) + Vercel(warm instances × [write 3 + read ≤3]) must stay under the transaction-pooler max — VERIFY on staging before promotion (keep read pool small).",
+    "sqlRead is a module-level singleton imported by the worker too, but postgres.js is lazy — the worker never queries it (zero connections there). It STILL gets an explicit closer: closeAllPostgresClients ends sqlRead best-effort (alongside dedicated closers), while sql.end() stays awaited directly so its rejection still propagates (shutdown contract preserved).",
+    "sqlRead max is code-FLOORED at WEDGE_SAFE_READ_MIN=8 (DB_READ_POOL_MAX can only raise, never set below) so a mis-set env cannot reintroduce the #505 fan-out wedge.",
+    "Capacity ceiling (MEASURED): Nano/free tier, max_connections=60, reserved_connections=0 → 57 usable backend sessions; Max-Clients ≈200. Idle backend sessions also consume slots. Vercel budget: worker20+health2+isolates×(write3+read8) ≤ 200 → ≤16 warm isolates. DB_POOL_MAX=20 is a ceiling-aware starting value blessed only by the hard staging gate (pg_stat_activity + Supavisor pool_size).",
     "Vercel serverless has no explicit shutdown — sqlRead idle-timeout-reaps like the existing sql singleton (consistent, no closer)."
   ],
   "existing_patterns_to_follow": [
@@ -61,12 +62,16 @@
     "CONTEXT.md"
   ],
   "tests_to_add": [
-    "pool-wait probe: returns { waitMs, saturating, max } on a free pool (waitMs ~0, saturating false).",
-    "pool-wait probe: times out on a saturated/blocked reserve → saturating:true, no leaked reserved connection (release still called).",
-    "pool-wait probe: reserve() rejection → pool:null, primary queues signal unaffected.",
-    "queue-health handler: `pool` field present in 200 payload; degrades independently of `backlog` and `queues`.",
-    "server.ts: sqlRead is a distinct client from sql (separate instance), lazy (no connection on construction).",
-    "dashboard/KPI read route(s): read composition root passes the read client (sqlRead), not the singleton."
+    "pool-wait probe: free pool → { waitMs~0, timedOut:false, saturating:false, max }; releases the reserved connection once.",
+    "pool-wait probe: timeout → timedOut:true, saturating:true, waitMs=timeoutMs (censored lower bound); late-resolving reserve still released (no leak).",
+    "pool-wait probe: single-flight REGRESSION (#10) — a timed-out call does NOT release the latch; the second call reuses the still-pending reserve() (reserve() count stays 1); resolution releases once.",
+    "pool-wait probe: concurrent probes over a pending reservation share ONE reserve().",
+    "pool-wait probe: genuine reserve() rejection is re-thrown → handler maps to pool:null; primary queues signal unaffected.",
+    "queue-health handler: `pool` { waitMs, timedOut, saturating, max } present in 200 payload; degrades independently of `backlog` and `queues`.",
+    "server.ts: sqlRead is a distinct client from sql, with options.max>=8 and statement_timeout=8000.",
+    "server.ts: DB_READ_POOL_MAX=1 is floored to WEDGE_SAFE_READ_MIN (wedge-safety invariant).",
+    "server.ts: closeAllPostgresClients invokes sqlRead.end() AND a rejecting sql.end() still propagates.",
+    "KPI + past-replies/draft-status read routes: composition root passes sqlRead, not the write singleton."
   ],
   "verification_commands": [
     "pnpm ci:db-imports",
