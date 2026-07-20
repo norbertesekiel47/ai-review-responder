@@ -701,6 +701,13 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
   return templates;
 }
 
+// db/server SQL-tag exports that behave like postgres.js tagged-template
+// clients (`sql\`...\`` / `sqlRead\`...\``). Both need to be recognized here
+// so the scanner sees tenant-scoped queries regardless of which pool a route
+// uses (#477 read bulkhead — sqlRead is a distinct export, never `sql as X`,
+// so the source-side name check must accept it too).
+const DB_SERVER_SQL_TAG_SOURCE_NAMES = new Set(['sql', 'sqlRead']);
+
 function extractSqlTagNames(sourceText: string): Set<string> {
   const tagNames = new Set<string>(['sql', 'tx', 'db']);
   const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g;
@@ -712,8 +719,11 @@ function extractSqlTagNames(sourceText: string): Set<string> {
     const imports = match[1] ?? '';
     for (const specifier of imports.split(',')) {
       const parts = specifier.trim().split(/\s+as\s+/i);
-      if (parts[0]?.trim() !== 'sql') continue;
-      tagNames.add(parts[1]?.trim() || 'sql');
+      const sourceName = parts[0]?.trim();
+      if (!sourceName || !DB_SERVER_SQL_TAG_SOURCE_NAMES.has(sourceName)) continue;
+      // Fall back to the source name (not a hard-coded 'sql') so an
+      // un-aliased `sqlRead` import registers as tag `sqlRead`, not `sql`.
+      tagNames.add(parts[1]?.trim() || sourceName);
     }
   }
 

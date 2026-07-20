@@ -381,6 +381,25 @@ describe('tenant-scope-audit', () => {
     ]);
   });
 
+  it('extracts sqlRead-tagged templates (read-bulkhead export, #477) — an un-aliased sqlRead import registers as tag sqlRead, not sql', () => {
+    expect(extractSqlTemplates(`
+      import { sql, sqlRead } from '@/lib/db/server';
+      await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
+      await sqlRead\`SELECT subscription_status FROM accounts WHERE id = \${accountId}::uuid\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
+      { tag: 'sqlRead', sqlText: 'SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid' },
+    ]);
+  });
+
+  it('audits a sqlRead-tagged tenant-scoped query — the accounts self-scope predicate passes without needing an allowlist entry', () => {
+    const templates = extractSqlTemplates(`
+      import { sqlRead } from '@/lib/db/server';
+      await sqlRead\`SELECT subscription_status FROM accounts WHERE id = \${accountId}::uuid\`;
+    `);
+    expect(templates.flatMap((template) => auditSqlText('src/example.ts', template.sqlText))).toEqual([]);
+  });
+
   it('extracts sql.unsafe and tx.unsafe templates from local query variables', () => {
     expect(extractSqlTemplates(`
       const query = \`UPDATE businesses SET tone = $2 WHERE id = $1\`;

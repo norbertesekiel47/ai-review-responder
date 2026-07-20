@@ -30,7 +30,7 @@
 // since the client has nothing else to do with them.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import { sql, sqlRead } from '@/lib/db/server';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
@@ -60,7 +60,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   try {
-    const outboxRows = await sql<{
+    // Route-body reads → the right-sized read bulkhead (#477 Task 1). The
+    // resolveOwnerScope auth preamble above stays on write `sql` (shared
+    // helper, not threaded onto sqlRead — wiring decision, plan §Task 1).
+    const outboxRows = await sqlRead<{
       status: string;
       payload: unknown;
       last_error: string | null;
@@ -99,7 +102,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     if (outbox.status === 'completed') {
       // Worker INSERTed the response row. aggregate_id is the review_id.
-      const responseRows = await sql<{
+      const responseRows = await sqlRead<{
         id: string;
         status: string;
         response_text: string | null;

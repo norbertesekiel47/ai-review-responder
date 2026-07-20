@@ -43,6 +43,43 @@ export const sql = postgres(process.env.DATABASE_POOL_URL!, {
   },
 });
 
+// Resolved shared write-pool ceiling (env-tunable). Exported so the worker
+// composition root hands it to the pool-wait probe without re-reading env.
+export const SHARED_POOL_MAX = readPoolMax();
+
+/**
+ * Read-path pool ceiling. Sized to the fan-out of the routes that use it so
+ * their Promise.all waves run one-connection-per-query (the proven #505
+ * non-wedge shape): KPI is a 5-query wave (+gate = <=6 peak), so default 8.
+ * Env-tunable — but keep it >= the widest fan-out ROUTED onto sqlRead, and
+ * mind the 60-conn backend ceiling (ADR 0009). Do NOT route >8-fan-out routes
+ * onto this client without raising max to match (or they wedge — #505).
+ */
+// Wedge-safe minimum: the widest Promise.all fan-out ROUTED onto sqlRead
+// (KPI ≤6) must run one-connection-per-query (#505). Config may RAISE but NEVER
+// set below this floor, so a mis-set env cannot reintroduce the wedge (codex #6).
+export const WEDGE_SAFE_READ_MIN = 8;
+function readReadPoolMax(): number {
+  const parsed = parseInt(process.env.DB_READ_POOL_MAX ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(WEDGE_SAFE_READ_MIN, parsed) : WEDGE_SAFE_READ_MIN;
+}
+
+/**
+ * Dedicated READ client (bulkhead) for the wedge-safe small-fan-out
+ * dashboard/KPI read routes. Distinct LOCAL pool from `sql`, so a heavy read
+ * wave can't consume the write client's slots. Same DATABASE_POOL_URL — it
+ * shares the SAME Supavisor backend pool (isolation is LOCAL slots only, NOT
+ * backend capacity; ADR 0009). Tighter 8s read statement_timeout.
+ * `application_name` is client intent only — Supavisor flattens it to
+ * 'Supavisor' server-side (ADR 0007), so it is NOT an attribution mechanism.
+ * Lazy: postgres.js connects on first query; the worker imports this module
+ * but never queries sqlRead, so zero connections there.
+ */
+export const sqlRead = createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
+  max: readReadPoolMax(),
+  connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
+});
+
 /** Tight overrides a dedicated client may pass; both are optional. */
 type DedicatedClientOverrides = {
   /** Pool ceiling for this dedicated client. Defaults to 2 (dedicated clients are small). */
@@ -86,7 +123,8 @@ export function createDedicatedPostgresClient(
 
 /**
  * Close every Postgres client for worker shutdown: the caller's dedicated
- * clients FIRST (best-effort, in parallel), then the shared `sql` singleton.
+ * clients FIRST (best-effort, in parallel, alongside `sqlRead`), then the
+ * shared `sql` singleton.
  *
  * This is the shutdown close-order contract, owned here because `server.ts`
  * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
@@ -98,7 +136,10 @@ export function createDedicatedPostgresClient(
 export async function closeAllPostgresClients(
   dedicatedClosers: Array<() => Promise<void>>,
 ): Promise<void> {
-  await Promise.allSettled(dedicatedClosers.map((close) => close()));
+  // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
+  // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
+  // propagates — preserving the existing shutdown contract (codex #13).
+  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end()]);
   await sql.end();
 }
 

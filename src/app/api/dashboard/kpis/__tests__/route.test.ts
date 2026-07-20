@@ -3,23 +3,36 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ──────────────────────────────────────────────────
 
-const { mockRequireRole, mockAccountRows } = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  // Rows returned by the route's `SELECT subscription_status FROM accounts`.
-  // Defaulted to an active account in beforeEach so existing tests pass the gate.
-  mockAccountRows: { value: [] as Array<{ subscription_status: string }> },
-}));
-
-// ── Mock db (subscription-status gate query) ───────────────────────────────
-
-vi.mock('@/lib/db/server', () => ({
-  sql: (first: unknown) => {
+const { mockRequireRole, mockAccountRows, sqlReadSentinel } = vi.hoisted(() => {
+  const mockAccountRows = { value: [] as Array<{ subscription_status: string }> };
+  // Distinguishable SENTINEL identity for the read bulkhead (#477 Task 1): the
+  // subscription-gate SELECT + both KPI-summary calls now run on `sqlRead`, not
+  // the write `sql` singleton. Asserting call args against this exact reference
+  // (instead of `expect.any(Function)`) proves the route passes the read client,
+  // not just "some function".
+  const sqlReadSentinel = (first: unknown) => {
     // Tagged-template call → the route's accounts query. Return the seeded rows.
     if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
       return Promise.resolve(mockAccountRows.value);
     }
-    return { __helper: true };
-  },
+    return { __sqlReadHelper: true };
+  };
+  return {
+    mockRequireRole: vi.fn(),
+    // Rows returned by the route's `SELECT subscription_status FROM accounts`.
+    // Defaulted to an active account in beforeEach so existing tests pass the gate.
+    mockAccountRows,
+    sqlReadSentinel,
+  };
+});
+
+// ── Mock db (subscription-status gate query moved to sqlRead) ──────────────
+// `sql` (write) is only forwarded to resolveDashboardLocation now — never
+// invoked as a tagged template in these tests, so it stays a plain stand-in.
+
+vi.mock('@/lib/db/server', () => ({
+  sql: () => ({ __helper: true }),
+  sqlRead: sqlReadSentinel,
   jsonb: (v: unknown) => v,
 }));
 
@@ -150,7 +163,7 @@ describe('GET /api/dashboard/kpis', () => {
     expect(mockGetLocationKpiSummary).toHaveBeenCalledOnce();
     expect(mockGetLocationById).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID);
     // #403: the route always resolves + passes the validated window (default here).
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
     expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
 
     const body = await res.json();
@@ -175,7 +188,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       expect(mockGetAccountKpiSummary).toHaveBeenCalledOnce();
-      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(expect.any(Function), ACCOUNT_ID, DEFAULT_DASHBOARD_WINDOW);
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, ACCOUNT_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
 
       const body = await res.json();
@@ -316,7 +329,7 @@ describe('GET /api/dashboard/kpis', () => {
       expect(res.status).toBe(200);
 
       // scope=all without multi-location → falls back to user's locationId
-      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+      expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
       expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
@@ -407,7 +420,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
   });
 
   it('malformed scope (not a UUID) → 400 Invalid scope; no KPI service / location call', async () => {
@@ -446,7 +459,7 @@ describe('GET /api/dashboard/kpis', () => {
 
     const res = await GET(makeRequest('/api/dashboard/kpis?window=7d'));
     expect(res.status).toBe(200);
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, '7d');
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, BUSINESS_ID, '7d');
   });
 
   it('invalid ?window= clamps to the default window before reaching the service', async () => {
@@ -457,7 +470,7 @@ describe('GET /api/dashboard/kpis', () => {
     const res = await GET(makeRequest('/api/dashboard/kpis?window=not-a-window'));
     expect(res.status).toBe(200);
     // The untrusted value never reaches the service — it is clamped to default.
-    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(expect.any(Function), BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, BUSINESS_ID, DEFAULT_DASHBOARD_WINDOW);
   });
 
   it('valid ?window=90d in aggregate scope → threaded to getAccountKpiSummary', async () => {
@@ -469,7 +482,7 @@ describe('GET /api/dashboard/kpis', () => {
 
       const res = await GET(makeRequest('/api/dashboard/kpis?scope=all&window=90d'));
       expect(res.status).toBe(200);
-      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(expect.any(Function), ACCOUNT_ID, '90d');
+      expect(mockGetAccountKpiSummary).toHaveBeenCalledWith(sqlReadSentinel, ACCOUNT_ID, '90d');
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
     }

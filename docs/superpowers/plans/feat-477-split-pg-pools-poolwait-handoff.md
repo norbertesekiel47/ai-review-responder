@@ -42,6 +42,11 @@
 5. **STEP 5 gate:** `scripts/verify-gate.sh` (writes `.feature/gate-status.json`) — the stop-gate needs it green + newer than HEAD before completion. Extra verification cmds: `pnpm ci:db-imports`, `pnpm ci:tenant-scope`, `pnpm ci:static-policy`.
 6. Step 6 skipped-or-not: RISK=high but step 6 (adversarial review of BUILT code) is `/codex:adversarial-review` (user-invocable) — offer it. Step 7 dual review. Step 8 SHIP high-risk lane: staging ride first (set `DB_POOL_MAX=20` on Railway staging, burst-drill with metric live + pg_stat_activity watch), then PR to main, pause for merge approval.
 
+## Execution progress (STEP 4 in flight — subagent-driven)
+- **Task 1 (read bulkhead): implementation DONE** (52/52 tests green: server.ts, config schema, KPI + draft-status routes, sqlRead sentinel mocks). Exposed a real tenant-scope AUDIT blind spot (audit only saw `sql`, not `sqlRead` → tenant-scoped accounts/responses reads dropped from coverage). **User-approved surface amendment**: `scripts/ci/tenant-scope-audit.ts` added; implementer is fixing `extractSqlTagNames` (recognize sqlRead) + regression test, then commits Task 1. (deviations file has the root cause + exact fix.)
+- Tasks 2/3/4: not started. After Task 1 commits → spec review + quality review (subagent-driven-development two-stage) → Task 2 (probe) → Task 3 (queue-health) → Task 4 (docs) → verify-gate → dual review → staging ride.
+- Resume mid-execution: check `git log origin/main..HEAD` for which tasks committed; continue from the next uncommitted task per the plan.
+
 ## Execution readiness (verified)
 - `ci:db-imports` accepts `sqlRead` imports in KPI/draft-status **route handlers** (composition roots); `pool-wait.ts` takes `sql` as a param (never imports db/server) — invariant #15 clean.
 - `verify-gate.sh` reads intake `.surface` = `mixed` → runs lint+typecheck+test + all `ci:*` (except fallow) + `build`. That IS the Task-4 final gate.

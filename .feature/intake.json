@@ -13,7 +13,8 @@
     "No code change to the pool-max DEFAULT (stays 10) — raising Railway is env-only (DB_POOL_MAX=20), so Vercel is never accidentally raised.",
     "Does NOT move the heavy fan-out read routes (dashboard route ~14-wave, aggregate ~8-wave, agent-team) onto sqlRead — their concurrency exceeds a right-sized read pool and they carry the pre-existing #505 pipelining-wedge risk, which stays OWNED by the #505 Vercel pipelining audit (differential-repro required). Only wedge-safe small-fan-out reads (KPI ≤6 concurrent, draft-status ≤2 concurrent / up to 4 reads) move.",
     "Does NOT claim application_name gives pooler attribution — ADR 0007 proved Supavisor flattens it to 'Supavisor'; it is kept only as harmless client intent.",
-    "The read bulkhead isolates only LOCAL postgres.js client slots (sqlRead shares the same Supavisor backend pool as sql — same URL/user/db/mode); it does not isolate backend DB capacity."
+    "The read bulkhead isolates only LOCAL postgres.js client slots (sqlRead shares the same Supavisor backend pool as sql — same URL/user/db/mode); it does not isolate backend DB capacity.",
+    "SURFACE AMENDMENT (user-approved 2026-07-19): introducing sqlRead exposed a tenant-scope AUDIT blind spot — scripts/ci/tenant-scope-audit.ts only recognized the `sql` tag, so sqlRead-tagged tenant-scoped reads (accounts/responses) dropped out of isolation-audit coverage. Fix (in-scope for correct pool wiring): extractSqlTagNames recognizes sqlRead as a SQL-tag source + regression test. scripts/ci/tenant-scope-audit.ts added to edit surface."
   ],
   "user_visible_behavior": [
     "GET /internal/queue-health response gains a `pool` field: { waitMs, timedOut, saturating, max } (best-effort; null on genuine probe error; timedOut:true (=> saturating:true) when the single-flight reserve() probe hits its timeout — waitMs is then a censored lower bound).",
@@ -54,6 +55,7 @@
     "src/app/api/admin/jobs/route.ts",
     "src/app/admin/jobs/page.tsx",
     "src/lib/shared/queue-health-states.ts",
+    "scripts/ci/tenant-scope-audit.ts",
     "**/__tests__/**",
     ".claude/reference/env-vars.md",
     "docs/adr/**",

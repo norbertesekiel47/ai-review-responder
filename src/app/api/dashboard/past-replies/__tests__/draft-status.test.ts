@@ -9,23 +9,34 @@ const {
   accountQueue,
   topLevelQueue,
   sqlProxy,
+  sqlReadProxy,
 } = vi.hoisted(() => {
   const mockRequireRole = vi.fn();
   const mockGetRequestScope = vi.fn();
 
   const accountQueue: unknown[][] = [];
   const topLevelQueue: unknown[][] = [];
-  const topLevelMock = vi.fn(async (strings?: TemplateStringsArray) => {
+
+  // sql (write pool): the resolveOwnerScope auth preamble stays on it — the
+  // subscription-gate SELECT it fires internally (plan #477 Task 1 wiring
+  // decision: shared auth helper is never threaded onto sqlRead).
+  const sqlMock = vi.fn(async (strings?: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
     if (text.includes('subscription_status')) {
       const nextAccount = accountQueue.shift();
       if (nextAccount) return nextAccount;
       return [{ subscription_status: 'active' }];
     }
-    return topLevelQueue.shift() ?? [];
+    return [];
+  });
+  const sqlProxy = new Proxy(sqlMock, {
+    apply: (target, _this, args) => Reflect.apply(target as never, _this, args),
   });
 
-  const sqlProxy = new Proxy(topLevelMock, {
+  // sqlRead (read bulkhead): the route-body reads (job_outbox lookup + the
+  // completed-job response lookup) moved off write `sql` onto it (#477 Task 1).
+  const sqlReadMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  const sqlReadProxy = new Proxy(sqlReadMock, {
     apply: (target, _this, args) => Reflect.apply(target as never, _this, args),
   });
 
@@ -34,8 +45,8 @@ const {
     mockGetRequestScope,
     accountQueue,
     topLevelQueue,
-    topLevelMock,
     sqlProxy,
+    sqlReadProxy,
   };
 });
 
@@ -56,6 +67,7 @@ vi.mock('@/lib/db/auth', () => {
 
 vi.mock('@/lib/db/server', () => ({
   sql: sqlProxy,
+  sqlRead: sqlReadProxy,
   jsonb: (v: unknown) => v,
 }));
 
