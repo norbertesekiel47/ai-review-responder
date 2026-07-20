@@ -29,7 +29,11 @@ interface JobsData {
   limit: number;
   offset: number;
   queueHealth: Record<string, Record<string, number>> | { unavailable: true };
+  pool: PoolWaitPayload | null;
 }
+
+// Local HTTP-boundary mirror; canonical owner is src/lib/shared/pool-wait.ts (PoolWait).
+type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
 
 const PAGE_SIZE = 20 as const;
 
@@ -134,6 +138,7 @@ export default function JobsPage() {
   const queueCounts = queueUnavailable
     ? null
     : (data.queueHealth as Record<string, Record<string, number>>);
+  const pool = data.pool;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -151,7 +156,28 @@ export default function JobsPage() {
 
         {/* BullMQ queue depth */}
         <div className="mt-8">
-          <h2 className="text-lg font-semibold text-gray-800">BullMQ Queue Depth</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-semibold text-gray-800">BullMQ Queue Depth</h2>
+            {/* Shared Postgres pool-wait sample (read-only). Warning style when
+                saturating; `≥` prefix when the sample is a censored lower bound. */}
+            {pool === null ? (
+              <span className="rounded-full border border-yellow-200 bg-yellow-50 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
+                Pool wait: unavailable
+              </span>
+            ) : (
+              <span
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                  pool.saturating
+                    ? 'border-red-200 bg-red-50 text-red-700'
+                    : 'border-gray-200 bg-white text-gray-600'
+                }`}
+                title={`Shared pool wait (max ${pool.max} connections)`}
+              >
+                Pool wait: {pool.timedOut ? '≥' : ''}
+                {pool.waitMs.toLocaleString()} ms
+              </span>
+            )}
+          </div>
 
           {queueUnavailable ? (
             <p className="mt-3 text-sm font-medium text-yellow-700">

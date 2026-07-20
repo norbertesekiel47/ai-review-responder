@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import { sql, sqlRead } from '@/lib/db/server';
 import { jsonResponse, errorResponse } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
@@ -27,7 +27,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // The gate query runs concurrently with the scope/KPI reads (they are
     // independent); the gate is still checked first below, so a gated account
     // only wastes the discarded read — it never sees the data.
-    const accountPromise = sql<{ subscription_status: string }[]>`
+    // Read-only query → the right-sized read bulkhead (#477 Task 1). The
+    // location-scope lookup below stays on write `sql` (resolveDashboardLocation
+    // is a shared helper, not threaded onto sqlRead — wiring decision, plan §Task 1).
+    const accountPromise = sqlRead<{ subscription_status: string }[]>`
       SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid
     `;
 
@@ -57,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (scopePolicy.mode === 'aggregate') {
       const [accountResult, summaryResult] = await Promise.allSettled([
         accountPromise,
-        getAccountKpiSummary(sql, accountId, window),
+        getAccountKpiSummary(sqlRead, accountId, window),
       ]);
       if (accountResult.status === 'rejected') throw accountResult.reason;
       const gated = gateResponse(accountResult.value[0]);
@@ -82,7 +85,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const location = locationResult.value;
     if (!location.ok) return location.response;
 
-    const summary = await getLocationKpiSummary(sql, location.locationId, window);
+    const summary = await getLocationKpiSummary(sqlRead, location.locationId, window);
     return jsonResponse(summary);
   });
 }

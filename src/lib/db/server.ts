@@ -1,5 +1,10 @@
 import postgres from 'postgres';
 import { createClient } from '@supabase/supabase-js';
+import { createWorkerLogger } from '../shared/logger';
+
+// Boot-time config-validation warnings (pool sizing). Safe at this foundational
+// layer: logger.ts imports only a pure sanitizer + node-only log-context (no cycle).
+const dbConfigLogger = createWorkerLogger('db-config');
 
 // ---------------------------------------------------------------------------
 // Postgres.js — PRIMARY client for all transactional writes
@@ -41,6 +46,62 @@ export const sql = postgres(process.env.DATABASE_POOL_URL!, {
   connection: {
     statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
   },
+});
+
+// Resolved shared write-pool ceiling (env-tunable). Exported so the worker
+// composition root hands it to the pool-wait probe without re-reading env.
+export const SHARED_POOL_MAX = readPoolMax();
+
+/**
+ * Read-path pool size (`sqlRead`). Sized to the fan-out of the routes that use
+ * it so their Promise.all waves run one-connection-per-query (the proven #505
+ * non-wedge shape): KPI is a 5-query wave (+gate = <=6 peak). `DB_READ_POOL_MAX`
+ * is validated + CLAMPED to the reviewed range [WEDGE_SAFE_READ_MIN,
+ * READ_POOL_MAX_CEILING]; an out-of-range value is clamped and warn-logged, not
+ * silently honored. Both bounds are 8 today, so the effective read max is 8.
+ */
+// Wedge-safe MINIMUM: the widest Promise.all fan-out ROUTED onto sqlRead
+// (KPI ≤6) must run one-connection-per-query (#505). Config can never set below
+// this floor, so a mis-set low env cannot reintroduce the wedge (codex #6).
+export const WEDGE_SAFE_READ_MIN = 8;
+// Capacity-budgeted MAXIMUM. ADR 0009's ≤16-warm-Vercel-isolate Supavisor budget
+// is derived from read max = 8 per isolate (write 3 + read 8 = 11 client conns
+// each) against the shared 57-conn backend. A larger read pool multiplies client
+// connections across isolates and can starve the write path (both clients share
+// the SAME backend pool), so DB_READ_POOL_MAX is capped here — an oversized env
+// cannot silently invalidate the documented budget (codex adversarial #1).
+// Raising this is a deliberate capacity change: bump the constant AND re-run the
+// ADR 0009 staging burst-drill to re-derive the isolate budget.
+export const READ_POOL_MAX_CEILING = 8;
+function readReadPoolMax(): number {
+  const parsed = parseInt(process.env.DB_READ_POOL_MAX ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return WEDGE_SAFE_READ_MIN;
+  const clamped = Math.min(READ_POOL_MAX_CEILING, Math.max(WEDGE_SAFE_READ_MIN, parsed));
+  if (clamped !== parsed) {
+    dbConfigLogger.warn('DB_READ_POOL_MAX outside reviewed range — clamped', {
+      requested: parsed,
+      clamped,
+      min: WEDGE_SAFE_READ_MIN,
+      max: READ_POOL_MAX_CEILING,
+    });
+  }
+  return clamped;
+}
+
+/**
+ * Dedicated READ client (bulkhead) for the wedge-safe small-fan-out
+ * dashboard/KPI read routes. Distinct LOCAL pool from `sql`, so a heavy read
+ * wave can't consume the write client's slots. Same DATABASE_POOL_URL — it
+ * shares the SAME Supavisor backend pool (isolation is LOCAL slots only, NOT
+ * backend capacity; ADR 0009). Tighter 8s read statement_timeout.
+ * `application_name` is client intent only — Supavisor flattens it to
+ * 'Supavisor' server-side (ADR 0007), so it is NOT an attribution mechanism.
+ * Lazy: postgres.js connects on first query; the worker imports this module
+ * but never queries sqlRead, so zero connections there.
+ */
+export const sqlRead = createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
+  max: readReadPoolMax(),
+  connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
 });
 
 /** Tight overrides a dedicated client may pass; both are optional. */
@@ -86,7 +147,8 @@ export function createDedicatedPostgresClient(
 
 /**
  * Close every Postgres client for worker shutdown: the caller's dedicated
- * clients FIRST (best-effort, in parallel), then the shared `sql` singleton.
+ * clients FIRST (best-effort, in parallel, alongside `sqlRead`), then the
+ * shared `sql` singleton.
  *
  * This is the shutdown close-order contract, owned here because `server.ts`
  * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
@@ -98,7 +160,12 @@ export function createDedicatedPostgresClient(
 export async function closeAllPostgresClients(
   dedicatedClosers: Array<() => Promise<void>>,
 ): Promise<void> {
-  await Promise.allSettled(dedicatedClosers.map((close) => close()));
+  // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
+  // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
+  // propagates — preserving the existing shutdown contract (codex #13).
+  // It bounds its own close ({ timeout: 5 }, matching closeHealthSql) so a
+  // TCP-wedged read pool can't stall the subsequent awaited sql.end().
+  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end({ timeout: 5 })]);
   await sql.end();
 }
 

@@ -148,5 +148,46 @@ describe('GET /api/admin/jobs queueHealth sourcing', () => {
     const body = await res.json();
 
     expect(body.queueHealth).toEqual({ unavailable: true });
+    expect(body.pool).toBeNull();
+  });
+
+  it('surfaces the worker pool-wait sample on success', async () => {
+    const queues = {
+      generate_response: { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0, paused: 0 },
+    };
+    const pool = { waitMs: 42, timedOut: false, saturating: false, max: 12 };
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ queues, pool }) });
+    seedOutboxRows();
+
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.queueHealth).toEqual(queues);
+    expect(body.pool).toEqual(pool);
+  });
+
+  it('passes through pool:null when the worker probe was unavailable (200 with pool:null)', async () => {
+    const queues = {
+      generate_response: { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0, paused: 0 },
+    };
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ queues, pool: null }) });
+    seedOutboxRows();
+
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.queueHealth).toEqual(queues);
+    expect(body.pool).toBeNull();
+  });
+
+  it('degrades pool to null alongside queueHealth on a fetch failure', async () => {
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+    seedOutboxRows();
+
+    const res = await GET(req());
+    const body = await res.json();
+
+    expect(body.queueHealth).toEqual({ unavailable: true });
+    expect(body.pool).toBeNull();
   });
 });

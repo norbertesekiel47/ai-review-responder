@@ -54,14 +54,17 @@ describe('isAuthorizedQueueHealthRequest', () => {
 describe('createQueueHealthHandler', () => {
   const counts = { waiting: 1, active: 2, delayed: 0, failed: 0, completed: 5, paused: 0 };
   const backlog = { job_outbox: 7, analytics_events: 3 };
+  const poolWait = { waitMs: 12, timedOut: false, saturating: false, max: 10 };
 
   it('returns 503 {disabled:true} when the secret is unset', async () => {
     const getQueueCounts = vi.fn().mockResolvedValue(counts);
     const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockResolvedValue(poolWait);
     const handler = createQueueHealthHandler({
       getSecret: () => undefined,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
@@ -71,15 +74,18 @@ describe('createQueueHealthHandler', () => {
     expect(captured.body).toEqual({ disabled: true });
     expect(getQueueCounts).not.toHaveBeenCalled();
     expect(getBacklogDepth).not.toHaveBeenCalled();
+    expect(getPoolWait).not.toHaveBeenCalled();
   });
 
   it('returns 401 when the Authorization header is missing', async () => {
     const getQueueCounts = vi.fn().mockResolvedValue(counts);
     const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockResolvedValue(poolWait);
     const handler = createQueueHealthHandler({
       getSecret: () => SECRET,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
@@ -89,15 +95,18 @@ describe('createQueueHealthHandler', () => {
     expect(captured.body).toEqual({ error: 'unauthorized' });
     expect(getQueueCounts).not.toHaveBeenCalled();
     expect(getBacklogDepth).not.toHaveBeenCalled();
+    expect(getPoolWait).not.toHaveBeenCalled();
   });
 
   it('returns 401 when the bearer secret is wrong', async () => {
     const getQueueCounts = vi.fn().mockResolvedValue(counts);
     const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockResolvedValue(poolWait);
     const handler = createQueueHealthHandler({
       getSecret: () => SECRET,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
@@ -106,15 +115,18 @@ describe('createQueueHealthHandler', () => {
     expect(captured.status).toBe(401);
     expect(getQueueCounts).not.toHaveBeenCalled();
     expect(getBacklogDepth).not.toHaveBeenCalled();
+    expect(getPoolWait).not.toHaveBeenCalled();
   });
 
-  it('returns 200 {queues, backlog} for every queue with a good secret', async () => {
+  it('returns 200 {queues, backlog, pool} for every queue with a good secret', async () => {
     const getQueueCounts = vi.fn().mockResolvedValue(counts);
     const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockResolvedValue(poolWait);
     const handler = createQueueHealthHandler({
       getSecret: () => SECRET,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
@@ -124,6 +136,7 @@ describe('createQueueHealthHandler', () => {
     const body = captured.body as {
       queues: Record<string, Record<string, number>>;
       backlog: { job_outbox: number; analytics_events: number } | null;
+      pool: { waitMs: number; timedOut: boolean; saturating: boolean; max: number } | null;
     };
     expect(Object.keys(body.queues).sort()).toEqual([...ALL_QUEUE_NAMES].sort());
     for (const name of ALL_QUEUE_NAMES) {
@@ -131,15 +144,18 @@ describe('createQueueHealthHandler', () => {
     }
     expect(getQueueCounts).toHaveBeenCalledTimes(ALL_QUEUE_NAMES.length);
     expect(body.backlog).toEqual(backlog);
+    expect(body.pool).toEqual(poolWait);
   });
 
-  it('degrades to backlog:null when getBacklogDepth rejects, still returning queues', async () => {
+  it('degrades to backlog:null when getBacklogDepth rejects, still returning queues and pool', async () => {
     const getQueueCounts = vi.fn().mockResolvedValue(counts);
     const getBacklogDepth = vi.fn().mockRejectedValue(new Error('db down'));
+    const getPoolWait = vi.fn().mockResolvedValue(poolWait);
     const handler = createQueueHealthHandler({
       getSecret: () => SECRET,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
@@ -149,12 +165,64 @@ describe('createQueueHealthHandler', () => {
     const body = captured.body as {
       queues: Record<string, Record<string, number>>;
       backlog: unknown;
+      pool: unknown;
     };
     expect(body.backlog).toBeNull();
+    expect(body.pool).toEqual(poolWait);
     expect(Object.keys(body.queues).sort()).toEqual([...ALL_QUEUE_NAMES].sort());
     for (const name of ALL_QUEUE_NAMES) {
       expect(body.queues[name]).toEqual(counts);
     }
+  });
+
+  it('degrades to pool:null when getPoolWait rejects, still returning queues and backlog', async () => {
+    const getQueueCounts = vi.fn().mockResolvedValue(counts);
+    const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockRejectedValue(new Error('pool wedged'));
+    const handler = createQueueHealthHandler({
+      getSecret: () => SECRET,
+      getQueueCounts,
+      getBacklogDepth,
+      getPoolWait,
+    });
+    const { reply, captured } = makeReply();
+
+    await handler(makeReq({ authorization: `Bearer ${SECRET}` }), reply);
+
+    expect(captured.status).toBe(200);
+    const body = captured.body as {
+      queues: Record<string, Record<string, number>>;
+      backlog: unknown;
+      pool: unknown;
+    };
+    expect(body.pool).toBeNull();
+    expect(body.backlog).toEqual(backlog);
+    expect(Object.keys(body.queues).sort()).toEqual([...ALL_QUEUE_NAMES].sort());
+    for (const name of ALL_QUEUE_NAMES) {
+      expect(body.queues[name]).toEqual(counts);
+    }
+  });
+
+  it('surfaces a pool object (not null) when getPoolWait resolves timedOut:true — saturation is not an error', async () => {
+    const saturated = { waitMs: 1000, timedOut: true, saturating: true, max: 10 };
+    const getQueueCounts = vi.fn().mockResolvedValue(counts);
+    const getBacklogDepth = vi.fn().mockResolvedValue(backlog);
+    const getPoolWait = vi.fn().mockResolvedValue(saturated);
+    const handler = createQueueHealthHandler({
+      getSecret: () => SECRET,
+      getQueueCounts,
+      getBacklogDepth,
+      getPoolWait,
+    });
+    const { reply, captured } = makeReply();
+
+    await handler(makeReq({ authorization: `Bearer ${SECRET}` }), reply);
+
+    expect(captured.status).toBe(200);
+    const body = captured.body as {
+      pool: { waitMs: number; timedOut: boolean; saturating: boolean; max: number } | null;
+    };
+    expect(body.pool).toEqual(saturated);
   });
 
   it('degrades to backlog:null when getBacklogDepth hangs past the 4000ms deadline', async () => {
@@ -163,10 +231,12 @@ describe('createQueueHealthHandler', () => {
       const getQueueCounts = vi.fn().mockResolvedValue(counts);
       // Never resolves — only the withTimeout clock can settle the backlog.
       const getBacklogDepth = vi.fn().mockReturnValue(new Promise<never>(() => {}));
+      const getPoolWait = vi.fn().mockResolvedValue(poolWait);
       const handler = createQueueHealthHandler({
         getSecret: () => SECRET,
         getQueueCounts,
         getBacklogDepth,
+        getPoolWait,
       });
       const { reply, captured } = makeReply();
 
@@ -198,18 +268,24 @@ describe('createQueueHealthHandler', () => {
       callOrder.push('backlog');
       return backlog;
     });
+    const getPoolWait = vi.fn().mockImplementation(async () => {
+      callOrder.push('pool');
+      return poolWait;
+    });
     const handler = createQueueHealthHandler({
       getSecret: () => SECRET,
       getQueueCounts,
       getBacklogDepth,
+      getPoolWait,
     });
     const { reply, captured } = makeReply();
 
     await handler(makeReq({ authorization: `Bearer ${SECRET}` }), reply);
 
     expect(captured.status).toBe(200);
-    // getBacklogDepth is created before the loop, so it is invoked first.
-    expect(callOrder[0]).toBe('backlog');
+    // getBacklogDepth and getPoolWait are started before the loop, so the
+    // best-effort reads are invoked before any queue count settles.
+    expect(callOrder.slice(0, 2)).toEqual(['backlog', 'pool']);
   });
 
   it('requests the same job-count states the admin panel expects', () => {

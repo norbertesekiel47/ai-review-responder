@@ -141,6 +141,12 @@ const serverSchema = z.object({
   DAILY_COST_LIMIT_CENTS_COPILOT: rawOpt,
   DAILY_COST_LIMIT_CENTS_AUTOPILOT: rawOpt,
   DB_POOL_MAX: opt,
+  // Read-pool size (src/lib/db/server.ts sqlRead). Optional, same shape as
+  // DB_POOL_MAX — declared here for schema/inventory parity (codex #9); the
+  // client still reads process.env.DB_READ_POOL_MAX directly (readReadPoolMax),
+  // which validates + CLAMPS it to the reviewed [WEDGE_SAFE_READ_MIN,
+  // READ_POOL_MAX_CEILING] range (both 8) and warn-logs out-of-range values.
+  DB_READ_POOL_MAX: opt,
   // ── Stage-3 src-lib batch (server/shared secrets + small config) ──────────
   // All migrated raw reads (each call site owns its own ?.trim()/!value/Boolean/
   // parseInt guard or passes the value straight to its SDK), so rawOptionalVar
