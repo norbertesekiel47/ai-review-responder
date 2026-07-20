@@ -12,19 +12,19 @@
     "No behavior change to NotificationFailoverPoller queries themselves"
   ],
   "user_visible_behavior": [
-    "None user-facing. Worker boot now fails fast if the summed non-flag-gated LLM concurrency exceeds 8 or judge_verdict exceeds 1",
+    "None user-facing. Worker boot now fails fast if the summed non-flag-gated LLM worker slots exceed 9 or judge_verdict exceeds 1",
     "Failover-poller lookups become index-served at scale (ops-visible latency only)"
   ],
   "invariants": [
     "Summed non-flag-gated LLM worker-slot concurrency (generate_response, generate_demo, weekly_summary, send_monthly_impact, onboarding_demo_response) <= 9; judge_verdict <= 1 (ADR 0005 addendum as amended by this branch)",
     "Boot with judge flag ON must still succeed (judge is flag-gated, asserted separately)",
-    "The cap is a per-process WORKER-SLOT budget, meaningful only single-replica; per-job LLM fan-out (demo Promise.allSettled) is governed by cost guards, not this assert",
+    "The cap is a per-process WORKER-SLOT budget, meaningful only single-replica; per-job LLM fan-out (demo Promise.allSettled, ≤15 reviews) is a sanctioned unguarded lane bounded by the demo review-count cap and admin rate limits — NOT by cost guards and NOT by this assert",
     "assertSingleConcurrencyWorker semantics stay 'double-running corrupts state', never 'we prefer 1'",
     "Migrations apply staging-first, both Supabase projects in lockstep; migrations-log.md updated in the same change",
     "New indexes are partial and predicate-scoped, matching their target queries exactly (018 style); invalid-index recovery documented (062 lesson)"
   ],
   "edge_cases": [
-    "Judge flag ON at boot: assert must not trip (judge excluded from the 8-sum, capped at 1 separately)",
+    "Judge flag ON at boot: assert must not trip (judge excluded from the 9-sum, capped at 1 separately)",
     "Future edit replacing a worker's options object: assert reads EFFECTIVE worker.opts, same as assertSingleConcurrencyWorker, so drift fails boot",
     "CREATE INDEX CONCURRENTLY vs plain: follow the convention recorded in migrations-log.md for live-table index migrations (018/023/026 were plain due to Supabase SQL-editor transaction mode; 065 used CONCURRENTLY) \u2014 resolve at plan time from the log, staging-first either way",
     "poller_cursors.cursor regeneration: .gitignore entry prevents an untracked stray from reappearing in review noise",
@@ -33,7 +33,7 @@
   "existing_patterns_to_follow": [
     "worker/config/startup-assert.ts assertSingleConcurrencyWorker + its test block (startup-assertion.test.ts:873-888) \u2014 the boot-assert precedent",
     "supabase/migrations/018_correlation_and_dispatching_indexes.sql:68-70 \u2014 partial-index style for job_outbox topic-scoped lookups",
-    "src/lib/... migration-080-outbox-dedup.integration.test.ts \u2014 DB-gated migration integration-test precedent",
+    "src/lib/shared/__tests__/migration-079-agent-run-spine-archival.integration.test.ts \u2014 DB-gated catalog-assertion harness precedent (plus migration-076 test's pg_index assertions)",
     "docs/reviews/feat-stripe-reconcile-remainders/TRIAGE.md \u2014 the renumber record the correction banners point to"
   ],
   "allowed_edit_surface": [
@@ -53,7 +53,7 @@
   ],
   "tests_to_add": [
     "startup-assertion.test.ts: sum exactly 9 (5+1+1+1+1, mixed explicit/undefined opts) passes; sum 10 non-gated throws; undefined concurrency counts as 1; judge flag-gated at 1 passes / at 2 throws; effective-opts drift (generate at 6) throws",
-    "migration-082 integration test (DB-gated): both indexes exist, partial predicates exact, and pg_index.indisvalid is true (076-test pattern)"
+    "migration-082 integration test (DB-gated): both indexes exist, partial predicates exact, and pg_index.indisvalid AND pg_index.indisready are true (076-test pattern)"
   ],
   "verification_commands": [
     "pnpm build"
