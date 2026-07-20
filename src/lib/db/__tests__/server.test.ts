@@ -150,4 +150,16 @@ describe('sqlRead read bulkhead', () => {
       vi.resetModules();
     }
   });
+
+  it('caps DB_READ_POOL_MAX at the reviewed ceiling — an oversized value cannot blow the ADR-0009 connection budget (codex adversarial #1)', async () => {
+    try {
+      vi.resetModules();
+      vi.stubEnv('DB_READ_POOL_MAX', '800');
+      const fresh = await import('../server');
+      expect((fresh.sqlRead as unknown as { options: { max: number } }).options.max).toBe(fresh.READ_POOL_MAX_CEILING);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
 });

@@ -1,5 +1,10 @@
 import postgres from 'postgres';
 import { createClient } from '@supabase/supabase-js';
+import { createWorkerLogger } from '../shared/logger';
+
+// Boot-time config-validation warnings (pool sizing). Safe at this foundational
+// layer: logger.ts imports only a pure sanitizer + node-only log-context (no cycle).
+const dbConfigLogger = createWorkerLogger('db-config');
 
 // ---------------------------------------------------------------------------
 // Postgres.js — PRIMARY client for all transactional writes
@@ -48,20 +53,39 @@ export const sql = postgres(process.env.DATABASE_POOL_URL!, {
 export const SHARED_POOL_MAX = readPoolMax();
 
 /**
- * Read-path pool ceiling. Sized to the fan-out of the routes that use it so
- * their Promise.all waves run one-connection-per-query (the proven #505
- * non-wedge shape): KPI is a 5-query wave (+gate = <=6 peak), so default 8.
- * Env-tunable — but keep it >= the widest fan-out ROUTED onto sqlRead, and
- * mind the 60-conn backend ceiling (ADR 0009). Do NOT route >8-fan-out routes
- * onto this client without raising max to match (or they wedge — #505).
+ * Read-path pool size (`sqlRead`). Sized to the fan-out of the routes that use
+ * it so their Promise.all waves run one-connection-per-query (the proven #505
+ * non-wedge shape): KPI is a 5-query wave (+gate = <=6 peak). `DB_READ_POOL_MAX`
+ * is validated + CLAMPED to the reviewed range [WEDGE_SAFE_READ_MIN,
+ * READ_POOL_MAX_CEILING]; an out-of-range value is clamped and warn-logged, not
+ * silently honored. Both bounds are 8 today, so the effective read max is 8.
  */
-// Wedge-safe minimum: the widest Promise.all fan-out ROUTED onto sqlRead
-// (KPI ≤6) must run one-connection-per-query (#505). Config may RAISE but NEVER
-// set below this floor, so a mis-set env cannot reintroduce the wedge (codex #6).
+// Wedge-safe MINIMUM: the widest Promise.all fan-out ROUTED onto sqlRead
+// (KPI ≤6) must run one-connection-per-query (#505). Config can never set below
+// this floor, so a mis-set low env cannot reintroduce the wedge (codex #6).
 export const WEDGE_SAFE_READ_MIN = 8;
+// Capacity-budgeted MAXIMUM. ADR 0009's ≤16-warm-Vercel-isolate Supavisor budget
+// is derived from read max = 8 per isolate (write 3 + read 8 = 11 client conns
+// each) against the shared 57-conn backend. A larger read pool multiplies client
+// connections across isolates and can starve the write path (both clients share
+// the SAME backend pool), so DB_READ_POOL_MAX is capped here — an oversized env
+// cannot silently invalidate the documented budget (codex adversarial #1).
+// Raising this is a deliberate capacity change: bump the constant AND re-run the
+// ADR 0009 staging burst-drill to re-derive the isolate budget.
+export const READ_POOL_MAX_CEILING = 8;
 function readReadPoolMax(): number {
   const parsed = parseInt(process.env.DB_READ_POOL_MAX ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.max(WEDGE_SAFE_READ_MIN, parsed) : WEDGE_SAFE_READ_MIN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return WEDGE_SAFE_READ_MIN;
+  const clamped = Math.min(READ_POOL_MAX_CEILING, Math.max(WEDGE_SAFE_READ_MIN, parsed));
+  if (clamped !== parsed) {
+    dbConfigLogger.warn('DB_READ_POOL_MAX outside reviewed range — clamped', {
+      requested: parsed,
+      clamped,
+      min: WEDGE_SAFE_READ_MIN,
+      max: READ_POOL_MAX_CEILING,
+    });
+  }
+  return clamped;
 }
 
 /**

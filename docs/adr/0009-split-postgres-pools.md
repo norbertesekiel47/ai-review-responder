@@ -79,9 +79,14 @@ ceiling above, not against an assumed one.
    concurrent) and `GET /api/dashboard/past-replies/draft-status` (peak 2
    concurrent, ≤ 4 reads/request). Every wave routed onto `sqlRead` has fan-out ≤
    its pool, so each query gets its own connection — the proven #505 non-wedge
-   shape. The read pool is **code-floored at `WEDGE_SAFE_READ_MIN = 8`**
-   (`readReadPoolMax()` does `Math.max(8, parsed)`), so a mis-set low env can
-   never drop below the widest routed fan-out and reintroduce the wedge.
+   shape. The read pool size is **validated + clamped to the reviewed range
+   `[WEDGE_SAFE_READ_MIN = 8, READ_POOL_MAX_CEILING = 8]`** (`readReadPoolMax()`):
+   a mis-set LOW env can never drop below the widest routed fan-out and
+   reintroduce the wedge, and an oversized HIGH env can never silently multiply
+   client connections across isolates and blow the ≤16-warm-isolate budget below
+   (codex adversarial #1). Out-of-range values are clamped to 8 and warn-logged;
+   raising the pool is a deliberate capacity change (bump `READ_POOL_MAX_CEILING`
+   + re-run the staging drill), never an unbounded env override.
    **Heavy fan-out routes STAY on the write `sql` client and are explicitly
    deferred** to the #505 Vercel pipelining audit: `src/app/api/dashboard/route.ts`
    (~14-query wave), the aggregate 8-query wave, and `agent-team`. Each needs its
@@ -144,8 +149,9 @@ ceiling above, not against an assumed one.
   pool saturating at 20, or `pg_stat_activity` shows backend sessions approaching
   57, raise the Supabase compute tier (higher Max-Clients + `max_connections`)
   before raising `DB_POOL_MAX`. Do NOT lower `DB_READ_POOL_MAX` to reclaim
-  budget — it is floored at 8. Crossing the ≤16-warm-isolate Vercel bound is the
-  other tripwire.
+  budget — it is clamped to `[8, 8]` (raising the read pool means bumping
+  `READ_POOL_MAX_CEILING` + re-running the drill, not an env tweak). Crossing the
+  ≤16-warm-isolate Vercel bound is the other tripwire.
 
 ## Staging calibration + capacity gate (pending)
 

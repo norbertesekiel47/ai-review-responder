@@ -122,3 +122,31 @@ Resolution:
 - **Minor #3 — NO ACTION.** Cosmetic asymmetry (no `RESOLVED_READ_POOL_MAX` sibling to
   `SHARED_POOL_MAX`); reviewer explicitly said adding it now would be speculative — defer
   to Task 2 if a probe ever needs the read ceiling.
+
+## 2026-07-20 — Codex adversarial review (STEP 6) outcome
+
+Scoped to the branch (`--base origin/main`). Verdict: needs-attention, 2 findings.
+
+- **Finding #1 [high] — `DB_READ_POOL_MAX` had no upper bound → FIXED.** `readReadPoolMax()`
+  floored at `WEDGE_SAFE_READ_MIN=8` but passed any positive value straight through, so an
+  oversized env (`DB_READ_POOL_MAX=800`) would multiply per-isolate client connections across
+  Vercel isolates against the shared 57-conn backend and silently invalidate ADR 0009's
+  ≤16-warm-isolate budget — starving the write path (both clients share the backend pool).
+  Fix: added `READ_POOL_MAX_CEILING=8` and changed `readReadPoolMax()` to **clamp** to
+  `[WEDGE_SAFE_READ_MIN, READ_POOL_MAX_CEILING]` and **warn-log** out-of-range values (via a
+  new `db-config` `createWorkerLogger` — logger.ts has no cycle back to db/server). Chose
+  clamp-to-safe + warn over throw-on-invalid: fail-safe keeps Vercel routes available (no
+  graceful boot there) while fully eliminating the capacity-blowout risk. Both bounds are 8
+  today, so the effective read max is pinned at 8; raising it is a deliberate capacity change
+  (bump the constant + re-run the staging drill). Regression test added
+  (`DB_READ_POOL_MAX=800` → `READ_POOL_MAX_CEILING`). Reconciled docs + the intake contract
+  (env-vars.md, ADR 0009, config/server.ts comment, intake edge_case + tests_to_add) — the
+  old "can only RAISE, floored" language is now "clamped to the reviewed range".
+  **Contract note:** this narrows the previously-unbounded raise semantics; done under the
+  user's explicit "fix all issues" instruction responding to this finding.
+- **Finding #2 [high] — staging capacity gate not yet completed → NOT a code fix; it is the
+  STEP-8 gate by design.** ADR 0009 marks the warm/cold calibration, `pg_stat_activity`
+  counts, Supavisor `pool_size`, warm-isolate count, and drill-proven `DB_POOL_MAX` as
+  "TO BE RECORDED". Codex is correct that the PR must NOT merge to `main` before this gate;
+  that is exactly the high-risk-lane sequencing in the handoff. No code change — it is an
+  explicit pre-merge blocker, executed at STEP 8 (staging burst-drill).
