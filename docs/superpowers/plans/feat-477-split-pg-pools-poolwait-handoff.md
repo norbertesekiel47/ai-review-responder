@@ -4,7 +4,13 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEP 3 (plan), gated on Codex round-3 verdict + user sign-off
+## Current position: STEP 3 COMPLETE — plan APPROVED. Ready for STEP 4 (EXECUTE).
+
+**Codex round-4 (confirmation, user-approved): `VERDICT: APPROVED`** — all round-3 must-fix items resolved, no new blockers (`plan-review-round3.md` has the fix record; round-4 was a confirmation pass). RISK=high step-3 gate satisfied: 4 adversarial rounds + user sign-off (the user pre-authorized "confirm → execute"). **Next action for a resumed session: begin STEP 4 (`superpowers:subagent-driven-development`) — Task 1 ∥ Task 2 → Task 3; Task 4 docs.** Re-run the ARM CHECK first.
+
+---
+
+## (historical) Prior position: STEP 3, gated on Codex verdicts
 
 - Steps 0–2 complete: classified (RISK=high / mixed / normal, ticket-seeded), intake locked + committed, working in-place, ARM CHECK green.
 - Step 3 plan is now **round 3** (`docs/superpowers/plans/2026-07-19-split-pg-pools-poolwait.md`). Codex round-1 = REVISE (9 findings) → round-2 plan; codex round-2 = REVISE (blockers #2/#10 latch, #4/#12 capacity, #6 floor + should-fixes) → round-3 plan. Both fully triaged (`plan-review-round1.md`, `plan-review-round2.md`), all accepted. **Codex round-3 (FINAL round — 3-round cap) is RUNNING in the background** (resumed session `019f7dfa-a607-7481-a43b-b263459f3c0a`). If it still REVISEs → surface disagreement to user (do NOT loop a 4th round).
@@ -35,6 +41,11 @@
 4. After sign-off → **STEP 4 EXECUTE** via `superpowers:subagent-driven-development`: fresh subagent per task (Task 1 ∥ Task 2 → Task 3; Task 4 docs). Each subagent prompt includes the task's plan slice + CONTEXT glossary (read pool / pool-wait probe / timedOut / saturating).
 5. **STEP 5 gate:** `scripts/verify-gate.sh` (writes `.feature/gate-status.json`) — the stop-gate needs it green + newer than HEAD before completion. Extra verification cmds: `pnpm ci:db-imports`, `pnpm ci:tenant-scope`, `pnpm ci:static-policy`.
 6. Step 6 skipped-or-not: RISK=high but step 6 (adversarial review of BUILT code) is `/codex:adversarial-review` (user-invocable) — offer it. Step 7 dual review. Step 8 SHIP high-risk lane: staging ride first (set `DB_POOL_MAX=20` on Railway staging, burst-drill with metric live + pg_stat_activity watch), then PR to main, pause for merge approval.
+
+## Execution readiness (verified)
+- `ci:db-imports` accepts `sqlRead` imports in KPI/draft-status **route handlers** (composition roots); `pool-wait.ts` takes `sql` as a param (never imports db/server) — invariant #15 clean.
+- `verify-gate.sh` reads intake `.surface` = `mixed` → runs lint+typecheck+test + all `ci:*` (except fallow) + `build`. That IS the Task-4 final gate.
+- Round-4 (user-approved confirmation) verdict pending; if APPROVED → Step 4. Recommend a fresh `/feature-resume` session for execution (this planning session is context-heavy).
 
 ## Execution notes (verified precedents for step 4 subagents)
 - **KPI route test** (`src/app/api/dashboard/kpis/__tests__/route.test.ts`) already mocks `@/lib/db/server` (line 15) and asserts `getLocationKpiSummary`/`getAccountKpiSummary` with `expect.any(Function)` as arg 1. To prove `sqlRead` is passed (not `sql`): add a distinguishable `sqlRead` SENTINEL to that mock and switch the KPI-call assertions from `expect.any(Function)` → the sentinel.
