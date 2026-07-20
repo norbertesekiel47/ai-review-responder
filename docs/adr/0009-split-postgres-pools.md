@@ -48,7 +48,7 @@ this ADR):
   plan = free → **Nano** compute tier (NOT inferable from `max_connections=60`,
   which is identical on Nano and Micro). Current usage is low (prod 12 total / 1
   active; staging 17 total / 1 active).
-- **Three distinct limits, each of which can bind independently:** (a) the
+- **Four distinct limits, each of which can bind independently:** (a) the
   postgres.js client `max` — an app-side ceiling *per client*; (b) Supavisor
   "Max Clients" ≈ 200 — accepted client connections; (c) Postgres
   `max_connections=60` → 57 usable — the backend session ceiling; (d) Supavisor

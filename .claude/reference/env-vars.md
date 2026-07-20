@@ -53,7 +53,7 @@ Assertion source: `worker/config/startup-assert.ts`.
 > prod + staging BOTH run `max_connections = 60`, `superuser_reserved_connections = 3`,
 > `reserved_connections = 0` → **57 usable backend connections**; org plan = free →
 > **Nano** compute tier (NOT inferable from `max_connections=60`, which is identical on
-> Nano + Micro). **Three distinct limits each bind independently:** (a) the postgres.js
+> Nano + Micro). **Four distinct limits each bind independently:** (a) the postgres.js
 > client `max` = app-side ceiling *per client* (`DB_POOL_MAX`, `DB_READ_POOL_MAX`); (b)
 > Supavisor "Max Clients" ≈ 200 = accepted client connections; (c) Postgres
 > `max_connections=60` → 57 usable = backend session ceiling; (d) Supavisor backend
