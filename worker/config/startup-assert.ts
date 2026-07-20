@@ -112,6 +112,65 @@ export function assertSingleConcurrencyWorker(
   }
 }
 
+export const SUMMED_LLM_WORKER_SLOT_CAP = 9;
+export const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
+
+/**
+ * Boot-time guard for the per-process LLM worker-slot cap (ADR 0005 addendum,
+ * amended 2026-07-20). The summed BullMQ concurrency across the LLM-calling
+ * queues is a per-process worker-slot budget — the de-facto GLOBAL LLM
+ * concurrency bound ONLY under single-replica deployment (ADR 0005). Effective
+ * slots per entry = opts.concurrency ?? 1 (BullMQ's default — five of the six
+ * LLM workers register with bare workerOpts). Non-flag-gated entries must sum
+ * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict) is
+ * capped separately at FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag
+ * ON never trips the sum. Raising the sum past ~10 requires building the
+ * global Redis semaphore first (ADR 0005 deferral trigger).
+ *
+ * Scope note: per-job LLM fan-out (the demo Promise.allSettled over ≤15
+ * reviews) is a sanctioned unguarded lane — bounded by the demo review-count
+ * cap and admin rate limits, NOT by cost guards and NOT by this assert.
+ *
+ * Called at the registration site in worker/index.ts with the EFFECTIVE
+ * Worker options (worker.opts), same as assertSingleConcurrencyWorker, so an
+ * edit of any options object fails the boot instead of silently widening the
+ * LLM concurrency envelope.
+ */
+export function assertSummedLlmWorkerSlots(
+  entries: ReadonlyArray<{
+    queueName: string;
+    opts: { concurrency?: number };
+    flagGated?: boolean;
+  }>,
+): void {
+  const effectiveSlots = (opts: { concurrency?: number }): number => opts.concurrency ?? 1;
+
+  const nonGated = entries.filter((entry) => !entry.flagGated);
+  const summedSlots = nonGated.reduce((total, entry) => total + effectiveSlots(entry.opts), 0);
+  if (summedSlots > SUMMED_LLM_WORKER_SLOT_CAP) {
+    const inventory = nonGated
+      .map((entry) => `${entry.queueName}=${effectiveSlots(entry.opts)}`)
+      .join(', ');
+    throw new Error(
+      `[startup] Summed non-flag-gated LLM worker slots (${inventory}) total ${summedSlots}, `
+        + `exceeding the worker-slot cap of ${SUMMED_LLM_WORKER_SLOT_CAP}. Per ADR 0005, raising `
+        + `the sum past ~10 requires building the global Redis semaphore first.`,
+    );
+  }
+
+  for (const entry of entries) {
+    if (!entry.flagGated) continue;
+    const slots = effectiveSlots(entry.opts);
+    if (slots > FLAG_GATED_LLM_WORKER_SLOT_CAP) {
+      throw new Error(
+        `[startup] Flag-gated LLM queue ${entry.queueName} registered with ${slots} worker slots; `
+          + `the flag-gated cap is ${FLAG_GATED_LLM_WORKER_SLOT_CAP}. Per ADR 0005, raising the `
+          + `sum past ~10 requires building the global Redis semaphore first.`,
+      );
+    }
+  }
+}
+
 /**
  * Boot-time assertion. ADMIN_NOTIFICATION_EMAIL is the recipient for every admin
  * exception / failover / engagement alert. When unset these alerts silently drop:

@@ -56,7 +56,7 @@ import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingre
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { enforceIngressRateLimit } from './ingress/rate-limit';
-import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
@@ -198,7 +198,9 @@ const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
 );
 
 // Zernio first-connect backfill. Concurrency 1 — each backfill is heavy
-// (up to 4× listAllReviews pages + up to 75 processReview calls).
+// (up to 4× listAllReviews pages + up to 75 processReview calls). This is a
+// pacing cap, not a guarded single-consumer invariant — deliberately NOT
+// assertSingleConcurrencyWorker (that guard means "double-running corrupts state").
 const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
   QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL,
   (job) => handleZernioBackfill(sql, job),
@@ -212,11 +214,9 @@ ingestZernioReviewWorker.on('failed', (job, err) => handleIngestFailed(sql, job,
 // parallel LLM work per business, so parallel jobs can't over-spend. Without
 // this a 30-review burst drains serially (~1 LLM call at a time).
 //
-// Summed-LLM-concurrency cap (ADR 0005 addendum): the LLM-calling queues —
-// this one (5; triage shares these slots), WEEKLY_SUMMARY (1),
-// SEND_MONTHLY_IMPACT (1), ONBOARDING_DEMO_RESPONSE (1), JUDGE_VERDICT (1,
-// flag-gated) — must sum to ≤8 flags-off. Raising the sum past ~10 requires
-// building the global Redis semaphore first.
+// Summed worker-slot cap (ADR 0005 addendum): the LLM-queue inventory and cap
+// are owned + enforced by assertSummedLlmWorkerSlots (worker/config/
+// startup-assert.ts), called below after the LLM worker registrations.
 const responseGenWorker = new Worker(
   QUEUE_NAMES.GENERATE_RESPONSE,
   withJobLogContext(handleResponseGeneration),
@@ -282,6 +282,20 @@ const ownerEmailWorker = new Worker(QUEUE_NAMES.SEND_OWNER_EMAIL, handleOwnerEma
 const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, handleDrainOwnerConnect, workerOpts);
 
 const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, handleOnboardingDemo, workerOpts);
+
+// Worker-slot cap (ADR 0005 addendum): summed non-flag-gated LLM worker slots
+// must stay ≤ SUMMED_LLM_WORKER_SLOT_CAP; judge_verdict is flag-gated and
+// capped separately. Reads EFFECTIVE worker.opts (same pattern as
+// assertSingleConcurrencyWorker below) so an options-object edit fails boot.
+// grep runLlmTask callers before editing this list — generate_demo was missed once (#490).
+assertSummedLlmWorkerSlots([
+  { queueName: QUEUE_NAMES.GENERATE_RESPONSE, opts: responseGenWorker.opts },
+  { queueName: QUEUE_NAMES.GENERATE_DEMO, opts: demoWorker.opts },
+  { queueName: QUEUE_NAMES.WEEKLY_SUMMARY, opts: weeklySummaryWorker.opts },
+  { queueName: QUEUE_NAMES.SEND_MONTHLY_IMPACT, opts: monthlyImpactWorker.opts },
+  { queueName: QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, opts: onboardingDemoWorker.opts },
+  { queueName: QUEUE_NAMES.JUDGE_VERDICT, opts: judgeVerdictWorker.opts, flagGated: true },
+]);
 
 const updateStripeOverageWorker = new Worker<UpdateStripeOveragePayload>(
   QUEUE_NAMES.UPDATE_STRIPE_OVERAGE,
