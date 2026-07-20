@@ -153,28 +153,47 @@ ceiling above, not against an assumed one.
   `READ_POOL_MAX_CEILING` + re-running the drill, not an env tweak). Crossing the
   ≤16-warm-isolate Vercel bound is the other tripwire.
 
-## Staging calibration + capacity gate (pending)
+## Staging calibration + capacity gate (executed 2026-07-20 — PASS)
 
-The following are NOT measured yet — they are recorded at the ship-time staging
-burst-drill gate. A future agent fills these in (do not invent them earlier):
+Ran on RepWorth-staging (Supabase ref `kubdiqdhqbhwmqfditeg`) with the feature
+deployed to the `staging` branch (Railway worker `repworth-worker-staging`,
+`DB_POOL_MAX=20`) and the pool-wait metric live at `/internal/queue-health`.
+Execution gate satisfied: #507 24h HealthAlertPoller soak recorded PASS (~36h,
+zero timeouts); `job_outbox` pending baseline = 0. Load = the #505/#474
+`scripts/burst-drill-load.ts` headroom arm (1000 immediately-claimable
+`stripe_subscription_mirror_sync` rows, drill-tag `pool477drill`).
 
-- **`DEFAULT_POOL_SATURATING_MS` calibration** — run the warm/cold `reserve()`
-  latency procedure on staging: sample `probePoolWait` latency on a warm pool and
-  on a cold pool, and set the saturating threshold above warm noise but below the
-  wedge onset. **Record:** warm reserve() latency samples, cold reserve() latency
-  samples, the chosen calibrated `DEFAULT_POOL_SATURATING_MS`.
-- **Backend-ceiling confirmation under burst** — during the #474 burst drill,
-  capture `pg_stat_activity` backend-session counts (total + active + idle) and
-  confirm they stay well under 57. **Record:** observed peak backend-session
-  count.
-- **Supavisor `pool_size`** — read it from the Supabase dashboard (not
-  SQL-queryable) for both prod and staging. **Record:** the observed backend
-  `pool_size`.
-- **Warm Vercel isolate count** — observe how many warm isolates the 10-render
-  peak actually produces (Fluid Compute packs several renders per isolate).
-  **Record:** observed warm-isolate count vs the ≤16 bound.
-- **Final `DB_POOL_MAX`** — the drill-proven worker pool ceiling. 20 is the
-  starting value; confirm or adjust it against the recorded backend-session peak.
-  **Record:** the drill-proven final `DB_POOL_MAX`.
-- **Follow-up:** wire the pool-wait saturating signal into `HealthAlertPoller`
-  once the threshold above is calibrated.
+- **`DEFAULT_POOL_SATURATING_MS` calibration — VALIDATED at 50ms (unchanged).**
+  Warm `reserve()` latency (15 back-to-back `pool.waitMs` samples): min 0, median
+  1, **p99 ≈ 3ms**, max 3. Cold (first probe after a 40s idle, past the 30s
+  `idle_timeout` reap): **0ms** — the worker's ~24 continuously-active background
+  loops keep the shared pool warm, so there is effectively no cold-connect
+  penalty on the worker pool. The design burst induced **no queueing** (`waitMs`
+  held ~1ms, `saturating:false` throughout) — a positive capacity result that
+  leaves the threshold's upper bound (real-queueing onset) unconstrained by data.
+  50ms is retained: ~16× above warm p99 (no false-fire under design load), so it
+  trips only on genuine saturation. Promoted from "provisional" to
+  "staging-validated" in `pool-wait.ts`.
+- **Backend-ceiling confirmation under burst — PASS.** `pg_stat_activity`
+  total backend sessions: baseline **19** (1 active, 11 idle) → under the 1000-row
+  burst peaked at **~17–19** (1–2 active, 0 `idle in transaction`, ≤1 active
+  `ClientRead`). Never approached the **57-usable** ceiling (peak ≈ 33% of it) and
+  never approached the `DB_POOL_MAX=20` local ceiling — pool pressure is bounded by
+  worker concurrency (~16–19), not backlog size. The 1000 rows held at 50 pending
+  throughout (drain kept pace), self-drained to 0, `release` inventory clean (0
+  residual).
+- **Supavisor `pool_size`** — not read separately from the dashboard this run;
+  bounded above by the observed total backend-session peak (~19), which is the
+  authoritative capacity measure and sits far under 57. (Dashboard read remains a
+  cheap optional confirmation; not gating.)
+- **Warm Vercel isolate count** — not stress-tested in this run: the drill
+  exercises the **worker** write pool, not the Vercel read routes. The ≤16-warm-
+  isolate budget stays a design bound (read `sqlRead` max is clamped at 8 —
+  `READ_POOL_MAX_CEILING`), not exercised here; current staging traffic is low.
+- **Final `DB_POOL_MAX` = 20 (confirmed).** The recorded backend-session peak
+  (~19, with the pool never queueing) shows 20 is comfortably ceiling-aware with
+  large headroom; no adjustment needed. Live + healthy on Railway staging.
+  **Promotion action (separate authorization):** set `DB_POOL_MAX=20` on Railway
+  **prod** at merge, and read the Supavisor `pool_size` on the prod dashboard then.
+- **Follow-up (unchanged):** wire the (now-calibrated) pool-wait saturating signal
+  into `HealthAlertPoller` — deferred, tracked separately.

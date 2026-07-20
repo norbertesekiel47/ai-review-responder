@@ -4,7 +4,13 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEPS 4–7 COMPLETE — dual review clean, codex adversarial review done + fix landed, GATE GREEN. At STEP 8 SHIP (staging ride — needs user/Railway).
+## Current position: STEP 8 STAGING DRILL COMPLETE (PASS). PR #510 ready to un-draft + merge (prod DB_POOL_MAX=20 at promotion).
+
+**Staging burst-drill (2026-07-20): PASS** — full record in ADR 0009 "Staging calibration + capacity gate (executed …)". Feature deployed to `staging` (Railway `repworth-worker-staging`, `DB_POOL_MAX=20`); pool-wait metric live. Results: backend sessions baseline 19 → burst peak ~17–19 (never near 57-usable, never near the 20 ceiling); `pool.waitMs`~1ms, `saturating:false` throughout (no queueing induced); warm reserve p99≈3ms / cold 0ms; 1000-row headroom burst held at 50 pending, self-drained to 0, `release` inventory clean. `DEFAULT_POOL_SATURATING_MS=50` **staging-validated** (unchanged; ~16× warm headroom) — promoted from "provisional" in `pool-wait.ts`. `DB_POOL_MAX=20` confirmed. Execution gate met (#507 soak PASS recorded).
+
+**Remaining (needs user):** (1) **prod** `DB_POOL_MAX=20` on Railway at merge + read Supavisor `pool_size` on the prod dashboard (separate authorization — NOT done); (2) un-draft PR #510 → merge; (3) fast-forward `staging` onto `main` after merge. Note: staging currently sits at the pre-drill feature HEAD `f7045c8f`; the drill's ADR/comment commit is a no-behavior-change doc update (threshold value unchanged) so a staging re-deploy is optional.
+
+### (historical) STEPS 4–7 COMPLETE — dual review clean, codex adversarial done + fix landed, GATE GREEN.
 
 **STEP 7 dual review (`/code-review since origin/main`): CLEAN both axes** — Standards: 0 hard violations (4 defensible judgement calls); Spec: 0 findings (faithful to intake + plan).
 **STEP 6 codex adversarial review (`--base origin/main`): needs-attention → BOTH findings resolved.**

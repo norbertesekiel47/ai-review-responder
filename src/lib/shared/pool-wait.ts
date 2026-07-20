@@ -13,7 +13,7 @@ import { createWorkerLogger, toError } from './logger';
 const logger = createWorkerLogger('pool-wait');
 
 export const DEFAULT_POOL_WAIT_TIMEOUT_MS = 1000;   // < backlog 4s < admin 5s abort
-export const DEFAULT_POOL_SATURATING_MS = 50;       // PROVISIONAL default — calibrate on staging (Task 4 step 4); not final
+export const DEFAULT_POOL_SATURATING_MS = 50;       // staging-validated 2026-07-20 (ADR 0009): warm reserve p99≈3ms, design burst induced no queueing → ~16x headroom over warm noise, no false-fire under design load
 
 /** postgres.js hands back a ReservedSql (structurally: has release(): void). */
 type Reservation = Awaited<ReturnType<postgres.Sql['reserve']>>;
