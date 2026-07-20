@@ -39,9 +39,11 @@ interface FailedCountRow {
   total: number;
 }
 
-// Local mirror of the worker's PoolWait shape (invariant #1: Vercel cannot
-// import worker code). Kept in lockstep with the canonical owner
-// src/lib/shared/pool-wait.ts (which queue-health.ts type-imports).
+// Local HTTP-boundary mirror of the PoolWait shape, whose canonical owner is
+// src/lib/shared/pool-wait.ts (a type-only import would be invariant-#1-legal,
+// but this route mirrors its queue-health DTOs locally by convention — same as
+// `queueHealth` — to keep the admin boundary decoupled from probe-internal
+// semantics). Kept in lockstep with that owner (queue-health.ts type-imports it).
 type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
 
 interface JobsData {

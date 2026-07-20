@@ -4,9 +4,28 @@
 
 **Resume with:** `/feature-resume feat-477-split-pg-pools-poolwait` — re-enter, re-run ARM CHECK, bootstrap from the files below. Do NOT re-read the grilling transcript; all decisions are on disk.
 
-## Current position: STEP 3 COMPLETE — plan APPROVED. Ready for STEP 4 (EXECUTE).
+## Current position: STEPS 4 + 5 COMPLETE — GATE GREEN, final holistic review PASS. At STEP 6 (codex adversarial-review offer — needs user).
 
-**Codex round-4 (confirmation, user-approved): `VERDICT: APPROVED`** — all round-3 must-fix items resolved, no new blockers (`plan-review-round3.md` has the fix record; round-4 was a confirmation pass). RISK=high step-3 gate satisfied: 4 adversarial rounds + user sign-off (the user pre-authorized "confirm → execute"). **Next action for a resumed session: begin STEP 4 (`superpowers:subagent-driven-development`) — Task 1 ∥ Task 2 → Task 3; Task 4 docs.** Re-run the ARM CHECK first.
+**STEP 5 verify-gate: GREEN** — all 18 checks PASS (lint, typecheck, full test suite, `build`, every `ci:*` audit incl. db-imports/tenant-scope/static-policy/rls-audit). `.feature/gate-status.json` `passed:true`.
+**Final holistic (whole-branch) review: Ready to ship — YES** — 0 critical/important. Verified all cross-task seams (shared-`sql` injection not the health bulkhead; 3-hop `PoolWait` type chain byte-identical; 3-client shutdown ordering leak-safe; invariants #1 + #15 whole-branch). 2 Minors: (a) `PoolWaitPayload` mirror comments corrected for accuracy (canonical owner is shared code, local mirror is a deliberate HTTP-boundary DTO convention — fixed, commit after `197d82fa`); (b) KPI/draft-status 8s-vs-30s statement_timeout = STAGING watch-item (in deviations).
+
+**Next actions (need the user / external systems — natural stop points):**
+- **STEP 6 (RISK=high):** offer `/codex:adversarial-review` on the BUILT code. It is USER-INVOKED/billed — the coordinator cannot launch it. Present it; proceed on the user's call.
+- **STEP 7:** dual review (standards + spec) — can run via `/code-review` when ready.
+- **STEP 8 SHIP high-risk lane:** (1) set `DB_POOL_MAX=20` on **Railway staging**, redeploy; (2) burst-drill with the pool-wait metric live + `pg_stat_activity` watch → calibrate `DEFAULT_POOL_SATURATING_MS` (warm/cold), confirm backend sessions < 57 & Max-Clients < 200 & KPI p99 < 8s, record ALL pending numbers into ADR 0009's staging-gate section; (3) land the drill-proven `DB_POOL_MAX` on prod Railway at promotion; (4) PR to `main`, pause for merge approval. Fast-forward `staging` onto `main` after promotion.
+
+### (historical) STEP 4 COMPLETE — all 4 tasks implemented + two-stage reviewed.
+
+**All four tracer tasks are DONE, committed, and each passed the two-stage review (spec-compliance → code-quality) with its review-fix committed:**
+- **Task 1 (sqlRead read bulkhead):** `6f4093b2` + review-fix `ef040783` (bounded `sqlRead.end({timeout:5})`). Spec ✅ / quality ready-with-fixes (Minor #1 fixed; Minor #2 = 30s→8s statement_timeout tightening → STAGING-VALIDATION item in deviations; Minor #3 deferred).
+- **Task 2 (single-flight pool-wait probe, `src/lib/shared/pool-wait.ts`):** `b6783e30` + review-polish `3afaf6ce` (diagnostic log for swallowed reserve rejection + drift-safe `Awaited<ReturnType<...reserve>>` type). Spec ✅ / quality ready-to-merge YES.
+- **Task 3 (queue-health `pool` + admin badge):** `9e4a8bda` + review-fix `93331958` (lockstep comment → canonical owner). Spec ✅ / quality YES. Invariants #1 + #15 verified by reviewers.
+- **Task 4 (env-vars.md + ADR 0009):** `5c7766e2` + review-fix `197d82fa` ("three"→"four" limits). Docs accuracy review ✅ — every capacity number cross-checked against code, no fabricated staging numbers (all "TO BE RECORDED" placeholders).
+
+**Next action for a resumed session:** STEP 5 verify-gate (`scripts/verify-gate.sh` → `.feature/gate-status.json`) — was RUNNING at last checkpoint (lint+typecheck+test+build+all `ci:*`). If GREEN → STEP 6: offer the user `/codex:adversarial-review` on the BUILT code (RISK=high). Then STEP 7 dual review, STEP 8 SHIP high-risk lane: set `DB_POOL_MAX=20` on Railway **staging**, run the burst-drill with the pool-wait metric live + `pg_stat_activity` watch (calibrate `DEFAULT_POOL_SATURATING_MS`, record all pending numbers into ADR 0009's staging-gate section), THEN PR to main + pause for merge approval. **Re-run the ARM CHECK first.**
+
+### (historical) STEP 3 COMPLETE — plan APPROVED.
+**Codex round-4 (confirmation, user-approved): `VERDICT: APPROVED`** — all round-3 must-fix items resolved, no new blockers. RISK=high step-3 gate satisfied: 4 adversarial rounds + user sign-off.
 
 ---
 

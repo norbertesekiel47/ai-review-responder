@@ -32,6 +32,7 @@ interface JobsData {
   pool: PoolWaitPayload | null;
 }
 
+// Local HTTP-boundary mirror; canonical owner is src/lib/shared/pool-wait.ts (PoolWait).
 type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
 
 const PAGE_SIZE = 20 as const;
