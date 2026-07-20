@@ -139,7 +139,9 @@ export async function closeAllPostgresClients(
   // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
   // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
   // propagates — preserving the existing shutdown contract (codex #13).
-  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end()]);
+  // It bounds its own close ({ timeout: 5 }, matching closeHealthSql) so a
+  // TCP-wedged read pool can't stall the subsequent awaited sql.end().
+  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end({ timeout: 5 })]);
   await sql.end();
 }
 

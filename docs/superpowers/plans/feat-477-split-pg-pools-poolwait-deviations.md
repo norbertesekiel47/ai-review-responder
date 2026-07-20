@@ -94,3 +94,31 @@ exact fix diagnosed above, surgically:
   vitest suites (server.test.ts, kpis/route.test.ts, draft-status.test.ts,
   tenant-scope-audit.test.ts) — 107 tests, all passing. Committed together with the
   `sqlRead` wiring as a single Task 1 commit.
+
+### Two-stage review outcome (resume session, post-commit)
+
+Stage 1 (spec compliance): **✅ Spec compliant** — every Task 1 requirement verified in
+code (floor logic, distinct `sqlRead` instance, dual-path shutdown, narrow read wiring
+with auth staying on `sql`, invariant #15 — `sqlRead` defined only in `db/server.ts`,
+imported only at route composition roots), no scope drift, no Task 2/3/4 files touched.
+
+Stage 2 (code quality): **Ready to merge — With fixes** (0 Critical, 0 Important, 3 Minor).
+Resolution:
+- **Minor #1 — FIXED (follow-up commit).** `sqlRead.end()` in `closeAllPostgresClients`
+  joined the best-effort `Promise.allSettled` group *unbounded*, while its sibling
+  `closeHealthSql` (`health-db.ts:71`) bounds itself `.end({ timeout: 5 })`; a TCP-wedged
+  `sqlRead.end()` could stall the subsequent awaited `sql.end()`. Changed to
+  `sqlRead.end({ timeout: 5 })` (matching the docstring's "each dedicated closer is
+  expected to bound its own `.end({ timeout })`" + `closeHealthSql`), and tightened the
+  lifecycle test to assert `toHaveBeenCalledWith({ timeout: 5 })`. server.test.ts 14/14 ✅.
+- **Minor #2 — STAGING-VALIDATION ITEM (no code change).** Moving the KPI gate SELECT +
+  `get{Location,Account}KpiSummary` and the draft-status `job_outbox`/`responses` reads
+  onto `sqlRead` tightens their `statement_timeout` 30s → 8s (the read client's pin). For
+  user-blocking dashboard reads fail-fast is the correct posture, but it is an implicit
+  behavioral tightening. **Action for STEP 8 staging ride:** during the burst-drill,
+  confirm p99 of these reads is comfortably < 8s at real data volume (the KPI path is
+  cache-fronted, so this should hold) before relying on it in prod. Folded into the
+  staging-ride checklist here so it is not lost.
+- **Minor #3 — NO ACTION.** Cosmetic asymmetry (no `RESOLVED_READ_POOL_MAX` sibling to
+  `SHARED_POOL_MAX`); reviewer explicitly said adding it now would be speculative — defer
+  to Task 2 if a probe ever needs the read ceiling.

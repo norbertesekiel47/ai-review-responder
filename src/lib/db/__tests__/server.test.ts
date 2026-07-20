@@ -103,6 +103,8 @@ describe('closeAllPostgresClients', () => {
     await closeAllPostgresClients([healthClose]);
 
     expect(sqlReadEndSpy).toHaveBeenCalledTimes(1);
+    // Bounds its own close so a wedged read pool can't stall sql.end() (matches closeHealthSql).
+    expect(sqlReadEndSpy).toHaveBeenCalledWith({ timeout: 5 });
     expect(healthClose).toHaveBeenCalledTimes(1);
     expect(endSpy).toHaveBeenCalledTimes(1);
   });
