@@ -7,6 +7,7 @@
 import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
+import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
 
@@ -25,6 +26,8 @@ export interface HealthAlertConfig {
   flaggedOpenThreshold: number;
   zeroDeliveryWindowS: number;
   backlogDepthThreshold: number;
+  ownerUnreachableAgeS: number;
+  ownerUnreachableThreshold: number;
 }
 
 function num(value: string | undefined, fallback: number): number {
@@ -42,6 +45,8 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
     flaggedOpenThreshold: num(cfg.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
     zeroDeliveryWindowS: num(cfg.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
     backlogDepthThreshold: num(cfg.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD, 1500),
+    ownerUnreachableAgeS: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S, 14400),
+    ownerUnreachableThreshold: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD, 0),
   };
 }
 
@@ -133,6 +138,10 @@ export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAl
 // the worker's intentional skip paths (response superseded/posted, business
 // archived/offboarding) which legitimately complete with no delivery row, while
 // keeping the genuine "owner has no channel / never notified" signal.
+// De-conflation (F1): rows whose latest completed send_notification carries the
+// completion_reason='owner_unreachable' marker are the durable checkOwnerUnreachable
+// signal — they are excluded here so a single owner-unreachable draft is not
+// double-counted as a transient windowed zero-delivery error.
 export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
@@ -144,6 +153,7 @@ export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: Hea
       AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS})
       AND r.status = 'pending_approval'
       AND b.archived_at IS NULL
+      AND jo.completion_reason IS DISTINCT FROM ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
       AND NOT EXISTS (
         SELECT 1 FROM notification_deliveries nd
         WHERE nd.response_id = r.id
@@ -156,6 +166,51 @@ export async function checkZeroDeliveryNotifications(sql: postgres.Sql, cfg: Hea
     level: 'error',
     title: `${count} completed approval notification(s) produced zero deliveries in the last ${cfg.zeroDeliveryWindowS}s — owners not told`,
     detail: { count, window_s: cfg.zeroDeliveryWindowS },
+  };
+}
+
+// Durable owner-unreachable signal (F1). A pending_approval draft on a live
+// business whose LATEST completed send_notification recorded
+// completion_reason='owner_unreachable' (zero verified channel enrollments at
+// send time) and that never got an approval_request delivery. Unlike the
+// windowed checkZeroDeliveryNotifications, this is an AGE FLOOR, not a completion
+// window: it keeps firing every cycle until the draft resolves (a real
+// approval_request delivery clears it, or a later NULL-reason completion
+// supersedes the marker). ORDER BY created_at DESC (NOT completed_at, which is
+// nullable and would sort NULLs first); the '= owner_unreachable' comparison is
+// NULL-safe so a later NULL-reason completion or no completion excludes the row.
+// The approval_request-scoped NOT EXISTS means the admin-email delivery (a
+// DIFFERENT template) cannot erase the signal. Uses migration 082 indexes
+// (idx_responses_pending_approval_created, idx_jo_send_notification_by_aggregate).
+export async function checkOwnerUnreachable(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM responses r
+    JOIN businesses b ON b.id = r.business_id
+    WHERE r.status = 'pending_approval'
+      AND b.archived_at IS NULL
+      AND r.created_at < NOW() - make_interval(secs => ${cfg.ownerUnreachableAgeS})
+      AND (
+        SELECT jo.completion_reason
+        FROM job_outbox jo
+        WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+          AND jo.aggregate_id = r.id
+          AND jo.status = 'completed'
+        ORDER BY jo.created_at DESC
+        LIMIT 1
+      ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
+      AND NOT EXISTS (
+        SELECT 1 FROM notification_deliveries nd
+        WHERE nd.response_id = r.id AND nd.template = 'approval_request'
+      )
+  `;
+  const count = row?.count ?? 0;
+  if (count <= cfg.ownerUnreachableThreshold) return null;
+  return {
+    key: 'owner_unreachable',
+    level: 'warning',
+    title: `${count} approval draft(s) have no verified owner channel (owner-unreachable > ${cfg.ownerUnreachableAgeS}s) — owners cannot be notified`,
+    detail: { count, age_floor_s: cfg.ownerUnreachableAgeS },
   };
 }
 
@@ -221,6 +276,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkStaleDispatching(sql, cfg));
   collect(await checkOpenFlaggedResponses(sql, cfg));
   collect(await checkZeroDeliveryNotifications(sql, cfg));
+  collect(await checkOwnerUnreachable(sql, cfg));
   collect(await checkFailedInboundEvents(sql, cfg));
 
   // Isolate the backlog check: it reads the DB precisely when the DB is under

@@ -26,6 +26,7 @@ import {
   checkOpenFlaggedResponses,
   checkFailedOutboxByTopic,
   checkZeroDeliveryNotifications,
+  checkOwnerUnreachable,
   checkBacklogDepth,
   checkFailedInboundEvents,
   runHealthChecks,
@@ -42,6 +43,8 @@ const CFG: HealthAlertConfig = {
   flaggedOpenThreshold: 5,
   zeroDeliveryWindowS: 3600,
   backlogDepthThreshold: 1500,
+  ownerUnreachableAgeS: 14400,
+  ownerUnreachableThreshold: 0,
 };
 
 const HEALTH_ENV = [
@@ -52,6 +55,8 @@ const HEALTH_ENV = [
   'HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD',
   'HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S',
   'HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD',
+  'HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S',
+  'HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD',
 ];
 
 describe('health-alert checks', () => {
@@ -176,6 +181,29 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);
       expect(await checkZeroDeliveryNotifications(mockSql, CFG)).toBeNull();
     });
+
+    it('de-conflates owner-unreachable rows — excludes them from the zero-delivery count', async () => {
+      sqlReturnQueue.push([{ count: 0 }]);
+      await checkZeroDeliveryNotifications(mockSql, CFG);
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('completion_reason');
+      expect(queryText).toContain('IS DISTINCT FROM');
+    });
+  });
+
+  describe('checkOwnerUnreachable', () => {
+    it('returns a warning finding when the queued count exceeds the threshold', async () => {
+      sqlReturnQueue.push([{ count: 2 }]);
+      const finding = await checkOwnerUnreachable(mockSql, CFG);
+      expect(finding?.key).toBe('owner_unreachable');
+      expect(finding?.level).toBe('warning');
+      expect(finding?.detail).toEqual({ count: 2, age_floor_s: 14400 });
+    });
+    it('returns null at or below the threshold', async () => {
+      sqlReturnQueue.push([{ count: 0 }]);
+      expect(await checkOwnerUnreachable(mockSql, CFG)).toBeNull();
+    });
   });
 
   describe('checkBacklogDepth', () => {
@@ -213,14 +241,16 @@ describe('health-alert checks', () => {
   });
 
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
-  // Promise.all order: failedByTopic, oldestPending, staleDispatching, openFlagged,
-  // zeroDelivery, backlogDepth — push a queue entry per check in that order.
+  // Sequential dispatch order: failedByTopic, oldestPending, staleDispatching,
+  // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents, backlogDepth
+  // — push a queue entry per check in that order.
   function pushQuietChecksBeforeBacklog(): void {
     sqlReturnQueue.push([]);              // failedByTopic → []
     sqlReturnQueue.push([{ age: null }]); // oldestPending → null
     sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
     sqlReturnQueue.push([{ count: 0 }]);  // openFlagged → null
     sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+    sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
     sqlReturnQueue.push([]);              // failedInboundEvents → []
   }
 
@@ -243,14 +273,15 @@ describe('health-alert checks', () => {
 
   describe('runHealthChecks', () => {
     it('aggregates findings across all checks (env defaults)', async () => {
-      // Order matches Promise.all dispatch order in runHealthChecks:
+      // Order matches sequential dispatch order in runHealthChecks:
       // failedByTopic, oldestPending, staleDispatching, openFlagged,
-      // zeroDelivery, failedInboundEvents, backlogDepth
+      // zeroDelivery, ownerUnreachable, failedInboundEvents, backlogDepth
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
       sqlReturnQueue.push([{ count: 0 }]);                             // stale → null
       sqlReturnQueue.push([{ count: 10 }]);                            // flagged → finding (>5 default)
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
+      sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
@@ -275,6 +306,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
       sqlReturnQueue.push([{ count: 10 }]); // openFlagged → finding (>5 default)
       sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
+      sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
       sqlReturnQueue.push([]);              // failedInboundEvents → []
       mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
 
@@ -340,8 +372,8 @@ describe('health-alert checks', () => {
 
     // One queue entry per tagged-template QUERY, in sequential dispatch order:
     // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery,
-    // failedInboundEvents, then backlogDepth's inner SELECT (its SET LOCAL via
-    // .unsafe consumes none).
+    // ownerUnreachable, failedInboundEvents, then backlogDepth's inner SELECT (its
+    // SET LOCAL via .unsafe consumes none).
     function quietRows(): unknown[] {
       return [
         [], // failedByTopic → []
@@ -349,6 +381,7 @@ describe('health-alert checks', () => {
         [{ count: 0 }], // staleDispatching → null
         [{ count: 0 }], // openFlagged → null
         [{ count: 0 }], // zeroDelivery → null
+        [{ count: 0 }], // ownerUnreachable → null
         [], // failedInboundEvents → []
         [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
       ];
