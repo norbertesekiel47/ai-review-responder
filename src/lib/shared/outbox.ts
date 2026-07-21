@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
+import { OUTBOX_COMPLETION_REASON } from './outbox-completion-reason';
 
 /** Either the standalone `sql` client or an open `sql.begin()` transaction handle. */
 type SqlExecutor = postgres.Sql | postgres.TransactionSql;
@@ -92,6 +93,33 @@ export async function markOutboxCompletedIfOwned(
     warnOutboxNoop('markOutboxCompleted', outboxId, attempt);
   }
   return res.count > 0;
+}
+
+/**
+ * Marks a send_notification outbox entry completed with a distinct
+ * `owner_unreachable` reason — the approval draft's owner had ZERO verified
+ * channel enrollments (NotificationWorker `no_verified_enrollments` branch), so
+ * nothing was dispatched. Distinct from a plain markOutboxCompleted so
+ * HealthAlertPoller + NotificationFailoverPoller can observe + escalate it. Same
+ * attempt-guarded CAS as markOutboxCompletedIfOwned: a stale superseded attempt
+ * no-ops (0 rows logged + swallowed). Idempotent re-marking on a later retry is
+ * expected; downstream reads the LATEST completed reason, not the mere presence.
+ */
+export async function markOutboxOwnerUnreachable(
+  exec: SqlExecutor,
+  outboxId: string,
+  attempt?: number,
+): Promise<void> {
+  const res = await exec`
+    UPDATE job_outbox
+    SET status = 'completed',
+        completed_at = NOW(),
+        completion_reason = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
+    WHERE ${dispatchedRow(exec, outboxId, attempt)}
+  `;
+  if (hasAttempt(attempt) && res.count === 0) {
+    warnOutboxNoop('markOutboxOwnerUnreachable', outboxId, attempt);
+  }
 }
 
 /**
