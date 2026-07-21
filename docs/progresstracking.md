@@ -695,3 +695,144 @@ class of gap #490 hit).
 `startup-assert.ts` export).
 
 ---
+
+## 2026-07-20 — Production reliability guards P1/P2/P3/P5/P6/P7/P10 (#508)
+
+Seven of the ten findings from the pre-production reliability review, scoped as
+the mechanical/low-blast-radius "guards" branch. Branch
+`fix/prod-hardening-guards` (sibling worktree), squash-merged as `8200a8ea` via
+**PR #508**. Rode staging first (worker + ingress touched), then main. No
+migrations, no env vars.
+
+**The seven guards.**
+
+- **P1 — crash-proof zernio ingest failed-hook**
+  (`worker/jobs/zernio/ingest-failed-hook.ts`). The bare `'failed'` listener is
+  now wrapped in a last-resort never-rethrow guard (mirrors
+  `handlePublisherFailed`); a DB error during failure bookkeeping can no longer
+  become a fatal unhandled rejection that kills all queues. Refactor M3+L1:
+  `withOwnedTerminalTransition` owns the CAS-first coupled-tx contract — the
+  `markOutboxFailed` CAS runs FIRST inside `sql.begin`, coupled
+  `review_exceptions` writes run only on ownership, a stale attempt writes
+  nothing, and the `coupledTerminalTxStarted` flag keeps the crash guard from
+  splitting a rolled-back tx with a best-effort outbox write.
+  `insertReviewExceptionIfAbsent` is the single owner of the
+  byte-for-byte-critical `ON CONFLICT` predicate (type moved to a bound value).
+- **P2 — bounded Supabase admin/storage fetch**
+  (`src/lib/db/server.ts`). `boundedSupabaseFetch` attaches
+  `AbortSignal.timeout` (`SUPABASE_FETCH_TIMEOUT_MS = 10_000`, code constant).
+  **Adversarial finding 1 split the client:** bounding the shared
+  `supabaseServer` global fetch also bounded Auth identity MUTATIONS — a signUp
+  or invite committing remotely but responding >10s would surface as
+  TimeoutError with no reconciliation path (orphaned identity →
+  `account_exists` lockouts). So `supabaseServer` reverted to unbounded; new
+  `supabaseServerBounded` carries the bounded fetch and is used by the
+  account-offboarding purge wiring (`worker/index.ts` composition root) and
+  `CleanupAbandonedSignupsPoller` (its 10s `Promise.race` belt stays — it also
+  covers non-fetch hangs and preserves TIMEOUT classification).
+- **P3 — guardrail-regen transient retry**
+  (`worker/jobs/response-generation/generate-draft.ts`). **Owner decision
+  2026-07-16, overriding the documented anti-respend carve-out:** all three
+  transient classes (`TransientLLMError`, `ConcurrencyLimitExceededError`,
+  `CostInfraUnavailableError`) re-throw from BOTH guardrail catch layers →
+  BullMQ retries the job instead of terminal `guardrail_failed` (an OpenAI 503
+  during regen was silently dropping a draft the owner paid for). Accepted
+  trade-off: with Redis down, the idempotent cache may miss on retry → a
+  re-spend of the primary generation, bounded by the `generate_response`
+  queue's BullMQ attempts budget. Refactor M1: one `isTransientGenerationError`
+  predicate owns the three-class classification at all three catch sites.
+  `.claude/CLAUDE.md`'s cost-guard gotcha was updated in the same PR.
+- **P5 — non-fatal emitter `'error'` listeners** (`worker/emitter-errors.ts`,
+  wired in `worker/index.ts` + `worker/queues.ts`).
+  `attachEmitterErrorLogger(emitter, source)` on every BullMQ Queue, every
+  Worker, and the probe Redis client — an unlistened EventEmitter `'error'` is
+  `uncaughtException`, which is always fatal, so a transient Railway Redis blip
+  restarted the whole worker. Per-source 60s count-and-suppress window on both
+  the structured log and the Sentry `warning` (ioredis reconnect loops emit one
+  error per attempt across ~46 emitters — unthrottled capture is an alert
+  storm). The listener body never throws.
+- **P6 — bounded Fastify ingress** (`worker/config/fastify-options.ts`).
+  `buildFastifyOptions(nodeEnv)`: requestTimeout 30s (default is 0/disabled),
+  keepAliveTimeout 60s, connectionTimeout 10s, bodyLimit 5 MB (headroom for
+  batch Zernio payloads). Options extracted to a testable pure function;
+  `worker/index.ts` consumes it.
+- **P7 — health-alert blind spots**
+  (`worker/background/pollers/health-alert/checks.ts`). The failed-outbox topic
+  filter gains `QUEUE_NAMES.GENERATE_RESPONSE` (terminal generation failures
+  were invisible); new check on `inbound_events.status='failed'` within the
+  existing lookback window (finding key
+  `inbound_events_failed:<source>:<event_type>`), covered by the existing
+  partial index — Stripe/Zernio processing bugs had been masked ~3 days by
+  provider-side retries. Reuses existing `HEALTH_ALERT_FAILED_WINDOW_S` /
+  `_THRESHOLD` config; no schema change. `ci:tenant-scope` allowlist entry
+  added for the cross-account health query.
+- **P10 — dashboard per-widget degradation**
+  (`src/lib/dashboard/{service,aggregate-service,aggregate-queries}.ts`).
+  Per-location path: the business lookup stays fatal
+  (`BusinessNotFoundError` semantics preserved; adopted via
+  `Promise.resolve` BEFORE the `allSettled` batch so the mock-sql FIFO order
+  survives); the other queries settle independently and each degrades to its
+  per-widget fallback via `widgetOrFallback`, ALWAYS reported
+  (`reportCaughtError`) — degradation is never silent. The #495 opt-in
+  reputation batch degrades as one widget. **Aggregate path went through three
+  shapes:** (1) plan-era per-location slice exclusion; (2) post-rebase onto
+  main's #476/#495 set-based rework, the "atomic slice wave" was declared fatal;
+  (3) **adversarial finding 2 superseded that** — the wave was never atomic in
+  the failure sense (~8 independent reads under an internal `Promise.all`), so
+  one ranking/brief read timing out still 500'd the whole multi-location
+  dashboard, the exact P10 failure. Final contract: the wave's reads settle
+  independently and degrade per-query via the curried
+  `widgetOrFallbackFor('dashboard/aggregate')` (L2 refactor — correct Sentry
+  source) with per-widget names (`sliceReviewCounters`, `sliceReviewVelocity`,
+  `sliceRatingBreakdown`, `sliceRanking`, `sliceMonthlyBriefs`,
+  `sliceWeeklyBriefs`, `slicePendingApprovalCounts`), plus degradable
+  `accountBillingRows` and `accountRecentReviews`; **exactly two reads stay
+  fatal** — the locations list and the wave's baseline anchor read (slices are
+  built by iterating its rows; degrading it would render an all-zeros
+  misreporting dashboard). Known bounded trade-off: a degraded payload can sit
+  in the #495 45s cache TTL.
+
+**Key decisions (with evidence pointers).**
+
+- P3 owner override of the anti-respend carve-out — spec §P3 + CLAUDE.md
+  gotcha updated in-PR (bounded-re-spend accepted over silent draft loss).
+- Adversarial-review round (post-staging) produced two shipped amendments:
+  the Supabase client split (finding 1) and per-query slice-wave degradation
+  (finding 2) — record in
+  `docs/reviews/fix-prod-hardening-guards/plan-adversarial-round1.md`.
+- Review/gate evidence: `docs/reviews/fix-prod-hardening-guards/spec-review.md`
+  + `standards-review.md`; plan (3 revision rounds, Codex-approved):
+  `docs/superpowers/plans/2026-07-16-prod-hardening-guards.md`; deviations log:
+  `docs/superpowers/plans/fix-prod-hardening-guards-deviations.md`; P4/P8/P9
+  follow-up map:
+  `docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md`.
+  Gates: lint/typecheck/test + `ci:static-policy`/`ci:analytics-events`/
+  `ci:tenant-scope`/`ci:rls-audit` + build, green per plan; staging smoke of
+  webhook ingress + dashboard + a generation cycle before merge.
+
+**Files (production surface).** `worker/emitter-errors.ts` (new) ·
+`worker/config/fastify-options.ts` (new) · `worker/index.ts` ·
+`worker/queues.ts` · `worker/jobs/zernio/ingest-failed-hook.ts` ·
+`worker/jobs/response-generation/generate-draft.ts` ·
+`worker/background/pollers/health-alert/checks.ts` ·
+`worker/background/pollers/CleanupAbandonedSignupsPoller.ts` ·
+`src/lib/db/server.ts` · `src/lib/dashboard/service.ts` ·
+`src/lib/dashboard/aggregate-service.ts` ·
+`src/lib/dashboard/aggregate-queries.ts` ·
+`scripts/ci/tenant-scope-allowlist.ts` · tests:
+`worker/__tests__/emitter-errors.test.ts`,
+`worker/config/__tests__/fastify-options.test.ts`,
+`src/lib/db/__tests__/supabase-fetch-timeout.test.ts`,
+`src/lib/dashboard/__tests__/{service,aggregate-service}.degradation.test.ts`,
+plus extended ingest-failed-hook / generate-draft / health-checks suites.
+
+**Doc-change-map applied (this sweep).** Updated `currents.md`, this history,
+`.claude/reference/lab-notes.md` (4 notes: bounded-fetch identity split,
+emitter-error fatality + suppress window, `AbortSignal.timeout` vs fake
+timers, `markOutboxFailed` CAS ownership-in-tx), the review-ingestion
+exception-write note, and `.claude/CLAUDE.md` Worker layout (two one-line
+entries for the new boot-level files; the cost-guard gotcha was updated inside
+PR #508 itself). Skipped `env-vars.md` (no operator variable — all bounds are
+code constants) and `migrations-log.md` (no migration).
+
+---
