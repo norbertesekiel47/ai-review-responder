@@ -6,7 +6,20 @@ vi.mock('postgres', () => ({
   default: vi.fn(() => Object.assign(vi.fn(), { json: vi.fn() })),
 }));
 
-import { boundedSupabaseFetch, SUPABASE_FETCH_TIMEOUT_MS } from '../server';
+// createClient is mocked so the client-split tests below can assert on the
+// OPTIONS each module-scope client was constructed with (each call returns a
+// fresh object so instance-identity assertions stay meaningful).
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({})),
+}));
+
+import { createClient } from '@supabase/supabase-js';
+import {
+  boundedSupabaseFetch,
+  SUPABASE_FETCH_TIMEOUT_MS,
+  supabaseServer,
+  supabaseServerBounded,
+} from '../server';
 
 describe('boundedSupabaseFetch', () => {
   it('attaches a timeout signal when the caller passes none', async () => {
@@ -56,4 +69,32 @@ describe('boundedSupabaseFetch', () => {
     expect((inner.mock.calls[0]![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
     vi.unstubAllGlobals();
   });
+});
+
+// Adversarial finding 1: the 10s fetch bound must NOT apply to the shared
+// `supabaseServer` client — it also serves Auth identity MUTATIONS (signup
+// provisioning, invites), where a mutation that commits remotely but responds
+// slowly would surface as TimeoutError with no reconciliation (orphaned Auth
+// identity → `account_exists` lockouts). Only the worker-facing
+// `supabaseServerBounded` client installs boundedSupabaseFetch.
+// Both clients are created at module load, in source order: supabaseServer
+// first, supabaseServerBounded second — asserted by call index.
+describe('supabase server client split', () => {
+  it('creates supabaseServer WITHOUT a custom fetch (identity mutations stay unbounded)', () => {
+    const call = vi.mocked(createClient).mock.calls[0]!;
+    const options = call[2] as { global?: { fetch?: unknown } } | undefined;
+    expect(options?.global?.fetch).toBeUndefined();
+  });
+
+  it('creates supabaseServerBounded WITH boundedSupabaseFetch as its injected fetch', () => {
+    const call = vi.mocked(createClient).mock.calls[1]!;
+    const options = call[2] as { global?: { fetch?: unknown } } | undefined;
+    expect(options?.global?.fetch).toBe(boundedSupabaseFetch);
+  });
+
+  it('exports two distinct client instances', () => {
+    expect(vi.mocked(createClient)).toHaveBeenCalledTimes(2);
+    expect(supabaseServerBounded).not.toBe(supabaseServer);
+  });
+
 });

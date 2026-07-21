@@ -229,7 +229,33 @@ export function boundedSupabaseFetch(
   return fetch(input, { ...init, signal });
 }
 
+/**
+ * UNBOUNDED shared client — the default for request flows and every Auth
+ * identity MUTATION (signup provisioning, invites, password flows). These
+ * calls keep supabase-js's native fetch semantics on purpose: a mutation that
+ * commits remotely but responds slowly must NOT surface as a TimeoutError with
+ * no reconciliation path — an aborted-but-committed signUp/createUser leaves
+ * an orphaned Auth identity and later `account_exists` lockouts. Use
+ * `supabaseServerBounded` instead only where hanging is worse than ambiguity.
+ */
 export const supabaseServer = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!,
+);
+
+/**
+ * BOUNDED client (10s via `boundedSupabaseFetch`) for worker-side admin /
+ * storage operations that must never hang a BullMQ slot or wedge a poller
+ * cycle: the account-offboarding purge path and the abandoned-signups cleanup
+ * poller (whose deleteUser calls are retried/idempotent — "user not found" is
+ * success — so an abort-after-commit is reconciled on the next attempt).
+ * Never route identity-CREATING mutations through this client.
+ *
+ * Two server-side GoTrue instances may log a benign "Multiple GoTrueClient
+ * instances" warning; both clients are stateless service-role clients, so no
+ * session storage is shared or clobbered.
+ */
+export const supabaseServerBounded = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!,
   { global: { fetch: boundedSupabaseFetch } },

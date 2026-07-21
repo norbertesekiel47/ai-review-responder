@@ -108,7 +108,7 @@ import { awaitQueueReadiness, isBootStaggerEnabled, runBootCoordinator } from '.
 import { isMockMode } from '../src/lib/shared/mock-mode';
 import { createWorkerLogger, toError } from '../src/lib/shared/logger';
 import { runReadinessProbes } from '../src/lib/shared/readiness';
-import { sql, supabaseServer, closeAllPostgresClients, SHARED_POOL_MAX } from '../src/lib/db/server';
+import { sql, supabaseServerBounded, closeAllPostgresClients, SHARED_POOL_MAX } from '../src/lib/db/server';
 import {
   probePoolWait,
   DEFAULT_POOL_WAIT_TIMEOUT_MS,
@@ -352,7 +352,10 @@ const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPa
 
 const accountOffboardingPurgeWorker = new Worker<AccountOffboardingPurgePayload>(
   QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE,
-  withJobLogContext<AccountOffboardingPurgePayload>((job) => handleAccountOffboardingPurge(sql, supabaseServer, job)),
+  // Bounded Supabase client (10s fetch cap): a hung auth.admin call must not
+  // hold this BullMQ slot forever. The purge stage is idempotent ("user not
+  // found" = success), so an abort-after-commit reconciles on the retry.
+  withJobLogContext<AccountOffboardingPurgePayload>((job) => handleAccountOffboardingPurge(sql, supabaseServerBounded, job)),
   workerOpts,
 );
 

@@ -159,6 +159,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (value: unknown) => value,
   supabaseServer: mockSupabaseServer,
+  supabaseServerBounded: mockSupabaseServer,
 }));
 
 vi.mock('../../../../src/lib/shared/outbox', async (importOriginal) => {
