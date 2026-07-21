@@ -112,8 +112,8 @@ export function assertSingleConcurrencyWorker(
   }
 }
 
-export const SUMMED_LLM_WORKER_SLOT_CAP = 9;
-export const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
+const SUMMED_LLM_WORKER_SLOT_CAP = 9;
+const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
 
 /**
  * Boot-time guard for the per-process LLM worker-slot cap (ADR 0005 addendum,

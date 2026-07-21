@@ -25,16 +25,35 @@ Branch: `fix/verification-remainders` (base: main @ eaf4f3f2)
 - Step 7 REVIEW: spec-correctness NO FINDINGS; standards approve-with-2
   (harness dup ACCEPTED-DEFERRED follow-up; membership comment REJECTED).
   Full reports + triage verdicts in docs/reviews/fix-verification-remainders/.
-- Step 8 SHIP: NEXT. High-risk lane: (1) apply migration 082 to STAGING
-  Supabase first (CONCURRENTLY, outside transaction, recovery in header);
-  (2) merge branch → staging, push (full stack auto-deploys); (3) capture
-  EXPLAIN (ANALYZE, BUFFERS) on staging for the three
-  NotificationFailoverPoller target queries → attach to PR (INCLUDE-column
-  decision point); (4) PR to main, CI green, PAUSE for user merge approval;
-  (5) at promotion apply 082 to PROD Supabase in lockstep; (6) post-merge:
-  ff-pull main, ff staging, remove worktree, delete branch,
-  document-feature sweep, domain sweep, entropy counter, and remind user:
-  manual `rm poller_cursors.cursor` in the PARENT checkout.
+- Step 8 SHIP: IN PROGRESS — **PAUSED for user merge approval on PR #511**.
+  Done: (1) ✅ migration 082 applied to STAGING Supabase (both indexes
+  indisvalid=indisready=true, predicates exact); (2) ✅ merged
+  fix/verification-remainders → staging as f9a75bb3 (only .feature/intake.json
+  scratch conflict, resolved to feature version; worker/index.ts auto-merged
+  clean), reset stale local staging to origin/staging first (local was
+  pre-squash #480/#500 ride commits already on main), ff-pushed
+  80e6a5e4..f9a75bb3; (3) ✅ staging worker booted clean — "readiness cure
+  complete" logged (prints only AFTER assertSummedLlmWorkerSlots), one
+  "Starting Container" (no crash-loop), no error logs; real merged inventory
+  sums to 9; (4) ✅ EXPLAIN (ANALYZE, BUFFERS) captured on staging for the 3
+  target queries (Q1 correlation → Index Scan idx_jo_send_notification_by_aggregate;
+  sweep driving scan forced → Index Scan idx_responses_pending_approval_created,
+  ordering from index/no Sort; INCLUDE deferred to prod EXPLAIN) — attached to
+  PR #511; (5) ✅ PR #511 opened → main.
+  REMAINING (after user merge approval): (a) at promotion apply 082 to PROD
+  Supabase in lockstep (CONCURRENTLY, non-transactional, verify indisvalid);
+  (b) post-merge: ff-pull main, ff staging onto main, remove worktree, delete
+  branch, document-feature sweep, domain sweep, entropy counter, and remind
+  user: manual `rm poller_cursors.cursor` in the PARENT checkout.
+  Note: staging-ride worktree left linked to Railway staging env
+  (repworth-worker) via CLI for log access.
+  Post-open fix: CI `fallow` (non-required) flagged 2 unused exports
+  (SUMMED_LLM_WORKER_SLOT_CAP, FLAG_GATED_LLM_WORKER_SLOT_CAP) — made both
+  module-private in startup-assert.ts (no external consumers; boundary tests
+  pin 9/10 as concrete values by design). Verify gate re-run GREEN + fallow
+  clean locally; re-pushed. This fix is on the FEATURE branch only — staging
+  (f9a75bb3) has the pre-fix export version; harmless at runtime, reconciled
+  when staging is ff'd onto main post-merge.
 
 ## Follow-up tickets to file (from review triage)
 - Extract the shared DB-guard test harness (5 duplicate copies:
