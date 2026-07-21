@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node';
 import { createWorkerLogger } from '../shared/logger';
 import { isTransientLLMError } from './error-classifier';
+import { llmCircuitBreakerEnabled } from './flags';
 import type { LLMProviderId } from './types';
 
 // The LLM provider circuit breaker: an in-process, per-provider breaker in the
@@ -27,18 +28,19 @@ function freshProviderState(): ProviderState {
 
 const logger = createWorkerLogger('[llm:circuit-breaker]');
 
-function readEnabledFromEnv(): boolean {
-  return process.env.LLM_CIRCUIT_BREAKER_ENABLED !== 'false';
-}
-
 export class LlmCircuitBreaker {
   private readonly now: () => number;
-  private enabled: boolean;
+  private readonly enabledOverride?: boolean;
   private readonly providers = new Map<LLMProviderId, ProviderState>();
 
   constructor(opts?: { now?: () => number; enabled?: boolean }) {
     this.now = opts?.now ?? Date.now;
-    this.enabled = opts?.enabled ?? readEnabledFromEnv();
+    this.enabledOverride = opts?.enabled;
+  }
+
+  /** Live per-call read: a test override wins, otherwise the flag accessor. */
+  private isEnabled(): boolean {
+    return this.enabledOverride ?? llmCircuitBreakerEnabled();
   }
 
   private get(provider: LLMProviderId): ProviderState {
@@ -51,7 +53,7 @@ export class LlmCircuitBreaker {
   }
 
   shouldAttempt(provider: LLMProviderId): boolean {
-    if (!this.enabled) return true;
+    if (!this.isEnabled()) return true;
 
     const entry = this.get(provider);
     if (entry.state === 'closed') return true;
@@ -75,7 +77,7 @@ export class LlmCircuitBreaker {
   }
 
   recordOutcome(provider: LLMProviderId, error?: unknown): void {
-    if (!this.enabled) return;
+    if (!this.isEnabled()) return;
 
     const entry = this.get(provider);
     const success = error === undefined;
@@ -110,9 +112,10 @@ export class LlmCircuitBreaker {
     // nonTransientFailure while closed: not the breaker's concern — ignore.
   }
 
+  /** Clear all per-provider state. The enabled flag is read live per-call, so
+   * there is nothing to re-read here. */
   reset(): void {
     this.providers.clear();
-    this.enabled = readEnabledFromEnv();
   }
 
   /** Set the new state and emit one alert per real transition. */
