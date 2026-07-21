@@ -369,8 +369,16 @@ function planOverageMutation(input: {
 
 // These Stripe calls run while two pg advisory locks + FOR UPDATE are held, so
 // a slow provider would pin the locked transaction open. Bound every under-lock
-// request to a short per-call budget with no network retries. Single owner of
-// the bound — no literal timeout/retry values live anywhere else.
+// request to a short per-call timeout with retries disabled. Single owner of the
+// bound — no literal timeout/retry values live anywhere else.
+//
+// Caveat (stripe-node 22.2.0, RequestSender._shouldRetry): maxNetworkRetries:0 is
+// NOT an absolute single-attempt guarantee — an ECONNRESET/EPIPE on the FIRST
+// attempt still triggers exactly one retry before the maxRetries check. That path
+// fails fast (a reset is near-instant, not a full timeout), and each attempt is
+// still capped at `timeout`, so a hung provider (ETIMEDOUT — the case this bound
+// targets) gets exactly one 8s attempt; the reset case adds at most one more ≤8s
+// attempt. Worst-case lock hold ≈ 26s (down from ~60s+), not a hard 24s.
 const STRIPE_UNDER_LOCK_REQUEST_OPTIONS = { timeout: 8_000, maxNetworkRetries: 0 } as const;
 
 function stripeOptions(accountId: string, operationKey: string, step: string) {

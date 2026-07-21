@@ -2,7 +2,7 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": false,
-  "goal": "Bound each Stripe call made inside applyTierChangeInTx while the tier entitlement + billing advisory locks and FOR UPDATE are held to a short per-call { timeout: 8000, maxNetworkRetries: 0 }, capping worst-case advisory-lock hold from ~60s+ to ~24s, with no structural restructure of tier-change.ts.",
+  "goal": "Bound each Stripe call made inside applyTierChangeInTx while the tier entitlement + billing advisory locks and FOR UPDATE are held to a short per-call { timeout: 8000, maxNetworkRetries: 0 }, capping worst-case advisory-lock hold from ~60s+ to ~26s, with no structural restructure of tier-change.ts. (stripe-node 22.2.0 caveat: maxNetworkRetries:0 still permits exactly one ECONNRESET/EPIPE retry on the first attempt — a fast-failing path, each attempt still capped at 8s; a hung provider, the target case, gets a single 8s attempt.)",
   "non_goals": [
     "No restructure of applyTierChangeInTx / buildTierChangeProviderPlan / mutateStripe (LOCKED minimal fix).",
     "No moving Stripe calls out of the sql.begin transaction or out of the lock scope.",
@@ -16,7 +16,7 @@
     "No change to the success path: a normal tier change still succeeds with the same billing outcome and audit."
   ],
   "invariants": [
-    "Every Stripe call executed inside applyTierChangeInTx (subscriptions.retrieve, base subscriptionItems.update, and the overage update/create/del) carries timeout=8000 and maxNetworkRetries=0.",
+    "Every Stripe call executed inside applyTierChangeInTx (subscriptions.retrieve, base subscriptionItems.update, and the overage update/create/del) carries the RequestOptions timeout=8000 and maxNetworkRetries=0. (Note: the SDK still permits one ECONNRESET/EPIPE retry on the first attempt regardless of maxNetworkRetries=0; each attempt is bounded by the 8s timeout, so this is an at-most-2-attempts bound on abrupt resets, not a strict single-attempt guarantee.)",
     "Every mutating Stripe call keeps its stable per-step idempotency key tier-change:{accountId}:{operationKey}:{step} unchanged.",
     "The bound value has a single authoritative owner (one named constant), not repeated literals per call site.",
     "On any Stripe failure/timeout the DB transaction rolls back (no tier snapshot, no audit) exactly as today; the change never partially commits DB state.",

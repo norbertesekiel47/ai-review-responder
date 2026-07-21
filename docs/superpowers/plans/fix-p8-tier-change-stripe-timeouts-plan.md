@@ -7,7 +7,7 @@ Ticket: `docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md` §F2.
 
 - **Mechanism:** per-call Stripe `RequestOptions` overrides (NOT a second client).
 - **Bound:** `{ timeout: 8_000, maxNetworkRetries: 0 }` per call. Worst case 3
-  sequential calls ⇒ ~24s lock hold (down from ~60s+).
+  sequential calls ⇒ ~26s lock hold (down from ~60s+). See "SDK retry caveat".
 - **Recovery on timeout:** none added. tx rolls back → route 502
   `tier_change_failed` → caller retries same `Idempotency-Key` (Stripe replays via
   the unchanged per-step idempotency keys); `customer.subscription.updated`
@@ -72,3 +72,19 @@ No `verification_commands` beyond standard (backend, not db-touching, not ui).
   Accepted: retries balloon lock hold; op is caller-retryable + Stripe-idempotent.
 - Drift-until-webhook window on caller abandonment is pre-existing (the current
   20s/2-retry client has the same rollback-after-Stripe-mutation window); not new.
+
+## SDK retry caveat (codex adversarial review, 2026-07-20 — verified, accepted)
+
+`maxNetworkRetries: 0` is NOT an absolute single-attempt guarantee in stripe-node
+22.2.0: `RequestSender._shouldRetry` (RequestSender.js:155-160) retries once on an
+ECONNRESET/EPIPE on the FIRST attempt BEFORE the `numRetries >= maxRetries` check.
+Verified impact is bounded and marginal, so we ship as-is with corrected wording:
+- The target scenario — a hung/slow provider — surfaces as a timeout
+  (`makeTimeoutError` → TIMEOUT_ERROR_CODE, NOT in `CONNECTION_CLOSED_ERROR_CODES`
+  = ['ECONNRESET','EPIPE']), so it does NOT retry: exactly one 8s attempt.
+- An abrupt reset fails fast (near-instant, not an 8s wait); its single retry adds
+  at most one more ≤8s attempt. Realistic worst-case lock hold ≈ 26s, not ~48s.
+- No "assert no 2nd request on ECONNRESET" test is added — the SDK genuinely
+  retries there, so such a test would assert a false invariant.
+A hard wall-clock deadline (Promise.race/AbortController) was considered and
+rejected: it exceeds the LOCKED minimal-fix and the gain over ~26s is ~2s.
