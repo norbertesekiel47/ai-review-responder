@@ -3,7 +3,27 @@
 Branch: `fix-p8-tier-change-stripe-timeouts` (worktree
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-p8-tier-change-stripe-timeouts`).
 
-## State: step 4 (EXECUTE) — plan signed off, plan adversarially APPROVED (codex).
+## State: step 8 (SHIP) — ready to ride staging, then PR to main.
+
+### Review verdicts (steps 6–7, all triaged)
+- Step 6 codex adversarial: 1 finding (maxNetworkRetries:0 still retries once on
+  ECONNRESET/EPIPE). VERIFIED real; owner chose "ship + correct invariant". Fixed
+  wording in code comment / intake / plan (worst case ~26s, not ~24s). No behavior
+  change. Full triage: docs/reviews/.../adversarial-review.md.
+- Step 7 spec & correctness: 0 findings ≥80%. Contract faithfully implemented.
+- Step 7 standards & maintainability: 0 findings ≥80% (APPROVE). 4 low-confidence
+  appendix notes, no action (minimal-fix). Report: docs/reviews/.../standards.md.
+- Gate re-run GREEN after every fix round (.feature/gate-status.json).
+
+### Commits on branch
+- ead63b01 intake · 04915df7 implementation · 28882445 wording correction · (+review docs)
+
+### Step 8 lane (RISK=high, db_touching=FALSE → no migration lockstep)
+1. Ride staging: push branch onto `staging` (full-stack auto-deploy).
+2. Smoke tier-change path on staging (BillingPanel tier change, Stripe test mode).
+3. PR to main → confirm CI green → PAUSE for owner merge approval.
+4. After merge: pull --ff-only main; ff staging onto main; remove worktree;
+   document-feature sweep; domain sweep; increment arch-review merge counter.
 
 ## Read these (do NOT restate; open on demand)
 - Intake contract: `.feature/intake.json`
