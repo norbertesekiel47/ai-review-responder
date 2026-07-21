@@ -148,14 +148,21 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
  * This arm (a) re-enqueues send_notification so delivery retries once a channel
  * might exist, and (b) sends a best-effort 24h-deduped admin escalation email.
  *
+ * The candidate SELECT excludes drafts with an in-flight send_notification
+ * (matching the all-failed/stale arms) so a backlog of in-flight-stuck oldest
+ * rows can't monopolize the BATCH_LIMIT and starve newer drafts. Excluded rows
+ * wait ~1 retry cycle for their admin email; the durable Sentry
+ * `checkOwnerUnreachable` finding covers them meanwhile.
+ *
  * The re-enqueue is advisory-locked and re-checked INSIDE the lock: the candidate
  * SELECT is stale by the time we act, and the plain in-flight `NOT EXISTS` guard
  * alone is not race-safe against a concurrent poller (no unique in-flight index
  * exists). Two independent flags are re-checked under the lock:
  *   - `unreachable` — still owner-unreachable NOW (incl. the 4h age floor). Gates
- *     the admin email, so it fires even when a retry is ALREADY in-flight (no
- *     starvation, R3-B), but NOT after the owner resolved.
- *   - `in_flight` — a live send_notification exists; gates the retry INSERT only.
+ *     the admin email (R3-B), but NOT after the owner resolved.
+ *   - `in_flight` — a live send_notification exists; gates the retry INSERT. Now
+ *     guards the concurrency race (a second poller enqueued between our candidate
+ *     SELECT and our lock), not steady-state in-flight rows (already excluded).
  * `sql.begin` returns `unreachable` so a commit failure (throws) => NO email (R3-C).
  */
 async function processOwnerUnreachable(
@@ -186,6 +193,12 @@ async function processOwnerUnreachable(
       AND NOT EXISTS (
         SELECT 1 FROM notification_deliveries nd
         WHERE nd.response_id = resp.id AND nd.template = 'approval_request'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM job_outbox jo
+        WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+          AND jo.aggregate_id = resp.id
+          AND jo.status IN ('pending', 'dispatching', 'dispatched')
       )
     ORDER BY resp.created_at ASC
     LIMIT ${BATCH_LIMIT}

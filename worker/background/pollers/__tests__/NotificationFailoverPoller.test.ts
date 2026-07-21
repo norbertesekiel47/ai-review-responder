@@ -417,11 +417,14 @@ describe('NotificationFailoverPoller — owner-unreachable arm', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('(c) retry already in-flight: no re-enqueue but the admin email still fires', async () => {
+  it('(c) concurrency race — locked re-check finds a retry already in-flight: no re-enqueue but the admin email still fires', async () => {
+    // Steady-state in-flight rows are excluded at the candidate level now; this
+    // models the race where a concurrent poller enqueued a retry between our
+    // candidate SELECT and our advisory lock — the locked re-check catches it.
     sqlReturnQueue.push([OWNER_UNREACHABLE_ROW]);         // candidate SELECT
     sqlReturnQueue.push([]);                               // recover: existingSend lookup
     sqlReturnQueue.push([]);                               // recover: upstream lookup
-    sqlReturnQueue.push([{ unreachable: true, in_flight: true }]); // still unreachable, retry in-flight
+    sqlReturnQueue.push([{ unreachable: true, in_flight: true }]); // still unreachable, concurrent retry in-flight
     sqlReturnQueue.push([]);                               // tryClaimAlert 24h dedup check
     sqlReturnQueue.push([]);                               // tryClaimAlert delivery INSERT
 

@@ -240,15 +240,27 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
     expect(await countAdminAlertDeliveries(responseId)).toBe(0);
   });
 
-  it('(b) only an in-flight send_notification (no completed owner_unreachable marker) → excluded, no retry, no alert', async () => {
-    // The candidate predicate keys off the LATEST *completed* send_notification's
-    // reason. A merely in-flight (uncompleted) row leaves that subquery NULL, so
-    // the draft is never selected — hence no email. (This is the reconciliation of
-    // the spec's "in-flight → no email" with R3-B "email fires when in-flight": the
-    // *twice-run* case (c) exercises the in-flight retry-gate WITH a completed
-    // marker, where the email fires once and is then 24h-deduped.)
+  it('(b) completed owner_unreachable marker AND a newer in-flight send_notification → excluded from candidate, no retry, no alert', async () => {
+    // The candidate now excludes any draft with a live in-flight send_notification
+    // (matching the all-failed/stale arms), so a stuck in-flight retry can't
+    // monopolize the batch and starve newer drafts. Seed a genuine owner-unreachable
+    // draft (LATEST completed send_notification = owner_unreachable) PLUS a newer
+    // in-flight (dispatched) retry: the completed-reason subquery still matches, but
+    // the in-flight NOT EXISTS excludes the row at the candidate level → no retry,
+    // no email. (The excluded draft's admin email waits ~1 retry cycle; the durable
+    // Sentry checkOwnerUnreachable finding covers it meanwhile.)
     const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
-    await insertSendNotifOutbox({ responseId, status: 'dispatched', createdAtExpr: AGED });
+    await insertSendNotifOutbox({
+      responseId,
+      status: 'completed',
+      completionReason: OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE,
+      createdAtExpr: "NOW() - INTERVAL '5 hours'",
+    });
+    await insertSendNotifOutbox({
+      responseId,
+      status: 'dispatched',
+      createdAtExpr: "NOW() - INTERVAL '1 hour'", // newer, in-flight retry
+    });
 
     await runFailoverPollerOnce();
 
@@ -266,8 +278,9 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
     });
 
     await runFailoverPollerOnce();
-    // Second pass: the pending retry from pass 1 is now in-flight, so the locked
-    // re-check gates the retry INSERT; the admin alert is 24h-deduped.
+    // Second pass: the pending retry from pass 1 is now in-flight, so the candidate
+    // SELECT excludes the draft entirely — no second retry INSERT and no second
+    // admin alert (it would also be 24h-deduped had the row been re-selected).
     await runFailoverPollerOnce();
 
     expect(await countPendingRetries(responseId)).toBe(1);
