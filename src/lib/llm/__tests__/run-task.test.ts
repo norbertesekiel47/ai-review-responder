@@ -444,6 +444,48 @@ describe('runLlmTask', () => {
       expect(anthropicComplete).toHaveBeenCalledOnce();
     });
 
+    // ST-2 (step-7 standards): a blocked provider must NOT erase a real
+    // transient cause. When the fallback actually fails transiently, the
+    // retryable TransientLLMError must wrap THAT error (for the failover log),
+    // not the synthetic LlmCircuitOpenError marker.
+    it('primary blocked + fallback transient → wraps the REAL fallback cause, not LlmCircuitOpenError', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('openai');
+      const fallbackTransient = transientError('anthropic timeout');
+      anthropicComplete.mockRejectedValueOnce(fallbackTransient);
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(fallbackTransient);
+      }
+    });
+
+    // ST-2 boundary: with NO real transient cause to preserve (both providers
+    // blocked), the synthetic LlmCircuitOpenError marker is the cause — still
+    // retryable, just contextless because there is no attempted error to carry.
+    it('both providers blocked → cause is the LlmCircuitOpenError marker', async () => {
+      tripOpen('openai');
+      tripOpen('anthropic');
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        const cause = (err as InstanceType<typeof TransientLLMError>).cause;
+        expect((cause as Error).name).toBe('LlmCircuitOpenError');
+      }
+    });
+
     // Row 2: primary blocked + fallback permanent → TransientLLMError (sawBlocked ⟹ retry).
     it('primary blocked + fallback permanent → TransientLLMError (sawBlocked wins)', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});

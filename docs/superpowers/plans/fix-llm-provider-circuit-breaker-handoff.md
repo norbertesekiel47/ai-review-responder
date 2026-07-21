@@ -7,7 +7,25 @@ needs the prior transcript.
 
 ## Current step
 
-**Steps 1–5 COMPLETE. Next: step 6 (adversarial review, RISK=high).**
+**Steps 1–6 COMPLETE. Step 7 (dual review) IN PROGRESS.**
+
+- **Step 6 (adversarial, Codex) DONE** → verdict needs-attention, 2 real findings,
+  both triaged ACCEPT and FIXED in commit `864e7d5c`:
+  - F1 (high): epoch-correlated `Admission` token — `shouldAttempt` returns
+    `Admission | null`, `recordAttempt(admission, error?)` ignores stale-epoch
+    outcomes (fixes concurrent stale-success-closes-during-cooldown).
+  - F2 (medium): `shouldAttempt` clears provider state when disabled (no stuck
+    half_open on in-process toggle); stale plan-doc flag-timing corrected.
+  - Report + verdicts: `docs/reviews/fix-llm-provider-circuit-breaker/step6-adversarial-codex.md`
+  - Deviations: `docs/superpowers/plans/fix-llm-provider-circuit-breaker-deviations.md` (D1/D2/D3)
+- **Step 5 gate RE-RUN GREEN after fixes** (commit 864e7d5c): 9002 tests pass,
+  all `ci:*` audits pass, `.feature/gate-status.json` fresh (newer than HEAD),
+  stop-gate exit 0.
+- **Step 7 dispatched**: two parallel review agents on `git diff 880435ba...HEAD`
+  → reports to `docs/reviews/fix-llm-provider-circuit-breaker/step7-{spec-correctness,standards}.md`.
+  Awaiting findings tables → triage → re-run gate → then step 8 SHIP.
+
+### (historical) Steps 1–5
 
 - Step 4 (EXECUTE) done — T1/T2/T3 built via subagent TDD.
 - Step 5 (VERIFY GATE) **GREEN** — full suite (9187 tests) + every `ci:*` audit

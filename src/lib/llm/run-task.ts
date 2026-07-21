@@ -109,6 +109,18 @@ class LlmCircuitOpenError extends Error {
 }
 
 /**
+ * At least one provider was blocked by the breaker, so the outcome must stay
+ * retryable regardless of what the attempted providers returned. Prefer the
+ * most recent real transient cause (network/5xx/timeout) so the failover log
+ * keeps its diagnostic context; fall back to the synthetic LlmCircuitOpenError
+ * only when no attempt produced a transient error (e.g. every provider blocked).
+ */
+function throwBlocked(attemptErrors: readonly unknown[]): never {
+  const transientCause = [...attemptErrors].reverse().find(isTransientLLMError);
+  throw new TransientLLMError(transientCause ?? new LlmCircuitOpenError());
+}
+
+/**
  * One provider attempt, gated by the LLM provider circuit breaker.
  * - `blocked`: the breaker refused the attempt — no provider call, no error,
  *   NOT an entry in attemptErrors (it must never be mistaken for a transient
@@ -171,7 +183,7 @@ export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise
   else sawBlocked = true;
 
   if (!task.fallback) {
-    if (sawBlocked) throw new TransientLLMError(new LlmCircuitOpenError());
+    if (sawBlocked) throwBlocked(attemptErrors);
     throwExhaustedAttempts(attemptErrors);
   }
 
@@ -196,6 +208,6 @@ export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise
   // Blocked ⟹ retryable: a skipped provider may succeed on a later retry.
   // Otherwise fall back to the unchanged transient/terminal classification over
   // the attempted errors.
-  if (sawBlocked) throw new TransientLLMError(new LlmCircuitOpenError());
+  if (sawBlocked) throwBlocked(attemptErrors);
   throwExhaustedAttempts(attemptErrors);
 }

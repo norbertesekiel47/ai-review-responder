@@ -37,14 +37,14 @@ interface ProviderState {
  * attempt was admitted under: an outcome whose epoch no longer matches the
  * provider's current epoch is stale (the breaker has since transitioned) and
  * must never mutate state — otherwise a slow pre-trip success could close the
- * breaker DURING its cooldown and re-flood a just-tripped provider. `bypass`
- * marks the token minted while the breaker is disabled: the caller still calls
- * the provider, but recordAttempt ignores the outcome entirely.
+ * breaker DURING its cooldown and re-flood a just-tripped provider. While the
+ * breaker is disabled shouldAttempt still returns a token (so the caller calls
+ * the provider), but recordAttempt short-circuits on the disabled check before
+ * it ever reads the token.
  */
 export interface Admission {
   provider: LLMProviderId;
   epoch: number;
-  bypass?: boolean;
 }
 
 function freshProviderState(): ProviderState {
@@ -83,11 +83,12 @@ export class LlmCircuitBreaker {
   shouldAttempt(provider: LLMProviderId): Admission | null {
     if (!this.isEnabled()) {
       // Disabled: drop any tracked state so a disable→enable toggle within one
-      // process cannot resurrect a stuck half_open + probeInFlight. The bypass
-      // token is non-null so the caller still calls the provider; recordAttempt
-      // ignores its outcome.
+      // process cannot resurrect a stuck half_open + probeInFlight. A non-null
+      // token is returned so the caller still calls the provider; recordAttempt
+      // ignores its outcome (the disabled check short-circuits before the epoch
+      // is read, so the sentinel epoch is never compared).
       this.providers.delete(provider);
-      return { provider, epoch: -1, bypass: true };
+      return { provider, epoch: -1 };
     }
 
     const entry = this.get(provider);
