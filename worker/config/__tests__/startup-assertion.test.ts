@@ -8,6 +8,7 @@ import {
   assertSelfServeSignupEnv,
   assertSingleConcurrencyWorker,
   assertStripeWorkerEnv,
+  assertSummedLlmWorkerSlots,
   assertWorkerStartupEnv,
   warnMissingProductionEnv,
 } from '../startup-assert';
@@ -887,5 +888,67 @@ describe('assertSingleConcurrencyWorker', () => {
     expect(() =>
       assertSingleConcurrencyWorker('update_stripe_overage', {}),
     ).toThrow(/got undefined/);
+  });
+});
+
+describe('assertSummedLlmWorkerSlots', () => {
+  const nonGatedAtNine = [
+    { queueName: 'generate_response', opts: { concurrency: 5 } },
+    { queueName: 'generate_demo', opts: {} },
+    { queueName: 'weekly_summary', opts: {} },
+    { queueName: 'send_monthly_impact', opts: {} },
+    { queueName: 'onboarding_demo_response', opts: { concurrency: 1 } },
+  ];
+
+  it('passes when the non-flag-gated worker-slot sum is exactly 9 (mixed explicit/undefined opts)', () => {
+    expect(() => assertSummedLlmWorkerSlots(nonGatedAtNine)).not.toThrow();
+  });
+
+  it('throws when the non-flag-gated sum reaches 10, naming the queues, the sum, and the cap', () => {
+    const entries = [
+      ...nonGatedAtNine,
+      { queueName: 'extra_llm_queue', opts: {} },
+    ];
+    expect(() => assertSummedLlmWorkerSlots(entries)).toThrow(
+      /generate_response.*extra_llm_queue.*10.*9/,
+    );
+  });
+
+  it('counts undefined concurrency as 1 (BullMQ default)', () => {
+    const nineBareWorkers = Array.from({ length: 9 }, (_, i) => ({
+      queueName: `bare_queue_${i}`,
+      opts: {},
+    }));
+    expect(() => assertSummedLlmWorkerSlots(nineBareWorkers)).not.toThrow();
+    expect(() =>
+      assertSummedLlmWorkerSlots([...nineBareWorkers, { queueName: 'bare_queue_9', opts: {} }]),
+    ).toThrow(/10.*9/);
+  });
+
+  it('passes a flag-gated entry at 1 alongside a non-gated sum of 9', () => {
+    const entries = [
+      ...nonGatedAtNine,
+      { queueName: 'judge_verdict', opts: { concurrency: 1 }, flagGated: true },
+    ];
+    expect(() => assertSummedLlmWorkerSlots(entries)).not.toThrow();
+  });
+
+  it('throws when a flag-gated entry exceeds 1', () => {
+    const entries = [
+      ...nonGatedAtNine,
+      { queueName: 'judge_verdict', opts: { concurrency: 2 }, flagGated: true },
+    ];
+    expect(() => assertSummedLlmWorkerSlots(entries)).toThrow(/judge_verdict.*2.*1/);
+  });
+
+  it('fails boot on drift: the 5-slot queue edited to 6 pushes the sum to 10', () => {
+    const drifted = nonGatedAtNine.map((entry) =>
+      entry.queueName === 'generate_response'
+        ? { ...entry, opts: { concurrency: 6 } }
+        : entry,
+    );
+    expect(() => assertSummedLlmWorkerSlots(drifted)).toThrow(
+      /generate_response.*10.*9/,
+    );
   });
 });

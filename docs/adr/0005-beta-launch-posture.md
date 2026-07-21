@@ -110,3 +110,13 @@ rate limits fail open. Tripwires: the outbox backlog-depth alert
 existing outbox-lag alert. No multi-region replica; no Railway-Redis fallback
 (it would re-couple the deliberately split Redis roles). Revisit at
 auto-approval go-live or >500 locations.
+
+**Amendment (2026-07-20) — inventory corrected, cap enforced at boot.**
+PR #490's LLM-queue inventory omitted `generate_demo`, which is a real
+`runLlmTask` caller (DemoGenerationWorker → `src/lib/demos/generator.ts` →
+`src/lib/responses/generator.ts`). The true non-flag-gated worker-slot sum is
+**9** (generate_response 5 + generate_demo 1 + weekly_summary 1 +
+send_monthly_impact 1 + onboarding_demo_response 1), now enforced at boot by
+`assertSummedLlmWorkerSlots` (`worker/config/startup-assert.ts`) with cap 9;
+`judge_verdict` stays flag-gated and separately capped at 1. The ~10
+global-semaphore deferral trigger and all other posture above are unchanged.
