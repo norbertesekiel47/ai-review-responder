@@ -7,7 +7,70 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-20 (Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-20 (Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Production reliability guards (2026-07-20, PR #508)
+
+A pre-production review surfaced 10 prioritized reliability findings; this PR
+shipped the seven mechanical, low-blast-radius guards (P1, P2, P3, P5, P6, P7,
+P10). P4/P8/P9 are a mapped follow-up branch
+([followup map](superpowers/plans/2026-07-16-prod-hardening-followup-map.md)).
+What is true now:
+
+- **One review's failure bookkeeping can no longer kill the worker (P1).** The
+  zernio ingest `'failed'` hook is wrapped in a last-resort never-rethrow guard,
+  and its coupled terminal writes (`review_exceptions` + outbox) run **CAS-first
+  inside `sql.begin`** via `withOwnedTerminalTransition` — only the attempt that
+  owns the outbox terminal transition commits the coupled rows; a stale attempt
+  writes nothing; the crash guard never splits a rolled-back coupled tx.
+- **Worker-side Supabase admin/storage calls are bounded at 10s; identity
+  mutations are NOT (P2, refined in adversarial review).** `src/lib/db/server.ts`
+  now exports two clients: `supabaseServer` stays unbounded (an ambiguous
+  timeout on a committed Auth signUp/invite would orphan an identity), while
+  the new `supabaseServerBounded` (`boundedSupabaseFetch`, 10s) serves the
+  offboarding purge wiring and `CleanupAbandonedSignupsPoller` so a hung
+  Supabase call can't pin a BullMQ slot forever.
+- **Transient failures during the avoid-facts guardrail regen now RETRY instead
+  of dropping a paid draft (P3 — owner override of the documented anti-respend
+  carve-out).** One predicate (`isTransientGenerationError`) re-throws all three
+  transient classes from both guardrail catch layers → BullMQ retry (the primary
+  hits the idempotent cache on retry; a Redis outage can re-spend, bounded by
+  the queue's attempts budget — owner-accepted). Budget/cost-cap decisions stay
+  terminal.
+- **Unlistened `'error'` events no longer restart the worker (P5).**
+  `attachEmitterErrorLogger` (`worker/emitter-errors.ts`) is attached to every
+  BullMQ Queue, every Worker, and the probe Redis client: structured log +
+  Sentry warning with a per-source 60s count-and-suppress window (a Redis
+  outage is one report per source per minute, not an alert storm).
+- **Fastify ingress is bounded (P6).** `buildFastifyOptions`
+  (`worker/config/fastify-options.ts`): requestTimeout 30s, keepAlive 60s,
+  connection 10s, bodyLimit 5 MB — slow-loris/slow-body clients can't exhaust
+  the single Railway worker and block Stripe/Zernio webhooks.
+- **Health-alert blind spots closed (P7).** The failed-outbox check now watches
+  `generate_response` too, and a new check alerts on
+  `inbound_events.status='failed'` rows (Stripe/Zernio processing bugs are no
+  longer masked for days by provider-side retries).
+- **The dashboard degrades per-widget instead of 500ing (P10, refined in
+  adversarial review).** Per-location: the business lookup stays fatal; every
+  other query settles independently and degrades to its per-widget fallback,
+  always reported to Sentry. Aggregate: exactly two reads stay fatal (locations
+  list + the slice wave's baseline anchor read — degrading the anchor would
+  render an all-zeros misreporting dashboard); each slice read (counters,
+  velocity, rating breakdown, ranking, briefs, pending approvals), the billing
+  row, and the account recent-reviews feed degrade per-query under
+  `widgetOrFallbackFor('dashboard/aggregate')`.
+
+The new shape: `worker/emitter-errors.ts` (non-fatal emitter sink) ·
+`worker/config/fastify-options.ts` (ingress bounds) ·
+`worker/jobs/zernio/ingest-failed-hook.ts` (`withOwnedTerminalTransition`) ·
+`src/lib/db/server.ts` (`supabaseServer` / `supabaseServerBounded` split) ·
+`worker/jobs/response-generation/generate-draft.ts` (`isTransientGenerationError`
+guardrail retry) · `worker/background/pollers/health-alert/checks.ts`
+(+`generate_response`, +`inbound_events`) ·
+`src/lib/dashboard/{service,aggregate-service,aggregate-queries}.ts`
+(`widgetOrFallback` / `widgetOrFallbackFor` degradation). Spec:
+[2026-07-16-prod-hardening-guards-design.md](superpowers/specs/2026-07-16-prod-hardening-guards-design.md);
+deviations: [fix-prod-hardening-guards-deviations.md](superpowers/plans/fix-prod-hardening-guards-deviations.md).
 
 ## Quick summary — Scalability verification remainders (2026-07-20, PR #511)
 

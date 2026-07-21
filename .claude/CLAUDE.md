@@ -133,8 +133,12 @@ decide *where new worker code goes*:
   vs `background/schedulers/` (time-cadence-driven) — new loop → pick by trigger.
 - **Webhook ingress** terminates in `worker/ingress/`: `{stripe,resend,shared}.ts`
   + per-provider subfolders (`stripe/`, `twilio/`, `telegram/`, `zernio/`).
-- **Boot-time env assertions**: `worker/config/startup-assert.ts`.
+- **Boot-time env assertions**: `worker/config/startup-assert.ts`; **Fastify ingress bounds**:
+  `worker/config/fastify-options.ts` (`buildFastifyOptions` — requestTimeout/keepAlive/connection/bodyLimit).
 - **Sentry init + scrubber**: `worker/sentry.ts` (imported for side effect by `index.ts`).
+- **Non-fatal emitter `'error'` sink**: `worker/emitter-errors.ts` (`attachEmitterErrorLogger`
+  — every BullMQ Queue/Worker + raw Redis client gets a listener at its registration site;
+  an unlistened `'error'` is a fatal `uncaughtException`).
 - **Queues**: `worker/queues.ts`; **Redis connection options**: `worker/redis-connection.ts`
   (side-effect-free — unit-testable without booting the queues).
 - **Entry point** `worker/index.ts`: pure registration + lifecycle, **no DB writes**.
