@@ -164,6 +164,11 @@ const registerSuite = testDatabaseUrl ? describe : describe.skip;
 registerSuite('owner-unreachable health checks against live local Postgres', () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    // Bring the shared local test DB current with T1's migration 083 column
+    // (job_outbox.completion_reason). Test-DB bootstrap only — migration
+    // 083_outbox_owner_unreachable.sql remains the authoritative owner of this
+    // column; CI runs against a fully migrated DB where this is a no-op.
+    await db`ALTER TABLE job_outbox ADD COLUMN IF NOT EXISTS completion_reason TEXT`;
     tenant = await seedTenantAccount(db, {
       userName: 'Owner Unreachable Integration Owner',
       accountDisplayName: 'Owner Unreachable Integration Account',
