@@ -7,7 +7,40 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-15 (WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-20 (Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Scalability verification remainders (2026-07-20, PR #511)
+
+Closed the last two pre-launch scalability-verification items:
+
+- **Boot-enforced summed LLM worker-slot cap.** `assertSummedLlmWorkerSlots`
+  (`worker/config/startup-assert.ts`), called at the LLM-worker registration
+  site in `worker/index.ts`, fails worker boot if the summed **non-flag-gated**
+  LLM worker-slot concurrency exceeds **9** (`generate_response`=5 +
+  `generate_demo`, `weekly_summary`, `send_monthly_impact`,
+  `onboarding_demo_response`=1 each), or if the flag-gated `judge_verdict`
+  exceeds 1. It reads EFFECTIVE `worker.opts` (same pattern as
+  `assertSingleConcurrencyWorker`), so a future edit that widens a concurrency
+  fails the boot instead of silently blowing the ADR-0005 LLM-concurrency
+  envelope. Enforcement only — no concurrency VALUE changed. `generate_demo`
+  was previously missing from the #490 inventory; ADR 0005's addendum is
+  amended to match (cap 9, `generate_demo` counted).
+- **Failover-poller indexes (migration 082).** Two partial indexes so
+  `NotificationFailoverPoller` stops seq-scanning at scale:
+  `idx_jo_send_notification_by_aggregate` on `job_outbox (aggregate_id,
+  created_at DESC) WHERE topic = 'send_notification'` (the
+  `recoverFailoverCorrelationId` lookup) and
+  `idx_responses_pending_approval_created` on `responses (created_at) WHERE
+  status = 'pending_approval'` (both global sweeps). Applied to staging + prod
+  Supabase in lockstep; staging + prod `EXPLAIN` confirm the index path (the
+  responses index supplies the `ORDER BY`, no Sort node). No INCLUDE columns
+  yet — deferred to a production EXPLAIN per the evidence rule.
+
+The new shape: `worker/config/startup-assert.ts` (`assertSummedLlmWorkerSlots`
+alongside `assertSingleConcurrencyWorker`) · `worker/index.ts` (the assert call
+after the six LLM-worker registrations) · `supabase/migrations/082_failover_lookup_indexes.sql`
+· cap semantics owned by `docs/adr/0005-beta-launch-posture.md` + `CONTEXT.md`
+glossary.
 
 ## Quick summary — WS8 launch-safety correction (2026-07-15, execution branch; PR pending)
 
