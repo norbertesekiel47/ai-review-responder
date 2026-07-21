@@ -54,7 +54,10 @@
     "scripts/ci/**",
     "docs/superpowers/**",
     "docs/reviews/**",
-    ".feature/**"
+    ".feature/**",
+    "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
+    "worker/background/pollers/__tests__/CleanupAbandonedSignupsPoller.test.ts",
+    "worker/jobs/account-offboarding/__tests__/**"
   ],
   "tests_to_add": [
     "ingest-failed-hook crash-guard: resolves + Sentry capture when INSERT throws; resolves when markOutboxFailed also throws",
@@ -70,6 +73,7 @@
   "notes": {
     "seeded_from": "docs/superpowers/specs/2026-07-16-prod-hardening-guards-design.md (owner-approved 2026-07-16) + docs/superpowers/plans/2026-07-16-prod-hardening-guards.md",
     "property_tests": "Not required: no billing, approval-state, or escalation state-machine logic is touched; P3 modifies error classification on the generation path, covered by the error-class matrix.",
-    "scripts_ci_surface": "Included only for the Task 8 contingency: allowlisting the intentionally cross-tenant inbound_events health query in the tenant-scope audit, following the existing health-alert allowlist mechanism."
+    "scripts_ci_surface": "Included only for the Task 8 contingency: allowlisting the intentionally cross-tenant inbound_events health query in the tenant-scope audit, following the existing health-alert allowlist mechanism.",
+    "surface_amendment_2026_07_20": "Added CleanupAbandonedSignupsPoller (+ its test) and worker/jobs/account-offboarding/__tests__/** for the accepted adversarial finding 1 (split bounded Supabase client): the directed fix switches those P2 call sites to supabaseServerBounded."
   }
 }

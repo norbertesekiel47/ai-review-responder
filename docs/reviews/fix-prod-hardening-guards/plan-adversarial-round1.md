@@ -40,3 +40,14 @@ capture takes IngestFailedHookState; CAS-success-then-write-failure + stale-CAS
 test coverage added; throttle test asserts log suppression + suppressed-count
 propagation; Task 7 file/commit lists include aggregate-service.ts + tests;
 requireFulfilled removed.
+
+# Owner-invoked /codex:adversarial-review on the built branch (2026-07-20)
+
+Verdict: needs-attention (2 high findings). Owner directed: fix both.
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | P2's global 10s fetch also bounded Auth identity mutations — ambiguous timeout could orphan a committed signUp/invite | Client split (18e0c4a1): `supabaseServer` back to unbounded for identity flows; new `supabaseServerBounded` used by the BullMQ-slot-holding worker paths (offboarding purge, cleanup poller) |
+| 2 | Aggregate "atomic" slice wave was 8 independent reads behind one fatal Promise.all — one aux read timeout still 500'd multi-location dashboards | Wave settled per-query (78e4cc9c): 7 reads degrade via widgetOrFallbackFor('dashboard/aggregate'); locations list + baseline anchor stay fatal |
+
+Edit-surface amendment ratified by owner instruction ("fix both"): + CleanupAbandonedSignupsPoller.ts, its test dir, and the intake note.
