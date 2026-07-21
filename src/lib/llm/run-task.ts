@@ -127,13 +127,14 @@ async function attemptProvider(
   request: LLMRequest,
   task: LLMTaskDescriptor,
 ): Promise<Attempt> {
-  if (!llmCircuitBreaker.shouldAttempt(provider)) return { kind: 'blocked' };
+  const admission = llmCircuitBreaker.shouldAttempt(provider);
+  if (admission === null) return { kind: 'blocked' };
   try {
     const result = await completeAttempt(PROVIDERS[provider], request, task);
-    llmCircuitBreaker.recordAttempt(provider);
+    llmCircuitBreaker.recordAttempt(admission);
     return { kind: 'ok', result };
   } catch (error) {
-    llmCircuitBreaker.recordAttempt(provider, error);
+    llmCircuitBreaker.recordAttempt(admission, error);
     return { kind: 'error', error };
   }
 }

@@ -7,7 +7,12 @@ import type { LLMProviderId } from './types';
 // The LLM provider circuit breaker: an in-process, per-provider breaker in the
 // src/lib/llm seam. It trips after FAILURE_THRESHOLD consecutive transient
 // failures, stays open for OPEN_DURATION_MS, then admits exactly one half-open
-// probe. Single-threaded Node makes probe admission race-free. State is
+// probe. Single-threaded Node makes probe admission race-free WITHIN a tick,
+// but up to ~9 LLM jobs interleave across awaits against this shared singleton,
+// so an outcome can arrive after the breaker has already transitioned. Every
+// attempt therefore carries an Admission token stamped with the provider's
+// epoch AT ADMISSION; recordAttempt applies an outcome only when that epoch is
+// still current (stale outcomes are ignored — see Admission). State is
 // process-local (effectively global only under single-replica, per ADR 0005).
 
 const FAILURE_THRESHOLD = 5;
@@ -20,10 +25,30 @@ interface ProviderState {
   consecutiveFailures: number;
   openedAt: number;
   probeInFlight: boolean;
+  /** Monotonic per-provider counter; bumped on every REAL state change. It
+   *  correlates an outcome with the state its attempt was admitted under. */
+  epoch: number;
+}
+
+/**
+ * The token shouldAttempt hands back when (and only when) the caller may call
+ * the provider. It records the provider's epoch at admission time so
+ * recordAttempt can tell whether the outcome still applies to the state the
+ * attempt was admitted under: an outcome whose epoch no longer matches the
+ * provider's current epoch is stale (the breaker has since transitioned) and
+ * must never mutate state — otherwise a slow pre-trip success could close the
+ * breaker DURING its cooldown and re-flood a just-tripped provider. `bypass`
+ * marks the token minted while the breaker is disabled: the caller still calls
+ * the provider, but recordAttempt ignores the outcome entirely.
+ */
+export interface Admission {
+  provider: LLMProviderId;
+  epoch: number;
+  bypass?: boolean;
 }
 
 function freshProviderState(): ProviderState {
-  return { state: 'closed', consecutiveFailures: 0, openedAt: 0, probeInFlight: false };
+  return { state: 'closed', consecutiveFailures: 0, openedAt: 0, probeInFlight: false, epoch: 0 };
 }
 
 const logger = createWorkerLogger('[llm:circuit-breaker]');
@@ -38,7 +63,10 @@ export class LlmCircuitBreaker {
     this.enabledOverride = opts?.enabled;
   }
 
-  /** Live per-call read: a test override wins, otherwise the flag accessor. */
+  /** Live per-call read: a test override wins, otherwise the flag accessor.
+   *  Read on EVERY shouldAttempt/recordAttempt — never cached at construction —
+   *  so a mid-process toggle of LLM_CIRCUIT_BREAKER_ENABLED takes effect at once
+   *  (invariant #13 / ci:process-env; the flag is server-authoritative). */
   private isEnabled(): boolean {
     return this.enabledOverride ?? llmCircuitBreakerEnabled();
   }
@@ -52,34 +80,53 @@ export class LlmCircuitBreaker {
     return current;
   }
 
-  shouldAttempt(provider: LLMProviderId): boolean {
-    if (!this.isEnabled()) return true;
+  shouldAttempt(provider: LLMProviderId): Admission | null {
+    if (!this.isEnabled()) {
+      // Disabled: drop any tracked state so a disable→enable toggle within one
+      // process cannot resurrect a stuck half_open + probeInFlight. The bypass
+      // token is non-null so the caller still calls the provider; recordAttempt
+      // ignores its outcome.
+      this.providers.delete(provider);
+      return { provider, epoch: -1, bypass: true };
+    }
 
     const entry = this.get(provider);
-    if (entry.state === 'closed') return true;
+    if (entry.state === 'closed') return { provider, epoch: entry.epoch };
 
     if (entry.state === 'open') {
       if (this.now() - entry.openedAt >= OPEN_DURATION_MS) {
-        // Cooldown elapsed: move to half-open and claim the single probe.
+        // Cooldown elapsed: move to half-open (bumps epoch) and claim the single
+        // probe. The token carries the NEW post-transition epoch.
         this.transition(provider, entry, 'half_open');
         entry.probeInFlight = true;
-        return true;
+        return { provider, epoch: entry.epoch };
       }
-      return false;
+      return null;
     }
 
     // half_open: admit only the caller that can claim the (single) probe.
     if (!entry.probeInFlight) {
       entry.probeInFlight = true;
-      return true;
+      return { provider, epoch: entry.epoch };
     }
-    return false;
+    return null;
   }
 
-  recordAttempt(provider: LLMProviderId, error?: unknown): void {
+  recordAttempt(admission: Admission, error?: unknown): void {
     if (!this.isEnabled()) return;
 
-    const entry = this.get(provider);
+    // Non-materializing lookup: a missing entry means the state was cleared
+    // (reset / disable) after the attempt was admitted, so the outcome is stale
+    // by definition — do not re-create the entry for an outcome we will ignore.
+    const entry = this.providers.get(admission.provider);
+    // Stale outcome: the attempt was admitted under a prior state and the
+    // breaker has since transitioned. Applying it would let e.g. a slow
+    // pre-trip success close the breaker mid-cooldown, or a superseded probe
+    // outcome resolve the wrong open cycle. Ignore it silently — no transition,
+    // no counter mutation.
+    if (entry === undefined || admission.epoch !== entry.epoch) return;
+
+    const provider = admission.provider;
     const success = error === undefined;
     const transientFailure = !success && isTransientLLMError(error);
     const nonTransientFailure = !success && !transientFailure;
@@ -118,11 +165,20 @@ export class LlmCircuitBreaker {
     this.providers.clear();
   }
 
-  /** Set the new state and emit one alert per real transition. */
+  /** Read-only snapshot for observability and tests. `undefined` ⇒ no state is
+   *  tracked for the provider yet (fresh / just-cleared). Does not mutate. */
+  inspect(provider: LLMProviderId): Readonly<ProviderState> | undefined {
+    const entry = this.providers.get(provider);
+    return entry ? { ...entry } : undefined;
+  }
+
+  /** Set the new state and, ONLY on a real change, bump the epoch and emit one
+   *  alert. The epoch bump is what makes a prior-state outcome detectably stale. */
   private transition(provider: LLMProviderId, entry: ProviderState, toState: BreakerState): void {
     const fromState = entry.state;
     entry.state = toState;
     if (fromState === toState) return;
+    entry.epoch++;
     this.emitTransition(provider, fromState, toState);
   }
 

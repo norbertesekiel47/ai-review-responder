@@ -404,10 +404,15 @@ describe('runLlmTask', () => {
   // shape, transient/terminal classification over ATTEMPTED errors, the
   // failover log — is byte-identical.
   describe('circuit breaker', () => {
-    /** Trip a provider's breaker open via 5 consecutive transient outcomes. */
+    /** Trip a provider's breaker open via 5 consecutive transient outcomes,
+     *  each admitted first (the breaker now records outcomes against the
+     *  admission token the attempt was admitted under). */
     function tripOpen(provider: LLMProviderId): void {
       const transient = Object.assign(new Error('provider outage'), { code: 'ECONNRESET' });
-      for (let i = 0; i < 5; i++) llmCircuitBreaker.recordAttempt(provider, transient);
+      for (let i = 0; i < 5; i++) {
+        const admission = llmCircuitBreaker.shouldAttempt(provider);
+        if (admission !== null) llmCircuitBreaker.recordAttempt(admission, transient);
+      }
     }
 
     function transientError(message: string): Error {

@@ -55,18 +55,30 @@ outage, **every** LLM job pays the full ~30s primary timeout before failing over
   `notifications/contact-notify.ts`.
 - **Kill switch:** `LLM_CIRCUIT_BREAKER_ENABLED`, default ON, only the literal
   `'false'` disables (mirrors `BOOT_STAGGER_ENABLED`). Off ⇒ `shouldAttempt`
-  always true, `recordOutcome` a no-op — byte-identical to today. Read directly
-  from `process.env` (precedent: `src/lib/auth/flags.ts`) **at construction**;
-  in prod the singleton is built once at module load, so the flag is effectively
-  read once at boot (consistent with BOOT_STAGGER — no hot toggling). `reset()`
-  re-reads it, but `reset()` is a **test-only** affordance (isolation + flag-flip
-  cases); prod never calls it, so prod stays "read once at boot".
+  returns a bypass admission (caller still calls the provider) and `recordAttempt`
+  is a no-op — byte-identical behavior to today. **AS-BUILT (supersedes the
+  original "read at construction" wording — see deviations D1):** the flag is read
+  **live per call** via the `llm/flags.ts → config/flags.ts` accessor
+  (`readFlagEnabledByDefault`), NOT cached at construction — this satisfies
+  invariant #13 / `ci:process-env` (single sanctioned env reader, no memoized
+  staleness). When it reads disabled, `shouldAttempt` also CLEARS that provider's
+  state so a disable→enable toggle within one process cannot resurrect a stuck
+  `half_open` (deviation D3). `reset()` is a test-only affordance that clears
+  state only (it does not re-read the flag — the live read makes that redundant).
 - **In-process = effectively global only under single-replica** (ADR 0005),
   same posture as the concurrency cap; multi-replica defers to the same Redis
   semaphore trigger. No Postgres/Redis/cross-process state.
 - **No new dependency** — hand-rolled (~80 lines).
 
 ### Seams (codebase-design lens)
+
+> **AS-BUILT interface note (supersedes the signatures below — see deviations
+> D2):** the method is `recordAttempt`, not `recordOutcome` (renamed to avoid the
+> agent-run-spine `recordOutcome` audit collision). `shouldAttempt(provider)`
+> returns an `Admission | null` token (null = blocked), not a bare boolean, and
+> `recordAttempt(admission, error?)` takes that token so an outcome only mutates
+> state when its epoch is still current — closing the async admission→outcome
+> correlation hole found at step-6 review.
 
 - **`LlmCircuitBreaker` (NEW, `src/lib/llm/circuit-breaker.ts`) — a real seam.**
   Small interface — `shouldAttempt(provider)`, `recordOutcome(provider, error?)`,
