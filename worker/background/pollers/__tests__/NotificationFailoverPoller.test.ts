@@ -24,6 +24,10 @@ const {
   });
 
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
+  // The owner-unreachable arm encodes its outbox payload with tx.json(payload).
+  // The mock tx IS mockSql, so it needs a pass-through .json or the arm throws
+  // "tx.json is not a function".
+  mockSql.json = vi.fn((v: unknown) => v);
 
   return {
     sqlReturnQueue,
@@ -337,5 +341,95 @@ describe('NotificationFailoverPoller — stale branch (multi-channel era)', () =
     await (mod.runFailoverPollerOnce as typeof RunFailoverPollerOnce)();
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('NotificationFailoverPoller — owner-unreachable arm', () => {
+  const OWNER_UNREACHABLE_ROW = {
+    response_id: 'resp-unreach-1',
+    business_id: 'biz-unreach-1',
+    account_id: 'acct-unreach-1',
+    business_name: 'Unreachable Diner',
+    reviewer_name: 'Casey',
+    star_rating: 5,
+  };
+
+  function outboxInserts(): unknown[] {
+    return mockSql.mock.calls.filter(
+      ([template]: [TemplateStringsArray]) =>
+        Array.isArray(template) && template.join('').includes('INSERT INTO job_outbox'),
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    mockSendInternalEmail.mockReset();
+    mockSendInternalEmail.mockResolvedValue({ messageId: 'mock-admin-unreach' });
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.example.com';
+    // Reset the module registry AFTER the env override so getWorkerConfig()
+    // re-parses ADMIN_NOTIFICATION_EMAIL on the dynamic import below (convention #6).
+    vi.resetModules();
+    // Keep the all-failed + stale arms inert: both driving SELECTs return empty.
+    sqlReturnQueue.push([]); // all-failed query
+    sqlReturnQueue.push([]); // stale query
+  });
+
+  it('(a) retry path: re-enqueues send_notification AND sends the owner-unreachable admin email', async () => {
+    sqlReturnQueue.push([OWNER_UNREACHABLE_ROW]);         // candidate SELECT
+    sqlReturnQueue.push([]);                               // recover: existingSend lookup
+    sqlReturnQueue.push([]);                               // recover: upstream generate_response lookup
+    sqlReturnQueue.push([{ unreachable: true, in_flight: false }]); // locked state re-check
+    const insertResult: any = []; insertResult.count = 1;
+    sqlReturnQueue.push(insertResult);                     // INSERT INTO job_outbox
+    sqlReturnQueue.push([]);                               // tryClaimAlert 24h dedup check
+    sqlReturnQueue.push([]);                               // tryClaimAlert delivery INSERT
+
+    const mod = await import('../NotificationFailoverPoller');
+    await (mod.runFailoverPollerOnce as typeof RunFailoverPollerOnce)();
+
+    expect(outboxInserts()).toHaveLength(1);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+    const email = mockSendInternalEmail.mock.calls[0]![0];
+    expect(email.to).toBe('admin@repworth.example.com');
+    expect(email.subject).toContain('Owner unreachable');
+    expect(email.subject).toContain('Unreachable Diner');
+    // tryClaimAlert dedups on the owner-unreachable template.
+    const deliveryInsert = mockSql.mock.calls.find(
+      ([template]: [TemplateStringsArray]) =>
+        Array.isArray(template) &&
+        template.join('').includes('INSERT INTO notification_deliveries'),
+    );
+    expect(deliveryInsert).toBeDefined();
+    expect(deliveryInsert!.slice(1)).toContain('admin_notification_owner_unreachable');
+  });
+
+  it('(b) locked re-check no longer unreachable: no re-enqueue and no email', async () => {
+    sqlReturnQueue.push([OWNER_UNREACHABLE_ROW]);         // candidate SELECT
+    sqlReturnQueue.push([]);                               // recover: existingSend lookup
+    sqlReturnQueue.push([]);                               // recover: upstream lookup
+    sqlReturnQueue.push([{ unreachable: false, in_flight: false }]); // locked state re-check fails
+
+    const mod = await import('../NotificationFailoverPoller');
+    await (mod.runFailoverPollerOnce as typeof RunFailoverPollerOnce)();
+
+    expect(outboxInserts()).toHaveLength(0);
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('(c) retry already in-flight: no re-enqueue but the admin email still fires', async () => {
+    sqlReturnQueue.push([OWNER_UNREACHABLE_ROW]);         // candidate SELECT
+    sqlReturnQueue.push([]);                               // recover: existingSend lookup
+    sqlReturnQueue.push([]);                               // recover: upstream lookup
+    sqlReturnQueue.push([{ unreachable: true, in_flight: true }]); // still unreachable, retry in-flight
+    sqlReturnQueue.push([]);                               // tryClaimAlert 24h dedup check
+    sqlReturnQueue.push([]);                               // tryClaimAlert delivery INSERT
+
+    const mod = await import('../NotificationFailoverPoller');
+    await (mod.runFailoverPollerOnce as typeof RunFailoverPollerOnce)();
+
+    expect(outboxInserts()).toHaveLength(0);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+    expect(mockSendInternalEmail.mock.calls[0]![0].subject).toContain('Owner unreachable');
   });
 });
