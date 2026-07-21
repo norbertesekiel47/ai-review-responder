@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Sql } from 'postgres';
+import { llmCircuitBreaker } from '@/lib/llm/circuit-breaker';
 
 // generateReviewSummary now takes an injected `sql` as its leading arg; it is
 // only forwarded to the mocked recordApiCost here, so a bare stub suffices.
@@ -97,6 +98,10 @@ describe('generateReviewSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockModeEnabled = false;
+    // This suite mocks the raw SDKs but drives the REAL runLlmTask + live
+    // breaker singleton; without a reset, transient rejections accumulate
+    // across tests and could trip the breaker mid-file (order-dependent).
+    llmCircuitBreaker.reset();
   });
 
   // Lazy-import so mocks are wired up first

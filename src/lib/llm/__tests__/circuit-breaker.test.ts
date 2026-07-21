@@ -174,6 +174,32 @@ describe('LlmCircuitBreaker', () => {
     expect(captureMessage).toHaveBeenCalledTimes(1);
   });
 
+  it('open↔half_open churn does not capture to Sentry; only trip and recovery do', () => {
+    const clock = fixedClock();
+    const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
+
+    tripOpen(breaker, OPENAI); // closed→open: the trip alert
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+
+    // Sustained outage: three full open→half_open→open cycles (6 real
+    // transitions) must not emit a single additional Sentry capture.
+    for (let cycle = 0; cycle < 3; cycle++) {
+      clock.advance(30_000);
+      const probe = breaker.shouldAttempt(OPENAI); // open→half_open
+      expect(probe).not.toBeNull();
+      breaker.recordAttempt(probe!, transientError()); // half_open→open
+    }
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+
+    // Recovery (half_open→closed) is the second and final capture.
+    clock.advance(30_000);
+    const probe = breaker.shouldAttempt(OPENAI);
+    expect(probe).not.toBeNull();
+    breaker.recordAttempt(probe!); // probe success → closed
+    expect(captureMessage).toHaveBeenCalledTimes(2);
+    expect(captureMessage.mock.calls[1]?.[0]).toContain('→closed');
+  });
+
   it('isolates provider state (tripping openai leaves anthropic closed)', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });

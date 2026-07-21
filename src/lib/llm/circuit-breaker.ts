@@ -173,8 +173,8 @@ export class LlmCircuitBreaker {
     return entry ? { ...entry } : undefined;
   }
 
-  /** Set the new state and, ONLY on a real change, bump the epoch and emit one
-   *  alert. The epoch bump is what makes a prior-state outcome detectably stale. */
+  /** Set the new state and, ONLY on a real change, bump the epoch and emit
+   *  telemetry. The epoch bump is what makes a prior-state outcome detectably stale. */
   private transition(provider: LLMProviderId, entry: ProviderState, toState: BreakerState): void {
     const fromState = entry.state;
     entry.state = toState;
@@ -183,14 +183,23 @@ export class LlmCircuitBreaker {
     this.emitTransition(provider, fromState, toState);
   }
 
-  /** Observability must never poison the LLM path — wrapped, never throws. */
+  /** Observability must never poison the LLM path — wrapped, never throws.
+   *  Every real transition gets one structured log line, but Sentry alerts fire
+   *  only on the two edges an operator must act on: closed→open (trip) and
+   *  →closed (recovery). The open↔half_open churn of a sustained outage
+   *  (~2 transitions per 30s per provider) would otherwise spam ~240 warnings/hr
+   *  while adding no signal beyond the trip alert (deviations doc D4). */
   private emitTransition(provider: LLMProviderId, fromState: BreakerState, toState: BreakerState): void {
     try {
-      Sentry.captureMessage(`LLM circuit breaker ${fromState}→${toState} (${provider})`, {
-        level: 'warning',
-        tags: { subsystem: 'llm_circuit_breaker', provider },
-        extra: { fromState, toState },
-      });
+      const isTrip = fromState === 'closed' && toState === 'open';
+      const isRecovery = toState === 'closed';
+      if (isTrip || isRecovery) {
+        Sentry.captureMessage(`LLM circuit breaker ${fromState}→${toState} (${provider})`, {
+          level: 'warning',
+          tags: { subsystem: 'llm_circuit_breaker', provider },
+          extra: { fromState, toState },
+        });
+      }
       logger.warn('circuit breaker transition', { provider, fromState, toState });
     } catch {
       // Alerting failure must not affect breaker state or the caller.
