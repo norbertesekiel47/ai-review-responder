@@ -14,7 +14,33 @@ Branch: `fix/verification-remainders` (base: main @ eaf4f3f2)
   (guard + stop gate both exit 2).
 - Step 3 PLAN: complete, codex-adversarial-reviewed (3 rounds; all
   substantive findings resolved; round-3 residual fixed). User signed off.
-- Step 4 EXECUTE: next — subagents per task T1 / T2a+T2b / T3.
+- Step 4 EXECUTE: complete — commits 4645a961 (T3), b33d3380 (T1),
+  a6cea0ec (T2), plus glossary sync (CONTEXT.md worker-slot cap 9,
+  adversarial finding 2; surface amended with sign-off).
+- Step 5 GATE: GREEN twice (post-execute, post-glossary-sync) — all checks
+  + pnpm build.
+- Step 6 ADVERSARIAL: needs-attention, 2 findings. F2 (CONTEXT.md ≤8 stale)
+  ACCEPTED + fixed. F1 (inventory completeness) REJECTED with reasoning —
+  see docs/reviews/fix-verification-remainders/ triage sections.
+- Step 7 REVIEW: spec-correctness NO FINDINGS; standards approve-with-2
+  (harness dup ACCEPTED-DEFERRED follow-up; membership comment REJECTED).
+  Full reports + triage verdicts in docs/reviews/fix-verification-remainders/.
+- Step 8 SHIP: NEXT. High-risk lane: (1) apply migration 082 to STAGING
+  Supabase first (CONCURRENTLY, outside transaction, recovery in header);
+  (2) merge branch → staging, push (full stack auto-deploys); (3) capture
+  EXPLAIN (ANALYZE, BUFFERS) on staging for the three
+  NotificationFailoverPoller target queries → attach to PR (INCLUDE-column
+  decision point); (4) PR to main, CI green, PAUSE for user merge approval;
+  (5) at promotion apply 082 to PROD Supabase in lockstep; (6) post-merge:
+  ff-pull main, ff staging, remove worktree, delete branch,
+  document-feature sweep, domain sweep, entropy counter, and remind user:
+  manual `rm poller_cursors.cursor` in the PARENT checkout.
+
+## Follow-up tickets to file (from review triage)
+- Extract the shared DB-guard test harness (5 duplicate copies:
+  076/077/078/079/082 integration tests) into src/__tests__/helpers/.
+- Candidate ci: contract audit mapping runLlmTask importers → LLM queue
+  inventory (adversarial F1 / standards F2 class).
 
 ## Authoritative files (read these, not the transcript)
 
