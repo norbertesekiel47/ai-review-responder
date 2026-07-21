@@ -80,3 +80,22 @@
   (`reputationRows` → null). Known trade-off inherited from main's #495 cache:
   a degraded payload can be cached for its 45s TTL — bounded, and every
   degradation still reports to Sentry.
+- [2026-07-20] **Adversarial finding 2 — SUPERSEDES the 2026-07-19 "atomic
+  slice wave fatal" rationale.** The wave was never atomic in the failure
+  sense: `fetchPerLocationAggregateSlices` runs ~8 independent reads under an
+  internal `Promise.all`, so making the wave fatal meant ONE ranking/brief/
+  counter read timing out still 500'd the whole multi-location dashboard —
+  the exact P10 failure P10 was meant to cure. Revised contract: the wave's
+  reads now settle independently (`Promise.allSettled`) and each degrades
+  per-query via `widgetOrFallbackFor('dashboard/aggregate')` with its own
+  widget name (`sliceReviewCounters`, `sliceReviewVelocity`,
+  `sliceRatingBreakdown`, `sliceRanking`, `sliceMonthlyBriefs`,
+  `sliceWeeklyBriefs`, `slicePendingApprovalCounts`), emptying that widget's
+  column across locations. Exactly two reads remain fatal: the locations-list
+  query AND the wave's baseline anchor read (the slices are built by
+  iterating its rows — degrading it WOULD render the all-zeros misreporting
+  dashboard the old rationale feared; nothing else in the wave has that
+  property). `aggregate-service.degradation.test.ts` rewritten to drive the
+  REAL aggregate-queries module through the mock-sql FIFO (seam mock
+  removed): one test per degradable slice read + anchor-fatal +
+  locations-fatal + all-healthy.

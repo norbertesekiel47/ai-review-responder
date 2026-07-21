@@ -59,8 +59,9 @@ const EMPTY_SLICE: PerLocationAggregateSlice = {
 // Short TTL cache for the aggregate payload. Repeated loads within the TTL — tab
 // switches, the KPI poll, several owners of the same account — reuse one
 // computation. 45s staleness is invisible next to the pipeline's own
-// multi-second latency. The aggregate is now atomic (one wave, no partial
-// failures), so the payload is always cacheable.
+// multi-second latency. Known trade-off (documented in the branch deviations
+// log): a per-query-degraded payload can be cached for one 45s TTL — bounded,
+// and every degradation still reports to Sentry.
 const AGGREGATE_CACHE_TTL_SECONDS = 45;
 
 function aggregateCacheKey(accountId: string, window: DashboardWindow): string {
@@ -104,8 +105,9 @@ export async function getAggregateDashboardData(
 
   const data = await buildAggregateDashboardData(sql, accountId, window);
 
-  // The aggregate is atomic now (a single set-based wave), so the payload is
-  // always safe to cache — no partial-failure gate.
+  // Degraded widgets return empty-but-valid shapes, so the payload is always
+  // safe to cache (bounded 45s staleness for a degraded payload — see the
+  // TTL comment above).
   try {
     await getCacheRedis().set(cacheKey, JSON.stringify(data), 'EX', AGGREGATE_CACHE_TTL_SECONDS);
   } catch (err) {
@@ -178,11 +180,15 @@ async function buildAggregateDashboardData(
   // assembled from the per-location slices exactly as before — only the fetch
   // layer changed, so the output is byte-identical (bar the two signed-off
   // deltas: windowed currentResponseRate, and partialFailures removed).
-  // P10 on the #476 set-based shape: the slice wave is atomic — it IS the
-  // aggregate view (every widget derives from it), so like the locations list
-  // it stays FATAL; degrading it to empty slices would render an all-zeros
-  // dashboard that misreports the business. The account-wide recent-reviews
-  // feed is an independent widget and degrades to an empty feed, reported.
+  // P10 (adversarial finding 2): the wave's reads settle INDEPENDENTLY inside
+  // fetchPerLocationAggregateSlices — each degrades per-query (reported),
+  // emptying its widget column across locations. Only the wave's baseline
+  // anchor read stays fatal (the slices are built from its rows; degrading it
+  // would render an all-zeros dashboard that misreports the business — the
+  // same reasoning that keeps the locations list above fatal), so a rejection
+  // surfacing here means the anchor itself failed. The account-wide
+  // recent-reviews feed is an independent widget and degrades to an empty
+  // feed, reported.
   const slicesPromise = fetchPerLocationAggregateSlices(sql, accountId, window);
   const recentReviewsSettledPromise = Promise.allSettled([
     getAccountRecentReviews(sql, accountId),
