@@ -21,7 +21,19 @@ Resume with `/feature-resume f1-owner-unreachable-escalation` from a fresh sessi
 ## Map-level correction made (recorded in ADR 0010, T5)
 The F1 ticket's "no health check can see it" premise was **stale** — `checkZeroDeliveryNotifications` already partially observed the zero-enrollment case within its 1h window (blanket `NOT EXISTS(notification_deliveries)`). F1's value: distinct + **durable** (age floor, not window) + de-conflated marker. This was surfaced to and accepted by the owner.
 
-## Current step: 4–7 DONE → resume at step 8 (SHIP, RISK=high lane)
+## Current step: STEP 8 SHIP IN PROGRESS (RISK=high, staging-first lane)
+
+**Step-8 progress log (2026-07-21, resumed session):**
+- Gate re-run GREEN (16/16, `gate-status.json` newer than HEAD) after the two docs-only commits.
+- ✅ **Migration 083 applied to STAGING Supabase** (`kubdiqdhqbhwmqfditeg` = RepWorth-staging) via MCP `apply_migration`. Verified: `job_outbox.completion_reason text, nullable, no default`. (Prod project = `udeyaqnvpojbwgoaxwdg`, DEFERRED to promotion lockstep.)
+- ✅ **f1 pushed to origin** (`f1-owner-unreachable-escalation`), all pre-push checks green.
+- ✅ **Staging ride pushed**: refreshed stale local `staging` to `origin/staging`, merged f1 (clean auto-merge, no conflicts on the two docs overlaps), pushed `origin/staging` `75be1d83..0c34d0f9` — pre-push green on the MERGED tree (f1+F2+F3). Auto-deploys Railway staging worker + Vercel staging.
+- ✅ **DB-facing staging smoke (read-only)**: `checkOwnerUnreachable` query executes cleanly against real migrated schema → count 0 (expected; staging has 0 `send_notification` rows — near-empty sandbox, so correlation logic is covered by CI integration tests, not staging data).
+- ⏳ **Worker-boot staging smoke**: BLOCKED on Railway MCP re-auth (token expired). This is the one staging-specific check CI does not cover (does the new poller-arm code boot without crashing). Confirm staging worker deploy SUCCESS + clean boot before seeking merge approval.
+- ⏭️ NEXT: open PR f1→main (CI = real gate), confirm 4 checks green, complete worker-boot smoke, then PAUSE for owner merge approval. At promotion: migration 083 → prod (`udeyaqnvpojbwgoaxwdg`) in lockstep. Then post-merge sweep + F1-followup-A/B/C tickets.
+
+---
+### (historical) Current step: 4–7 DONE → resume at step 8 (SHIP, RISK=high lane)
 
 **Steps 6 + 7 complete; verify gate GREEN (16/16, `gate-status.json` newer than HEAD).** Ready to ship.
 
