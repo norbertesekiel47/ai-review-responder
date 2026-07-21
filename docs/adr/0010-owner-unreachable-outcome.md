@@ -152,3 +152,33 @@ serves both the latest-reason current-state lookup (b) and the retry selection
   to its own durable row. Likewise, if any of the residual zero-delivery causes
   in (c) proves to need distinct operator handling, promote it to its own
   `completion_reason` alongside `owner_unreachable`.
+
+## Post-implementation adversarial review (step 6, 2026-07-21)
+
+`/codex:adversarial-review` on the built branch returned needs-attention (1 high,
+2 medium). Full triage: `docs/reviews/f1-owner-unreachable-escalation/codex-adversarial-review-round0.md`.
+
+- **Amended decision (Finding 2, medium — FIXED):** the failover candidate SELECT
+  now **excludes in-flight `send_notification` rows**, matching the all-failed /
+  stale arms' precedent, so a 200-row batch of oldest owner-unreachable drafts
+  with stuck in-flight retries can no longer monopolize the cycle and starve
+  newer drafts. This **partially revises R3-B**: the admin email no longer fires
+  *while a retry is in-flight* — an in-flight draft's email waits ~1 retry cycle
+  (~2h) until the retry completes and re-marks `owner_unreachable` (re-selected,
+  now not in-flight). The unbounded durable Sentry `checkOwnerUnreachable` COUNT
+  covers the draft meanwhile. The advisory-locked re-check is unchanged; its
+  `in_flight` flag now guards the concurrency race (a second poller that enqueued
+  between our candidate-select and our lock), and R3-B's email-on-`unreachable`
+  still holds at the lock level.
+- **Accepted as scoped (Finding 1, high):** a subscription/flag-skip retry writes
+  a NULL-reason completion that supersedes the marker and drops the draft from the
+  owner-unreachable loop. This is the intake's designed current-state supersession
+  + the "no event-driven re-notify" non-goal, NOT a regression, and the draft is
+  still observed by `checkZeroDeliveryNotifications` (`NULL IS DISTINCT FROM
+  'owner_unreachable'` is TRUE). The "subscription recovers → nothing re-notifies"
+  gap is pre-existing → follow-up ticket F1-followup-A.
+- **Accepted as scoped (Finding 3, medium):** re-raise of the archival coupling
+  above, with the new nuance that a failover arm *disabled before its first
+  retry-refresh* leaves no pending/dispatched row for the stale-dispatching checks
+  to catch either. Owner-accepted; independent failover-poller liveness monitoring
+  is follow-up ticket F1-followup-C.

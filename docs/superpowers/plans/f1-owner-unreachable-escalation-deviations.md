@@ -45,6 +45,15 @@ threshold) is covered by the mock-sql suite. Commit `5cbfa115`.
    Net behavior matches R3-B and the intake "Retry idempotency" invariant.
    Encoded in a test comment at the case-(b) seed.
 
+   **UPDATE (step-6 adversarial review, commit `96fe61cd`):** this reconciliation
+   is now moot — Finding 2's fix added an in-flight exclusion to the candidate
+   SELECT, so an owner-unreachable draft with an in-flight retry is excluded at
+   the candidate level. Case (b) was rewritten to seed a completed
+   `owner_unreachable` marker PLUS a newer in-flight `dispatched` row and assert
+   candidate-level exclusion (no retry, no email). R3-B's "email while in-flight"
+   is partially reverted (see ADR 0010 post-implementation section); the locked
+   re-check `in_flight` path now models the concurrency race, not steady state.
+
 2. **Local test-DB bootstrap for migration 083.** The local test DB (:5499)
    predated migration 083, so the T4 integration `beforeAll` applies an
    idempotent `ALTER TABLE job_outbox ADD COLUMN IF NOT EXISTS completion_reason
