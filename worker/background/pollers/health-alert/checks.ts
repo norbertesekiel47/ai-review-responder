@@ -7,7 +7,10 @@
 import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
-import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
+import {
+  OUTBOX_COMPLETION_REASON,
+  OWNER_UNREACHABLE_AGE_FLOOR_SECONDS,
+} from '../../../../src/lib/shared/outbox-completion-reason';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
 
@@ -30,7 +33,7 @@ export interface HealthAlertConfig {
   ownerUnreachableThreshold: number;
 }
 
-function num(value: string | undefined, fallback: number): number {
+export function num(value: string | undefined, fallback: number): number {
   const parsed = parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
@@ -45,7 +48,7 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
     flaggedOpenThreshold: num(cfg.HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD, 5),
     zeroDeliveryWindowS: num(cfg.HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S, 3600),
     backlogDepthThreshold: num(cfg.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD, 1500),
-    ownerUnreachableAgeS: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S, 14400),
+    ownerUnreachableAgeS: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S, OWNER_UNREACHABLE_AGE_FLOOR_SECONDS),
     ownerUnreachableThreshold: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD, 0),
   };
 }

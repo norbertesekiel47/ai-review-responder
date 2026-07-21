@@ -6,7 +6,11 @@ import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
-import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
+import {
+  OUTBOX_COMPLETION_REASON,
+  OWNER_UNREACHABLE_AGE_FLOOR_SECONDS,
+} from '../../../src/lib/shared/outbox-completion-reason';
+import { num } from './health-alert/checks';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationFailover]';
@@ -168,6 +172,12 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
 async function processOwnerUnreachable(
   logger: ReturnType<typeof createWorkerLogger>,
 ): Promise<void> {
+  // Age floor bound to the SAME source as the health check's checkOwnerUnreachable
+  // (same env var, same default constant, same num() parse) so the two can't desync.
+  const ageFloorSeconds = num(
+    getWorkerConfig().HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S,
+    OWNER_UNREACHABLE_AGE_FLOOR_SECONDS,
+  );
   const rows = await sql<{
     response_id: string;
     business_id: string;
@@ -183,7 +193,7 @@ async function processOwnerUnreachable(
     JOIN reviews r ON resp.review_id = r.id
     WHERE resp.status = 'pending_approval'
       AND b.archived_at IS NULL
-      AND resp.created_at < NOW() - INTERVAL '4 hours'
+      AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds})
       AND (
         SELECT jo.completion_reason FROM job_outbox jo
         WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
@@ -220,7 +230,7 @@ async function processOwnerUnreachable(
               WHERE resp.id = ${row.response_id}
                 AND resp.status = 'pending_approval'
                 AND b.archived_at IS NULL
-                AND resp.created_at < NOW() - INTERVAL '4 hours'
+                AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds})
                 AND (
                   SELECT jo.completion_reason FROM job_outbox jo
                   WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
