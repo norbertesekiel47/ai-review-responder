@@ -30,11 +30,6 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-function requireTenant(): TenantSeed {
-  if (!tenant) throw new Error('owner-unreachable integration tenant was not seeded');
-  return tenant;
-}
-
 // Local-host refusal guard (copied from suspension.integration.test.ts): accept
 // only localhost/127.0.0.1 Postgres (dev + CI service container), refuse any
 // remote/pooler host. Never widen to remote hosts.
