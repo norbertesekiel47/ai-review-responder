@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 394;
+export const ALLOWLIST_BASELINE = 395;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -110,6 +110,9 @@ const DASHBOARD_SETTINGS_SELECT_SQL =
 
 const HEALTH_ZERO_DELIVERY_SQL =
   "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+
+const HEALTH_FAILED_INBOUND_EVENTS_SQL =
+  "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'failed' AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS}) GROUP BY source, event_type";
 
 const JUDGE_SWEEP_CANDIDATES_SQL =
   "SELECT r.id AS response_id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours}) AND ${publisherSubscriptionEligibleSql(sql)} AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY r.posted_at ASC, r.id ASC LIMIT ${options.limit}";
@@ -563,6 +566,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: HEALTH_ZERO_DELIVERY_SQL,
     category: 'background-global-scan',
     reason: "HealthAlertPoller zero-delivery probe joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant (beta-launch gate A3).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "inbound_events",
+    sqlSnippet: HEALTH_FAILED_INBOUND_EVENTS_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller failed-inbound-events probe: counts inbound_events rows stuck in status='failed' grouped by (source, event_type) to surface webhook processing bugs otherwise masked by provider retries. Read-only platform health probe, intentionally cross-tenant (prod-hardening P7).",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",

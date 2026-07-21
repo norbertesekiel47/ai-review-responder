@@ -8,6 +8,7 @@
 
 import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   HANDLED_STATUSES,
   RECENT_REVIEW_DISPLAY_STATUSES,
@@ -78,6 +79,36 @@ export class BusinessNotFoundError extends Error {
   }
 }
 
+/**
+ * Per-widget degradation (prod-hardening spec P10): one auxiliary widget
+ * query failing must not 500 the whole dashboard. The failure is reported
+ * (never silent) and the widget renders its empty state. Only the business
+ * lookup stays fatal — a dashboard for a missing business is meaningless.
+ *
+ * Curried on `source` so each consumer's degradations report under its own
+ * Sentry source tag: this module binds `'dashboard/service'` below; the
+ * aggregate path (aggregate-service.ts) binds `'dashboard/aggregate'` and
+ * passes `{ accountId }` context instead of `{ businessId }`.
+ */
+export function widgetOrFallbackFor(source: string) {
+  return function widgetOrFallback<T>(
+    result: PromiseSettledResult<T>,
+    fallback: T,
+    widget: string,
+    context: Record<string, string>,
+  ): T {
+    if (result.status === 'fulfilled') return result.value;
+    reportCaughtError(source, result.reason, {
+      ...context,
+      widget,
+      degraded: true,
+    });
+    return fallback;
+  };
+}
+
+const widgetOrFallback = widgetOrFallbackFor('dashboard/service');
+
 export async function getActiveDashboardData(
   sql: Sql,
   businessId: string,
@@ -124,25 +155,16 @@ async function buildActiveDashboardData(
     opts?.window ?? DEFAULT_DASHBOARD_WINDOW,
   );
   const velocitySpanWeeks = trendWeeks - 1;
-  const [
-    businessRows,
-    totalReviewRows,
-    totalRespondedRows,
-    velocityRows,
-    rankingRows,
-    recentReviewRows,
-    monthlyBriefRows,
-    weeklyBriefRows,
-    zernioConnectionRows,
-    queuedReconnectRows,
-    unresolvedIncidentRows,
-    ratingBreakdownRows,
-    pendingRaw,
-    reputationRows,
-  ] = await Promise.all([
-    // Business info + settings (skipped when the route already fetched it)
+  // P10 fail-fast shape (plan R2): the fatal business lookup runs OUTSIDE the
+  // allSettled batch so its rejection surfaces immediately instead of waiting
+  // for all 13 auxiliaries to settle (up to statement_timeout, 30s).
+  // Promise.resolve() adopts the lazy Postgres.js thenable up front, starting
+  // the query before the auxiliary batch is built; the settled batch already
+  // has handlers attached, so an early throw leaves no unhandled rejection.
+  // Business info + settings (skipped when the route already fetched it).
+  const businessPromise: Promise<DashboardBusinessRow[]> = Promise.resolve(
     opts?.business
-      ? Promise.resolve([opts.business])
+      ? [opts.business]
       : sql<DashboardBusinessRow[]>`
       SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
              b.tone, b.products_services, b.avoid_facts, b.sample_responses,
@@ -154,6 +176,8 @@ async function buildActiveDashboardData(
       WHERE b.id = ${businessId}
       LIMIT 1
     `,
+  );
+  const settledPromise = Promise.allSettled([
     // Total reviews (all time)
     sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
@@ -326,10 +350,45 @@ async function buildActiveDashboardData(
       : Promise.resolve(null),
   ]);
 
+  const businessRows = await businessPromise;
   const business = businessRows[0];
   if (!business) {
     throw new BusinessNotFoundError(businessId);
   }
+
+  const [
+    totalReviewSettled,
+    totalRespondedSettled,
+    velocitySettled,
+    rankingSettled,
+    recentReviewSettled,
+    monthlyBriefSettled,
+    weeklyBriefSettled,
+    zernioConnectionSettled,
+    queuedReconnectSettled,
+    unresolvedIncidentSettled,
+    ratingBreakdownSettled,
+    pendingSettled,
+    reputationSettled,
+  ] = await settledPromise;
+
+  // Fallbacks are typed (not bare []) so T infers as the plain row-array
+  // type rather than Postgres.js's RowList intersection.
+  const totalReviewRows = widgetOrFallback(totalReviewSettled, [] as { count: number }[], 'totalReviewRows', { businessId });
+  const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [] as { count: number }[], 'totalRespondedRows', { businessId });
+  const velocityRows = widgetOrFallback(velocitySettled, [] as { week_start: unknown; count: unknown }[], 'velocityRows', { businessId });
+  const rankingRows = widgetOrFallback(rankingSettled, [] as DashboardRankingRow[], 'rankingRows', { businessId });
+  const recentReviewRows = widgetOrFallback(recentReviewSettled, [] as Record<string, unknown>[], 'recentReviewRows', { businessId });
+  const monthlyBriefRows = widgetOrFallback(monthlyBriefSettled, [] as DashboardBriefRow[], 'monthlyBriefRows', { businessId });
+  const weeklyBriefRows = widgetOrFallback(weeklyBriefSettled, [] as DashboardBriefRow[], 'weeklyBriefRows', { businessId });
+  const zernioConnectionRows = widgetOrFallback(zernioConnectionSettled, [] as DashboardZernioConnectionRow[], 'zernioConnectionRows', { businessId });
+  const queuedReconnectRows = widgetOrFallback(queuedReconnectSettled, [] as { count: number }[], 'queuedReconnectRows', { businessId });
+  const unresolvedIncidentRows = widgetOrFallback(unresolvedIncidentSettled, [] as { count: number }[], 'unresolvedIncidentRows', { businessId });
+  const ratingBreakdownRows = widgetOrFallback(ratingBreakdownSettled, [] as { stars: number; count: number }[], 'ratingBreakdownRows', { businessId });
+  const pendingRaw = widgetOrFallback(pendingSettled, null, 'pendingRaw', { businessId });
+  // Reputation degrades as ONE widget: fetchReputationRows batches its five
+  // queries internally, so any failure inside nulls the whole summary.
+  const reputationRows = widgetOrFallback(reputationSettled, null, 'reputationRows', { businessId });
 
   const totalReviews = totalReviewRows[0]?.count ?? 0;
   const totalResponded = totalRespondedRows[0]?.count ?? 0;
@@ -516,10 +575,13 @@ async function readPendingMarker(businessId: string): Promise<string | null> {
   try {
     return await getCacheRedis().get(pendingKey(businessId));
   } catch (err) {
-    console.error(
-      '[dashboard/service] failed to read connect_pending marker:',
-      err,
-    );
+    // Pre-existing graceful degradation, made visible in Sentry (P10 R2) —
+    // a console line alone left this failure mode silent in production.
+    reportCaughtError('dashboard/service', err, {
+      businessId,
+      widget: 'pendingMarker',
+      degraded: true,
+    });
     return null;
   }
 }

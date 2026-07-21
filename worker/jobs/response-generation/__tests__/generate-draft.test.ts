@@ -275,6 +275,23 @@ describe('generateDraft', () => {
     expect(calls[1]?.[4]).toMatchObject({ triageSeverity: 'medium', skipCache: true });
   });
 
+  describe('guardrail regen transient errors', () => {
+    it.each([
+      ['TransientLLMError', () => new TransientLLMError('openai 503')],
+      ['CostInfraUnavailableError', () => new CostInfraUnavailableError('reserveCost')],
+      ['ConcurrencyLimitExceededError', () => new ConcurrencyLimitExceededError('biz-1')],
+    ])('re-throws %s from the regen call so BullMQ retries', async (_name, make) => {
+      // First generateResponse call: violating draft. Second (regen): transient throw.
+      const violating: GenerationResult = { ...MOCK_RESULT, responseText: 'has bad word', apiCostId: 'cost-1' };
+      mockGenerateResponse
+        .mockResolvedValueOnce(violating)
+        .mockRejectedValueOnce(make());
+      await expect(
+        generateDraft(mockSql, ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger()),
+      ).rejects.toBeInstanceOf(make().constructor);
+    });
+  });
+
   it('fails when the avoid-facts violation persists after retry', async () => {
     const violating: GenerationResult = { ...MOCK_RESULT, responseText: 'has bad word', apiCostId: 'cost-1' };
     const stillViolating: GenerationResult = { ...MOCK_RESULT, responseText: 'still bad word here', apiCostId: 'cost-2' };

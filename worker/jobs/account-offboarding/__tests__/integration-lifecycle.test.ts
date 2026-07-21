@@ -84,7 +84,7 @@ import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/kee
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
-import { supabaseServer } from '../../../../src/lib/db/server';
+import { supabaseServerBounded } from '../../../../src/lib/db/server';
 import {
   cleanupOwnerOffboardingSeed,
   closeSeedDb,
@@ -441,7 +441,7 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
         WHERE id = ${outbox!.id}::uuid
       `;
 
-      await handleAccountOffboardingPurge(sql, supabaseServer, {
+      await handleAccountOffboardingPurge(sql, supabaseServerBounded, {
         id: outbox!.id,
         data: {
           ...parsePayload(outbox!.payload),

@@ -29,7 +29,12 @@ import {
 import { mapReviewVelocity } from './active-mappers';
 import { buildRatingBreakdown } from './rating-breakdown';
 import { getPendingApprovalCountsForAccount } from './pending-count';
+import { widgetOrFallbackFor } from './service';
 import type { DashboardDataActive, RatingBreakdown, ValueSummary } from './types';
+
+// Wave degradations report under the aggregate path's source tag, matching
+// aggregate-service.ts (which owns the other 'dashboard/aggregate' widgets).
+const widgetOrFallback = widgetOrFallbackFor('dashboard/aggregate');
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
 
@@ -105,6 +110,15 @@ interface WeeklyBriefRow extends DashboardBriefRow {
  * per active location, keyed by `business_id`. The query count is fixed (does
  * not grow with N): six grouped statements in one wave, plus the account-wide
  * pending-count rollup.
+ *
+ * Degradation contract (P10, adversarial finding 2): the wave is NOT atomic —
+ * its reads settle independently, and each one degrades per-query via
+ * `widgetOrFallback` (reported, never silent), emptying that widget's column
+ * across locations instead of failing the whole aggregate. Only the baseline
+ * read stays FATAL: it is the identity anchor the slices are built from
+ * (iterating its rows), so degrading it would return an all-zeros aggregate
+ * that misreports the business — the in-wave analog of the fatal
+ * locations-list query in aggregate-service.ts.
  */
 export async function fetchPerLocationAggregateSlices(
   sql: Sql,
@@ -115,15 +129,15 @@ export async function fetchPerLocationAggregateSlices(
   const velocitySpanWeeks = trendWeeks - 1;
 
   const [
-    baselineRows,
-    counterRows,
-    velocityRows,
-    ratingRows,
-    rankingRows,
-    monthlyRows,
-    weeklyRows,
-    pendingCounts,
-  ] = await Promise.all([
+    baselineSettled,
+    countersSettled,
+    velocitySettled,
+    ratingSettled,
+    rankingSettled,
+    monthlySettled,
+    weeklySettled,
+    pendingSettled,
+  ] = await Promise.allSettled([
     // (6) Baseline columns — the anchor set of active locations. buildValueSummary
     //     reads baseline_captured_at / initial_review_count / initial_responded_count.
     sql<BaselineRow[]>`
@@ -239,6 +253,18 @@ export async function fetchPerLocationAggregateSlices(
     // (7) Authoritative per-location pending-approval counts (excludes held/flagged).
     getPendingApprovalCountsForAccount(sql, accountId),
   ]);
+
+  // FATAL identity anchor (see the degradation contract above).
+  if (baselineSettled.status === 'rejected') throw baselineSettled.reason;
+  const baselineRows = baselineSettled.value;
+
+  const counterRows = widgetOrFallback(countersSettled, [] as CounterRow[], 'sliceReviewCounters', { accountId });
+  const velocityRows = widgetOrFallback(velocitySettled, [] as VelocityRow[], 'sliceReviewVelocity', { accountId });
+  const ratingRows = widgetOrFallback(ratingSettled, [] as RatingRow[], 'sliceRatingBreakdown', { accountId });
+  const rankingRows = widgetOrFallback(rankingSettled, [] as RankingRow[], 'sliceRanking', { accountId });
+  const monthlyRows = widgetOrFallback(monthlySettled, [] as MonthlyBriefRow[], 'sliceMonthlyBriefs', { accountId });
+  const weeklyRows = widgetOrFallback(weeklySettled, [] as WeeklyBriefRow[], 'sliceWeeklyBriefs', { accountId });
+  const pendingCounts = widgetOrFallback(pendingSettled, new Map<string, number>(), 'slicePendingApprovalCounts', { accountId });
 
   const countersById = new Map<string, CounterRow>();
   for (const row of counterRows) countersById.set(row.business_id, row);

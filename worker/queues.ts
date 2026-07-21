@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES } from '../src/lib/shared/queue-names';
 import { getRedisOptions } from './redis-connection';
+import { attachEmitterErrorLogger } from './emitter-errors';
 
 // Re-export for existing callers (worker entry points, tests). `getRedisOptions`
 // lives in the side-effect-free `redis-connection` module so it can be
@@ -80,6 +81,12 @@ export const queues = {
   autonomySuspendedNotice: new Queue(QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE, { connection: opts, defaultJobOptions }),
   autonomyAdminAlert: new Queue(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT, { connection: opts, defaultJobOptions }),
 } as const;
+
+// Queues emit 'error' on Redis connection failures; without a listener that
+// escalates to a fatal uncaughtException. See worker/emitter-errors.ts.
+for (const queue of Object.values(queues)) {
+  attachEmitterErrorLogger(queue, `queue:${queue.name}`);
+}
 
 // Lookup table: outbox topic string → Queue instance
 export const topicToQueue: Record<string, Queue> = {
