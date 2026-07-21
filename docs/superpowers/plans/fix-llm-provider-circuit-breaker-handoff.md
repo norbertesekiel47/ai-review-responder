@@ -7,9 +7,34 @@ needs the prior transcript.
 
 ## Current step
 
-**Step 4 (EXECUTE) — starting.** Steps 1–3 complete: intake locked, worktree +
-ARM CHECK done, plan written and adversarially gated (codex, all findings
-resolved), owner signed off 2026-07-20.
+**Steps 1–5 COMPLETE. Next: step 6 (adversarial review, RISK=high).**
+
+- Step 4 (EXECUTE) done — T1/T2/T3 built via subagent TDD.
+- Step 5 (VERIFY GATE) **GREEN** — full suite (9187 tests) + every `ci:*` audit
+  pass; `.feature/gate-status.json` passed:true, fresh (newer than HEAD).
+- **Commits on branch** (newest last): `6d78fe05` T1 breaker module + tests ·
+  T2 wire into runLlmTask · `70363d1c` T3 docs · `6b0d256d` flags accessor ·
+  `4ce64963` route flag via config/flags.ts primitive + rename
+  recordOutcome→recordAttempt.
+- **Two surface amendments** (owner-approved, recorded in `.feature/intake.json`
+  `surface_amendments`): added `src/lib/llm/flags.ts` and
+  `src/lib/config/flags.ts` (`readFlagEnabledByDefault` primitive). Invariant #13
+  (flag via accessor) + `ci:process-env` (raw read in baselined config/flags.ts)
+  + spine-audit name collision all resolved.
+- **Breaker method renamed** `recordOutcome`→`recordAttempt` (avoids the
+  agent-run-spine `recordOutcome` audit collision — do NOT rename back).
+
+### To resume at step 6/7 (fresh session)
+1. Owner runs `/codex:adversarial-review` on the branch (user-invocable only) —
+   step 6. Triage findings with `superpowers:receiving-code-review`; re-run
+   `scripts/verify-gate.sh` after any change.
+2. Step 7 — two parallel fresh review agents on the branch diff since fork point
+   (`git merge-base origin/main HEAD`): (a) spec&correctness vs
+   `.feature/intake.json` field-by-field; (b) standards via
+   `/thermo-nuclear-code-quality-review` (fallback `/code-review` high). Full
+   reports to `docs/reviews/fix-llm-provider-circuit-breaker/`, findings tables
+   only in context. Re-run gate after fixes.
+3. Step 8 ship — see below.
 
 ## Authoritative artifacts (read these, don't restate)
 
