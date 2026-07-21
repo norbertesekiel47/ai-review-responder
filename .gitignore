@@ -137,6 +137,7 @@ tests/llm-eval/reports/
 # impeccable design-hook local output (re-materialized by the hook)
 .impeccable/
 
-# /feature workflow enforcement artifacts (intake.json + deps-justification.md ARE committed)
-.feature/logs/
-.feature/gate-status.json
+# /feature workflow run scratch — ephemeral, never committed. Living only on
+# disk keeps the enforcement hooks (which arm off .feature/intake.json) from
+# following a merged feature onto main and arming every future main session.
+.feature/

@@ -628,3 +628,70 @@ operator variable), `review-ingestion.md` (no ReviewSource change),
 cover the new modules).
 
 ---
+
+## 2026-07-20 — Scalability verification remainders (#511)
+
+Closed verification items 6 and 8, the final two pre-launch scalability
+remainders. Branch `fix/verification-remainders`, squash-merged as `88be8e77`
+via **PR #511**. Rode staging first (worker touched + migration), then main.
+
+**Item 6 — boot-enforce the summed LLM worker-slot cap.**
+- New `assertSummedLlmWorkerSlots(entries)` in `worker/config/startup-assert.ts`,
+  colocated with the `assertSingleConcurrencyWorker` precedent. Reads EFFECTIVE
+  `worker.opts` (`opts.concurrency ?? 1`), sums the non-flag-gated LLM queues,
+  throws at boot if the sum > 9, and caps each flag-gated queue (`judge_verdict`)
+  at 1 separately so booting with the judge flag ON never trips the sum.
+- Called in `worker/index.ts` right after the six LLM-worker registrations, with
+  the real `worker.opts` of `generate_response` (5), `generate_demo` (1),
+  `weekly_summary` (1), `send_monthly_impact` (1), `onboarding_demo_response`
+  (1) → sum 9; `judge_verdict` (1, flagGated).
+- The two cap literals (`SUMMED_LLM_WORKER_SLOT_CAP=9`,
+  `FLAG_GATED_LLM_WORKER_SLOT_CAP=1`) are module-private (implementation detail;
+  the boundary tests pin 9/10 as concrete values by design).
+- **No concurrency VALUE changed** — enforcement only. `generate_demo` was
+  missing from #490's inventory; `docs/adr/0005-beta-launch-posture.md` addendum
+  amended to cap 9 with `generate_demo` counted; `CONTEXT.md` glossary synced.
+- Tests: `worker/config/__tests__/startup-assertion.test.ts` — sum exactly 9
+  passes; sum 10 throws; undefined concurrency counts as 1; judge at 1 passes /
+  at 2 throws; effective-opts drift (generate at 6) throws.
+
+**Item 8 — NotificationFailoverPoller lookup indexes (migration 082).**
+- `idx_jo_send_notification_by_aggregate` on `job_outbox (aggregate_id,
+  created_at DESC) WHERE topic = 'send_notification'` — serves
+  `recoverFailoverCorrelationId` (mirror of 018's `generate_response` twin).
+- `idx_responses_pending_approval_created` on `responses (created_at) WHERE
+  status = 'pending_approval'` — serves both global sweeps (all-failed + stale);
+  supplies the `ORDER BY created_at ASC` so there is no Sort node.
+- Both `CREATE INDEX CONCURRENTLY IF NOT EXISTS` → **non-transactional**, NOT
+  atomic; header documents the 062 invalid-index recovery (`pg_index.indisvalid`
+  → `DROP INDEX CONCURRENTLY` + re-run). Applied **staging then prod** in
+  lockstep; both projects verified `indisvalid = indisready = true`.
+- No INCLUDE columns yet — staging + prod `EXPLAIN (ANALYZE, BUFFERS)` captured
+  first (evidence rule); INCLUDE deferred to a production EXPLAIN if heap-fetch
+  cost ever shows up.
+- Test: `src/lib/shared/__tests__/migration-082-failover-indexes.integration.test.ts`
+  (DB-gated) — both indexes exist, partial predicates exact, `indisvalid` +
+  `indisready` true.
+
+**Post-merge hygiene (this same docs PR).** Untracked the `/feature` run scratch
+(`.feature/intake.json`, `.feature/sessions`) from git and gitignored the whole
+`.feature/` dir. Those files had been landing on `main` via squash-merge and,
+combined with the committed enforcement hooks, armed feature-mode in every future
+`main` session against the last-merged feature's edit surface. `.feature/` is
+now purely on-disk run scratch (the hooks still arm off `.feature/intake.json`,
+they just no longer follow a merge onto main).
+
+**Follow-ups filed (from review triage), not in this PR:** extract the shared
+DB-guard test harness (5 duplicate copies across the 076–082 integration tests);
+candidate `ci:` audit mapping `runLlmTask` importers → LLM queue inventory (the
+class of gap #490 hit).
+
+**Doc-change-map applied.** Updated `currents.md`, this history, and
+`.claude/reference/lab-notes.md`. `migrations-log.md`, `docs/adr/0005`, and
+`CONTEXT.md` were updated inside the feature PR itself. Skipped `env-vars.md`
+(no operator variable — the boot assert reads registrations, not env),
+`review-ingestion.md` (no ReviewSource change), and `.claude/CLAUDE.md`
+(existing worker-layout / boot-assert conventions already cover the new
+`startup-assert.ts` export).
+
+---
