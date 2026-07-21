@@ -407,7 +407,7 @@ describe('runLlmTask', () => {
     /** Trip a provider's breaker open via 5 consecutive transient outcomes. */
     function tripOpen(provider: LLMProviderId): void {
       const transient = Object.assign(new Error('provider outage'), { code: 'ECONNRESET' });
-      for (let i = 0; i < 5; i++) llmCircuitBreaker.recordOutcome(provider, transient);
+      for (let i = 0; i < 5; i++) llmCircuitBreaker.recordAttempt(provider, transient);
     }
 
     function transientError(message: string): Error {

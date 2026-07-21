@@ -43,10 +43,10 @@ describe('LlmCircuitBreaker', () => {
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
     for (let i = 0; i < 4; i++) {
-      breaker.recordOutcome(OPENAI, transientError());
+      breaker.recordAttempt(OPENAI, transientError());
       expect(breaker.shouldAttempt(OPENAI)).toBe(true);
     }
-    breaker.recordOutcome(OPENAI, transientError());
+    breaker.recordAttempt(OPENAI, transientError());
     expect(breaker.shouldAttempt(OPENAI)).toBe(false);
   });
 
@@ -54,11 +54,11 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 4; i++) breaker.recordOutcome(OPENAI, transientError());
-    breaker.recordOutcome(OPENAI); // success
+    for (let i = 0; i < 4; i++) breaker.recordAttempt(OPENAI, transientError());
+    breaker.recordAttempt(OPENAI); // success
     expect(breaker.shouldAttempt(OPENAI)).toBe(true);
 
-    for (let i = 0; i < 4; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 4; i++) breaker.recordAttempt(OPENAI, transientError());
     expect(breaker.shouldAttempt(OPENAI)).toBe(true);
   });
 
@@ -66,7 +66,7 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, nonTransientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, nonTransientError());
     expect(breaker.shouldAttempt(OPENAI)).toBe(true);
   });
 
@@ -74,7 +74,7 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     expect(breaker.shouldAttempt(OPENAI)).toBe(false);
 
     clock.advance(30_000);
@@ -85,11 +85,11 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     clock.advance(30_000);
     expect(breaker.shouldAttempt(OPENAI)).toBe(true);
 
-    breaker.recordOutcome(OPENAI); // probe success
+    breaker.recordAttempt(OPENAI); // probe success
     expect(breaker.shouldAttempt(OPENAI)).toBe(true);
   });
 
@@ -97,11 +97,11 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     clock.advance(30_000);
     expect(breaker.shouldAttempt(OPENAI)).toBe(true); // probe
 
-    breaker.recordOutcome(OPENAI, transientError()); // probe fails
+    breaker.recordAttempt(OPENAI, transientError()); // probe fails
     expect(breaker.shouldAttempt(OPENAI)).toBe(false); // re-open, still cooling down
 
     clock.advance(30_000);
@@ -112,11 +112,11 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     clock.advance(30_000);
     expect(breaker.shouldAttempt(OPENAI)).toBe(true); // probe
 
-    breaker.recordOutcome(OPENAI, nonTransientError()); // reachable
+    breaker.recordAttempt(OPENAI, nonTransientError()); // reachable
     expect(breaker.shouldAttempt(OPENAI)).toBe(true); // closed
   });
 
@@ -124,7 +124,7 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     clock.advance(30_000);
 
     const first = breaker.shouldAttempt(OPENAI);
@@ -136,7 +136,7 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome(OPENAI, transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt(OPENAI, transientError());
     expect(captureMessage).toHaveBeenCalledTimes(1);
     expect(captureMessage.mock.calls[0]?.[1]).toMatchObject({ level: 'warning' });
 
@@ -148,7 +148,7 @@ describe('LlmCircuitBreaker', () => {
     const clock = fixedClock();
     const breaker = new LlmCircuitBreaker({ now: clock.now, enabled: true });
 
-    for (let i = 0; i < 5; i++) breaker.recordOutcome('openai', transientError());
+    for (let i = 0; i < 5; i++) breaker.recordAttempt('openai', transientError());
     expect(breaker.shouldAttempt('openai')).toBe(false);
     expect(breaker.shouldAttempt('anthropic')).toBe(true);
   });
@@ -164,9 +164,9 @@ describe('LlmCircuitBreaker invariants', () => {
   const anyOutcome = fc.constantFrom<Outcome>('success', 'transient', 'nonTransient');
 
   function feed(breaker: LlmCircuitBreaker, provider: LLMProviderId, outcome: Outcome): void {
-    if (outcome === 'success') breaker.recordOutcome(provider);
-    else if (outcome === 'transient') breaker.recordOutcome(provider, transientError());
-    else breaker.recordOutcome(provider, nonTransientError());
+    if (outcome === 'success') breaker.recordAttempt(provider);
+    else if (outcome === 'transient') breaker.recordAttempt(provider, transientError());
+    else breaker.recordAttempt(provider, nonTransientError());
   }
 
   it('with enabled:false, shouldAttempt is always true for any outcome sequence', () => {
@@ -183,7 +183,7 @@ describe('LlmCircuitBreaker invariants', () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 4 }), (count) => {
         const breaker = new LlmCircuitBreaker({ now: () => 0, enabled: true });
-        for (let i = 0; i < count; i++) breaker.recordOutcome(OPENAI, transientError());
+        for (let i = 0; i < count; i++) breaker.recordAttempt(OPENAI, transientError());
         expect(breaker.shouldAttempt(OPENAI)).toBe(true);
       }),
     );
@@ -196,9 +196,9 @@ describe('LlmCircuitBreaker invariants', () => {
         fc.integer({ min: 0, max: 4 }),
         (before, after) => {
           const breaker = new LlmCircuitBreaker({ now: () => 0, enabled: true });
-          for (let i = 0; i < before; i++) breaker.recordOutcome(OPENAI, transientError());
-          breaker.recordOutcome(OPENAI); // success resets
-          for (let i = 0; i < after; i++) breaker.recordOutcome(OPENAI, transientError());
+          for (let i = 0; i < before; i++) breaker.recordAttempt(OPENAI, transientError());
+          breaker.recordAttempt(OPENAI); // success resets
+          for (let i = 0; i < after; i++) breaker.recordAttempt(OPENAI, transientError());
           expect(breaker.shouldAttempt(OPENAI)).toBe(true);
         },
       ),

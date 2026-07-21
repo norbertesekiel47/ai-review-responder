@@ -76,7 +76,7 @@ export class LlmCircuitBreaker {
     return false;
   }
 
-  recordOutcome(provider: LLMProviderId, error?: unknown): void {
+  recordAttempt(provider: LLMProviderId, error?: unknown): void {
     if (!this.isEnabled()) return;
 
     const entry = this.get(provider);

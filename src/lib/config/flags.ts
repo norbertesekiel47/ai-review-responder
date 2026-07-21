@@ -22,6 +22,13 @@ export function readFlag(name: string): boolean {
   return process.env[name] === 'true';
 }
 
+/** True UNLESS the named boolean env flag is set to the literal string 'false'.
+ *  The DEFAULT-ON inverse of readFlag — for the rare default-on kill switch
+ *  (e.g. LLM_CIRCUIT_BREAKER_ENABLED). Same single-sanctioned-reader home. */
+export function readFlagEnabledByDefault(name: string): boolean {
+  return process.env[name] !== 'false';
+}
+
 // Use VERCEL_TARGET_ENV, not VERCEL_ENV: a preview-type custom environment such as
 // `staging` reports VERCEL_ENV='preview' but VERCEL_TARGET_ENV='staging'. Only genuine
 // per-PR previews have VERCEL_TARGET_ENV='preview'. Both are runtime-available. This is

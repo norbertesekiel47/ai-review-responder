@@ -130,10 +130,10 @@ async function attemptProvider(
   if (!llmCircuitBreaker.shouldAttempt(provider)) return { kind: 'blocked' };
   try {
     const result = await completeAttempt(PROVIDERS[provider], request, task);
-    llmCircuitBreaker.recordOutcome(provider);
+    llmCircuitBreaker.recordAttempt(provider);
     return { kind: 'ok', result };
   } catch (error) {
-    llmCircuitBreaker.recordOutcome(provider, error);
+    llmCircuitBreaker.recordAttempt(provider, error);
     return { kind: 'error', error };
   }
 }
