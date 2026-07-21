@@ -21,7 +21,12 @@ Resume with `/feature-resume f1-owner-unreachable-escalation` from a fresh sessi
 ## Map-level correction made (recorded in ADR 0010, T5)
 The F1 ticket's "no health check can see it" premise was **stale** — `checkZeroDeliveryNotifications` already partially observed the zero-enrollment case within its 1h window (blanket `NOT EXISTS(notification_deliveries)`). F1's value: distinct + **durable** (age floor, not window) + de-conflated marker. This was surfaced to and accepted by the owner.
 
-## Current step: 3 (PLAN) — awaiting codex round-3 verdict (FINAL round)
+## Current step: 3 DONE → resume at step 4 (EXECUTE)
+- **PLAN APPROVED by owner** (2026-07-21) at **rev 4**, committed on branch. Codex ran its full 3-round cap (R1 REVISE→R2 REVISE→R3 REVISE, each round smaller; R3 was 8/10 confirmed-fixed + edge cases). Rev 4 resolves every concrete R3 finding: email-starvation split (unreachable vs in_flight flags, R3-B), commit-state via sql.begin return (R3-C), null-safe reviewer_name (R3-D), age floor in locked re-check (R3 #1), CAS test order (R3 #8). Codex loop is CLOSED — do NOT re-submit.
+- **Owner decision R3-A (archival):** ACCEPT + DOCUMENT. `owner_unreachable` markers are archived at 7d but the retry loop refreshes them (<7d while running); a stalled retry >7d is caught by `checkStaleDispatching`/`checkOldestPendingOutbox`. No `ArchivalPoller` change. Recorded in the plan residual-risks + to be recorded in ADR 0010 (T5).
+- **NEXT: step 4 execution.** Dispatch fresh per-task subagents (T1 → T2‖T3‖T4 → T5) via `superpowers:subagent-driven-development`; each prompt carries the CONTEXT.md glossary excerpt + the ticket's spec slice + blocking edges. Commit per task. Then step 5 verify gate, step 6 (ask owner to run `/codex:adversarial-review`), step 7 dual review, step 8 staging-first ship. **Uphold the manual gate discipline** (Stop hook won't auto-arm; paste green `scripts/verify-gate.sh` before any done-claim).
+
+## (historical) Codex plan-gate rounds
 - **Grill + intake:** DONE, owner-signed-off. 4 decisions locked (scope; marker=column; both surfaces; poller retry) + surface amendment (worker-types.ts) signed off.
 - **Worktree + ARM CHECK:** DONE. Edit-surface guard **ARMED**. ⚠️ **Stop gate does NOT auto-arm** (harness resets cwd to parent; `CLAUDE_PROJECT_DIR` unset → gate can't find the worktree's `.feature/intake.json` at stop time). `.feature/` is gitignored (repo policy) so intake is present-but-untracked. **Mitigation: uphold gate discipline MANUALLY — never claim done without pasting green `scripts/verify-gate.sh` output.**
 - **Plan is now rev 3, committed `7dddc2a5`.**
