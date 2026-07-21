@@ -48,6 +48,7 @@
     "docs/adr/0005-beta-launch-posture.md",
     "docs/reviews/feat-stripe-reconcile-remainders/standards-maintainability.md",
     ".gitignore",
+    "CONTEXT.md",
     ".feature/**",
     "docs/superpowers/plans/**"
   ],
