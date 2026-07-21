@@ -21,7 +21,29 @@ Resume with `/feature-resume f1-owner-unreachable-escalation` from a fresh sessi
 ## Map-level correction made (recorded in ADR 0010, T5)
 The F1 ticket's "no health check can see it" premise was **stale** — `checkZeroDeliveryNotifications` already partially observed the zero-enrollment case within its 1h window (blanket `NOT EXISTS(notification_deliveries)`). F1's value: distinct + **durable** (age floor, not window) + de-conflated marker. This was surfaced to and accepted by the owner.
 
-## Current step: 4 + 5 DONE → PAUSED at step 6 (REVIEW 0, adversarial)
+## Current step: 4–7 DONE → resume at step 8 (SHIP, RISK=high lane)
+
+**Steps 6 + 7 complete; verify gate GREEN (16/16, `gate-status.json` newer than HEAD).** Ready to ship.
+
+**Step 6 (adversarial review) — DONE.** `/codex:adversarial-review` returned needs-attention (1 high, 2 medium). Triaged in `docs/reviews/f1-owner-unreachable-escalation/codex-adversarial-review-round0.md`:
+- **Finding 2 (medium) FIXED** (`96fe61cd`): candidate SELECT now excludes in-flight `send_notification` (matches all-failed/stale precedent; kills 200-batch starvation). Partially reverts R3-B (admin email waits ~1 retry cycle when in-flight; durable Sentry COUNT covers meanwhile). ADR 0010 updated.
+- **Finding 1 (high) ACCEPTED AS SCOPED** — premise partly wrong (subscription-skip NULL-reason completion is still counted by `checkZeroDeliveryNotifications` via `NULL IS DISTINCT FROM 'owner_unreachable'`); the lost durable/retry properties are the intake's designed supersession + the "no event-driven re-notify" non-goal; not a regression. Follow-up ticket F1-followup-A.
+- **Finding 3 (medium) ACCEPTED AS SCOPED** — re-raise of owner-decided R3-A archival coupling; follow-up F1-followup-C (failover liveness monitoring).
+
+**Step 7 (dual review) — DONE.** Spec & correctness: **CLEAN (0 findings ≥80%)** — full field-by-field intake check passed (`docs/reviews/.../spec-correctness-review.md`). Standards & maintainability: 1 medium — triplicated owner-unreachable predicate (`docs/reviews/.../standards-maintainability-review.md`). Triaged: kept the deliberate duplication (heterogeneous query shapes; codex-reviewed plan decision) but FIXED the real sub-issue — the age floor was config-driven in the health check yet hardcoded `INTERVAL '4 hours'` in both poller sites (`9050ba39`): now a single `OWNER_UNREACHABLE_AGE_FLOOR_SECONDS` constant + shared `num()` resolver bind all three to the same env source. Behavior byte-identical (14400s = 4h).
+
+**Branch commits (newest→oldest):** `9050ba39` age-floor bind · `ee346965` step-6 docs · `96fe61cd` finding-2 fix · `3feba107` handoff · `38d9abfe` lint · `dd4bfe7f` tenant-scope allowlist (baseline 405) · `c3c2f7a0` T5 · `87b0f9f0` deviations · `36e14b72` T4 · `5cbfa115` T3 · `f17330dd` T2 · `a469e8bc` T1.
+
+### NEXT: step 8 SHIP (RISK=high — worker + migration) — staging-first lane
+1. **Migration 083 to STAGING Supabase FIRST** (`ALTER TABLE job_outbox ADD COLUMN IF NOT EXISTS completion_reason TEXT` — additive, `lock_timeout 3s`). Then land the branch on `staging` (push → full stack auto-deploys the Railway staging worker + Vercel staging).
+2. **Smoke on staging**: health-alert finding path + failover owner-unreachable arm (a live business with zero verified enrollments → marker recorded → `checkOwnerUnreachable` fires → poller retries + admin email). Runbook: `docs/runbooks/beta-launch-alerting.md`. Integration tests (`*.integration.test.ts`) run in CI (CI provisions `TEST_DATABASE_POOL_URL` + applies migrations).
+3. **Open PR to `main`**, confirm all 4 GitHub CI checks green (+ fallow in its own workflow), then **PAUSE for owner merge approval**. Apply migration 083 to **prod Supabase in lockstep** at promotion.
+4. **After merge:** `git pull --ff-only` local main; fast-forward `staging` onto `main`; remove the sibling worktree + delete branch; `document-feature` sweep; final `domain-modeling` fold; increment the merge counter in `.claude/reference/arch-review-log.md` (architecture-review reminder at ≥5).
+5. **File the 3 follow-up tickets** (F1-followup-A/B/C) from the step-6 review doc.
+
+**Migration lockstep reminder:** apply to BOTH Supabase projects, **staging first**; "applied to prod, not staging" is a bug (CLAUDE.md).
+
+### (historical) Current step: 4 + 5 DONE → PAUSED at step 6 (REVIEW 0, adversarial)
 
 **Execution complete, verify gate GREEN.** As of 2026-07-21 all 5 tracer tickets are implemented + committed and `scripts/verify-gate.sh` is GREEN (16/16; `gate-status.json` newer than HEAD). Branch commits (oldest→newest): `a469e8bc` T1 marker foundation · `f17330dd` T2 NotificationWorker · `5cbfa115` T3 health check + de-conflation · `36e14b72` T4 failover arm · `87b0f9f0` deviations log · `c3c2f7a0` T5 glossary+ADR · `dd4bfe7f` tenant-scope allowlist · `38d9abfe` lint fix.
 
