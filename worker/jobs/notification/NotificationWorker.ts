@@ -12,6 +12,7 @@ import type { Sql } from 'postgres';
 import {
   markOutboxCompleted,
   markOutboxFailed,
+  markOutboxOwnerUnreachable,
   extractOutboxHandle,
 } from '../../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
@@ -74,10 +75,11 @@ export async function handleSendNotification(
   );
   if (!eligibility.ok) {
     if (eligibility.reason === 'no_verified_enrollments') {
-      logger.warn(`Location ${businessId} has no verified channel enrollments — skipping`);
-    } else {
-      logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
+      logger.warn(`Location ${businessId} has no verified channel enrollments — recording owner_unreachable`);
+      await markOutboxOwnerUnreachable(sql, outboxId, outboxAttempt);
+      return;
     }
+    logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
