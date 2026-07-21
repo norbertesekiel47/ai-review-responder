@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   autoApprovalRuntimeEnabled: vi.fn(() => true),
   loadPendingPostNoticeContext: vi.fn(),
   dispatchPendingPostNotice: vi.fn(),
-  getEligibleChannels: vi.fn(),
+  resolveEligibleChannels: vi.fn(),
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
   extractOutboxHandle: vi.fn(() => ({ outboxId: 'ob-1', attempt: 1 })),
@@ -28,7 +28,7 @@ vi.mock('../dispatch', () => ({
   dispatchPendingPostNotice: mocks.dispatchPendingPostNotice,
 }));
 vi.mock('../../notification/eligibility', () => ({
-  getEligibleChannels: mocks.getEligibleChannels,
+  resolveEligibleChannels: mocks.resolveEligibleChannels,
 }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mocks.markOutboxCompleted,
@@ -98,7 +98,7 @@ beforeEach(() => {
   mocks.autoApprovalRuntimeEnabled.mockReturnValue(true);
   mocks.extractOutboxHandle.mockReturnValue({ outboxId: 'ob-1', attempt: 1 });
   mocks.loadPendingPostNoticeContext.mockResolvedValue(CTX_OK);
-  mocks.getEligibleChannels.mockResolvedValue(ELIGIBLE);
+  mocks.resolveEligibleChannels.mockResolvedValue(ELIGIBLE);
   mocks.dispatchPendingPostNotice.mockResolvedValue({ ...DISPATCH_OK });
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com/';
   resetWorkerConfigForTests();
@@ -131,12 +131,12 @@ describe('handlePendingPostNotice', () => {
     await run();
 
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
-    expect(mocks.getEligibleChannels).not.toHaveBeenCalled();
+    expect(mocks.resolveEligibleChannels).not.toHaveBeenCalled();
     expect(mocks.dispatchPendingPostNotice).not.toHaveBeenCalled();
   });
 
   it('eligibility not-ok (guard d, invariant #11) → outbox completed, no dispatch', async () => {
-    mocks.getEligibleChannels.mockResolvedValue({ ok: false, reason: 'subscription_cancelled' });
+    mocks.resolveEligibleChannels.mockResolvedValue({ ok: false, reason: 'subscription_cancelled' });
 
     await run();
 
@@ -145,7 +145,7 @@ describe('handlePendingPostNotice', () => {
   });
 
   it('eligibility empty enrollments → outbox completed, no dispatch', async () => {
-    mocks.getEligibleChannels.mockResolvedValue({ ok: true, enrollments: [] });
+    mocks.resolveEligibleChannels.mockResolvedValue({ ok: true, enrollments: [] });
 
     await run();
 

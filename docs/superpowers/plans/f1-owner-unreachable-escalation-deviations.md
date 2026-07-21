@@ -68,3 +68,41 @@ threshold) is covered by the mock-sql suite. Commit `5cbfa115`.
    `sql.begin`; not a new cast style introduced by this feature.
 
    Commit `36e14b72`.
+
+## Step 8 (SHIP) — fallow gate triage + owner-approved scope expansion
+
+The PR's `fallow` check (new-only gate, `--fail-on-issues`) failed on 3 findings
+from the diff. Triaged with `superpowers:receiving-code-review`:
+
+1. **Dead code — unused type export `OutboxCompletionReason`** (real): the
+   derived union type had no consumers. **Fixed by deletion** (in-surface;
+   anti-slop "no abstraction before the second use"). The `OUTBOX_COMPLETION_REASON`
+   const stays — it is the used single-source value.
+
+2. **Complexity — `runFailoverPollerOnce` (cyclomatic 13)** (accepted): F1 added
+   the third failover arm to the dispatcher. The repo already suppresses
+   complexity on sibling poller dispatchers (`OutboxPoller.ts`, `PendingPostNoticeWorker.ts`,
+   … — 66 `// fallow-ignore-next-line complexity` sites). **Suppressed with the
+   same directive + a rationale comment** (arm count, not tangled control flow;
+   each arm delegates to a helper). Step-7 standards review already accepted this
+   arm-dispatcher shape. In-surface.
+
+3. **Duplication — 25-line 3-way clone** across `NotificationWorker`,
+   `EscalationNoticeWorker`, `PendingPostNoticeWorker` (the identical
+   `getEligibleChannels` business→input plumbing). Fallow duplication is warn-level
+   (did NOT fail the gate — findings 1+2 did), but the **owner chose to extract**
+   rather than acknowledge. **Scope expanded WITH owner sign-off** — `allowed_edit_surface`
+   amended to add `worker/jobs/notification/eligibility.ts`,
+   `worker/jobs/escalation-notice/EscalationNoticeWorker.ts`,
+   `worker/jobs/pending-post-notice/PendingPostNoticeWorker.ts` (+ their `__tests__`).
+   Extracted `resolveEligibleChannels(sql, business, locationId, logger)` into the
+   shared `eligibility.ts` (already imported by all three); each worker keeps its
+   **divergent** post-eligibility handling (owner-unreachable branch vs
+   `enrollments.length === 0` checks). Behavior byte-identical; the two direct-mock
+   worker tests renamed their `getEligibleChannels` mock to `resolveEligibleChannels`
+   (`NotificationWorker.test.ts` uses the real module → unaffected). The extraction
+   removed the 3-way clone; a pre-existing warn-level 2-way `fail/skip`-guard clone
+   between Escalation+PendingPost remains (divergent log strings; not force-merged).
+
+Verify gate re-run GREEN 16/16; local `fallow audit --gate new-only --fail-on-issues`
+exits 0 (dead code 0 · complexity 0 · duplication 1 warn).

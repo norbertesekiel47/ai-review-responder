@@ -29,7 +29,7 @@ import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
 import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
-import { getEligibleChannels } from '../notification/eligibility';
+import { resolveEligibleChannels } from '../notification/eligibility';
 import { loadPendingPostNoticeContext } from './context';
 import { dispatchPendingPostNotice } from './dispatch';
 
@@ -67,17 +67,7 @@ export async function handlePendingPostNotice(sql: Sql, job: Job<PendingPostNoti
   // Reuse the approval worker's subscription guard + resolveChannels + flag
   // filter (invariant #11). If the account cancelled between the auto-approval
   // and this send, this skips.
-  const eligibility = await getEligibleChannels(
-    sql,
-    {
-      accountId: ctx.business.account_id,
-      locationId: businessId,
-      subscriptionStatus: ctx.business.subscription_status,
-      pastDueAt: ctx.business.account_past_due_at,
-      accountFlags: ctx.business.account_flags ?? {},
-    },
-    logger,
-  );
+  const eligibility = await resolveEligibleChannels(sql, ctx.business, businessId, logger);
   if (!eligibility.ok) {
     logger.log(`pending_post_notice no-eligible-channels response=${response_id} reason=${eligibility.reason}`);
     await markOutboxCompleted(sql, outboxId, outboxAttempt);

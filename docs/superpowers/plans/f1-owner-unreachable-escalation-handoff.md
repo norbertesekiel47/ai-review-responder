@@ -29,8 +29,9 @@ The F1 ticket's "no health check can see it" premise was **stale** — `checkZer
 - ✅ **f1 pushed to origin** (`f1-owner-unreachable-escalation`), all pre-push checks green.
 - ✅ **Staging ride pushed**: refreshed stale local `staging` to `origin/staging`, merged f1 (clean auto-merge, no conflicts on the two docs overlaps), pushed `origin/staging` `75be1d83..0c34d0f9` — pre-push green on the MERGED tree (f1+F2+F3). Auto-deploys Railway staging worker + Vercel staging.
 - ✅ **DB-facing staging smoke (read-only)**: `checkOwnerUnreachable` query executes cleanly against real migrated schema → count 0 (expected; staging has 0 `send_notification` rows — near-empty sandbox, so correlation logic is covered by CI integration tests, not staging data).
-- ⏳ **Worker-boot staging smoke**: BLOCKED on Railway MCP re-auth (token expired). This is the one staging-specific check CI does not cover (does the new poller-arm code boot without crashing). Confirm staging worker deploy SUCCESS + clean boot before seeking merge approval.
-- ⏭️ NEXT: open PR f1→main (CI = real gate), confirm 4 checks green, complete worker-boot smoke, then PAUSE for owner merge approval. At promotion: migration 083 → prod (`udeyaqnvpojbwgoaxwdg`) in lockstep. Then post-merge sweep + F1-followup-A/B/C tickets.
+- ✅ **Worker-boot staging smoke DONE** (via Railway CLI; MCP token stayed expired). Deploy `ab63e771` = commit `0c34d0f9` (F1 merge), **SUCCESS + RUNNING**, clean boot: `NotificationFailover` (2h) + `HealthAlertPoller` (5min) start with no errors, `[boot] readiness cure complete`. No crash/stack trace. (Full behavioral E2E not exercised on staging — 0 `send_notification` rows in the sandbox; that logic is covered by CI `*.integration.test.ts` against real Postgres.)
+- ✅ **PR #516** opened f1→main. CI: all green except `test`+`fallow` in flight at last check, 0 failures.
+- ⏭️ NEXT: confirm all CI green → **PAUSE for owner merge approval** → at promotion apply migration 083 to **prod** (`udeyaqnvpojbwgoaxwdg`) in lockstep → merge → post-merge sweep (git pull main, ff staging onto main, remove worktree, `document-feature`, domain fold, increment entropy counter in `.claude/reference/arch-review-log.md`) → file F1-followup-A/B/C.
 
 ---
 ### (historical) Current step: 4–7 DONE → resume at step 8 (SHIP, RISK=high lane)

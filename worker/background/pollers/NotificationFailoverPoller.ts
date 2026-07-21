@@ -309,6 +309,11 @@ async function processOwnerUnreachable(
   }
 }
 
+// Arm-dispatcher: one sequential try/catch-isolated block per failover arm
+// (all-failed · stale · owner-unreachable), same shape as OutboxPoller's cycle
+// runner. Cyclomatic count tracks the arm count, not tangled control flow;
+// each arm's logic lives in its own helper (processOwnerUnreachable, etc.).
+// fallow-ignore-next-line complexity
 export async function runFailoverPollerOnce(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
 
