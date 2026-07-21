@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 395;
+export const ALLOWLIST_BASELINE = 405;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -109,7 +109,27 @@ const DASHBOARD_SETTINGS_SELECT_SQL =
   "SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts, b.sample_responses, b.owner_phone, b.owner_email, a.weekly_summary_enabled, a.monthly_impact_enabled, b.category, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1";
 
 const HEALTH_ZERO_DELIVERY_SQL =
-  "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+  "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND jo.completion_reason IS DISTINCT FROM ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+
+// F1 owner-unreachable durable signal. HealthAlertPoller.checkOwnerUnreachable
+// counts pending_approval drafts on live businesses whose LATEST completed
+// send_notification recorded completion_reason='owner_unreachable' and never got
+// an approval_request delivery. Read-only cross-tenant health probe.
+const HEALTH_OWNER_UNREACHABLE_SQL =
+  "SELECT COUNT(*)::int AS count FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.status = 'pending_approval' AND b.archived_at IS NULL AND r.created_at < NOW() - make_interval(secs => ${cfg.ownerUnreachableAgeS}) AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = r.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id AND nd.template = 'approval_request' )";
+
+// F1 owner-unreachable failover. NotificationFailoverPoller.processOwnerUnreachable
+// candidate scan: pending_approval drafts aged past the 4h floor whose latest
+// completed send_notification was owner_unreachable and that never got an
+// approval_request delivery. Global poller scan before per-row locked re-check.
+const FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL =
+  "SELECT resp.id AS response_id, resp.business_id, b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating FROM responses resp JOIN businesses b ON resp.business_id = b.id JOIN reviews r ON resp.review_id = r.id WHERE resp.status = 'pending_approval' AND b.archived_at IS NULL AND resp.created_at < NOW() - INTERVAL '4 hours' AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' ) ORDER BY resp.created_at ASC LIMIT ${BATCH_LIMIT}";
+
+// F1 owner-unreachable failover. NotificationFailoverPoller.processOwnerUnreachable
+// advisory-locked re-check inside sql.begin: confirms still-unreachable and whether
+// a send_notification is already in flight before enqueueing a retry.
+const FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL =
+  "SELECT EXISTS ( SELECT 1 FROM responses resp JOIN businesses b ON b.id = resp.business_id WHERE resp.id = ${row.response_id} AND resp.status = 'pending_approval' AND b.archived_at IS NULL AND resp.created_at < NOW() - INTERVAL '4 hours' AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' ) ) AS unreachable, EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = ${row.response_id} AND jo.status IN ('pending', 'dispatching', 'dispatched') ) AS in_flight";
 
 const HEALTH_FAILED_INBOUND_EVENTS_SQL =
   "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'failed' AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS}) GROUP BY source, event_type";
@@ -569,6 +589,27 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "worker/background/pollers/health-alert/checks.ts",
+    table: "responses",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) counts pending_approval drafts whose latest completed send_notification was owner_unreachable and that never got an approval_request delivery. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "businesses",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "notification_deliveries",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) anti-joins notification_deliveries to confirm no approval_request delivery reached the owner. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
     table: "inbound_events",
     sqlSnippet: HEALTH_FAILED_INBOUND_EVENTS_SQL,
     category: 'background-global-scan',
@@ -1021,6 +1062,55 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT resp.id AS response_id, resp.business_id, b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating FROM responses resp JOIN businesses b ON resp.business_id = b.id JOIN reviews r ON resp.review_id = r.id WHERE resp.status = 'pending_approval' AND resp.created_at < NOW() - INTERVAL '4 hours' AND EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY resp.created_at ASC LIMIT ${BATCH_LIMIT}",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "responses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1): globally selects pending_approval drafts whose latest completed send_notification was owner_unreachable before the per-row locked re-check. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "businesses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) joins businesses only to exclude archived/offboarded locations and read account_id/name for the admin escalation. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "reviews",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) joins reviews only to read reviewer_name/star_rating for the admin escalation email. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "notification_deliveries",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) anti-joins notification_deliveries to confirm no approval_request delivery reached the owner. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "responses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) re-confirms the single response is still pending_approval and owner-unreachable under pg_advisory_xact_lock before enqueueing a retry. Row already selected by the scoped candidate scan.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "businesses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) joins businesses only to re-confirm the location is not archived. Row already selected by the scoped candidate scan.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "notification_deliveries",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) anti-joins notification_deliveries to re-confirm no approval_request delivery landed before enqueueing a retry. Row already selected by the scoped candidate scan.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
