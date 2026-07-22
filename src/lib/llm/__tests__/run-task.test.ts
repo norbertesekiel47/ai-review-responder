@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
-import type { ChatPrompt, LLMCallResult, LLMTaskDescriptor } from '../types';
+import type { ChatPrompt, LLMCallResult, LLMProviderId, LLMTaskDescriptor } from '../types';
+import { llmCircuitBreaker } from '../circuit-breaker';
 
 // ── Mock the provider seam (not the raw SDKs) — run-task.ts resolves
 // providers through the registry, so the unit under test is the fallback
@@ -14,6 +15,13 @@ vi.mock('../openai-provider', () => ({
 const anthropicComplete = vi.fn();
 vi.mock('../anthropic-provider', () => ({
   anthropicProvider: { id: 'anthropic', complete: anthropicComplete },
+}));
+
+// The circuit breaker emits Sentry warnings on state transitions; capture them
+// so the trip test can assert exactly one closed→open alert fired.
+const captureMessage = vi.fn();
+vi.mock('@sentry/node', () => ({
+  captureMessage: (...args: unknown[]) => captureMessage(...args),
 }));
 
 // getLlmTask defaults to the real registry; individual tests inject synthetic
@@ -46,6 +54,9 @@ const prompt: ChatPrompt = {
 describe('runLlmTask', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The breaker is a process-wide singleton consulted on every attempt —
+    // reset it so state never leaks across tests.
+    llmCircuitBreaker.reset();
   });
 
   it('returns the primary provider result when it succeeds', async () => {
@@ -382,6 +393,257 @@ describe('runLlmTask', () => {
       const result = await runLlmTask('reply_generation', prompt);
 
       expect(result.structured).toBeUndefined();
+    });
+  });
+
+  // ── Circuit breaker failover matrix ───────────────────────────────────
+  // The breaker gates each provider attempt. A `blocked` provider (breaker
+  // open) is skipped before completeAttempt — the only behavior change vs the
+  // pre-breaker seam is that any all-failure outcome touching a blocked
+  // provider is now retryable (TransientLLMError). Everything else — return
+  // shape, transient/terminal classification over ATTEMPTED errors, the
+  // failover log — is byte-identical.
+  describe('circuit breaker', () => {
+    /** Trip a provider's breaker open via 5 consecutive transient outcomes,
+     *  each admitted first (the breaker now records outcomes against the
+     *  admission token the attempt was admitted under). */
+    function tripOpen(provider: LLMProviderId): void {
+      const transient = Object.assign(new Error('provider outage'), { code: 'ECONNRESET' });
+      for (let i = 0; i < 5; i++) {
+        const admission = llmCircuitBreaker.shouldAttempt(provider);
+        if (admission !== null) llmCircuitBreaker.recordAttempt(admission, transient);
+      }
+    }
+
+    function transientError(message: string): Error {
+      return Object.assign(new Error(message), { code: 'ETIMEDOUT' });
+    }
+
+    function permanentError(message: string): Error {
+      return Object.assign(new Error(message), { name: 'BadRequestError' });
+    }
+
+    afterEach(() => {
+      // Some cases flip the kill switch via env; restore the default-ON state
+      // and re-read the flag so later tests see an enabled, empty breaker.
+      delete process.env.LLM_CIRCUIT_BREAKER_ENABLED;
+      llmCircuitBreaker.reset();
+    });
+
+    // Row 1: primary blocked + fallback transient → TransientLLMError.
+    it('primary blocked + fallback transient → TransientLLMError', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('openai');
+      anthropicComplete.mockRejectedValueOnce(transientError('anthropic timeout'));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).not.toHaveBeenCalled();
+      expect(anthropicComplete).toHaveBeenCalledOnce();
+    });
+
+    // ST-2 (step-7 standards): a blocked provider must NOT erase a real
+    // transient cause. When the fallback actually fails transiently, the
+    // retryable TransientLLMError must wrap THAT error (for the failover log),
+    // not the synthetic LlmCircuitOpenError marker.
+    it('primary blocked + fallback transient → wraps the REAL fallback cause, not LlmCircuitOpenError', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('openai');
+      const fallbackTransient = transientError('anthropic timeout');
+      anthropicComplete.mockRejectedValueOnce(fallbackTransient);
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(fallbackTransient);
+      }
+    });
+
+    // ST-2 boundary: with NO real transient cause to preserve (both providers
+    // blocked), the synthetic LlmCircuitOpenError marker is the cause — still
+    // retryable, just contextless because there is no attempted error to carry.
+    it('both providers blocked → cause is the LlmCircuitOpenError marker', async () => {
+      tripOpen('openai');
+      tripOpen('anthropic');
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        const cause = (err as InstanceType<typeof TransientLLMError>).cause;
+        expect((cause as Error).name).toBe('LlmCircuitOpenError');
+      }
+    });
+
+    // Row 2: primary blocked + fallback permanent → TransientLLMError (sawBlocked ⟹ retry).
+    it('primary blocked + fallback permanent → TransientLLMError (sawBlocked wins)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('openai');
+      anthropicComplete.mockRejectedValueOnce(permanentError('anthropic bad request'));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).not.toHaveBeenCalled();
+    });
+
+    // Row 3: primary blocked + fallback blocked → TransientLLMError, NEITHER provider called.
+    it('primary blocked + fallback blocked → TransientLLMError and no provider is called', async () => {
+      tripOpen('openai');
+      tripOpen('anthropic');
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).not.toHaveBeenCalled();
+      expect(anthropicComplete).not.toHaveBeenCalled();
+    });
+
+    // Row 4: primary transient + fallback blocked → TransientLLMError.
+    it('primary transient + fallback blocked → TransientLLMError', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('anthropic');
+      openaiComplete.mockRejectedValueOnce(transientError('openai timeout'));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).toHaveBeenCalledOnce();
+      expect(anthropicComplete).not.toHaveBeenCalled();
+    });
+
+    // Row 5: primary permanent + fallback blocked → TransientLLMError (sawBlocked ⟹ retry).
+    it('primary permanent + fallback blocked → TransientLLMError (sawBlocked wins)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      tripOpen('anthropic');
+      openaiComplete.mockRejectedValueOnce(permanentError('openai bad request'));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).toHaveBeenCalledOnce();
+      expect(anthropicComplete).not.toHaveBeenCalled();
+    });
+
+    // Row 6: primary transient + fallback permanent → TransientLLMError (today's behavior).
+    it('primary transient + fallback permanent → TransientLLMError (unchanged)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const primaryTransient = transientError('openai timeout');
+      openaiComplete.mockRejectedValueOnce(primaryTransient);
+      anthropicComplete.mockRejectedValueOnce(permanentError('anthropic bad request'));
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(primaryTransient);
+      }
+    });
+
+    // Row 7: primary permanent + fallback permanent (no blocks) → rethrow permanent (terminal).
+    it('primary permanent + fallback permanent → rethrows the permanent error (terminal)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fallbackPermanent = permanentError('anthropic bad request');
+      openaiComplete.mockRejectedValueOnce(permanentError('openai bad request'));
+      anthropicComplete.mockRejectedValueOnce(fallbackPermanent);
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('reply_generation', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).not.toBeInstanceOf(TransientLLMError);
+        expect(err).toBe(fallbackPermanent);
+      }
+    });
+
+    // Row 8: no-fallback task + primary blocked → TransientLLMError.
+    it('no-fallback task + primary blocked → TransientLLMError', async () => {
+      const fallbackLessTask: LLMTaskDescriptor = {
+        taskId: 'reply_generation',
+        primary: { provider: 'openai', model: 'gpt-4o-mini-2024-07-18' },
+        maxTokens: 300,
+        temperature: 0.7,
+      };
+      getLlmTask.mockReturnValueOnce(fallbackLessTask);
+      tripOpen('openai');
+
+      const { runLlmTask } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      await expect(runLlmTask('reply_generation', prompt)).rejects.toBeInstanceOf(TransientLLMError);
+      expect(openaiComplete).not.toHaveBeenCalled();
+      expect(anthropicComplete).not.toHaveBeenCalled();
+    });
+
+    // Trip test: 5 consecutive transient primary failures open the breaker; the
+    // 6th call skips the primary and uses the fallback. Exactly one Sentry
+    // warning fires on the closed→open transition.
+    it('trips after 5 transient primary failures; 6th call skips primary, one alert fires', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      openaiComplete.mockRejectedValue(transientError('openai timeout'));
+      anthropicComplete.mockResolvedValue(
+        callResult({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', text: 'Merci' }),
+      );
+
+      const { runLlmTask } = await import('../run-task');
+
+      for (let i = 0; i < 5; i++) {
+        const result = await runLlmTask('reply_generation', prompt);
+        expect(result.provider).toBe('anthropic'); // primary transient → fallback
+      }
+      expect(openaiComplete).toHaveBeenCalledTimes(5);
+
+      const sixth = await runLlmTask('reply_generation', prompt);
+      expect(sixth.provider).toBe('anthropic');
+      expect(openaiComplete).toHaveBeenCalledTimes(5); // primary skipped on the 6th
+
+      const openTransitions = captureMessage.mock.calls.filter(
+        (call) => (call[1] as { level?: string })?.level === 'warning',
+      );
+      expect(openTransitions).toHaveLength(1);
+    });
+
+    // Kill switch: flag off ⇒ breaker never blocks; failover is byte-identical
+    // to the pre-breaker seam even across what would be 6 tripping failures.
+    it('LLM_CIRCUIT_BREAKER_ENABLED=false: primary is attempted every time, breaker never blocks', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      process.env.LLM_CIRCUIT_BREAKER_ENABLED = 'false';
+      llmCircuitBreaker.reset();
+
+      openaiComplete.mockRejectedValue(transientError('openai timeout'));
+      anthropicComplete.mockResolvedValue(
+        callResult({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', text: 'Merci' }),
+      );
+
+      const { runLlmTask } = await import('../run-task');
+
+      for (let i = 0; i < 6; i++) {
+        const result = await runLlmTask('reply_generation', prompt);
+        expect(result.provider).toBe('anthropic');
+      }
+      expect(openaiComplete).toHaveBeenCalledTimes(6); // never skipped
     });
   });
 });
