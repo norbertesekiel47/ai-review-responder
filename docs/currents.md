@@ -7,14 +7,65 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-20 (Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-21 (Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083. The 10-finding pre-production reliability report is now fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Reliability follow-ups P4/P8/P9 (2026-07-21, PRs #514–#516)
+
+The last three findings from the 10-finding pre-production reliability report
+(P1/P2/P3/P5/P6/P7/P10 shipped earlier as PR #508 — see the next section). With
+these merged, the report is **fully closed**. What is true now:
+
+- **A slow Stripe response can no longer pin the tier-change locks (P8, #514).**
+  Every Stripe call made while the tier-change advisory locks + `FOR UPDATE` are
+  held is bounded to **8s with retries disabled**, and mutating calls keep their
+  deterministic `tier-change:<account>:<op>:<step>` idempotency keys — an
+  ambiguous timeout is recovered by the Stripe webhook/reconciler path, never by
+  retrying under the lock. Worst-case lock hold drops from ~60s+ to ~26s
+  (stripe-node 22.2.0 still performs ONE internal retry on a socket reset even
+  with `maxNetworkRetries: 0`; timeouts — the target case — do not retry).
+- **A downed LLM provider no longer costs every job a full primary timeout
+  (P9, #515).** An in-process, per-provider circuit breaker sits inside the
+  `src/lib/llm/` seam: 5 consecutive transient failures trip it open for 30s,
+  then one half-open probe. Open primary ⇒ immediate failover to the fallback
+  (skipping the ~30s primary timeout); both providers open ⇒ retryable
+  `TransientLLMError`, never a terminal draft loss. Default **ON**; kill switch
+  `LLM_CIRCUIT_BREAKER_ENABLED=false` restores byte-identical prior behavior.
+  Sentry warns only on trip and recovery; open↔half_open churn is
+  structured-log-only.
+- **An owner with zero verified channels is no longer a silent dead end
+  (P4, #516 + ADR 0010).** A `send_notification` that completes with no
+  verified enrollments now records
+  `job_outbox.completion_reason='owner_unreachable'` (migration 083, applied
+  staging + prod in lockstep). `checkOwnerUnreachable` alerts durably past a
+  4h age **floor** (keeps firing until the draft resolves — unlike the windowed
+  zero-delivery check, which is now de-conflated), and a third
+  `NotificationFailoverPoller` arm retries the notification under an advisory
+  lock (at-most-once) and sends a 24h-deduped admin email.
+
+The new shape:
+
+- `src/lib/llm/circuit-breaker.ts` — breaker state machine (epoch-correlated
+  admission tokens); consulted in `src/lib/llm/run-task.ts`; kill-switch
+  accessor `src/lib/llm/flags.ts` (via new `readFlagEnabledByDefault` in
+  `src/lib/config/flags.ts`)
+- `src/lib/shared/outbox-completion-reason.ts` + `markOutboxOwnerUnreachable`
+  (`src/lib/shared/outbox.ts`) — the owner-unreachable marker (migration 083)
+- `worker/background/pollers/NotificationFailoverPoller.ts` — owner-unreachable
+  arm (advisory-locked retry + admin email)
+- `worker/background/pollers/health-alert/checks.ts` — `checkOwnerUnreachable`
+  (latest-completed-reason predicate, 4h floor) + de-conflated zero-delivery
+- `worker/jobs/notification/eligibility.ts` — shared `resolveEligibleChannels`
+  for the three notice workers
+- `src/lib/accounts/tier-change.ts` — `STRIPE_UNDER_LOCK_REQUEST_OPTIONS`
+  (8s / 0 retries), the single owner of the under-lock bound
 
 ## Quick summary — Production reliability guards (2026-07-20, PR #508)
 
 A pre-production review surfaced 10 prioritized reliability findings; this PR
 shipped the seven mechanical, low-blast-radius guards (P1, P2, P3, P5, P6, P7,
-P10). P4/P8/P9 are a mapped follow-up branch
-([followup map](superpowers/plans/2026-07-16-prod-hardening-followup-map.md)).
+P10). P4/P8/P9 rode the mapped follow-up branch
+([followup map](superpowers/plans/2026-07-16-prod-hardening-followup-map.md))
+and shipped 2026-07-21 as PRs #514–#516 — see the section above.
 What is true now:
 
 - **One review's failure bookkeeping can no longer kill the worker (P1).** The

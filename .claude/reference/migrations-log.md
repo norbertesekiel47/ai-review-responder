@@ -979,8 +979,8 @@ Revisit triggers:
   `idx_jo_send_notification_by_aggregate` from migration 082. Additive
   (`ADD COLUMN IF NOT EXISTS`, no default, existing rows stay NULL);
   transactional with `SET LOCAL lock_timeout = '3s'` to bound the brief ACCESS
-  EXCLUSIVE lock on the hot `job_outbox` table. Apply staging first, then
-  production, both Supabase projects in lockstep.
+  EXCLUSIVE lock on the hot `job_outbox` table. **Applied: staging 2026-07-21,
+  production 2026-07-21 (owner-confirmed), in lockstep.**
 - **082** — NotificationFailoverPoller lookup indexes (scalability-verification
   item 8). Two partial indexes so the failover poller stops seq-scanning at
   scale: `idx_jo_send_notification_by_aggregate` on `job_outbox

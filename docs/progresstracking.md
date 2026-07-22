@@ -836,3 +836,83 @@ PR #508 itself). Skipped `env-vars.md` (no operator variable — all bounds are
 code constants) and `migrations-log.md` (no migration).
 
 ---
+
+## 2026-07-21 — Reliability follow-ups P4/P8/P9 — PRs #514 / #515 / #516
+
+Closes out the 10-finding pre-production reliability report:
+P1/P2/P3/P5/P6/P7/P10 shipped in #508 (previous entry); these three rode the
+mapped follow-up branch
+(`docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md`, tickets
+F2/F3/F1). Each ran the full /feature lane (codex-gated plan, adversarial +
+dual review, staging ride before merge).
+
+**#514 — F2/P8: bound Stripe calls under tier-change advisory locks
+(`3bd34d60`).** Key decision: a single owner constant
+`STRIPE_UNDER_LOCK_REQUEST_OPTIONS = { timeout: 8_000, maxNetworkRetries: 0 }`
+(`src/lib/accounts/tier-change.ts`), spread into `stripeOptions()` so every
+under-lock mutating call carries the bound PLUS its deterministic
+`tier-change:<accountId>:<operationKey>:<step>` idempotency key — recovery for
+an ambiguous timeout is the Stripe webhook/reconciler path (provider-side
+idempotency), never a retry while the pg advisory locks + `FOR UPDATE` are
+held. Codex adversarial review corrected the bound's claim against stripe
+22.2.0 source: `RequestSender._shouldRetry` retries ONCE on ECONNRESET/EPIPE
+*before* the maxRetries guard, so worst-case lock hold is ~26s (down from
+~60s+), not a hard 8s — timeouts (the target hung-provider case) do NOT retry.
+Deviation: `subscriptions.retrieve` takes the bound as the THIRD arg (empty
+params second; TS2559 otherwise). Tests:
+`src/lib/accounts/__tests__/tier-change-stripe-timeout.test.ts` (356 lines) +
+six existing options assertions moved to `expect.objectContaining`.
+
+**#515 — F3/P9: LLM provider circuit breaker (`ee951445`).** In-process,
+per-provider (`LLMProviderId`) breaker: `src/lib/llm/circuit-breaker.ts`,
+consulted by `runLlmTask` — 5 consecutive `isTransientLLMError` failures ⇒
+open 30s ⇒ one half-open probe; open primary ⇒ immediate fallback failover;
+both blocked ⇒ retryable `TransientLLMError` (never terminal). Key decisions:
+(a) epoch-correlated `Admission` token (step-6 adversarial F1 — a slow
+pre-trip success from one of ~9 concurrent jobs must not close a just-tripped
+breaker mid-cooldown; `recordAttempt(admission, error?)` ignores stale-epoch
+outcomes); (b) kill switch read LIVE per call (invariant #13) and
+disable-clears-state (step-6 F2 — disable→enable can't resurrect a stuck
+`half_open`); (c) `throwBlocked` prefers the most recent real transient cause
+over the synthetic `LlmCircuitOpenError` (step-7 ST-2, diagnostic context);
+(d) Sentry `warning` only on trip (closed→open) and recovery (→closed) —
+open↔half_open churn was ~240 warnings/hr in a sustained outage, now
+structured-log-only (deviation D4, pre-merge nit N2). Flag
+`LLM_CIRCUIT_BREAKER_ENABLED` default ON via new `readFlagEnabledByDefault`
+(`src/lib/config/flags.ts`) + `src/lib/llm/flags.ts` accessor; OFF is
+byte-identical to prior behavior. Test-hygiene nit N1: suites that mock the
+raw SDKs but drive the real seam reset the singleton in `beforeEach`.
+
+**#516 — F1/P4: owner-unreachable escalation (`9c32fa92`, ADR 0010).**
+Migration **083** adds nullable `job_outbox.completion_reason` (additive, NO
+new index — reuses 082's two partial indexes; `SET LOCAL lock_timeout='3s'`
+bounds the ACCESS EXCLUSIVE lock). Applied staging 2026-07-21 → prod
+2026-07-21 in lockstep (owner-confirmed). `NotificationWorker` records
+`completion_reason='owner_unreachable'` on `no_verified_enrollments` via
+`markOutboxOwnerUnreachable` (attempt-guarded CAS, `src/lib/shared/outbox.ts`;
+value owned by `OUTBOX_COMPLETION_REASON`,
+`src/lib/shared/outbox-completion-reason.ts`). `checkOwnerUnreachable`
+(health-alert): latest-COMPLETED-reason predicate, **4h age floor** — durable,
+keeps firing until the draft resolves — and the pre-existing zero-delivery
+check is de-conflated (ADR 0010 corrected the ticket's stale "no health check
+can see it" premise: the case was conflated + transient, not invisible).
+`NotificationFailoverPoller` third arm: advisory-locked retry INSERT
+(at-most-once; in-flight `send_notification` excluded at candidate level —
+step-6 finding 2) + 24h-deduped admin email. Env:
+`HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S` (14400) / `_THRESHOLD` (0). Tenant-scope
+allowlist 395→405 (cross-tenant ops scans by design). Fallow gate drove an
+owner-approved scope expansion: shared `resolveEligibleChannels` extracted to
+`worker/jobs/notification/eligibility.ts` (three notice workers, behavior
+byte-identical).
+
+**Doc-change-map.** Riding the branches (cross-PR overlap files, verified
+merged clean this sweep): `env-vars.md` rows (`LLM_CIRCUIT_BREAKER_ENABLED`,
+`HEALTH_ALERT_OWNER_UNREACHABLE_*`), `migrations-log.md` 083 entry + head bump,
+`CONTEXT.md` glossary (LLM provider circuit breaker; Owner-unreachable
+outcome). This sweep added: `currents.md` summary + Last-updated bump, this
+entry, two lab notes (stripe reset-retry caveat; breaker-singleton test-state
+leak), the CLAUDE.md LLM-seam breaker mention, migration-083 applied dates,
+follow-up-map SHIPPED status, and the arch-review counter 1→4 (next feature
+merge hits the ≥5 review threshold).
+
+---
