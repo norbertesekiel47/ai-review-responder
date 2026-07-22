@@ -114,9 +114,8 @@ intake. Prototypes never graduate to production code.
 
 Lock the outcome into an **intake contract** — not free-form prose. Write it
 to `docs/superpowers/plans/<branch>-intake.json` (parent checkout, temporary —
-step 2 MOVES it into the worktree as `.feature/intake.json` and commits it
-there; the worktree copy is the single authoritative owner) with exactly
-these fields:
+step 2 moves it into the worktree and arms the hooks from an ephemeral
+`.feature/` copy) with exactly these fields:
 
 ```json
 {
@@ -156,20 +155,26 @@ the guard hook requires BOTH surface coverage and
 intake. Every subsequent edit targets that worktree root — never the parent
 checkout.
 
-**CWD PIN (mandatory)**: `cd` into the worktree now and keep the session
-cwd at the worktree root for the ENTIRE run. Hook processes execute in the
-session's current cwd — the edit-surface guard re-anchors on the edited
-file's own repo root, but the Stop gate arms from cwd/`$CLAUDE_PROJECT_DIR`,
-so cd-ing away can silently disarm it. Inspect the parent checkout with
-`git -C <path>` or absolute-path reads, never by changing directory.
+**WORKTREE PATH DISCIPLINE (mandatory)**: some harnesses reset the shell
+cwd between Bash calls (the VSCode extension does), so never assume a `cd`
+persists. Prefix EVERY Bash command with `cd <worktree-root> && …` (one
+compound command, explicit path) and use absolute worktree paths for all
+Edit/Write calls. Enforcement itself does not depend on cwd: the
+edit-surface guard anchors on the edited file's own repo root, and the
+stop gate scans every registered git worktree for an armed
+`.feature/intake.json`. Inspect the parent checkout with `git -C <path>`
+or absolute-path reads, never by relying on a persistent directory change.
 
-**MOVE the intake in and commit it**: relocate the step 1 draft to
-`.feature/intake.json` at the worktree root (delete the parent copy — one
-authoritative owner) and make it the branch's first commit. The hooks key
-off this file — its presence puts the tree in "feature mode" — and
-committing it makes the agreed scope part of the branch's audit trail.
-Commit `.feature/deps-justification.md` the same way if one is created
-later.
+**MOVE the intake in and arm the hooks**: move the step 1 draft to the
+WORKTREE's `docs/superpowers/plans/<branch>-intake.json` (committed with
+the branch — the durable audit trail of the agreed scope; delete the
+parent copy) and COPY it to `.feature/intake.json` at the worktree root.
+The hooks key off the `.feature/` copy — its presence puts the tree in
+"feature mode". `.feature/` is gitignored BY DESIGN (#512): a committed
+intake would follow the merge onto `main` and arm every future main
+session. If the surface is amended mid-run (with my sign-off), update
+BOTH copies. `.feature/deps-justification.md` is likewise ephemeral —
+carry its content into the PR description so the justification survives.
 
 **NO BASH WRITES (hook scoping)**: the guard sees Edit/Write tool calls
 only. Never modify repo files via Bash (`sed -i`, `>` redirects, `mv`,
@@ -188,9 +193,13 @@ outside any sane surface) and expect exit 2; with no
 and expect exit 2:
 
 ```bash
-echo '{"tool_input":{"file_path":"'"$PWD"'/__arm_check__/probe.ts"}}' | bash ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
-echo '{}' | bash ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
+cd <worktree-root> && echo '{"tool_input":{"file_path":"'"$PWD"'/__arm_check__/probe.ts"}}' | bash ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
+cd <worktree-root> && echo '{}' | bash ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
 ```
+
+(The stop gate scans registered worktrees, so its probe returns 2 from any
+cwd inside the repo family once the worktree is armed — but run it with the
+explicit `cd` anyway so the probe is deterministic.)
 
 Any other exit code (126, 127, 0) means enforcement is DISARMED (missing
 file, missing jq, or broken registration) — STOP and report to the user
@@ -278,7 +287,12 @@ the full log. Report the gate as a one-line-per-check PASS/FAIL table.
 
 **Enforcement is deterministic, not advisory**: the Stop hook refuses to
 end the session as "complete" unless `gate-status.json` is green and newer
-than HEAD (see `.claude/hooks/` setup). `verification-before-completion`
+than HEAD (see `.claude/hooks/` setup). It scans all registered worktrees
+but enforces only the ones THIS session engaged with (launched in, or
+edited — the guard records session ids in `.feature/sessions`), so parked
+worktrees never block unrelated sessions. To deliberately park red work
+mid-feature in the SAME session, rename `.feature/intake.json` — parking
+red work should be a conscious act. `verification-before-completion`
 discipline still applies to how you talk about progress: evidence before
 claims.
 
