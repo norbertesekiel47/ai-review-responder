@@ -129,12 +129,18 @@ export async function revalidateGovernorCandidate(
     && policy.suspended_at !== null);
   if (!armed || suspendedDefault) return false;
 
+  // observedWindowStart round-tripped through a JS Date (millisecond
+  // precision) while audit created_at keeps microseconds — compared raw, the
+  // very unsuspension row that DEFINED the window reads as "newer" and masks
+  // the candidate on every cycle, forever (found live on staging, Phase D
+  // drill 2026-07-22). Truncate the DB side to the same ms precision so only
+  // a genuinely later unsuspension (≥1ms newer) rejects the snapshot.
   const [newerUnsuspend] = await tx<{ id: string }[]>`
     SELECT id
     FROM account_audit_log
     WHERE account_id = ${accountId}::uuid
       AND event_type = 'autonomy_unsuspended'
-      AND created_at > ${observedWindowStart}
+      AND date_trunc('milliseconds', created_at) > ${observedWindowStart}
     ORDER BY created_at DESC
     LIMIT 1
   `;

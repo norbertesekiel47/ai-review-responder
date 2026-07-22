@@ -965,4 +965,50 @@ describeWithDb('autonomy governor against live local Postgres', { timeout: 30_00
       denom: 5,
     });
   });
+
+  it('suspends when the latest unsuspend audit has microsecond precision (regression: ms-truncated window must not mask its own source row)', async () => {
+    const seeded = requireTenant();
+    await cleanupGovernorRows();
+    const unsuspendedAt = new Date(Date.now() - 6 * DAY_MS);
+    const breachOutcomesAt = new Date(Date.now() - 3 * DAY_MS);
+
+    await armAccountDefault(seeded.accountId);
+    await sql()`
+      INSERT INTO agent_outcomes (
+        id, account_id, business_id, attributed_agent, outcome_kind, unit_count, occurred_at
+      ) VALUES (
+        ${randomUUID()}::uuid, ${seeded.accountId}::uuid, ${businessId}::uuid,
+        'reply', 'reply_edited_by_owner', 5, ${breachOutcomesAt}
+      )
+    `;
+    // JS Dates carry only millisecond precision, so every other test's audit
+    // rows land with zero microseconds — the one timestamp shape that hid this
+    // bug. Real rows are written by NOW() and virtually always carry sub-ms
+    // digits (2026-07-22 staging Phase D drill: created_at=…40.884419+00 →
+    // window_start truncated to …40.884 → the defining row read as "newer" →
+    // permanent silent skip). This row forces the realistic shape.
+    await sql()`
+      INSERT INTO account_audit_log (id, account_id, event_type, entity_type, created_at)
+      VALUES (
+        ${randomUUID()}::uuid,
+        ${seeded.accountId}::uuid,
+        'autonomy_unsuspended',
+        'auto_approval_policy',
+        ${unsuspendedAt}::timestamptz + interval '419 microseconds'
+      )
+    `;
+
+    process.env.GOVERNOR_ENABLED = 'true';
+    await runAutonomyGovernorCycle(sql(), { afterAccountId: null });
+
+    await expect(readGovernorSuspensionFacts(seeded.accountId)).resolves.toEqual({
+      suspended: true,
+      audit_count: 1,
+      outbox_count: 2,
+      trigger: 'governor_edit_rate',
+      rate: 1,
+      numer: 5,
+      denom: 5,
+    });
+  });
 });
