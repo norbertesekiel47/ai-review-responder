@@ -111,9 +111,18 @@ function trialContractMatchesLease(
 
   const trialStart = subscription.trial_start;
   const trialEnd = subscription.trial_end;
+  // Card-up-front trials can surface EITHER Session payment_status: Stripe
+  // reports 'no_payment_required' when no invoice is raised, but 'paid' when it
+  // issues a $0 setup invoice for the trial start (dependent on the account's
+  // billing settings). Both are valid — `subscription.status === 'trialing'`
+  // plus the exact 30-day trial window below is the authoritative guarantee
+  // that nothing was actually charged, so a genuine trial must not be rejected
+  // as `invalid_trial` merely because Stripe marked the $0 invoice paid. The
+  // outer providerSessionShapeValid check already accepts both statuses.
   return (
     subscription.status === 'trialing' &&
-    providerSession.payment_status === 'no_payment_required' &&
+    (providerSession.payment_status === 'no_payment_required' ||
+      providerSession.payment_status === 'paid') &&
     typeof trialStart === 'number' &&
     Number.isSafeInteger(trialStart) &&
     typeof trialEnd === 'number' &&

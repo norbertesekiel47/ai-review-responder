@@ -324,6 +324,37 @@ describe('checkout.session.completed authoritative lease projection', () => {
     });
   });
 
+  it('projects a valid future trial when Stripe reports the Session payment_status as "paid" (a $0 trial setup invoice)', async () => {
+    // Real-world card-up-front trials: Stripe generates a $0 setup invoice and
+    // reports the Checkout Session payment_status as 'paid', NOT
+    // 'no_payment_required'. The subscription is still genuinely 'trialing'
+    // (nothing was charged), so this must activate — not be flagged
+    // invalid_trial and cancelled. Regression for the 2026-07-21 staging
+    // finding where every trial signup stranded at pending_payment.
+    const trialAccount = account({ checkout_attempt_trial_period_days: 30 });
+    queueValidProjection(trialAccount);
+    mockRetrieveSession.mockResolvedValueOnce(
+      checkoutSession({ payment_status: 'paid' }),
+    );
+    mockRetrieveSubscription.mockResolvedValueOnce(
+      providerSubscription({
+        status: 'trialing',
+        trial_start: TRIAL_START,
+        trial_end: FUTURE_TRIAL_END,
+      }),
+    );
+
+    await processCheckoutSessionCompleted(
+      eventSession({ payment_status: 'paid' }) as never,
+    );
+
+    expect(mockApplyStripeSubscriptionState.mock.calls[0]![3]).toMatchObject({
+      status: 'trialing',
+      trial_end: FUTURE_TRIAL_END,
+    });
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+  });
+
   it('projects when the provider-current Stripe Tax shape matches the frozen lease', async () => {
     const taxAccount = account({ checkout_attempt_tax_enabled: true });
     queueValidProjection(taxAccount);
