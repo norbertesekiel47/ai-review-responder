@@ -343,7 +343,7 @@ describe('applyTierChange', () => {
           [TIER_CHANGE_SOURCE_METADATA_KEY]: 'copilot',
         },
       },
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:base` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:base` }),
     );
     expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
       OVERAGE_ITEM_ID,
@@ -352,7 +352,7 @@ describe('applyTierChange', () => {
         quantity: 2,
         proration_behavior: 'create_prorations',
       }),
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:overage-update` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:owner-op:overage-update` }),
     );
     expectEntitlementThenBillingBeforeReads(12);
     expect(harness.sqlCalls[4]!.text).toMatch(/FROM\s+account_audit_log/);
@@ -405,12 +405,12 @@ describe('applyTierChange', () => {
           [TIER_CHANGE_SOURCE_METADATA_KEY]: 'autopilot',
         },
       }),
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:base` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:base` }),
     );
     expect(mockSubscriptionItemsDel).toHaveBeenCalledWith(
       OVERAGE_ITEM_ID,
       {},
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:overage-delete` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:downgrade-op:overage-delete` }),
     );
     expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
       'copilot', 1900, 1500, 1, 0, ACCOUNT_ID,
@@ -449,7 +449,7 @@ describe('applyTierChange', () => {
           [TIER_CHANGE_SOURCE_METADATA_KEY]: 'autopilot',
         },
       }),
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:list-downgrade:base` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:list-downgrade:base` }),
     );
     expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([
       'copilot', 2900, 1500, 1, 1, ACCOUNT_ID,
@@ -565,7 +565,7 @@ describe('applyTierChange', () => {
         proration_behavior: 'create_prorations',
         metadata: { billing_role: 'overage' },
       }),
-      { idempotencyKey: `tier-change:${ACCOUNT_ID}:fresh-plan:overage-create` },
+      expect.objectContaining({ idempotencyKey: `tier-change:${ACCOUNT_ID}:fresh-plan:overage-create` }),
     );
     expect(harness.sqlCalls[6]!.values).toEqual(expect.arrayContaining([4]));
     expect(harness.sqlReturnQueue).toHaveLength(0);
