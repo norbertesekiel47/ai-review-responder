@@ -18,6 +18,7 @@ import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { shouldUseDemoWizard } from '@/app/onboarding/business/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,7 +141,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const demoFlowEnabled = onboardingDemoEnabled();
+  // Demo mode is valid ONLY when the location was already captured at
+  // /onboarding/start. A card-up-front trial subscribes WITHOUT the pre-pay
+  // demo, arriving here with no location — it must use the non-demo
+  // (location-capturing) branch, exactly as page.tsx already decides via the
+  // same helper. Reading the raw flag here (and diverging from the page) left
+  // such trials in a loop: the page rendered the Location wizard, but this
+  // route rejected the location it submitted (409 onboarding_not_started).
+  const demoFlowEnabled = shouldUseDemoWizard(onboardingDemoEnabled(), bizRow);
 
   // 6. Onboarding-state guard. Branches by ONBOARDING_DEMO_ENABLED:
   //

@@ -356,15 +356,29 @@ describe('POST /api/onboarding/business', () => {
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
-  it('flag-on: returns 409 onboarding_not_started when /start was skipped', async () => {
+  it('flag-on but no location captured (card-up-front trial skipped /start): captures location via the non-demo wizard instead of looping', async () => {
+    // Regression for the 2026-07-21 staging finding: a trial arrives subscribed
+    // with no location (place_id_verified=false, google_maps_url=null). page.tsx
+    // already renders the location-capturing (non-demo) wizard for this via
+    // shouldUseDemoWizard; the route MUST agree — reading the raw flag here made
+    // it demand a location the wizard was never allowed to persist, 409ing to
+    // /onboarding/start (→ /dashboard → loop). It must now capture the location.
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
-    mockSql.mockResolvedValueOnce([activeBizRow]); // place_id_verified=false, google_maps_url=null
+    mockSql.mockResolvedValueOnce([activeBizRow]); // initial JOIN read (no location)
+    mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
+    mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE re-read
+    mockSql.mockResolvedValueOnce([]); // UPDATE businesses (captures google_place_id)
 
-    const res = await POST(mkReq({ tone: 'casual' }));
-    expect(res.status).toBe(409);
+    const res = await POST(mkReq(validBody)); // validBody carries googlePlaceId
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.error).toBe('onboarding_not_started');
-    expect(json.redirectTo).toBe('/onboarding/start');
+    expect(json.redirectTo).toBe('/dashboard');
+
+    // The non-demo branch writes google_place_id (the demo branch never would).
+    const bizUpdate = mockSql.mock.calls
+      .map((c: any[]) => (c[0] as TemplateStringsArray).join('?'))
+      .find((t: string) => t.includes('UPDATE businesses') && t.includes('google_place_id'));
+    expect(bizUpdate).toBeDefined();
     delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
