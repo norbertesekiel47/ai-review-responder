@@ -5,6 +5,11 @@ Each ticket below is sized for one `/feature <ticket>` run (ticket-seeded path).
 Decisions marked LOCKED were made by the owner 2026-07-16; open questions are
 the deltas a grilling pass must resolve before implementation.
 
+> **Status (2026-07-21): all three tickets SHIPPED** — F2/P8 → PR #514,
+> F3/P9 → PR #515, F1/P4 → PR #516. The 10-finding report is closed. Note:
+> F1's "no health check can see it" premise below was corrected during the
+> run (conflated + transient, not invisible) — see ADR 0010's Context.
+
 ## Ticket F1 — P4: owner-unreachable escalation
 
 **Blocking edges:** none (independent).
