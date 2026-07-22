@@ -44,7 +44,15 @@ export async function suspendGovernorCandidateIfCurrent(
       candidate.account_id,
       candidate.window_start,
     );
-    if (!current) return false;
+    if (!current) {
+      // A skipped breach must be visible: the 2026-07-22 window-truncation bug
+      // hid every-cycle skips for >10 minutes precisely because this path was
+      // silent.
+      logger.log('autonomy_governor candidate-skipped stale snapshot', {
+        account_id: candidate.account_id,
+      });
+      return false;
+    }
 
     // Governor transactions lock policy rows, then touch account audit and
     // outbox only. They take NO review-lane locks, so they cannot form a cycle

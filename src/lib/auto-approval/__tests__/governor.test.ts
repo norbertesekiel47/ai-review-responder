@@ -223,7 +223,10 @@ describe('governor data scans', () => {
     expect(sqlCalls[1]!.text).toContain('FOR UPDATE');
     expect(sqlCalls[2]!.text).toContain('FROM account_audit_log');
     expect(sqlCalls[2]!.text).toContain("event_type = 'autonomy_unsuspended'");
-    expect(sqlCalls[2]!.text).toContain('created_at > ?');
+    // ms-truncation regression: the window start round-trips through a JS Date
+    // (ms precision), so the DB side must be truncated to the same precision or
+    // the µs-precision audit row that DEFINED the window matches as "newer".
+    expect(sqlCalls[2]!.text).toContain("date_trunc('milliseconds', created_at) > ?");
     expect(sqlCalls[2]!.values).toEqual(['account-1', cutoff]);
   });
 
