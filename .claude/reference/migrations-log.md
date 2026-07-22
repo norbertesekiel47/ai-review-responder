@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **082** — next migration is **083**
+Current head: **083** — next migration is **084**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -965,6 +965,22 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **083** — Owner-unreachable outbox marker (F1, plan
+  `docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md`). Adds
+  nullable `job_outbox.completion_reason TEXT` so a `send_notification` job that
+  completes with zero verified channel enrollments records
+  `completion_reason='owner_unreachable'`, letting `HealthAlertPoller` and the
+  `NotificationFailoverPoller` owner-unreachable arm observe + escalate the
+  outcome (T3/T4). Written via `markOutboxOwnerUnreachable`
+  (`src/lib/shared/outbox.ts`) with the same attempt-guarded CAS as the sibling
+  outbox writers; value owned by `OUTBOX_COMPLETION_REASON`
+  (`src/lib/shared/outbox-completion-reason.ts`). **No new index** — the lookups
+  reuse `idx_responses_pending_approval_created` and
+  `idx_jo_send_notification_by_aggregate` from migration 082. Additive
+  (`ADD COLUMN IF NOT EXISTS`, no default, existing rows stay NULL);
+  transactional with `SET LOCAL lock_timeout = '3s'` to bound the brief ACCESS
+  EXCLUSIVE lock on the hot `job_outbox` table. Apply staging first, then
+  production, both Supabase projects in lockstep.
 - **082** — NotificationFailoverPoller lookup indexes (scalability-verification
   item 8). Two partial indexes so the failover poller stops seq-scanning at
   scale: `idx_jo_send_notification_by_aggregate` on `job_outbox

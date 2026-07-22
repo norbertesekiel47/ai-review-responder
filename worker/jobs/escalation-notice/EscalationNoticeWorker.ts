@@ -34,7 +34,7 @@ import type { LocationId } from '../../../src/lib/shared/ids';
 import { escalationEnabled } from '../../../src/lib/escalations/flags';
 import { TRIAGE_SOURCE } from '../../../src/lib/reviews/triage-schema';
 import { findActiveReviewRun, recordStep } from '../../../src/lib/agents/run-spine';
-import { getEligibleChannels } from '../notification/eligibility';
+import { resolveEligibleChannels } from '../notification/eligibility';
 import { loadEscalationNoticeContext } from './context';
 import { dispatchEscalationNotice } from './dispatch';
 
@@ -70,17 +70,7 @@ export async function handleEscalationNotice(sql: Sql, job: Job<EscalationNotice
 
   // Reuse the approval worker's subscription guard + resolveChannels + flag
   // filter. If the account cancelled between raise and send, this skips.
-  const eligibility = await getEligibleChannels(
-    sql,
-    {
-      accountId: ctx.business.account_id,
-      locationId: businessId,
-      subscriptionStatus: ctx.business.subscription_status,
-      pastDueAt: ctx.business.account_past_due_at,
-      accountFlags: ctx.business.account_flags ?? {},
-    },
-    logger,
-  );
+  const eligibility = await resolveEligibleChannels(sql, ctx.business, businessId, logger);
   if (!eligibility.ok) {
     logger.log(`escalation_notice no-eligible-channels escalation=${escalation_id} reason=${eligibility.reason}`);
     await markOutboxCompleted(sql, outboxId, outboxAttempt);

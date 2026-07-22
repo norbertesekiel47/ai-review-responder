@@ -98,3 +98,40 @@ export async function getEligibleChannels(
 
   return { ok: true, enrollments: filtered };
 }
+
+/**
+ * The subset of a loaded business row the eligibility check reads. The three
+ * notice workers (approval notification, escalation notice, pending-post notice)
+ * each load their own context shape, but all expose these fields.
+ */
+export interface EligibilityBusiness {
+  account_id: string;
+  subscription_status: string;
+  account_past_due_at?: Date | string | null;
+  account_flags?: AccountFlagsInput;
+}
+
+/**
+ * Maps a loaded business row + location id to an EligibilityInput and resolves
+ * eligible channels. This business→input mapping was duplicated verbatim across
+ * the three notice workers; each still applies its own divergent skip/complete
+ * handling to the returned EligibilityResult.
+ */
+export async function resolveEligibleChannels(
+  sql: Sql,
+  business: EligibilityBusiness,
+  locationId: string,
+  logger: EligibilityLogger,
+): Promise<EligibilityResult> {
+  return getEligibleChannels(
+    sql,
+    {
+      accountId: business.account_id,
+      locationId,
+      subscriptionStatus: business.subscription_status,
+      pastDueAt: business.account_past_due_at,
+      accountFlags: business.account_flags ?? {},
+    },
+    logger,
+  );
+}

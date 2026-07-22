@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   escalationEnabled: vi.fn(() => true),
   loadEscalationNoticeContext: vi.fn(),
   dispatchEscalationNotice: vi.fn(),
-  getEligibleChannels: vi.fn(),
+  resolveEligibleChannels: vi.fn(),
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
   extractOutboxHandle: vi.fn(() => ({ outboxId: 'ob-1', attempt: 1 })),
@@ -30,7 +30,7 @@ vi.mock('../dispatch', () => ({
   dispatchEscalationNotice: mocks.dispatchEscalationNotice,
 }));
 vi.mock('../../notification/eligibility', () => ({
-  getEligibleChannels: mocks.getEligibleChannels,
+  resolveEligibleChannels: mocks.resolveEligibleChannels,
 }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mocks.markOutboxCompleted,
@@ -102,7 +102,7 @@ beforeEach(() => {
   mocks.escalationEnabled.mockReturnValue(true);
   mocks.extractOutboxHandle.mockReturnValue({ outboxId: 'ob-1', attempt: 1 });
   mocks.loadEscalationNoticeContext.mockResolvedValue(CTX_OK);
-  mocks.getEligibleChannels.mockResolvedValue(ELIGIBLE);
+  mocks.resolveEligibleChannels.mockResolvedValue(ELIGIBLE);
   mocks.dispatchEscalationNotice.mockResolvedValue({ ...DISPATCH_OK });
   mocks.findActiveReviewRun.mockResolvedValue({ id: 'run-1', account_id: 'acct-1' });
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com/';
@@ -137,12 +137,12 @@ describe('handleEscalationNotice', () => {
     await run();
 
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'ob-1', 1);
-    expect(mocks.getEligibleChannels).not.toHaveBeenCalled();
+    expect(mocks.resolveEligibleChannels).not.toHaveBeenCalled();
     expect(mocks.dispatchEscalationNotice).not.toHaveBeenCalled();
   });
 
   it('eligibility not-ok → outbox completed, no dispatch', async () => {
-    mocks.getEligibleChannels.mockResolvedValue({ ok: false, reason: 'subscription_cancelled' });
+    mocks.resolveEligibleChannels.mockResolvedValue({ ok: false, reason: 'subscription_cancelled' });
 
     await run();
 
@@ -151,7 +151,7 @@ describe('handleEscalationNotice', () => {
   });
 
   it('eligibility empty enrollments → outbox completed, no dispatch', async () => {
-    mocks.getEligibleChannels.mockResolvedValue({ ok: true, enrollments: [] });
+    mocks.resolveEligibleChannels.mockResolvedValue({ ok: true, enrollments: [] });
 
     await run();
 
