@@ -2,6 +2,7 @@ import { getLlmTask } from './tasks';
 import { openaiProvider } from './openai-provider';
 import { anthropicProvider } from './anthropic-provider';
 import { isTransientLLMError, TransientLLMError, redactProviderError } from './error-classifier';
+import { llmCircuitBreaker } from './circuit-breaker';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import type { z } from 'zod';
 import type {
@@ -95,6 +96,62 @@ function throwExhaustedAttempts(attemptErrors: readonly unknown[]): never {
 }
 
 /**
+ * Marker cause for a failure that ended with at least one breaker-blocked
+ * provider (never attempted). Carries no provider/completion text — it exists
+ * only so the retryable TransientLLMError has a meaningful `cause` for logs.
+ * A blocked provider may recover on a later retry, so the outcome is retryable.
+ */
+class LlmCircuitOpenError extends Error {
+  constructor() {
+    super('llm: circuit breaker open — provider attempt skipped');
+    this.name = 'LlmCircuitOpenError';
+  }
+}
+
+/**
+ * At least one provider was blocked by the breaker, so the outcome must stay
+ * retryable regardless of what the attempted providers returned. Prefer the
+ * most recent real transient cause (network/5xx/timeout) so the failover log
+ * keeps its diagnostic context; fall back to the synthetic LlmCircuitOpenError
+ * only when no attempt produced a transient error (e.g. every provider blocked).
+ */
+function throwBlocked(attemptErrors: readonly unknown[]): never {
+  const transientCause = [...attemptErrors].reverse().find(isTransientLLMError);
+  throw new TransientLLMError(transientCause ?? new LlmCircuitOpenError());
+}
+
+/**
+ * One provider attempt, gated by the LLM provider circuit breaker.
+ * - `blocked`: the breaker refused the attempt — no provider call, no error,
+ *   NOT an entry in attemptErrors (it must never be mistaken for a transient
+ *   attempt error by throwExhaustedAttempts).
+ * - `ok` / `error`: the provider was called; the breaker records the outcome
+ *   and internally discriminates transient vs non-transient (do not pre-filter
+ *   here).
+ */
+type Attempt =
+  | { kind: 'ok'; result: LLMCallResult }
+  | { kind: 'blocked' }
+  | { kind: 'error'; error: unknown };
+
+async function attemptProvider(
+  provider: LLMProviderId,
+  request: LLMRequest,
+  task: LLMTaskDescriptor,
+): Promise<Attempt> {
+  const admission = llmCircuitBreaker.shouldAttempt(provider);
+  if (admission === null) return { kind: 'blocked' };
+  try {
+    const result = await completeAttempt(PROVIDERS[provider], request, task);
+    llmCircuitBreaker.recordAttempt(admission);
+    return { kind: 'ok', result };
+  } catch (error) {
+    llmCircuitBreaker.recordAttempt(admission, error);
+    return { kind: 'error', error };
+  }
+}
+
+/**
  * Execute a registered LLM task: primary provider, then fallback, with the
  * transient/terminal classification the worker retry ladder depends on
  * (relocated verbatim from generator.ts callLLMWithFallback — A+ PR 1c).
@@ -110,18 +167,47 @@ function throwExhaustedAttempts(attemptErrors: readonly unknown[]): never {
 export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise<LLMCallResult> {
   const task = getLlmTask(taskId);
   const request = { ...prompt, maxTokens: task.maxTokens, temperature: task.temperature };
-  try {
-    return await completeAttempt(PROVIDERS[task.primary.provider], { ...request, model: task.primary.model }, task);
-  } catch (primaryError) {
-    if (!task.fallback) throwExhaustedAttempts([primaryError]);
+
+  // Only real thrown attempt errors enter this array — a `blocked` result never
+  // does (see Attempt). `sawBlocked` makes any all-failure outcome retryable.
+  const attemptErrors: unknown[] = [];
+  let sawBlocked = false;
+
+  const primary = await attemptProvider(
+    task.primary.provider,
+    { ...request, model: task.primary.model },
+    task,
+  );
+  if (primary.kind === 'ok') return primary.result;
+  if (primary.kind === 'error') attemptErrors.push(primary.error);
+  else sawBlocked = true;
+
+  if (!task.fallback) {
+    if (sawBlocked) throwBlocked(attemptErrors);
+    throwExhaustedAttempts(attemptErrors);
+  }
+
+  // Preserve the existing failover log line only when the primary was actually
+  // attempted and threw — a `blocked` primary has no error to redact.
+  if (primary.kind === 'error') {
     createWorkerLogger(`[llm:${taskId}]`).error(
       `${task.primary.provider} call failed, falling back to ${task.fallback.provider}`,
-      { error: redactProviderError(primaryError) },
+      { error: redactProviderError(primary.error) },
     );
-    try {
-      return await completeAttempt(PROVIDERS[task.fallback.provider], { ...request, model: task.fallback.model }, task);
-    } catch (fallbackError) {
-      throwExhaustedAttempts([primaryError, fallbackError]);
-    }
   }
+
+  const fallback = await attemptProvider(
+    task.fallback.provider,
+    { ...request, model: task.fallback.model },
+    task,
+  );
+  if (fallback.kind === 'ok') return fallback.result;
+  if (fallback.kind === 'error') attemptErrors.push(fallback.error);
+  else sawBlocked = true;
+
+  // Blocked ⟹ retryable: a skipped provider may succeed on a later retry.
+  // Otherwise fall back to the unchanged transient/terminal classification over
+  // the attempted errors.
+  if (sawBlocked) throwBlocked(attemptErrors);
+  throwExhaustedAttempts(attemptErrors);
 }

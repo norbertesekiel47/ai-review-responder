@@ -8,7 +8,9 @@
 // regress.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fc from 'fast-check';
 import type { Sql } from 'postgres';
+import { OUTBOX_COMPLETION_REASON } from '../outbox-completion-reason';
 
 const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
@@ -22,6 +24,7 @@ import {
   markOutboxCompleted,
   markOutboxCompletedIfOwned,
   markOutboxFailed,
+  markOutboxOwnerUnreachable,
   recordOutboxTransientError,
 } from '../outbox';
 import { mkTaggedResult } from '../../../../worker/__tests__/helpers/mock-sql';
@@ -124,6 +127,38 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
     sqlReturnQueue.push(rejected);
     await expect(recordOutboxTransientError(execMock, 'outbox-3', 'transient', 1)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('recordOutboxTransientError failed'));
+  });
+});
+
+describe('markOutboxOwnerUnreachable (invariants)', () => {
+  it('composes the marker + attempt-guard and no-ops-with-warn iff a concrete attempt fails to match', async () => {
+    await fc.assert(fc.asyncProperty(
+      fc.option(fc.integer({ min: 0, max: 50 }), { nil: undefined }), // dispatched-attempt param
+      fc.integer({ min: 0, max: 50 }),                                // the row's ACTUAL attempts
+      fc.boolean(),                                                    // row is currently 'dispatched'?
+      async (attempt, actualAttempts, isDispatched) => {
+        resetMockSql();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const rowMatches = typeof attempt === 'number'
+          ? (isDispatched && attempt === actualAttempts)
+          : isDispatched;
+        sqlReturnQueue.push(mkTaggedResult(rowMatches ? [{ id: 'x' }] : []));
+        await markOutboxOwnerUnreachable(execMock, 'outbox-1', attempt);
+        const q = sqlCalls.at(-1)!;
+        expect(q.text).toContain("SET status = 'completed'");
+        expect(q.text).toContain('completion_reason');
+        expect(q.values).toContain(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE);
+        if (typeof attempt === 'number') {
+          expect(q.text).toContain("status = 'dispatched'");
+          expect(q.text).toContain('attempts =');
+          expect(q.values).toContain(attempt);
+        } else {
+          expect(q.text).not.toContain('attempts =');
+        }
+        expect(warn).toHaveBeenCalledTimes(typeof attempt === 'number' && !rowMatches ? 1 : 0);
+        warn.mockRestore();
+      },
+    ), { numRuns: 200 });
   });
 });
 

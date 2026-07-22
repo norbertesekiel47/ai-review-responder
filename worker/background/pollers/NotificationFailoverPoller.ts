@@ -6,6 +6,11 @@ import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
+import {
+  OUTBOX_COMPLETION_REASON,
+  OWNER_UNREACHABLE_AGE_FLOOR_SECONDS,
+} from '../../../src/lib/shared/outbox-completion-reason';
+import { num } from './health-alert/checks';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationFailover]';
@@ -140,6 +145,175 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
   return uuidv7();
 }
 
+/**
+ * Owner-unreachable arm (F1). A draft whose latest completed send_notification
+ * recorded `completion_reason='owner_unreachable'` means the account/location had
+ * ZERO verified channel enrollments at send time, so nothing was ever delivered.
+ * This arm (a) re-enqueues send_notification so delivery retries once a channel
+ * might exist, and (b) sends a best-effort 24h-deduped admin escalation email.
+ *
+ * The candidate SELECT excludes drafts with an in-flight send_notification
+ * (matching the all-failed/stale arms) so a backlog of in-flight-stuck oldest
+ * rows can't monopolize the BATCH_LIMIT and starve newer drafts. Excluded rows
+ * wait ~1 retry cycle for their admin email; the durable Sentry
+ * `checkOwnerUnreachable` finding covers them meanwhile.
+ *
+ * The re-enqueue is advisory-locked and re-checked INSIDE the lock: the candidate
+ * SELECT is stale by the time we act, and the plain in-flight `NOT EXISTS` guard
+ * alone is not race-safe against a concurrent poller (no unique in-flight index
+ * exists). Two independent flags are re-checked under the lock:
+ *   - `unreachable` — still owner-unreachable NOW (incl. the 4h age floor). Gates
+ *     the admin email (R3-B), but NOT after the owner resolved.
+ *   - `in_flight` — a live send_notification exists; gates the retry INSERT. Now
+ *     guards the concurrency race (a second poller enqueued between our candidate
+ *     SELECT and our lock), not steady-state in-flight rows (already excluded).
+ * `sql.begin` returns `unreachable` so a commit failure (throws) => NO email (R3-C).
+ */
+async function processOwnerUnreachable(
+  logger: ReturnType<typeof createWorkerLogger>,
+): Promise<void> {
+  // Age floor bound to the SAME source as the health check's checkOwnerUnreachable
+  // (same env var, same default constant, same num() parse) so the two can't desync.
+  const ageFloorSeconds = num(
+    getWorkerConfig().HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S,
+    OWNER_UNREACHABLE_AGE_FLOOR_SECONDS,
+  );
+  const rows = await sql<{
+    response_id: string;
+    business_id: string;
+    account_id: string;
+    business_name: string;
+    reviewer_name: string | null;
+    star_rating: number;
+  }[]>`
+    SELECT resp.id AS response_id, resp.business_id,
+           b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating
+    FROM responses resp
+    JOIN businesses b ON resp.business_id = b.id
+    JOIN reviews r ON resp.review_id = r.id
+    WHERE resp.status = 'pending_approval'
+      AND b.archived_at IS NULL
+      AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds})
+      AND (
+        SELECT jo.completion_reason FROM job_outbox jo
+        WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+          AND jo.aggregate_id = resp.id AND jo.status = 'completed'
+        ORDER BY jo.created_at DESC LIMIT 1
+      ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
+      AND NOT EXISTS (
+        SELECT 1 FROM notification_deliveries nd
+        WHERE nd.response_id = resp.id AND nd.template = 'approval_request'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM job_outbox jo
+        WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+          AND jo.aggregate_id = resp.id
+          AND jo.status IN ('pending', 'dispatching', 'dispatched')
+      )
+    ORDER BY resp.created_at ASC
+    LIMIT ${BATCH_LIMIT}
+  `;
+
+  const adminEmail = getWorkerConfig().ADMIN_NOTIFICATION_EMAIL;
+  for (const row of rows) {
+    const correlationId = await recoverFailoverCorrelationId(row.response_id);
+
+    let confirmedUnreachable = false;
+    try {
+      confirmedUnreachable = await sql.begin(async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`send_notification_retry:${row.response_id}`}))`;
+        const [state] = await tx<{ unreachable: boolean; in_flight: boolean }[]>`
+          SELECT
+            EXISTS (
+              SELECT 1 FROM responses resp
+              JOIN businesses b ON b.id = resp.business_id
+              WHERE resp.id = ${row.response_id}
+                AND resp.status = 'pending_approval'
+                AND b.archived_at IS NULL
+                AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds})
+                AND (
+                  SELECT jo.completion_reason FROM job_outbox jo
+                  WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+                    AND jo.aggregate_id = resp.id AND jo.status = 'completed'
+                  ORDER BY jo.created_at DESC LIMIT 1
+                ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
+                AND NOT EXISTS (
+                  SELECT 1 FROM notification_deliveries nd
+                  WHERE nd.response_id = resp.id AND nd.template = 'approval_request'
+                )
+            ) AS unreachable,
+            EXISTS (
+              SELECT 1 FROM job_outbox jo
+              WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION}
+                AND jo.aggregate_id = ${row.response_id}
+                AND jo.status IN ('pending', 'dispatching', 'dispatched')
+            ) AS in_flight
+        `;
+        if (!state?.unreachable) return false;
+        if (!state.in_flight) {
+          const payload: SendNotificationPayload = {
+            response_id: row.response_id,
+            business_id: row.business_id,
+            failover: { reason: 'owner_unreachable_retry' },
+            correlation_id: correlationId,
+          };
+          await tx`
+            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+            VALUES (${uuidv7()}, ${QUEUE_NAMES.SEND_NOTIFICATION}, 'response', ${row.response_id}, ${tx.json(payload as never)}, 'pending')
+          `;
+        }
+        return true;
+      });
+    } catch (err: unknown) {
+      logger.error(
+        'Failed to process owner-unreachable retry',
+        { response_id: row.response_id },
+        toError(err),
+      );
+      continue; // commit failed → no retry queued → no email (R3-C)
+    }
+
+    // Admin escalation whenever the locked re-check confirmed still-unreachable,
+    // regardless of whether a retry was queued this cycle (R3-B). tryClaimAlert
+    // 24h-dedups. reviewer_name is NULLABLE (migration 001) and escapeHtml throws
+    // on a non-string → coalesce before interpolating (R3-D).
+    if (confirmedUnreachable && adminEmail) {
+      const reviewerName = row.reviewer_name ?? 'a customer';
+      const outcome = await tryClaimAlert(
+        row.response_id,
+        'admin_notification_owner_unreachable',
+        adminEmail,
+        async () => {
+          const { messageId } = await sendInternalEmail({
+            to: adminEmail,
+            subject: `Owner unreachable: ${row.business_name} — no verified notification channel`,
+            bodyHtml: `<p>A draft response to <strong>${escapeHtml(reviewerName)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong> cannot be delivered: the owner has <strong>no verified notification channel</strong>. Help them enroll one; the system auto-delivers once a channel is verified.</p><p><em>Response ID: ${row.response_id}</em></p>`,
+            category: 'internal',
+          });
+          return messageId;
+        },
+        {
+          accountId: row.account_id,
+          businessId: row.business_id,
+          responseId: row.response_id,
+        },
+      );
+      if (outcome === 'send_error') {
+        logger.error('Failed to send owner-unreachable alert', { response_id: row.response_id });
+      }
+    }
+  }
+
+  if (rows.length > 0) {
+    logger.log('Processed owner-unreachable responses', { count: rows.length });
+  }
+}
+
+// Arm-dispatcher: one sequential try/catch-isolated block per failover arm
+// (all-failed · stale · owner-unreachable), same shape as OutboxPoller's cycle
+// runner. Cyclomatic count tracks the arm count, not tangled control flow;
+// each arm's logic lives in its own helper (processOwnerUnreachable, etc.).
+// fallow-ignore-next-line complexity
 export async function runFailoverPollerOnce(): Promise<void> {
   const logger = createWorkerLogger(LOG_PREFIX);
 
@@ -339,6 +513,14 @@ export async function runFailoverPollerOnce(): Promise<void> {
         stuck_candidate_count: staleResponses.length,
       });
     }
+
+    // ── 3. Owner-unreachable: latest completed send_notification recorded ──
+    // completion_reason='owner_unreachable' (zero verified enrollments at send
+    // time). Advisory-locked re-enqueue + best-effort admin escalation. Runs
+    // AFTER all-failed and stale — its predicate is disjoint (no
+    // approval_request delivery ever existed), so ordering is for consistency
+    // with the arm-per-concern layout, not correctness.
+    await processOwnerUnreachable(logger);
   } catch (error) {
     logger.error('Poll cycle failed', toError(error));
   }

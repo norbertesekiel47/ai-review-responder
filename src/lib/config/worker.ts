@@ -71,6 +71,14 @@ const workerSchema = z.object({
   // worker boot). Never logged.
   WORKER_INTERNAL_SECRET: opt,
   DATABASE_URL: opt,
+  // Boot-readiness cure toggle (#505). Default = cure ON: the boot path holds
+  // BullMQ workers (autorun:false), awaits bounded queue readiness, then starts
+  // the DB-backed loops on a bounded jittered stagger before resuming workers.
+  // Only the exact literal 'false' turns it OFF (legacy synchronous all-at-once
+  // boot) for a baseline repro run. Read raw (rawOptionalVar) — index.ts owns the
+  // 'false'-means-off semantics via isBootStaggerEnabled (#7); the collapsing opt
+  // must not map ''→undefined here since the toggle is default-on, not default-off.
+  BOOT_STAGGER_ENABLED: rawOpt,
   // Migrated raw read: StripeLocationsReconcilePoller owns its own
   // `envInterval ? parseInt(envInterval, 10) : NaN` parse + default, so
   // rawOptionalVar preserves ''/'   '/unset exactly like the old raw read (#7).
@@ -125,6 +133,9 @@ const workerSchema = z.object({
   HEALTH_ALERT_STALE_DISPATCHING_S: rawOpt,
   HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD: rawOpt,
   HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S: rawOpt,
+  HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD: rawOpt,
+  HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S: rawOpt,
+  HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD: rawOpt,
   HEALTH_ALERT_MONITOR_SLUG: rawOpt,
 
   // ── Stage-3 worker-jobs batch ─────────────────────────────────────────────

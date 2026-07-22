@@ -1,11 +1,9 @@
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { rankingTrackingEnabled } from '../../../src/lib/ranking/flags';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
-import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[RankingTrackingScheduler]';
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
@@ -54,8 +52,31 @@ export async function runRankingCheck(): Promise<void> {
 
     if (utcDay !== 0 || utcHour !== 22 || weekNum % 2 !== 0) return;
 
-    const candidates = await sql<{ id: string; google_place_id: string }[]>`
-      SELECT b.id, b.google_place_id
+    const runDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    // Set-based enqueue: merge the candidate scan with the outbox insert. The
+    // candidate-level in-flight NOT EXISTS is a cheap pre-filter; ON CONFLICT DO
+    // NOTHING backed by uniq_outbox_track_ranking_run
+    // (aggregate_id, payload->>'run_date') WHERE topic='track_ranking' AND
+    // status <> 'failed' is the correctness owner for dedup, preventing
+    // duplicate SerpAPI spend under concurrent schedulers or restarts.
+    // gen_random_uuid() (not app UUIDv7) supplies id + correlation_id because a
+    // set-based INSERT…SELECT cannot call the JS generator per row and
+    // job_outbox.id has no ordering contract — see migration 080 lab note.
+    const result = await sql`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      SELECT
+        gen_random_uuid(),
+        ${QUEUE_NAMES.TRACK_RANKING},
+        'business',
+        b.id,
+        jsonb_build_object(
+          'business_id', b.id,
+          'google_place_id', b.google_place_id,
+          'run_date', ${runDate}::text,
+          'correlation_id', gen_random_uuid()
+        ),
+        'pending'
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE a.subscription_status = 'active'  -- enum: SubscriptionStatus.ACTIVE
@@ -72,51 +93,12 @@ export async function runRankingCheck(): Promise<void> {
             AND jo.aggregate_id = b.id
             AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
+      ON CONFLICT DO NOTHING
     `;
 
-    if (candidates.length === 0) return;
-
-    const runDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-    let queued = 0;
-    for (const biz of candidates) {
-      const payload: TrackRankingPayload = {
-        business_id: biz.id,
-        google_place_id: biz.google_place_id,
-        run_date: runDate,
-        correlation_id: uuidv7(),
-      };
-
-      try {
-        // ON CONFLICT uses uniq_outbox_track_ranking_run partial unique index:
-        // (aggregate_id, payload->>'run_date') WHERE topic='track_ranking' AND status NOT IN ('completed','failed')
-        // This prevents duplicate SerpAPI spend even under concurrent schedulers or restarts.
-        const inserted = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${uuidv7()},
-            ${QUEUE_NAMES.TRACK_RANKING},
-            'business',
-            ${biz.id},
-            ${jsonb(payload)},
-            'pending'
-          )
-          ON CONFLICT DO NOTHING
-        `;
-
-        if (inserted.count > 0) queued++;
-      } catch (err: unknown) {
-        const code = (err as { code?: string }).code;
-        if (code === '23505') continue; // Extra safety for other unique constraints
-        throw err;
-      }
-    }
-
+    const queued = result.count;
     if (queued > 0) {
-      logger.log('Queued track_ranking outbox entries', {
-        queued,
-        candidates_checked: candidates.length,
-      });
+      logger.log('Queued track_ranking outbox entries', { queued });
     }
   } catch (error) {
     logger.error(

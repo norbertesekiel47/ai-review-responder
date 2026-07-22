@@ -39,6 +39,13 @@ interface FailedCountRow {
   total: number;
 }
 
+// Local HTTP-boundary mirror of the PoolWait shape, whose canonical owner is
+// src/lib/shared/pool-wait.ts (a type-only import would be invariant-#1-legal,
+// but this route mirrors its queue-health DTOs locally by convention — same as
+// `queueHealth` — to keep the admin boundary decoupled from probe-internal
+// semantics). Kept in lockstep with that owner (queue-health.ts type-imports it).
+type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
+
 interface JobsData {
   outbox: {
     pending: number;
@@ -59,6 +66,7 @@ interface JobsData {
   limit: number;
   offset: number;
   queueHealth: Record<string, Record<string, number>> | { unavailable: true };
+  pool: PoolWaitPayload | null;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -96,7 +104,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const summary = summaryRows[0] ?? { pending: 0, dispatching: 0, dispatched: 0, failed: 0, completed_today: 0 };
     const failedTotal = countRows[0]?.total ?? 0;
 
-    const queueHealth = await fetchQueueHealth();
+    const { queueHealth, pool } = await fetchQueueHealth();
 
     const data: JobsData = {
       outbox: {
@@ -118,6 +126,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       limit,
       offset,
       queueHealth,
+      pool,
     };
 
     return NextResponse.json(data);
@@ -127,25 +136,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+interface QueueHealthResult {
+  queueHealth: Record<string, Record<string, number>> | { unavailable: true };
+  pool: PoolWaitPayload | null;
+}
+
 /**
- * Fetch per-queue depth from the Railway worker's authed internal endpoint.
- * Returns the existing graceful shape `{ unavailable: true }` on ANY failure —
- * missing config (WORKER_PUBLIC_URL / WORKER_INTERNAL_SECRET), invalid worker
- * URL, non-200, network error, or the 5s timeout — and logs a warning instead of
- * throwing, so the panel always renders. Never logs the secret.
+ * Fetch per-queue depth (+ the worker's best-effort shared-pool wait) from the
+ * Railway worker's authed internal endpoint. `queueHealth` degrades to the
+ * existing graceful shape `{ unavailable: true }` and `pool` to `null` on ANY
+ * failure — missing config (WORKER_PUBLIC_URL / WORKER_INTERNAL_SECRET), invalid
+ * worker URL, non-200, network error, or the 5s timeout — logging a warning
+ * instead of throwing, so the panel always renders. Never logs the secret. The
+ * worker may itself return `pool:null` (probe unavailable) even on a 200; that
+ * passes through unchanged.
  */
-async function fetchQueueHealth(): Promise<
-  Record<string, Record<string, number>> | { unavailable: true }
-> {
+async function fetchQueueHealth(): Promise<QueueHealthResult> {
+  const unavailable: QueueHealthResult = { queueHealth: { unavailable: true }, pool: null };
+
   const secret = getServerConfig().WORKER_INTERNAL_SECRET;
-  if (!secret) return { unavailable: true };
+  if (!secret) return unavailable;
 
   let origin: string;
   try {
     origin = getWorkerPublicUrl();
   } catch {
     // WORKER_PUBLIC_URL unset or not a valid URL — degrade silently.
-    return { unavailable: true };
+    return unavailable;
   }
 
   try {
@@ -157,18 +174,19 @@ async function fetchQueueHealth(): Promise<
     });
     if (!response.ok) {
       console.warn(`[api/admin/jobs] worker queue-health returned ${response.status}; queue health unavailable`);
-      return { unavailable: true };
+      return unavailable;
     }
     const body = (await response.json()) as {
       queues?: Record<string, Record<string, number>>;
+      pool?: PoolWaitPayload | null;
     };
     if (!body.queues) {
       console.warn('[api/admin/jobs] worker queue-health response missing queues; queue health unavailable');
-      return { unavailable: true };
+      return unavailable;
     }
-    return body.queues;
+    return { queueHealth: body.queues, pool: body.pool ?? null };
   } catch (error) {
     console.warn('[api/admin/jobs] worker queue-health fetch failed; queue health unavailable:', error);
-    return { unavailable: true };
+    return unavailable;
   }
 }

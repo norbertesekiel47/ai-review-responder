@@ -114,9 +114,8 @@ intake. Prototypes never graduate to production code.
 
 Lock the outcome into an **intake contract** — not free-form prose. Write it
 to `docs/superpowers/plans/<branch>-intake.json` (parent checkout, temporary —
-step 2 MOVES it into the worktree as `.feature/intake.json` and commits it
-there; the worktree copy is the single authoritative owner) with exactly
-these fields:
+step 2 moves it into the worktree and arms the hooks from an ephemeral
+`.feature/` copy) with exactly these fields:
 
 ```json
 {
@@ -166,13 +165,16 @@ stop gate scans every registered git worktree for an armed
 `.feature/intake.json`. Inspect the parent checkout with `git -C <path>`
 or absolute-path reads, never by relying on a persistent directory change.
 
-**MOVE the intake in and commit it**: relocate the step 1 draft to
-`.feature/intake.json` at the worktree root (delete the parent copy — one
-authoritative owner) and make it the branch's first commit. The hooks key
-off this file — its presence puts the tree in "feature mode" — and
-committing it makes the agreed scope part of the branch's audit trail.
-Commit `.feature/deps-justification.md` the same way if one is created
-later.
+**MOVE the intake in and arm the hooks**: move the step 1 draft to the
+WORKTREE's `docs/superpowers/plans/<branch>-intake.json` (committed with
+the branch — the durable audit trail of the agreed scope; delete the
+parent copy) and COPY it to `.feature/intake.json` at the worktree root.
+The hooks key off the `.feature/` copy — its presence puts the tree in
+"feature mode". `.feature/` is gitignored BY DESIGN (#512): a committed
+intake would follow the merge onto `main` and arm every future main
+session. If the surface is amended mid-run (with my sign-off), update
+BOTH copies. `.feature/deps-justification.md` is likewise ephemeral —
+carry its content into the PR description so the justification survives.
 
 **NO BASH WRITES (hook scoping)**: the guard sees Edit/Write tool calls
 only. Never modify repo files via Bash (`sed -i`, `>` redirects, `mv`,

@@ -12,6 +12,9 @@ vi.mock('bullmq', () => ({
     constructor(name: string) {
       this.name = name;
     }
+    // queues.ts attaches a non-fatal 'error' listener at module scope (P5);
+    // the mock needs an `on` for that import-time wiring to succeed.
+    on(): void {}
   },
 }));
 

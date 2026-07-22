@@ -1,6 +1,6 @@
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { selfServeSignupEnabled } from '../../../src/lib/auth/flags';
-import { sql, supabaseServer } from '../../../src/lib/db/server';
+import { sql, supabaseServerBounded } from '../../../src/lib/db/server';
 import { createWorkerLogger, type WorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { withTimeout } from '../../../src/lib/shared/with-timeout';
 
@@ -191,17 +191,20 @@ async function runOnceInner(logger: WorkerLogger): Promise<void> {
           return;
         }
 
-        // Race the Supabase admin call against a 10s timeout. The supabase-js
-        // admin SDK doesn't expose AbortController hooks, so a hung server
-        // would otherwise hold the advisory lock + FOR UPDATE row lock
-        // indefinitely and block subsequent cleanup runs against the same
-        // email. Promise.race rejects → outer catch logs + we move on.
+        // Race the Supabase admin call against a 10s timeout. The bounded
+        // client (supabaseServerBounded) already aborts the fetch at 10s;
+        // this Promise.race stays as an independent belt — it also covers
+        // non-fetch hangs inside supabase-js and preserves the TIMEOUT
+        // error-code classification below. Without a bound, a hung server
+        // would hold the advisory lock + FOR UPDATE row lock indefinitely
+        // and block subsequent cleanup runs against the same email.
+        // Race rejects → outer catch logs + we move on.
         let deleteResult: Awaited<
-          ReturnType<typeof supabaseServer.auth.admin.deleteUser>
+          ReturnType<typeof supabaseServerBounded.auth.admin.deleteUser>
         >;
         try {
           deleteResult = await Promise.race([
-            supabaseServer.auth.admin.deleteUser(candidate.auth_id),
+            supabaseServerBounded.auth.admin.deleteUser(candidate.auth_id),
             new Promise<never>((_, reject) =>
               setTimeout(
                 () =>

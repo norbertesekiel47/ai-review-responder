@@ -1,0 +1,217 @@
+# Deviations — #505 pool-wedge root-cause + cure + reaper deletion
+
+Surprises and orchestration choices during step-4 EXECUTE. Read alongside the plan
+(`fix-505-pool-wedge-rootcause.md`) and intake (`.feature/intake.json`). Scope is
+UNCHANGED — same tasks, same allowed_edit_surface, same acceptance criteria.
+
+## D0 — Execution order: T3 → T2 → T1 → T4 (orchestration, not scope)
+
+The handoff suggested "T1 + T3 parallelizable, T2 validated by T1, T4 last." During
+execution setup two facts forced a sequential re-order:
+
+1. **T2 and T3 both edit `worker/index.ts`** (T3 removes the `startPoolWedgeReaperPoller`
+   wiring; T2 adds the boot-readiness coordinator). They cannot run as parallel
+   implementers — `subagent-driven-development` forbids parallel implementers for
+   exactly this conflict.
+2. **T1's harness toggles the T2 cure seam via env.** Writing T1 before T2 would make
+   the harness reference a boot-stagger flag that does not exist yet. Landing T2 first
+   gives T1 a real flag to toggle (baseline off / treatment on).
+
+Chosen order **T3 → T2 → T1 → T4** respects every blocking edge in the plan: T2's
+*code* depends on nothing from T1 (T1 *validates* T2 operationally via OP2), and docs
+(T4) stay last. No file surface, acceptance criterion, or decision changed.
+
+## D1 — T3: `env-vars.md` `DATABASE_URL` entry had a dangling reaper cross-ref
+
+The `DATABASE_URL` doc entry forward-referenced the reaper/`DIRECT_URL` narrative.
+Trimmed it to the direct-route-on-staging fact so it no longer points at a deleted
+entry (dangling refs are bugs per repworth.md). Commit `509cdac6`.
+
+## D2 — T3: `DIRECT_URL` `env-vars.md` entry claimed "used for migrations"
+
+The old `DIRECT_URL` entry claimed it "bypasses PgBouncer for migrations." A repo-wide
+grep (code, `scripts/`, `package.json`, `.github/`, `supabase/`, CI) found **zero**
+non-reaper consumers — matching the intake's "sole consumer was the reaper." The
+migrations claim was stale/aspirational doc; the entry was removed. Independently
+re-verified by the T3 spec reviewer. The genuine-direct-route concept is preserved for
+the #477 re-arm ticket (T4). Commit `509cdac6`.
+
+## D3 — T3: `server.test.ts` `application_name` fixture renamed
+
+The `createDedicatedPostgresClient` app-name-override test used `'rw-wedge-reaper'` as
+its fixture — a value the system no longer uses. Renamed to a generic `'custom-app-name'`
+so the test stops implying a live reaper value, while keeping the factory-override
+coverage (the health client uses the same factory). Commit `509cdac6`.
+
+## T3 — CLOSED. Both review gates passed (spec ✅ + code-quality Approved).
+Commit `509cdac6` (base `f9080813`). 19 files, all CI-subset checks green
+(typecheck, 8779 tests, `ci:db-imports` strict, lint). Bulkhead (#502) untouched;
+shutdown-resilience invariant preserved.
+
+## D4 — T2: `abortBootCoordinator` shutdown dep made OPTIONAL (surface boundary)
+
+The plan offered adding `abortBootCoordinator` to `GracefulShutdownDeps` and calling
+it first. The clean test for that ordering lives in `worker/__tests__/shutdown.test.ts`
+— but that file is OUTSIDE `allowed_edit_surface` (the intake lists `worker/shutdown.ts`
+and `worker/background/**`, not `worker/__tests__/**`), and adding a *required* dep
+would break its `makeDeps` literal at typecheck. Rather than edit a blocked file (or
+work around the hook), the dep is declared **optional** (`abortBootCoordinator?`) and
+invoked `deps.abortBootCoordinator?.()` FIRST in the shutdown handler: the pre-#505
+test compiles + passes unchanged, and `worker/index.ts` always wires it. The
+abort-before-stop ordering is proven by a NEW in-surface test,
+`worker/background/__tests__/boot-shutdown-ordering.test.ts`. No shutdown semantics
+changed beyond the added first step. Judgment call — flagged for reviewer.
+
+## D5 — T2: `AutonomyGovernorScheduler.test.ts` registration-grep assertion updated
+
+That suite greps `worker/index.ts` for the literal `startAutonomyGovernorScheduler();`.
+The cure thunk-wraps every loop start into the `loopStarts` array
+(`() => startAutonomyGovernorScheduler()`), so the trailing-semicolon literal no longer
+matches. Loosened the assertion to `startAutonomyGovernorScheduler()` (call without the
+semicolon) — still proves the scheduler is wired for startup; the stop assertion is
+unchanged (stop still runs synchronously in `stopBackgroundLoops`). In-surface
+(`worker/background/**`).
+
+## D6 — T2: worker resume is all-at-once AFTER the stagger (per spec), Redis-only burst
+
+Per the plan ("only AFTER the stagger completes resume the Workers"), all ~30 workers
+resume together via `worker.run()` once the staggered DB-loop starts finish. That
+reintroduces a burst of *Redis* (Railway) connection opens — NOT Postgres/Supavisor
+pooler opens, which are the wedge surface and ARE spread by the loop stagger. Job
+handlers touch Postgres only as jobs actually arrive (naturally spread), so this does
+not re-create the boot pooler burst. Left as-is intentionally. (D6 rationale is now
+also captured as an inline comment at the resume site per the review, so a future
+reader doesn't "fix" it.)
+
+## Code-quality review fixes (Approved-with-minor) — F1, F2
+
+**F1 (race) — `bootAbortController` hoisted to module scope.** It was created AFTER
+`await app.listen()`, so a SIGTERM arriving WHILE listen was pending hit
+`abortBootCoordinator()` with the controller still null (`?.abort()` no-op); listen
+then resolved and `main()` built a FRESH un-aborted controller and launched the
+coordinator concurrently with the running teardown — the exact "begin DB work
+mid-SIGTERM" the abort-first ordering exists to prevent. Fix: the controller is now a
+module-scope `const` created at load (before the signal handlers can fire), and `main()`
+no longer reassigns it. An early abort sets `signal.aborted` and `runBootCoordinator`
+bails at line 1. Proven by the renamed test `signal already aborted before coordinator
+starts: no readiness, no start, no worker-resume (FIX F1)`.
+
+**F2 (fail-inside-boundaries) — per-start try/catch in `staggerBoot`.** A scheduled
+`start()` throwing synchronously previously never incremented `fired` (so `done` never
+resolved) AND escaped the timer as a fatal `uncaughtException` (crash-net kills all
+loops+workers). Each start invocation is now wrapped: the throw is reported via a new
+optional `onStartError` hook (index.ts logs it) and swallowed, the start still counts
+toward completion, and the other starts run. Proven by `a start that throws
+synchronously is contained: other starts run and done still resolves (FIX F2)`.
+
+Gates after F1/F2: typecheck clean, `worker/**` 1772 passed, boot-stagger suite 22
+passed, `ci:db-imports` strict, lint clean. The optional `abortBootCoordinator?` dep
+(D4) stays as-is per the reviewer (out-of-surface test edit needs sign-off).
+
+## T2 — CLOSED. Spec ✅ + code-quality Approved (F1/F2 re-reviewed Approved).
+Spec review verified OFF-path worker-resume + all three abort-race points non-trivially.
+Code-quality Approved-with-minor → F1/F2 applied → focused re-review Approved (race
+closed, throw contained, non-trivial regression tests, gates green). Commits
+`4529395c` (cure) → `28c232a9` (F1/F2). Toggle `BOOT_STAGGER_ENABLED` default ON
+(only literal `"false"` disables). D4 optional dep deferred to a sign-off-gated follow-up.
+
+## D7 — T1: transport instrumentation DECLARED OPAQUE (no `server.ts` edit)
+
+The plan offered an opt-in, default-off `PG_DEBUG_TRACE` gate wiring postgres.js's
+`debug` hook into the production DB singleton (`src/lib/db/server.ts`). Not built.
+Rationale: (a) the `debug` hook fires PRE-write (messages queued, not `socket.write()`
+completion) so it cannot prove the transport mechanism; (b) the cork/uncork theory was
+already falsified for postgres.js 3.4.9; (c) the harness's PRIMARY signal is external
+`pg_stat_activity` observation + the empirical treatment result, which stand on their
+own; (d) even a strictly-gated hook adds surface to the prod singleton. Per the task's
+minimal-production-intrusion preference, the harness prints "TRANSPORT TRACE: not wired
+— declared OPAQUE" in its summary and falls back to the empirical signal. Judgment call
+— `server.ts` left untouched.
+
+## D8 — T1: guard test lives in `scripts/ci/__tests__/` (vitest include glob)
+
+The task suggested `scripts/__tests__/wedge-repro.test.ts`. The vitest `include` glob is
+`scripts/ci/**/__tests__/**/*.test.ts` — a bare `scripts/__tests__/` file is NOT
+collected (and a CLI path filter cannot override `include`). Placed the guard test at
+`scripts/ci/__tests__/wedge-repro.test.ts` importing `../../wedge-repro`, matching the
+existing precedent where `scripts/ci/__tests__/verify-stripe-price-parity.test.ts` tests
+the root-level `scripts/verify-stripe-price-parity.ts`. Both files stay inside the T1
+`scripts/**` surface; no config edit (vitest.config.ts is out-of-surface).
+
+## T1 — harness delivered. `scripts/wedge-repro.ts` (fresh-process-per-trial, direct
+observer, staging-only guard) + `scripts/ci/__tests__/wedge-repro.test.ts` (11 guard
+tests green). typecheck / `ci:db-imports` strict / lint all clean. Operational baseline
+(OP1) + treatment (OP2) results are produced by the operator running the harness via MCP.
+
+## F3 — T1: SIGINT/SIGTERM path orphaned the worker child (spec item 6 gap)
+
+Spec review caught a real hole in "cleanup on EVERY exit path". The worker child was
+killed only in `runTrial`'s `finally`; the signal handler's `emergencyCleanup` terminated
+only the attributed DB backends + closed the observer, then `process.exit(130)` aborted
+the stack so `runTrial`'s `finally` (and `worker.kill()`) never ran. Because the child is
+spawned `detached: true`, it is in its own process group and never received the terminal
+signal either — so on SIGINT the real worker survived on staging and, still booting, could
+open/re-wedge NEW pooler backends AFTER the one-shot terminate pass (staging-bounded by the
+guard, but exactly what item 6 forbids). Fix: spawned children are now tracked in a
+main-scope `Set<SpawnedWorker>` (`liveWorkers`), registered before the first await and
+deregistered in `runTrial`'s finally after kill. Cleanup ordering extracted to a PURE,
+exported `runEmergencyCleanup({killChildren, terminateBackends, closeObserver})` that kills
+CHILDREN FIRST (source of new wedges), THEN backends, THEN the observer — order is
+regression-tested (2 new cases, incl. later-steps-run-when-an-earlier-step-rejects). Normal
++ error paths (runTrial finally) untouched. Guard suite now 13 green.
+
+## F4 — T1: three code-quality polish items (operability, in spawn/arg area)
+
+Approved-with-minor follow-ups, all in the spawn/arg surface:
+1. **Child stderr was dropped unless `--verbose`.** `spawnWorker` now keeps a 50-line
+   stderr ring buffer (`recentStderr()`); `runTrial` dumps it on ANY non-`ready` boot
+   outcome (timeout / early exit / spawn error), regardless of `--verbose` — the exact
+   diagnostic an operator needs on a failed staging boot.
+2. **No `child.on('error')` handler.** A `spawn` failure (ENOENT etc.) emitted an
+   unhandled `'error'` that would crash the whole harness. Added a handler that flips the
+   boot waiters to `'exited'`, records the reason into the stderr ring, and logs it — a
+   spawn failure is now a clean per-trial boot failure, not a crash.
+3. **Non-integer count args.** `--trials 1.5` passed the finite/`>0` check and silently
+   ran 2 trials. `num()` takes an `{ integer }` option; `--trials` and `--worker-port-base`
+   now reject non-integers cleanly.
+#1/#2 are stream/process-level (not cleanly unit-testable via injected fakes without
+exporting the arg parser); the pure `runEmergencyCleanup`/`assertStagingTarget` and their
+13 tests are untouched. typecheck / `ci:db-imports` strict / lint all clean.
+
+## T1 — CLOSED. Spec ✅ (guard airtight) + code-quality Approved (F3 + F4 applied).
+Spec review VERIFIED the safety guard: staging ref `kubdiqdhqbhwmqfditeg` + prod-reject
+ref `udeyaqnvpojbwgoaxwdg` confirmed correct against deployment-guide.md:1150-1151;
+prod-reject beats every flag; guard precedes ALL destructive actions. Fixes:
+- **F3 (spec gap):** SIGINT/SIGTERM path orphaned the detached worker child (skipped
+  runTrial's finally) → could re-wedge after the terminate pass. Fixed: main-scope
+  `Set<SpawnedWorker>` + pure `runEmergencyCleanup` kills children FIRST. Ordering test added.
+- **F4 (operability polish):** child stderr ring-buffer dumped on non-ready boot;
+  `child.on('error')` → clean per-trial failure not a crash; integer-arg guards.
+- **D7:** transport declared OPAQUE (no prod db/server.ts intrusion) — validation is EMPIRICAL.
+- **D8:** guard tests at `scripts/ci/__tests__/` per the vitest include glob (verify-stripe-price-parity precedent).
+Commits `0cd5fc9a` → `9cc4340e` (F3) → `db07afaa` (F4). Invoked via
+`railway run --environment staging --service repworth-worker -- pnpm tsx scripts/wedge-repro.ts <baseline|treatment|both> --confirm-staging kubdiqdhqbhwmqfditeg`.
+
+## T4 — CLOSED. Docs faithful + complete (single accuracy review).
+ADR 0008 verified FAITHFUL to boot-stagger.ts + index.ts (autorun:false, 5s fail-open
+readiness, 8s strictly-monotonic stagger, module-scope AbortController, shutdown-aborts-first,
+BOOT_STAGGER_ENABLED default-on). Honest UNPROVEN/empirical framing confirmed throughout.
+Deliverables: ADR `docs/adr/0008-boot-readiness-cure.md`; CONTEXT.md (+ boot burst, boot-readiness
+cure); poller-resume §1b in `beta-launch-alerting.md`; new `pool-wedge-burst-drill.md`; re-arm
+ticket draft `fix-505-pool-wedge-rootcause-rearm-ticket.md`. Review found one stale path
+(`worker/config/worker.ts` → `src/lib/config/worker.ts` in the re-arm ticket) — fixed in `a3e3c4de`.
+Commit `70aeaffc` (docs) + `a3e3c4de` (path fix).
+
+## STEP 4 (EXECUTE) COMPLETE — all of T1-T4 through both review gates. Next: step 5 verify-gate.
+
+## BREAKTHROUGH — the planned boot-stagger was NOT the cure; the real root cause was proven on staging (T5/T6)
+
+Staging validation of the boot-stagger cure (OP3, HEALTH_ALERT_POLL_INTERVAL_MS override removed → 5-min cadence) revealed the wedge is **per-cycle, not boot-burst**: the health cycle failed every 5 min (03:49:26 / 03:54:27 / 03:59:28), with a live `active/ClientRead` wedge on a health-bundle `job_outbox` count query. The boot-stagger (T2) targeted the wrong mechanism.
+
+**Proven root cause (differential repro on the staging pooler):** `runHealthChecks` fired 6 queries via `Promise.all` on the `max:2` bulkhead client over the Supavisor **transaction pooler**; postgres.js pipelines the overflow queries onto shared connections, and a pipelined response parks permanently in `ClientRead`. Differential: **concurrent-max2 6/6 wedged, sequential-max2 0/6, concurrent-max6 0/6**. This explains the permanence #500 couldn't; #500's isolation repro was clean because it used *uniform* queries (count>max is necessary but not sufficient — the query mix matters).
+
+**T5 — the real cure (commit a10f5eb, review Approved):** `runHealthChecks` now runs its 6 checks **sequentially** (one query in flight → no pipelining), preserving the backlog-depth `.catch` isolation + core-check throw propagation; `max:2` bulkhead kept. Regression test asserts peak query concurrency === 1 (reviewer empirically confirmed it's a real discriminator: reverting to Promise.all → test fails "expected 5 to be 1"). Shipped `runHealthChecks` validated **0/6** against the staging pooler.
+
+**T6 — audit (commit 3c53d1ad):** the same shape (concurrent queries on a shared postgres.js client over the tx-pooler) exists at ~15 candidate sites (mostly Vercel dashboard/KPI/admin on shared `max:3`), but they are UNVERIFIED SUSPECTS (query-mix-dependent trigger; Vercel's ephemeral functions may mask it; worker paths are the real danger). Most are OUTSIDE #505's edit surface → drafted a separate follow-up ticket (`fix-505-pool-wedge-rootcause-pipelining-audit-ticket.md`). Lab note added (`.claude/reference/lab-notes.md`); ADR 0008 + investigation reframed to the proven finding.
+
+**Net #505 outcome:** goal achieved (wedge cured, poller safe to resume) via a DIFFERENT mechanism than planned. Ships: sequential-bundle **cure** (proven) + boot-stagger **hardening** + reaper **deletion** + corrected docs. The PR→main cure-validation gate is now genuinely satisfied.

@@ -61,9 +61,13 @@ export interface SendNotificationPayload extends BasePayload {
   business_id: string;
   /** Present only when re-queued by the NotificationFailoverPoller. */
   failover?: {
-    reason: 'all_deliveries_failed';
-    // 'stale_no_delivery' was removed in Phase 0 — the poller alerts admin
-    // directly instead of re-dispatching. See docs/plans/adding-communication-channels.md §3.5.
+    // 'all_deliveries_failed' — every attempted approval delivery failed.
+    // 'owner_unreachable_retry' — the account/location had zero verified channel
+    // enrollments at send time; the owner-unreachable arm re-enqueues once a
+    // channel might exist. 'stale_no_delivery' was removed in Phase 0 — the
+    // poller alerts admin directly instead of re-dispatching.
+    // See docs/plans/adding-communication-channels.md §3.5.
+    reason: 'all_deliveries_failed' | 'owner_unreachable_retry';
   };
 }
 

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **078** — next migration is **079**
+Current head: **083** — next migration is **084**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -952,6 +952,134 @@ Revisit triggers:
   database only; no staging or production migration was run during WS8 execution.
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
+
+> This feature (#479) originally planned two migrations. **079**
+> (`agent_run_spine_archival_indexes`) and **080** (`scheduler_outbox_dedup_indexes`)
+> are claimed by parallel works that rode staging first, so #479's cursor table was
+> renumbered 079→**081**. The second planned migration — a composite
+> `(subscription_status, id)` reconcile index (would have been 082) — was
+> **evaluated and dropped at the mandatory staging EXPLAIN gate**: the planner
+> prefers the existing `accounts_pkey` for the keyset query even with seq-scan
+> disabled, and both prod and staging are empty pre-launch, so there is no evidence
+> the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
+> migration, re-addable later if a future prod EXPLAIN shows need. That is why this
+> log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **083** — Owner-unreachable outbox marker (F1, plan
+  `docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md`). Adds
+  nullable `job_outbox.completion_reason TEXT` so a `send_notification` job that
+  completes with zero verified channel enrollments records
+  `completion_reason='owner_unreachable'`, letting `HealthAlertPoller` and the
+  `NotificationFailoverPoller` owner-unreachable arm observe + escalate the
+  outcome (T3/T4). Written via `markOutboxOwnerUnreachable`
+  (`src/lib/shared/outbox.ts`) with the same attempt-guarded CAS as the sibling
+  outbox writers; value owned by `OUTBOX_COMPLETION_REASON`
+  (`src/lib/shared/outbox-completion-reason.ts`). **No new index** — the lookups
+  reuse `idx_responses_pending_approval_created` and
+  `idx_jo_send_notification_by_aggregate` from migration 082. Additive
+  (`ADD COLUMN IF NOT EXISTS`, no default, existing rows stay NULL);
+  transactional with `SET LOCAL lock_timeout = '3s'` to bound the brief ACCESS
+  EXCLUSIVE lock on the hot `job_outbox` table. **Applied: staging 2026-07-21,
+  production 2026-07-21 (owner-confirmed), in lockstep.**
+- **082** — NotificationFailoverPoller lookup indexes (scalability-verification
+  item 8). Two partial indexes so the failover poller stops seq-scanning at
+  scale: `idx_jo_send_notification_by_aggregate` on `job_outbox
+  (aggregate_id, created_at DESC) WHERE topic = 'send_notification'` serves the
+  `recoverFailoverCorrelationId` lookup
+  (`worker/background/pollers/NotificationFailoverPoller.ts` — topic +
+  aggregate_id, `ORDER BY created_at DESC LIMIT 1`; exact mirror of 018's
+  `idx_jo_generate_response_by_review` for the generate_response twin), and
+  `idx_responses_pending_approval_created` on `responses (created_at)
+  WHERE status = 'pending_approval'` serves both global sweeps (all-failed and
+  stale: `status = 'pending_approval' AND created_at < NOW() - INTERVAL '4
+  hours' ORDER BY created_at ASC`, cross-tenant by design). No INCLUDE columns
+  yet — staging `EXPLAIN (ANALYZE, BUFFERS)` evidence for the three target
+  queries is captured at ship BEFORE any INCLUDE-column refinement (evidence
+  rule). Both use `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, so this migration
+  is **non-transactional** (uncheck the Supabase SQL editor's
+  single-transaction box) and the two statements are **NOT atomic** — the first
+  can succeed and the second fail. Recovery for an interrupted build (062
+  lesson: `IF NOT EXISTS` silently skips an INVALID index): check
+  `pg_index.indisvalid` for each; if false, `DROP INDEX CONCURRENTLY <name>;`
+  and re-run. Apply staging first, then production, both projects in lockstep.
+- **081** — `poller_cursors` durable keyset resume cursor for
+  `StripeLocationsReconcilePoller` (#479, map #472; ADR
+  `docs/adr/0006-poller-cursor-persistence-ordering.md`). Creates
+  `poller_cursors (poller_name TEXT PRIMARY KEY, cursor UUID, write_seq BIGINT
+  NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())` — one row
+  per poller. Persists the in-memory keyset cursor added in #487 so a worker
+  restart resumes the rotation instead of re-walking the head. `write_seq` is the
+  ordering guard: the poller holds an in-memory `writeSeq` seeded at boot from
+  this column and stamps a fresh monotonic seq per save; `saveCursor`'s UPSERT
+  applies only `WHERE EXCLUDED.write_seq > poller_cursors.write_seq`, so a
+  stale/detached/reordered save (withTimeout races rather than cancels — a
+  timed-out save can land late) is a DB no-op. **Deny-all RLS** (enabled, NO
+  policies — same posture as `impersonation_sessions`/048, `agent_runs`/071);
+  holds NO tenant data (no `account_id` — just a poller name + an opaque
+  last-claimed account id), so server reaches it via the RLS-bypassing
+  `postgres` role only and it is NOT a tenant table. Additive, transactional (no
+  CONCURRENTLY — brand-new table, instant build), re-runnable
+  (`CREATE TABLE IF NOT EXISTS`). Apply staging first, then production, both
+  Supabase projects in lockstep.
+- **080** — Scheduler set-based outbox dedup indexes + race-safe preflight
+  (ticket #484, parent #472 audit item 10). Renumbered 079→080: migration 079
+  (`079_agent_run_spine_archival_indexes.sql`, agent-run-spine archival) rode
+  `staging` first and claimed 079; this migration takes 080. Both land on `main`
+  via separate PRs (archival's 079 must precede this 080). Two PARTIAL UNIQUE indexes on
+  `job_outbox` so the weekly/monthly summary schedulers can collapse their
+  per-row insert loop into one `INSERT…SELECT…ON CONFLICT DO NOTHING` (Task 2)
+  with the dedup guarantee owned by the DB instead of a JS-side `WHERE NOT
+  EXISTS` (which cannot close the concurrent-scheduler / restart race):
+  `uniq_outbox_weekly_summary_week` on `(aggregate_id, (payload->>'week_start_date'))
+  WHERE topic = 'weekly_summary' AND status IN ('pending','dispatching','dispatched')`
+  and `uniq_outbox_monthly_impact_month` on `(aggregate_id, (payload->>'month_start_date'))
+  WHERE topic = 'send_monthly_impact' AND status IN ('pending','dispatching','dispatched')`.
+  **Predicate is in-flight-only, NOT `<> 'failed'`** (deliberate divergence from
+  ranking's `uniq_outbox_track_ranking_run`, which is untouched): weekly/monthly
+  have a `sent_at` completion guard, and the worker `markOutboxCompleted`'s a row
+  WITHOUT `sent_at` in three skip cases (archived / subscription-not-allowed /
+  bounced email), so a `<> 'failed'` predicate would wrongly block those
+  legitimate re-enqueues. The in-flight-only predicate EXACTLY mirrors the
+  existing NOT EXISTS → behavior preserved; a `completed`/`failed` row never
+  blocks re-enqueue. Each index is preceded by a **race-safe preflight**: rank
+  in-flight rows per `(aggregate_id, period)` most-advanced-then-oldest
+  (`dispatched` > `dispatching` > `pending`, then `created_at`) and fail ONLY
+  currently-`pending` extras via a LIVE compare-and-swap (the outer UPDATE's
+  `AND status = 'pending'`, re-checked under EvalPlanQual after row-lock) — an
+  actively-dispatched row is NEVER overwritten and the OutboxPoller cannot lose a
+  concurrent dispatch. NULL-period rows excluded. If two non-pending in-flight
+  duplicates for one key coexist (near-impossible under the single-flight
+  guarded-poll), the CREATE UNIQUE INDEX fails LOUDLY rather than killing an
+  active job — surfaced staging-first. Additive, transactional (non-CONCURRENTLY;
+  sub-second ACCESS EXCLUSIVE at 100-business scale). Apply staging-first, then
+  production, both Supabase projects in lockstep.
+
+  > **Deliberate deviation — `gen_random_uuid()` (UUIDv4) for the set-based
+  > INSERT path (Task 2):** the collapsed schedulers supply `job_outbox.id` and
+  > `payload.correlation_id` via SQL `gen_random_uuid()` instead of the app-side
+  > JS UUIDv7 generator. Justification: prod Postgres has no `uuidv7()` function,
+  > and a set-based `INSERT…SELECT` cannot call the per-row JS generator.
+  > `job_outbox.id` has NO ordering contract — migration 002 DROPPED its DEFAULT,
+  > the INSERT supplies `id` explicitly, and the OutboxPoller orders by
+  > `available_at`, never `id`. `correlation_id` is an opaque trace string. Rows
+  > are 7-day pruned. This is the RepWorth-wide "all tables use UUIDv7" note's
+  > one sanctioned exception, scoped to these two set-based scheduler INSERTs.
+- **079** — Agent-run-spine archival-scan indexes. Adds two archival indexes so
+  the ArchivalPoller's new 180-day retention arms
+  (`worker/background/pollers/ArchivalPoller.ts`, arms 7 and 8) can prune the
+  migration-071 run spine without seq-scanning: `idx_agent_outcomes_archival`
+  on `agent_outcomes (occurred_at)` serves the `occurred_at < NOW() -
+  make_interval(days => 180)` claim, and the partial
+  `idx_agent_runs_archival` on `agent_runs (ended_at) WHERE ended_at IS NOT
+  NULL` serves the `ended_at < …` claim (the predicate implies non-NULL, same
+  pattern as 065's `idx_jo_recovery`). `agent_run_steps` needs no arm of its
+  own — its `agent_run_id` FK is `ON DELETE CASCADE`, so steps prune with their
+  parent run. Both use `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, so this
+  migration is **non-transactional** (uncheck the Supabase SQL editor's single-
+  transaction box); a partial failure can leave an INVALID index — check
+  `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
+  production, both projects in lockstep. Supports the 180-day retention arms
+  added in the same PR.
 
 ## Key Tables Reference
 

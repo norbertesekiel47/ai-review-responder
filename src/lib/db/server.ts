@@ -1,5 +1,10 @@
 import postgres from 'postgres';
 import { createClient } from '@supabase/supabase-js';
+import { createWorkerLogger } from '../shared/logger';
+
+// Boot-time config-validation warnings (pool sizing). Safe at this foundational
+// layer: logger.ts imports only a pure sanitizer + node-only log-context (no cycle).
+const dbConfigLogger = createWorkerLogger('db-config');
 
 // ---------------------------------------------------------------------------
 // Postgres.js — PRIMARY client for all transactional writes
@@ -11,24 +16,158 @@ function readPoolMax(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
 }
 
-export const sql = postgres(process.env.DATABASE_POOL_URL!, {
+// Pinned postgres.js pool bounds (deep-scan §3.5), shared by the `sql` singleton
+// AND every dedicated client built via createDedicatedPostgresClient — one
+// authoritative owner for these constants. Postgres.js takes these in SECONDS.
+//   idle_timeout    — reap idle connections (matters most on quiet serverless instances)
+//   max_lifetime    — bound connection age; tolerates pooler restarts/failovers
+//   connect_timeout — fail fast; a connect taking >10s is already an incident
+// `prepare: false` is REQUIRED behind the Supabase PgBouncer transaction pooler.
+const BASE_POSTGRES_OPTIONS = {
   prepare: false,
-  // Explicit pool bounds (deep-scan §3.5). Postgres.js takes these in SECONDS.
+  idle_timeout: 30,
+  max_lifetime: 1800,
+  connect_timeout: 10,
+} as const;
+
+// Supabase PgBouncer has a short default statement_timeout (~8s). The OutboxPoller
+// watchdog CTE can exceed this when updating locked rows. 30s is generous but safe.
+// Postgres.js takes SECONDS everywhere EXCEPT connection.statement_timeout, which
+// is milliseconds. Dedicated clients inherit this default unless they override
+// `connection.statement_timeout`.
+const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
+
+export const sql = postgres(process.env.DATABASE_POOL_URL!, {
+  ...BASE_POSTGRES_OPTIONS,
   // One client serves two roles, so `max` is env-tunable: the Railway worker
   // keeps the default 10; Vercel sets DB_POOL_MAX=3 per serverless instance
   // (the Supabase pooler multiplexes behind it — keep per-instance demand low).
   max: readPoolMax(),
-  idle_timeout: 30, // reap idle connections — matters most on quiet serverless instances
-  max_lifetime: 1800, // bound connection age; tolerates pooler restarts/failovers
-  connect_timeout: 10, // fail fast — a connect taking >10s is already an incident
-  // Supabase PgBouncer has a short default statement_timeout (~8s).
-  // The OutboxPoller watchdog CTE can exceed this when updating locked rows.
-  // 30s is generous but safe — the poller runs every 10s, so a long query
-  // blocks the next cycle but doesn't cascade.
   connection: {
-    statement_timeout: 30_000, // 30 seconds in ms
+    statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
   },
 });
+
+// Resolved shared write-pool ceiling (env-tunable). Exported so the worker
+// composition root hands it to the pool-wait probe without re-reading env.
+export const SHARED_POOL_MAX = readPoolMax();
+
+/**
+ * Read-path pool size (`sqlRead`). Sized to the fan-out of the routes that use
+ * it so their Promise.all waves run one-connection-per-query (the proven #505
+ * non-wedge shape): KPI is a 5-query wave (+gate = <=6 peak). `DB_READ_POOL_MAX`
+ * is validated + CLAMPED to the reviewed range [WEDGE_SAFE_READ_MIN,
+ * READ_POOL_MAX_CEILING]; an out-of-range value is clamped and warn-logged, not
+ * silently honored. Both bounds are 8 today, so the effective read max is 8.
+ */
+// Wedge-safe MINIMUM: the widest Promise.all fan-out ROUTED onto sqlRead
+// (KPI ≤6) must run one-connection-per-query (#505). Config can never set below
+// this floor, so a mis-set low env cannot reintroduce the wedge (codex #6).
+export const WEDGE_SAFE_READ_MIN = 8;
+// Capacity-budgeted MAXIMUM. ADR 0009's ≤16-warm-Vercel-isolate Supavisor budget
+// is derived from read max = 8 per isolate (write 3 + read 8 = 11 client conns
+// each) against the shared 57-conn backend. A larger read pool multiplies client
+// connections across isolates and can starve the write path (both clients share
+// the SAME backend pool), so DB_READ_POOL_MAX is capped here — an oversized env
+// cannot silently invalidate the documented budget (codex adversarial #1).
+// Raising this is a deliberate capacity change: bump the constant AND re-run the
+// ADR 0009 staging burst-drill to re-derive the isolate budget.
+export const READ_POOL_MAX_CEILING = 8;
+function readReadPoolMax(): number {
+  const parsed = parseInt(process.env.DB_READ_POOL_MAX ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return WEDGE_SAFE_READ_MIN;
+  const clamped = Math.min(READ_POOL_MAX_CEILING, Math.max(WEDGE_SAFE_READ_MIN, parsed));
+  if (clamped !== parsed) {
+    dbConfigLogger.warn('DB_READ_POOL_MAX outside reviewed range — clamped', {
+      requested: parsed,
+      clamped,
+      min: WEDGE_SAFE_READ_MIN,
+      max: READ_POOL_MAX_CEILING,
+    });
+  }
+  return clamped;
+}
+
+/**
+ * Dedicated READ client (bulkhead) for the wedge-safe small-fan-out
+ * dashboard/KPI read routes. Distinct LOCAL pool from `sql`, so a heavy read
+ * wave can't consume the write client's slots. Same DATABASE_POOL_URL — it
+ * shares the SAME Supavisor backend pool (isolation is LOCAL slots only, NOT
+ * backend capacity; ADR 0009). Tighter 8s read statement_timeout.
+ * `application_name` is client intent only — Supavisor flattens it to
+ * 'Supavisor' server-side (ADR 0007), so it is NOT an attribution mechanism.
+ * Lazy: postgres.js connects on first query; the worker imports this module
+ * but never queries sqlRead, so zero connections there.
+ */
+export const sqlRead = createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
+  max: readReadPoolMax(),
+  connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
+});
+
+/** Tight overrides a dedicated client may pass; both are optional. */
+type DedicatedClientOverrides = {
+  /** Pool ceiling for this dedicated client. Defaults to 2 (dedicated clients are small). */
+  max?: number;
+  /**
+   * Postgres.js connection parameters. Merged over the pinned
+   * `statement_timeout` default, so a caller can pass a tighter
+   * `statement_timeout` (ms) and/or an `application_name`.
+   */
+  connection?: Partial<postgres.ConnectionParameters>;
+};
+
+/**
+ * Build a NEW postgres.js client — distinct from the shared `sql` singleton —
+ * on the SAME pinned base config (`prepare: false`, idle/lifetime/connect
+ * timeouts, 30s statement_timeout), but pointed at `url` (not DATABASE_POOL_URL)
+ * with tight per-caller overrides.
+ *
+ * Purpose: give a poller its OWN small, isolated pool so a wedged connection on
+ * it cannot starve the shared singleton (bulkhead). Callers own the returned
+ * client's lifecycle and MUST `.end()` it in the worker shutdown path
+ * (invariant #15). Created only here (the DB-client owner) and passed down to
+ * composition-root pollers.
+ *
+ * Postgres.js does not connect until the first query, so constructing a client
+ * is side-effect-free (safe offline / in tests).
+ */
+export function createDedicatedPostgresClient(
+  url: string,
+  overrides?: DedicatedClientOverrides,
+): ReturnType<typeof postgres> {
+  return postgres(url, {
+    ...BASE_POSTGRES_OPTIONS,
+    max: overrides?.max ?? 2,
+    connection: {
+      statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
+      ...overrides?.connection,
+    },
+  });
+}
+
+/**
+ * Close every Postgres client for worker shutdown: the caller's dedicated
+ * clients FIRST (best-effort, in parallel, alongside `sqlRead`), then the
+ * shared `sql` singleton.
+ *
+ * This is the shutdown close-order contract, owned here because `server.ts`
+ * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
+ * (e.g. `closeHealthSql`). They run through `Promise.allSettled`, so a
+ * wedged or rejecting dedicated `.end()` — the exact failure mode #500
+ * self-heals — can NEVER skip the shared `sql.end()`. Each dedicated closer
+ * is expected to bound its own `.end({ timeout })`.
+ */
+export async function closeAllPostgresClients(
+  dedicatedClosers: Array<() => Promise<void>>,
+): Promise<void> {
+  // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
+  // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
+  // propagates — preserving the existing shutdown contract (codex #13).
+  // It bounds its own close ({ timeout: 5 }, matching closeHealthSql) so a
+  // TCP-wedged read pool can't stall the subsequent awaited sql.end().
+  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end({ timeout: 5 })]);
+  await sql.end();
+}
 
 /**
  * Bind a value to a JSONB column or parameter. Use this instead of
@@ -64,7 +203,60 @@ export function jsonb<T>(value: T): ReturnType<typeof sql.json> {
 // Supabase server client — auth admin, storage, server-side reads
 // Uses the service-role key. NEVER import in browser/client components.
 // ---------------------------------------------------------------------------
+
+/**
+ * Every auth.admin.* / storage.* call is otherwise UNBOUNDED — supabase-js
+ * exposes no per-call timeout, and a hung call from a worker job holds its
+ * BullMQ slot forever (BullMQ auto-renews the lock). 10s matches the
+ * CleanupAbandonedSignupsPoller's existing Promise.race bound. A caller-
+ * provided signal still wins (composed via AbortSignal.any) so streaming/
+ * cancellable calls keep their own semantics.
+ */
+export const SUPABASE_FETCH_TIMEOUT_MS = 10_000;
+
+// `timeoutMs` is injectable only so tests can exercise the timeout path with
+// real timers (AbortSignal.timeout ignores vitest's fake timers); production
+// callers never pass it.
+export function boundedSupabaseFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs: number = SUPABASE_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(input, { ...init, signal });
+}
+
+/**
+ * UNBOUNDED shared client — the default for request flows and every Auth
+ * identity MUTATION (signup provisioning, invites, password flows). These
+ * calls keep supabase-js's native fetch semantics on purpose: a mutation that
+ * commits remotely but responds slowly must NOT surface as a TimeoutError with
+ * no reconciliation path — an aborted-but-committed signUp/createUser leaves
+ * an orphaned Auth identity and later `account_exists` lockouts. Use
+ * `supabaseServerBounded` instead only where hanging is worse than ambiguity.
+ */
 export const supabaseServer = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!,
+);
+
+/**
+ * BOUNDED client (10s via `boundedSupabaseFetch`) for worker-side admin /
+ * storage operations that must never hang a BullMQ slot or wedge a poller
+ * cycle: the account-offboarding purge path and the abandoned-signups cleanup
+ * poller (whose deleteUser calls are retried/idempotent — "user not found" is
+ * success — so an abort-after-commit is reconciled on the next attempt).
+ * Never route identity-CREATING mutations through this client.
+ *
+ * Two server-side GoTrue instances may log a benign "Multiple GoTrueClient
+ * instances" warning; both clients are stateless service-role clients, so no
+ * session storage is shared or clobbered.
+ */
+export const supabaseServerBounded = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!,
+  { global: { fetch: boundedSupabaseFetch } },
 );

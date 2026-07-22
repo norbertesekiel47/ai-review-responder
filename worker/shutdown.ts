@@ -26,6 +26,15 @@ export interface GracefulShutdownDeps {
   graceMs: number;
   /** True when the §2.7 fatal-exit net is already bringing the process down. */
   isFatalExitInProgress: () => boolean;
+  /**
+   * Abort the boot-readiness coordinator (#505) — synchronous. Called FIRST, so a
+   * pending staggered loop-start or a pending worker-resume can never begin DB
+   * work mid-SIGTERM. A no-op once the coordinator has already completed.
+   *
+   * Optional so the pre-#505 dependency shape (and its existing tests) still
+   * type-check; the entry point (worker/index.ts) always wires it.
+   */
+  abortBootCoordinator?: () => void;
   /** Stop all background pollers/schedulers (synchronous clearInterval calls). */
   stopBackgroundLoops: () => void;
   /** Drain the DB-backed analytics dispatch — MUST finish before closeDb(). */
@@ -77,6 +86,14 @@ export function createGracefulShutdown(deps: GracefulShutdownDeps): () => Promis
       deps.logError('Graceful shutdown exceeded grace window — forcing exit', undefined);
       deps.exit(1);
     }, deps.graceMs);
+
+    // Abort the boot coordinator BEFORE stopping loops (#505): a still-pending
+    // staggered start or worker-resume must not begin DB work while we tear down.
+    try {
+      deps.abortBootCoordinator?.();
+    } catch (err) {
+      deps.logError('Graceful shutdown step failed: abort boot coordinator', err);
+    }
 
     try {
       deps.stopBackgroundLoops();

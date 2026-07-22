@@ -2,7 +2,7 @@
 //
 // Unit tests for CleanupAbandonedSignupsPoller.
 //
-// Mocks sql (Postgres.js tagged-template) and supabaseServer.auth.admin.deleteUser.
+// Mocks sql (Postgres.js tagged-template) and supabaseServerBounded.auth.admin.deleteUser.
 // Exercises runOnce() end-to-end for every branch + verifies startXxxPoller
 // respects the SELF_SERVE_SIGNUP_ENABLED flag.
 
@@ -57,9 +57,19 @@ vi.mock('@/lib/db/server', () => {
       return fn(consume);
     }),
   });
+  // The poller uses the BOUNDED client (finding 1 split). supabaseServer is
+  // kept as an inert stub so a transitive importer of the unbounded client
+  // never explodes at module load.
   return {
     sql,
     supabaseServer: {
+      auth: {
+        admin: {
+          deleteUser: vi.fn(),
+        },
+      },
+    },
+    supabaseServerBounded: {
       auth: {
         admin: {
           deleteUser: mockSupabaseDeleteUser,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Sql } from 'postgres';
+import { llmCircuitBreaker } from '@/lib/llm/circuit-breaker';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationOptions } from '../types';
 
@@ -130,6 +131,10 @@ const businessContext = {
 describe('generateResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // This suite mocks the raw SDKs but drives the REAL runLlmTask + live
+    // breaker singleton; without a reset, transient rejections accumulate
+    // across tests and could trip the breaker mid-file (order-dependent).
+    llmCircuitBreaker.reset();
   });
 
   it('calls OpenAI as primary provider', async () => {

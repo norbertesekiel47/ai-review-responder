@@ -7,7 +7,154 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-15 (WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-21 (Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083. The 10-finding pre-production reliability report is now fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Reliability follow-ups P4/P8/P9 (2026-07-21, PRs #514–#516)
+
+The last three findings from the 10-finding pre-production reliability report
+(P1/P2/P3/P5/P6/P7/P10 shipped earlier as PR #508 — see the next section). With
+these merged, the report is **fully closed**. What is true now:
+
+- **A slow Stripe response can no longer pin the tier-change locks (P8, #514).**
+  Every Stripe call made while the tier-change advisory locks + `FOR UPDATE` are
+  held is bounded to **8s with retries disabled**, and mutating calls keep their
+  deterministic `tier-change:<account>:<op>:<step>` idempotency keys — an
+  ambiguous timeout is recovered by the Stripe webhook/reconciler path, never by
+  retrying under the lock. Worst-case lock hold drops from ~60s+ to ~26s
+  (stripe-node 22.2.0 still performs ONE internal retry on a socket reset even
+  with `maxNetworkRetries: 0`; timeouts — the target case — do not retry).
+- **A downed LLM provider no longer costs every job a full primary timeout
+  (P9, #515).** An in-process, per-provider circuit breaker sits inside the
+  `src/lib/llm/` seam: 5 consecutive transient failures trip it open for 30s,
+  then one half-open probe. Open primary ⇒ immediate failover to the fallback
+  (skipping the ~30s primary timeout); both providers open ⇒ retryable
+  `TransientLLMError`, never a terminal draft loss. Default **ON**; kill switch
+  `LLM_CIRCUIT_BREAKER_ENABLED=false` restores byte-identical prior behavior.
+  Sentry warns only on trip and recovery; open↔half_open churn is
+  structured-log-only.
+- **An owner with zero verified channels is no longer a silent dead end
+  (P4, #516 + ADR 0010).** A `send_notification` that completes with no
+  verified enrollments now records
+  `job_outbox.completion_reason='owner_unreachable'` (migration 083, applied
+  staging + prod in lockstep). `checkOwnerUnreachable` alerts durably past a
+  4h age **floor** (keeps firing until the draft resolves — unlike the windowed
+  zero-delivery check, which is now de-conflated), and a third
+  `NotificationFailoverPoller` arm retries the notification under an advisory
+  lock (at-most-once) and sends a 24h-deduped admin email.
+
+The new shape:
+
+- `src/lib/llm/circuit-breaker.ts` — breaker state machine (epoch-correlated
+  admission tokens); consulted in `src/lib/llm/run-task.ts`; kill-switch
+  accessor `src/lib/llm/flags.ts` (via new `readFlagEnabledByDefault` in
+  `src/lib/config/flags.ts`)
+- `src/lib/shared/outbox-completion-reason.ts` + `markOutboxOwnerUnreachable`
+  (`src/lib/shared/outbox.ts`) — the owner-unreachable marker (migration 083)
+- `worker/background/pollers/NotificationFailoverPoller.ts` — owner-unreachable
+  arm (advisory-locked retry + admin email)
+- `worker/background/pollers/health-alert/checks.ts` — `checkOwnerUnreachable`
+  (latest-completed-reason predicate, 4h floor) + de-conflated zero-delivery
+- `worker/jobs/notification/eligibility.ts` — shared `resolveEligibleChannels`
+  for the three notice workers
+- `src/lib/accounts/tier-change.ts` — `STRIPE_UNDER_LOCK_REQUEST_OPTIONS`
+  (8s / 0 retries), the single owner of the under-lock bound
+
+## Quick summary — Production reliability guards (2026-07-20, PR #508)
+
+A pre-production review surfaced 10 prioritized reliability findings; this PR
+shipped the seven mechanical, low-blast-radius guards (P1, P2, P3, P5, P6, P7,
+P10). P4/P8/P9 rode the mapped follow-up branch
+([followup map](superpowers/plans/2026-07-16-prod-hardening-followup-map.md))
+and shipped 2026-07-21 as PRs #514–#516 — see the section above.
+What is true now:
+
+- **One review's failure bookkeeping can no longer kill the worker (P1).** The
+  zernio ingest `'failed'` hook is wrapped in a last-resort never-rethrow guard,
+  and its coupled terminal writes (`review_exceptions` + outbox) run **CAS-first
+  inside `sql.begin`** via `withOwnedTerminalTransition` — only the attempt that
+  owns the outbox terminal transition commits the coupled rows; a stale attempt
+  writes nothing; the crash guard never splits a rolled-back coupled tx.
+- **Worker-side Supabase admin/storage calls are bounded at 10s; identity
+  mutations are NOT (P2, refined in adversarial review).** `src/lib/db/server.ts`
+  now exports two clients: `supabaseServer` stays unbounded (an ambiguous
+  timeout on a committed Auth signUp/invite would orphan an identity), while
+  the new `supabaseServerBounded` (`boundedSupabaseFetch`, 10s) serves the
+  offboarding purge wiring and `CleanupAbandonedSignupsPoller` so a hung
+  Supabase call can't pin a BullMQ slot forever.
+- **Transient failures during the avoid-facts guardrail regen now RETRY instead
+  of dropping a paid draft (P3 — owner override of the documented anti-respend
+  carve-out).** One predicate (`isTransientGenerationError`) re-throws all three
+  transient classes from both guardrail catch layers → BullMQ retry (the primary
+  hits the idempotent cache on retry; a Redis outage can re-spend, bounded by
+  the queue's attempts budget — owner-accepted). Budget/cost-cap decisions stay
+  terminal.
+- **Unlistened `'error'` events no longer restart the worker (P5).**
+  `attachEmitterErrorLogger` (`worker/emitter-errors.ts`) is attached to every
+  BullMQ Queue, every Worker, and the probe Redis client: structured log +
+  Sentry warning with a per-source 60s count-and-suppress window (a Redis
+  outage is one report per source per minute, not an alert storm).
+- **Fastify ingress is bounded (P6).** `buildFastifyOptions`
+  (`worker/config/fastify-options.ts`): requestTimeout 30s, keepAlive 60s,
+  connection 10s, bodyLimit 5 MB — slow-loris/slow-body clients can't exhaust
+  the single Railway worker and block Stripe/Zernio webhooks.
+- **Health-alert blind spots closed (P7).** The failed-outbox check now watches
+  `generate_response` too, and a new check alerts on
+  `inbound_events.status='failed'` rows (Stripe/Zernio processing bugs are no
+  longer masked for days by provider-side retries).
+- **The dashboard degrades per-widget instead of 500ing (P10, refined in
+  adversarial review).** Per-location: the business lookup stays fatal; every
+  other query settles independently and degrades to its per-widget fallback,
+  always reported to Sentry. Aggregate: exactly two reads stay fatal (locations
+  list + the slice wave's baseline anchor read — degrading the anchor would
+  render an all-zeros misreporting dashboard); each slice read (counters,
+  velocity, rating breakdown, ranking, briefs, pending approvals), the billing
+  row, and the account recent-reviews feed degrade per-query under
+  `widgetOrFallbackFor('dashboard/aggregate')`.
+
+The new shape: `worker/emitter-errors.ts` (non-fatal emitter sink) ·
+`worker/config/fastify-options.ts` (ingress bounds) ·
+`worker/jobs/zernio/ingest-failed-hook.ts` (`withOwnedTerminalTransition`) ·
+`src/lib/db/server.ts` (`supabaseServer` / `supabaseServerBounded` split) ·
+`worker/jobs/response-generation/generate-draft.ts` (`isTransientGenerationError`
+guardrail retry) · `worker/background/pollers/health-alert/checks.ts`
+(+`generate_response`, +`inbound_events`) ·
+`src/lib/dashboard/{service,aggregate-service,aggregate-queries}.ts`
+(`widgetOrFallback` / `widgetOrFallbackFor` degradation). Spec:
+[2026-07-16-prod-hardening-guards-design.md](superpowers/specs/2026-07-16-prod-hardening-guards-design.md);
+deviations: [fix-prod-hardening-guards-deviations.md](superpowers/plans/fix-prod-hardening-guards-deviations.md).
+
+## Quick summary — Scalability verification remainders (2026-07-20, PR #511)
+
+Closed the last two pre-launch scalability-verification items:
+
+- **Boot-enforced summed LLM worker-slot cap.** `assertSummedLlmWorkerSlots`
+  (`worker/config/startup-assert.ts`), called at the LLM-worker registration
+  site in `worker/index.ts`, fails worker boot if the summed **non-flag-gated**
+  LLM worker-slot concurrency exceeds **9** (`generate_response`=5 +
+  `generate_demo`, `weekly_summary`, `send_monthly_impact`,
+  `onboarding_demo_response`=1 each), or if the flag-gated `judge_verdict`
+  exceeds 1. It reads EFFECTIVE `worker.opts` (same pattern as
+  `assertSingleConcurrencyWorker`), so a future edit that widens a concurrency
+  fails the boot instead of silently blowing the ADR-0005 LLM-concurrency
+  envelope. Enforcement only — no concurrency VALUE changed. `generate_demo`
+  was previously missing from the #490 inventory; ADR 0005's addendum is
+  amended to match (cap 9, `generate_demo` counted).
+- **Failover-poller indexes (migration 082).** Two partial indexes so
+  `NotificationFailoverPoller` stops seq-scanning at scale:
+  `idx_jo_send_notification_by_aggregate` on `job_outbox (aggregate_id,
+  created_at DESC) WHERE topic = 'send_notification'` (the
+  `recoverFailoverCorrelationId` lookup) and
+  `idx_responses_pending_approval_created` on `responses (created_at) WHERE
+  status = 'pending_approval'` (both global sweeps). Applied to staging + prod
+  Supabase in lockstep; staging + prod `EXPLAIN` confirm the index path (the
+  responses index supplies the `ORDER BY`, no Sort node). No INCLUDE columns
+  yet — deferred to a production EXPLAIN per the evidence rule.
+
+The new shape: `worker/config/startup-assert.ts` (`assertSummedLlmWorkerSlots`
+alongside `assertSingleConcurrencyWorker`) · `worker/index.ts` (the assert call
+after the six LLM-worker registrations) · `supabase/migrations/082_failover_lookup_indexes.sql`
+· cap semantics owned by `docs/adr/0005-beta-launch-posture.md` + `CONTEXT.md`
+glossary.
 
 ## Quick summary — WS8 launch-safety correction (2026-07-15, execution branch; PR pending)
 

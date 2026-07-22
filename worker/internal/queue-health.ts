@@ -18,6 +18,10 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
 import { QUEUE_HEALTH_JOB_STATES } from '../../src/lib/shared/queue-health-states';
+import { withTimeout } from '../../src/lib/shared/with-timeout';
+import { createWorkerLogger, toError } from '../../src/lib/shared/logger';
+import type { BacklogDepth } from '../../src/lib/shared/backlog-depth';
+import type { PoolWait } from '../../src/lib/shared/pool-wait';
 
 // Single owner is src/lib/shared/queue-health-states.ts (shared with the admin
 // UI, src/app/admin/jobs); re-exported here so worker/index.ts and this
@@ -25,6 +29,13 @@ import { QUEUE_HEALTH_JOB_STATES } from '../../src/lib/shared/queue-health-state
 export { QUEUE_HEALTH_JOB_STATES };
 
 const BEARER_PREFIX = 'Bearer ';
+
+const LOG_PREFIX = '[queue-health]';
+
+// Deadline for the best-effort Postgres backlog read. Kept < the admin
+// consumer's 5s AbortSignal deadline (src/app/api/admin/jobs/route.ts) so a slow
+// count degrades to `backlog: null` here instead of aborting the whole request.
+export const BACKLOG_ENDPOINT_TIMEOUT_MS = 4000;
 
 /**
  * Constant-time bearer-secret check. Requires `Authorization: Bearer <secret>`
@@ -48,18 +59,34 @@ export interface QueueHealthDeps {
   getSecret: () => string | undefined;
   /** Per-queue job counts for the QUEUE_HEALTH_JOB_STATES set. */
   getQueueCounts: (queueName: string) => Promise<Record<string, number>>;
+  /**
+   * Best-effort Postgres backlog read (pending-row counts for job_outbox +
+   * analytics_events). May be slow or fail; the handler bounds the WAIT with
+   * BACKLOG_ENDPOINT_TIMEOUT_MS and degrades to `backlog: null` on any
+   * error/timeout — it never regresses the primary `queues` signal.
+   */
+  getBacklogDepth: () => Promise<BacklogDepth>;
+  /** Best-effort single-flight shared-pool saturation probe. Rejects → pool:null. */
+  getPoolWait: () => Promise<PoolWait>;
 }
 
 /**
  * Builds the `GET /internal/queue-health` Fastify handler. Responds:
- *   - 503 {disabled:true}        when the secret is unset (no data exposed),
- *   - 401 {error:'unauthorized'} on missing/malformed/mismatched bearer token,
- *   - 200 {queues}               per-queue depths for every ALL_QUEUE_NAMES entry.
- * Returns ONLY queue depths — no PII.
+ *   - 503 {disabled:true}                 when the secret is unset (no data exposed),
+ *   - 401 {error:'unauthorized'}          on missing/malformed/mismatched bearer token,
+ *   - 200 {queues, backlog, pool}         per-queue depths + best-effort Postgres backlog + shared-pool wait.
+ *
+ * `queues` is ALWAYS returned. `backlog` (`BacklogDepth | null`) and `pool`
+ * (`PoolWait | null`) are independent best-effort add-ons that each degrade to
+ * `null` on any error/timeout — neither must regress the primary `queues`
+ * signal, nor each other. A `pool` with `timedOut:true` is a saturation SAMPLE
+ * (not an error) and is surfaced as an object, never null. Returns ONLY integer
+ * counts / booleans — no PII.
  */
 export function createQueueHealthHandler(
   deps: QueueHealthDeps,
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  const logger = createWorkerLogger(LOG_PREFIX);
   return async function handleQueueHealth(request, reply) {
     const secret = deps.getSecret();
     if (!secret) {
@@ -72,10 +99,38 @@ export function createQueueHealthHandler(
       return;
     }
 
+    // Start the timed + already-caught backlog read BEFORE the sequential queue
+    // loop so its 4000ms deadline overlaps queue collection (no added latency)
+    // and its rejection is handled immediately (no unhandled-rejection window).
+    // This withTimeout bounds the WAIT; the query itself is separately bounded to
+    // ~4s by queryBacklogDepth's `SET LOCAL statement_timeout`, so a slow count is
+    // cancelled server-side and its pooled connection is released — it never
+    // lingers to the 30s global statement_timeout.
+    const backlogResult: Promise<BacklogDepth | null> = withTimeout(
+      deps.getBacklogDepth(),
+      BACKLOG_ENDPOINT_TIMEOUT_MS,
+      'queue-health-backlog',
+    ).catch((err: unknown) => {
+      logger.warn('queue-health backlog unavailable', toError(err));
+      return null;
+    });
+
+    // Same best-effort pattern as backlog: start before the queue loop so the
+    // probe overlaps queue collection and its rejection is handled immediately.
+    // The probe self-bounds (its own withTimeout) and returns timedOut:true on
+    // saturation — only a genuine reserve() rejection lands here → pool:null.
+    const poolResult: Promise<PoolWait | null> = deps.getPoolWait().catch((err: unknown) => {
+      logger.warn('queue-health pool-wait unavailable', toError(err));
+      return null;
+    });
+
     const queues: Record<string, Record<string, number>> = {};
     for (const name of ALL_QUEUE_NAMES) {
       queues[name] = await deps.getQueueCounts(name);
     }
-    reply.code(200).send({ queues });
+
+    const backlog = await backlogResult; // already settled → no extra wait
+    const pool = await poolResult; // already settled → no extra wait
+    reply.code(200).send({ queues, backlog, pool });
   };
 }

@@ -8,6 +8,7 @@
 
 import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   HANDLED_STATUSES,
   RECENT_REVIEW_DISPLAY_STATUSES,
@@ -38,6 +39,32 @@ import {
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
 
+// Short TTL cache for the per-location payload, mirroring the aggregate-service
+// fail-open block (#487). This is the single-location landing's 14-query batch,
+// so repeated loads within the TTL — tab switches, the KPI poll, several owners
+// of the same location — reuse one computation. 45s staleness is invisible next
+// to the pipeline's own multi-second latency.
+const DASHBOARD_LOCATION_CACHE_TTL_SECONDS = 45;
+
+interface ActiveDashboardOpts {
+  includeReputationMetrics?: boolean;
+  window?: DashboardWindow;
+  /** Pre-fetched business+settings row (route preflight already joined
+   *  businesses×accounts) — skips this function's own business query.
+   *  Callers passing it own the guarantee that the row IS businessId's. */
+  business?: DashboardBusinessRow;
+}
+
+// The payload is identical whether `opts.business` was pre-fetched or queried
+// (that flag is a query-skip optimization, not a different result), so it must
+// NOT vary the cache key — only the tenant, window, and reputation-metrics flag
+// change the output.
+function locationCacheKey(businessId: string, opts?: ActiveDashboardOpts): string {
+  const window = opts?.window ?? DEFAULT_DASHBOARD_WINDOW;
+  const includeReputationMetrics = opts?.includeReputationMetrics ?? false;
+  return `dashboard:location:${businessId}:${window}:${includeReputationMetrics ? 'rep' : 'norep'}`;
+}
+
 /**
  * Thrown when the businesses row vanishes between the route's preflight
  * SELECT and the service's 8-query assembly. Extremely rare in practice
@@ -52,17 +79,74 @@ export class BusinessNotFoundError extends Error {
   }
 }
 
+/**
+ * Per-widget degradation (prod-hardening spec P10): one auxiliary widget
+ * query failing must not 500 the whole dashboard. The failure is reported
+ * (never silent) and the widget renders its empty state. Only the business
+ * lookup stays fatal — a dashboard for a missing business is meaningless.
+ *
+ * Curried on `source` so each consumer's degradations report under its own
+ * Sentry source tag: this module binds `'dashboard/service'` below; the
+ * aggregate path (aggregate-service.ts) binds `'dashboard/aggregate'` and
+ * passes `{ accountId }` context instead of `{ businessId }`.
+ */
+export function widgetOrFallbackFor(source: string) {
+  return function widgetOrFallback<T>(
+    result: PromiseSettledResult<T>,
+    fallback: T,
+    widget: string,
+    context: Record<string, string>,
+  ): T {
+    if (result.status === 'fulfilled') return result.value;
+    reportCaughtError(source, result.reason, {
+      ...context,
+      widget,
+      degraded: true,
+    });
+    return fallback;
+  };
+}
+
+const widgetOrFallback = widgetOrFallbackFor('dashboard/service');
+
 export async function getActiveDashboardData(
   sql: Sql,
   businessId: string,
-  opts?: {
-    includeReputationMetrics?: boolean;
-    window?: DashboardWindow;
-    /** Pre-fetched business+settings row (route preflight already joined
-     *  businesses×accounts) — skips this function's own business query.
-     *  Callers passing it own the guarantee that the row IS businessId's. */
-    business?: DashboardBusinessRow;
-  },
+  opts?: ActiveDashboardOpts,
+): Promise<DashboardDataActive> {
+  // Cache read fails open: a Redis blip degrades to a fresh computation.
+  const cacheKey = locationCacheKey(businessId, opts);
+  try {
+    const cached = await getCacheRedis().get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as DashboardDataActive;
+    }
+  } catch (err) {
+    console.error('[dashboard/service] cache read failed (computing fresh):', err);
+  }
+
+  // BusinessNotFoundError throws inside the compute (missing business row),
+  // before the set below — so a 404 signal is never cached.
+  const data = await buildActiveDashboardData(sql, businessId, opts);
+
+  try {
+    await getCacheRedis().set(
+      cacheKey,
+      JSON.stringify(data),
+      'EX',
+      DASHBOARD_LOCATION_CACHE_TTL_SECONDS,
+    );
+  } catch (err) {
+    console.error('[dashboard/service] cache write failed (serving fresh):', err);
+  }
+
+  return data;
+}
+
+async function buildActiveDashboardData(
+  sql: Sql,
+  businessId: string,
+  opts?: ActiveDashboardOpts,
 ): Promise<DashboardDataActive> {
   // Velocity + reputation windows are PARAMETERIZED from the analytics window
   // (issue #403). `30d` (default) reproduces the legacy 30-day / 8-week behavior.
@@ -71,25 +155,16 @@ export async function getActiveDashboardData(
     opts?.window ?? DEFAULT_DASHBOARD_WINDOW,
   );
   const velocitySpanWeeks = trendWeeks - 1;
-  const [
-    businessRows,
-    totalReviewRows,
-    totalRespondedRows,
-    velocityRows,
-    rankingRows,
-    recentReviewRows,
-    monthlyBriefRows,
-    weeklyBriefRows,
-    zernioConnectionRows,
-    queuedReconnectRows,
-    unresolvedIncidentRows,
-    ratingBreakdownRows,
-    pendingRaw,
-    reputationRows,
-  ] = await Promise.all([
-    // Business info + settings (skipped when the route already fetched it)
+  // P10 fail-fast shape (plan R2): the fatal business lookup runs OUTSIDE the
+  // allSettled batch so its rejection surfaces immediately instead of waiting
+  // for all 13 auxiliaries to settle (up to statement_timeout, 30s).
+  // Promise.resolve() adopts the lazy Postgres.js thenable up front, starting
+  // the query before the auxiliary batch is built; the settled batch already
+  // has handlers attached, so an early throw leaves no unhandled rejection.
+  // Business info + settings (skipped when the route already fetched it).
+  const businessPromise: Promise<DashboardBusinessRow[]> = Promise.resolve(
     opts?.business
-      ? Promise.resolve([opts.business])
+      ? [opts.business]
       : sql<DashboardBusinessRow[]>`
       SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
              b.tone, b.products_services, b.avoid_facts, b.sample_responses,
@@ -101,6 +176,8 @@ export async function getActiveDashboardData(
       WHERE b.id = ${businessId}
       LIMIT 1
     `,
+  );
+  const settledPromise = Promise.allSettled([
     // Total reviews (all time)
     sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
@@ -273,10 +350,45 @@ export async function getActiveDashboardData(
       : Promise.resolve(null),
   ]);
 
+  const businessRows = await businessPromise;
   const business = businessRows[0];
   if (!business) {
     throw new BusinessNotFoundError(businessId);
   }
+
+  const [
+    totalReviewSettled,
+    totalRespondedSettled,
+    velocitySettled,
+    rankingSettled,
+    recentReviewSettled,
+    monthlyBriefSettled,
+    weeklyBriefSettled,
+    zernioConnectionSettled,
+    queuedReconnectSettled,
+    unresolvedIncidentSettled,
+    ratingBreakdownSettled,
+    pendingSettled,
+    reputationSettled,
+  ] = await settledPromise;
+
+  // Fallbacks are typed (not bare []) so T infers as the plain row-array
+  // type rather than Postgres.js's RowList intersection.
+  const totalReviewRows = widgetOrFallback(totalReviewSettled, [] as { count: number }[], 'totalReviewRows', { businessId });
+  const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [] as { count: number }[], 'totalRespondedRows', { businessId });
+  const velocityRows = widgetOrFallback(velocitySettled, [] as { week_start: unknown; count: unknown }[], 'velocityRows', { businessId });
+  const rankingRows = widgetOrFallback(rankingSettled, [] as DashboardRankingRow[], 'rankingRows', { businessId });
+  const recentReviewRows = widgetOrFallback(recentReviewSettled, [] as Record<string, unknown>[], 'recentReviewRows', { businessId });
+  const monthlyBriefRows = widgetOrFallback(monthlyBriefSettled, [] as DashboardBriefRow[], 'monthlyBriefRows', { businessId });
+  const weeklyBriefRows = widgetOrFallback(weeklyBriefSettled, [] as DashboardBriefRow[], 'weeklyBriefRows', { businessId });
+  const zernioConnectionRows = widgetOrFallback(zernioConnectionSettled, [] as DashboardZernioConnectionRow[], 'zernioConnectionRows', { businessId });
+  const queuedReconnectRows = widgetOrFallback(queuedReconnectSettled, [] as { count: number }[], 'queuedReconnectRows', { businessId });
+  const unresolvedIncidentRows = widgetOrFallback(unresolvedIncidentSettled, [] as { count: number }[], 'unresolvedIncidentRows', { businessId });
+  const ratingBreakdownRows = widgetOrFallback(ratingBreakdownSettled, [] as { stars: number; count: number }[], 'ratingBreakdownRows', { businessId });
+  const pendingRaw = widgetOrFallback(pendingSettled, null, 'pendingRaw', { businessId });
+  // Reputation degrades as ONE widget: fetchReputationRows batches its five
+  // queries internally, so any failure inside nulls the whole summary.
+  const reputationRows = widgetOrFallback(reputationSettled, null, 'reputationRows', { businessId });
 
   const totalReviews = totalReviewRows[0]?.count ?? 0;
   const totalResponded = totalRespondedRows[0]?.count ?? 0;
@@ -463,10 +575,13 @@ async function readPendingMarker(businessId: string): Promise<string | null> {
   try {
     return await getCacheRedis().get(pendingKey(businessId));
   } catch (err) {
-    console.error(
-      '[dashboard/service] failed to read connect_pending marker:',
-      err,
-    );
+    // Pre-existing graceful degradation, made visible in Sentry (P10 R2) —
+    // a console line alone left this failure mode silent in production.
+    reportCaughtError('dashboard/service', err, {
+      businessId,
+      widget: 'pendingMarker',
+      degraded: true,
+    });
     return null;
   }
 }

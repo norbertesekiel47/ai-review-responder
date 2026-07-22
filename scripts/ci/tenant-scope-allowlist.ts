@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 393;
+export const ALLOWLIST_BASELINE = 405;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -94,22 +94,45 @@ export const CATEGORY_PATH_RULES: Partial<
 // per entry.
 
 const MONTHLY_IMPACT_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.SEND_MONTHLY_IMPACT}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'month_start_date', ${monthStartDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.monthly_impact_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM monthly_impact_emails mie WHERE mie.business_id = b.id AND mie.month_start_date = ${monthStartDate}::date AND mie.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_MONTHLY_IMPACT} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') AND jo.payload->>'month_start_date' = ${monthStartDate} ) ON CONFLICT DO NOTHING";
 
 const ONBOARDING_DRIP_CANDIDATES_SQL =
   "SELECT b.id AS business_id, d.drip_type FROM businesses b JOIN accounts a ON a.id = b.account_id CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days) WHERE a.subscription_status IN ('active', 'trialing') AND b.subscription_activated_at IS NOT NULL AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval AND NOT EXISTS ( SELECT 1 FROM onboarding_drip_log dl WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type AND dl.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.ONBOARDING_DRIP} AND jo.aggregate_id = b.id AND jo.status <> 'failed' AND jo.payload->>'drip_type' = d.drip_type )";
 
 const WEEKLY_SUMMARY_CANDIDATES_SQL =
-  "SELECT b.id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.WEEKLY_SUMMARY}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'week_start_date', ${weekStartDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status IN ('active', 'past_due', 'trialing') AND b.archived_at IS NULL AND a.weekly_summary_enabled = TRUE AND NOT EXISTS ( SELECT 1 FROM weekly_summaries ws WHERE ws.business_id = b.id AND ws.week_start_date = ${weekStartDate}::date AND ws.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.WEEKLY_SUMMARY} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') AND jo.payload->>'week_start_date' = ${weekStartDate} ) ON CONFLICT DO NOTHING";
 
 const RANKING_TRACKING_CANDIDATES_SQL =
-  "SELECT b.id, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.TRACK_RANKING} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') )";
+  "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.TRACK_RANKING}, 'business', b.id, jsonb_build_object( 'business_id', b.id, 'google_place_id', b.google_place_id, 'run_date', ${runDate}::text, 'correlation_id', gen_random_uuid() ), 'pending' FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE a.subscription_status = 'active' AND b.place_id_verified = TRUE AND b.google_place_id IS NOT NULL AND b.tracked_keywords <> '[]'::jsonb AND ( (b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL) OR b.ranking_search_location IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.TRACK_RANKING} AND jo.aggregate_id = b.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ON CONFLICT DO NOTHING";
 
 const DASHBOARD_SETTINGS_SELECT_SQL =
   "SELECT b.name, b.created_at, b.initial_review_count, b.initial_responded_count, b.baseline_captured_at, b.tone, b.products_services, b.avoid_facts, b.sample_responses, b.owner_phone, b.owner_email, a.weekly_summary_enabled, a.monthly_impact_enabled, b.category, b.google_place_id FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1";
 
 const HEALTH_ZERO_DELIVERY_SQL =
-  "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+  "SELECT COUNT(*)::int AS count FROM job_outbox jo JOIN responses r ON r.id = (jo.payload->>'response_id')::uuid JOIN businesses b ON b.id = r.business_id WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.status = 'completed' AND COALESCE(jo.completed_at, jo.dispatched_at, jo.available_at) > NOW() - make_interval(secs => ${cfg.zeroDeliveryWindowS}) AND r.status = 'pending_approval' AND b.archived_at IS NULL AND jo.completion_reason IS DISTINCT FROM ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id )";
+
+// F1 owner-unreachable durable signal. HealthAlertPoller.checkOwnerUnreachable
+// counts pending_approval drafts on live businesses whose LATEST completed
+// send_notification recorded completion_reason='owner_unreachable' and never got
+// an approval_request delivery. Read-only cross-tenant health probe.
+const HEALTH_OWNER_UNREACHABLE_SQL =
+  "SELECT COUNT(*)::int AS count FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.status = 'pending_approval' AND b.archived_at IS NULL AND r.created_at < NOW() - make_interval(secs => ${cfg.ownerUnreachableAgeS}) AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = r.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = r.id AND nd.template = 'approval_request' )";
+
+// F1 owner-unreachable failover. NotificationFailoverPoller.processOwnerUnreachable
+// candidate scan: pending_approval drafts aged past the 4h floor whose latest
+// completed send_notification was owner_unreachable and that never got an
+// approval_request delivery. Global poller scan before per-row locked re-check.
+const FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL =
+  "SELECT resp.id AS response_id, resp.business_id, b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating FROM responses resp JOIN businesses b ON resp.business_id = b.id JOIN reviews r ON resp.review_id = r.id WHERE resp.status = 'pending_approval' AND b.archived_at IS NULL AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds}) AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY resp.created_at ASC LIMIT ${BATCH_LIMIT}";
+
+// F1 owner-unreachable failover. NotificationFailoverPoller.processOwnerUnreachable
+// advisory-locked re-check inside sql.begin: confirms still-unreachable and whether
+// a send_notification is already in flight before enqueueing a retry.
+const FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL =
+  "SELECT EXISTS ( SELECT 1 FROM responses resp JOIN businesses b ON b.id = resp.business_id WHERE resp.id = ${row.response_id} AND resp.status = 'pending_approval' AND b.archived_at IS NULL AND resp.created_at < NOW() - make_interval(secs => ${ageFloorSeconds}) AND ( SELECT jo.completion_reason FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status = 'completed' ORDER BY jo.created_at DESC LIMIT 1 ) = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE} AND NOT EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' ) ) AS unreachable, EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = ${row.response_id} AND jo.status IN ('pending', 'dispatching', 'dispatched') ) AS in_flight";
+
+const HEALTH_FAILED_INBOUND_EVENTS_SQL =
+  "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'failed' AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS}) GROUP BY source, event_type";
 
 const JUDGE_SWEEP_CANDIDATES_SQL =
   "SELECT r.id AS response_id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours}) AND ${publisherSubscriptionEligibleSql(sql)} AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY r.posted_at ASC, r.id ASC LIMIT ${options.limit}";
@@ -565,6 +588,34 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "HealthAlertPoller zero-delivery probe joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant (beta-launch gate A3).",
   },
   {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "responses",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) counts pending_approval drafts whose latest completed send_notification was owner_unreachable and that never got an approval_request delivery. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "businesses",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) joins businesses only to exclude archived/offboarded locations. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "notification_deliveries",
+    sqlSnippet: HEALTH_OWNER_UNREACHABLE_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller owner-unreachable probe (F1) anti-joins notification_deliveries to confirm no approval_request delivery reached the owner. Read-only platform health probe, intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "inbound_events",
+    sqlSnippet: HEALTH_FAILED_INBOUND_EVENTS_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller failed-inbound-events probe: counts inbound_events rows stuck in status='failed' grouped by (source, event_type) to surface webhook processing bugs otherwise masked by provider retries. Read-only platform health probe, intentionally cross-tenant (prod-hardening P7).",
+  },
+  {
     file: "worker/background/pollers/ArchivalPoller.ts",
     table: "api_costs",
     sqlSnippet: "WITH candidates AS ( SELECT id FROM api_costs WHERE created_at < NOW() - INTERVAL '90 days' ORDER BY created_at, id LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM api_costs WHERE id IN (SELECT id FROM candidates) RETURNING business_id, provider, created_at::date AS cost_date, cost_usd, COALESCE(input_tokens, 0)::bigint AS input_tokens, COALESCE(output_tokens, 0)::bigint AS output_tokens ), aggregated AS ( SELECT business_id, provider, cost_date, SUM(cost_usd) AS total_cost_usd, SUM(input_tokens)::bigint AS total_input_tokens, SUM(output_tokens)::bigint AS total_output_tokens, COUNT(*)::bigint AS call_count FROM deleted GROUP BY business_id, provider, cost_date ), upserted AS ( INSERT INTO api_costs_daily_rollups (id, business_id, provider, rollup_date, total_cost_usd, total_input_tokens, total_output_tokens, call_count) SELECT gen_random_uuid(), business_id, provider, cost_date, total_cost_usd, total_input_tokens, total_output_tokens, call_count FROM aggregated ON CONFLICT ON CONSTRAINT uniq_cost_rollups_business_provider_date DO UPDATE SET total_cost_usd = api_costs_daily_rollups.total_cost_usd + EXCLUDED.total_cost_usd, total_input_tokens = api_costs_daily_rollups.total_input_tokens + EXCLUDED.total_input_tokens, total_output_tokens = api_costs_daily_rollups.total_output_tokens + EXCLUDED.total_output_tokens, call_count = api_costs_daily_rollups.call_count + EXCLUDED.call_count RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
@@ -577,6 +628,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH candidates AS ( SELECT id FROM notification_deliveries WHERE created_at < NOW() - INTERVAL '90 days' LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM notification_deliveries WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
     reason: "Global archival poller performs retention cleanup independent of tenant request scope.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "agent_outcomes",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_outcomes WHERE occurred_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_outcomes WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_outcomes has no account/business column.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "agent_runs",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_runs WHERE ended_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_runs WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_runs has no account/business column.",
   },
   {
     file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
@@ -875,21 +940,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/overview-service.ts",
     table: "accounts",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/overview-service.ts",
     table: "businesses",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/overview-service.ts",
     table: "responses",
-    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
+    sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
@@ -997,6 +1062,55 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT resp.id AS response_id, resp.business_id, b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating FROM responses resp JOIN businesses b ON resp.business_id = b.id JOIN reviews r ON resp.review_id = r.id WHERE resp.status = 'pending_approval' AND resp.created_at < NOW() - INTERVAL '4 hours' AND EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.response_id = resp.id AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SEND_NOTIFICATION} AND jo.aggregate_id = resp.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY resp.created_at ASC LIMIT ${BATCH_LIMIT}",
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "responses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1): globally selects pending_approval drafts whose latest completed send_notification was owner_unreachable before the per-row locked re-check. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "businesses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) joins businesses only to exclude archived/offboarded locations and read account_id/name for the admin escalation. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "reviews",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) joins reviews only to read reviewer_name/star_rating for the admin escalation email. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "notification_deliveries",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_CANDIDATES_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable candidate scan (F1) anti-joins notification_deliveries to confirm no approval_request delivery reached the owner. Intentionally cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "responses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) re-confirms the single response is still pending_approval and owner-unreachable under pg_advisory_xact_lock before enqueueing a retry. Row already selected by the scoped candidate scan.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "businesses",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) joins businesses only to re-confirm the location is not archived. Row already selected by the scoped candidate scan.",
+  },
+  {
+    file: "worker/background/pollers/NotificationFailoverPoller.ts",
+    table: "notification_deliveries",
+    sqlSnippet: FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL,
+    category: 'background-global-scan',
+    reason: "NotificationFailoverPoller owner-unreachable advisory-locked re-check (F1) anti-joins notification_deliveries to re-confirm no approval_request delivery landed before enqueueing a retry. Row already selected by the scoped candidate scan.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
@@ -1281,7 +1395,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/business-detail/queries.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.approval_method, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, approval_method, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC",
+    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.approval_method, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, approval_method, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC LIMIT 100",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
@@ -1305,13 +1419,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT u.role, u.account_id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${authUser.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/lib/dashboard/aggregate-service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(DISTINCT r.id)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND r.status <> ${REVIEW_STATUS.DELETED} AND resp.status = ANY(${statusArraySql(sql, HANDLED_STATUSES)})",
-    category: 'tenant-root-lookup',
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
   },
   {
     file: "src/lib/dashboard/service.ts",
@@ -1967,14 +2074,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "reviews",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },

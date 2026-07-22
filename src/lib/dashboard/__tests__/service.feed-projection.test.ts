@@ -6,7 +6,7 @@ import {
 } from '../../../../worker/__tests__/helpers/mock-sql';
 
 vi.mock('@/lib/db/redis-cache', () => ({
-  getCacheRedis: () => ({ get: vi.fn(async () => null) }),
+  getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
 }));
 
 import { getActiveDashboardData } from '../service';

@@ -169,6 +169,20 @@ interface NormalizedReview {
 These are distinct types deliberately. Do NOT conflate cap-exhausted with
 durable not-found — ops decisions differ (bump cap vs accept gap).
 
+> **Exhaustion write path (PR #508, P1):** the `zernio_review_not_found` and
+> `zernio_pagination_cap_exhausted` rows are written by the ingest `'failed'`
+> hook (`handleIngestFailed`, `worker/jobs/zernio/ingest-failed-hook.ts`)
+> after BullMQ retries exhaust. Since #508 that hook is **crash-proof** (a
+> last-resort never-rethrow guard — one review's failure bookkeeping must never
+> take down the worker) and its coupled terminal writes run **CAS-first inside
+> `sql.begin`** via `withOwnedTerminalTransition`: the `markOutboxFailed` CAS is
+> the FIRST statement of the tx, the exception INSERT commits only when this
+> attempt owns the terminal transition (a stale attempt writes nothing), and a
+> mid-sequence failure rolls the whole unit back for atomic watchdog recovery —
+> the crash guard never splits a rolled-back coupled tx.
+> `insertReviewExceptionIfAbsent` is the single owner of the
+> byte-for-byte-critical `ON CONFLICT` predicate.
+
 > **PHI-exception dedup (`openPhiReviewException`, `worker/jobs/zernio/zernio-ingest-shared.ts`):**
 > opened idempotently via `ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
 > WHERE status = 'open' AND review_id IS NULL DO NOTHING` so a review re-seen on

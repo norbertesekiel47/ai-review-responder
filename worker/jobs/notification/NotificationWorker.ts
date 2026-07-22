@@ -12,6 +12,7 @@ import type { Sql } from 'postgres';
 import {
   markOutboxCompleted,
   markOutboxFailed,
+  markOutboxOwnerUnreachable,
   extractOutboxHandle,
 } from '../../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
@@ -19,7 +20,7 @@ import type { SendNotificationPayload } from '../../../src/lib/shared/worker-typ
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
-import { getEligibleChannels } from './eligibility';
+import { resolveEligibleChannels } from './eligibility';
 import { dispatchAll } from './dispatch';
 import { loadNotificationContext } from './context';
 
@@ -61,23 +62,14 @@ export async function handleSendNotification(
     return;
   }
 
-  const eligibility = await getEligibleChannels(
-    sql,
-    {
-      accountId: ctx.business.account_id,
-      locationId: businessId,
-      subscriptionStatus: ctx.business.subscription_status,
-      pastDueAt: ctx.business.account_past_due_at,
-      accountFlags: ctx.business.account_flags ?? {},
-    },
-    logger,
-  );
+  const eligibility = await resolveEligibleChannels(sql, ctx.business, businessId, logger);
   if (!eligibility.ok) {
     if (eligibility.reason === 'no_verified_enrollments') {
-      logger.warn(`Location ${businessId} has no verified channel enrollments — skipping`);
-    } else {
-      logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
+      logger.warn(`Location ${businessId} has no verified channel enrollments — recording owner_unreachable`);
+      await markOutboxOwnerUnreachable(sql, outboxId, outboxAttempt);
+      return;
     }
+    logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }

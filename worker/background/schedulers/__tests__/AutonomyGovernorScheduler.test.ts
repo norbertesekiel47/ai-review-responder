@@ -320,7 +320,10 @@ describe('AutonomyGovernorScheduler cycle', () => {
   it('is registered for worker startup and graceful shutdown', () => {
     const workerEntry = readFileSync(resolve(process.cwd(), 'worker/index.ts'), 'utf8');
     expect(workerEntry).toContain("from './background/schedulers/AutonomyGovernorScheduler'");
-    expect(workerEntry).toContain('startAutonomyGovernorScheduler();');
+    // #505: the start is now thunk-wrapped in the staggered-boot loopStarts list
+    // (`() => startAutonomyGovernorScheduler()`), so match the call without the
+    // trailing semicolon. The stop still runs synchronously in stopBackgroundLoops.
+    expect(workerEntry).toContain('startAutonomyGovernorScheduler()');
     expect(workerEntry).toContain('stopAutonomyGovernorScheduler();');
   });
 });

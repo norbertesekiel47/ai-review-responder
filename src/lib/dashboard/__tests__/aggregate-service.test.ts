@@ -2,26 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Sql } from 'postgres';
 import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
-// aggregate-service is born-injected (sql is a parameter, A+ campaign PR 2d), so
-// @/lib/db/server no longer needs mocking here — the fragment-aware
-// createMockSql harness stands in for `sql` directly (worker/__tests__/helpers/mock-sql.ts).
+// aggregate-service is born-injected (sql is a parameter), so @/lib/db/server is
+// not mocked here — the fragment-aware createMockSql harness stands in for `sql`
+// directly. The set-based aggregate wave is mocked at the seam
+// (fetchPerLocationAggregateSlices); the service under test is now a pure
+// composition of slices → AggregateDashboardData.
 
-const { mockGetActiveDashboardData } = vi.hoisted(() => ({
-  mockGetActiveDashboardData: vi.fn(),
+const { mockFetchSlices } = vi.hoisted(() => ({
+  mockFetchSlices: vi.fn(),
 }));
-vi.mock('@/lib/dashboard/service', () => ({
-  getActiveDashboardData: (...args: unknown[]) => mockGetActiveDashboardData(...args),
-}));
-
-// The unit under test: the authoritative per-location pending count source.
-const { mockGetPendingApprovalCount } = vi.hoisted(() => ({
-  mockGetPendingApprovalCount: vi.fn<(sql: unknown, businessId: string) => Promise<number>>(),
-}));
-vi.mock('@/lib/dashboard/pending-count', () => ({
-  getPendingApprovalCount: (sql: unknown, id: string) => mockGetPendingApprovalCount(sql, id),
+vi.mock('@/lib/dashboard/aggregate-queries', () => ({
+  fetchPerLocationAggregateSlices: (...args: unknown[]) => mockFetchSlices(...args),
 }));
 
-// The aggregate payload is now cached in Redis (45s TTL). Stub the cache as
+// The aggregate payload is cached in Redis (45s TTL). Stub the cache as
 // always-miss so every test exercises a fresh computation.
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({
@@ -33,7 +27,7 @@ vi.mock('@/lib/db/redis-cache', () => ({
 vi.mock('@/lib/locations/repo', () => ({
   getLocationsForAccount: vi.fn(async () => [
     { id: 'loc-1', account_id: 'acc-1', name: 'Downtown Cafe', display_label: 'Downtown', is_primary: true, archived_at: null, google_place_id: 'g1', google_place_address: null, created_at: new Date('2026-01-01') },
-    { id: 'loc-2', account_id: 'acc-1', name: 'Westside Bakery', display_label: null, is_primary: false, archived_at: null, google_place_id: 'g2', google_place_address: null, created_at: new Date('2026-01-01') },
+    { id: 'loc-2', account_id: 'acc-1', name: 'Westside Bakery', display_label: null, is_primary: false, archived_at: null, google_place_id: 'g2', google_place_address: null, created_at: new Date('2026-01-02') },
   ]),
 }));
 
@@ -41,95 +35,170 @@ vi.mock('@/lib/locations/repo', () => ({
 import { getAggregateDashboardData } from '../aggregate-service';
 import { authoritativePendingCount } from '../scope';
 import { buildRatingBreakdown } from '../rating-breakdown';
-import type { DashboardDataActive, RatingBreakdown } from '../types';
+import type { PerLocationAggregateSlice } from '../aggregate-queries';
+import type { RatingBreakdown } from '../types';
 
 let harness: MockSqlHarness;
 let mockSql: Sql;
 
-/** A per-location dashboard payload whose recentReviews slice has `slicePending`
- *  pending rows — deliberately SMALLER than the authoritative count, to prove
- *  the KPI does not derive from the capped slice. `ratingBreakdown` defaults to
- *  an empty (windowed) breakdown unless a location-specific one is supplied. */
-function locationData(
-  slicePending: number,
-  ratingBreakdown: RatingBreakdown = buildRatingBreakdown([]),
-): DashboardDataActive {
-  const recentReviews = Array.from({ length: slicePending }, (_, i) => ({
-    id: `rev-${i}`,
-    reviewerName: 'Reviewer',
-    starRating: 5,
-    reviewText: null,
-    reviewDate: '2026-06-01',
-    status: 'pending_approval',
-    responseText: 'draft',
-    responseStatus: 'pending_approval',
-    approvalMethod: null,
-    autoPostScheduledAt: null,
-    escalation: null,
-  }));
+/** A per-location aggregate slice with sensible defaults; override per test. */
+function makeSlice(overrides: Partial<PerLocationAggregateSlice> = {}): PerLocationAggregateSlice {
   return {
-    business: { name: 'Biz', createdAt: '2026-01-01' },
     valueSummary: {
-      totalReviewsHandled: 10,
-      totalTimeSavedMinutes: 70,
-      currentResponseRate: 80,
-      baselineResponseRate: 30,
+      totalReviewsHandled: 0,
+      totalTimeSavedMinutes: 0,
+      currentResponseRate: 0,
+      baselineResponseRate: null,
     },
-    ratingBreakdown,
     reviewVelocity: [],
     ranking: null,
-    recentReviews,
+    ratingBreakdown: buildRatingBreakdown([]),
     latestBrief: null,
-    settings: {} as DashboardDataActive['settings'],
-    zernioConnection: { status: 'active', queuedReconnectCount: 0, hasUnresolvedIncident: false },
-  } as DashboardDataActive;
+    recentReviewCount: 0,
+    pendingApprovalCount: 0,
+    windowedReceived: 0,
+    windowedResponded: 0,
+    ...overrides,
+  };
 }
 
-describe('getAggregateDashboardData — authoritative per-location pending count (#346)', () => {
+const MONTHLY_BRIEF = { text: 'Monthly A', type: 'monthly' as const, periodLabel: 'June 2026' };
+
+/** Two-location fixture used across the byte-identical + windowed-rate cases. */
+function twoLocationSlices(ratingA?: RatingBreakdown, ratingB?: RatingBreakdown): Map<string, PerLocationAggregateSlice> {
+  return new Map<string, PerLocationAggregateSlice>([
+    ['loc-1', makeSlice({
+      valueSummary: { totalReviewsHandled: 40, totalTimeSavedMinutes: 280, currentResponseRate: 80, baselineResponseRate: 30 },
+      reviewVelocity: [{ weekStart: '2026-06-01', count: 2 }, { weekStart: '2026-06-08', count: 3 }],
+      ranking: [{ keyword: 'coffee', snapshots: [{ date: '2026-06-01', position: 3 }, { date: '2026-06-08', position: 2 }] }],
+      ratingBreakdown: ratingA ?? buildRatingBreakdown([{ stars: 5, count: 2 }, { stars: 1, count: 1 }]),
+      latestBrief: MONTHLY_BRIEF,
+      recentReviewCount: 2,
+      pendingApprovalCount: 25,
+      windowedReceived: 12,
+      windowedResponded: 9,
+    })],
+    ['loc-2', makeSlice({
+      valueSummary: { totalReviewsHandled: 10, totalTimeSavedMinutes: 70, currentResponseRate: 50, baselineResponseRate: 20 },
+      reviewVelocity: [{ weekStart: '2026-06-01', count: 1 }, { weekStart: '2026-06-08', count: 4 }],
+      ranking: [{ keyword: 'coffee', snapshots: [{ date: '2026-06-01', position: 2 }, { date: '2026-06-08', position: 5 }] }],
+      ratingBreakdown: ratingB ?? buildRatingBreakdown([{ stars: 5, count: 3 }, { stars: 4, count: 4 }]),
+      latestBrief: null,
+      recentReviewCount: 2,
+      pendingApprovalCount: 13,
+      windowedReceived: 8,
+      windowedResponded: 5,
+    })],
+  ]);
+}
+
+beforeEach(() => {
+  harness = createMockSql();
+  mockSql = harness.mockSql as unknown as Sql;
+  mockFetchSlices.mockReset();
+  // sql call order: [account billing row, account-wide recent-reviews feed].
+  harness.sqlReturnQueue.push([{ locations_included: 5, locations_paid: 0 }], []);
+});
+
+describe('getAggregateDashboardData — byte-identical composition from slices', () => {
   beforeEach(() => {
-    harness = createMockSql();
-    mockSql = harness.mockSql as unknown as Sql;
-    // sql call order: [account billing, total reviews, total responded]
-    harness.sqlReturnQueue.push(
-      [{ locations_included: 5, locations_paid: 0 }],
-      [{ count: 100 }],
-      [{ count: 80 }],
-    );
-    mockGetActiveDashboardData.mockReset();
-    // Each location's displayed slice has only 2 pending — far below the
-    // authoritative counts below — so any derivation from recentReviews fails.
-    mockGetActiveDashboardData.mockResolvedValue(locationData(2));
-    mockGetPendingApprovalCount.mockReset();
-    mockGetPendingApprovalCount.mockImplementation(async (_sql: unknown, id: string) =>
-      id === 'loc-1' ? 25 : 13,
-    );
+    mockFetchSlices.mockResolvedValue(twoLocationSlices());
   });
 
-  it('reads locationKpis.pendingApprovalCount from getPendingApprovalCount, not the capped slice', async () => {
+  it('sums value summary, merges velocity/ranking, and rolls up briefs', async () => {
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+
+    expect(result.valueSummary.totalReviewsHandled).toBe(50);
+    expect(result.valueSummary.totalTimeSavedMinutes).toBe(350);
+    expect(result.valueSummary.baselineResponseRate).toBe(30); // primary (loc-1)
+
+    // Velocity: per-week sum across locations.
+    expect(result.reviewVelocity).toEqual([
+      { weekStart: '2026-06-01', count: 3 },
+      { weekStart: '2026-06-08', count: 7 },
+    ]);
+
+    // Ranking: best (lowest) position across locations per keyword/date.
+    expect(result.ranking).toEqual([
+      { keyword: 'coffee', snapshots: [
+        { date: '2026-06-01', position: 2 },
+        { date: '2026-06-08', position: 2 },
+      ] },
+    ]);
+
+    // Briefs roll up only locations that have one.
+    expect(result.perLocationBriefs).toEqual([
+      { locationId: 'loc-1', displayName: 'Downtown', brief: MONTHLY_BRIEF },
+    ]);
+
+    expect(result.activeLocationCount).toBe(2);
+    expect(mockFetchSlices).toHaveBeenCalledWith(expect.any(Function), 'acc-1', '30d');
+  });
+
+  it('builds locationKpis from the slice (pending is authoritative, not the capped recentReviewCount)', async () => {
     const result = await getAggregateDashboardData(mockSql, 'acc-1');
 
     const loc1 = result.locationKpis.find((k) => k.locationId === 'loc-1');
     const loc2 = result.locationKpis.find((k) => k.locationId === 'loc-2');
-    expect(loc1?.pendingApprovalCount).toBe(25);
-    expect(loc2?.pendingApprovalCount).toBe(13);
-    // recentReviewCount still reflects the displayed slice (2) — proving the two
-    // fields diverge and pending is NOT derived from recentReviews.
-    expect(loc1?.recentReviewCount).toBe(2);
-    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith(expect.any(Function), 'loc-1');
-    expect(mockGetPendingApprovalCount).toHaveBeenCalledWith(expect.any(Function), 'loc-2');
+    expect(loc1).toMatchObject({ displayName: 'Downtown', isPrimary: true, totalReviewsHandled: 40, pendingApprovalCount: 25, recentReviewCount: 2, billingPending: false });
+    expect(loc2).toMatchObject({ displayName: 'Westside Bakery', isPrimary: false, totalReviewsHandled: 10, pendingApprovalCount: 13, recentReviewCount: 2, billingPending: false });
+    // pending (25/13) diverges from the capped recentReviewCount (2) — proving it
+    // is NOT derived from the displayed slice (#346).
+    expect(loc1!.pendingApprovalCount).not.toBe(loc1!.recentReviewCount);
   });
 
-  it('aggregate badge total sums the authoritative per-location counts (>10 regression)', async () => {
+  it('aggregate badge total sums the authoritative per-location counts (>10 regression, #346)', async () => {
     const result = await getAggregateDashboardData(mockSql, 'acc-1');
-    // 25 + 13 = 38 authoritative — not 2 + 2 = 4 from the capped slices.
-    expect(authoritativePendingCount(result)).toBe(38);
+    expect(authoritativePendingCount(result)).toBe(38); // 25 + 13, not 2 + 2
   });
 
-  it('preserves scheduled-post and open-escalation fields in the aggregate feed', async () => {
-    // The feed now comes from ONE account-wide SQL query (call 4: after the
-    // billing row and the two totals), not from composing each location's
-    // capped recentReviews slice.
+  it('does not expose partialFailures on the returned payload', async () => {
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+    expect('partialFailures' in result).toBe(false);
+  });
+});
+
+describe('getAggregateDashboardData — windowed currentResponseRate', () => {
+  it('derives from summed windowedResponded / windowedReceived (NOT all-time)', async () => {
+    mockFetchSlices.mockResolvedValue(twoLocationSlices());
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+    // windowedResponded 9+5=14 over windowedReceived 12+8=20 → 70%.
+    expect(result.valueSummary.currentResponseRate).toBe(70);
+  });
+
+  it('is 0 when the window received no reviews', async () => {
+    mockFetchSlices.mockResolvedValue(new Map<string, PerLocationAggregateSlice>([
+      ['loc-1', makeSlice({ valueSummary: { totalReviewsHandled: 5, totalTimeSavedMinutes: 35, currentResponseRate: 100, baselineResponseRate: null }, windowedReceived: 0, windowedResponded: 0 })],
+      ['loc-2', makeSlice({ windowedReceived: 0, windowedResponded: 0 })],
+    ]));
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+    expect(result.valueSummary.currentResponseRate).toBe(0);
+  });
+});
+
+describe('getAggregateDashboardData — ratingBreakdown rollup (#405)', () => {
+  it('sums the per-location windowed breakdowns into one account-wide breakdown', async () => {
+    mockFetchSlices.mockResolvedValue(twoLocationSlices());
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+
+    expect(result.ratingBreakdown.counts).toEqual([
+      { stars: 5, count: 5 }, // 2 + 3
+      { stars: 4, count: 4 }, // 0 + 4
+      { stars: 3, count: 0 },
+      { stars: 2, count: 0 },
+      { stars: 1, count: 1 }, // 1 + 0
+    ]);
+    expect(result.ratingBreakdown.total).toBe(10);
+  });
+});
+
+describe('getAggregateDashboardData — recent-reviews feed (unchanged)', () => {
+  it('preserves scheduled-post and open-escalation fields from the account-wide feed', async () => {
+    mockFetchSlices.mockResolvedValue(twoLocationSlices());
+    // Override the recent-reviews return (2nd sql call after the billing row).
+    harness.sqlReturnQueue.length = 0;
     harness.sqlReturnQueue.push(
+      [{ locations_included: 5, locations_paid: 0 }],
       ['loc-1', 'loc-2'].map((locationId, index) => ({
         id: `rev-${index}`,
         reviewer_name: 'Reviewer',
@@ -155,61 +224,17 @@ describe('getAggregateDashboardData — authoritative per-location pending count
     expect(result.recentReviews).toHaveLength(2);
     for (const review of result.recentReviews) {
       expect(review.autoPostScheduledAt).toBe('2026-07-13T18:00:00.000Z');
-      expect(review.escalation).toEqual({
-        id: 'escalation-open-1',
-        status: 'escalated',
-        severity: 'high',
-      });
+      expect(review.escalation).toEqual({ id: 'escalation-open-1', status: 'escalated', severity: 'high' });
     }
-  });
-});
-
-describe('getAggregateDashboardData — ratingBreakdown (#405)', () => {
-  beforeEach(() => {
-    harness = createMockSql();
-    mockSql = harness.mockSql as unknown as Sql;
-    // sql call order: [account billing, total reviews, total responded]
-    harness.sqlReturnQueue.push(
-      [{ locations_included: 5, locations_paid: 0 }],
-      [{ count: 100 }],
-      [{ count: 80 }],
-    );
-    mockGetPendingApprovalCount.mockReset();
-    mockGetPendingApprovalCount.mockResolvedValue(0);
-  });
-
-  it('sums the per-location windowed breakdowns into one account-wide breakdown', async () => {
-    // getLocationsForAccount (mocked) yields loc-1 + loc-2 of acc-1, so the
-    // summed breakdown is tenant-scoped to the account's active locations.
-    mockGetActiveDashboardData.mockReset();
-    mockGetActiveDashboardData.mockImplementation(async (_sql: unknown, id: string) =>
-      id === 'loc-1'
-        ? locationData(0, buildRatingBreakdown([{ stars: 5, count: 2 }, { stars: 1, count: 1 }]))
-        : locationData(0, buildRatingBreakdown([{ stars: 5, count: 3 }, { stars: 4, count: 4 }])),
-    );
-
-    const result = await getAggregateDashboardData(mockSql, 'acc-1');
-
-    expect(result.ratingBreakdown.counts).toEqual([
-      { stars: 5, count: 5 },
-      { stars: 4, count: 4 },
-      { stars: 3, count: 0 },
-      { stars: 2, count: 0 },
-      { stars: 1, count: 1 },
-    ]);
-    expect(result.ratingBreakdown.total).toBe(10);
+    expect(result.recentReviews.map((r) => r.locationDisplayName).sort()).toEqual(['Downtown', 'Westside Bakery']);
   });
 });
 
 describe('getAggregateDashboardData — no active locations', () => {
-  beforeEach(() => {
-    harness = createMockSql();
-    mockSql = harness.mockSql as unknown as Sql;
-  });
-
-  it('returns an all-zero rating breakdown when the account has no active locations', async () => {
+  it('returns an all-zero payload with no partialFailures', async () => {
     const { getLocationsForAccount } = await import('@/lib/locations/repo');
     vi.mocked(getLocationsForAccount).mockResolvedValueOnce([]);
+    harness.resetMockSql();
     harness.sqlReturnQueue.push([{ locations_included: 1, locations_paid: 0 }]);
 
     const result = await getAggregateDashboardData(mockSql, 'acc-empty');
@@ -217,5 +242,9 @@ describe('getAggregateDashboardData — no active locations', () => {
     expect(result.activeLocationCount).toBe(0);
     expect(result.ratingBreakdown.total).toBe(0);
     expect(result.ratingBreakdown.counts.map((c) => c.count)).toEqual([0, 0, 0, 0, 0]);
+    expect(result.valueSummary.currentResponseRate).toBe(0);
+    expect('partialFailures' in result).toBe(false);
+    // No slice wave is issued when there are no active locations.
+    expect(mockFetchSlices).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ const {
   mockTx,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
+  mockMarkOutboxOwnerUnreachable,
   mockSendApprovalEmail,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -32,6 +33,7 @@ const {
     mockTx,
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
+    mockMarkOutboxOwnerUnreachable: vi.fn(),
     mockSendApprovalEmail: vi.fn().mockResolvedValue({ messageId: 'msg-123' }),
   };
 });
@@ -43,6 +45,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  markOutboxOwnerUnreachable: mockMarkOutboxOwnerUnreachable,
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
@@ -217,6 +220,7 @@ function beforeEachSetup() {
   mockTx.mockClear();
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
+  mockMarkOutboxOwnerUnreachable.mockReset();
   mockSendApprovalEmail.mockReset().mockResolvedValue({ messageId: 'msg-123' });
   mockGetVerifiedEnrollments.mockReset();
   mockGetChannel.mockReset();
@@ -378,6 +382,31 @@ describe('NotificationWorker – handleSendNotification', () => {
     const tpl = (dedupSelect![0] as string[]).join('?');
     expect(tpl).toMatch(/failed_at IS NULL/);
     expect(tpl).not.toMatch(/sent_at IS NOT NULL/);
+  });
+
+  // 3c. Owner-unreachable: zero verified enrollments records owner_unreachable
+  //     via the dedicated helper (queryable trace), does NOT complete plainly,
+  //     and never dispatches. The draft stays pending_approval for the failover
+  //     poller to retry once a channel appears (F1 T2).
+  it('records owner_unreachable via the helper when no verified enrollments (no dispatch)', async () => {
+    mockGetVerifiedEnrollments.mockResolvedValue([]); // → eligibility no_verified_enrollments
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],  // 1: response+review SELECT
+      [mockBusinessRow()],  // 2: business SELECT
+    );
+
+    await handleSendNotification(mockSql, makeJob());
+
+    expect(mockMarkOutboxOwnerUnreachable).toHaveBeenCalledTimes(1);
+    // makeJob() has no outbox_attempt, so extractOutboxHandle yields attempt=undefined.
+    const [execArg, outboxIdArg, attemptArg] = mockMarkOutboxOwnerUnreachable.mock.calls[0]!;
+    expect(execArg).toBe(mockSql);
+    expect(typeof outboxIdArg).toBe('string');
+    expect(attemptArg).toBeUndefined();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockChannelSend).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
 
   // 4. Email send failure — throws for BullMQ retry (all channels fail)
