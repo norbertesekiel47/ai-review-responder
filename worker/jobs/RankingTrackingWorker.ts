@@ -27,6 +27,21 @@ interface RankingBusiness {
   ranking_search_location: string | null;
 }
 
+interface CompetitorPackEntry {
+  position: number;
+  placeId: string | null;
+  dataCid: string | null;
+  title: string;
+  rating: number | null;
+  reviewCount: number | null;
+  isSelf: boolean;
+}
+
+interface LocalPackResult {
+  rankPosition: number | null;
+  pack: CompetitorPackEntry[];
+}
+
 // Parse the JSONB tracked_keywords column into a clean string[]. Malformed
 // JSON (or a non-array shape) collapses to an empty list rather than throwing,
 // matching the worker's "treat as no keywords" behavior.
@@ -46,19 +61,43 @@ function parseTrackedKeywords(
   }
 }
 
-// Resolve a single keyword's local-pack rank. Mock mode returns a random rank;
-// otherwise it queries SerpAPI and matches on google_place_id, preferring
-// SerpAPI's own position over the array index.
-async function resolveRankPosition(
+// Resolve a keyword's full local pack: our own rank plus every competitor row
+// (the Competitor pack, #532/#538). Mock mode synthesizes a pack; otherwise one
+// SerpAPI google_maps query — the SAME call that always resolved the rank, so
+// persisting competitors adds zero marginal quota.
+async function resolveLocalPack(
   keyword: string,
   business: RankingBusiness,
   hasCoords: boolean,
   logger: RankingLogger,
-): Promise<number | null> {
+): Promise<LocalPackResult> {
   if (isMockMode()) {
     const rankPosition = Math.floor(Math.random() * 10) + 1;
-    logger.log(`[mock] keyword="${keyword}" rank=${rankPosition}`);
-    return rankPosition;
+    const pack: CompetitorPackEntry[] = Array.from({ length: 10 }, (_, idx) => {
+      const position = idx + 1;
+      if (position === rankPosition) {
+        return {
+          position,
+          placeId: business.google_place_id,
+          dataCid: null,
+          title: 'Mock Self',
+          rating: 4.5,
+          reviewCount: 120,
+          isSelf: true,
+        };
+      }
+      return {
+        position,
+        placeId: `mock-place-${position}`,
+        dataCid: null,
+        title: `Mock Rival ${position}`,
+        rating: Math.round((3.5 + Math.random() * 1.5) * 10) / 10,
+        reviewCount: 20 + Math.floor(Math.random() * 380),
+        isSelf: false,
+      };
+    });
+    logger.log(`[mock] keyword="${keyword}" rank=${rankPosition} pack=${pack.length}`);
+    return { rankPosition, pack };
   }
 
   const params: Record<string, unknown> = {
@@ -83,28 +122,38 @@ async function resolveRankPosition(
     throw new Error(`SerpAPI ranking search error: ${errorMsg}`);
   }
 
-  const localResults: Array<{ place_id?: string; title?: string; position?: number }> =
-    response.local_results ?? [];
+  const localResults: Array<{
+    place_id?: string;
+    data_cid?: string;
+    title?: string;
+    position?: number;
+    rating?: number;
+    reviews?: number;
+  }> = response.local_results ?? [];
 
-  const match = localResults.find(
-    (r) => r.place_id === business.google_place_id,
-  );
+  // Full-pack rule (#532): every entry is persisted; missing fields become
+  // NULLs (title '' — an unnamed entry is still a rank fact), never dropped.
+  const pack: CompetitorPackEntry[] = localResults.map((r, idx) => ({
+    // Prefer SerpAPI's position field (handles non-contiguous results, ads,
+    // mixed groups); fall back to array index + 1 — same rule the own-rank
+    // match has always used.
+    position: Number.isInteger(r.position) ? r.position! : idx + 1,
+    placeId: typeof r.place_id === 'string' ? r.place_id : null,
+    dataCid: typeof r.data_cid === 'string' ? r.data_cid : null,
+    title: typeof r.title === 'string' ? r.title : '',
+    rating: typeof r.rating === 'number' && Number.isFinite(r.rating) ? r.rating : null,
+    reviewCount: Number.isInteger(r.reviews) ? r.reviews! : null,
+    isSelf: typeof r.place_id === 'string' && r.place_id === business.google_place_id,
+  }));
 
-  let rankPosition: number | null;
-  if (match) {
-    // Prefer SerpAPI's position field (handles non-contiguous results, ads, mixed groups).
-    // Fall back to array index + 1 only if position is missing or non-integer.
-    const idx = localResults.indexOf(match);
-    rankPosition = Number.isInteger(match.position) ? match.position! : idx + 1;
-  } else {
-    rankPosition = null;
-  }
+  const selfEntry = pack.find((entry) => entry.isSelf);
+  const rankPosition = selfEntry ? selfEntry.position : null;
 
   logger.log(
     `keyword="${keyword}" place_id=${business.google_place_id} ` +
-    `rank=${rankPosition ?? 'not found'} (${localResults.length} results)`,
+    `rank=${rankPosition ?? 'not found'} (${pack.length} results)`,
   );
-  return rankPosition;
+  return { rankPosition, pack };
 }
 
 // Pre-existing ranking job handler (14 cyclomatic on main); this PR only added a
@@ -205,16 +254,40 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       break; // Stop processing keywords but still mark outbox completed for keywords already done
     }
 
-    // ── Step 6: Resolve rank (mock random, or SerpAPI google_maps match) ──
-    const rankPosition = await resolveRankPosition(keyword, business, hasCoords, logger);
+    // ── Step 6: Resolve the local pack (mock synthesis, or SerpAPI google_maps) ──
+    const { rankPosition, pack } = await resolveLocalPack(keyword, business, hasCoords, logger);
 
-    // ── Step 7: Upsert ranking snapshot ─────────────────────────────
-    await sql`
-      INSERT INTO ranking_snapshots (id, business_id, keyword, rank_position, search_location, snapshot_date, source)
-      VALUES (${uuidv7()}, ${businessId}, ${keyword}, ${rankPosition}, ${searchLocationValue}, ${today}, 'serpapi')
-      ON CONFLICT (business_id, keyword, snapshot_date)
-      DO UPDATE SET rank_position = EXCLUDED.rank_position, search_location = EXCLUDED.search_location, source = 'serpapi'
-    `;
+    // ── Step 7: Persist own rank + Competitor pack in ONE transaction ──
+    // Replace-pack idempotency: delete + reinsert the pack for this
+    // (business, keyword, date). A pack failure rolls back the rank row and
+    // fails the job — BullMQ retry converges (upsert + replace are idempotent).
+    // ORDER IS LOAD-BEARING: the rank upsert's unique-index row lock
+    // (business_id, keyword, snapshot_date) serializes concurrent same-key
+    // jobs, so the pack DELETE+INSERT below it can never interleave into a
+    // duplicated pack. Keep the upsert first.
+    await sql.begin(async (tx) => {
+      await tx`
+        INSERT INTO ranking_snapshots (id, business_id, keyword, rank_position, search_location, snapshot_date, source)
+        VALUES (${uuidv7()}, ${businessId}, ${keyword}, ${rankPosition}, ${searchLocationValue}, ${today}, 'serpapi')
+        ON CONFLICT (business_id, keyword, snapshot_date)
+        DO UPDATE SET rank_position = EXCLUDED.rank_position, search_location = EXCLUDED.search_location, source = 'serpapi'
+      `;
+      await tx`
+        DELETE FROM competitor_snapshots
+        WHERE business_id = ${businessId} AND keyword = ${keyword} AND snapshot_date = ${today}
+      `;
+      for (const entry of pack) {
+        await tx`
+          INSERT INTO competitor_snapshots
+            (id, business_id, keyword, search_location, snapshot_date,
+             rank_position, place_id, data_cid, title, rating, review_count, is_self)
+          VALUES
+            (${uuidv7()}, ${businessId}, ${keyword}, ${searchLocationValue}, ${today},
+             ${entry.position}, ${entry.placeId}, ${entry.dataCid}, ${entry.title},
+             ${entry.rating}, ${entry.reviewCount}, ${entry.isSelf})
+        `;
+      }
+    });
   }
 
   await markOutboxCompleted(sql, outboxId, outboxAttempt);

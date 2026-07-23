@@ -381,4 +381,156 @@ describe('RankingTrackingWorker', () => {
 
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'custom-outbox-id', undefined);
   });
+
+  describe('competitor pack persistence (#538)', () => {
+    function sqlTextOf(call: any[]): string {
+      return call[0]?.join?.('') ?? '';
+    }
+    function packInsertCalls() {
+      return mockSql.mock.calls.filter((c: any[]) => sqlTextOf(c).includes('INSERT INTO competitor_snapshots'));
+    }
+
+    it('persists the full pack in one transaction with an is_self row and field mapping', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [
+          { place_id: 'ChIJ_rival_1', data_cid: 'cid-1', title: 'Rival One', position: 1, rating: 4.8, reviews: 320 },
+          { place_id: 'ChIJ_test_place', title: 'Test Biz', position: 2, rating: 4.5, reviews: 120 },
+          { place_id: 'ChIJ_rival_3', title: 'Rival Three', position: 3 },
+        ],
+      });
+
+      await handleTrackRanking(makeJob());
+
+      expect(mockSql.begin).toHaveBeenCalledTimes(1);
+      const inserts = packInsertCalls();
+      expect(inserts).toHaveLength(3);
+      // Self row: place_id matches business, is_self=true (is_self is the final value param)
+      const selfCall = inserts.find((c: any[]) => c.includes('ChIJ_test_place'));
+      expect(selfCall).toBeTruthy();
+      expect(selfCall![selfCall!.length - 1]).toBe(true);
+      // Rival rows carry is_self=false
+      const rivalCall = inserts.find((c: any[]) => c.includes('ChIJ_rival_1'));
+      expect(rivalCall![rivalCall!.length - 1]).toBe(false);
+      // data_cid mapped when present
+      expect(rivalCall).toContain('cid-1');
+      expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+    });
+
+    it('preserves NULLs for missing rating/reviews/place_id and never drops entries', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [
+          { title: 'No Identity Diner', position: 1 },                    // no place_id at all
+          { place_id: 'ChIJ_rival_2', title: 'Unrated Cafe', position: 2 }, // no rating/reviews
+        ],
+      });
+
+      await handleTrackRanking(makeJob());
+
+      // Positional map of the INSERT's value params (call[0] is the template
+      // strings array, values follow): 1=id 2=business_id 3=keyword
+      // 4=search_location 5=snapshot_date 6=rank_position 7=place_id
+      // 8=data_cid 9=title 10=rating 11=review_count 12=is_self
+      const inserts = packInsertCalls();
+      expect(inserts).toHaveLength(2);
+      const noIdentity = inserts.find((c: any[]) => c.includes('No Identity Diner'))!;
+      expect(noIdentity[7]).toBeNull();  // place_id specifically → NULL
+      expect(noIdentity[12]).toBe(false); // no place_id can never be self
+      const unrated = inserts.find((c: any[]) => c.includes('Unrated Cafe'))!;
+      expect(unrated[7]).toBe('ChIJ_rival_2');
+      expect(unrated[10]).toBeNull();  // rating → NULL
+      expect(unrated[11]).toBeNull();  // review_count → NULL
+    });
+
+    it('deletes the existing pack before inserting (replace-pack idempotency)', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [{ place_id: 'ChIJ_rival_1', title: 'Rival One', position: 1 }],
+      });
+
+      await handleTrackRanking(makeJob());
+
+      const calls = mockSql.mock.calls;
+      const deleteIdx = calls.findIndex((c: any[]) => sqlTextOf(c).includes('DELETE FROM competitor_snapshots'));
+      const insertIdx = calls.findIndex((c: any[]) => sqlTextOf(c).includes('INSERT INTO competitor_snapshots'));
+      expect(deleteIdx).toBeGreaterThan(-1);
+      expect(insertIdx).toBeGreaterThan(deleteIdx);
+    });
+
+    it('clears the pack (delete, zero inserts) when local_results is empty', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({ local_results: [] });
+
+      await handleTrackRanking(makeJob());
+
+      const deleteCall = mockSql.mock.calls.find((c: any[]) => sqlTextOf(c).includes('DELETE FROM competitor_snapshots'));
+      expect(deleteCall).toBeTruthy();
+      expect(packInsertCalls()).toHaveLength(0);
+      expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+    });
+
+    it('persists the pack without an is_self row when own business is absent', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [
+          { place_id: 'ChIJ_rival_1', title: 'Rival One', position: 1 },
+          { place_id: 'ChIJ_rival_2', title: 'Rival Two', position: 2 },
+        ],
+      });
+
+      await handleTrackRanking(makeJob());
+
+      const inserts = packInsertCalls();
+      expect(inserts).toHaveLength(2);
+      for (const c of inserts) expect(c[c.length - 1]).toBe(false);
+    });
+
+    it('fails the job when the pack write fails (tx rejects, outbox untouched)', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [{ place_id: 'ChIJ_rival_1', title: 'Rival One', position: 1 }],
+      });
+      mockSql.begin.mockRejectedValueOnce(new Error('insert exploded'));
+
+      await expect(handleTrackRanking(makeJob())).rejects.toThrow('insert exploded');
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+
+    it('propagates a failure thrown INSIDE the tx callback (pack insert throws)', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockGetJson.mockResolvedValue({
+        local_results: [{ place_id: 'ChIJ_rival_1', title: 'Rival One', position: 1 }],
+      });
+      // Throw from the competitor INSERT executed inside sql.begin's callback —
+      // exercises the real code path (begin's default impl runs cb(mockSql)).
+      const originalImpl = mockSql.getMockImplementation();
+      mockSql.mockImplementation((s: TemplateStringsArray, ..._v: unknown[]) => {
+        if ((s?.join?.('') ?? '').includes('INSERT INTO competitor_snapshots')) {
+          return Promise.reject(new Error('pack insert exploded'));
+        }
+        return Promise.resolve(sqlReturnQueue.shift() ?? []);
+      });
+
+      await expect(handleTrackRanking(makeJob())).rejects.toThrow('pack insert exploded');
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      mockSql.mockImplementation(originalImpl!);
+    });
+
+    it('synthesizes and persists a mock pack through the same tx path in mock mode', async () => {
+      sqlReturnQueue.push([mockBusinessRow()]);
+      mockIsMockMode.mockReturnValue(true);
+
+      await handleTrackRanking(makeJob());
+
+      expect(mockGetJson).not.toHaveBeenCalled();
+      expect(mockSql.begin).toHaveBeenCalledTimes(1);
+      const inserts = packInsertCalls();
+      expect(inserts.length).toBeGreaterThan(0);
+      const selfRows = inserts.filter((c: any[]) => c[c.length - 1] === true);
+      expect(selfRows).toHaveLength(1);
+    });
+  });
 });
