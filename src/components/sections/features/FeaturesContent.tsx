@@ -24,22 +24,25 @@ import { FeatWatchdogs } from './FeatWatchdogs';
 import { FeatVoice } from './FeatVoice';
 import { FeatInsights } from './FeatInsights';
 import { FeatRoi } from './FeatRoi';
+import { RoadmapBand } from './RoadmapBand';
 
 const FEATURES = [
-  { id: 'f-reply',    n: '01', label: 'Reply',        sub: 'The drafter' },
-  { id: 'f-guardian', n: '02', label: 'Guardian',     sub: 'Negative lane' },
-  { id: 'f-lang',     n: '02', label: 'Languages',    sub: 'Reach' },
-  { id: 'f-gate',     n: '04', label: 'The Gate',     sub: 'Copilot' },
-  { id: 'f-autopilot', n: '05', label: 'Autopilot',   sub: 'Bounded autonomy' },
-  { id: 'f-watchdogs', n: '06', label: 'Watchdogs',   sub: 'Judge & Governor' },
-  { id: 'f-voice',    n: '04', label: 'Voice',        sub: 'Over time' },
-  { id: 'f-insights', n: '03', label: 'Insights',     sub: 'Mondays' },
-  { id: 'f-roi',      n: '06', label: 'ROI',          sub: 'Proof' },
-  { id: 'f-comp',     n: '07', label: 'Competitor',   sub: 'Coming soon' },
+  { id: 'f-reply',     n: '01', label: 'Reply',      sub: 'The drafter',       group: 'Your agent team' },
+  { id: 'f-guardian',  n: '02', label: 'Guardian',   sub: 'Negative lane',     group: 'Your agent team' },
+  { id: 'f-insights',  n: '03', label: 'Insights',   sub: 'Mondays',           group: 'Your agent team' },
+  { id: 'f-gate',      n: '04', label: 'The Gate',   sub: 'Copilot',           group: 'Care and control' },
+  { id: 'f-autopilot', n: '05', label: 'Autopilot',  sub: 'Bounded autonomy',  group: 'Care and control' },
+  { id: 'f-watchdogs', n: '06', label: 'Watchdogs',  sub: 'Judge & Governor',  group: 'Care and control' },
+  { id: 'f-lang',      n: '07', label: 'Languages',  sub: 'Reach',             group: 'Craft and proof' },
+  { id: 'f-voice',     n: '08', label: 'Voice',      sub: 'Over time',         group: 'Craft and proof' },
+  { id: 'f-roi',       n: '09', label: 'ROI',        sub: 'Proof',             group: 'Craft and proof' },
 ];
 
-const HERO_WORDS_LINE_1 = ['Everything', 'your', 'reviews', 'need,'];
-const HERO_WORDS_LINE_2 = ['nothing', 'you', "don't."];
+const FEATURE_GROUPS = ['Your agent team', 'Care and control', 'Craft and proof'] as const;
+
+const HERO_WORDS_LINE_1 = ['A', 'tireless', 'agent', 'answers', 'every', 'review.'];
+const HERO_WORDS_LINE_2 = ['Nothing', 'goes', 'public', 'without', 'the'];
+const HERO_SERIF_WORD = 'gate.';
 
 // Illustrative sample reviews — not real customer testimonials. Multilingual to
 // show the language-detection feature; no invented names or business claims.
@@ -53,15 +56,6 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number;
   { lang: 'EN', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Worth the drive"' },
   { lang: 'KO', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "정말 맛있어요"' },
   { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "Made my Monday"' },
-];
-
-// Illustrative scorecard for an unreleased feature ("Coming soon" / preview).
-// Competitors are anonymized placeholders, not real businesses.
-const COMPETITOR_ROWS = [
-  { rank: '#1', name: 'You', stars: '4.8', resp: '96% responded', highlighted: true },
-  { rank: '#2', name: 'Competitor A', stars: '4.4', resp: 'Sample data' },
-  { rank: '#3', name: 'Competitor B', stars: '4.2', resp: 'Sample data' },
-  { rank: '#4', name: 'Competitor C', stars: '4.0', resp: 'Sample data' },
 ];
 
 function DotNav({
@@ -120,7 +114,7 @@ function HeroSection({
             className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-rw-teal-strong mb-8 flex items-center gap-3', heroIn && 'in')}
           >
             <span className="line" />
-            <span>Features · 2026 Edition</span>
+            <span>Features · Your agent team</span>
           </p>
           <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-rw-ink font-medium mb-6">
             <span className="rw-hero-line">
@@ -135,28 +129,33 @@ function HeroSection({
               ))}
             </span>
             <span className="rw-hero-line">
-              <span
-                className={cn('rw-hero-word rw-display-serif text-rw-teal-strong', heroIn && 'in')}
-                style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
-              >
-                nothing
-              </span>
-              {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
+              {HERO_WORDS_LINE_2.map((w, i) => (
                 <span
                   key={`l2-${w}`}
                   className={cn('rw-hero-word', heroIn && 'in')}
                   style={{
-                    ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + 1 + i) * 80}ms`,
+                    ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + i) * 80}ms`,
                   }}
                 >
                   {w}
                 </span>
               ))}
+              <span
+                className={cn('rw-hero-word rw-display-serif text-rw-teal-strong', heroIn && 'in')}
+                style={{
+                  ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + HERO_WORDS_LINE_2.length) * 80}ms`,
+                }}
+              >
+                {HERO_SERIF_WORD}
+              </span>
             </span>
           </h1>
           <p className={cn('rw-hero-lede text-lg text-rw-ink-soft max-w-md leading-relaxed', heroIn && 'in')}>
-            RepWorth is a done-for-you service and not another dashboard to learn.
-            Six features today, one in testing, one weekly rhythm, zero late-night copywriting.
+            RepWorth is an AI agent team, not another dashboard. Reply drafts every response,
+            Guardian triages the bad ones, Insights reports on Mondays — and two watchdogs, the
+            Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
+            approve every reply on Copilot, or let policy-cleared replies post themselves on
+            Autopilot.
           </p>
         </div>
 
@@ -233,32 +232,42 @@ function FeatureTOC({
       <div className="flex items-center gap-4 mb-6">
         <span className="rw-label-mono text-xs uppercase text-rw-teal-strong">Index</span>
         <div className="flex-1 h-px bg-rw-teal/20" />
-        <span className="rw-label-mono text-xs uppercase text-rw-ink-soft">6 live · 1 in testing</span>
+        <span className="rw-label-mono text-xs uppercase text-rw-ink-soft">3 agents · 2 watchdogs · 2 modes</span>
       </div>
-      <div ref={tocRef} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        {FEATURES.map((f, i) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onJump(f.id)}
-            className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-rw-teal/15 bg-white hover:bg-rw-teal/5 hover:border-rw-teal/40 text-left ${tocSeen ? 'in' : ''}`}
-            style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="rw-num-tag text-lg text-rw-teal-strong">{f.n}</span>
-              <svg
-                className="size-3 text-rw-ink-soft group-hover:text-rw-teal-strong transition-colors"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-              </svg>
+      <div ref={tocRef} className="space-y-6">
+        {FEATURE_GROUPS.map((group) => (
+          <div key={group}>
+            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-2">{group}</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {FEATURES.filter((f) => f.group === group).map((f) => {
+                const i = FEATURES.indexOf(f);
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => onJump(f.id)}
+                    className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-rw-teal/15 bg-white hover:bg-rw-teal/5 hover:border-rw-teal/40 text-left ${tocSeen ? 'in' : ''}`}
+                    style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="rw-num-tag text-lg text-rw-teal-strong">{f.n}</span>
+                      <svg
+                        className="size-3 text-rw-ink-soft group-hover:text-rw-teal-strong transition-colors"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-medium text-rw-ink">{f.label}</span>
+                    <span className="rw-label-mono text-[10px] uppercase text-rw-ink-soft">{f.sub}</span>
+                  </button>
+                );
+              })}
             </div>
-            <span className="text-sm font-medium text-rw-ink">{f.label}</span>
-            <span className="rw-label-mono text-[10px] uppercase text-rw-ink-soft">{f.sub}</span>
-          </button>
+          </div>
         ))}
       </div>
     </section>
@@ -284,7 +293,7 @@ export function FeaturesContent({
   const voiceRef = useRef<HTMLElement>(null);
   const insightsRef = useRef<HTMLElement>(null);
   const roiRef = useRef<HTMLElement>(null);
-  const compRef = useRef<HTMLElement>(null);
+  const roadmapRef = useRef<HTMLElement>(null);
 
   const refMap = useMemo<Record<string, RefObject<HTMLElement | null>>>(
     () => ({
@@ -297,7 +306,6 @@ export function FeaturesContent({
       'f-voice': voiceRef,
       'f-insights': insightsRef,
       'f-roi': roiRef,
-      'f-comp': compRef,
     }),
     []
   );
@@ -364,14 +372,14 @@ export function FeaturesContent({
 
           <FeatReply innerRef={replyRef} />
           <FeatGuardian innerRef={guardianRef} />
-          <FeatLang innerRef={langRef} />
+          <FeatInsights innerRef={insightsRef} />
           <FeatGate innerRef={gateRef} />
           <FeatAutopilot innerRef={autopilotRef} />
           <FeatWatchdogs innerRef={watchdogsRef} />
+          <FeatLang innerRef={langRef} />
           <FeatVoice innerRef={voiceRef} />
-          <FeatInsights innerRef={insightsRef} />
           <FeatRoi innerRef={roiRef} />
-          <FeatComp innerRef={compRef} />
+          <RoadmapBand innerRef={roadmapRef} />
 
           {/* CTA */}
           <section
@@ -399,7 +407,7 @@ export function FeaturesContent({
               <circle cx="100" cy="100" r="60" stroke="white" strokeWidth="1" />
             </svg>
             <p className="rw-label-mono text-xs uppercase text-white/75 mb-6 relative">
-              What&apos;s next
+              Early access
             </p>
             <h2 className="text-4xl md:text-6xl font-medium text-white leading-tight mb-5 relative max-w-3xl mx-auto">
               Join the early access waitlist.
@@ -433,81 +441,3 @@ export function FeaturesContent({
   );
 }
 
-/* ================== 07 COMPETITOR ================== */
-function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
-  const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
-  return (
-    <section
-      ref={innerRef}
-      id="f-comp"
-      aria-label="Competitor monitoring"
-      className="px-8 md:px-16 py-20 relative"
-    >
-      <div className="grid md:grid-cols-12 gap-10 items-center">
-        <div ref={leftRef} className={`rw-reveal from-left md:col-span-6 ${leftSeen ? 'in' : ''}`}>
-          <div className="flex items-start gap-6 mb-6">
-            <span className="rw-num-tag text-7xl leading-none text-rw-teal/40" aria-hidden="true">07</span>
-            <div>
-              <div className="flex items-center gap-3 mb-3 flex-wrap">
-                <p className="rw-label-mono text-xs uppercase text-rw-teal-strong">Coming Soon</p>
-                <span className="inline-block w-px h-4 bg-rw-teal/30" />
-                <p className="rw-label-mono text-xs uppercase text-rw-ink-soft">In private testing</p>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight">
-                Know where you <span className="rw-display-serif text-rw-teal-strong">stand</span> on the block.
-              </h2>
-            </div>
-          </div>
-          <p className="text-rw-ink-soft max-w-md leading-relaxed">
-            Track the shop next door. Response rates, star trends, the words showing up in their reviews
-            vs. yours. A one-page local market read, refreshed weekly.
-          </p>
-        </div>
-
-        <div ref={rightRef} className={`rw-reveal from-right md:col-span-6 ${rightSeen ? 'in' : ''}`}>
-          <div className="bg-white rounded-3xl p-6 border border-rw-teal/15 shadow-lg relative overflow-hidden">
-            <span className="absolute top-4 right-4 rw-label-mono text-[10px] uppercase text-rw-peach bg-rw-peach/15 px-2 py-1 rounded-full border border-rw-peach/40">
-              preview
-            </span>
-            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">
-              Neighborhood scorecard · sample data
-            </p>
-            <div className="space-y-3">
-              {COMPETITOR_ROWS.map((r, i) => (
-                <div
-                  key={r.name}
-                  className={`rw-comp-row flex items-center gap-3 p-3 rounded-2xl ${
-                    r.highlighted ? 'bg-rw-teal/10 border border-rw-teal/30' : ''
-                  }`}
-                  style={{ ['--cr-d' as string]: `${120 + i * 140}ms` }}
-                >
-                  <span className={`rw-num-tag text-2xl w-8 ${r.highlighted ? 'text-rw-ink' : 'text-rw-ink-soft'}`}>
-                    {r.rank}
-                  </span>
-                  <div className="flex-1">
-                    <p className={`text-sm ${r.highlighted ? 'font-medium text-rw-ink' : 'text-rw-ink'}`}>
-                      {r.name}
-                    </p>
-                    <div className="flex items-center gap-3 mt-0.5 text-xs text-rw-ink-soft">
-                      <span aria-label={`${r.stars} out of 5 stars`}>
-                        <span aria-hidden="true">★</span> {r.stars}
-                      </span>
-                      <span>·</span>
-                      <span>{r.resp}</span>
-                    </div>
-                  </div>
-                  {r.highlighted && (
-                    <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                    </svg>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}

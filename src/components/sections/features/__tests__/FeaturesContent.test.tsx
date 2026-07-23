@@ -52,18 +52,33 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('>100<');
   });
 
-  it('describes the feature count honestly (six live, one in testing)', () => {
+  it('describes the lineup honestly (agents, watchdogs, modes)', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html).toContain('Six features today');
-    expect(html).toContain('1 in testing');
-    expect(html).not.toContain('Seven pieces');
-    expect(html).not.toContain('07 features');
+    expect(html).toContain('3 agents · 2 watchdogs · 2 modes');
+    expect(html).not.toContain('Six features today');
+    expect(html).not.toContain('6 live · 1 in testing');
   });
 
   it('keeps the competitor feature labeled as not-yet-released', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
+    expect(html).toContain('Coming soon');
+    expect(html).toContain('preview');
+  });
+
+  it('leads with the trusted-autonomy narrative', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('tireless');
+    expect(html).toContain('gate.');
+    expect(html).toContain('Your agent team');
+    expect(html).toContain('Care and control');
+    expect(html).toContain('Craft and proof');
+  });
+
+  it('keeps roadmap items as verb phrases, not shipped claims', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Get reviews · Flag fakes · Watch everywhere');
     expect(html).toContain('Coming soon');
     expect(html).toContain('preview');
   });
