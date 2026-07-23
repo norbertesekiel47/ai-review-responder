@@ -140,4 +140,11 @@ describe('FeaturesContent', () => {
     expect(html).toContain('veto window');
     expect(html).toContain('Negative reviews are never auto-posted');
   });
+
+  it('explains the Judge and Governor watchdogs', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Judge &amp; Governor · oversight');
+    expect(html).toContain('auto-posting stops');
+    expect(html).toContain('Governor suspends');
+  });
 });
