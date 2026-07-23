@@ -141,3 +141,7 @@ tests/llm-eval/reports/
 # disk keeps the enforcement hooks (which arm off .feature/intake.json) from
 # following a merged feature onto main and arming every future main session.
 .feature/
+
+# Session scratch — throwaway drivers/notes from live ops sessions (e.g. the
+# Phase D suspension drill script). Never useful to future clones.
+.scratch/
