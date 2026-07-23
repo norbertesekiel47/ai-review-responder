@@ -1758,6 +1758,25 @@
 .rep-trend-dot { fill: var(--rw-sage-deep); }
 .rep-trend-empty { padding: 28px 0 8px; text-align: center; font-size: 13px; color: var(--rw-app-text-muted); }
 
+/* Shared chart hover chrome (charts/ChartTooltip + crosshair). */
+.chart-tip {
+  position: absolute;
+  width: 96px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--rw-app-text);
+  opacity: 0.95;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  z-index: 5;
+}
+.chart-tip-title { font-size: 9px; font-weight: 500; color: var(--rw-app-text-soft); font-family: var(--rw-font-body); }
+.chart-tip-value { font-size: 14px; font-weight: 700; color: var(--rw-card); font-family: var(--rw-font-display); }
+.chart-crosshair { stroke: var(--rw-sage-deep); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.5; pointer-events: none; }
+
 /* ---------- Mobile bottom tab bar ---------- */
 .mobile-tabbar { display: none; }
 @media (max-width: 768px) {
