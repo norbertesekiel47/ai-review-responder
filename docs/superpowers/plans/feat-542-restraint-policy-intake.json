@@ -1,0 +1,63 @@
+{
+  "classification": "normal",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Build the Restraint policy module: pure evaluateAsk/evaluateBatch implementing the closed six-reason Withhold reason enum, first-match precedence, per-Vertical Freshness windows, Velocity banking, and typed Evidence snapshots exactly per docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md and ADR 0012.",
+  "non_goals": [
+    "No worker, poller, or UI (batch builder is #543; batch screen is #537)",
+    "No DB access anywhere in the module — context is fully loaded by the caller; no sql parameter (ticket #542's 'sql as explicit param' note is superseded by the spec's pure-function posture)",
+    "No decision storage (storage home is #534/#543's call)",
+    "No suppression ledger (send-mode scope; `suppressed` ships in the enum but has no v-watch source)",
+    "No LLM anywhere in the decision path (spec §5.1)",
+    "No recent_negative reason, ever (ADR 0012 — permanently rejected)",
+    "No schema change, no migration, no owner-facing vertical knob"
+  ],
+  "user_visible_behavior": [
+    "None directly — library module only. Exported API: evaluateAsk (five per-candidate gates, spec signature) + evaluateBatch (complete evaluation adding velocity_banked), consumed later by #543.",
+    "Spec doc gains a footnote: no_consent (like suppressed) cannot fire in v-watch because the #535 consent attestation is blocking — every uploaded candidate is covered by construction; the code is reserved for enum stability."
+  ],
+  "invariants": [
+    "Sentiment-blind by construction: no sentiment, star-rating, or review-content field exists on any input or evidence type (already_reviewed evidence carries review_id + review_date only)",
+    "Closed enums: exactly six withhold reasons (no_consent, suppressed, already_reviewed, stale_visit, over_contacted, velocity_banked); exactly eight verticals (food_and_drink, retail, personal_care, fitness, medical_dental, automotive, home_services, other)",
+    "First-match precedence, one reason per withhold: no_consent → suppressed → already_reviewed → stale_visit → over_contacted → velocity_banked",
+    "Pure and deterministic: same candidate + context in, same decision out; decided_at/today come from context, never from Date.now inside the module",
+    "Evidence references the candidate by ID only — contact PII never duplicated into evidence; every snapshot carries policy_version + decided_at envelope",
+    "stale_visit fires iff today − last_visit_date > freshness_window_days (strictly greater; boundary day is fresh)",
+    "Velocity banking keeps most-recent-visit-first up to the batch cap (day-one 25, tunable constant in the same table as windows); ties break on candidate row ID ascending (UUIDv7 time-ordered) so ordering is total",
+    "Vertical resolution is a pure deterministic keyword mapper over businesses.category free text, falling back to other; resolved vertical + matched keyword recorded in stale_visit evidence"
+  ],
+  "edge_cases": [
+    "Empty candidate list → empty decision list",
+    "days_since_visit == window exactly → NOT stale",
+    "Empty/unmapped category → vertical other (window 30), matched_keyword absent/null",
+    "Candidate failing multiple gates → only the first reason in precedence order",
+    "eligible_count == batch_cap → nothing banked; eligible_count < cap → nothing banked",
+    "All eligible candidates beyond the cap → banked with full evidence (batch_cap, eligible_count, ordering basis)",
+    "Same last_visit_date tie at the cap boundary → lower row ID kept",
+    "Candidate passing every gate under cap → send with no evidence payload"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/responses/prompt-policy.ts — versioned policy constant (PROMPT_VERSION pattern) for policy_version",
+    "src/lib/reviews/sentiment.ts — deterministic pure classifier with closed source tag",
+    "src/lib/reviews/__tests__/sentiment.test.ts — fast-check 'invariants' describe block (house property-test style)",
+    "Discriminated-union result types per repo TS strict style; named exports only"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/**",
+    "docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "Per-reason contract test for each of the six codes: exact fires-when condition + exact evidence field shape",
+    "no_consent + suppressed: gate logic tested even though neither can fire in v-watch (footnote), so the enum is stable when send-mode lands",
+    "Precedence: candidate constructed to fail all six gates yields no_consent; pairwise earlier-gate-wins cases",
+    "Freshness boundary: window, window+1 for at least two verticals; per-vertical window table asserted against spec values",
+    "Vertical mapper: at least one keyword per vertical + fallback to other on empty/garbage category",
+    "Velocity banking: ordering (most-recent-first), tie-break on row ID, cap-exact and under-cap no-op cases",
+    "Sentiment-blindness structural test: evidence snapshots for already_reviewed never contain a rating key (typed + runtime assertion over serialized JSON)",
+    "fast-check properties: determinism (same input twice → deepEqual output); every withhold carries exactly one reason and a policy_version + decided_at envelope; banked+sent partition the surviving pool with |sent| ≤ cap; evidence JSON never contains candidate name/email/phone fields"
+  ],
+  "verification_commands": [],
+  "open_questions": []
+}
