@@ -7,7 +7,7 @@ interface LiveRegionProps {
 
 /**
  * Visually-hidden ARIA live region. Render it unconditionally and update
- * `message` — screen readers only announce changes to a region that already
+ * `message`; screen readers only announce changes to a region that already
  * exists in the DOM. Owns all role/aria-live mechanics so callers pass a
  * string and nothing else.
  */

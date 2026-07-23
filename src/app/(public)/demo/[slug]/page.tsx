@@ -9,7 +9,7 @@ import { DemoStatusIsland } from './DemoStatusIsland';
 
 export const dynamic = 'force-dynamic';
 
-// Per-prospect tokenized content exposing a business's reviews — must not be
+// Per-prospect tokenized content exposing a business's reviews; must not be
 // crawled or cached by search engines.
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -78,7 +78,7 @@ export default async function DemoViewerPage({
     notFound();
   }
 
-  // Only count views of completed demos — the loading state polls and would
+  // Only count views of completed demos; the loading state polls and would
   // inflate the count otherwise.
   // TODO Sprint 4: debounce with Redis INCR
   sql`
@@ -87,7 +87,7 @@ export default async function DemoViewerPage({
     WHERE id = ${demo.id}
   `.catch((err) => console.error('[demo-viewer] Failed to increment view count:', err));
 
-  // Postgres.js may return JSONB as a string — parse if needed
+  // Postgres.js may return JSONB as a string; parse if needed
   const reviews: NormalizedReview[] =
     typeof demo.reviews_snapshot === 'string'
       ? JSON.parse(demo.reviews_snapshot)

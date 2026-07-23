@@ -4,10 +4,10 @@ import type { RefObject } from 'react';
 import { useReveal } from './useReveal';
 
 const GUARDIAN_STEPS = [
-  { n: '01', title: '1★ review lands', sub: 'Negative lane — Guardian reads it first', t: '0:00', dark: false, d: '100ms' },
-  { n: '02', title: 'Severity read', sub: 'Routine · elevated · critical — a bounded AI check', t: '+0:01', dark: false, d: '300ms' },
+  { n: '01', title: '1★ review lands', sub: 'Negative lane: Guardian reads it first', t: '0:00', dark: false, d: '100ms' },
+  { n: '02', title: 'Severity read', sub: 'Routine · elevated · critical: a bounded AI check', t: '+0:01', dark: false, d: '300ms' },
   { n: '03', title: 'Critical → escalation', sub: "You're notified with the full context", t: '+0:02', dark: false, d: '500ms' },
-  { n: '04', title: 'You acknowledge and resolve', sub: 'Tracked until discharged · never auto-posted', t: '—', dark: true, d: '700ms' },
+  { n: '04', title: 'You acknowledge and resolve', sub: 'Tracked until discharged · never auto-posted', t: 'ongoing', dark: true, d: '700ms' },
 ];
 
 /* ================== 02 GUARDIAN ================== */
@@ -19,7 +19,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
     <section
       ref={innerRef}
       id="f-guardian"
-      aria-label="Guardian — negative-review triage"
+      aria-label="Guardian: negative-review triage"
       className="px-8 md:px-16 py-20 bg-gradient-to-b from-white to-rw-cream/50 relative"
     >
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
@@ -31,7 +31,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
           </h2>
           <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
             Guardian triages every negative review by severity before anything is drafted. Routine
-            gripes flow on to drafting; serious ones — health claims, legal threats, review-bombing —
+            gripes flow on to drafting; serious ones (health claims, legal threats, review-bombing)
             escalate straight to you with the context attached. Guardian never posts anything, anywhere.
           </p>
         </div>

@@ -94,7 +94,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       <section className="px-8 py-14 bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/85 text-white rounded-b-[3rem] text-center">
         <m.div {...ctaReveal} className="max-w-xl mx-auto">
           <h2 className="text-2xl md:text-3xl font-medium mb-3">Want replies like these for your reviews?</h2>
-          <p className="text-white/90 mb-8">RepWorth drafts every reply — you approve before it posts.</p>
+          <p className="text-white/90 mb-8">RepWorth drafts every reply. You approve before it posts.</p>
           <m.div
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, y: -2 }}
             whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
@@ -213,7 +213,7 @@ function ReviewCard({
         {review.reviewText ? (
           <p className="mt-3 text-rw-ink-soft leading-relaxed">{review.reviewText}</p>
         ) : (
-          <p className="mt-3 text-rw-ink-soft/70 italic">Rating only — no written review</p>
+          <p className="mt-3 text-rw-ink-soft/70 italic">Rating only (no written review)</p>
         )}
       </div>
 

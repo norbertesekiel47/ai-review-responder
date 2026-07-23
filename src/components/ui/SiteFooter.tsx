@@ -10,7 +10,7 @@ import { COMPANY_LINKS, LEGAL_LINKS, MARKETING_LINKS } from './marketing-links';
  * The global `.rw-foot` rule is a two-item `space-between` flex row, so this
  * component overrides that container to a stacked column (link grid + a bottom
  * copyright bar) via Tailwind. The legacy link rule is scoped to direct-child
- * anchors (`.rw-foot > a`), so the column links here — nested in `ul > li > a` —
+ * anchors (`.rw-foot > a`), so the column links here (nested in `ul > li > a`)
  * keep their own Tailwind color/spacing utilities instead of the inline-row look.
  */
 

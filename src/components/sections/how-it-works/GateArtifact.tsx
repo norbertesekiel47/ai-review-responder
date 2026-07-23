@@ -29,7 +29,7 @@ function AutopilotGateCard() {
         </div>
         <div className="hiw-draft-out">
           <span className="hiw-draft-badge">
-            {vetoed ? 'Vetoed — draft held for your review' : 'Cleared to post · one tap stops it'}
+            {vetoed ? 'Vetoed: draft held for your review' : 'Cleared to post · one tap stops it'}
           </span>
           <p>
             Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
@@ -58,11 +58,11 @@ export function GateArtifact() {
   return (
     <div className="hiw-gate-fork" style={{ display: 'grid', gap: 16 }}>
       <div>
-        <p className="hiw-step-kicker" style={{ marginBottom: 8 }}>Copilot — you approve</p>
+        <p className="hiw-step-kicker" style={{ marginBottom: 8 }}>Copilot: you approve</p>
         <CopilotGateCard />
       </div>
       <div>
-        <p className="hiw-step-kicker" style={{ marginBottom: 8 }}>Autopilot — your policy approves</p>
+        <p className="hiw-step-kicker" style={{ marginBottom: 8 }}>Autopilot: your policy approves</p>
         <AutopilotGateCard />
       </div>
     </div>

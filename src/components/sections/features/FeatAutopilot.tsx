@@ -18,7 +18,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
     <section
       ref={innerRef}
       id="f-autopilot"
-      aria-label="Autopilot — bounded autonomy"
+      aria-label="Autopilot: bounded autonomy"
       className="px-8 md:px-16 py-20 relative"
     >
       <div className="grid md:grid-cols-12 gap-10 items-start">
@@ -29,7 +29,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
             Hands-off, inside <span className="rw-display-serif text-rw-teal-strong">your</span> rules.
           </h2>
           <p className="text-rw-ink-soft max-w-md leading-relaxed">
-            On Autopilot, replies to 4–5★ unflagged reviews can post themselves — but only inside a
+            On Autopilot, replies to 4–5★ unflagged reviews can post themselves, but only inside a
             policy you set. You choose the rating band, the daily cap, and a veto window of 15 or 30
             minutes. Until the window closes, the reply is yours to stop with one tap. Negative
             reviews are never auto-posted.
@@ -46,8 +46,8 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
             <div className="rounded-2xl p-4 border border-rw-teal/25 mb-5" style={{ background: 'rgba(151,179,174,0.08)' }}>
               <p className="rw-label-mono text-[10px] uppercase text-rw-teal-strong mb-1">Reply · ready to post</p>
               <p className="text-sm text-rw-ink leading-relaxed">
-                &ldquo;Thank you so much! We&apos;re thrilled the al pastor tacos hit the spot —
-                looking forward to your next visit!&rdquo;
+                &ldquo;Thank you so much! We&apos;re thrilled the al pastor tacos hit the spot.
+                Looking forward to your next visit!&rdquo;
               </p>
             </div>
 
@@ -66,7 +66,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium text-rw-ink">Posting when the window closes</p>
-                <p className="text-xs text-rw-ink-soft mt-0.5">One tap stops it — nothing is final until then</p>
+                <p className="text-xs text-rw-ink-soft mt-0.5">One tap stops it; nothing is final until then</p>
                 <span className="mt-2 inline-flex items-center gap-1.5 py-1.5 px-4 rounded-full text-xs border border-rw-teal/30 text-rw-ink-soft select-none">
                   Veto this reply
                 </span>

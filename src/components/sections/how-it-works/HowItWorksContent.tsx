@@ -52,7 +52,7 @@ const STEPS = [
     tick: 'T + 0:01',
     kicker: 'Triage',
     title: 'Guardian reads it before anyone answers.',
-    sub: 'Every review is sorted by star sentiment first. Negative reviews get a severity read — routine, elevated, or critical — and critical ones escalate straight to you with the context attached. Positive reviews flow on to drafting.',
+    sub: 'Every review is sorted by star sentiment first. Negative reviews get a severity read (routine, elevated, or critical), and critical ones escalate straight to you with the context attached. Positive reviews flow on to drafting.',
     bullets: [
       'Negative lane gets a bounded AI severity read',
       'Critical issues escalate to you immediately',
@@ -65,7 +65,7 @@ const STEPS = [
     color: '#F0DDD6',
     tick: 'T + 0:12',
     kicker: 'Draft',
-    title: 'AI drafts a reply — in your voice.',
+    title: 'AI drafts a reply, in your voice.',
     sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
       'Learns from the replies you approve and edit',
@@ -80,7 +80,7 @@ const STEPS = [
     tick: 'T + 0:20',
     kicker: 'The Gate',
     title: 'Copilot asks you. Autopilot asks your policy.',
-    sub: 'This is the fork. On Copilot, every draft comes to you — email, Telegram, or WhatsApp — with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
+    sub: 'This is the fork. On Copilot, every draft comes to you (email, Telegram, or WhatsApp) with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
     bullets: [
       'One-tap approve on the channel you choose',
       'Autopilot posts only inside your rating band and daily cap',
@@ -108,7 +108,7 @@ const STEPS = [
     tick: 'T + 1:47',
     kicker: 'Judge',
     title: 'Every auto-post gets a second opinion.',
-    sub: 'After any reply posts without your tap, the Judge — an independent AI reviewer — checks it against your policy and your brand. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against your policy and your brand. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
     bullets: [
       '100% of auto-posted replies are reviewed',
       'The Governor can suspend autonomy per account',
@@ -149,7 +149,7 @@ const GUARANTEES = [
   },
   {
     title: 'Pause anytime',
-    desc: 'Toggle a location off in one tap — and if trust ever slips, the Governor pauses autonomy for you.',
+    desc: 'Toggle a location off in one tap, and if trust ever slips, the Governor pauses autonomy for you.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <rect x="6" y="4" width="4" height="16" />
@@ -160,12 +160,12 @@ const GUARANTEES = [
 ];
 
 const FAQ_ITEMS = [
-  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy — and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
-  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post — the review simply stays unanswered on your end.' },
-  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval — they are never auto-posted — and the tone defaults to acknowledging the issue and offering a path forward.' },
-  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing — the more you use it, the more it sounds like you.' },
-  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap — if it can't review, pending auto-approved replies fall back to your normal approval queue." },
-  { q: 'Which review platforms do you support?', a: "Today, Google only — that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
+  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy, and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post: the review simply stays unanswered on your end.' },
+  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted), and the tone defaults to acknowledging the issue and offering a path forward.' },
+  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing: the more you use it, the more it sounds like you.' },
+  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap: if it can't review, pending auto-approved replies fall back to your normal approval queue." },
+  { q: 'Which review platforms do you support?', a: "Today, Google only: that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];
 
 const OVERVIEW = [
@@ -196,7 +196,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '04', title: 'The Gate', time: 'you — or your policy', color: '#D6CBBF',
+    n: '04', title: 'The Gate', time: 'you, or your policy', color: '#D6CBBF',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
@@ -282,12 +282,12 @@ export function HowItWorksContent({
           {/* Hero */}
           <section id="hiw-hero" className="hiw-hero">
             <p className="hiw-eyebrow">How it works</p>
-            <h1 className="hiw-h1">One pipeline from new review to public reply — with a gate in the middle.</h1>
+            <h1 className="hiw-h1">One pipeline from new review to public reply, with a gate in the middle.</h1>
             <p className="hiw-lead">
               RepWorth watches for new Google reviews, triages them, drafts a reply in your voice,
               and brings it to the gate. On Copilot you approve every reply with one tap. On
               Autopilot, replies that clear your policy post themselves after a veto window you
-              control — and the Judge reviews every one of them.
+              control, and the Judge reviews every one of them.
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
@@ -340,7 +340,7 @@ export function HowItWorksContent({
               <p className="hiw-eyebrow">The pipeline</p>
               <h2 className="hiw-h2">Six steps from new review to public reply.</h2>
               <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: 'var(--rw-ink-soft)' }}>
-                Sample walkthrough — illustrative reviews and business, not real customers.
+                Sample walkthrough: illustrative reviews and business, not real customers.
               </p>
             </div>
             {STEPS.map((s) => (
@@ -383,7 +383,7 @@ export function HowItWorksContent({
               <h2 className="hiw-h2">The pipeline, end to end.</h2>
               <p className="hiw-lead">
                 A webhook, a triage read, a voice model, a gate, a posting call, and a judge. Six
-                well-behaved services — and two of them exist only to say no.
+                well-behaved services, and two of them exist only to say no.
               </p>
             </div>
             <Reveal>

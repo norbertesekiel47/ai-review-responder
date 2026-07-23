@@ -51,7 +51,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                 Join the RepWorth early access waitlist
               </h1>
               <p className="text-base text-rw-ink-soft mb-8">
-                We&apos;ll reach out when your area opens — no demo is scheduled yet.
+                We&apos;ll reach out when your area opens. No demo is scheduled yet.
               </p>
 
               <ul className="space-y-4 mb-10">

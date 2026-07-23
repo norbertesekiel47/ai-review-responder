@@ -19,7 +19,7 @@ const AI_REPLIES = {
     label: 'Your response',
     meta: 'Personalized · in your voice',
     borderColor: 'rgba(151,179,174,0.35)',
-    text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
+    text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot: our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
     diag: [
       ['Written from scratch', 'Yes'],
       ['References detail', 'Al pastor · achiote'],
@@ -37,7 +37,7 @@ export function FeatReply({ innerRef }: { innerRef: RefObject<HTMLElement | null
   const r = AI_REPLIES[tab];
 
   return (
-    <section ref={innerRef} id="f-reply" aria-label="Reply — the drafting agent" className="px-8 md:px-16 py-20 relative">
+    <section ref={innerRef} id="f-reply" aria-label="Reply: the drafting agent" className="px-8 md:px-16 py-20 relative">
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-rw-teal/40" aria-hidden="true">01</span>
         <div className="flex-1">

@@ -9,7 +9,7 @@
  * Landmark contract (owned by each page, not this layout):
  *   Every public page must expose exactly ONE `<main id="main-content">` as the
  *   skip-link target. We intentionally do NOT wrap `{children}` in a
- *   layout-level `<main>` because some pages already render their own — doing so
+ *   layout-level `<main>` because some pages already render their own; doing so
  *   would nest `<main>` landmarks (invalid + an a11y regression). Pages that
  *   already have a `<main>` (e.g. Features via `SiteShell islandAs="main"`,
  *   Security's inline `<main>`) only need `id="main-content"` added to it; pages

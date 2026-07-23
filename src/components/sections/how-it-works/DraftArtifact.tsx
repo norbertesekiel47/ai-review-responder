@@ -5,7 +5,7 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 export function DraftArtifact() {
   const full =
-    "Sarah, thank you — that's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
+    "Sarah, thank you. That's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
   const reducedMotion = usePrefersReducedMotion();
   const [typed, setTyped] = useState('');
   useEffect(() => {

@@ -5,9 +5,9 @@ import { useReveal } from './useReveal';
 
 const VERDICT_ROWS = [
   { time: 'Mon 10:41', excerpt: '"Thank you so much! We\'re thrilled…"', verdict: 'pass' as const },
-  { time: 'Mon 12:03', excerpt: '"So glad the mole landed — see you…"', verdict: 'pass' as const },
+  { time: 'Mon 12:03', excerpt: '"So glad the mole landed, see you…"', verdict: 'pass' as const },
   { time: 'Tue 09:17', excerpt: '"We appreciate the shout-out about…"', verdict: 'pass' as const },
-  { time: 'Tue 14:52', excerpt: '"Glad Saturday worked out — the…"', verdict: 'flag' as const },
+  { time: 'Tue 14:52', excerpt: '"Glad Saturday worked out, the…"', verdict: 'flag' as const },
 ];
 
 /* ================== 06 WATCHDOGS ================== */
@@ -19,7 +19,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
     <section
       ref={innerRef}
       id="f-watchdogs"
-      aria-label="Judge and Governor — oversight"
+      aria-label="Judge and Governor: oversight"
       className="px-8 md:px-16 py-20 bg-rw-ink text-white relative overflow-hidden"
     >
       <div
@@ -38,7 +38,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             Autonomy that is watched, <span className="rw-display-serif text-rw-peach">always</span>.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
-            Every reply that posts without your tap is reviewed by the Judge — an independent AI
+            Every reply that posts without your tap is reviewed by the Judge: an independent AI
             check on 100% of Autopilot&apos;s public actions. If the Judge is unavailable,
             auto-posting stops on its own. And if verdicts slip, the Governor suspends that
             account&apos;s autonomy and tells you. Trust is earned per account, never assumed.

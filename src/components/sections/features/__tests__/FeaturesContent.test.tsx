@@ -88,7 +88,7 @@ describe('FeaturesContent', () => {
   it('exposes the before/after toggle state via aria-pressed', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    // Default tab is "after" — exactly one pressed and one unpressed toggle.
+    // Default tab is "after"; exactly one pressed and one unpressed toggle.
     expect(html.match(/aria-pressed="true"/g)?.length).toBeGreaterThanOrEqual(1);
     expect(html).toContain('aria-pressed="false"');
   });

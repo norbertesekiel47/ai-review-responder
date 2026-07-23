@@ -44,7 +44,7 @@ const HERO_WORDS_LINE_1 = ['A', 'tireless', 'agent', 'answers', 'every', 'review
 const HERO_WORDS_LINE_2 = ['Nothing', 'goes', 'public', 'without', 'the'];
 const HERO_SERIF_WORD = 'gate.';
 
-// Illustrative sample reviews — not real customer testimonials. Multilingual to
+// Illustrative sample reviews; not real customer testimonials. Multilingual to
 // show the language-detection feature; no invented names or business claims.
 const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number; text: string }> = [
   { lang: 'EN', stars: '★★★★★', ratingValue: 5, text: 'Sample review · "Best in the city"' },
@@ -152,7 +152,7 @@ function HeroSection({
           </h1>
           <p className={cn('rw-hero-lede text-lg text-rw-ink-soft max-w-md leading-relaxed', heroIn && 'in')}>
             RepWorth is an AI agent team, not another dashboard. Reply drafts every response,
-            Guardian triages the bad ones, Insights reports on Mondays — and two watchdogs, the
+            Guardian triages the bad ones, Insights reports on Mondays, and two watchdogs, the
             Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
             approve every reply on Copilot, or let policy-cleared replies post themselves on
             Autopilot.
@@ -334,7 +334,7 @@ export function FeaturesContent({
 
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  // Hero entry — trigger on mount via a deferred tick (avoids a synchronous
+  // Hero entry: trigger on mount via a deferred tick (avoids a synchronous
   // setState in the effect body). Under reduced motion, skip the staged delay
   // so the final frame appears immediately.
   const [heroIn, setHeroIn] = useState(false);
@@ -343,7 +343,7 @@ export function FeaturesContent({
     return () => window.clearTimeout(id);
   }, [prefersReducedMotion]);
 
-  // Metrics count-up — fire after hero is in.
+  // Metrics count-up; fire after hero is in.
   const m1 = useCountUp(58, { active: heroIn, duration: 1600, delayMs: 400, round: true });
   const m2 = useCountUp(96, { active: heroIn, duration: 1600, delayMs: 400, round: true });
   const m3 = useCountUp(30, { active: heroIn, duration: 1600, delayMs: 400, round: true });
