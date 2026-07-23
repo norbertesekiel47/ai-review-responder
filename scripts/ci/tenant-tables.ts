@@ -20,6 +20,7 @@ export const TENANT_TABLES = [
   'api_costs_daily_rollups',
   'review_exceptions',
   'ranking_snapshots',
+  'competitor_snapshots',
   'zernio_connections',
   'zernio_finalize_incidents',
   'zernio_backfill_runs',
