@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** *(PR #508 reliability guards, 2026-07-20; PRs #514–#516 reliability follow-ups, 2026-07-21)*
+**Merges since last architecture pass: 5 — ≥5 THRESHOLD REACHED; architecture review due** *(PR #508 reliability guards, 2026-07-20; PRs #514–#516 reliability follow-ups, 2026-07-21; PR #551 restraint policy module #542, 2026-07-23)*
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|

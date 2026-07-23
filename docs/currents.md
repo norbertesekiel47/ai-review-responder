@@ -7,7 +7,37 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-23 (Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-23 (Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Restraint policy module: first Phase 2 Solicitation code (2026-07-23, PR #551)
+
+The restraint policy module from wayfinder map #528 is merged — the first
+implementation code of Phase 2 (Solicitation watch-mode), building exactly the
+design locked in #533 (PR #548) and ADR 0012. What is true now:
+
+- **`src/lib/solicitation/restraint-policy.ts`** — a pure, deterministic,
+  sentiment-blind decision module with zero imports (no DB, no clock, no LLM).
+  `evaluateAsk` runs the five per-candidate gates in first-match precedence
+  (`no_consent → suppressed → already_reviewed → stale_visit → over_contacted`);
+  `evaluateBatch` adds the batch-relative `velocity_banked` gate (cap 25,
+  most-recent-visit-first banking, UUIDv7 row-ID tie-break); `resolveVertical`
+  maps owner-typed `businesses.category` text to the closed 8-vertical enum
+  driving per-vertical freshness windows. Every withhold carries a typed
+  evidence snapshot (spec §4 field names verbatim, `policy_version` +
+  `decided_at` envelope, contact ID only — never PII, never a star rating).
+- **Nothing consumes it yet**: #543 (run-engine batch builder) wires it in;
+  #537 (batch screen prototype) renders its decisions. In v-watch,
+  `no_consent` and `suppressed` cannot fire (the #535 attestation is blocking;
+  there is no suppression ledger) — both are contract-tested so the enum stays
+  stable for send-mode.
+- **`MIN_GAP_DAYS = 30`** (over-contacted gap) is a plan-time day-one constant
+  — the spec locked the evidence shape but no value; it lives in the same
+  tunable table as the freshness windows and batch cap.
+
+The new shape:
+- `src/lib/solicitation/restraint-policy.ts` — the module (only file, deep interface)
+- `src/lib/solicitation/__tests__/restraint-policy.test.ts` — 34 tests: per-reason contracts, precedence peeling, UTC boundary cases, fast-check invariants
+- footnote in `docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md`; entry in `docs/directory.md`; workflow artifacts in `docs/superpowers/plans/feat-542-*` + `docs/reviews/feat-542-restraint-policy/`
 
 ## Quick summary — Agentic platform staging-proven; launch gates closed (2026-07-22→23, PRs #518–#522)
 
