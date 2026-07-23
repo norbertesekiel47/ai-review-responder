@@ -140,6 +140,11 @@ attribution windows, and it becomes the run engine's first execution tenant (§4
 The May doc's §6 design (Batch + Outreach two-agent shape, consent/suppression schema,
 `review_attributed` as the honest headline metric) remains the reference design for it.
 
+**Revised 2026-07-23:** Solicitation now ships in two sub-phases — **watch-mode first**
+(builds real batches, shows send/withhold decisions with reasons, sends nothing; no
+deliverability/CAN-SPAM surface), then **send-mode** as its own effort. Full sequencing,
+locked decisions, and the ideation rationale: §9.
+
 ### 2.4 Explicitly deferred
 
 - **Multi-platform ingestion (Yelp/Facebook/Apple):** the `NormalizedReview` seam makes
@@ -222,7 +227,8 @@ in the prior plan; launch day should not ride on week-two substrate code.
 | Phase | Scope | Estimate |
 |---|---|---|
 | **Phase 1 — Launch (v1)** | Run-spine migrations; triage step; Guardian branch (escalate + resolution tracking); Insights reframe; trust-dial policy + settings UI; veto window; online judge poller; autonomy governor; eval-in-CI; persona surfaces (timeline + exception-queue dashboard reframe) | ~4–6 wks |
-| **Phase 2 — Run engine + Solicitation (v1.1)** | Run engine (lifecycle, parent/child) with Solicitation as first tenant: consent ledger, suppression, email adapter, batch approval, attribution (shadow-only metric) | ~6–8 wks |
+| **Phase 2a — Watch-mode Solicitation + probes (v1.1a, revised 2026-07-23)** | Two read-mostly probes (competitor-delta digest line, Voice Report Card); contacts/visits CSV ingestion + consent attestation; restraint policy module; run engine (lifecycle, parent/child) with `solicitation_batch` **watch-mode** as first tenant — decisions shown, nothing sent. See §9 | — |
+| **Phase 2b — Send-mode Solicitation (v1.1b)** | Consent ledger semantics, suppression, email adapter, deliverability, CAN-SPAM/TCPA, batch approval → real sends, attribution (shadow-only metric) | ~6–8 wks total with 2a |
 | **Phase 3 — Reply migration (v1.2)** | Reply moves onto the executor; validated against recorded runs; legacy path retired | ~2–3 wks |
 | **Phase 4+ — Later** | Confidence router + trust ladder widening; GBP adapter when access lands; third tier + roster expansion (Complaint-Recovery, competitor); coordination primitive when Complaint-Recovery needs it | — |
 
@@ -420,4 +426,86 @@ autonomy flags; Autopilot flips only after the gates above, Copilot-first.
 Run engine/executor (Phase 2, Solicitation is its first tenant), Solicitation
 agent (v1.1), calibrated-confidence router, GBP posting adapter (awaiting
 access), conversational surface, cross-agent coordination keys, outcome
-billing. None of these block launch; all remain sequenced as §4 specified.
+billing. None of these block launch; all remain sequenced as §4 specified,
+with the run engine + Solicitation now sub-phased per §9 (locked 2026-07-23).
+
+## 9. Solicitation roadmap (locked 2026-07-23)
+
+Outcome of the 2026-07-23 ideation (`/adhd` divergence run) + grilling session.
+Three "aha-moment" directions survived scoring: **restraint-as-product** (the
+agent visibly refuses harmful asks — spoilage report at batch approval),
+**reputation-as-a-position** (reviews-to-threshold / competitor-gap framing),
+and **sounds-like-you** (outreach in the owner's own register, memory-jogged
+by visit details). The roadmap sequences them cheapest-signal-first.
+
+### 9.1 Decisions locked (grilling 2026-07-23)
+
+1. **Destination of the current effort:** watch-mode Solicitation live — the
+   agent builds real batches and shows per-candidate send/withhold decisions
+   with reasons, but **sends nothing**. Send-mode is a separate follow-up map.
+2. **Probes don't gate:** the two warm-up probes ship first because they're
+   small, but run-engine work starts in parallel — no waiting for engagement
+   signal that beta-scale traffic can't statistically produce.
+3. **Candidate source is owner CSV upload** (name, contact handle, last-visit
+   date, optional staff/job note) with an explicit consent attestation. This
+   doubles as the visits-ledger tracer that later powers attribution and
+   memory-jog details. Booking-system integrations deferred.
+4. **Visibility:** all paying tiers, behind server-side
+   `SOLICITATION_WATCH_ENABLED` (staging first, prod via flag-flip
+   discipline). Watch-mode takes no public action, so it needs no
+   autonomy-flag ceremony; it is the teaser that later sells Autopilot
+   send-mode.
+5. **Vocabulary:** the agent is **Solicitation** (this doc's term), not
+   "Solicitor".
+
+### 9.2 Now — Phase 2a scope (the "watch-mode" wayfinder map)
+
+Tracked as wayfinder map **#528** on the issue tracker (execution-carrying,
+tickets #529–#544, each implementation ticket sized to a single `/feature`
+run):
+
+- **Probe: competitor delta.** Corrected premise: `ranking_snapshots` stores
+  only our own `rank_position`; SerpAPI's `local_results` competitor fields
+  (title, rating, review count) are currently **discarded**. Persist
+  competitor snapshot rows (migration + `RankingTrackingWorker` extension),
+  then a weekly digest line ("Joe's gained 4 reviews; gap now 27") in
+  `WeeklySummaryWorker`.
+- **Probe: Voice Report Card.** Owner-facing screen rendering what
+  `src/lib/responses/voice-learning.ts` has already learned from the owner's
+  reply edits (register traits + activation meter). Zero new data collection.
+- **Contacts/visits CSV ingestion** with consent attestation (decision 3).
+- **Restraint policy module:** pure `evaluateAsk(candidate, context) →
+  send | withhold(reason, evidence)` with a closed withhold-reason enum and
+  exhaustive tests — the refusal logic is the core, everything else displays
+  its decisions.
+- **Run engine executor** (parent/child lifecycle on the run spine) with
+  `solicitation_batch` watch-mode as first tenant.
+- **Watch-mode batch UI** behind `SOLICITATION_WATCH_ENABLED`.
+
+### 9.3 Next — Phase 2b: send-mode (own map, after watch-mode earns trust)
+
+Everything §2.3 always specified: consent ledger semantics beyond the upload
+attestation, suppression, email adapter + deliverability, CAN-SPAM/TCPA,
+batch approval → real sends, veto window on batches, `review_attributed`
+shadow metric. Google-compliance constraints (no gating by predicted
+sentiment, no incentives, no ghostwriting) bind candidate *selection* in both
+modes and are researched as part of the watch-mode map.
+
+### 9.4 Later — sequenced behind send-mode
+
+- **Voice-conditioned asks + memory-jog details** ("sounds like YOU"):
+  requires matured visits data; a wrong remembered detail is worse than a
+  generic ask, so details are template-interpolated from validated rows,
+  never LLM-generated. Staff-attributed asks ride the same data.
+- **Position read-model** (reviews-to-displayed-threshold math, competitor
+  gap targets framing batch size) — candidate follow-on to the competitor
+  probe if owners engage with the digest line.
+- **Judge auditing of withhold decisions**; Governor per-gate suspension.
+- **Booking-system integrations** (Square Appointments / Housecall Pro) as
+  continuous candidate sources replacing CSV.
+
+### 9.5 Explicitly out of scope for the watch-mode map
+
+Send-mode (all of §9.3), Step-3 voice work (§9.4), booking integrations,
+boss-fight/futures dashboard framing. The frontier stops at watch-mode; these
+return only as their own efforts.
