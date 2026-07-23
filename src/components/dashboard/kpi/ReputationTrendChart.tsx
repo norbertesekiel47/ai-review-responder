@@ -1,21 +1,30 @@
+'use client';
+
+import { scaleLinear } from 'd3-scale';
+import { line as d3Line, curveMonotoneX } from 'd3-shape';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { ChartHeadlineBanner } from '@/components/dashboard/kpi/ChartHeadlineBanner';
 import { computeTrendHeadline } from '@/components/dashboard/kpi/chart-headlines';
+import { ChartTooltip } from '@/components/dashboard/charts/ChartTooltip';
+import { chartTransition, DOT_SPRING, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
+import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
+import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 interface Props {
   trend: ReputationSummary['trend'];
 }
 
-// Plot geometry (viewBox units). The Y-axis domain is computed from the data
-// (see computeTrendDomain) rather than pinned to 1–5, so movement inside the
-// real 4.x band is visible instead of flattened.
-const VB_W = 720;
+// Plot geometry (real pixels — the viewBox equals the measured wrapper width
+// per the useMeasuredSvg contract). The Y-axis domain is computed from the
+// data (see computeTrendDomain) rather than pinned to 1–5, so movement inside
+// the real 4.x band is visible instead of flattened.
+const H = 200;
 const LEFT = 34;
 const RIGHT = 12;
 const TOP = 16;
-const BOTTOM = 174; // 200 viewBox height − 26 for x labels
-
-const PLOT_W = VB_W - LEFT - RIGHT;
+const BOTTOM = 174; // H − 26 for x labels
 
 /** Smallest star span the axis will ever show, so a flat-ish trend still reads. */
 const MIN_DOMAIN_SPAN = 0.6;
@@ -51,7 +60,14 @@ export function computeTrendDomain(stars: number[]): { min: number; max: number 
   return { min, max };
 }
 
+function weekLabel(weekStartIso: string): string {
+  return new Date(weekStartIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export function ReputationTrendChart({ trend }: Props) {
+  const { ref, width } = useMeasuredSvg();
+  const reduced = usePrefersReducedMotion();
+
   const points = trend
     .map((week, index) => ({ index, star: week.starEquivalent }))
     .filter((p): p is { index: number; star: number } => p.star != null);
@@ -59,13 +75,19 @@ export function ReputationTrendChart({ trend }: Props) {
   const domain = computeTrendDomain(points.map((p) => p.star));
   const headline = computeTrendHeadline(trend);
 
-  const yFor = (star: number): number => {
-    const clamped = Math.min(domain.max, Math.max(domain.min, star));
-    return BOTTOM - ((clamped - domain.min) / (domain.max - domain.min)) * (BOTTOM - TOP);
-  };
+  const y = scaleLinear().domain([domain.min, domain.max]).range([BOTTOM, TOP]).clamp(true);
+  const x = scaleLinear().domain([0, Math.max(1, trend.length - 1)]).range([LEFT, width - RIGHT]);
 
-  const xFor = (index: number): number =>
-    trend.length > 1 ? LEFT + (index / (trend.length - 1)) * PLOT_W : LEFT + PLOT_W / 2;
+  const path =
+    d3Line<{ index: number; star: number }>()
+      .x((p) => x(p.index))
+      .y((p) => y(p.star))
+      .curve(curveMonotoneX)(points) ?? '';
+
+  const hover = useNearestDatum(points.map((p) => x(p.index)));
+  const hovered = hover.index != null ? points[hover.index] : undefined;
+  const last = points[points.length - 1];
+  const focus = hovered ?? last;
 
   // Three gridlines spanning the zoomed domain (top / mid / bottom).
   const gridStars = [domain.max, (domain.min + domain.max) / 2, domain.min];
@@ -82,34 +104,54 @@ export function ReputationTrendChart({ trend }: Props) {
       ) : (
         <>
           <ChartHeadlineBanner data={headline} />
-          <svg
-            className="rep-trend-svg"
-            viewBox={`0 0 ${VB_W} 200`}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`Reputation trend, star-equivalent, last 8 weeks, latest ${points[points.length - 1]!.star.toFixed(1)} stars`}
-          >
-            {gridStars.map((star) => (
-              <line key={star} className="rep-trend-grid" x1={LEFT} x2={VB_W - RIGHT} y1={yFor(star)} y2={yFor(star)} />
-            ))}
-            {gridStars.map((star) => (
-              <text key={`l-${star}`} className="rep-trend-axis" x={20} y={yFor(star) + 4}>{star.toFixed(1)}</text>
-            ))}
-            <path
-              className="rep-trend-line"
-              d={points
-                .map((p, i) => `${i === 0 ? 'M' : 'L'}${xFor(p.index).toFixed(1)},${yFor(p.star).toFixed(1)}`)
-                .join(' ')}
-            />
-            <circle
-              className="rep-trend-dot"
-              cx={xFor(points[points.length - 1]!.index)}
-              cy={yFor(points[points.length - 1]!.star)}
-              r={4.5}
-            />
-            <text className="rep-trend-axis" x={LEFT} y={194}>8 weeks ago</text>
-            <text className="rep-trend-axis" x={VB_W - RIGHT} y={194} textAnchor="end">now</text>
-          </svg>
+          <div ref={ref} className="rep-trend-plot">
+            <LazyMotion features={domAnimation} strict>
+              <svg
+                className="rep-trend-svg"
+                viewBox={`0 0 ${width} ${H}`}
+                role="img"
+                aria-label={`Reputation trend, star-equivalent, last 8 weeks, latest ${points[points.length - 1]!.star.toFixed(1)} stars`}
+                onPointerMove={hover.onPointerMove}
+                onPointerLeave={hover.onPointerLeave}
+              >
+                {gridStars.map((star) => (
+                  <line key={star} className="rep-trend-grid" x1={LEFT} x2={width - RIGHT} y1={y(star)} y2={y(star)} />
+                ))}
+                {gridStars.map((star) => (
+                  <text key={`l-${star}`} className="rep-trend-axis" x={20} y={y(star) + 4}>{star.toFixed(1)}</text>
+                ))}
+                {hovered && (
+                  <line className="chart-crosshair" x1={x(hovered.index)} x2={x(hovered.index)} y1={TOP} y2={BOTTOM} />
+                )}
+                <m.path
+                  className="rep-trend-line"
+                  d={path}
+                  initial={reduced ? false : { pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={chartTransition(reduced, LINE_REVEAL)}
+                />
+                {focus && (
+                  <m.g
+                    animate={{ x: x(focus.index), y: y(focus.star) }}
+                    transition={chartTransition(reduced, DOT_SPRING)}
+                  >
+                    <circle className="rep-trend-dot" r={4.5} />
+                  </m.g>
+                )}
+                <text className="rep-trend-axis" x={LEFT} y={194}>8 weeks ago</text>
+                <text className="rep-trend-axis" x={width - RIGHT} y={194} textAnchor="end">now</text>
+              </svg>
+            </LazyMotion>
+            {hovered && (
+              <ChartTooltip
+                x={x(hovered.index)}
+                y={y(hovered.star)}
+                title={`Week of ${weekLabel(trend[hovered.index]!.weekStart)}`}
+                value={`${hovered.star.toFixed(1)}★`}
+                containerWidth={width}
+              />
+            )}
+          </div>
         </>
       )}
     </div>

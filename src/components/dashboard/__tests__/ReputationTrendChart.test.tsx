@@ -32,6 +32,13 @@ describe('ReputationTrendChart', () => {
     expect(screen.getByText(/Not enough reviews yet/)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
+
+  it('never sets preserveAspectRatio (measured-viewBox contract)', () => {
+    render(<ReputationTrendChart trend={trendWith([4.3, 4.4, null, 4.6, 4.8])} />);
+    const chart = screen.getByRole('img');
+    expect(chart).not.toHaveAttribute('preserveAspectRatio');
+    expect(chart.getAttribute('viewBox')).toBe('0 0 640 200'); // canonical width in jsdom (no ResizeObserver)
+  });
 });
 
 describe('computeTrendDomain (Y-axis zoom)', () => {
