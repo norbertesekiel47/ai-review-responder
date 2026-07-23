@@ -6,8 +6,8 @@ import { RankingChart } from '@/components/dashboard/kpi/RankingChart';
 import {
   buildRankingSeries,
   formatRankingDateLabel,
-  RANKING_COLORS,
 } from '@/components/dashboard/kpi/RankingChart.helpers';
+import { RANKING_COLORS } from '@/components/dashboard/charts/chart-tokens';
 
 interface Props {
   ranking: AggregateDashboardData['ranking'];

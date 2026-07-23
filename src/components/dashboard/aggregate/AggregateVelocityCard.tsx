@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { RANKING_COLORS } from '@/components/dashboard/kpi/RankingChart.helpers';
+import { RANKING_COLORS } from '@/components/dashboard/charts/chart-tokens';
 
 // One authoritative per-location palette, shared with AggregateRankingCard so a
 // location is the same color in both aggregate charts. Multi-hue on purpose:
