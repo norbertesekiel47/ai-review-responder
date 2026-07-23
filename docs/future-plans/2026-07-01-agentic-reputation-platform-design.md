@@ -483,6 +483,8 @@ run):
   `src/lib/responses/voice-learning.ts` has already learned from the owner's
   reply edits (register traits + activation meter). Zero new data collection.
 - **Contacts/visits CSV ingestion** with consent attestation (decision 3).
+  Contract locked 2026-07-23 (ticket #535):
+  `docs/superpowers/specs/2026-07-23-contacts-csv-contract-design.md`.
 - **Restraint policy module:** pure `evaluateAsk(candidate, context) →
   send | withhold(reason, evidence)` with a closed withhold-reason enum and
   exhaustive tests — the refusal logic is the core, everything else displays
