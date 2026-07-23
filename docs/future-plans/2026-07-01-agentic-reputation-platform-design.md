@@ -407,7 +407,7 @@ run steps, exactly per §3.1.
 | Staging E2E (A–D) | ✅ PASS |
 | Governor fix | ✅ merged (#520) |
 | Prod WS8 cutover (`ws8-tier-cutover.md` — prod Stripe Prices) | ❌ not run |
-| Migrations 071–083 applied to PROD Supabase | ⚠️ **unverified** — verify by introspection before any flag flip |
+| Migrations 071–083 applied to PROD Supabase | ✅ **verified by introspection 2026-07-22** with ONE expected gap: 071–077 + 079–083 all present; **078 (contract CHECKs on `accounts`/`businesses.subscription_tier`) is deliberately absent** — prod sits in the expand/contract half-state because 078 applies *inside* the prod WS8 cutover, after its controlled smoke (`ws8-tier-cutover.md`). Prod `accounts`/`businesses` have **0 rows**, so the contract step is trivial when the cutover runs. Do not apply 078 out-of-band. |
 | Owner UAT (`owner-uat-agentic-staging.md`) | pending |
 | Ordered prod flag flip (`TRIAGE` → `ESCALATION` → `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL`; then `AUTOPILOT_PURCHASABLE`) | not started — **all autonomy flags OFF in production** |
 
