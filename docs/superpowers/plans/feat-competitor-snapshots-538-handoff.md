@@ -4,7 +4,15 @@ Resume with `/feature-resume feat/competitor-snapshots-538`. State lives on disk
 
 ## Current step
 
-/feature step 4 (EXECUTE) — plan approved by user AND Codex (round 3, VERDICT: APPROVED) on 2026-07-23. Tasks not yet started.
+/feature step 8 (SHIP, RISK=high lane) — NOT started. Steps 4–7 complete 2026-07-23:
+- Tasks 1+2 executed (migration 084, worker resolveLocalPack + tx persistence, 30 tests).
+- Mid-run surface amendment (user-approved): 5 offboarding/RLS-inventory companion files — competitor_snapshots is purge-complete (hard_delete/must_be_absent, DELETABLE_BY_BUSINESS, rls-inventory row).
+- Step 6 adversarial (Codex): finding 1 (search_location in replace key) REJECTED with rationale + pinned by regression test; finding 2 (migration retryability) ACCEPTED → IF NOT EXISTS guards, re-apply verified idempotent. Report: docs/reviews/feat-competitor-snapshots-538/adversarial-review.md.
+- Step 7 dual review triaged: 4 accepted (comment honesty, synthesizeMockPack extraction, try/finally test hygiene, NULL-rank assertion), 1 rejected (bulk insert). Verdicts: docs/reviews/feat-competitor-snapshots-538/triage-verdicts.md.
+- Verify gate GREEN (run 5, all 15 checks) at HEAD.
+- Local test DB (localhost, TEST_DATABASE_POOL_URL) has 084 applied. Staging/prod DO NOT.
+
+Step 8 remaining: push branch → land on `staging` (auto-deploys full stack) → apply 084 to STAGING Supabase first → smoke ranking path on staging (worker logs + competitor_snapshots rows) → PR to main → CI green → PAUSE for explicit merge approval → prod migration in lockstep at promotion → post-merge sweeps (document-feature, domain sweep, entropy counter, worktree cleanup).
 
 ## Artifacts (read in this order)
 
