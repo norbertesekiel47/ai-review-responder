@@ -15,6 +15,8 @@ import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboa
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import {
   VelocityChart,
+  VELOCITY_H as H,
+  VELOCITY_PAD as PAD,
   computeVelocitySummary,
   weekShortLabel,
 } from '@/components/dashboard/charts/VelocityChart';
@@ -25,9 +27,6 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 // here color encodes WHICH location, so a single sage would erase the signal
 // (unlike the owner-facing single-location chart).
 const STACK_COLORS = RANKING_COLORS;
-
-const PAD = { l: 36, r: 16, t: 28, b: 32 };
-const H = 220;
 
 interface Props {
   reviewVelocity: AggregateDashboardData['reviewVelocity'];

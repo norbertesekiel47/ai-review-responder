@@ -48,8 +48,10 @@ export function weekShortLabel(weekStartIso: string, idx: number, total: number)
   return new Date(weekStartIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-const PAD = { l: 36, r: 16, t: 28, b: 32 };
-const H = 220;
+export const VELOCITY_PAD = { l: 36, r: 16, t: 28, b: 32 } as const;
+export const VELOCITY_H = 220;
+const PAD = VELOCITY_PAD;
+const H = VELOCITY_H;
 
 /** Weekly bars + smoothed trend line + avg reference, on the measured-viewBox contract. */
 export function VelocityChart({ data }: { data: VelocityDatum[] }) {
