@@ -39,6 +39,13 @@ ledger is send-mode scope; the only v-watch source is an owner manually
 marking a contact never-contact. Reserving the code now keeps the enum stable
 when send-mode lands.
 
+`no_consent` likewise cannot fire in v-watch: the #535 consent attestation is
+blocking — no upload happens without it, and every contact/visit row inherits
+attestation provenance via its upload FK, so every candidate the policy sees
+is covered by construction. Like `suppressed`, the code ships (and #542
+contract-tests it) purely for enum stability against send-mode, where per-row
+consent semantics (the open counsel question, #531 §6.1) can make it live.
+
 ## 2. Precedence — first-match wins
 
 Gates are evaluated in a fixed order and short-circuit on the first failure;

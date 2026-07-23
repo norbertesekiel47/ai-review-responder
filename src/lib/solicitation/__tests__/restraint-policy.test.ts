@@ -238,3 +238,146 @@ describe('evaluateAsk — first-match precedence', () => {
     ).toMatchObject({ reason: 'over_contacted' });
   });
 });
+
+describe('evaluateBatch — velocity banking', () => {
+  /** n eligible candidates with sequential UUIDv7-ish ids and distinct recent visit dates. */
+  function eligiblePool(n: number): AskCandidate[] {
+    return Array.from({ length: n }, (_, i) =>
+      eligibleCandidate({
+        contactId: `01980000-0000-7000-8000-${String(i).padStart(12, '0')}`,
+        // decidedAt is 2026-07-23; keep all within the 14-day food_and_drink window.
+        lastVisitDate: `2026-07-${String(10 + (i % 13)).padStart(2, '0')}`,
+      }),
+    );
+  }
+
+  it('returns an empty list for an empty batch', () => {
+    expect(evaluateBatch([], context)).toEqual([]);
+  });
+
+  it('banks nothing at or under the cap', () => {
+    const atCap = evaluateBatch(eligiblePool(BATCH_CAP), context);
+    expect(atCap.every((d) => d.decision === 'send')).toBe(true);
+    const underCap = evaluateBatch(eligiblePool(3), context);
+    expect(underCap.every((d) => d.decision === 'send')).toBe(true);
+  });
+
+  it('banks overflow with full evidence, keeping most-recent-visit-first', () => {
+    const pool = eligiblePool(BATCH_CAP + 5);
+    const decisions = evaluateBatch(pool, context);
+    const sends = decisions.filter((d) => d.decision === 'send');
+    const banked = decisions.filter((d) => d.decision === 'withhold');
+    expect(sends).toHaveLength(BATCH_CAP);
+    expect(banked).toHaveLength(5);
+    for (const decision of banked) {
+      expect(decision).toMatchObject({
+        reason: 'velocity_banked',
+        batch_cap: BATCH_CAP,
+        eligible_count: BATCH_CAP + 5,
+      });
+    }
+    // Every banked candidate's visit is no fresher than every kept candidate's.
+    const visitOf = new Map(pool.map((c) => [c.contactId, c.lastVisitDate]));
+    const oldestKept = sends.map((d) => visitOf.get(d.contact_id) as string).sort()[0] as string;
+    for (const decision of banked) {
+      expect((visitOf.get(decision.contact_id) as string) <= oldestKept).toBe(true);
+    }
+  });
+
+  it('breaks same-date ties on contact row ID ascending (lower ID kept)', () => {
+    const pool = Array.from({ length: BATCH_CAP + 1 }, (_, i) =>
+      eligibleCandidate({
+        contactId: `01980000-0000-7000-8000-${String(i).padStart(12, '0')}`,
+        lastVisitDate: '2026-07-20',
+      }),
+    );
+    const decisions = evaluateBatch(pool, context);
+    const bankedIds = decisions.filter((d) => d.decision === 'withhold').map((d) => d.contact_id);
+    expect(bankedIds).toEqual([`01980000-0000-7000-8000-${String(BATCH_CAP).padStart(12, '0')}`]);
+  });
+
+  it('preserves input order and mixes per-candidate withholds untouched', () => {
+    const suppressed = eligibleCandidate({
+      contactId: '01980000-0000-7000-8000-00000000ffff',
+      suppression: { source: 'owner_manual', suppressedAt: '2026-07-01T00:00:00.000Z' },
+    });
+    const pool = [suppressed, ...eligiblePool(2)];
+    const decisions = evaluateBatch(pool, context);
+    expect(decisions.map((d) => d.contact_id)).toEqual(pool.map((c) => c.contactId));
+    expect(decisions[0]).toMatchObject({ reason: 'suppressed' });
+  });
+});
+
+// Property tests (fast-check): the house style for invariant-level coverage
+// (see src/lib/reviews/__tests__/sentiment.test.ts).
+describe('restraint policy invariants', () => {
+  const hex12 = fc.integer({ min: 0, max: 0xffffff }).map((n) => n.toString(16).padStart(12, '0'));
+  const isoDate = fc
+    .integer({ min: 0, max: 400 })
+    .map((daysAgo) => new Date(Date.UTC(2026, 6, 23) - daysAgo * 86_400_000).toISOString().slice(0, 10));
+
+  const arbCandidate: fc.Arbitrary<AskCandidate> = fc.record({
+    contactId: hex12.map((h) => `01980000-0000-7000-8000-${h}`),
+    lastVisitDate: isoDate,
+    consent: fc.record({ attested: fc.boolean(), uploadId: fc.constant('upload-1') }),
+    suppression: fc.option(
+      fc.record({ source: fc.constant('owner_manual'), suppressedAt: fc.constant('2026-07-01T00:00:00.000Z') }),
+      { nil: null },
+    ),
+    matchedReview: fc.option(
+      fc.record({ reviewId: fc.constant('rev-1'), reviewDate: fc.constant('2026-06-15') }),
+      { nil: null },
+    ),
+    priorBatch: fc.option(
+      fc.record({ batchId: fc.constant('batch-1'), decidedAt: isoDate.map((d) => `${d}T00:00:00.000Z`) }),
+      { nil: null },
+    ),
+  });
+  const arbBatch = fc.array(arbCandidate, { maxLength: 60 });
+
+  it('is deterministic: same batch + context twice → identical decisions', () => {
+    fc.assert(
+      fc.property(arbBatch, (candidates) => {
+        expect(evaluateBatch(candidates, context)).toEqual(evaluateBatch(candidates, context));
+      }),
+    );
+  });
+
+  it('every decision carries the envelope; every withhold exactly one closed-enum reason', () => {
+    fc.assert(
+      fc.property(arbBatch, (candidates) => {
+        for (const decision of evaluateBatch(candidates, context)) {
+          expect(decision.policy_version).toBe(RESTRAINT_POLICY_VERSION);
+          expect(decision.decided_at).toBe(context.decidedAt);
+          if (decision.decision === 'withhold') {
+            expect(WITHHOLD_REASONS).toContain(decision.reason);
+          }
+        }
+      }),
+    );
+  });
+
+  it('sends never exceed the cap, and velocity banking only fires when eligible_count > cap', () => {
+    fc.assert(
+      fc.property(arbBatch, (candidates) => {
+        const decisions = evaluateBatch(candidates, context);
+        const sends = decisions.filter((d) => d.decision === 'send').length;
+        const banked = decisions.filter((d) => d.decision === 'withhold' && d.reason === 'velocity_banked').length;
+        expect(sends).toBeLessThanOrEqual(BATCH_CAP);
+        if (banked > 0) {
+          expect(sends).toBe(BATCH_CAP);
+          expect(sends + banked).toBeGreaterThan(BATCH_CAP);
+        }
+      }),
+    );
+  });
+
+  it('evidence never contains PII or sentiment: no name/email/phone/rating/star keys in any serialized decision', () => {
+    fc.assert(
+      fc.property(arbBatch, (candidates) => {
+        const serialized = JSON.stringify(evaluateBatch(candidates, context));
+        expect(serialized).not.toMatch(/"(name|email|phone|rating|stars?|sentiment)"/i);
+      }),
+    );
+  });
+});
