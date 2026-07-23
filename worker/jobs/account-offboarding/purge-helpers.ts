@@ -65,6 +65,7 @@ const DELETABLE_BY_BUSINESS = new Set<string>([
   'weekly_summaries',
   'monthly_impact_emails',
   'ranking_snapshots',
+  'competitor_snapshots',
   'onboarding_drip_log',
   'onboarding_demos',
   'satisfaction_responses',

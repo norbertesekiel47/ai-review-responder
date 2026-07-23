@@ -255,6 +255,7 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     await deleteByBusiness(tx, 'weekly_summaries', row.account_id);
     await deleteByBusiness(tx, 'monthly_impact_emails', row.account_id);
     await deleteByBusiness(tx, 'ranking_snapshots', row.account_id);
+    await deleteByBusiness(tx, 'competitor_snapshots', row.account_id);
     await deleteByBusiness(tx, 'onboarding_drip_log', row.account_id);
     await deleteByBusiness(tx, 'onboarding_demos', row.account_id);
     await deleteByBusiness(tx, 'satisfaction_responses', row.account_id);

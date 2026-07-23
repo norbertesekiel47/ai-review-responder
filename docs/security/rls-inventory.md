@@ -25,6 +25,7 @@ Rows marked `— (deny-all)` in the Scope column are **not** owner-scoped by an 
 | `api_costs_daily_rollups` | `business_id` | Cost rollups inherit tenant scope through the target location; account-level reads join through `businesses.account_id`. |
 | `review_exceptions` | `business_id` | Exception records are location-scoped, including identity-collision and publisher failure cases. |
 | `ranking_snapshots` | `business_id` | Ranking history is location-scoped by keyword and snapshot date. |
+| `competitor_snapshots` | `business_id` | Competitor pack rows are location-scoped by keyword and snapshot date. |
 | `approval_audit_log` | `account_id` and `business_id` | Approval forensics are denormalized with account and location scope for owner/admin evidence queries. |
 | `account_audit_log` | `account_id` | Account-level audit entries are scoped to the billing parent. |
 | `account_offboardings` | `account_id` | Owner offboarding lifecycle rows are account-scoped and service-only. RLS is deny-all with no authenticated owner policies; routes and workers must enforce session/account scope in application code. |

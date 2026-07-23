@@ -190,6 +190,13 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Location ranking history is account data and is removed.',
   },
   {
+    table: 'competitor_snapshots',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Competitor pack ranking history is account data and is removed.',
+  },
+  {
     table: 'onboarding_drip_log',
     disposition: 'hard_delete',
     scopeEvidence: 'direct_business_id',
