@@ -406,7 +406,8 @@ run steps, exactly per §3.1.
 | GBP API access | Application filed 2026-07-01, pending; `google_review_name` capture shipping since migration 070 keeps the adapter path open |
 | Staging E2E (A–D) | ✅ PASS |
 | Governor fix | ✅ merged (#520) |
-| Prod WS8 cutover (`ws8-tier-cutover.md` — prod Stripe Prices) | ❌ not run |
+| Production stack | **Not stood up — deliberate.** Strategy (owner, 2026-07-23): build + staging-prove everything, then one production bring-up at launch (prod Railway worker + Redis + env matrix, webhook endpoints → prod ingress, Vercel prod env, smoke). Prod Supabase migrations stay in lockstep meanwhile (verified through 083). |
+| Prod WS8 cutover (`ws8-tier-cutover.md` — prod Stripe Prices + migration 078) | ❌ not run — folds into the production bring-up above; with 0 prod rows it collapses to Prices + env vars + 078 + smoke |
 | Migrations 071–083 applied to PROD Supabase | ✅ **verified by introspection 2026-07-22** with ONE expected gap: 071–077 + 079–083 all present; **078 (contract CHECKs on `accounts`/`businesses.subscription_tier`) is deliberately absent** — prod sits in the expand/contract half-state because 078 applies *inside* the prod WS8 cutover, after its controlled smoke (`ws8-tier-cutover.md`). Prod `accounts`/`businesses` have **0 rows**, so the contract step is trivial when the cutover runs. Do not apply 078 out-of-band. |
 | Owner UAT (`owner-uat-agentic-staging.md`) | pending |
 | Ordered prod flag flip (`TRIAGE` → `ESCALATION` → `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL`; then `AUTOPILOT_PURCHASABLE`) | not started — **all autonomy flags OFF in production** |
