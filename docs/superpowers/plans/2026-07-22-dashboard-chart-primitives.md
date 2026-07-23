@@ -476,6 +476,12 @@ git commit -m "feat: chart motion presets with reduced-motion collapse"
 
 - [ ] **Step 1: Write the failing test**
 
+> **DEVIATION (applied in commit 39d31a95, from code-quality review):** the shipped
+> component uses `aria-hidden="true"` instead of `role="status"` — a hover-only
+> decorative overlay must not be a live region (AT spam on every hover move) —
+> and the tests query `.chart-tip` by class instead of `getByRole('status')`.
+> A sync comment above `TIP_W` cross-references the `.chart-tip` CSS width.
+
 ```tsx
 // src/components/dashboard/charts/__tests__/ChartTooltip.test.tsx
 // @vitest-environment jsdom
