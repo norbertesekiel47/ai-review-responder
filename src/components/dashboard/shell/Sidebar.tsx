@@ -61,9 +61,11 @@ export function Sidebar({
   // highlights Dashboard.
   const isReviews = pathname.startsWith('/dashboard/reviews');
   const isAnalytics = pathname.startsWith('/dashboard/analytics');
+  // PROTOTYPE #537 — throwaway nav entry; removed with the prototype branch.
+  const isRequestsPrototype = pathname.startsWith('/dashboard/solicitation-prototype');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !isReviews && !isAnalytics);
+    (pathname.startsWith('/dashboard/') && !isReviews && !isAnalytics && !isRequestsPrototype);
   const isSettings = pathname.startsWith('/settings');
 
   const initials = deriveInitials(ownerName, ownerEmail);
@@ -91,6 +93,14 @@ export function Sidebar({
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
+        {process.env.NODE_ENV !== 'production' && (
+          <Link
+            href="/dashboard/solicitation-prototype"
+            className={`nav-item ${isRequestsPrototype ? 'active' : ''}`}
+          >
+            <Icon name="sparkle" /> Requests
+          </Link>
+        )}
         <Link href="/dashboard/analytics" className={`nav-item ${isAnalytics ? 'active' : ''}`}>
           <Icon name="chart" /> Analytics
         </Link>
