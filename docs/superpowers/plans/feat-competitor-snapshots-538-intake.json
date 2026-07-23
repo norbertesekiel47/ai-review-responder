@@ -2,45 +2,46 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": true,
-  "goal": "Persist the Competitor pack — normalized competitor_snapshots rows (full ~20 local-pack entries, is_self row included, nullable rating/reviews, keyed by business + keyword + search_location) captured from the SAME SerpAPI google_maps response RankingTrackingWorker already makes, per the #532 locked Competitor Delta semantics.",
+  "goal": "Persist the Competitor pack \u2014 normalized competitor_snapshots rows (full ~20 local-pack entries, is_self row included, nullable rating/reviews, keyed by business + keyword + search_location) captured from the SAME SerpAPI google_maps response RankingTrackingWorker already makes, per the #532 locked Competitor Delta semantics.",
   "non_goals": [
     "The weekly digest Competitor Delta line (separate ticket in map #528)",
-    "Named rival storage + settings UI (#546 — blocked by this migration only)",
+    "Named rival storage + settings UI (#546 \u2014 blocked by this migration only)",
     "Pagination beyond the top ~20 (page 1 only, zero extra quota)",
     "Per-competitor detail or review lookups (extra SerpAPI calls)",
-    "place_id-rotation continuity logic — data_cid is stored write-only in v1, no code reads it",
+    "place_id-rotation continuity logic \u2014 data_cid is stored write-only in v1, no code reads it",
     "Fixing the stale SERPAPI_PREFILL_COST_USD constant (research follow-up, not this ticket)",
     "Merging the research/serpapi-competitor-fields docs branch (map-level loose end, surfaced separately)",
-    "Any use of the google_local engine (its place_id is a CID, not canonical — engine trap)"
+    "Any use of the google_local engine (its place_id is a CID, not canonical \u2014 engine trap)"
   ],
   "user_visible_behavior": [
     "No direct UI change. Observable: after each ranking-tracking run, competitor_snapshots holds the full pack for that (business, keyword, search_location, snapshot_date)",
     "Mock mode (MOCK_EXTERNAL_APIS=true) synthesizes a deterministic-ish pack (fake rivals + is_self row at the mocked rank) through the same write path, so downstream #546/digest work is developable locally"
   ],
   "invariants": [
-    "Zero marginal SerpAPI calls — the pack comes from the response resolveRankPosition already fetches; budget-guard behavior (checkRateLimit strict) unchanged",
-    "Own-rank upsert + pack delete + pack insert run in ONE sql.begin() transaction; a pack failure rolls back the rank row and fails the job (BullMQ retry converges — replace-pack + rank upsert are both idempotent)",
-    "Replace-pack idempotency: DELETE by (business_id, keyword, snapshot_date) then bulk INSERT — no per-row upsert key (place_id can be NULL)",
+    "Zero marginal SerpAPI calls \u2014 the pack comes from the response resolveRankPosition already fetches; budget-guard behavior (checkRateLimit strict) unchanged",
+    "Own-rank upsert + pack delete + pack insert run in ONE sql.begin() transaction; a pack failure rolls back the rank row and fails the job (BullMQ retry converges \u2014 replace-pack + rank upsert are both idempotent)",
+    "Replace-pack idempotency: DELETE by (business_id, keyword, snapshot_date) then bulk INSERT \u2014 no per-row upsert key (place_id can be NULL)",
     "Full pack persisted: entries missing place_id/rating/reviews are kept with NULLs, never dropped",
     "is_self row included when the own business appears in the pack; absent otherwise (absence is a ranking fact)",
     "Tenant scoping: every read/write on competitor_snapshots scoped by business_id; table registered in scripts/ci/tenant-tables.ts; RLS owner_select policy mirroring migration 035's ranking_snapshots policy",
     "Subscription strict-active guard, outbox completion contract, and 1-keyword cap unchanged",
-    "Engine stays google_maps — never google_local"
+    "Engine stays google_maps \u2014 never google_local",
+    "Competitor packs are purged with the account: offboarding disposition hard_delete/direct_business_id/must_be_absent, deletable + verified by business (mirrors ranking_snapshots)"
   ],
   "edge_cases": [
-    "Entry lacking place_id → persisted with NULL place_id, is_self=false",
-    "Own business absent from pack (rank null) → pack still persisted, no is_self row",
-    "Budget exhausted before the call → no SerpAPI call, no pack write (existing break behavior)",
-    "Owner edits ranking_search_location → new rows carry the new value; old rows keep theirs; the series breaks by design (#532 Q6 lock: comparisons filter on same keyword + search_location)",
-    "Same-day re-run → whole pack replaced atomically, no duplicate rows",
-    "Empty local_results (rank not found, zero entries) → DELETE runs with zero inserts: that date's pack is cleared, recording the empty-pack fact",
-    "Entry missing position → array index + 1 fallback (existing own-rank behavior, applied per pack row)",
-    "Mock mode → synthetic pack flows through the identical transaction path"
+    "Entry lacking place_id \u2192 persisted with NULL place_id, is_self=false",
+    "Own business absent from pack (rank null) \u2192 pack still persisted, no is_self row",
+    "Budget exhausted before the call \u2192 no SerpAPI call, no pack write (existing break behavior)",
+    "Owner edits ranking_search_location \u2192 new rows carry the new value; old rows keep theirs; the series breaks by design (#532 Q6 lock: comparisons filter on same keyword + search_location)",
+    "Same-day re-run \u2192 whole pack replaced atomically, no duplicate rows",
+    "Empty local_results (rank not found, zero entries) \u2192 DELETE runs with zero inserts: that date's pack is cleared, recording the empty-pack fact",
+    "Entry missing position \u2192 array index + 1 fallback (existing own-rank behavior, applied per pack row)",
+    "Mock mode \u2192 synthetic pack flows through the identical transaction path"
   ],
   "existing_patterns_to_follow": [
-    "ranking_snapshots table shape (001_initial_schema.sql:442) + uniq index precedent (014_retention_expansion.sql:149) + RLS owner_select (035_rls_policies.sql §2f)",
+    "ranking_snapshots table shape (001_initial_schema.sql:442) + uniq index precedent (014_retention_expansion.sql:149) + RLS owner_select (035_rls_policies.sql \u00a72f)",
     "new-migration skill for supabase/migrations/084_competitor_snapshots.sql (UUIDv7 PK, migrations-log update)",
-    "worker/jobs/__tests__/RankingTrackingWorker.test.ts — existing worker test harness",
+    "worker/jobs/__tests__/RankingTrackingWorker.test.ts \u2014 existing worker test harness",
     "sql.begin() transactional-write precedent; tx passed explicitly per invariant #15 (composition-root worker handler owns the sql import already)"
   ],
   "allowed_edit_surface": [
@@ -52,17 +53,23 @@
     ".claude/reference/migrations-log.md",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "src/lib/account-offboarding/table-disposition.ts",
+    "src/lib/account-offboarding/purge-verification.ts",
+    "worker/jobs/account-offboarding/purge-helpers.ts",
+    "worker/jobs/account-offboarding/purge-stages.ts",
+    "docs/security/rls-inventory.md"
   ],
   "tests_to_add": [
     "Happy path: full pack persisted with is_self row at the matched rank, all fields mapped (title, place_id, data_cid, rating, review_count, position)",
-    "Replace idempotency: second run same day replaces the pack — row count stable, no duplicates",
+    "Replace idempotency: second run same day replaces the pack \u2014 row count stable, no duplicates",
     "Nullability: entries missing rating/reviews/place_id persisted with NULLs, not dropped",
-    "Own business absent → pack persisted without is_self row; rank_position NULL on ranking_snapshots as before",
-    "Empty local_results → prior pack for that date cleared (delete-only tx)",
+    "Own business absent \u2192 pack persisted without is_self row; rank_position NULL on ranking_snapshots as before",
+    "Empty local_results \u2192 prior pack for that date cleared (delete-only tx)",
     "Atomicity: pack insert failure rejects the job and leaves no partial pack (rank upsert rolled back)",
     "Mock mode: synthetic pack written through the same path; is_self row present at mocked rank",
-    "Existing own-rank tests stay green (no behavior change to rank resolution)"
+    "Existing own-rank tests stay green (no behavior change to rank resolution)",
+    "Offboarding/RLS consistency suites pass with competitor_snapshots registered (table-disposition, purge-verification, rls-audit inventory tests)"
   ],
   "verification_commands": [
     "pnpm vitest run worker/jobs/__tests__/RankingTrackingWorker.test.ts"
