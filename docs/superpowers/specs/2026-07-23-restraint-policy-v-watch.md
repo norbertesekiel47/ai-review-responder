@@ -7,7 +7,7 @@
 > (`research/solicitation-policy-constraints` →
 > `docs/research/2026-07-23-solicitation-policy-constraints.md`), whose row 1
 > (gating ban binds SELECTION even in watch-mode) shaped every choice below.
-> Companion ADR: `docs/adr/0011-sentiment-blind-withhold-enum.md`.
+> Companion ADR: `docs/adr/0012-sentiment-blind-withhold-enum.md`.
 
 ## 1. Withhold-reason enum (closed, six reasons)
 
@@ -27,7 +27,7 @@ code as a contract, and the batch UI renders them verbatim.
 **`recent_negative` is rejected permanently** (not deferred): withholding
 asks from customers with known/predicted negative sentiment is the mechanism
 Google's gating ban describes ("selectively solicit positive reviews").
-See ADR 0011.
+See ADR 0012.
 
 **Boundary rule:** ingest hygiene (malformed contact handles, duplicate rows,
 unparseable dates) is #535 upload-time **validation rejection**, not a
@@ -107,7 +107,7 @@ Per-reason payloads:
 | Reason | Evidence fields |
 |---|---|
 | `stale_visit` | `last_visit_date`, `days_since_visit`, `vertical`, `matched_keyword`, `freshness_window_days` |
-| `already_reviewed` | `review_id`, `review_date` — **never the star rating** (rating in evidence would rebuild the gating artifact through the display; see ADR 0011) |
+| `already_reviewed` | `review_id`, `review_date` — **never the star rating** (rating in evidence would rebuild the gating artifact through the display; see ADR 0012) |
 | `over_contacted` | `prior_batch_id`, `prior_decision_at`, `min_gap_days` |
 | `no_consent` | `upload_id`, missing attestation coverage (semantics finalized in #535) |
 | `suppressed` | `suppression_source`, `suppressed_at` |
