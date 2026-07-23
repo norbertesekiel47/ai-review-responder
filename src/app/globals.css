@@ -1450,7 +1450,7 @@
 
 /* Overview strip */
 .hiw-overview {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   background: rgba(151,179,174,0.1);
   border-top: 1px solid rgba(151,179,174,0.1);
@@ -1478,6 +1478,7 @@
   opacity: 0.35;
   z-index: 4; pointer-events: none;
 }
+.hiw-overview-cell:nth-child(3n)::after { display: none; }
 .hiw-overview-top { display: flex; align-items: center; justify-content: space-between; }
 .hiw-overview-glyph {
   width: 32px; height: 32px; border-radius: 10px;
@@ -1832,7 +1833,7 @@
 
 /* Under the hood */
 .hiw-hood {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 8px; margin-bottom: 28px;
 }
 .hiw-hood-node {
@@ -1852,6 +1853,7 @@
   background: rgba(151,179,174,0.4);
   transform: translateY(-50%);
 }
+.hiw-hood-node:nth-child(3n)::after { display: none; }
 .hiw-hood-glyph {
   width: 32px; height: 32px; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
@@ -2019,6 +2021,8 @@
   .hiw-section { padding: 44px 24px; }
   .hiw-cta { padding: 48px 24px 56px; }
   .hiw-overview { grid-template-columns: repeat(2, 1fr); }
+  .hiw-overview-cell:nth-child(2n)::after { display: none; }
+  .hiw-overview-cell:nth-child(3n)::after { display: block; }
   .hiw-hood, .hiw-guarantees { grid-template-columns: 1fr; }
   .hiw-hood-node:not(:last-child)::after { display: none; }
   .hiw-step { grid-template-columns: 1fr; gap: 16px; }

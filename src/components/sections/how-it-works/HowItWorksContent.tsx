@@ -392,6 +392,7 @@ export function HowItWorksContent({
                   <div key={n.title} className="hiw-hood-node">
                     <div
                       className="hiw-hood-glyph"
+                      aria-hidden="true"
                       style={{
                         background: `linear-gradient(135deg, ${n.color}, ${n.color}dd)`,
                       }}
