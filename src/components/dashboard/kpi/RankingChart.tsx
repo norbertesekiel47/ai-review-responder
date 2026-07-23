@@ -4,7 +4,7 @@ import { scaleLinear, scalePoint } from 'd3-scale';
 import { line as d3Line } from 'd3-shape';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import type { RankingChartSeries } from '@/components/dashboard/kpi/RankingChart.helpers';
-import { chartTransition, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
+import { chartTransition, LINE_REVEAL, LINE_STAGGER_S } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
@@ -105,7 +105,7 @@ export function RankingChart({
                   style={{ stroke: color, strokeWidth: faded ? 1.5 : 2.5 }}
                   initial={reduced ? false : { pathLength: 0 }}
                   animate={{ pathLength: 1 }}
-                  transition={chartTransition(reduced, LINE_REVEAL, si * 0.12)}
+                  transition={chartTransition(reduced, LINE_REVEAL, si * LINE_STAGGER_S)}
                 />
                 {sorted.map((p, pi) => (
                   <circle

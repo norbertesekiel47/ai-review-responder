@@ -327,6 +327,7 @@ Reusable React components imported by multiple pages.
 | `auth/ResetPasswordFormClient.tsx` | Reset-password form. |
 | `dashboard/AccountStateScreens.tsx` | Full-page states for non-active accounts (pending payment, cancelled, past-due). |
 | `dashboard/Charts.tsx` | Recharts-based charts for the owner dashboard (response rate, star distribution, etc.). |
+| `dashboard/charts/` | Shared chart primitives: measured-viewBox contract (`useMeasuredSvg`), d3-backed `VelocityChart`, hover/tooltip/motion presets, chart tokens. |
 | `dashboard/ConnectGoogleBanner.tsx` | Banner surfacing the owner's Zernio GBP connection state. States: active (hidden), none (blue CTA), disconnected (orange CTA), finalize_unknown (yellow ops-alert). |
 | `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (WhatsApp only). |
 | `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |

@@ -9,6 +9,9 @@ export const BAR_SPRING: Transition = { type: 'spring', stiffness: 260, damping:
 /** Per-bar entrance stagger, in seconds (multiply by bar index). */
 export const BAR_STAGGER_S = 0.045;
 
+/** Per-series line-reveal stagger, in seconds (multiply by series index). */
+export const LINE_STAGGER_S = 0.12;
+
 /** Spring for hover/end dot position. */
 export const DOT_SPRING: Transition = { type: 'spring', stiffness: 320, damping: 22 };
 
