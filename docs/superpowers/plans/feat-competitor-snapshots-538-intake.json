@@ -32,7 +32,7 @@
     "Entry lacking place_id \u2192 persisted with NULL place_id, is_self=false",
     "Own business absent from pack (rank null) \u2192 pack still persisted, no is_self row",
     "Budget exhausted before the call \u2192 no SerpAPI call, no pack write (existing break behavior)",
-    "Owner edits ranking_search_location \u2192 new rows carry the new value; old rows keep theirs; the series breaks by design (#532 Q6 lock: comparisons filter on same keyword + search_location)",
+    "Owner edits ranking_search_location \u2192 prior-DAY rows keep their old search_location (series breaks by design; #532 Q6 lock: comparisons filter on same keyword + search_location); a SAME-day re-run replaces that date's pack under the new location, mirroring the parent ranking_snapshots upsert which overwrites search_location for the date",
     "Same-day re-run \u2192 whole pack replaced atomically, no duplicate rows",
     "Empty local_results (rank not found, zero entries) \u2192 DELETE runs with zero inserts: that date's pack is cleared, recording the empty-pack fact",
     "Entry missing position \u2192 array index + 1 fallback (existing own-rank behavior, applied per pack row)",

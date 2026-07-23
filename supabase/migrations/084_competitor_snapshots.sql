@@ -20,7 +20,7 @@
 -- from the Railway worker over the direct Postgres connection (not subject to
 -- these authenticated-role policies).
 
-CREATE TABLE competitor_snapshots (
+CREATE TABLE IF NOT EXISTS competitor_snapshots (
   id UUID PRIMARY KEY,                 -- UUIDv7 supplied by the worker
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   keyword VARCHAR(255) NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE competitor_snapshots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_competitor_snapshots_lookup
+CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_lookup
   ON competitor_snapshots (business_id, keyword, snapshot_date DESC);
 
 ALTER TABLE competitor_snapshots ENABLE ROW LEVEL SECURITY;

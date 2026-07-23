@@ -458,6 +458,34 @@ describe('RankingTrackingWorker', () => {
       expect(insertIdx).toBeGreaterThan(deleteIdx);
     });
 
+    it('replaces same-day packs by (business, keyword, date) — search_location deliberately excluded', async () => {
+      // Locked semantics (#532/#538, adversarial-review triage): the parent
+      // ranking_snapshots upsert OVERWRITES search_location for the date, so
+      // the pack DELETE must mirror it — scoping by search_location would
+      // orphan a same-day stale pack contradicting its parent row. Prior-DAY
+      // rows are untouched (their snapshot_date differs). This pins the
+      // predicate shape against a well-meaning "fix".
+      sqlReturnQueue.push([mockBusinessRow({
+        google_place_lat: null,
+        google_place_lng: null,
+        ranking_search_location: 'New Location, CA',
+      })]);
+      mockGetJson.mockResolvedValue({
+        local_results: [{ place_id: 'ChIJ_rival_1', title: 'Rival One', position: 1 }],
+      });
+
+      await handleTrackRanking(makeJob());
+
+      const deleteCall = mockSql.mock.calls.find((c: any[]) => sqlTextOf(c).includes('DELETE FROM competitor_snapshots'))!;
+      // Exactly three value params: business_id, keyword, snapshot_date.
+      expect(deleteCall).toHaveLength(4); // template strings array + 3 values
+      expect(deleteCall.slice(1)).toEqual(['biz-rank-1', 'pizza near me', expect.any(String)]);
+      expect(sqlTextOf(deleteCall)).not.toContain('search_location');
+      // Reinserted rows carry the CURRENT search_location (values index 4).
+      const insert = packInsertCalls()[0]!;
+      expect(insert[4]).toBe('New Location, CA');
+    });
+
     it('clears the pack (delete, zero inserts) when local_results is empty', async () => {
       sqlReturnQueue.push([mockBusinessRow()]);
       mockGetJson.mockResolvedValue({ local_results: [] });
