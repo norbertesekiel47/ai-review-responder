@@ -512,6 +512,11 @@ describe('RankingTrackingWorker', () => {
       const inserts = packInsertCalls();
       expect(inserts).toHaveLength(2);
       for (const c of inserts) expect(c[c.length - 1]).toBe(false);
+      // Own-rank behavior unchanged: rank_position (values index 4) upserts
+      // NULL on ranking_snapshots when the business is absent from the pack.
+      const rankUpsert = mockSql.mock.calls.find((c: any[]) =>
+        sqlTextOf(c).includes('INSERT INTO ranking_snapshots'))!;
+      expect(rankUpsert[4]).toBeNull();
     });
 
     it('fails the job when the pack write fails (tx rejects, outbox untouched)', async () => {
@@ -533,18 +538,23 @@ describe('RankingTrackingWorker', () => {
       });
       // Throw from the competitor INSERT executed inside sql.begin's callback —
       // exercises the real code path (begin's default impl runs cb(mockSql)).
+      // try/finally: vi.clearAllMocks() does NOT reset implementations, so a
+      // failed assertion must not leak the poisoned impl into later tests.
       const originalImpl = mockSql.getMockImplementation();
-      mockSql.mockImplementation((s: TemplateStringsArray, ..._v: unknown[]) => {
-        if ((s?.join?.('') ?? '').includes('INSERT INTO competitor_snapshots')) {
-          return Promise.reject(new Error('pack insert exploded'));
-        }
-        return Promise.resolve(sqlReturnQueue.shift() ?? []);
-      });
+      try {
+        mockSql.mockImplementation((s: TemplateStringsArray, ..._v: unknown[]) => {
+          if ((s?.join?.('') ?? '').includes('INSERT INTO competitor_snapshots')) {
+            return Promise.reject(new Error('pack insert exploded'));
+          }
+          return Promise.resolve(sqlReturnQueue.shift() ?? []);
+        });
 
-      await expect(handleTrackRanking(makeJob())).rejects.toThrow('pack insert exploded');
-      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
-      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-      mockSql.mockImplementation(originalImpl!);
+        await expect(handleTrackRanking(makeJob())).rejects.toThrow('pack insert exploded');
+        expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+        expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      } finally {
+        mockSql.mockImplementation(originalImpl!);
+      }
     });
 
     it('synthesizes and persists a mock pack through the same tx path in mock mode', async () => {

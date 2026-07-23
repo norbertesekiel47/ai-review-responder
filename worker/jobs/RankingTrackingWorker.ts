@@ -61,6 +61,37 @@ function parseTrackedKeywords(
   }
 }
 
+// Synthesize a Competitor pack for mock mode: 10 entries with the is_self row
+// at a random rank, shaped exactly like the real lane so the replace-pack tx
+// and downstream Competitor Delta work are exercisable without SerpAPI keys.
+function synthesizeMockPack(business: RankingBusiness): LocalPackResult {
+  const rankPosition = Math.floor(Math.random() * 10) + 1;
+  const pack: CompetitorPackEntry[] = Array.from({ length: 10 }, (_, idx) => {
+    const position = idx + 1;
+    if (position === rankPosition) {
+      return {
+        position,
+        placeId: business.google_place_id,
+        dataCid: null,
+        title: 'Mock Self',
+        rating: 4.5,
+        reviewCount: 120,
+        isSelf: true,
+      };
+    }
+    return {
+      position,
+      placeId: `mock-place-${position}`,
+      dataCid: null,
+      title: `Mock Rival ${position}`,
+      rating: Math.round((3.5 + Math.random() * 1.5) * 10) / 10,
+      reviewCount: 20 + Math.floor(Math.random() * 380),
+      isSelf: false,
+    };
+  });
+  return { rankPosition, pack };
+}
+
 // Resolve a keyword's full local pack: our own rank plus every competitor row
 // (the Competitor pack, #532/#538). Mock mode synthesizes a pack; otherwise one
 // SerpAPI google_maps query — the SAME call that always resolved the rank, so
@@ -72,32 +103,9 @@ async function resolveLocalPack(
   logger: RankingLogger,
 ): Promise<LocalPackResult> {
   if (isMockMode()) {
-    const rankPosition = Math.floor(Math.random() * 10) + 1;
-    const pack: CompetitorPackEntry[] = Array.from({ length: 10 }, (_, idx) => {
-      const position = idx + 1;
-      if (position === rankPosition) {
-        return {
-          position,
-          placeId: business.google_place_id,
-          dataCid: null,
-          title: 'Mock Self',
-          rating: 4.5,
-          reviewCount: 120,
-          isSelf: true,
-        };
-      }
-      return {
-        position,
-        placeId: `mock-place-${position}`,
-        dataCid: null,
-        title: `Mock Rival ${position}`,
-        rating: Math.round((3.5 + Math.random() * 1.5) * 10) / 10,
-        reviewCount: 20 + Math.floor(Math.random() * 380),
-        isSelf: false,
-      };
-    });
-    logger.log(`[mock] keyword="${keyword}" rank=${rankPosition} pack=${pack.length}`);
-    return { rankPosition, pack };
+    const result = synthesizeMockPack(business);
+    logger.log(`[mock] keyword="${keyword}" rank=${result.rankPosition} pack=${result.pack.length}`);
+    return result;
   }
 
   const params: Record<string, unknown> = {
@@ -156,8 +164,9 @@ async function resolveLocalPack(
   return { rankPosition, pack };
 }
 
-// Pre-existing ranking job handler (14 cyclomatic on main); this PR only added a
-// bounded SerpAPI timeout in resolveRankPosition, no new branches here.
+// Pre-existing ranking job handler (14 cyclomatic on main); the #538 Competitor
+// pack change added only the sql.begin persistence block (upsert + pack
+// replace) — guard/branch structure is unchanged, complexity is inherited.
 // fallow-ignore-next-line complexity
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
   const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
