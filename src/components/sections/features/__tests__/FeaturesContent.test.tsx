@@ -104,7 +104,13 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('7am');
 
     expect(html).toContain('Nothing is posted without your go-ahead');
-    expect(html).toContain('Every Monday morning');
+    expect(html).toContain('Insights · every Monday');
+  });
+
+  it('presents the weekly brief as the Insights agent', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Insights · every Monday');
+    expect(html).toContain('Insights is the reporting agent');
   });
 
   it('presents Reply as the drafting agent', () => {
