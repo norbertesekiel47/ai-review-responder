@@ -49,4 +49,12 @@ describe('VelocityChart', () => {
     render(<VelocityChart data={data} />);
     expect(screen.getByText(/avg 22.3/)).toBeInTheDocument();
   });
+
+  it('renders safely with no data', () => {
+    const { container } = render(<VelocityChart data={[]} />);
+    const svg = container.querySelector('svg')!;
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 220');
+    expect(container.querySelectorAll('rect').length).toBe(0);
+    expect(svg.innerHTML).not.toContain('NaN');
+  });
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { useId } from 'react';
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { line as d3Line, curveMonotoneX } from 'd3-shape';
 import { LazyMotion, domAnimation, m } from 'motion/react';
@@ -49,17 +50,18 @@ export function weekShortLabel(weekStartIso: string, idx: number, total: number)
 
 const PAD = { l: 36, r: 16, t: 28, b: 32 };
 const H = 220;
-const GRAD_ID = 'velGrad';
-const LINE_ID = 'velLine';
 
 /** Weekly bars + smoothed trend line + avg reference, on the measured-viewBox contract. */
 export function VelocityChart({ data }: { data: VelocityDatum[] }) {
   const { ref, width } = useMeasuredSvg();
   const reduced = usePrefersReducedMotion();
+  const uid = useId().replace(/:/g, '');
+  const gradId = `velGrad${uid}`;
+  const lineId = `velLine${uid}`;
 
   const counts = data.map((d) => d.count);
   const max = Math.max(...counts, 1);
-  const avg = counts.reduce((a, b) => a + b, 0) / Math.max(1, counts.length);
+  const { avg } = computeVelocitySummary(counts);
   const peakIdx = counts.indexOf(Math.max(...counts));
   const innerH = H - PAD.t - PAD.b;
 
@@ -93,11 +95,11 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           onPointerLeave={hover.onPointerLeave}
         >
           <defs>
-            <linearGradient id={GRAD_ID} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" style={{ stopColor: CHART_ACCENT, stopOpacity: 0.95 }} />
               <stop offset="100%" style={{ stopColor: CHART_ACCENT, stopOpacity: 0.32 }} />
             </linearGradient>
-            <linearGradient id={LINE_ID} x1="0" y1="0" x2="1" y2="0">
+            <linearGradient id={lineId} x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" style={{ stopColor: CHART_ACCENT, stopOpacity: 0.4 }} />
               <stop offset="100%" style={{ stopColor: CHART_ACCENT, stopOpacity: 1 }} />
             </linearGradient>
@@ -145,14 +147,22 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
                   width={barW}
                   rx={6}
                   ry={6}
-                  fill={`url(#${GRAD_ID})`}
+                  fill={`url(#${gradId})`}
                   initial={reduced ? false : { y: PAD.t + innerH, height: 0 }}
                   animate={{ y: yPos, height: h, opacity: hover.index == null || isHover ? 1 : 0.5 }}
-                  transition={chartTransition(reduced, BAR_SPRING, i * BAR_STAGGER_S)}
+                  transition={
+                    reduced
+                      ? { duration: 0 }
+                      : {
+                          y: { ...BAR_SPRING, delay: i * BAR_STAGGER_S },
+                          height: { ...BAR_SPRING, delay: i * BAR_STAGGER_S },
+                          opacity: { duration: 0.16 },
+                        }
+                  }
                 />
                 {i === peakIdx && (
                   <circle cx={centerX(i)} cy={yPos - 12} r="3" style={{ fill: CHART_ACCENT }}>
-                    <animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite" />
+                    {!reduced && <animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite" />}
                   </circle>
                 )}
                 <text
@@ -176,7 +186,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           <m.path
             d={linePath}
             fill="none"
-            stroke={`url(#${LINE_ID})`}
+            stroke={`url(#${lineId})`}
             strokeWidth={2}
             strokeLinecap="round"
             initial={reduced ? false : { pathLength: 0 }}
