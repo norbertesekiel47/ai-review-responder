@@ -2,6 +2,10 @@
   "mcpServers": {
     "Sentry": {
       "url": "https://mcp.sentry.dev/mcp/repworth-nv/javascript-nextjs"
+    },
+    "stripe": {
+      "type": "http",
+      "url": "https://mcp.stripe.com/"
     }
   }
 }

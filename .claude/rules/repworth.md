@@ -78,7 +78,8 @@ with CLAUDE.md, CLAUDE.md wins.
 - Do not use `${JSON.stringify(x)}::jsonb` with Postgres.js v3 (it
   double-encodes). Use the `jsonb()` helper / `sql.json(value)`.
 - Do not push directly to `main`. The "main protection" ruleset blocks it;
-  land changes via PR with the 4 CI checks green.
+  land changes via PR with the CI checks green (`.github/workflows/ci.yml`
+  jobs — CLAUDE.md "CI & repo" is the authoritative description).
 - Do not use string literals for subscription status, tier IDs, job names,
   or review status. Import the enum/constant from its single authoritative
   TS file.

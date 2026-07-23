@@ -34,6 +34,28 @@ while [ ! -d "$ANCHOR_DIR" ] && [ "$ANCHOR_DIR" != "/" ]; do
 done
 TARGET_ROOT=$(git -C "$ANCHOR_DIR" rev-parse --show-toplevel 2>/dev/null || true)
 
+# --- Always-on worktree containment (independent of /feature arming) ---
+# When this session's cwd is inside a WORKTREE checkout (sibling
+# …-worktrees/<branch>/ or nested .claude/worktrees/), an edit that targets a
+# different checkout is almost always the "edit silently lands in main's tree"
+# footgun (CLAUDE.md worktree rules). The reverse direction — editing a
+# worktree from the main checkout — stays allowed (that's the blessed flow).
+# Files outside any git repo (scratchpad, /tmp) are unaffected.
+if [ "${WORKTREE_EDIT_GUARD_DISABLE:-0}" != "1" ]; then
+  SESSION_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+  case "$SESSION_ROOT" in
+    *-worktrees/*|*/.claude/worktrees/*|*/.worktrees/*)
+      if [ -n "$TARGET_ROOT" ] && [ "$TARGET_ROOT" != "$SESSION_ROOT" ]; then
+        echo "BLOCKED: session cwd is worktree '$SESSION_ROOT' but the edit targets '$TARGET_ROOT'." >&2
+        echo "Point the Write/Edit path at the worktree root — an edit to another checkout" >&2
+        echo "silently lands in that tree. If cross-checkout editing is genuinely intended," >&2
+        echo "set WORKTREE_EDIT_GUARD_DISABLE=1." >&2
+        exit 2
+      fi
+      ;;
+  esac
+fi
+
 # Arm from the target repo root first, the session cwd second.
 ROOT=""
 if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.feature/intake.json" ]; then

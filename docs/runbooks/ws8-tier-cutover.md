@@ -365,6 +365,12 @@ worker plus Stripe webhook endpoint remain healthy. Before removing the rule,
 record the post-078 checkpoint's exact deadline-verification UTC time and
 `AUTOPILOT_PURCHASABLE` state. Record UTC resume time.
 
+After the **production** run of this section, update `.claude/CLAUDE.md` in the
+same change: delete the "Standing exception until the prod WS8 cutover"
+sentence from "Environments & branches" (078 is no longer absent in prod), and
+revise "All autonomy flags are OFF in prod" as the ordered go-live flip
+proceeds. Stale entries there are bugs per the doc-hygiene rule.
+
 After staging acceptance, repeat sections 1–7 in production. Do not reuse
 staging Price IDs, Stripe mode, database URL, or evidence as production proof.
 
