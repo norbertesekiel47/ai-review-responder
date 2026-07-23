@@ -915,4 +915,83 @@ leak), the CLAUDE.md LLM-seam breaker mention, migration-083 applied dates,
 follow-up-map SHIPPED status, and the arch-review counter 1→4 (next feature
 merge hits the ≥5 review threshold).
 
+## 2026-07-22→23 — Agentic staging E2E campaign (Phases A–D) + launch-gate closures — PRs #518–#522
+
+**What:** the WS1–WS8 agentic platform was proven end-to-end on the staging full
+stack (Supabase `kubdiqdhqbhwmqfditeg` + Railway staging worker + staging.repworth.net)
+against a **live Google Business Profile** (Tancia Resort, owner-authorized),
+per `docs/runbooks/agentic-staging-copilot-autopilot-e2e.md` and
+`…phase-d-purchasability.md`. Evidence records:
+`docs/runbooks/evidence/2026-07-21-agentic-staging-copilot-autopilot-e2e-evidence.md`
+(A–C) and `…2026-07-22-agentic-staging-phase-d-evidence.md` (D).
+
+**Phase results:** A (Copilot full loop: live ingest → draft → owner-notification →
+`/approve` token flow → real Google post; spine `review_ingested→…→reply_posted`,
+run completed) ✅. B (Guardian: WS2 triage discriminated severities on live
+reviews with `api_costs endpoint='review-triage'` rows; WS3 escalations raised +
+emailed + acknowledge/resolve lifecycle; drafts stayed `pending_approval`) ✅.
+C (Autopilot: live 5★ auto-approved `approval_method='auto_policy'` with NO
+owner action → 15-min veto window (delayed publish + pending-post notice) →
+real auto-post 09:42Z → judge verdict `pass` 09:43Z; drills: moderation absolute
+veto held `Refund Tester` despite AUTO_APPROVAL on; judge-off downgraded an
+approved auto-post back to owner review (`auto_policy_revoked_judge_unavailable`);
+governor auto-suspended on 5/6 flag rate with owner+admin notices, then
+unsuspend re-armed) ✅. D (purchasability: 12/12 `WS8_SMOKE` scenarios incl.
+gate-closed denials + publish-time downgrade; real fresh-signup Autopilot
+checkout $49 founding/trialing; copilot→autopilot upgrade via billing UI with
+`tier_changed` audit + in-place Stripe sub update; trust-dial settings-UI
+expansion/blocked-409/contraction matrix; governor suspension rendered at
+`/admin/autonomy` under real AAL2 TOTP and unsuspended with a note — no SQL) ✅.
+Zero net new Google posts in Phase D; every flag returned to baseline after each
+phase.
+
+**Bugs found by live testing (all merged):**
+- **#518** `fix(billing)` — every card-up-front trial signup stranded
+  `pending_payment`: `trialContractMatchesLease`
+  (`worker/ingress/stripe/checkout-completed.ts`) accepted only
+  `no_payment_required`, but Stripe reports `payment_status='paid'` for the $0
+  setup invoice → `invalid_trial` → `cancelUnexpectedSubscription` killed the
+  valid trialing sub. Second bite of the known lab-note trap; both sites now
+  accept `paid`. Regression test added.
+- **#519** `fix(onboarding)` — `POST /api/onboarding/business` read raw
+  `onboardingDemoEnabled()` while `page.tsx` used
+  `shouldUseDemoWizard(flag,row)` → 409 `onboarding_not_started` redirect loop
+  for a trial with no captured location. Route now shares the page's helper.
+- **#520** `fix(governor)` — an account could NEVER be re-suspended after its
+  first unsuspension: `listGovernorCandidates` derives `window_start` from the
+  `autonomy_unsuspended` audit MAX (µs precision); postgres.js hands it to JS as
+  a ms-precision `Date`; `revalidateGovernorCandidate`'s `created_at > $window`
+  then matched the very row the window came from → silent skip every cycle.
+  Found in the Phase D drill (5/5 flags, rate 1.0, >10 min at 20s cadence, no
+  suspension, no log). Fix: `date_trunc('milliseconds', created_at) >` + the
+  scheduler's skip path now logs. TDD: integration regression seeds the audit
+  with `+ interval '419 microseconds'` (JS-Date-seeded fixtures carry zero µs —
+  exactly why 31 green tests never caught it); red before, green after.
+
+**Gate closures:** Zernio automated posting CLOSED (no limits, pay-per-use per
+account; record + implications in `docs/runbooks/zernio-automated-posting-limits.md` —
+pacing is entirely ours, Zernio volume is now a COGS line, pricing unit TBD).
+Prod Supabase verified by introspection: 071–077 + 079–083 present, **078
+deliberately absent** (expand/contract half-state; contract applies inside the
+prod WS8 cutover; prod tables have 0 rows). Production stack deliberately not
+stood up — build-first strategy recorded in design doc §8.4; bring-up is one
+launch-day session.
+
+**Docs landed:** #521 (audit trail: §8 as-built status in the design doc, 4
+runbooks, 2 evidence records, scalability+reliability re-audits, `.scratch/`
+gitignored) and #522 (CLAUDE.md Where-things-live row routing all agentic work
+to §8 → per-WS specs → evidence). Runbook defects found during execution were
+fixed upstream in the same pass (composed-gate `--gate-open` caveat, Vercel
+both-halves env note, §1.1 triage-columns check, veto-window 15/30 enum, MFA
+enroll-if-absent, OTP relay logistics).
+
+**This sweep added:** `currents.md` summary + Last-updated bump, this entry,
+two second-bite appendices on existing lab notes (#518 trial `paid`, #519
+wizard-flag parity), and one new lab note + CLAUDE.md gotcha (postgres.js
+timestamptz µs truncation — second subsystem bitten).
+
+**Arch-review counter: unchanged at 4** — this era's merges were bugfixes
+(#518–#520) and docs (#521–#522), not features. The next feature merge (likely
+Phase 2 / Solicitation work) hits the ≥5 review threshold.
+
 ---

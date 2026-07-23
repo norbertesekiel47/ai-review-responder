@@ -7,7 +7,54 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-21 (Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083. The 10-finding pre-production reliability report is now fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-23 (Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Agentic platform staging-proven; launch gates closed (2026-07-22→23, PRs #518–#522)
+
+The full agentic stack (WS1–WS8) was proven end-to-end on the staging full stack
+against a **live Google Business Profile**, and the go-live gate list collapsed
+to launch-day items. What is true now:
+
+- **Staging E2E campaign PASS, Phases A–D** (evidence:
+  `docs/runbooks/evidence/2026-07-21-…` + `2026-07-22-…`): Copilot full loop
+  (live ingest → draft → owner `/approve` → real Google post, spine-attributed);
+  Guardian triage + escalation on live reviews; Autopilot autonomy happy path
+  (policy auto-approve → 15-min veto window → **real unattended Google post** →
+  judge verdict 43s later) plus all three fail-safe drills (moderation absolute
+  veto, judge-down downgrade, governor suspend → AAL2 admin unsuspend); Phase D
+  purchasability (12/12 WS8 smoke, real Autopilot checkout + upgrade, trust-dial
+  settings-UI writes incl. gate-closed 409, publish-time downgrade).
+- **Three launch-blocking bugs found by live testing, all fixed + merged:**
+  #518 — every card-up-front trial signup stranded `pending_payment`
+  (`trialContractMatchesLease` rejected Stripe's `payment_status='paid'` for the
+  $0 setup invoice and auto-cancelled the valid trialing sub); #519 — onboarding
+  page/route flag drift (route read raw `onboardingDemoEnabled()` while the page
+  used `shouldUseDemoWizard` → 409 loop for trials without a location); #520 —
+  the governor could never re-suspend an account after its first unsuspension
+  (JS-Date ms truncation vs timestamptz µs — see the lab note + CLAUDE.md gotcha).
+- **Zernio gate CLOSED** (`docs/runbooks/zernio-automated-posting-limits.md`):
+  automated posting permitted, **no rate limits, pay-per-use per account** — so
+  all pacing is ours (caps/veto-window/jitter are mandatory, never removable),
+  and Zernio API volume is a COGS line (pricing unit still to pin down).
+- **Prod schema verified by introspection:** 071–077 + 079–083 present; **078
+  deliberately absent** until the prod WS8 cutover (0 rows in prod
+  `accounts`/`businesses`). **Production stack intentionally not stood up** —
+  build-first strategy; one bring-up session at launch (worker + Redis + env
+  matrix + webhooks + Stripe Prices + 078 + smoke).
+- **The audit trail is in `main`:** design doc **§8 "As-built status"** is the
+  entry point for future agents (CLAUDE.md's Where-things-live table routes
+  there), plus 4 runbooks + 2 evidence records; `.scratch/` is gitignored.
+
+The new shape:
+- `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §8 — as-built overlay + go-live gate table
+- `docs/runbooks/agentic-staging-copilot-autopilot-e2e.md`, `agentic-staging-phase-d-purchasability.md`, `owner-uat-agentic-staging.md`, `zernio-automated-posting-limits.md`
+- `docs/runbooks/evidence/2026-07-21-…` + `2026-07-22-…` (the proof)
+- `worker/ingress/stripe/checkout-completed.ts` — trial contract accepts `paid` | `no_payment_required` (#518)
+- `src/app/api/onboarding/business/route.ts` — `shouldUseDemoWizard` parity with the page (#519)
+- `src/lib/auto-approval/governor.ts` + `worker/background/schedulers/AutonomyGovernorScheduler.ts` — ms-truncated staleness check + logged skip path (#520)
+
+Next: owner UAT (runbook ready) → Phase 2 design cycle (run engine +
+Solicitation agent — entry points in design doc §8.5); production bring-up at launch.
 
 ## Quick summary — Reliability follow-ups P4/P8/P9 (2026-07-21, PRs #514–#516)
 
