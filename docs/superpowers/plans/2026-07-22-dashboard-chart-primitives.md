@@ -772,7 +772,7 @@ export function ReputationTrendChart({ trend }: Props) {
 }
 ```
 
-Note: with no `initial` prop, the `m.g` dot renders directly at its `animate` target on mount (no fly-in) — the spring only animates subsequent position changes, i.e. hover moves. That is intended: the line draws in, the dot sits at the endpoint, and hover motion is springy. Under reduced motion `chartTransition` makes hover moves instant too.
+Note (CORRECTED after review of commit 2ba3e6ee): motion only skips the mount-enter animation when `initial === false` (or initial equals animate) — an *unset* `initial` still animates from the element's default transform (0,0). The dot's `m.g` therefore MUST set `initial={false}` so it mounts at rest and only springs on hover-driven position changes (fixed in the follow-up commit). Any later task copying this dot pattern must include `initial={false}`. Under reduced motion `chartTransition` makes hover moves instant too.
 
 - [ ] **Step 3: Update the CSS**
 
