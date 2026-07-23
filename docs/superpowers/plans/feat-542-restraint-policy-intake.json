@@ -45,6 +45,7 @@
   "allowed_edit_surface": [
     "src/lib/solicitation/**",
     "docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md",
+    "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],
