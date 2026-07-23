@@ -103,7 +103,7 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('ever posted without your explicit go-ahead');
     expect(html).not.toContain('7am');
 
-    expect(html).toContain('By default, nothing is posted without your go-ahead');
+    expect(html).toContain('Nothing is posted without your go-ahead');
     expect(html).toContain('Every Monday morning');
   });
 
@@ -112,5 +112,12 @@ describe('FeaturesContent', () => {
     expect(html).toContain('Reply · your drafter');
     expect(html).toContain('Reply is the drafting agent');
     expect(html).toContain('from a template.');
+  });
+
+  it('describes the Copilot gate with all three channels', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Copilot · your control');
+    expect(html).toContain('email, Telegram, or WhatsApp');
+    expect(html).toContain('Nothing is posted without your go-ahead');
   });
 });
