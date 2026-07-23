@@ -136,6 +136,13 @@ export function ReputationTrendChart({ trend }: Props) {
                 />
                 {focus && (
                   <m.g
+                    // key={width}: with initial={false} under SSR, motion adopts the
+                    // server-rendered transform (canonical width) and skips the target
+                    // change that arrives in the hydration-time measured re-render,
+                    // leaving the dot stranded mid-chart. Remounting on width change
+                    // renders at the correct position; hover moves (same width) still
+                    // spring through `animate`.
+                    key={width}
                     initial={false}
                     animate={{ x: x(focus.index), y: y(focus.star) }}
                     transition={chartTransition(reduced, DOT_SPRING)}
