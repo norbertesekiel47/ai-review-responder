@@ -39,6 +39,8 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('Every auto-post gets a second opinion.');
     expect(html).toContain('Negative reviews are never auto-posted');
     expect(html).toContain('of auto-posts judged');
+    expect(html).toContain('Typical figures shown for illustration');
+    expect(html).toContain('Sample walkthrough — illustrative reviews and business, not real customers.');
     // stale claims gone
     expect(html).not.toContain('Four steps from new review');
     expect(html).not.toContain('15 hrs');

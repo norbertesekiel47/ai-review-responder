@@ -41,6 +41,8 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('La Taqueria');
     expect(html).not.toContain('Tacos El Primo');
     expect(html).not.toContain('Mama Rosa');
+
+    expect(html).toContain('Illustrative targets, not live performance data.');
   });
 
   it('reconciles the response-rate claim to a single figure (96%)', () => {

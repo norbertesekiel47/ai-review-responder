@@ -21,7 +21,7 @@ export function WatchArtifact() {
   }, [reducedMotion]);
   const rows = STEP1_ROWS;
   const colors = STEP1_COLORS;
-  const mins = String(59 - (tick % 60)).padStart(2, '0');
+  const mins = String(4 - (tick % 5)).padStart(2, '0');
   const secs = String(59 - ((tick * 3) % 60)).padStart(2, '0');
   return (
     <div className="hiw-artifact">

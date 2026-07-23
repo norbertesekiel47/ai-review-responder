@@ -307,7 +307,7 @@ export function HowItWorksContent({
                 <span className="hiw-hero-meta-lbl">of auto-posts judged</span>
               </div>
             </div>
-            <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: '#6a6a6a' }}>
+            <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: 'var(--rw-ink-soft)' }}>
               Typical figures shown for illustration, not live performance data.
             </p>
           </section>
@@ -339,7 +339,7 @@ export function HowItWorksContent({
             <div className="hiw-section-head">
               <p className="hiw-eyebrow">The pipeline</p>
               <h2 className="hiw-h2">Six steps from new review to public reply.</h2>
-              <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: '#6a6a6a' }}>
+              <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: 'var(--rw-ink-soft)' }}>
                 Sample walkthrough — illustrative reviews and business, not real customers.
               </p>
             </div>

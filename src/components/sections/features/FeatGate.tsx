@@ -24,7 +24,7 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       className="px-8 md:px-16 py-20 relative"
     >
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-rw-beige">04</span>
+        <span className="rw-num-tag text-7xl leading-none text-rw-beige" aria-hidden="true">04</span>
         <div className="flex-1">
           <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Copilot · your control</p>
           <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight max-w-2xl">
@@ -115,7 +115,7 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
                       Edit
                     </div>
                     <div className="py-2 rounded-full text-[11px] border border-rw-teal/30 text-rw-ink-soft text-center">
-                      Redraft
+                      Regenerate
                     </div>
                   </div>
                 </div>

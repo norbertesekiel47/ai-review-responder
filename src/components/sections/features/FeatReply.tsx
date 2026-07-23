@@ -10,7 +10,7 @@ const AI_REPLIES = {
     borderColor: 'rgba(242,195,185,0.6)',
     text: '"Thank you for your feedback! We appreciate your business and hope to see you again soon."',
     diag: [
-      ['Named customer', 'No'],
+      ['Written from scratch', 'No'],
       ['References detail', 'No'],
       ['Invites return', 'Generic'],
     ],
@@ -21,7 +21,7 @@ const AI_REPLIES = {
     borderColor: 'rgba(151,179,174,0.35)',
     text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
     diag: [
-      ['Named customer', 'Yes'],
+      ['Written from scratch', 'Yes'],
       ['References detail', 'Al pastor · achiote'],
       ['Invites return', 'Next visit'],
     ],
