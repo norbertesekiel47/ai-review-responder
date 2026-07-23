@@ -106,4 +106,11 @@ describe('FeaturesContent', () => {
     expect(html).toContain('By default, nothing is posted without your go-ahead');
     expect(html).toContain('Every Monday morning');
   });
+
+  it('presents Reply as the drafting agent', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Reply · your drafter');
+    expect(html).toContain('Reply is the drafting agent');
+    expect(html).toContain('never</span> from a template');
+  });
 });
