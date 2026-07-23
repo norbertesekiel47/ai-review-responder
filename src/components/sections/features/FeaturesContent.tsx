@@ -281,7 +281,7 @@ export function FeaturesContent({
   selfServeEnabled = false,
 }: FeaturesContentProps) {
   // Section refs (one per feature) for the dot nav.
-  const aiRef = useRef<HTMLElement>(null);
+  const replyRef = useRef<HTMLElement>(null);
   const langRef = useRef<HTMLElement>(null);
   const approveRef = useRef<HTMLElement>(null);
   const voiceRef = useRef<HTMLElement>(null);
@@ -291,7 +291,7 @@ export function FeaturesContent({
 
   const refMap = useMemo<Record<string, RefObject<HTMLElement | null>>>(
     () => ({
-      'f-reply': aiRef,
+      'f-reply': replyRef,
       'f-lang': langRef,
       'f-approve': approveRef,
       'f-voice': voiceRef,
@@ -362,7 +362,7 @@ export function FeaturesContent({
 
           <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />
 
-          <FeatReply innerRef={aiRef} />
+          <FeatReply innerRef={replyRef} />
           <FeatLang innerRef={langRef} />
           <FeatApprove innerRef={approveRef} />
           <FeatVoice innerRef={voiceRef} />

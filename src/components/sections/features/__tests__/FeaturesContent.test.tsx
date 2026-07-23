@@ -111,6 +111,6 @@ describe('FeaturesContent', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
     expect(html).toContain('Reply · your drafter');
     expect(html).toContain('Reply is the drafting agent');
-    expect(html).toContain('never</span> from a template');
+    expect(html).toContain('from a template.');
   });
 });
