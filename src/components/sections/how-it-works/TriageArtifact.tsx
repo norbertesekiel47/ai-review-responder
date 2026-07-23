@@ -11,16 +11,16 @@ export function TriageArtifact() {
       <div className="hiw-draft">
         <div className="hiw-draft-src">
           <div className="hiw-draft-src-meta">
-            Input · 2★ review ·{' '}
+            Input · negative lane ·{' '}
             <span aria-label="2 out of 5 stars">
-              <span aria-hidden="true">★★</span>
+              <span aria-hidden="true" style={{ color: '#97B3AE' }}>★★</span>
               <span aria-hidden="true" style={{ color: '#e5e5e5' }}>★★★</span>
             </span>
           </div>
           Waited forty minutes for a pickup that was promised in ten. Nobody at the counter could
           tell me where my order was.
         </div>
-        <div className="hiw-receipt" style={{ marginTop: 14 }}>
+        <div className="hiw-receipt">
           <div className="hiw-receipt-cell">
             <span className="hiw-receipt-lbl">Severity</span>
             <span className="hiw-receipt-val">

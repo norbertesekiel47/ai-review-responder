@@ -9,7 +9,7 @@ export function JudgeArtifact() {
         <span className="hiw-artifact-cap-tail">43 sec after posting</span>
       </div>
       <div className="hiw-draft">
-        <div className="hiw-draft-out" style={{ marginBottom: 14 }}>
+        <div className="hiw-draft-out">
           <span className="hiw-draft-badge">Auto-posted reply · under review</span>
           <p>
             Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
