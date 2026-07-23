@@ -461,7 +461,7 @@ by visit details). The roadmap sequences them cheapest-signal-first.
 ### 9.2 Now — Phase 2a scope (the "watch-mode" wayfinder map)
 
 Tracked as wayfinder map **#528** on the issue tracker (execution-carrying,
-tickets #529–#544, each implementation ticket sized to a single `/feature`
+tickets #529–#546, each implementation ticket sized to a single `/feature`
 run):
 
 - **Probe: competitor delta.** Corrected premise: `ranking_snapshots` stores
@@ -469,7 +469,16 @@ run):
   (title, rating, review count) are currently **discarded**. Persist
   competitor snapshot rows (migration + `RankingTrackingWorker` extension),
   then a weekly digest line ("Joe's gained 4 reviews; gap now 27") in
-  `WeeklySummaryWorker`.
+  `WeeklySummaryWorker`. Semantics locked in #532 (2026-07-23): gap =
+  review-count gap; the **Named rival** is owner-picked (ticket #546,
+  storage + settings UI, blocked by the snapshot migration only) with a
+  deterministic nearest-ahead-by-reviews **Auto-default rival** until a
+  pick exists; dropout note + auto fallback when the pick leaves the pack;
+  strictly per-location on the primary tracked keyword; empty states
+  omit/tease/degrade. Persistence: normalized `competitor_snapshots` rows
+  (full ~20 pack, `is_self` row included, nullable rating/reviews, keyed
+  by business + keyword + search location). Glossary: `CONTEXT.md`
+  "Competitor Delta".
 - **Probe: Voice Report Card.** Owner-facing screen rendering what
   `src/lib/responses/voice-learning.ts` has already learned from the owner's
   reply edits (register traits + activation meter). Zero new data collection.
