@@ -9,6 +9,7 @@ interface ChartTooltipProps {
   containerWidth: number;
 }
 
+// Must stay in sync with .chart-tip { width: 96px } in console.css.
 const TIP_W = 96;
 const TIP_LIFT = 52;
 const EDGE = 4;
@@ -18,7 +19,7 @@ export function ChartTooltip({ x, y, title, value, containerWidth }: ChartToolti
   const left = Math.min(Math.max(x - TIP_W / 2, EDGE), containerWidth - TIP_W - EDGE);
   const top = Math.max(y - TIP_LIFT, EDGE);
   return (
-    <div className="chart-tip" role="status" style={{ left, top }}>
+    <div className="chart-tip" aria-hidden="true" style={{ left, top }}>
       <span className="chart-tip-title">{title}</span>
       <span className="chart-tip-value">{value}</span>
     </div>
