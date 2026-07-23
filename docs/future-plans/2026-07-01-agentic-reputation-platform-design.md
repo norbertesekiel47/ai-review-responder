@@ -461,7 +461,7 @@ by visit details). The roadmap sequences them cheapest-signal-first.
 ### 9.2 Now — Phase 2a scope (the "watch-mode" wayfinder map)
 
 Tracked as wayfinder map **#528** on the issue tracker (execution-carrying,
-tickets #529–#546, each implementation ticket sized to a single `/feature`
+tickets #529–#544 plus #546, each implementation ticket sized to a single `/feature`
 run):
 
 - **Probe: competitor delta.** Corrected premise: `ranking_snapshots` stores
