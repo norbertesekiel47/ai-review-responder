@@ -12,7 +12,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-// Keep the unit test focused on page branching — render PageShell as a passthrough.
+// Keep the unit test focused on page branching; render PageShell as a passthrough.
 vi.mock('@/components/ui/PageShell', () => ({
   PageShell: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="page-shell">{children}</div>

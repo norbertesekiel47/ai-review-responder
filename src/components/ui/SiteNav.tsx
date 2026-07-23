@@ -146,7 +146,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
             </button>
           </div>
 
-          {/* Mobile dropdown panel — disclosure, not a focus trap */}
+          {/* Mobile dropdown panel: disclosure, not a focus trap */}
           <AnimatePresence initial={false}>
             {mobileOpen && (
               <m.div

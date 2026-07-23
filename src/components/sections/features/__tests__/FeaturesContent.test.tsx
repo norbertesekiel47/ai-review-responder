@@ -41,6 +41,8 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('La Taqueria');
     expect(html).not.toContain('Tacos El Primo');
     expect(html).not.toContain('Mama Rosa');
+
+    expect(html).toContain('Illustrative targets, not live performance data.');
   });
 
   it('reconciles the response-rate claim to a single figure (96%)', () => {
@@ -52,13 +54,12 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('>100<');
   });
 
-  it('describes the feature count honestly (six live, one in testing)', () => {
+  it('describes the lineup honestly (agents, watchdogs, modes)', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html).toContain('Six features today');
-    expect(html).toContain('1 in testing');
-    expect(html).not.toContain('Seven pieces');
-    expect(html).not.toContain('07 features');
+    expect(html).toContain('3 agents · 2 watchdogs · 2 modes');
+    expect(html).not.toContain('Six features today');
+    expect(html).not.toContain('6 live · 1 in testing');
   });
 
   it('keeps the competitor feature labeled as not-yet-released', () => {
@@ -68,10 +69,26 @@ describe('FeaturesContent', () => {
     expect(html).toContain('preview');
   });
 
+  it('leads with the trusted-autonomy narrative', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('tireless');
+    expect(html).toContain('gate.');
+    expect(html).toContain('Your agent team');
+    expect(html).toContain('Care and control');
+    expect(html).toContain('Craft and proof');
+  });
+
+  it('keeps roadmap items as verb phrases, not shipped claims', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Get reviews · Flag fakes · Watch everywhere');
+    expect(html).toContain('Coming soon');
+    expect(html).toContain('preview');
+  });
+
   it('exposes the before/after toggle state via aria-pressed', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    // Default tab is "after" — exactly one pressed and one unpressed toggle.
+    // Default tab is "after"; exactly one pressed and one unpressed toggle.
     expect(html.match(/aria-pressed="true"/g)?.length).toBeGreaterThanOrEqual(1);
     expect(html).toContain('aria-pressed="false"');
   });
@@ -103,7 +120,48 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('ever posted without your explicit go-ahead');
     expect(html).not.toContain('7am');
 
-    expect(html).toContain('By default, nothing is posted without your go-ahead');
-    expect(html).toContain('Every Monday morning');
+    expect(html).toContain('Nothing is posted without your go-ahead');
+    expect(html).toContain('Insights · every Monday');
+  });
+
+  it('presents the weekly brief as the Insights agent', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Insights · every Monday');
+    expect(html).toContain('Insights is the reporting agent');
+  });
+
+  it('presents Reply as the drafting agent', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Reply · your drafter');
+    expect(html).toContain('Reply is the drafting agent');
+    expect(html).toContain('from a template.');
+  });
+
+  it('describes the Copilot gate with all three channels', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Copilot · your control');
+    expect(html).toContain('email, Telegram, or WhatsApp');
+    expect(html).toContain('Nothing is posted without your go-ahead');
+  });
+
+  it('introduces Guardian triage and escalation without public actions', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Guardian · the negative lane');
+    expect(html).toContain('Guardian never posts anything, anywhere');
+    expect(html).toContain('Severity read');
+  });
+
+  it('describes Autopilot as bounded autonomy with a veto window', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Autopilot · bounded autonomy');
+    expect(html).toContain('veto window');
+    expect(html).toContain('Negative reviews are never auto-posted');
+  });
+
+  it('explains the Judge and Governor watchdogs', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Judge &amp; Governor · oversight');
+    expect(html).toContain('auto-posting stops');
+    expect(html).toContain('Governor suspends');
   });
 });

@@ -68,7 +68,7 @@ describe('LeadIntakeForm', () => {
     if (!init) throw new Error('Expected fetch init payload');
     expect(init.method).toBe('POST');
     // The honeypot must travel to the server under its canonical field name
-    // (regression guard for the dropped-honeypot bug) — empty for a real user.
+    // (regression guard for the dropped-honeypot bug); empty for a real user.
     expect(JSON.parse(init.body as string)).toEqual({
       name: 'Nora Reed',
       email: 'nora@example.com',

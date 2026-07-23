@@ -15,7 +15,7 @@ interface SiteShellProps {
   /** Forwarded to SiteNav. */
   comingSoon?: boolean;
   /**
-   * Optional node rendered between the marquee and the island wrap — used for a
+   * Optional node rendered between the marquee and the island wrap; used for a
    * page's section dot-nav (landing `rw-dot-nav`, how-it-works `hiw-dotnav`,
    * features `<DotNav>`). Omitted on pages without one (pricing).
    */

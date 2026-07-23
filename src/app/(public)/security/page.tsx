@@ -49,7 +49,7 @@ export default function SecurityPage() {
               <li>Approval tokens are stored as SHA-256 hashes, not raw tokens.</li>
               <li>Customer-facing posting requires explicit owner approval.</li>
               <li>
-                Tenant access is enforced in application code — every owner read and write is
+                Tenant access is enforced in application code: every owner read and write is
                 scoped to your account and location. Row-level security policies are additionally
                 enabled on protected database tables as a defense-in-depth backstop.
               </li>

@@ -98,7 +98,7 @@ export function TiltCard({ children, max = 12, glare = true, className }: TiltCa
         onMouseLeave={onLeave}
         // NOTE: no `transform-style: preserve-3d`. The card content is a flat
         // plane (no nested 3D layers), so the perspective tilt looks identical
-        // without it — and `preserve-3d` puts the element in a 3D rendering
+        // without it; and `preserve-3d` puts the element in a 3D rendering
         // context, which disables `backdrop-filter` (used for the glass card).
         style={{ transform }}
         className={cn('relative overflow-hidden rounded-2xl will-change-transform', className)}

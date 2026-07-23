@@ -7,7 +7,7 @@ import { getServerConfig } from '@/lib/config/server';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'RepWorth — Automated Google review responses',
+  title: 'RepWorth: Automated Google review responses',
   description:
     'RepWorth drafts on-brand replies to your Google reviews and posts them only after you approve. Reply to every review without the busywork.',
 };
@@ -20,7 +20,7 @@ function resolveTrialDays(): number {
 export default function LandingPage() {
   const selfServeEnabled = selfServeSignupEnabled();
   // Server-authoritative flags (invariant #13: no NEXT_PUBLIC_* companion). The
-  // trial offer only shows when self-serve signup is also live — there is no
+  // trial offer only shows when self-serve signup is also live; there is no
   // signup to start a trial from otherwise.
   const trialEnabled = isTrialEnabled() && selfServeEnabled;
 

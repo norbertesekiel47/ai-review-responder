@@ -43,7 +43,7 @@ describe('ContactContent', () => {
   it('has exactly one h1 (no heading-level skips)', () => {
     const html = renderToStaticMarkup(createElement(ContactContent));
     expect(html.match(/<h1/g)?.length).toBe(1);
-    // Channel + panel headings are all h2 — no h3 jump under the single h1.
+    // Channel + panel headings are all h2; no h3 jump under the single h1.
     expect(html).not.toContain('<h3');
   });
 });

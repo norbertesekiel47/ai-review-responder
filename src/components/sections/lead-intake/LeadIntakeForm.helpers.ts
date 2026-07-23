@@ -20,7 +20,7 @@ export function submitLeadIntake({ honeypot, ...payload }: LeadIntakePayload): P
 /**
  * Validates every field at once and returns a per-field error map. An empty map
  * means the form is valid. The Maps URL is optional, but when present it must be
- * a syntactically valid https URL — mirroring the server's https-only check so
+ * a syntactically valid https URL, mirroring the server's https-only check so
  * the user gets inline feedback before submitting.
  */
 export function validateLeadIntakeFields({

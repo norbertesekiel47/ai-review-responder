@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Guard for issue #79. A page under src/app/(public)/ has no auth cookies, so
- * Next 16 tries to STATICALLY PRERENDER it at build time — executing its server
+ * Next 16 tries to STATICALLY PRERENDER it at build time, executing its server
  * component, including any `await sql`…`` query. If such a page does not opt out
  * with `export const dynamic = 'force-dynamic'`, `next build` collects its page
  * data and hard-fails whenever DATABASE_POOL_URL is absent or the DB is
@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
  *
  * This guard discovers every public page that DIRECTLY imports the Postgres
  * client module and asserts it declares force-dynamic. New public DB-backed
- * pages are covered automatically — no hand-maintained list.
+ * pages are covered automatically; no hand-maintained list.
  *
  * Scope limit: only DIRECT imports of '@/lib/db/server' are detected. A page
  * that reaches Postgres exclusively through a transitive helper is not covered;

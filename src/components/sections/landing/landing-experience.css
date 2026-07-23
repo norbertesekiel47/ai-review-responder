@@ -1,7 +1,7 @@
-/* Landing experience — the cinematic landing page, Variant A ("Editorial").
+/* Landing experience - the cinematic landing page, Variant A ("Editorial").
  *
  * Re-tokenised to the RepWorth island palette + the app's `next/font` stack
- * (no Google Fonts <link> — those four families are already loaded by the root
+ * (no Google Fonts <link> - those four families are already loaded by the root
  * layout and exposed as --rw-font-*). Everything is scoped under `.rw-le` so it
  * never leaks into the rest of the marketing CSS in globals.css.
  *
@@ -56,7 +56,7 @@
   position: fixed;
   inset: 0;
   z-index: 5;
-  /* Always on — the entire page is this one pinned stage; its layers crossfade
+  /* Always on - the entire page is this one pinned stage; its layers crossfade
      on scroll instead of handing off to a separate scrolling section. */
 }
 .rw-le-morph-panel {
@@ -86,7 +86,7 @@
   position: absolute;
   inset: 0;
   /* Paper-glass surface of the card at rest; JS fades it out. Warm cream tint
-     instead of pure white so the copy sits on "paper". Keep a bare blur() —
+     instead of pure white so the copy sits on "paper". Keep a bare blur() -
      Lightning CSS strips backdrop-filter when saturate()/a manual -webkit
      prefix is present. */
   background: color-mix(in srgb, var(--rw-cream) 42%, rgba(255, 255, 255, 0.08));
@@ -124,7 +124,7 @@
   align-items: center;
   color: var(--rw-ink);
 }
-/* Slim paper sliver under the cue — it should whisper, not sit like a button. */
+/* Slim paper sliver under the cue - it should whisper, not sit like a button. */
 .rw-le-cue-pill {
   display: flex;
   align-items: center;
@@ -170,7 +170,7 @@
   max-width: 1260px;
   margin: 0 auto;
 }
-/* Section slug on its own paper chip — ink on paper, never white-on-sky. */
+/* Section slug on its own paper chip - ink on paper, never white-on-sky. */
 .rw-le-cards-kicker {
   display: inline-block;
   font-family: var(--rw-font-serif);
@@ -194,7 +194,7 @@
   align-items: end; /* bottoms align; differing content heights stagger the tops */
 }
 
-/* The explainer-film plate: a magazine photo plate — paper mat, hairline-framed
+/* The explainer-film plate: a magazine photo plate - paper mat, hairline-framed
    16:9 well, serif caption. Honest placeholder (quiet play glyph, no fake UI);
    the well takes the real <video> later (see the TODO in the TSX). */
 .rw-le-plate {
@@ -242,12 +242,12 @@
 }
 
 /* Shared persona anatomy: warm paper, sharp editorial corners, ink-first type.
-   Each persona then carries ONE distinguishing treatment — a family, not
+   Each persona then carries ONE distinguishing treatment - a family, not
    triplets. */
 .rw-le-persona {
   display: flex;
   flex-direction: column;
-  /* min-width: 0 lets the fr tracks size freely — without it the Reply card's
+  /* min-width: 0 lets the fr tracks size freely - without it the Reply card's
      nowrap run-log inflates its min-content width and the three tracks
      overflow the frame, crowding into each other. */
   min-width: 0;
@@ -256,7 +256,7 @@
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 3px;
   padding: 1.35rem 1.4rem 1.2rem;
-  /* Tight, close shadow — a big soft spread bled across the gaps and made the
+  /* Tight, close shadow - a big soft spread bled across the gaps and made the
      three cards read as overlapping. */
   box-shadow: 0 8px 22px rgba(42, 42, 42, 0.16);
   transition: background-color 0.3s ease, border-color 0.3s ease;
@@ -288,7 +288,7 @@
   flex: 1;
 }
 
-/* Reply — carries the run log: a mono pipeline line with a live status dot
+/* Reply - carries the run log: a mono pipeline line with a live status dot
    (the page's second-read moment). */
 .rw-le-persona-reply {
   padding-top: 1.7rem;
@@ -325,7 +325,7 @@
   }
 }
 
-/* Guardian — a print-style pull-quote margin rule (inset from the card edges,
+/* Guardian - a print-style pull-quote margin rule (inset from the card edges,
    not a full-height side tab), and the strongest honest claim set as a serif
    footnote. The rule takes the accent on hover. */
 .rw-le-persona-guardian {
@@ -355,8 +355,8 @@
   margin: 1.1rem 0 0;
 }
 
-/* Insights — a newspaper masthead: double rule tight under the byline, and a
-   ruled column (thin full-width lines, like blank newsprint rules — not
+/* Insights - a newspaper masthead: double rule tight under the byline, and a
+   ruled column (thin full-width lines, like blank newsprint rules - not
    skeleton bars) reserved for the weekly brief. Deliberately non-informational:
    no invented data. */
 .rw-le-persona-insights .rw-le-persona-role {
@@ -396,11 +396,11 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.1rem 2.5rem;
-  /* No background — the looping video stays fully visible behind the nav. */
+  /* No background - the looping video stays fully visible behind the nav. */
   background: transparent;
 }
 /* Brand + links share one slim paper chip so the nav reads over the bright
-   act-1 sky AND the dark act-3 night clip (bare blur() — Lightning CSS strips
+   act-1 sky AND the dark act-3 night clip (bare blur() - Lightning CSS strips
    backdrop-filter when saturate()/a manual -webkit prefix is present). */
 .rw-le-nav-left {
   display: flex;
@@ -549,7 +549,7 @@
 .rw-le-btn-ghost:hover {
   background-size: 0% 1px;
 }
-/* The act-2 footer link sits over the bright clip — same paper-chip treatment
+/* The act-2 footer link sits over the bright clip - same paper-chip treatment
    as the kicker so the two bookend the persona grid. */
 .rw-le-btn-ghost-light {
   color: var(--rw-ink);
@@ -568,7 +568,7 @@
   letter-spacing: 0.02em;
 }
 .rw-le-morph-cue svg {
-  /* Quiet downward drift + fade — decelerating, no bounce-back. */
+  /* Quiet downward drift + fade - decelerating, no bounce-back. */
   animation: rw-le-drift 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
@@ -603,7 +603,7 @@
   padding: 2.75rem 3rem;
   text-align: left;
   border-radius: 4px;
-  /* Near-opaque paper — bare blur() (Lightning CSS strips saturate()/-webkit).
+  /* Near-opaque paper - bare blur() (Lightning CSS strips saturate()/-webkit).
      This card sits over the darkest clip on the page; anything translucent
      goes muddy, so the tint lands at ~0.86 alpha (white with a warm cast). */
   background: color-mix(in srgb, var(--rw-cream) 35%, rgba(255, 255, 255, 0.78));
@@ -646,7 +646,7 @@
   box-shadow: 0 14px 36px rgba(85, 112, 105, 0.3);
 }
 
-/* Act-3 footer — a slim paper bar pinned to the stage bottom. The scroll
+/* Act-3 footer - a slim paper bar pinned to the stage bottom. The scroll
    driver fades it with the SAME finalP as the closing card (one sanctioned
    additive line); initial state mirrors the final holder (opacity 0, inert). */
 .rw-le-footer {
@@ -729,11 +729,11 @@
    ONE consolidated block, deliberately placed after every base rule it
    overrides: these selectors share specificity with their bases, so if this
    block sits earlier in the sheet the bases win and the whole branch silently
-   dies (that bug shipped once — mobile act 3 rendered at 48vw). The 820px
+   dies (that bug shipped once - mobile act 3 rendered at 48vw). The 820px
    value is paired with the JS isMobile branch (project caveat). The panel's
    rest geometry itself is computed mobile-aware in JS. */
 @media (max-width: 820px) {
-  /* Act 1 — the panel's rest height caps at min(560px, 68vh); tighten the
+  /* Act 1 - the panel's rest height caps at min(560px, 68vh); tighten the
      hero copy so four sentences + two CTAs stay inside the card. */
   .rw-le-morph-content {
     padding: 2rem 1.5rem;
@@ -756,7 +756,7 @@
     font-size: 0.9rem;
   }
 
-  /* Act 2 — the plate keeps its 16:9 well at a reduced width; personas
+  /* Act 2 - the plate keeps its 16:9 well at a reduced width; personas
      compact to a roster (name, role, Guardian's claim) so plate + three cards
      + the footer link clear the pinned viewport. */
   .rw-le-morph-cards {
@@ -817,7 +817,7 @@
     font-size: 0.8rem;
   }
 
-  /* Act 3 — centre the closing card and size it to the viewport. */
+  /* Act 3 - centre the closing card and size it to the viewport. */
   .rw-le-final-holder {
     left: 50%;
     transform: translate(-50%, -50%);

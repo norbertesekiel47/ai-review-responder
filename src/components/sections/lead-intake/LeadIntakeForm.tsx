@@ -35,7 +35,7 @@ export interface LeadIntakePayload {
   googleMapsUrl: string;
   intent: LeadIntent;
   source: LeadSource;
-  // Hidden honeypot value — sent under its canonical server field name by
+  // Hidden honeypot value; sent under its canonical server field name by
   // submitLeadIntake so the server-side bot check can actually fire.
   honeypot: string;
 }
@@ -270,7 +270,7 @@ export function LeadIntakeForm({
         <input type="hidden" name="intent" value={intent} readOnly />
         <input type="hidden" name="source" value={source} readOnly />
 
-        {/* Honeypot — hidden from real users; bots that auto-fill it are rejected
+        {/* Honeypot: hidden from real users; bots that auto-fill it are rejected
             server-side. Kept off-screen (not display:none) so headless bots that
             skip hidden inputs still see it. */}
         <div aria-hidden="true" className="absolute left-[-9999px] top-[-9999px] h-0 w-0 overflow-hidden">

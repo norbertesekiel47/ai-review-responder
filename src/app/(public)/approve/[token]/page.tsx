@@ -36,7 +36,7 @@ export default async function ApprovalPage({ params }: PageProps) {
   const { token: rawToken } = await params;
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
-  // Minimal server-side check — just enough to render shell or error
+  // Minimal server-side check; just enough to render shell or error
   const [link] = await sql<
     {
       response_id: string;
@@ -52,7 +52,7 @@ export default async function ApprovalPage({ params }: PageProps) {
 
   let errorMessage: string | null = null;
   // A consumed link is a neutral "already used" state, not a failure. The link
-  // could have been spent by approve, edit, OR regenerate — so the copy stays
+  // could have been spent by approve, edit, OR regenerate; so the copy stays
   // neutral rather than asserting "already approved".
   let errorVariant: ApprovalErrorVariant = 'error';
   if (!link) {

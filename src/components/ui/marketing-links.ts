@@ -11,7 +11,7 @@ export const MARKETING_LINKS = {
 export type MarketingLink = (typeof MARKETING_LINKS)[keyof typeof MARKETING_LINKS];
 
 /** Header-nav order (SiteNav + landing nav). The footer's Product column uses
- *  its own historical order — compose there, don't reorder here. */
+ *  its own historical order; compose there, don't reorder here. */
 export const NAV_LINKS: readonly MarketingLink[] = [
   MARKETING_LINKS.features,
   MARKETING_LINKS.howItWorks,

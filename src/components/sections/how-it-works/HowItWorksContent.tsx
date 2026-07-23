@@ -1,16 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
-import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { useEffect, useId, useState } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
+import { Reveal } from './Reveal';
+import { WatchArtifact } from './WatchArtifact';
+import { TriageArtifact } from './TriageArtifact';
+import { DraftArtifact } from './DraftArtifact';
+import { GateArtifact } from './GateArtifact';
+import { PostArtifact } from './PostArtifact';
+import { JudgeArtifact } from './JudgeArtifact';
 
 interface HowItWorksContentProps {
   comingSoon?: boolean;
@@ -19,7 +19,7 @@ interface HowItWorksContentProps {
 
 const SECTIONS = [
   { id: 'hiw-hero', label: 'Overview' },
-  { id: 'hiw-steps', label: 'The four steps' },
+  { id: 'hiw-steps', label: 'The pipeline' },
   { id: 'hiw-hood', label: 'Under the hood' },
   { id: 'hiw-faq', label: 'FAQ' },
   { id: 'hiw-cta', label: 'Join waitlist' },
@@ -31,348 +31,12 @@ const IconCheck = () => (
   </svg>
 );
 
-function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || seen) return;
-    const r = el.getBoundingClientRect();
-    if (r.top < window.innerHeight && r.bottom > 0) {
-      const id = window.setTimeout(() => setSeen(true), delay);
-      return () => window.clearTimeout(id);
-    }
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          window.setTimeout(() => setSeen(true), delay);
-          io.disconnect();
-        }
-      },
-      { threshold: 0.05, rootMargin: '0px 0px -50px 0px' }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [delay, seen]);
-  return (
-    <div ref={ref} className={`hiw-reveal ${seen ? 'is-in' : ''}`}>
-      {children}
-    </div>
-  );
-}
-
-/* ───── Step artifacts ───── */
-
-const STEP1_ROWS = [
-  { name: 'Sarah L.', initials: 'SL', stars: 5, excerpt: 'Best dry cleaners in town. Picked up my suits on time and they...', time: 'Just now', isNew: true },
-  { name: 'Marcus T.', initials: 'MT', stars: 4, excerpt: 'Quick service, friendly staff. Will return for my shirts next week.', time: '12 min ago' },
-  { name: 'Priya R.', initials: 'PR', stars: 5, excerpt: 'Saved my wedding dress. Honestly, nothing short of magic.', time: '48 min ago' },
-  { name: 'David C.', initials: 'DC', stars: 3, excerpt: 'Decent service but the pickup hours could be better on weekends.', time: '2 hrs ago' },
-];
-const STEP1_COLORS = ['#F2C3B9', '#D6CBBF', '#D2E0D3', '#F0DDD6'];
-
-function Step1Artifact() {
-  const reducedMotion = usePrefersReducedMotion();
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (reducedMotion) return;
-    const i = setInterval(() => setTick((t) => t + 1), 4200);
-    return () => clearInterval(i);
-  }, [reducedMotion]);
-  const rows = STEP1_ROWS;
-  const colors = STEP1_COLORS;
-  const mins = String(59 - (tick % 60)).padStart(2, '0');
-  const secs = String(59 - ((tick * 3) % 60)).padStart(2, '0');
-  return (
-    <div className="hiw-artifact">
-      <div className="hiw-artifact-cap">
-        <span className="hiw-artifact-cap-dot" />
-        <span>Google Business Profile: Bright Linen Dry Cleaning</span>
-        <span className="hiw-artifact-cap-tail">polling · next in {mins}:{secs}</span>
-      </div>
-      <div className="hiw-feed">
-        {rows.map((r, i) => (
-          <div key={r.name} className={`hiw-feed-row ${r.isNew ? 'is-new' : ''}`}>
-            <div className="hiw-avatar" style={{ background: colors[i % colors.length] }}>{r.initials}</div>
-            <div>
-              <div className="hiw-feed-line1">
-                <span className="hiw-feed-name">{r.name}</span>
-                <span className="hiw-feed-stars" aria-label={`${r.stars} out of 5 stars`}>
-                  <span aria-hidden="true">{'★'.repeat(r.stars)}</span>
-                  <span aria-hidden="true" style={{ color: '#e5e5e5' }}>{'★'.repeat(5 - r.stars)}</span>
-                </span>
-              </div>
-              <div className="hiw-feed-excerpt">{r.excerpt}</div>
-            </div>
-            <div className="hiw-feed-time">
-              {r.isNew && <span className="hiw-pulse-dot" />}
-              {r.time}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Step2Artifact() {
-  const full =
-    "Sarah, thank you — that's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
-  const reducedMotion = usePrefersReducedMotion();
-  const [typed, setTyped] = useState('');
-  useEffect(() => {
-    // Reduced motion: skip the looping typewriter. The completed draft is
-    // rendered statically at render time (`displayedDraft`), so no in-effect
-    // setState is needed here.
-    if (reducedMotion) return;
-    // Single timer drives lead-in → type → hold → loop, so the effect has one
-    // state setter (avoids a chain of setState calls across nested timers).
-    let i = 0;
-    let lead = 0;
-    let hold = 0;
-    const iv = setInterval(() => {
-      if (lead < 400) {
-        lead += 22;
-        return;
-      }
-      if (i <= full.length) {
-        setTyped(full.slice(0, i));
-        i += 2;
-      } else if (hold < 2400) {
-        hold += 22;
-      } else {
-        i = 0;
-        hold = 0;
-      }
-    }, 22);
-    return () => clearInterval(iv);
-  }, [full, reducedMotion]);
-  const displayedDraft = reducedMotion ? full : typed;
-  return (
-    <div className="hiw-artifact">
-      <div className="hiw-artifact-cap">
-        <span
-          className="hiw-artifact-cap-dot"
-          style={{ background: '#F2C3B9', boxShadow: '0 0 0 4px rgba(242,195,185,0.2)' }}
-        />
-        <span>Draft generation · voice model</span>
-        <span className="hiw-artifact-cap-tail">~4 sec</span>
-      </div>
-      <div className="hiw-draft">
-        <div className="hiw-draft-src">
-          <div className="hiw-draft-src-meta">Input · Review from Sarah L.</div>
-          Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
-          I&apos;ll be back!
-        </div>
-        <div className="hiw-draft-arrow">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <polyline points="19 12 12 19 5 12" />
-          </svg>
-        </div>
-        <div className="hiw-draft-out">
-          <span className="hiw-draft-badge">Draft · in your voice</span>
-          <p>
-            {displayedDraft}
-            <span className="hiw-draft-typing" />
-          </p>
-        </div>
-        <div className="hiw-draft-voice">
-          <div className="hiw-voice-chip">
-            <span className="hiw-voice-chip-lbl">Tone</span>
-            <span className="hiw-voice-chip-val">Warm · direct</span>
-          </div>
-          <div className="hiw-voice-chip">
-            <span className="hiw-voice-chip-lbl">Length</span>
-            <span className="hiw-voice-chip-val">28 words</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Step3Artifact() {
-  const reducedMotion = usePrefersReducedMotion();
-  const [state, setState] = useState<'pending' | 'approving' | 'approved' | 'regenerating'>('pending');
-  const onApprove = () => {
-    if (reducedMotion) {
-      setState('approved');
-      return;
-    }
-    setState('approving');
-    setTimeout(() => setState('approved'), 700);
-  };
-  const onRegen = () => {
-    if (reducedMotion) {
-      setState('pending');
-      return;
-    }
-    setState('regenerating');
-    setTimeout(() => setState('pending'), 1100);
-  };
-  const statusMessage =
-    state === 'approving'
-      ? 'Approving the reply.'
-      : state === 'approved'
-        ? 'Approved. Posting the reply to Google.'
-        : state === 'regenerating'
-          ? 'Regenerating the draft reply.'
-          : '';
-  return (
-    <div className="hiw-artifact">
-      <div className="hiw-artifact-cap">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#97B3AE' }} aria-hidden>
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-          <polyline points="22,6 12,13 2,6" />
-        </svg>
-        <span>owner@brightlinen.com · Inbox</span>
-        <span className="hiw-artifact-cap-tail">10:42 AM</span>
-      </div>
-      <div className="hiw-email">
-        <div className="hiw-email-head">
-          <div className="hiw-email-head-l">
-            <span className="hiw-brand-mini" aria-hidden />
-            <strong style={{ color: 'var(--rw-ink)' }}>RepWorth</strong>
-            <span>&lt;drafts@repworth.net&gt;</span>
-          </div>
-          <div>to you</div>
-        </div>
-        <h4 className="hiw-email-subj">New 5★ review from Sarah L., ready to approve</h4>
-        <p className="hiw-email-meta">
-          We drafted a reply in your voice. Tap to approve, edit, or regenerate.
-        </p>
-
-        <div className="hiw-email-quote">
-          <div className="hiw-email-quote-meta">
-            SARAH L. ·{' '}
-            <span aria-label="5 out of 5 stars">
-              <span aria-hidden="true">★★★★★</span>
-            </span>
-          </div>
-          Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
-          I&apos;ll be back!
-        </div>
-        <div className="hiw-email-reply">
-          <div className="hiw-email-reply-meta">Suggested reply</div>
-          Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
-          because we know your schedule doesn&apos;t wait for ours. See you again soon.
-        </div>
-
-        <div className="hiw-email-actions">
-          {state === 'approved' ? (
-            <button
-              type="button"
-              className="hiw-btn hiw-btn-approve"
-              disabled
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Approved, posting to Google
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="hiw-btn hiw-btn-approve"
-                onClick={onApprove}
-                disabled={state === 'approving'}
-              >
-                {state === 'approving' ? 'Sending…' : 'Approve & post'}
-              </button>
-              <button type="button" className="hiw-btn hiw-btn-ghost" disabled={state === 'regenerating'}>
-                Edit first
-              </button>
-              <button
-                type="button"
-                className="hiw-btn hiw-btn-ghost"
-                onClick={onRegen}
-                disabled={state === 'regenerating'}
-              >
-                {state === 'regenerating' ? 'Regenerating…' : 'Regenerate'}
-              </button>
-            </>
-          )}
-        </div>
-        <div aria-live="polite" className="sr-only">
-          {statusMessage}
-        </div>
-        <div className="hiw-email-foot">
-          <span>Responds from owner@brightlinen.com</span>
-          <span>One-tap · no login</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Step4Artifact() {
-  return (
-    <div className="hiw-artifact">
-      <div className="hiw-artifact-cap">
-        <span className="hiw-artifact-cap-dot" />
-        <span>Live on Google · posted by owner</span>
-        <span className="hiw-artifact-cap-tail">12 sec ago</span>
-      </div>
-      <div className="hiw-posted">
-        <div className="hiw-posted-card">
-          <div className="hiw-posted-head">
-            <div className="hiw-avatar">SL</div>
-            <div>
-              <span className="hiw-posted-name">
-                Sarah L. ·{' '}
-                <span aria-label="5 out of 5 stars">
-                  <span aria-hidden="true" style={{ color: '#97B3AE' }}>★★★★★</span>
-                </span>
-              </span>
-              <span className="hiw-posted-when">Bright Linen Dry Cleaning · 1 hour ago</span>
-            </div>
-          </div>
-          <p className="hiw-posted-review">
-            Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
-            I&apos;ll be back!
-          </p>
-          <div className="hiw-posted-reply">
-            <div className="hiw-posted-reply-head">
-              <strong>Response from the owner</strong>
-              <span className="hiw-verified">✓</span>
-              <span>· just now</span>
-            </div>
-            <div className="hiw-posted-reply-body">
-              Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality
-              seriously because we know your schedule doesn&apos;t wait for ours. See you again soon.
-            </div>
-          </div>
-        </div>
-        <div className="hiw-receipt">
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Status</span>
-            <span className="hiw-receipt-val">
-              <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#97B3AE', display: 'inline-block' }} />
-              Posted
-            </span>
-          </div>
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Posted at</span>
-            <span className="hiw-receipt-val">10:43 AM</span>
-          </div>
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Total time</span>
-            <span className="hiw-receipt-val">1m 04s</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const STEPS = [
   {
     num: '01',
     color: '#D2E0D3',
     tick: 'T + 0:00',
-    kicker: 'Monitor',
+    kicker: 'Watch',
     title: "We watch your reviews so you don't have to.",
     sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
     bullets: [
@@ -380,63 +44,93 @@ const STEPS = [
       'Multi-location supported on Copilot and Autopilot',
       'Star rating, reviewer name, and full text captured',
     ],
-    Artifact: Step1Artifact,
+    Artifact: WatchArtifact,
   },
   {
     num: '02',
-    color: '#F0DDD6',
-    tick: 'T + 0:12',
-    kicker: 'Generate',
-    title: 'AI drafts a reply — in your voice.',
-    sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
+    color: '#F2C3B9',
+    tick: 'T + 0:01',
+    kicker: 'Triage',
+    title: 'Guardian reads it before anyone answers.',
+    sub: 'Every review is sorted by star sentiment first. Negative reviews get a severity read (routine, elevated, or critical), and critical ones escalate straight to you with the context attached. Positive reviews flow on to drafting.',
     bullets: [
-      'Learns from the replies you approve and edit',
-      'Separate handling for 1–3★ vs 4–5★ reviews',
-      'Regenerate button if the first pass misses',
+      'Negative lane gets a bounded AI severity read',
+      'Critical issues escalate to you immediately',
+      'Guardian never posts anything, anywhere',
     ],
-    Artifact: Step2Artifact,
+    Artifact: TriageArtifact,
   },
   {
     num: '03',
-    color: '#F2C3B9',
-    tick: 'T + 0:20',
-    kicker: 'Approve',
-    title: 'You get an email. Thirty seconds, done.',
-    sub: 'The draft arrives at your inbox with one-tap Approve, Edit, and Regenerate buttons. No login, no dashboard to check. Signed link, expires in 48 hours.',
+    color: '#F0DDD6',
+    tick: 'T + 0:12',
+    kicker: 'Draft',
+    title: 'AI drafts a reply, in your voice.',
+    sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
-      'One-tap approve — no password, no app to open',
-      'Edit inline if you want to tweak a word',
-      "Regenerate if the tone doesn't feel right",
+      'Learns from the replies you approve and edit',
+      'Every draft passes a moderation check before the gate',
+      'Regenerate button if the first pass misses',
     ],
-    Artifact: Step3Artifact,
+    Artifact: DraftArtifact,
   },
   {
     num: '04',
     color: '#D6CBBF',
+    tick: 'T + 0:20',
+    kicker: 'The Gate',
+    title: 'Copilot asks you. Autopilot asks your policy.',
+    sub: 'This is the fork. On Copilot, every draft comes to you (email, Telegram, or WhatsApp) with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
+    bullets: [
+      'One-tap approve on the channel you choose',
+      'Autopilot posts only inside your rating band and daily cap',
+      'The veto window is your one-tap stop before anything goes live',
+    ],
+    Artifact: GateArtifact,
+  },
+  {
+    num: '05',
+    color: '#D2E0D3',
     tick: 'T + 1:04',
     kicker: 'Post',
     title: 'Posted to Google, on your behalf.',
-    sub: 'Once you approve, we post the reply back to your Google listing. It shows up within seconds, attributed to the business owner, exactly as it would if you\'d typed it yourself.',
+    sub: "Once a reply clears the gate, we post it to your Google listing. It shows up within seconds, attributed to the business owner. Replies that posted on Autopilot send you an FYI the moment they're live.",
     bullets: [
-      'Posts within seconds of approval',
       'Shows as "Response from the owner" on Google',
+      'Auto-posts send an FYI with a link to the live reply',
       'Receipt logged in your dashboard for audit',
     ],
-    Artifact: Step4Artifact,
+    Artifact: PostArtifact,
+  },
+  {
+    num: '06',
+    color: '#F0DDD6',
+    tick: 'T + 1:47',
+    kicker: 'Judge',
+    title: 'Every auto-post gets a second opinion.',
+    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against your policy and your brand. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    bullets: [
+      '100% of auto-posted replies are reviewed',
+      'The Governor can suspend autonomy per account',
+      'Judge unavailable → auto-posting halts',
+    ],
+    Artifact: JudgeArtifact,
   },
 ];
 
 const HOOD = [
   { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
-  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
-  { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · signed link', glyph: '✉' },
-  { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
+  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Severity read on the negative lane; critical reviews escalate to the owner.', tech: 'severity · escalation', glyph: '⚑' },
+  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, then runs it through moderation.', tech: 'LLM · moderated', glyph: '✎' },
+  { color: '#D6CBBF', title: 'The gate', sub: 'Owner approval on Copilot; policy + veto window on Autopilot.', tech: 'approval · veto', glyph: '✋' },
+  { color: '#D2E0D3', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
+  { color: '#F2C3B9', title: 'Judge', sub: 'Reviews every auto-post; the Governor suspends autonomy if trust slips.', tech: 'verdicts · governor', glyph: '⚖' },
 ];
 
 const GUARANTEES = [
   {
-    title: 'Nothing posts without you',
-    desc: 'Every reply waits for your approval by default. You can optionally turn on auto-approval (off by default), which only posts after passing automated safety checks.',
+    title: 'Nothing posts without passing the gate',
+    desc: "On Copilot that gate is you. On Autopilot it's your policy, a veto window, moderation, and the Judge. Negative reviews are never auto-posted.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -455,7 +149,7 @@ const GUARANTEES = [
   },
   {
     title: 'Pause anytime',
-    desc: 'Toggle off for a location in a single tap. Vacation, staff change, rebrand — we follow your lead.',
+    desc: 'Toggle a location off in one tap, and if trust ever slips, the Governor pauses autonomy for you.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <rect x="6" y="4" width="4" height="16" />
@@ -466,16 +160,17 @@ const GUARANTEES = [
 ];
 
 const FAQ_ITEMS = [
-  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post — the review simply stays unanswered on your end.' },
-  { q: 'Can RepWorth post without asking me?', a: 'By default, no — every reply waits for your one-tap confirmation from the email. If you want hands-off posting, you can optionally enable auto-approval (off by default), which only posts after passing automated safety checks.' },
-  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing — the more you use it, the more it sounds like you.' },
-  { q: 'What about negative reviews?', a: "Drafts for 1–3★ reviews get extra care: we'll never auto-suggest a defensive or dismissive reply — the tone defaults to acknowledging the issue and offering a path forward, and high-risk drafts are held for your review." },
-  { q: 'Which review platforms do you support?', a: "Today, Google only — that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
+  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy, and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post: the review simply stays unanswered on your end.' },
+  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted), and the tone defaults to acknowledging the issue and offering a path forward.' },
+  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing: the more you use it, the more it sounds like you.' },
+  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap: if it can't review, pending auto-approved replies fall back to your normal approval queue." },
+  { q: 'Which review platforms do you support?', a: "Today, Google only: that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];
 
 const OVERVIEW = [
   {
-    n: '01', title: 'Monitor', time: 'near real-time', color: '#D2E0D3',
+    n: '01', title: 'Watch', time: 'near real-time', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="12" r="9" />
@@ -484,7 +179,15 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '02', title: 'Generate', time: '~4 sec', color: '#F0DDD6',
+    n: '02', title: 'Triage', time: '~1 sec', color: '#F2C3B9',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
+  {
+    n: '03', title: 'Draft', time: '~4 sec', color: '#F0DDD6',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
@@ -493,7 +196,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '03', title: 'Approve', time: '30 sec of you', color: '#F2C3B9',
+    n: '04', title: 'The Gate', time: 'you, or your policy', color: '#D6CBBF',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
@@ -502,11 +205,19 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '04', title: 'Post', time: 'instant', color: '#D6CBBF',
+    n: '05', title: 'Post', time: 'instant', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M5 12h14" />
         <polyline points="13 6 19 12 13 18" />
+      </svg>
+    ),
+  },
+  {
+    n: '06', title: 'Judge', time: 'automatic', color: '#F0DDD6',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <polyline points="20 6 9 17 4 12" />
       </svg>
     ),
   },
@@ -571,11 +282,12 @@ export function HowItWorksContent({
           {/* Hero */}
           <section id="hiw-hero" className="hiw-hero">
             <p className="hiw-eyebrow">How it works</p>
-            <h1 className="hiw-h1">Four steps from new review to posted reply.</h1>
+            <h1 className="hiw-h1">One pipeline from new review to public reply, with a gate in the middle.</h1>
             <p className="hiw-lead">
-              RepWorth watches for new Google reviews, drafts a response in your voice, emails it
-              to you for approval, then posts it back to Google. The whole loop takes under a
-              minute of your time.
+              RepWorth watches for new Google reviews, triages them, drafts a reply in your voice,
+              and brings it to the gate. On Copilot you approve every reply with one tap. On
+              Autopilot, replies that clear your policy post themselves after a veto window you
+              control, and the Judge reviews every one of them.
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
@@ -587,15 +299,15 @@ export function HowItWorksContent({
                 <span className="hiw-hero-meta-lbl">your time per reply</span>
               </div>
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">96%</span>
-                <span className="hiw-hero-meta-lbl">response rate</span>
+                <span className="hiw-hero-meta-val">15/30 min</span>
+                <span className="hiw-hero-meta-lbl">veto window on Autopilot</span>
               </div>
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">15 hrs</span>
-                <span className="hiw-hero-meta-lbl">saved weekly</span>
+                <span className="hiw-hero-meta-val">100%</span>
+                <span className="hiw-hero-meta-lbl">of auto-posts judged</span>
               </div>
             </div>
-            <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: '#6a6a6a' }}>
+            <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: 'var(--rw-ink-soft)' }}>
               Typical figures shown for illustration, not live performance data.
             </p>
           </section>
@@ -625,10 +337,10 @@ export function HowItWorksContent({
           {/* Steps */}
           <section id="hiw-steps" className="hiw-steps">
             <div className="hiw-section-head">
-              <p className="hiw-eyebrow">The four steps</p>
-              <h2 className="hiw-h2">From new review to posted reply.</h2>
-              <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: '#6a6a6a' }}>
-                Sample walkthrough — illustrative reviews and business, not real customers.
+              <p className="hiw-eyebrow">The pipeline</p>
+              <h2 className="hiw-h2">Six steps from new review to public reply.</h2>
+              <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: 'var(--rw-ink-soft)' }}>
+                Sample walkthrough: illustrative reviews and business, not real customers.
               </p>
             </div>
             {STEPS.map((s) => (
@@ -670,8 +382,8 @@ export function HowItWorksContent({
               <p className="hiw-eyebrow">Under the hood</p>
               <h2 className="hiw-h2">The pipeline, end to end.</h2>
               <p className="hiw-lead">
-                A poll worker, a voice model, a signed approval email, and a posting API. Nothing
-                magical, just four well-behaved services.
+                A webhook, a triage read, a voice model, a gate, a posting call, and a judge. Six
+                well-behaved services, and two of them exist only to say no.
               </p>
             </div>
             <Reveal>
@@ -680,6 +392,7 @@ export function HowItWorksContent({
                   <div key={n.title} className="hiw-hood-node">
                     <div
                       className="hiw-hood-glyph"
+                      aria-hidden="true"
                       style={{
                         background: `linear-gradient(135deg, ${n.color}, ${n.color}dd)`,
                       }}

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 
 interface BrandLogoProps {
-  /** Square render size in px. Defaults to 32 — the standard header/nav mark. */
+  /** Square render size in px. Defaults to 32, the standard header/nav mark. */
   size?: number;
   /**
    * Accessible name. Decorative by default ('') because the brand mark is
@@ -14,7 +14,7 @@ interface BrandLogoProps {
 }
 
 /**
- * The RepWorth brand mark — the single owner of the logo asset
+ * The RepWorth brand mark: the single owner of the logo asset
  * (`public/logo.svg`). Every surface (nav, auth cards, dashboard, onboarding,
  * error pages) renders the real logo through this, so there is one place to
  * change it. Renders only the mark; keep the "RepWorth" wordmark as separate

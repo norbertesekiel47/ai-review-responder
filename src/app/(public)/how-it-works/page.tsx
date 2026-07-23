@@ -5,7 +5,7 @@ import { HowItWorksContent } from '@/components/sections/how-it-works/HowItWorks
 export const metadata: Metadata = {
   title: 'How it works · RepWorth',
   description:
-    'Connect Google, RepWorth drafts a reply to each new review, and you approve before anything posts. Here is the full flow.',
+    'Watch, triage, draft, gate, post, judge. On Copilot you approve every reply; on Autopilot, policy-cleared replies post after a veto window you control.',
 };
 
 export default function HowItWorksPage() {

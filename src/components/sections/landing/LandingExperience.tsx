@@ -7,17 +7,17 @@ import { COMPANY_LINKS, LEGAL_LINKS, NAV_LINKS } from '@/components/ui/marketing
 import './landing-experience.css';
 
 /**
- * RepWorth landing page — one continuous, scroll-linked pinned stage.
+ * RepWorth landing page: one continuous, scroll-linked pinned stage.
  *
  * The whole page is a single fixed stage whose contents crossfade as you scroll
  * (no section-to-section hand-off, so nothing "jumps"):
  *
- *   1. Hero      — a frosted glass card on the right (copy) over the fixed,
+ *   1. Hero      - a frosted glass card on the right (copy) over the fixed,
  *                  looping /video/heroVideo.mp4.
- *   2. Expand    — that same card grows to full-bleed, its copy crossfades out
+ *   2. Expand    - that same card grows to full-bleed, its copy crossfades out
  *                  and /video/hero2Video.mp4 in, then the three agent-persona
  *                  cards (Reply / Guardian / Insights) reveal on top.
- *   3. Final     — the media crossfades to the mirrored /video/hero3Video.mp4,
+ *   3. Final     - the media crossfades to the mirrored /video/hero3Video.mp4,
  *                  the persona cards fade out, and the closing glass tilt card
  *                  fades in on the left.
  *
@@ -25,7 +25,7 @@ import './landing-experience.css';
  * scroll listener. Same-origin /video/* keeps the clips inside the production
  * CSP (`default-src 'self'`, no `media-src`).
  *
- * Visual direction (Variant A — "Editorial"): serif-led display type, paper
+ * Visual direction (Variant A, "Editorial"): serif-led display type, paper
  * surfaces, ink-first hierarchy. The signature motif is a hand-drawn ink
  * underline (see InkUnderline) that recurs once per act.
  */
@@ -157,7 +157,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
           finalHolder.inert = finalP <= 0.5;
         }
 
-        // Footer bar rides the act-3 crossfade — reuses the already-computed
+        // Footer bar rides the act-3 crossfade; reuses the already-computed
         // finalP with no timing of its own (the one sanctioned driver addition).
         const footer = footerRef.current;
         if (footer) {
@@ -215,7 +215,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
       <main id="main-content" className="rw-le-scroll">
         <section ref={trackRef} className="rw-le-morph-track" aria-label="RepWorth">
           <div className="rw-le-morph-stage">
-            {/* Act 1-2 — the hero card morphs into the full-bleed hero2 video. */}
+            {/* Act 1-2: the hero card morphs into the full-bleed hero2 video. */}
             <div ref={panelRef} className="rw-le-morph-panel">
               <video
                 ref={morphVideoRef}
@@ -245,7 +245,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                 <p className="rw-le-sub">
                   Reply drafts an answer to every review in your voice. Guardian holds anything
                   negative and brings it to you first. Insights files the weekly brief. Nothing
-                  posts without your say — and around fifteen hours of typing a week comes off
+                  posts without your say, and around fifteen hours of typing a week comes off
                   your desk.
                 </p>
                 <div className="rw-le-hero-ctas">
@@ -259,7 +259,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </div>
             </div>
 
-            {/* Act 3 backdrop — mirrored final video, crossfades in over the panel. */}
+            {/* Act 3 backdrop: mirrored final video, crossfades in over the panel. */}
             <div ref={finalBgRef} className="rw-le-final-bg" aria-hidden="true">
               <video
                 className="rw-le-final-video"
@@ -273,7 +273,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               />
             </div>
 
-            {/* Act 2 — the agent-persona cards over the expanded media. */}
+            {/* Act 2: the agent-persona cards over the expanded media. */}
             <div ref={cardsRef} className="rw-le-morph-cards">
               <div className="rw-le-cards-frame">
                 <p className="rw-le-cards-kicker">
@@ -289,7 +289,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                       real clip, replace the placeholder <div> below with
                         <video className="rw-le-plate-video" src="/video/howItWorksVideo.mp4"
                                muted loop playsInline preload="auto" tabIndex={-1} />
-                      — same-origin /video/*.mp4 keeps it inside the production CSP
+                      - same-origin /video/*.mp4 keeps it inside the production CSP
                       (`default-src 'self'`, no `media-src`). */}
                   <figure className="rw-le-plate">
                     <div className="rw-le-plate-media" aria-hidden="true">
@@ -310,7 +310,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                       </svg>
                     </div>
                     <figcaption className="rw-le-plate-caption">
-                      How it works — film coming soon
+                      How it works: film coming soon
                     </figcaption>
                   </figure>
 
@@ -319,7 +319,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     <p className="rw-le-persona-role">the writer</p>
                     <p className="rw-le-persona-body">
                       Drafts an answer to every Google review in your voice, then posts the moment
-                      you approve. On Autopilot, 4–5★ unflagged replies go out on their own —
+                      you approve. On Autopilot, 4–5★ unflagged replies go out on their own,
                       after a veto window you can cancel.
                     </p>
                     <p className="rw-le-persona-log">
@@ -346,7 +346,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     <p className="rw-le-persona-role">the analyst</p>
                     <p className="rw-le-persona-body">
                       Files a weekly brief: your sentiment trend, the numbers that moved, the
-                      reviews worth reading — and what the team did about them.
+                      reviews worth reading, and what the team did about them.
                     </p>
                     <p className="rw-le-persona-caption">the weekly brief</p>
                     <div className="rw-le-persona-brief" aria-hidden="true">
@@ -365,7 +365,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </div>
             </div>
 
-            {/* Act 3 — closing glass tilt card, crossfades in on the left. */}
+            {/* Act 3: closing glass tilt card, crossfades in on the left. */}
             <div ref={finalHolderRef} className="rw-le-final-holder">
               <TiltCard className="rw-le-final-card">
                 <div className="rw-le-final-inner">
@@ -379,7 +379,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
                     .
                   </h2>
                   <p className="rw-le-final-sub">
-                    Reply writes, Guardian watches, Insights reports — the evenings you spent
+                    Reply writes, Guardian watches, Insights reports: the evenings you spent
                     typing go back to the business. Approve everything on Copilot, or set the
                     policy on Autopilot and keep the veto.
                   </p>
@@ -390,7 +390,7 @@ export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingEx
               </TiltCard>
             </div>
 
-            {/* Act 3 — slim footer bar, rides finalP alongside the closing card. */}
+            {/* Act 3: slim footer bar, rides finalP alongside the closing card. */}
             <footer ref={footerRef} className="rw-le-footer">
               <span className="rw-le-footer-copy" suppressHydrationWarning>
                 © {new Date().getFullYear()} RepWorth. All rights reserved.
