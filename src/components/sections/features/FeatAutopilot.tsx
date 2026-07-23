@@ -57,7 +57,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
                   <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(151,179,174,0.2)" strokeWidth="6" />
                   <circle
                     cx="40" cy="40" r="34" fill="none" stroke="#557069" strokeWidth="6"
-                    strokeLinecap="round" strokeDasharray="213.6" strokeDashoffset="21"
+                    strokeLinecap="round" strokeDasharray="213.6" strokeDashoffset="7"
                   />
                 </svg>
                 <span className="absolute inset-0 flex items-center justify-center rw-label-mono text-sm text-rw-ink">
