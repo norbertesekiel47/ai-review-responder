@@ -115,8 +115,14 @@ width and fixed height, SVGs render 1:1.
 - **Empty series** → existing empty states unchanged.
 - **Single point** → point centered horizontally (current behavior kept).
 - **Flat series** → `MIN_DOMAIN_SPAN` domain-zoom logic kept.
-- **Zero-width container** → no marks until measured.
+- **Zero-width container** → *as-built:* a zero-width wrapper renders a
+  zero-width SVG (invisible by construction); the hook reports `measured=false`
+  and falls back to the canonical width for the math, so no NaN geometry.
 - **Reduced motion** → all presets collapse to instant renders.
+
+> **As-built deviation (hover targets):** instead of per-mark invisible
+> hit-bands, hover uses whole-SVG `pointermove` + nearest-datum index
+> (`useNearestDatum`) — strictly larger hit area (hover works between marks).
 - **Accessibility** → existing `role="img"` + `aria-label` summaries preserved
   on every chart; hit-bands remain keyboard-irrelevant (hover-only, as today).
 

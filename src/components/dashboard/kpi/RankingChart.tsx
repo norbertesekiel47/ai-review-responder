@@ -26,9 +26,8 @@ interface RankingChartProps {
 const PAD = { l: 36, r: 80, t: 16, b: 28 };
 const H = 240;
 
-// Warm Editorial series colors for the owner-facing default. Concrete values
-// (not var()) because they flow into inline `style` where they read fine, and
-// stay literal for the gridline/axis which use CSS-class tokens below.
+// Warm Editorial emphasis colors for the owner-facing default; the multi-hue
+// per-series ramp lives in chart-tokens (RANKING_COLORS) via the helpers.
 const OWNER_PRIMARY = 'var(--rw-sage-deep)';
 const OWNER_FADED = 'var(--rw-app-text-soft)';
 

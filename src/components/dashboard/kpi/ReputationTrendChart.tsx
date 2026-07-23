@@ -76,7 +76,11 @@ export function ReputationTrendChart({ trend }: Props) {
   const headline = computeTrendHeadline(trend);
 
   const y = scaleLinear().domain([domain.min, domain.max]).range([BOTTOM, TOP]).clamp(true);
-  const x = scaleLinear().domain([0, Math.max(1, trend.length - 1)]).range([LEFT, width - RIGHT]);
+  // A lone week maps to the plot center (domain [-1,1] puts index 0 at the
+  // midpoint), matching the pre-migration centering behavior for single points.
+  const x = scaleLinear()
+    .domain(trend.length > 1 ? [0, trend.length - 1] : [-1, 1])
+    .range([LEFT, width - RIGHT]);
 
   const path =
     d3Line<{ index: number; star: number }>()
