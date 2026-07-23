@@ -2,9 +2,9 @@
 
 ## What this project is
 
-Subscription SaaS that auto-drafts Google review responses for SMBs with an LLM, then posts them to Google only after an explicit approval method: owner approval today, or the disabled-by-default owner-configured auto-policy runtime when all safety gates pass. Next.js 16 (Vercel, UI only) + Railway worker (Fastify + BullMQ, all LLM/external/long-running work) + Supabase/PostgreSQL + Redis(Upstash for Cache/Railway Redis for Queue).
+Agentic reputation-management platform for SMBs, sold as **Copilot** (owner approves everything) and **Autopilot** (bounded autonomy) subscription tiers. Three customer personas — **Reply** (drafts every response; auto-posts positive-quadrant on Autopilot), **Guardian** (triage + escalation; never acts publicly), **Insights** (weekly digest) — supervised by two watchdogs: the **Judge** (LLM review of 100% of auto-posts; availability is a posting precondition) and the **Governor** (per-account autonomy suspension). Design of record: `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §8. Next.js 16 (Vercel, UI only) + Railway worker (Fastify + BullMQ, all LLM/external/long-running work) + Supabase/PostgreSQL + Redis(Upstash for Cache/Railway Redis for Queue).
 
-Pipeline: Zernio webhook ingest → AI draft → moderation → owner notification/approval, or gated `auto_policy` approval behind `AUTO_APPROVAL_ENABLED=true` → posted to Google.
+Pipeline: Zernio webhook ingest → Guardian triage (`TRIAGE_ENABLED`, negative lane only) → AI draft → moderation → owner notification/approval, or gated `auto_policy` approval + veto window behind `AUTO_APPROVAL_ENABLED=true` → posted to Google → Judge verdict. Every persona action is recorded on the run spine (`agent_runs`/`agent_run_steps`/`agent_outcomes`) via the single writer `src/lib/agents/run-spine.ts`.
 
 ## Dev commands
 
@@ -14,21 +14,19 @@ Pipeline: Zernio webhook ingest → AI draft → moderation → owner notificati
 - `pnpm worktree:new <branch> [base-ref]` — create an **isolated sibling worktree** outside the repo (own `node_modules`, copied `.env*.local`), then `cd` into the printed path. Use this for parallel feature branches; see "CI & repo" for why sibling not nested.
 - `pnpm test` — Vitest unit + integration
 - `pnpm test:watch` — Vitest watch
+- `pnpm test:integration` — **hard-gates only the publisher edit-existing-reply suite** (fails fast without `TEST_DATABASE_POOL_URL`); other integration suites run only when invoked directly — see gotcha below
 - `pnpm test:e2e` — Playwright E2E (skips gracefully without TEST_DATABASE_POOL_URL)
 - `pnpm lint` — ESLint
 - `pnpm eval:llm` — LLM safety eval harness (offline/keyless by default; `--live` needs provider keys)
-- `pnpm ci:tenant-scope` — tenant-scope audit
-- `pnpm ci:rls-audit` — RLS audit
-- `pnpm ci:analytics-events` — analytics events audit
-- `pnpm ci:static-policy` — bans `crypto-js`; allowlists `NEXT_PUBLIC_*`; blocks client-side direct access to `auto_approval_policies` (invariants #10, #13, #14)
+- `pnpm ci:*` — the CI audit scripts (tenant-scope, rls-audit, analytics-events, static-policy, db-imports, admin-aal2, outbox-topics, process-env, response-status, reviews-status, config-coverage, fallow); the `ci:` entries in package.json are the authoritative list, and the `lint` CI job runs them all. `ci:static-policy` enforces invariants #10, #13, #14.
 - Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass all external APIs locally
 
 ## CI & repo
 
 - Repo **`RepWorth/ai-review-responder`**; `main` is protected — **land changes via PR**, direct pushes rejected.
-- CI (`.github/workflows/ci.yml`): `lint` (also runs every `ci:*` audit script — see the `ci:` entries in package.json for the authoritative list), `typecheck`, `test`, `build` on every PR + push to `main`. `MOCK_EXTERNAL_APIS=false` in CI — `true` short-circuits Zernio transport and breaks real-path tests. Third-party actions pinned to commit SHAs.
+- CI (`.github/workflows/ci.yml`): `lint` (also runs every `ci:*` audit script — see the `ci:` entries in package.json for the authoritative list), `typecheck`, `test`, `llm-eval` (path-filtered LLM-safety eval release gate — WS7), `build` on every PR + push to `main`. `MOCK_EXTERNAL_APIS=false` in CI — `true` short-circuits Zernio transport and breaks real-path tests. Third-party actions pinned to commit SHAs.
 - **Local pre-push hook (`lefthook.yml`)** runs the cheap CI subset before code leaves the machine — lint, typecheck, every CI audit, and affected tests (`vitest --changed`), in parallel. Same commands as CI; CI stays the full-suite gate. Installed via the `prepare` script on `pnpm install`. Escape hatch for WIP: `git push --no-verify`.
-- **Worktrees: sibling (blessed) vs nested (footgun).** Use `pnpm worktree:new <branch>` (→ `scripts/new-worktree.sh`) — it creates the worktree *outside* the repo at `../RepWorth-worktrees/<branch>/` with its own `node_modules` + copied `.env*.local`, so local lint/test/typecheck and the pre-push hook give a trustworthy signal. Do NOT use a *nested* worktree (`.claude/worktrees/`, `.worktrees/`): Node's upward `node_modules` resolution and ESLint's upward config cascade leak the parent's deps/config in, poisoning local CI — if you're stuck in one, push and read the runner instead. The harness `EnterWorktree` tool and Agent `isolation:'worktree'` both create *nested* worktrees, so they inherit that caveat (fine for edit+typecheck agents, not for trustworthy full CI). Either way, every Write/Edit path must point at the worktree root (`…-worktrees/<branch>/…` or `.claude/worktrees/<name>/…`), never the parent checkout, or the edit silently lands in `main`'s tree.
+- **Worktrees: sibling (blessed) vs nested (footgun).** Use `pnpm worktree:new <branch>` (→ `scripts/new-worktree.sh`) — it creates the worktree *outside* the repo at `../RepWorth-worktrees/<branch>/` with its own `node_modules` + copied `.env*.local`, so local lint/test/typecheck and the pre-push hook give a trustworthy signal. Do NOT use a *nested* worktree (`.claude/worktrees/`, `.worktrees/`): Node's upward `node_modules` resolution and ESLint's upward config cascade leak the parent's deps/config in, poisoning local CI — if you're stuck in one, push and read the runner instead. The harness `EnterWorktree` tool and Agent `isolation:'worktree'` both create *nested* worktrees, so they inherit that caveat (fine for edit+typecheck agents, not for trustworthy full CI). Either way, every Write/Edit path must point at the worktree root (`…-worktrees/<branch>/…` or `.claude/worktrees/<name>/…`), never the parent checkout, or the edit silently lands in `main`'s tree (now also hook-enforced in the worktree→elsewhere direction by `edit-surface-guard.sh`). **Cleanup:** first confirm the branch's PR is merged (`gh pr list --head <branch> --state merged` — squash merges make `git branch --merged` useless) and the tree is clean, then remove each worktree individually: `git worktree remove <path>`, then `git branch -D <branch>`. One at a time, no `--force` — each removal stays reviewable.
 
 ## Environments & branches
 
@@ -36,7 +34,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 
 - **Three lanes.** *Preview* — per-PR, Vercel UI only (no worker/queue/webhooks → frontend checks only). *Staging* — persistent full stack, test/sandbox creds + separate Supabase; **the only non-prod place the whole pipeline runs**. *Production* — `main`, live creds.
 - **Promotion = merge the PR into `main`.** `staging` is not a promotion gate — never "merge `staging` → `main`". Anything touching the worker, a webhook, a migration, or billing rides `staging` first, then lands on `main` via PR.
-- **After promotion, fast-forward `staging` onto `main`** (`git merge --ff-only main`) so it never drifts. Migrations run against **both** Supabase projects in lockstep, **staging first**; "applied to prod, not staging" is a bug.
+- **After promotion, fast-forward `staging` onto `main`** (`git merge --ff-only main`) so it never drifts. Migrations run against **both** Supabase projects in lockstep, **staging first**; "applied to prod, not staging" is a bug. **Standing exception until the prod WS8 cutover:** migration 078 is deliberately absent in prod — it applies *inside* the cutover (`docs/runbooks/ws8-tier-cutover.md`); do NOT apply it out-of-band. All autonomy flags are OFF in prod; ordered go-live flip per design doc §8.4.
 - **Push to `staging` auto-deploys the full staging stack.** Both the Railway staging worker **and** the Vercel staging Custom Env redeploy on push (the Vercel deploy is git-sourced `target:staging`; verified 2026-06-02). Vercel previews still auto-deploy per PR. To rebuild the staging UI without a push, deploy the custom env explicitly (`POST /v13/deployments` with `target:"staging"` + `gitSource:{ref:"staging"}`) — see `deployment-guide.md` Phase 3.
 - **CI gates PRs + push-to-`main`, NOT `staging` pushes** — rely on the PR's CI before promoting.
 - **Local `main` lags after GitHub squash-merges** — `git pull --ff-only` (then `pnpm install` if deps changed).
@@ -47,7 +45,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 
 2. **Transactional outbox.** State change + follow-up work go in ONE Postgres transaction via `job_outbox`. Never write Postgres then separately enqueue BullMQ — silent data loss on enqueue failure.
 
-3. **No unapproved posting.** A response may reach Google only after an explicit approval method is recorded: `approval_method='owner'` from an owner action, or `approval_method='auto_policy'` from the server-only auto-approval runtime. Auto-policy approval is disabled by default (`AUTO_APPROVAL_ENABLED=false`) and is allowed only for `live_ingest_new` v1 jobs that pass current-state, subscription, active-location/connection, review-hash, policy-threshold, and provider-moderation gates. If the runtime flag is off before publish, `ResponsePublisherWorker` downgrades unposted auto-policy rows back to owner review instead of posting.
+3. **No unapproved posting.** A response may reach Google only after an explicit approval method is recorded: `approval_method='owner'` from an owner action, or `approval_method='auto_policy'` from the server-only auto-approval runtime. Auto-policy approval is disabled by default (`AUTO_APPROVAL_ENABLED=false`) and is allowed only for `live_ingest_new` v1 jobs that pass current-state, subscription, active-location/connection, review-hash, policy-threshold, provider-moderation, and triage-veto gates — plus the trust dial (rating band + daily cap), the 15/30-min veto window, and the **Autopilot tier** (`tierGrantsAutopilot`). **Judge availability is a posting precondition:** `JUDGE_ENABLED=false` or judge unavailability makes `ResponsePublisherWorker` downgrade unposted auto-policy rows to owner review — same as flipping the runtime flag off before publish.
 
    > Auto-approval skips only the owner step. Moderation remains an absolute veto; high-severity drafts are held and never auto-approved.
 
@@ -95,7 +93,9 @@ Detailed inventories load on demand — read the matching file before the work:
 | verify a spec / plan / launch doc against the codebase, or answer "what's remaining" on a checklist | invoke the `verify-spec` skill — evidence table + mandatory `VERDICT: PASS/FAIL` |
 
 Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
-`cost-guard`, `onboarding-demo-cost-guard`. Also invoke: `repworth-brand-design`
+`cost-guard`, `onboarding-demo-cost-guard`, `new-migration` (before any
+`supabase/migrations/` file), `flag-flip` (before changing any feature-flag
+env var). Also invoke: `repworth-brand-design`
 (any RepWorth UI), `supabase:supabase-postgres-best-practices` (Postgres query/schema perf).
 
 Code map: `docs/directory.md` · Layout reasoning: `docs/currents.md` ·
@@ -121,7 +121,8 @@ decide *where new worker code goes*:
 - **Job handlers** in `worker/jobs/`: one top-level `*.ts` per worker, plus a
   per-domain subfolder when a worker has helpers (`response-generation/`,
   `notification/`, `auto-post-notice/`, `publisher/`, `zernio/`, `billing/`,
-  `onboarding-demo/`, `account-offboarding/`).
+  `onboarding-demo/`, `account-offboarding/`, `judge/`, `escalation-notice/`,
+  `autonomy-suspended-notice/`, `pending-post-notice/`).
 - **Publishing goes through the `ReviewPublisher` seam** (`src/lib/publishing/review-publisher.ts`):
   the `worker/jobs/publisher/` call-sites resolve + post via `getReviewPublisher()`
   (`resolveTarget`/`publishReply`/`deleteReply`/`findReply`), NOT `zernioClient`
@@ -175,8 +176,9 @@ decide *where new worker code goes*:
 - **Railway private network is IPv6-only** — `ioredis`/BullMQ won't resolve `*.railway.internal` unless `family: 0` is set (`worker/redis-connection.ts` parses `?family=`). Works on local/Upstash, silently fails to connect on Railway without it.
 - **Best-effort work after a worker's primary side effect needs its own `try/catch` (log-and-swallow)** — a secondary failure (telemetry, Sentry, cost-threshold check) caught by the outer handler flips an already-completed job to `failed`. Never let observability poison the success path.
 - **postgres.js decodes `timestamptz` into a JS `Date` — Postgres MICROSECONDS are silently truncated to milliseconds.** Any SQL comparison against a value that round-tripped through JS can mis-order by <1ms; fatal when a row is compared against a window/anchor derived FROM that same row (governor permanent re-suspension immunity #520; wedge-reaper `backend_start` equality before it). Truncate the DB side (`date_trunc('milliseconds', col) > ${jsDate}`) or keep the value `::text` end-to-end. JS-Date-seeded test fixtures carry zero µs and CANNOT catch this — seed with `+ interval '419 microseconds'`.
-- **The worker crash-net RECOVERS from transient-DB `unhandledRejection`s; it does NOT blanket-crash.** `worker/index.ts`'s `process.on('unhandledRejection')` classifies the reason via `isCrashNetRecoverableDbError` (`src/lib/db/transient-error.ts`): a transient Postgres statement-timeout / connection drop — which postgres.js can surface as a *connection-layer* rejection that escapes a poller's own `try/catch` — is captured (Sentry `warning`) and survived (the loop recovers next cycle). A *sustained* storm escalates back to a crash via `worker/transient-rejection-governor.ts` (duration-based); ambiguous-state DB codes (`08007`/`08P01`) + every non-DB rejection still fail fast; `uncaughtException` is ALWAYS fatal. Do NOT reintroduce a blanket crash-on-any-rejection (a single boot-time DB blip would otherwise kill all 24 queues + 20 loops). `isTransientPostgresError` (broad) is for billing's idempotent retry; the crash-net's `isCrashNetRecoverableDbError` is the stricter allowlist — keep them distinct.
-- **API rate limits fail OPEN; the worker cost RESERVATION precedes every LLM call → spend is always safe even when the limiter is bypassed** (`enforceDashboardRegenRateLimit` is the shared per-owner regenerate limiter; both authed regenerate entrypoints call it). On the worker, a raw Redis (Upstash) **transport** error at all four PRE-LLM touchpoints is **RETRYABLE**, not terminal: `checkRegenBudget` re-throws directly; `checkIdempotentCache` (`src/lib/costs/tracker.ts:138`), `reserveCost` (`tracker.ts:204`), and `acquireConcurrencySlot` (`src/lib/costs/concurrency-guard.ts:57`) throw `CostInfraUnavailableError` (`src/lib/costs/errors.ts`), which `generate-draft.ts:88` re-throws like `TransientLLMError` → BullMQ (5× + backoff on the LLM-bound `generate_response` queue; 3× elsewhere) + outbox watchdog re-dispatch (`OUTBOX_WATCHDOG_STALE_MS`, 15min default). (Changed in #255 — those three were previously terminal via the generic `{kind:'failed'}` catch; do not re-introduce that.) **Budget-exceeded** decisions (`CostLimitExceeded`/`GlobalCostLimitExceeded`/`RegenBudgetExceeded`) stay **TERMINAL** — only transport/infra failures retry; never reclassify a budget decision as infra. Post-LLM `tryWriteCache`/`finalizeCost` are out of scope: a finalize failure is governed by `withCostGuard`'s `onFinalizeError`, NOT a job-level retry (a retry would re-spend + burn a regen slot). Net: a transient Redis blip at any pre-LLM touchpoint (incl. first-draft, `version==1`) now RETRIES instead of losing the draft — **spend-safe AND resilient to transient blips**; only an outage outlasting the retry+watchdog budget still fails. (The avoid-facts guardrail RETRY re-throws all three transient classes — `TransientLLMError`, `ConcurrencyLimitExceededError`, `CostInfraUnavailableError` — for BullMQ retry; on retry the primary hits the idempotent cache so only the regen re-runs. Owner-accepted trade-off 2026-07-16: a Redis outage during the guardrail can re-spend, bounded by the queue's BullMQ attempts budget.) Do NOT "fix" the API limiters to strict (fail-open is intentional; the reservation already guarantees spend). The single Upstash instance is still a **SPOF** (cache + rate-limit + cost-reserve + regen-budget + idempotent-generation).
+- **`pnpm test:integration` hard-gates only the publisher edit-existing-reply suite.** Other live-DB integration suites (e.g. the governor scheduler's) exist but run only when their file is invoked directly — an existing-but-not-run suite is how #520 shipped. When touching governor/judge/publisher paths, run the matching integration file explicitly with `TEST_DATABASE_POOL_URL` set.
+- **The worker crash-net RECOVERS from transient-DB `unhandledRejection`s; it does NOT blanket-crash.** `worker/index.ts` classifies via `isCrashNetRecoverableDbError` (strict allowlist — keep it distinct from billing's broad `isTransientPostgresError`): transient Postgres rejections are survived (Sentry warning; sustained storms escalate to crash via `worker/transient-rejection-governor.ts`); everything else fails fast and `uncaughtException` is ALWAYS fatal. Never reintroduce blanket crash-on-any-rejection. Full mechanics: lab-notes "Worker crash-net".
+- **API rate limits fail OPEN by design; the worker's Redis cost RESERVATION precedes every LLM call, so spend stays safe even when a limiter is bypassed.** Pre-LLM Redis **transport** failures are RETRYABLE (`CostInfraUnavailableError` → BullMQ retry + outbox watchdog; #255 — do not re-terminalize); **budget-exceeded** decisions stay TERMINAL (never reclassify as infra); post-LLM finalize failures are governed by `withCostGuard`'s `onFinalizeError`, never a job-level retry (would re-spend). Do NOT "fix" the limiters to strict. Upstash is a single-instance **SPOF** (cache + rate-limit + cost-reserve + regen-budget + idempotent-generation). Full touchpoint/retry matrix: lab-notes "Cost-guard fail-open/retry matrix".
 
 ## Codebase intelligence
 
@@ -206,8 +208,9 @@ Read `graphify-out/GRAPH_REPORT.md` before answering architecture or design ques
 
 | MCP | When |
 | --- | --- |
-| **Supabase** | DB queries, migrations, data debugging (remote HTTP MCP — auth before first use) |
+| **Supabase** | DB queries, migrations, data debugging (remote HTTP MCP — auth before first use). For DB WRITES prefer `execute_sql` over inline `psql` one-liners — structured results and fewer shell-permission prompts |
 | **Railway** | Worker infra — deploys, logs, metrics, env vars, services |
+| **Stripe** | Billing inspection — Prices, subscriptions, events (remote HTTP MCP — OAuth via `/mcp` before first use) |
 | **Vercel** | Frontend deploys, build logs, project status (remote HTTP MCP — auth before first use) |
 | **codebase-memory** | Structural code questions — who-calls-X, call chains, routes, dead code |
 | **Context7** | Library/framework docs (BullMQ, Resend, Stripe, Next.js) before implementing |
