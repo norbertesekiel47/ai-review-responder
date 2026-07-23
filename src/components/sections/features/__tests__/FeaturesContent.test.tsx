@@ -133,4 +133,11 @@ describe('FeaturesContent', () => {
     expect(html).toContain('Guardian never posts anything, anywhere');
     expect(html).toContain('Severity read');
   });
+
+  it('describes Autopilot as bounded autonomy with a veto window', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Autopilot · bounded autonomy');
+    expect(html).toContain('veto window');
+    expect(html).toContain('Negative reviews are never auto-posted');
+  });
 });

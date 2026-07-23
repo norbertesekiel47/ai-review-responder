@@ -19,6 +19,7 @@ import { FeatReply } from './FeatReply';
 import { FeatGuardian } from './FeatGuardian';
 import { FeatLang } from './FeatLang';
 import { FeatGate } from './FeatGate';
+import { FeatAutopilot } from './FeatAutopilot';
 import { FeatVoice } from './FeatVoice';
 import { FeatInsights } from './FeatInsights';
 import { FeatRoi } from './FeatRoi';
@@ -28,6 +29,7 @@ const FEATURES = [
   { id: 'f-guardian', n: '02', label: 'Guardian',     sub: 'Negative lane' },
   { id: 'f-lang',     n: '02', label: 'Languages',    sub: 'Reach' },
   { id: 'f-gate',     n: '04', label: 'The Gate',     sub: 'Copilot' },
+  { id: 'f-autopilot', n: '05', label: 'Autopilot',   sub: 'Bounded autonomy' },
   { id: 'f-voice',    n: '04', label: 'Voice',        sub: 'Over time' },
   { id: 'f-insights', n: '03', label: 'Insights',     sub: 'Mondays' },
   { id: 'f-roi',      n: '06', label: 'ROI',          sub: 'Proof' },
@@ -275,6 +277,7 @@ export function FeaturesContent({
   const guardianRef = useRef<HTMLElement>(null);
   const langRef = useRef<HTMLElement>(null);
   const gateRef = useRef<HTMLElement>(null);
+  const autopilotRef = useRef<HTMLElement>(null);
   const voiceRef = useRef<HTMLElement>(null);
   const insightsRef = useRef<HTMLElement>(null);
   const roiRef = useRef<HTMLElement>(null);
@@ -286,6 +289,7 @@ export function FeaturesContent({
       'f-guardian': guardianRef,
       'f-lang': langRef,
       'f-gate': gateRef,
+      'f-autopilot': autopilotRef,
       'f-voice': voiceRef,
       'f-insights': insightsRef,
       'f-roi': roiRef,
@@ -358,6 +362,7 @@ export function FeaturesContent({
           <FeatGuardian innerRef={guardianRef} />
           <FeatLang innerRef={langRef} />
           <FeatGate innerRef={gateRef} />
+          <FeatAutopilot innerRef={autopilotRef} />
           <FeatVoice innerRef={voiceRef} />
           <FeatInsights innerRef={insightsRef} />
           <FeatRoi innerRef={roiRef} />
