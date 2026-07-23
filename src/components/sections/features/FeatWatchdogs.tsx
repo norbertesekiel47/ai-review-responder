@@ -60,7 +60,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
                     className={`rw-label-mono text-[10px] uppercase px-2 py-0.5 rounded-full ${
                       r.verdict === 'pass'
                         ? 'bg-rw-teal/25 text-white'
-                        : 'bg-rw-peach/25 text-rw-peach'
+                        : 'bg-rw-peach text-rw-ink'
                     }`}
                   >
                     {r.verdict === 'pass' ? 'Pass' : 'Flagged'}
