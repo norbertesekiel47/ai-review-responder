@@ -16,6 +16,7 @@ import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { useReveal } from './useReveal';
 import { FeatReply } from './FeatReply';
+import { FeatGuardian } from './FeatGuardian';
 import { FeatLang } from './FeatLang';
 import { FeatGate } from './FeatGate';
 import { FeatVoice } from './FeatVoice';
@@ -24,6 +25,7 @@ import { FeatRoi } from './FeatRoi';
 
 const FEATURES = [
   { id: 'f-reply',    n: '01', label: 'Reply',        sub: 'The drafter' },
+  { id: 'f-guardian', n: '02', label: 'Guardian',     sub: 'Negative lane' },
   { id: 'f-lang',     n: '02', label: 'Languages',    sub: 'Reach' },
   { id: 'f-gate',     n: '04', label: 'The Gate',     sub: 'Copilot' },
   { id: 'f-voice',    n: '04', label: 'Voice',        sub: 'Over time' },
@@ -270,6 +272,7 @@ export function FeaturesContent({
 }: FeaturesContentProps) {
   // Section refs (one per feature) for the dot nav.
   const replyRef = useRef<HTMLElement>(null);
+  const guardianRef = useRef<HTMLElement>(null);
   const langRef = useRef<HTMLElement>(null);
   const gateRef = useRef<HTMLElement>(null);
   const voiceRef = useRef<HTMLElement>(null);
@@ -280,6 +283,7 @@ export function FeaturesContent({
   const refMap = useMemo<Record<string, RefObject<HTMLElement | null>>>(
     () => ({
       'f-reply': replyRef,
+      'f-guardian': guardianRef,
       'f-lang': langRef,
       'f-gate': gateRef,
       'f-voice': voiceRef,
@@ -351,6 +355,7 @@ export function FeaturesContent({
           <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />
 
           <FeatReply innerRef={replyRef} />
+          <FeatGuardian innerRef={guardianRef} />
           <FeatLang innerRef={langRef} />
           <FeatGate innerRef={gateRef} />
           <FeatVoice innerRef={voiceRef} />

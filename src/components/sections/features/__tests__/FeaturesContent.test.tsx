@@ -126,4 +126,11 @@ describe('FeaturesContent', () => {
     expect(html).toContain('email, Telegram, or WhatsApp');
     expect(html).toContain('Nothing is posted without your go-ahead');
   });
+
+  it('introduces Guardian triage and escalation without public actions', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toContain('Guardian · the negative lane');
+    expect(html).toContain('Guardian never posts anything, anywhere');
+    expect(html).toContain('Severity read');
+  });
 });
