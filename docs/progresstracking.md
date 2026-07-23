@@ -995,3 +995,54 @@ timestamptz µs truncation — second subsystem bitten).
 Phase 2 / Solicitation work) hits the ≥5 review threshold.
 
 ---
+
+### 2026-07-23 — Restraint policy module (#542, PR #551) — Phase 2 Solicitation begins
+
+First implementation ticket off wayfinder map #528, built exactly per the
+locked spec `docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md`
+(#533, PR #548) and ADR 0012, via the ticket-seeded `/feature` path.
+
+**What shipped:** `src/lib/solicitation/restraint-policy.ts` — pure deep
+module, zero imports. Exports: `evaluateAsk` (five per-candidate gates,
+first-match precedence, one reason per withhold), `evaluateBatch` (adds
+batch-relative `velocity_banked`: cap 25, most-recent-visit-first, UUIDv7
+tie-break; returns decisions in input order), `resolveVertical` (precompiled
+left-word-boundary keyword matchers → closed 8-vertical enum, `other`
+fallback), closed six-reason enum, `RESTRAINT_POLICY_VERSION` +
+tunable-constants table (freshness windows per spec §3.2, `BATCH_CAP=25`,
+`MIN_GAP_DAYS=30`). Evidence snapshots: discriminated union, spec §4
+snake_case field names verbatim (serialization contract for JSONB storage +
+batch UI), never PII / never a star rating (typed + runtime-asserted).
+34 Vitest tests incl. a fast-check invariants block (determinism, envelope +
+single closed-enum reason, send∪banked set-equals the surviving pool,
+|send| ≤ cap, no PII/sentiment keys in serialized evidence).
+
+**Decisions made at build time (not in the spec):** no `sql` param (the
+ticket's invariant-#15 note superseded by spec §5.1 purity — context fully
+caller-loaded, #543's job); `evaluateBatch` as the batch-level entry since
+`velocity_banked` is assessable only against the surviving pool;
+`MIN_GAP_DAYS=30` day-one (spec gap, conservative middle, tunable);
+over-contacted boundary symmetric with stale_visit (exact gap allowed).
+Cross-review footnote added to spec §1: `no_consent`, like `suppressed`,
+cannot fire in v-watch (the #535 attestation is blocking).
+
+**Review round (5/5 accepted, 0 rejected —
+`docs/reviews/feat-542-restraint-policy/triage.md`):** the real catch was
+offset-ISO timestamp skew — the original `utcDayNumber` sliced the lexical
+date part, so a `-07:00` `decidedAt` could flip a gate boundary vs true UTC;
+fixed with `Date.parse`-based day arithmetic for timestamps + a deterministic
+±offset boundary test. Also: partition property strengthened to set-equality,
+over_contacted-beats-velocity_banked deterministic test, keyword regexes
+precompiled, `docs/directory.md` entry (edit surface amended with sign-off).
+Two sanctioned deviations (both `noUncheckedIndexedAccess` strict-mode fixes,
+behavior identical) logged in the plan's deviations file.
+
+**Gate evidence:** verify-gate GREEN ×2 (lint, typecheck, test, all 12 `ci:*`
+audits); full CI green on PR #551; squash-merged `d4add503`; staging
+fast-forwarded same day.
+
+**Arch-review counter: 4 → 5 — threshold REACHED.** An architecture review
+session is due before the counter grows further (user schedules it; see
+`.claude/reference/arch-review-log.md`).
+
+---
