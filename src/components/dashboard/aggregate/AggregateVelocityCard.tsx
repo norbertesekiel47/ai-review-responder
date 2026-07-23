@@ -13,13 +13,13 @@ import {
 import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
+import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
 import {
-  VelocityChart,
   VELOCITY_H as H,
   VELOCITY_PAD as PAD,
   computeVelocitySummary,
   weekShortLabel,
-} from '@/components/dashboard/charts/VelocityChart';
+} from '@/components/dashboard/charts/velocity-math';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 // One authoritative per-location palette, shared with AggregateRankingCard so a

@@ -18,38 +18,13 @@ import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
+import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD } from '@/components/dashboard/charts/velocity-math';
+
 export interface VelocityDatum {
   label: string;
   count: number;
 }
 
-export interface VelocitySummary {
-  lastWeek: number;
-  deltaPct: number;
-  total: number;
-  avg: number;
-}
-
-/** Derives the stat row (This week / delta / total / 1-decimal avg) from weekly counts. */
-export function computeVelocitySummary(counts: number[]): VelocitySummary {
-  const lastWeek = counts[counts.length - 1] ?? 0;
-  const prevWeek = counts[counts.length - 2] ?? lastWeek;
-  return {
-    lastWeek,
-    deltaPct: prevWeek ? Math.round(((lastWeek - prevWeek) / prevWeek) * 100) : 0,
-    total: counts.reduce((a, b) => a + b, 0),
-    avg: Number((counts.reduce((a, b) => a + b, 0) / Math.max(1, counts.length)).toFixed(1)),
-  };
-}
-
-/** Shows only ~half the tick labels (every other, plus the last) to avoid crowding. */
-export function weekShortLabel(weekStartIso: string, idx: number, total: number): string {
-  if (idx % 2 !== 0 && idx !== total - 1) return '';
-  return new Date(weekStartIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-export const VELOCITY_PAD = { l: 36, r: 16, t: 28, b: 32 } as const;
-export const VELOCITY_H = 220;
 const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
 

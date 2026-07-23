@@ -4,11 +4,8 @@ import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { ChartHeadlineBanner } from '@/components/dashboard/kpi/ChartHeadlineBanner';
 import { computeVelocityHeadline } from '@/components/dashboard/kpi/chart-headlines';
 import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
-import {
-  VelocityChart,
-  computeVelocitySummary,
-  weekShortLabel,
-} from '@/components/dashboard/charts/VelocityChart';
+import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
+import { computeVelocitySummary, weekShortLabel } from '@/components/dashboard/charts/velocity-math';
 
 interface Props {
   reviewVelocity: DashboardDataActive['reviewVelocity'];

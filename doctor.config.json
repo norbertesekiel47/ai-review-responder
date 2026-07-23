@@ -89,6 +89,14 @@
         "rules": ["react-doctor/no-derived-state-effect"]
       },
       {
+        "files": ["src/components/dashboard/aggregate/AggregateVelocityCard.tsx"],
+        "rules": ["react-doctor/no-layout-property-animation"]
+      },
+      {
+        "files": ["src/components/dashboard/charts/VelocityChart.tsx"],
+        "rules": ["react-doctor/no-layout-property-animation"]
+      },
+      {
         "files": ["src/components/dashboard/reviews/edit-reply/useEditReplyDraft.ts"],
         "rules": ["react-doctor/no-fetch-in-effect"]
       },

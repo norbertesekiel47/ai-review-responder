@@ -2,11 +2,8 @@
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import {
-  VelocityChart,
-  computeVelocitySummary,
-  weekShortLabel,
-} from '@/components/dashboard/charts/VelocityChart';
+import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
+import { computeVelocitySummary, weekShortLabel } from '@/components/dashboard/charts/velocity-math';
 
 describe('computeVelocitySummary', () => {
   it('derives last week, delta, total, and 1-decimal average', () => {
