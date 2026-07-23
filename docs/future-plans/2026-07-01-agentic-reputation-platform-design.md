@@ -7,6 +7,10 @@ Where those docs and this one disagree, this one wins. Architecture invariants i
 [.claude/CLAUDE.md](../../.claude/CLAUDE.md) still win over everything.
 **Altitude:** Fresh analysis + locked decisions. Each build phase below still gets its own
 spec → plan → implementation cycle.
+**Build status (2026-07-22):** Phase 1 (WS1–WS8) is SHIPPED to `main` and
+staging-proven end-to-end — see **§8 As-built status**, which records what was
+built, where it diverged from this design, and what remains before production
+go-live. §§1–7 are preserved as the accepted design; §8 is the reality overlay.
 
 ---
 
@@ -321,7 +325,98 @@ in the prior plan; launch day should not ride on week-two substrate code.
   `zernio-normalize.ts`), but one live-payload check should confirm the embedded IDs are
   Google's, not Zernio remappings (launch-track item 2).
 - **Tier price points** — deliberately not decided here; business decision, trivially
-  changeable pre-launch.
+  changeable pre-launch. *(Resolved by WS8, see §8.2.)*
 - **LangGraph as "existing tooling"** — verified false for this repo (2026-07-01):
   only raw `openai` + `@anthropic-ai/sdk` clients exist. Treated as aspiration, examined,
   and rejected for the execution substrate (§1).
+
+---
+
+## 8. As-built status (2026-07-22)
+
+Reality overlay on the design above. Everything in this section is verified —
+either merged to `main` or recorded in the staging evidence files.
+
+### 8.1 Shipped — Phase 1 complete (WS1–WS8)
+
+| WS | Shipped as | PR | Migration |
+|---|---|---|---|
+| WS1 Run spine | `agent_runs`/`agent_run_steps`/`agent_outcomes` + writer lib + pipeline instrumentation | #459 | 071 |
+| WS2 Triage | `TRIAGE_ENABLED`-gated severity classification, cost-guarded, `triage_*` columns on `reviews` | #460 | 072 |
+| WS3 Guardian escalation | raise → notify → acknowledge/resolve, `review_escalations` | #461 | 073 |
+| WS4 Trust dial | rating bands, daily caps (default 10, ceiling 50), veto window (15/30 min), outcome instrumentation | #464 | 074 |
+| WS5 Persona surfaces | run timeline, agent-team dashboard reframe, Insights labeling, escalation discharge | #465 | 075 |
+| WS6 Judge + governor | `JudgeSweepPoller` (100% of auto-posts), `judge_verdicts`, `AutonomyGovernorScheduler`, suspension flow + admin `/admin/autonomy` (AAL2) | #466 | 076 |
+| WS7 Eval-in-CI | path-filtered `llm-eval` release gate (observed live on PR #520) | #462 | — |
+| WS8 Tier wiring | Copilot/Autopilot tiers, expand/contract cutover, `AUTOPILOT_PURCHASABLE` composed gate | #469/#470 | 077+078 |
+
+Post-WS hardening also landed: agent-spine archival (079), scheduler outbox
+dedup (080), poller cursors (081), failover indexes (082), owner-unreachable
+escalation (083), plus the production-reliability wave (#495–#517).
+
+**Staging proof** (evidence: `docs/runbooks/evidence/2026-07-21-…` and
+`2026-07-22-…`): Phases A–D all PASS on a live Google profile — Copilot
+full-loop, Guardian triage+escalation, Autopilot autonomy happy path
+(auto-approve → veto window → real auto-post → judge verdict 43s later), all
+three fail-safe drills, 12/12 WS8 smoke scenarios, real Autopilot checkout +
+upgrade, trust-dial UI writes, AAL2 admin unsuspend. **Three launch-blocking
+bugs found by live testing and fixed:** trial-checkout `payment_status` (#518),
+onboarding page/route flag drift (#519), governor µs-truncation permanent
+re-suspension immunity (#520).
+
+### 8.2 Design → reality deltas
+
+- **Prices set (was TBD):** Copilot $29 list / $19 founding; Autopilot $69
+  list / $49 founding (monthly, per account; overage Prices $10/$20). Founding
+  deadline 2027-01-01.
+- **Triage refined:** positive-lane routing stays deterministic star sentiment;
+  the LLM triage call runs only on the negative lane (≤3★/unrated),
+  cost-bounded (~200 tokens, `gpt-4o-mini` pinned). Matches §3.1's intent with
+  a cheaper mechanism than "LLM on every review."
+- **Judge is STRONGER than designed:** §5.1 said post-hoc/advisory; as-built,
+  judging is still post-hoc but `JUDGE_ENABLED=false` (or judge unavailability)
+  **halts auto-posting** — the publisher downgrades unposted `auto_policy` rows
+  to owner review. Auto-posting now has a hard dependency on the watchdog.
+- **Veto window is an enum** (15 or 30 minutes, DB CHECK), not freeform.
+- **`billable_outcomes` shipped as `agent_outcomes`** (Decision 2: instrumented,
+  not billed — billing semantics can attach later without a rename).
+- **Purchasability is a composed gate:** `AUTOPILOT_PURCHASABLE` AND
+  `autoApprovalRuntimeEnabled()`; expansions blocked when closed, contractions
+  always allowed. Runtime autonomy additionally requires the **autopilot tier**
+  (`tierGrantsAutopilot`).
+- **Cadence jitter (§4 item 3) is NOT built.** The veto window + daily caps
+  provide spacing; explicit per-location jitter remains an open pre-scale item.
+
+### 8.3 The agent roster as built
+
+Three customer personas over trigger-shaped graphs (Decision 5): **Reply**
+(drafts everything; auto-posts positive-quadrant on Autopilot), **Guardian**
+(triage + escalate + track; never acts publicly), **Insights** (weekly digest).
+Two watchdog automatons above them: the **Judge** (LLM review of 100% of
+auto-posts; availability is a posting precondition) and the **Governor**
+(autonomous per-account suspension with owner+admin notification; repeat-
+offender path fixed in #520). Persona attribution via `attributed_agent` on
+run steps, exactly per §3.1.
+
+### 8.4 Go-live gates
+
+| Gate | Status |
+|---|---|
+| Zernio automated posting | ✅ CLOSED — permitted, **no limits, pay-per-use per account** (`docs/runbooks/zernio-automated-posting-limits.md`; pacing is therefore entirely ours — caps/veto/jitter mandatory; pricing-unit + written-echo follow-ups open) |
+| GBP API access | Application filed 2026-07-01, pending; `google_review_name` capture shipping since migration 070 keeps the adapter path open |
+| Staging E2E (A–D) | ✅ PASS |
+| Governor fix | ✅ merged (#520) |
+| Prod WS8 cutover (`ws8-tier-cutover.md` — prod Stripe Prices) | ❌ not run |
+| Migrations 071–083 applied to PROD Supabase | ⚠️ **unverified** — verify by introspection before any flag flip |
+| Owner UAT (`owner-uat-agentic-staging.md`) | pending |
+| Ordered prod flag flip (`TRIAGE` → `ESCALATION` → `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL`; then `AUTOPILOT_PURCHASABLE`) | not started — **all autonomy flags OFF in production** |
+
+**Launch posture (unchanged from §4):** Copilot is launchable now with zero
+autonomy flags; Autopilot flips only after the gates above, Copilot-first.
+
+### 8.5 Deliberately still NOT built (per this design)
+
+Run engine/executor (Phase 2, Solicitation is its first tenant), Solicitation
+agent (v1.1), calibrated-confidence router, GBP posting adapter (awaiting
+access), conversational surface, cross-agent coordination keys, outcome
+billing. None of these block launch; all remain sequenced as §4 specified.
