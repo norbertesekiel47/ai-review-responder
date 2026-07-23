@@ -96,7 +96,7 @@ export interface AskCandidate {
 }
 
 export interface BatchContext {
-  /** Decision timestamp (ISO 8601). "Today" for gate arithmetic is its UTC date. */
+  /** Decision timestamp (ISO 8601, any offset). "Today" for gate arithmetic is the UTC date of the parsed instant. */
   decidedAt: string;
   /** Owner-typed free text `businesses.category`; resolved via resolveVertical. */
   businessCategory: string | null;
@@ -167,13 +167,21 @@ const VERTICAL_KEYWORDS: ReadonlyArray<readonly [Vertical, ReadonlyArray<string>
   ['retail', ['shop', 'store', 'boutique', 'retail', 'market', 'florist', 'jewel', 'bookstore', 'clothing', 'furniture', 'pet supply']],
 ];
 
+/** Left-word-boundary matchers, compiled once at module load (not per candidate). */
+const VERTICAL_KEYWORD_MATCHERS: ReadonlyArray<
+  readonly [Vertical, ReadonlyArray<{ keyword: string; pattern: RegExp }>]
+> = VERTICAL_KEYWORDS.map(
+  ([vertical, keywords]) =>
+    [vertical, keywords.map((keyword) => ({ keyword, pattern: new RegExp(`\\b${keyword}`) }))] as const,
+);
+
 /** Resolve the owner-typed category text to a Vertical; `other` when unmapped. */
 export function resolveVertical(businessCategory: string | null): VerticalResolution {
   const normalized = (businessCategory ?? '').toLowerCase();
   if (normalized.length > 0) {
-    for (const [vertical, keywords] of VERTICAL_KEYWORDS) {
-      for (const keyword of keywords) {
-        if (new RegExp(`\\b${keyword}`).test(normalized)) {
+    for (const [vertical, matchers] of VERTICAL_KEYWORD_MATCHERS) {
+      for (const { keyword, pattern } of matchers) {
+        if (pattern.test(normalized)) {
           return { vertical, matchedKeyword: keyword };
         }
       }
@@ -188,11 +196,19 @@ export function resolveVertical(businessCategory: string | null): VerticalResolu
 
 const DAY_MS = 86_400_000;
 
-/** UTC day number of a YYYY-MM-DD date (or the date part of an ISO timestamp). */
-function utcDayNumber(date: string): number {
-  const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(5, 7));
-  const day = Number(date.slice(8, 10));
+/**
+ * UTC day number of a plain YYYY-MM-DD date, or — for ISO timestamps (any
+ * offset, `Z` or `±hh:mm`) — of the parsed instant's UTC date. Timestamps are
+ * parsed, never lexically sliced: slicing the date part of an offset timestamp
+ * mis-dates instants that cross midnight UTC.
+ */
+function utcDayNumber(value: string): number {
+  if (value.length > 10) {
+    return Math.floor(Date.parse(value) / DAY_MS);
+  }
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
   return Date.UTC(year, month - 1, day) / DAY_MS;
 }
 

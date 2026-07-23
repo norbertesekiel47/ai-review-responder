@@ -514,6 +514,14 @@ it acknowledge → resolve (spec `docs/superpowers/specs/2026-07-07-ws3-guardian
 
 **Connection:** `persistTriage` (`reviews/triage.ts`) calls `raiseEscalation()` in the same tx as the triage write → OutboxPoller dispatches `escalation_notice` → `EscalationNoticeWorker` sends. The dashboard escalation routes call `transitions.ts`.
 
+### `solicitation/`
+
+Phase 2 Solicitation agent (watch-mode first).
+
+| File | What it does |
+|------|--------------|
+| `restraint-policy.ts` | **(#542)** Pure, sentiment-blind restraint policy: `evaluateAsk` (five per-candidate gates, first-match precedence) + `evaluateBatch` (adds `velocity_banked`), closed six-reason withhold enum, vertical mapper, versioned tunable constants (`RESTRAINT_POLICY_VERSION`). No DB, no clock — `decided_at` + business category arrive via context. Spec: `docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md`. |
+
 ### `llm/`
 
 The LLM task seam (A+ campaign PR 1c; **the sole path for every LLM

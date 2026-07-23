@@ -188,6 +188,24 @@ describe('evaluateAsk — per-reason contracts', () => {
     });
   });
 
+  it('stale_visit arithmetic is offset-aware: "today" is the UTC date of the decidedAt instant, not its lexical date part', () => {
+    // 2026-07-23T22:00:00.000-07:00 IS 2026-07-24T05:00:00.000Z → today is 2026-07-24 UTC.
+    // Visit 2026-07-09 is exactly 14 days before 2026-07-23 (send at the food_and_drink
+    // boundary) but 15 days before 2026-07-24 — the extra UTC day flips the decision.
+    const offsetContext: BatchContext = { ...context, decidedAt: '2026-07-23T22:00:00.000-07:00' };
+    const equivalentZContext: BatchContext = { ...context, decidedAt: '2026-07-24T05:00:00.000Z' };
+    for (const ctx of [offsetContext, equivalentZContext]) {
+      expect(evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-07-09' }), ctx)).toMatchObject({
+        decision: 'withhold',
+        reason: 'stale_visit',
+        days_since_visit: 15,
+        freshness_window_days: 14,
+      });
+    }
+    // Same visit under the default context (UTC date 2026-07-23) stays a send.
+    expect(evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-07-09' }), context).decision).toBe('send');
+  });
+
   it('over_contacted: prior would-have-sent inclusion within MIN_GAP_DAYS withholds with gap evidence', () => {
     const recent = evaluateAsk(
       eligibleCandidate({ priorBatch: { batchId: 'batch-7', decidedAt: '2026-07-10T09:00:00.000Z' } }),
@@ -306,6 +324,23 @@ describe('evaluateBatch — velocity banking', () => {
     expect(decisions.map((d) => d.contact_id)).toEqual(pool.map((c) => c.contactId));
     expect(decisions[0]).toMatchObject({ reason: 'suppressed' });
   });
+
+  it('over_contacted precedes velocity_banked: a prior-inclusion candidate in an over-cap batch is never banked or sent', () => {
+    const overContacted = eligibleCandidate({
+      contactId: '01980000-0000-7000-8000-0000000000aa',
+      priorBatch: { batchId: 'batch-7', decidedAt: '2026-07-10T09:00:00.000Z' },
+    });
+    const pool = [overContacted, ...eligiblePool(BATCH_CAP + 2)];
+    const decisions = evaluateBatch(pool, context);
+    expect(decisions.find((d) => d.contact_id === overContacted.contactId)).toMatchObject({
+      decision: 'withhold',
+      reason: 'over_contacted',
+    });
+    expect(decisions.filter((d) => d.decision === 'send')).toHaveLength(BATCH_CAP);
+    expect(
+      decisions.filter((d) => d.decision === 'withhold' && d.reason === 'velocity_banked'),
+    ).toHaveLength(2);
+  });
 });
 
 // Property tests (fast-check): the house style for invariant-level coverage
@@ -357,16 +392,30 @@ describe('restraint policy invariants', () => {
     );
   });
 
-  it('sends never exceed the cap, and velocity banking only fires when eligible_count > cap', () => {
+  // Contact row ids are unique by construction (UUIDv7 PKs); the partition
+  // property is stated over sets of ids, so this batch generator enforces it.
+  const arbUniqueBatch = fc.uniqueArray(arbCandidate, { maxLength: 60, selector: (c) => c.contactId });
+
+  it('partitions the surviving pool exactly: {send} ∪ {velocity_banked} = evaluateAsk-send ids, disjoint, |send| ≤ cap', () => {
     fc.assert(
-      fc.property(arbBatch, (candidates) => {
+      fc.property(arbUniqueBatch, (candidates) => {
+        const surviving = new Set(
+          candidates.filter((c) => evaluateAsk(c, context).decision === 'send').map((c) => c.contactId),
+        );
         const decisions = evaluateBatch(candidates, context);
-        const sends = decisions.filter((d) => d.decision === 'send').length;
-        const banked = decisions.filter((d) => d.decision === 'withhold' && d.reason === 'velocity_banked').length;
-        expect(sends).toBeLessThanOrEqual(BATCH_CAP);
-        if (banked > 0) {
-          expect(sends).toBe(BATCH_CAP);
-          expect(sends + banked).toBeGreaterThan(BATCH_CAP);
+        const sendIds = new Set(decisions.filter((d) => d.decision === 'send').map((d) => d.contact_id));
+        const bankedIds = new Set(
+          decisions
+            .filter((d) => d.decision === 'withhold' && d.reason === 'velocity_banked')
+            .map((d) => d.contact_id),
+        );
+        expect(sendIds.size).toBeLessThanOrEqual(BATCH_CAP);
+        for (const id of sendIds) {
+          expect(bankedIds.has(id)).toBe(false);
+        }
+        expect(new Set([...sendIds, ...bankedIds])).toEqual(surviving);
+        if (bankedIds.size > 0) {
+          expect(sendIds.size).toBe(BATCH_CAP);
         }
       }),
     );
