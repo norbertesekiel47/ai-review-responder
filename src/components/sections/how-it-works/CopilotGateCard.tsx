@@ -111,7 +111,7 @@ export function CopilotGateCard() {
         </div>
         <div className="hiw-email-foot">
           <span>Responds from owner@brightlinen.com</span>
-          <span>One tap · email, Telegram, or WhatsApp</span>
+          <span>One-tap · email, Telegram, or WhatsApp</span>
         </div>
       </div>
     </div>
