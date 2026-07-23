@@ -132,6 +132,7 @@ export function ReputationTrendChart({ trend }: Props) {
                 />
                 {focus && (
                   <m.g
+                    initial={false}
                     animate={{ x: x(focus.index), y: y(focus.star) }}
                     transition={chartTransition(reduced, DOT_SPRING)}
                   >
