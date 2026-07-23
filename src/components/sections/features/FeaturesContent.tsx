@@ -10,12 +10,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MutableRefObject,
-  type ReactNode,
   type RefObject,
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
+import { useReveal } from './useReveal';
+import { FeatLang } from './FeatLang';
+import { FeatVoice } from './FeatVoice';
+import { FeatRoi } from './FeatRoi';
 
 const FEATURES = [
   { id: 'f-ai',      n: '01', label: 'AI drafting',  sub: 'The engine' },
@@ -69,31 +71,11 @@ const AI_REPLIES = {
   },
 } as const;
 
-const FEATURE_LANGS = [
-  { code: 'ES', name: 'Español' },
-  { code: 'VI', name: 'Tiếng Việt' },
-  { code: 'ZH', name: '中文' },
-  { code: 'TL', name: 'Tagalog' },
-  { code: 'KO', name: '한국어' },
-  { code: '+14', name: 'more' },
-];
-
 const APPROVAL_STEPS = [
   { n: '01', title: 'New review lands', sub: 'New review detected via webhook', t: '0:00', dark: false, d: '100ms' },
   { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
   { n: '03', title: 'You get a text or email', sub: 'Review + draft + three big buttons', t: '+0:15', dark: false, d: '500ms' },
   { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
-];
-
-const VOICE_BARS = [
-  { h: 85, op: 0.8, d: '80ms' },
-  { h: 72, op: 0.7, d: '160ms' },
-  { h: 61, op: 0.6, d: '240ms' },
-  { h: 48, op: 0.55, d: '320ms' },
-  { h: 35, op: 0.45, d: '400ms' },
-  { h: 28, op: 0.4, d: '480ms' },
-  { h: 18, op: 0.35, d: '560ms' },
-  { h: 12, op: 1, d: '640ms', anno: true },
 ];
 
 const BRIEF_MENTIONS = [
@@ -111,56 +93,6 @@ const COMPETITOR_ROWS = [
   { rank: '#3', name: 'Competitor B', stars: '4.2', resp: 'Sample data' },
   { rank: '#4', name: 'Competitor C', stars: '4.0', resp: 'Sample data' },
 ];
-
-function useReveal<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  const [seen, setSeen] = useState(false);
-  const prefersReducedMotion = usePrefersReducedMotion();
-  useEffect(() => {
-    if (seen) return;
-    // Reduced motion: skip the IntersectionObserver entrance entirely and render
-    // the final (revealed) frame on the next tick. This also guarantees children
-    // gated on `.rw-reveal.in` (lang chips, voice bars, comp rows, etc.) become
-    // visible. Deferred via setTimeout to avoid a synchronous setState in-effect.
-    if (prefersReducedMotion) {
-      const id = window.setTimeout(() => setSeen(true), 0);
-      return () => window.clearTimeout(id);
-    }
-    if (!ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    if (r.top < window.innerHeight && r.bottom > 0) {
-      setSeen(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && setSeen(true)),
-      { threshold: 0.08, rootMargin: '0px 0px -80px 0px' }
-    );
-    io.observe(ref.current);
-    return () => io.disconnect();
-  }, [seen, prefersReducedMotion]);
-  return [ref, seen] as const;
-}
-
-function FeatureSection({
-  innerRef,
-  id,
-  label,
-  className = '',
-  children,
-}: {
-  innerRef: MutableRefObject<HTMLElement | null>;
-  id: string;
-  label: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section ref={innerRef} id={id} aria-label={label} className={className}>
-      {children}
-    </section>
-  );
-}
 
 function DotNav({
   activeSection,
@@ -531,7 +463,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const r = AI_REPLIES[tab];
 
   return (
-    <FeatureSection innerRef={innerRef} id="f-ai" label="AI drafting" className="px-8 md:px-16 py-20 relative">
+    <section ref={innerRef} id="f-ai" aria-label="AI drafting" className="px-8 md:px-16 py-20 relative">
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-rw-teal/40" aria-hidden="true">01</span>
         <div className="flex-1">
@@ -617,108 +549,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </div>
         </div>
       </div>
-    </FeatureSection>
-  );
-}
-
-/* ================== 02 LANGUAGES ================== */
-function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
-  const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
-  const prefersReducedMotion = usePrefersReducedMotion();
-  return (
-    <FeatureSection
-      innerRef={innerRef}
-      id="f-lang"
-      label="Multilingual support"
-      className="px-8 md:px-16 py-20 bg-gradient-to-b from-white to-rw-cream/50 relative"
-    >
-      <div className="grid md:grid-cols-12 gap-10 items-start">
-        <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
-          <div className="flex items-start gap-6 mb-8">
-            <span className="rw-num-tag text-7xl leading-none text-rw-peach/80">02</span>
-            <div>
-              <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Reach</p>
-              <h2 className="text-4xl md:text-[2.75rem] font-medium text-rw-ink leading-tight">
-                Multilingual, <span className="rw-display-serif text-rw-teal-strong">automatically</span>.
-              </h2>
-            </div>
-          </div>
-          <p className="text-rw-ink-soft max-w-md leading-relaxed mb-8">
-            RepWorth detects the language of every review and responds in the same language: no
-            setup, no toggles. Your customers feel heard in their own words.
-          </p>
-          <div className="grid grid-cols-3 gap-2 max-w-md">
-            {FEATURE_LANGS.map((l, i) => (
-              <div
-                key={l.code}
-                className="rw-lang-chip bg-white rounded-2xl p-3 border border-rw-teal/15 text-center"
-                style={{
-                  ['--chip-d' as string]: `${80 + i * 90}ms`,
-                  // The `.rw-lang-chip` base rule sets opacity:0 and relies on the
-                  // `rw-chip-pop` reveal animation to fade in. That animation is not
-                  // disabled under reduced motion in globals.css, so force the chip
-                  // visible here to avoid invisible chips when motion is reduced.
-                  ...(prefersReducedMotion ? { opacity: 1 } : {}),
-                }}
-              >
-                <p className="rw-label-mono text-[10px] text-rw-ink-soft mb-0.5">{l.code}</p>
-                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-rw-teal-strong' : ''}`}>
-                  {l.name}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div ref={rightRef} className={`rw-reveal from-right md:col-span-7 ${rightSeen ? 'in' : ''}`}>
-          <div className="bg-white rounded-3xl p-6 border border-rw-teal/15 shadow-sm max-w-md">
-            <div className="flex items-center gap-2 mb-3">
-              <div
-                className="size-8 rounded-full"
-                style={{ background: 'linear-gradient(135deg, #F2C3B9, #D6CBBF)' }}
-                aria-hidden
-              />
-              <div>
-                <p className="text-xs font-medium text-rw-ink">Sample reviewer</p>
-                <div className="flex gap-0.5 text-[10px]" aria-label="5 out of 5 stars">
-                  <span className="text-rw-teal" aria-hidden="true">★★★★★</span>
-                </div>
-              </div>
-              <span className="ml-auto rw-label-mono text-[10px] text-rw-ink-soft">detected: ES</span>
-            </div>
-            <p className="text-sm text-rw-ink leading-relaxed">
-              &ldquo;La mejor enchilada que he comido en años. El mole es auténtico. Volvería todos los
-              fines de semana si pudiera.&rdquo;
-            </p>
-          </div>
-
-          <svg className="ml-16 my-2 w-8 h-16 text-rw-teal/40" viewBox="0 0 32 64" fill="none" aria-hidden>
-            <path
-              d="M16 0 V 48 M10 44 L 16 52 L 22 44"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeDasharray="3 4"
-            />
-          </svg>
-
-          <div
-            className="ml-16 md:ml-24 rounded-3xl p-6 border border-rw-teal/25 max-w-md"
-            style={{ background: 'rgba(151,179,174,0.08)' }}
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <span className="rw-label-mono text-[10px] uppercase text-rw-teal-strong">Your reply · ES</span>
-              <span className="ml-auto rw-label-mono text-[10px] text-rw-ink-soft">auto-generated</span>
-            </div>
-            <p className="text-sm text-rw-ink leading-relaxed">
-              &ldquo;¡Muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
-              en prepararlo. Nos alegra mucho que lo hayas disfrutado. ¡Hasta pronto!&rdquo;
-            </p>
-          </div>
-        </div>
-      </div>
-    </FeatureSection>
+    </section>
   );
 }
 
@@ -729,7 +560,12 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
   const [phoneRef, phoneSeen] = useReveal<HTMLDivElement>();
 
   return (
-    <FeatureSection innerRef={innerRef} id="f-approve" label="One-tap approval" className="px-8 md:px-16 py-20 relative">
+    <section
+      ref={innerRef}
+      id="f-approve"
+      aria-label="One-tap approval"
+      className="px-8 md:px-16 py-20 relative"
+    >
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-rw-beige">03</span>
         <div className="flex-1">
@@ -831,82 +667,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
           </div>
         </div>
       </div>
-    </FeatureSection>
-  );
-}
-
-/* ================== 04 VOICE ================== */
-function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [headRef, headSeen] = useReveal<HTMLDivElement>();
-  const [chartRef, chartSeen] = useReveal<HTMLDivElement>();
-  return (
-    <FeatureSection
-      innerRef={innerRef}
-      id="f-voice"
-      label="Voice learning"
-      className="px-8 md:px-16 py-20 bg-rw-ink text-white relative overflow-hidden"
-    >
-      <div
-        className="absolute inset-0 opacity-[0.04] pointer-events-none"
-        style={{
-          backgroundImage: 'radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1.5px)',
-          backgroundSize: '3px 3px',
-        }}
-        aria-hidden
-      />
-      <div className="relative grid md:grid-cols-12 gap-10 items-end">
-        <div ref={headRef} className={`rw-reveal md:col-span-5 ${headSeen ? 'in' : ''}`}>
-          <span className="rw-num-tag text-7xl leading-none text-white/20 block mb-4">04</span>
-          <p className="rw-label-mono text-xs uppercase text-rw-peach mb-3">Over time</p>
-          <h2 className="text-4xl md:text-5xl font-medium leading-tight mb-4">
-            It learns your <span className="rw-display-serif text-rw-peach">voice</span>: edit by edit.
-          </h2>
-          <p className="text-white/70 max-w-md leading-relaxed">
-            Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
-            the way you handle a complaint. By week 8, most owners approve drafts untouched.
-          </p>
-        </div>
-
-        <div ref={chartRef} className={`rw-reveal md:col-span-7 ${chartSeen ? 'in' : ''}`}>
-          <div className="flex items-baseline justify-between mb-5">
-            <p className="rw-label-mono text-xs uppercase text-white/50">% of drafts edited by owner</p>
-            <p className="rw-label-mono text-xs text-rw-peach">↓ 86% over 8 weeks</p>
-          </div>
-          <div className="relative h-48">
-            <div className="absolute inset-0 flex flex-col justify-between">
-              <div className="border-t border-white/10" />
-              <div className="border-t border-white/10" />
-              <div className="border-t border-white/10" />
-              <div className="border-t border-white/10" />
-            </div>
-            <div className="absolute inset-0 flex items-end gap-3 px-1">
-              {VOICE_BARS.map((b) => (
-                <div
-                  key={b.d}
-                  className="rw-voice-bar flex-1 rounded-t relative"
-                  style={{
-                    height: `${b.h}%`,
-                    background: `rgba(242,195,185,${b.op})`,
-                    ['--bar-d' as string]: b.d,
-                  }}
-                >
-                  {b.anno && (
-                    <div className="rw-voice-anno absolute -top-10 left-1/2 -translate-x-1/2 bg-rw-peach text-rw-ink rounded-lg px-2 py-1 rw-label-mono text-[10px] whitespace-nowrap">
-                      most owners: hands-off
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-between mt-3 rw-label-mono text-[10px] text-white/50">
-            {['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'].map((w) => (
-              <span key={w}>{w}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </FeatureSection>
+    </section>
   );
 }
 
@@ -915,7 +676,12 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
   return (
-    <FeatureSection innerRef={innerRef} id="f-brief" label="Weekly brief" className="px-8 md:px-16 py-20 relative">
+    <section
+      ref={innerRef}
+      id="f-brief"
+      aria-label="Weekly brief"
+      className="px-8 md:px-16 py-20 relative"
+    >
       <div className="grid md:grid-cols-12 gap-10 items-start">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-5 ${leftSeen ? 'in' : ''}`}>
           <span className="rw-num-tag text-7xl leading-none text-rw-teal/40 block mb-4" aria-hidden="true">05</span>
@@ -1005,138 +771,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </article>
         </div>
       </div>
-    </FeatureSection>
-  );
-}
-
-/* ================== 06 ROI ================== */
-function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [headRef, headSeen] = useReveal<HTMLDivElement>();
-  const [gridRef, gridSeen] = useReveal<HTMLDivElement>();
-
-  return (
-    <FeatureSection
-      innerRef={innerRef}
-      id="f-roi"
-      label="ROI dashboard"
-      className="px-8 md:px-16 py-20 bg-rw-cream/50 relative"
-    >
-      <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
-        <span className="rw-num-tag text-7xl leading-none text-rw-beige">06</span>
-        <div className="flex-1 max-w-2xl">
-          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Proof</p>
-          <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight">
-            Numbers to show your <span className="rw-display-serif text-rw-teal-strong">accountant</span>.
-          </h2>
-          <p className="text-rw-ink-soft mt-4 leading-relaxed">
-            Response rate before and after. Average time to respond. Where you sit in local search.
-            The kind of numbers that justify the line item.
-          </p>
-        </div>
-      </div>
-
-      <div ref={gridRef} className={`rw-reveal grid md:grid-cols-12 gap-6 ${gridSeen ? 'in' : ''}`}>
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
-          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Response rate</p>
-          <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">12%</span>
-            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-            </svg>
-            <span className="rw-num-tag text-4xl text-rw-ink">96<span className="text-lg">%</span></span>
-          </div>
-          <div className="mt-4 h-8 relative">
-            <div className="absolute inset-0 bg-rw-teal-strong/15 rounded-full" />
-            <div className="absolute inset-y-0 left-0 right-[4%] bg-rw-teal-strong rounded-full" />
-          </div>
-        </div>
-
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
-          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Avg response time</p>
-          <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">4 days</span>
-            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-            </svg>
-            <span className="rw-num-tag text-4xl text-rw-ink">58<span className="text-lg">min</span></span>
-          </div>
-          <svg className="mt-4 w-full h-8" viewBox="0 0 200 32" preserveAspectRatio="none" aria-hidden>
-            <path
-              d="M0,4 L30,8 L60,14 L90,18 L120,22 L150,26 L180,28 L200,29"
-              stroke="#97B3AE"
-              strokeWidth="2"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <circle cx="200" cy="29" r="3" fill="#97B3AE" />
-          </svg>
-        </div>
-
-        <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
-          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Local map rank</p>
-          <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">#14</span>
-            <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-            </svg>
-            <span className="rw-num-tag text-4xl text-rw-ink">#3</span>
-          </div>
-          <svg className="mt-4 w-full h-8" viewBox="0 0 200 32" preserveAspectRatio="none" aria-hidden>
-            <path
-              d="M0,28 L30,26 L60,22 L90,20 L120,14 L150,10 L180,6 L200,4"
-              stroke="#97B3AE"
-              strokeWidth="2"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <circle cx="200" cy="4" r="3" fill="#97B3AE" />
-          </svg>
-        </div>
-
-        <div className="md:col-span-12 bg-rw-ink text-white rounded-3xl p-8 relative overflow-hidden">
-          <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
-            <div>
-              <p className="rw-label-mono text-xs uppercase text-rw-peach mb-2">Google map position: 90 days</p>
-              <p className="rw-display-serif text-2xl">From #14 to top 3 in the neighborhood.</p>
-            </div>
-            <div className="text-right">
-              <p className="rw-label-mono text-[10px] text-white/50">SEARCH: &ldquo;taqueria near me&rdquo;</p>
-              <p className="rw-label-mono text-[10px] text-white/50">RADIUS: 2mi</p>
-            </div>
-          </div>
-          <div className="relative h-36">
-            <svg className="w-full h-full" viewBox="0 0 800 144" preserveAspectRatio="none" aria-hidden>
-              <line x1="0" y1="36" x2="800" y2="36" stroke="rgba(255,255,255,0.1)" />
-              <line x1="0" y1="72" x2="800" y2="72" stroke="rgba(255,255,255,0.1)" />
-              <line x1="0" y1="108" x2="800" y2="108" stroke="rgba(255,255,255,0.1)" />
-              <path
-                d="M0,124 L80,118 L160,110 L240,92 L320,84 L400,74 L480,60 L560,46 L640,38 L720,30 L800,24 L800,144 L0,144 Z"
-                fill="rgba(242,195,185,0.15)"
-              />
-              <path
-                className="rw-sparkline-path"
-                d="M0,124 L80,118 L160,110 L240,92 L320,84 L400,74 L480,60 L560,46 L640,38 L720,30 L800,24"
-                stroke="#F2C3B9"
-                strokeWidth="2.5"
-                fill="none"
-                strokeLinecap="round"
-              />
-              <circle cx="800" cy="24" r="5" fill="#F2C3B9" />
-              <circle cx="800" cy="24" r="10" fill="#F2C3B9" opacity="0.25" />
-            </svg>
-            <div className="absolute left-0 top-0 rw-label-mono text-[10px] text-white/50">#1</div>
-            <div className="absolute left-0 bottom-0 rw-label-mono text-[10px] text-white/50">#20</div>
-          </div>
-          <div className="flex justify-between mt-3 rw-label-mono text-[10px] text-white/40">
-            <span>Jan</span>
-            <span>Feb</span>
-            <span>Mar</span>
-          </div>
-        </div>
-      </div>
-    </FeatureSection>
+    </section>
   );
 }
 
@@ -1145,7 +780,12 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
   return (
-    <FeatureSection innerRef={innerRef} id="f-comp" label="Competitor monitoring" className="px-8 md:px-16 py-20 relative">
+    <section
+      ref={innerRef}
+      id="f-comp"
+      aria-label="Competitor monitoring"
+      className="px-8 md:px-16 py-20 relative"
+    >
       <div className="grid md:grid-cols-12 gap-10 items-center">
         <div ref={leftRef} className={`rw-reveal from-left md:col-span-6 ${leftSeen ? 'in' : ''}`}>
           <div className="flex items-start gap-6 mb-6">
@@ -1210,6 +850,6 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </div>
         </div>
       </div>
-    </FeatureSection>
+    </section>
   );
 }
