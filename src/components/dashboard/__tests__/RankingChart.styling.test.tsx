@@ -47,4 +47,11 @@ describe('RankingChart owner-series emphasis', () => {
     expect(container.querySelector('line.rank-grid')).not.toBeNull();
     expect(container.querySelector('text.rank-axis')).not.toBeNull();
   });
+
+  it('never sets preserveAspectRatio (measured-viewBox contract)', () => {
+    const { container } = render(<RankingChart series={series} />);
+    const svg = container.querySelector('svg')!;
+    expect(svg.hasAttribute('preserveAspectRatio')).toBe(false);
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 240'); // canonical width in jsdom
+  });
 });

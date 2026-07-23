@@ -1,4 +1,4 @@
-export const RANKING_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#0891b2', '#dc2626'] as const;
+import { RANKING_COLORS } from '@/components/dashboard/charts/chart-tokens';
 
 export interface RankingSnapshotPoint {
   date: string;
