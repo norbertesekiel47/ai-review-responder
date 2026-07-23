@@ -1,4 +1,23 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(pnpm test)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm ci:tenant-scope)",
+      "Bash(pnpm vitest *)",
+      "Bash(git fetch *)",
+      "Bash(git worktree remove *)",
+      "Bash(git branch -D *)",
+      "Bash(railway logs *)",
+      "mcp__higgsfield__job_status",
+      "mcp__higgsfield__job_display",
+      "mcp__higgsfield__models_explore",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__claude_ai_Gmail__search_threads"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
