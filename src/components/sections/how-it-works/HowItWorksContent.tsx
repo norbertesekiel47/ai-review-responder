@@ -6,9 +6,11 @@ import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { Reveal } from './Reveal';
 import { WatchArtifact } from './WatchArtifact';
+import { TriageArtifact } from './TriageArtifact';
 import { DraftArtifact } from './DraftArtifact';
-import { CopilotGateCard } from './CopilotGateCard';
+import { GateArtifact } from './GateArtifact';
 import { PostArtifact } from './PostArtifact';
+import { JudgeArtifact } from './JudgeArtifact';
 
 interface HowItWorksContentProps {
   comingSoon?: boolean;
@@ -17,7 +19,7 @@ interface HowItWorksContentProps {
 
 const SECTIONS = [
   { id: 'hiw-hero', label: 'Overview' },
-  { id: 'hiw-steps', label: 'The four steps' },
+  { id: 'hiw-steps', label: 'The pipeline' },
   { id: 'hiw-hood', label: 'Under the hood' },
   { id: 'hiw-faq', label: 'FAQ' },
   { id: 'hiw-cta', label: 'Join waitlist' },
@@ -34,7 +36,7 @@ const STEPS = [
     num: '01',
     color: '#D2E0D3',
     tick: 'T + 0:00',
-    kicker: 'Monitor',
+    kicker: 'Watch',
     title: "We watch your reviews so you don't have to.",
     sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
     bullets: [
@@ -46,59 +48,89 @@ const STEPS = [
   },
   {
     num: '02',
+    color: '#F2C3B9',
+    tick: 'T + 0:01',
+    kicker: 'Triage',
+    title: 'Guardian reads it before anyone answers.',
+    sub: 'Every review is sorted by star sentiment first. Negative reviews get a severity read — routine, elevated, or critical — and critical ones escalate straight to you with the context attached. Positive reviews flow on to drafting.',
+    bullets: [
+      'Negative lane gets a bounded AI severity read',
+      'Critical issues escalate to you immediately',
+      'Guardian never posts anything, anywhere',
+    ],
+    Artifact: TriageArtifact,
+  },
+  {
+    num: '03',
     color: '#F0DDD6',
     tick: 'T + 0:12',
-    kicker: 'Generate',
+    kicker: 'Draft',
     title: 'AI drafts a reply — in your voice.',
     sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
       'Learns from the replies you approve and edit',
-      'Separate handling for 1–3★ vs 4–5★ reviews',
+      'Every draft passes a moderation check before the gate',
       'Regenerate button if the first pass misses',
     ],
     Artifact: DraftArtifact,
   },
   {
-    num: '03',
-    color: '#F2C3B9',
-    tick: 'T + 0:20',
-    kicker: 'Approve',
-    title: 'You get an email. Thirty seconds, done.',
-    sub: 'The draft arrives at your inbox with one-tap Approve, Edit, and Regenerate buttons. No login, no dashboard to check. Signed link, expires in 48 hours.',
-    bullets: [
-      'One-tap approve — no password, no app to open',
-      'Edit inline if you want to tweak a word',
-      "Regenerate if the tone doesn't feel right",
-    ],
-    Artifact: CopilotGateCard,
-  },
-  {
     num: '04',
     color: '#D6CBBF',
+    tick: 'T + 0:20',
+    kicker: 'The Gate',
+    title: 'Copilot asks you. Autopilot asks your policy.',
+    sub: 'This is the fork. On Copilot, every draft comes to you — email, Telegram, or WhatsApp — with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
+    bullets: [
+      'One-tap approve on the channel you choose',
+      'Autopilot posts only inside your rating band and daily cap',
+      'The veto window is your one-tap stop before anything goes live',
+    ],
+    Artifact: GateArtifact,
+  },
+  {
+    num: '05',
+    color: '#D2E0D3',
     tick: 'T + 1:04',
     kicker: 'Post',
     title: 'Posted to Google, on your behalf.',
-    sub: 'Once you approve, we post the reply back to your Google listing. It shows up within seconds, attributed to the business owner, exactly as it would if you\'d typed it yourself.',
+    sub: "Once a reply clears the gate, we post it to your Google listing. It shows up within seconds, attributed to the business owner. Replies that posted on Autopilot send you an FYI the moment they're live.",
     bullets: [
-      'Posts within seconds of approval',
       'Shows as "Response from the owner" on Google',
+      'Auto-posts send an FYI with a link to the live reply',
       'Receipt logged in your dashboard for audit',
     ],
     Artifact: PostArtifact,
+  },
+  {
+    num: '06',
+    color: '#F0DDD6',
+    tick: 'T + 1:47',
+    kicker: 'Judge',
+    title: 'Every auto-post gets a second opinion.',
+    sub: 'After any reply posts without your tap, the Judge — an independent AI reviewer — checks it against your policy and your brand. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    bullets: [
+      '100% of auto-posted replies are reviewed',
+      'The Governor can suspend autonomy per account',
+      'Judge unavailable → auto-posting halts',
+    ],
+    Artifact: JudgeArtifact,
   },
 ];
 
 const HOOD = [
   { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
-  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
-  { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · signed link', glyph: '✉' },
-  { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
+  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Severity read on the negative lane; critical reviews escalate to the owner.', tech: 'severity · escalation', glyph: '⚑' },
+  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, then runs it through moderation.', tech: 'LLM · moderated', glyph: '✎' },
+  { color: '#D6CBBF', title: 'The gate', sub: 'Owner approval on Copilot; policy + veto window on Autopilot.', tech: 'approval · veto', glyph: '✋' },
+  { color: '#D2E0D3', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
+  { color: '#F2C3B9', title: 'Judge', sub: 'Reviews every auto-post; the Governor suspends autonomy if trust slips.', tech: 'verdicts · governor', glyph: '⚖' },
 ];
 
 const GUARANTEES = [
   {
-    title: 'Nothing posts without you',
-    desc: 'Every reply waits for your approval by default. You can optionally turn on auto-approval (off by default), which only posts after passing automated safety checks.',
+    title: 'Nothing posts without passing the gate',
+    desc: "On Copilot that gate is you. On Autopilot it's your policy, a veto window, moderation, and the Judge. Negative reviews are never auto-posted.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -117,7 +149,7 @@ const GUARANTEES = [
   },
   {
     title: 'Pause anytime',
-    desc: 'Toggle off for a location in a single tap. Vacation, staff change, rebrand — we follow your lead.',
+    desc: 'Toggle a location off in one tap — and if trust ever slips, the Governor pauses autonomy for you.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <rect x="6" y="4" width="4" height="16" />
@@ -128,16 +160,17 @@ const GUARANTEES = [
 ];
 
 const FAQ_ITEMS = [
+  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy — and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
   { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post — the review simply stays unanswered on your end.' },
-  { q: 'Can RepWorth post without asking me?', a: 'By default, no — every reply waits for your one-tap confirmation from the email. If you want hands-off posting, you can optionally enable auto-approval (off by default), which only posts after passing automated safety checks.' },
+  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval — they are never auto-posted — and the tone defaults to acknowledging the issue and offering a path forward.' },
   { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing — the more you use it, the more it sounds like you.' },
-  { q: 'What about negative reviews?', a: "Drafts for 1–3★ reviews get extra care: we'll never auto-suggest a defensive or dismissive reply — the tone defaults to acknowledging the issue and offering a path forward, and high-risk drafts are held for your review." },
+  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap — if it can't review, pending auto-approved replies fall back to your normal approval queue." },
   { q: 'Which review platforms do you support?', a: "Today, Google only — that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];
 
 const OVERVIEW = [
   {
-    n: '01', title: 'Monitor', time: 'near real-time', color: '#D2E0D3',
+    n: '01', title: 'Watch', time: 'near real-time', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="12" r="9" />
@@ -146,7 +179,15 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '02', title: 'Generate', time: '~4 sec', color: '#F0DDD6',
+    n: '02', title: 'Triage', time: '~1 sec', color: '#F2C3B9',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
+  {
+    n: '03', title: 'Draft', time: '~4 sec', color: '#F0DDD6',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
@@ -155,7 +196,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '03', title: 'Approve', time: '30 sec of you', color: '#F2C3B9',
+    n: '04', title: 'The Gate', time: 'you — or your policy', color: '#D6CBBF',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
@@ -164,11 +205,19 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '04', title: 'Post', time: 'instant', color: '#D6CBBF',
+    n: '05', title: 'Post', time: 'instant', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M5 12h14" />
         <polyline points="13 6 19 12 13 18" />
+      </svg>
+    ),
+  },
+  {
+    n: '06', title: 'Judge', time: 'automatic', color: '#F0DDD6',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <polyline points="20 6 9 17 4 12" />
       </svg>
     ),
   },
@@ -233,11 +282,12 @@ export function HowItWorksContent({
           {/* Hero */}
           <section id="hiw-hero" className="hiw-hero">
             <p className="hiw-eyebrow">How it works</p>
-            <h1 className="hiw-h1">Four steps from new review to posted reply.</h1>
+            <h1 className="hiw-h1">One pipeline from new review to public reply — with a gate in the middle.</h1>
             <p className="hiw-lead">
-              RepWorth watches for new Google reviews, drafts a response in your voice, emails it
-              to you for approval, then posts it back to Google. The whole loop takes under a
-              minute of your time.
+              RepWorth watches for new Google reviews, triages them, drafts a reply in your voice,
+              and brings it to the gate. On Copilot you approve every reply with one tap. On
+              Autopilot, replies that clear your policy post themselves after a veto window you
+              control — and the Judge reviews every one of them.
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
@@ -249,12 +299,12 @@ export function HowItWorksContent({
                 <span className="hiw-hero-meta-lbl">your time per reply</span>
               </div>
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">96%</span>
-                <span className="hiw-hero-meta-lbl">response rate</span>
+                <span className="hiw-hero-meta-val">15/30 min</span>
+                <span className="hiw-hero-meta-lbl">veto window on Autopilot</span>
               </div>
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">15 hrs</span>
-                <span className="hiw-hero-meta-lbl">saved weekly</span>
+                <span className="hiw-hero-meta-val">100%</span>
+                <span className="hiw-hero-meta-lbl">of auto-posts judged</span>
               </div>
             </div>
             <p className="hiw-hero-meta-note" style={{ marginTop: 12, fontSize: 12, fontStyle: 'italic', color: '#6a6a6a' }}>
@@ -287,8 +337,8 @@ export function HowItWorksContent({
           {/* Steps */}
           <section id="hiw-steps" className="hiw-steps">
             <div className="hiw-section-head">
-              <p className="hiw-eyebrow">The four steps</p>
-              <h2 className="hiw-h2">From new review to posted reply.</h2>
+              <p className="hiw-eyebrow">The pipeline</p>
+              <h2 className="hiw-h2">Six steps from new review to public reply.</h2>
               <p style={{ marginTop: 8, fontSize: 14, fontStyle: 'italic', color: '#6a6a6a' }}>
                 Sample walkthrough — illustrative reviews and business, not real customers.
               </p>
@@ -332,8 +382,8 @@ export function HowItWorksContent({
               <p className="hiw-eyebrow">Under the hood</p>
               <h2 className="hiw-h2">The pipeline, end to end.</h2>
               <p className="hiw-lead">
-                A poll worker, a voice model, a signed approval email, and a posting API. Nothing
-                magical, just four well-behaved services.
+                A webhook, a triage read, a voice model, a gate, a posting call, and a judge. Six
+                well-behaved services — and two of them exist only to say no.
               </p>
             </div>
             <Reveal>

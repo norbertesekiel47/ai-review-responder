@@ -30,8 +30,19 @@ describe('HowItWorksContent', () => {
     expect(html).not.toContain('out of the box');
 
     // present, corrected claims
-    expect(html).toContain('by default');
     expect(html).toContain('approve and edit');
     expect(html).toContain('Multi-location supported on Copilot and Autopilot');
+
+    // new pipeline claims
+    expect(html).toContain('Guardian reads it before anyone answers.');
+    expect(html).toContain('Copilot asks you. Autopilot asks your policy.');
+    expect(html).toContain('Every auto-post gets a second opinion.');
+    expect(html).toContain('Negative reviews are never auto-posted');
+    expect(html).toContain('of auto-posts judged');
+    // stale claims gone
+    expect(html).not.toContain('Four steps from new review');
+    expect(html).not.toContain('15 hrs');
+    expect(html).not.toContain('saved weekly');
+    expect(html).not.toContain('just four well-behaved services');
   });
 });
