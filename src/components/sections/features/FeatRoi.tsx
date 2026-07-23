@@ -3,7 +3,7 @@
 import { type RefObject } from 'react';
 import { useReveal } from './useReveal';
 
-/* ================== 06 ROI ================== */
+/* ================== 09 ROI ================== */
 export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [headRef, headSeen] = useReveal<HTMLDivElement>();
   const [gridRef, gridSeen] = useReveal<HTMLDivElement>();

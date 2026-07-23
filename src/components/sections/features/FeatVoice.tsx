@@ -14,7 +14,7 @@ const VOICE_BARS = [
   { h: 12, op: 1, d: '640ms', anno: true },
 ];
 
-/* ================== 04 VOICE ================== */
+/* ================== 08 VOICE ================== */
 export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [headRef, headSeen] = useReveal<HTMLDivElement>();
   const [chartRef, chartSeen] = useReveal<HTMLDivElement>();

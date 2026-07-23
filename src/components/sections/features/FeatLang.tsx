@@ -13,7 +13,7 @@ const FEATURE_LANGS = [
   { code: '+14', name: 'more' },
 ];
 
-/* ================== 02 LANGUAGES ================== */
+/* ================== 07 LANGUAGES ================== */
 export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
