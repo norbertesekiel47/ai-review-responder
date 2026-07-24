@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **085** — next migration is **086**
+Current head: **086** — next migration is **087**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -965,6 +965,56 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **086** — Contacts/visits CSV ingestion + consent attestation schema (#541,
+  map #528; contract locked in #535:
+  `docs/superpowers/specs/2026-07-23-contacts-csv-contract-design.md`).
+  Creates three new tables. `contact_csv_uploads` — one row per CSV upload:
+  account/business FKs (`ON DELETE CASCADE`), transport fields (`filename`,
+  `byte_size`, `content_sha256`, nullable `raw_csv`), status machine
+  (`pending`/`completed`/`failed`), terminal `report JSONB`, and the consent
+  attestation (attesting user FK, `attested_at`, `attestation_version`) — no
+  per-row consent columns (counsel guidance, §4). `contact_csv_uploads_terminal_consistency`
+  CHECK pairs status with `raw_csv`/`report`/`completed_at` presence so a
+  pending-without-raw-CSV or terminal-with-raw-CSV row is unrepresentable; the
+  worker NULLs `raw_csv` in the SAME transaction that writes the terminal
+  report (§3) — there is deliberately NO individual-upload delete path
+  (upload-undo is contractually impossible, §1.3), so the CASCADE off this
+  table exists only for account/business offboarding sweeps.
+  `solicitation_contacts` — Contact = deduped identity of one person at one
+  location, keyed `(business_id, normalized handle)` (§1.2). Deliberately
+  **business-scoped only** (no denormalized `account_id`; `businesses.account_id`
+  stays the single authoritative owner of that pairing — RLS and offboarding
+  purge join through `businesses`). `solicitation_contacts_handle_present`
+  CHECK requires email or phone; identity is enforced as **two partial unique
+  indexes** (`solicitation_contacts_email_uniq`, `_phone_uniq`, both
+  `(business_id, <handle>) WHERE <handle> IS NOT NULL`) rather than one
+  composite unique, because either handle alone identifies the contact.
+  Ingest never writes `ON CONFLICT` against these indexes (a per-business
+  advisory lock serializes read-then-write instead), so the byte-for-byte
+  `ON CONFLICT`/predicate gotcha does not apply here. Also carries
+  `solicitation_contacts_id_business_uniq UNIQUE (id, business_id)` as the
+  composite-FK target for visits. `solicitation_visits` — Visit = append-only
+  ledger row unique on `(contact_id, visit_date)` (§1.3), so re-uploads are
+  idempotent by construction (`solicitation_visits_contact_date_uniq`).
+  `solicitation_visits_contact_business_fk` is a **composite FK**
+  `(contact_id, business_id) REFERENCES solicitation_contacts (id,
+  business_id)` — DB-enforced (not just app-enforced) proof that a visit can
+  only reference a contact at the same location. RLS: owner read-only on all
+  three, mirroring `competitor_snapshots` (084) — `contact_csv_uploads` keys
+  directly on `account_id = owner_account_id()`; the other two join through
+  `businesses`. All writes come from the Railway worker / server routes over
+  the direct Postgres connection. Additive, transactional (no
+  `CONCURRENTLY` — brand-new tables, zero-row predicates, instant builds),
+  fully re-runnable (`CREATE TABLE IF NOT EXISTS`, `CREATE [UNIQUE] INDEX IF
+  NOT EXISTS`, `DROP POLICY IF EXISTS` before each `CREATE POLICY`). Schema
+  facts (`accounts`/`businesses`/`users` table names and UUID PKs,
+  `owner_account_id()` shape) verified against migrations 001/034/035 before
+  writing — no adjustment needed. `pnpm ci:rls-audit` and `pnpm
+  ci:tenant-scope` both pass unchanged (no registry/allowlist entries
+  required by either script for this migration). **Not yet applied to any
+  database** — file only; offboarding table-disposition entries and the
+  ingestion routes/worker land in later tasks on this branch.
+
 - **085** — `competitor_snapshots.rating` REAL → NUMERIC(2,1) (`USING
   round(rating::numeric, 1)`; PR #554 pre-merge review). float4 drifts
   (4.8 → 4.80000019…) and would silently mis-match future Delta-line band
@@ -1130,6 +1180,9 @@ Revisit triggers:
 | `agent_run_steps` | Ordered attribution steps within an agent run (`step_index` unique per run; `attributed_agent` from the `STEP_PERSONA` map). `detail` JSONB is ids/enums/counts only — never raw review/response text. Deny-all RLS (migration 071). |
 | `agent_outcomes` | Durable per-agent outcome facts (drafted/posted/escalated/…) for attribution and reporting; deduped per `(agent_run_id, outcome_kind)` via partial unique index = `recordOutcome` ON CONFLICT target. Deny-all RLS (migration 071). |
 | `review_escalations` | Guardian escalations (WS3): one row per raised escalation, forward-only state machine `escalated → acknowledged → resolved`; triage columns snapshot what Guardian acted on at raise time. At most one open (non-resolved) row per review (partial unique index = `raiseEscalation` ON CONFLICT target). Deny-all RLS (migration 073). |
+| `contact_csv_uploads` | One row per Contacts/visits CSV upload (#541, migration 086): transport fields (`raw_csv`, NULLed at terminal state), status machine, terminal `report JSONB`, and the per-upload consent attestation. Owner-read-only RLS keyed on `account_id`. |
+| `solicitation_contacts` | Deduped contact identity keyed `(business_id, normalized handle)` (migration 086); two partial unique indexes (email, phone) enforce identity. Business-scoped only — no denormalized `account_id`. Owner-read-only RLS via `businesses`. |
+| `solicitation_visits` | Append-only visit ledger, unique on `(contact_id, visit_date)` (migration 086) — re-uploads are idempotent by construction. Composite FK to `solicitation_contacts (id, business_id)` enforces same-location integrity. Owner-read-only RLS via `businesses`. |
 
 ## Response Status Values
 
