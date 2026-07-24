@@ -1,23 +1,31 @@
 import type { Sql } from 'postgres';
 import type { VoiceExample } from './types';
 
-const MIN_EXAMPLES_FOR_ACTIVATION = 5;
+/** Single owner of the voice-activation threshold fact. */
+export const MIN_EXAMPLES_FOR_ACTIVATION = 5;
+
+export interface VoiceCorpusStatus {
+  /** Posted, owner-edited replies visible in the LIMIT-10 corpus window. */
+  editedCount: number;
+  /** [] below activation; else exactly the 5 most-recent pairs the prompt path uses. */
+  examples: VoiceExample[];
+}
 
 /**
- * Fetches recent owner-edited responses as few-shot voice examples.
+ * Single owner of voice-corpus selection semantics.
  *
- * Returns [] until the business has at least 5 posted responses where
- * the owner made edits. This prevents low-quality prompts from
- * insufficient data — the hook activates naturally as customers use
- * the product.
+ * Returns the activation count plus the exact few-shot pairs the prompt
+ * path consumes. examples stays [] until the business has at least 5
+ * posted responses where the owner made edits — the voice hook activates
+ * naturally as customers use the product.
  *
  * Uses the idx_responses_voice partial index:
  *   WHERE status = 'posted' AND edited_text IS NOT NULL
  */
-export async function getApprovedResponsePairs(
+export async function getVoiceCorpusStatus(
   sql: Sql,
   businessId: string,
-): Promise<VoiceExample[]> {
+): Promise<VoiceCorpusStatus> {
   const rows = await sql<{
     original_draft_text: string;
     edited_text: string;
@@ -33,15 +41,24 @@ export async function getApprovedResponsePairs(
     LIMIT 10
   `;
 
-  // Not enough edited responses yet — voice learning hasn't activated
   if (rows.length < MIN_EXAMPLES_FOR_ACTIVATION) {
-    return [];
+    return { editedCount: rows.length, examples: [] };
   }
 
-  // Return at most 5 examples for the prompt
-  return rows.slice(0, 5).map((row) => ({
-    originalDraft: row.original_draft_text,
-    editedVersion: row.edited_text,
-    reviewStarRating: row.star_rating,
-  }));
+  return {
+    editedCount: rows.length,
+    examples: rows.slice(0, 5).map((row) => ({
+      originalDraft: row.original_draft_text,
+      editedVersion: row.edited_text,
+      reviewStarRating: row.star_rating,
+    })),
+  };
+}
+
+/** Few-shot voice examples for the prompt path. Delegates to getVoiceCorpusStatus. */
+export async function getApprovedResponsePairs(
+  sql: Sql,
+  businessId: string,
+): Promise<VoiceExample[]> {
+  return (await getVoiceCorpusStatus(sql, businessId)).examples;
 }

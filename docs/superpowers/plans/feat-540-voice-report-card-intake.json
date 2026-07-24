@@ -1,0 +1,77 @@
+{
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Production Voice Report Card: an owner-facing section on /settings/voice reporting the five evidenced register traits voice learning inferred from the owner's own draft->edit pairs, with the N-of-5 activation state - deterministic derivation, no new data collection.",
+  "non_goals": [
+    "LLM-generated claims (deterministic heuristics only)",
+    "Dashboard digest/doorway (prototype variant C stays deferred)",
+    "New storage or data collection of any kind",
+    "Partial traits below the activation threshold",
+    "Feature flag or tier gate",
+    "Account-level aggregation across locations",
+    "Changes to prompt-path or corpus-selection semantics"
+  ],
+  "user_visible_behavior": [
+    "New 'Voice Report Card' section below the Brand Voice panel on /settings/voice; follows the location selector on multi-location accounts",
+    "Activated (>=5 pairs): each detected register trait renders as a plain-language claim plus one real before->after snippet from the owner's own edits; undetected traits are omitted",
+    "Activated with zero detected traits: one honest fallback line over the most recent edit's before->after evidence",
+    "Below 5 edited replies: progress dots 'N of 5 edited replies' plus copy that only edited, posted replies count and the card activates on its own; no traits shown"
+  ],
+  "invariants": [
+    "The card derives from exactly the pairs the prompt path uses (getApprovedResponsePairs) - it never claims a pattern the prompt path is not using",
+    "Every rendered claim is backed by a real conforming pair's before->after snippet",
+    "Detection bar: pattern holds in a strict majority of applicable pairs AND >=2 conforming pairs; Critical reviews trait exempted to >=1 negative pair (star <=2 via classifySentiment) with claim text scoped to its evidence",
+    "All reads scoped by account_id and business_id (app-enforced auth scope)",
+    "No LLM calls anywhere in this feature",
+    "Raw draft/edit text is never logged"
+  ],
+  "edge_cases": [
+    "0 edited replies (fresh account) -> 0-of-5 progress state",
+    "Exactly 4 edited replies -> 4-of-5 progress, no traits",
+    ">=5 pairs but zero traits clear the detection bar -> fallback line",
+    "No negative pairs in the corpus -> Critical reviews row omitted",
+    "Pair with draft identical to edited text -> non-conforming for all heuristics",
+    "Location switch on multi-location account re-fetches the card",
+    "Malformed locationId -> 400; foreign or archived locationId -> 404"
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/api/settings/voice/route.ts (auth helpers, jsonResponse shape, locationId scoping)",
+    "src/lib/responses/voice-learning.ts (single owner of corpus selection)",
+    "src/lib/reviews/sentiment.ts (deterministic derivation precedent, star->sentiment boundary)",
+    "src/app/(authenticated)/settings/voice/VoiceClient.tsx + SettingsShell section idiom",
+    "repworth-brand-design skill for all UI"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/responses/voice-learning.ts",
+    "src/lib/responses/voice-report-card.ts",
+    "src/lib/responses/__tests__/**",
+    "src/app/api/settings/voice/report-card/**",
+    "src/app/(authenticated)/settings/voice/**",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "returns no traits and editedCount below activation threshold",
+    "derives greeting trait only when a strict majority of pairs conform",
+    "omits critical-reviews trait when no negative pairs exist",
+    "detects critical-reviews trait from a single negative pair with evidence-scoped claim",
+    "every detected trait's snippet comes from a conforming pair",
+    "returns zero traits with activation when no heuristic clears the bar",
+    "reports edited-reply count for the progress state",
+    "returns 404 for a location outside the caller's account",
+    "returns activation progress for a location below threshold",
+    "returns derived traits for an activated location"
+  ],
+  "verification_commands": [],
+  "estimated_diff_size": "~700 lines (+/-250) across ~8 files",
+  "dependencies_added": [],
+  "rollback_plan": "Not DB-touching: revert the PR. No flag, no migration, no data written.",
+  "observability": [
+    "Route failures report via reportCaughtError('api/settings/voice/report-card GET') -> Sentry",
+    "UI renders a visible error state for the section on fetch failure",
+    "How I'd know it broke: Sentry route errors plus the section's error state on /settings/voice"
+  ],
+  "open_questions": []
+}
