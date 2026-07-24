@@ -401,3 +401,22 @@ Task 5 follow-up strengthening ACCEPT; Task 8 gaps + resolutions ACCEPT
 (purge DELETE proven live; tenant-tables wired; strengthenings verified
 semantics-preserving); Task 9 directory.md staleness fix ACCEPT. No entry
 invalidates a locked intake decision — NO RE-PLAN required.
+
+## Step 8 ship log (resume session, 2026-07-24)
+
+- [2026-07-24] Step 8 progress: merged origin/main (#562, tooling-only) into
+  the branch; migration 086 applied to STAGING Supabase + introspection-
+  verified; branch fast-forward-pushed to `staging` (991b78c1..c2126e00 —
+  local staging-ride worktree left diverged, needs manual reset, see below);
+  Railway worker healthcheck green + clean boot; Vercel staging serving
+  c2126e00; flag-off 404 smoke passed (page + API, SSO-authenticated);
+  `SOLICITATION_WATCH_ENABLED` confirmed absent in both staging envs.
+  PR #564 opened to main; awaiting CI + user merge approval. Optional
+  flag-on full-loop staging smoke NOT run (handoff phrased it as
+  conditional; flag flip belongs to #544 / flag-flip skill).
+- [2026-07-24] NOTE for cleanup: `../RepWorth-worktrees/staging-ride` local
+  branch has 10 stale local-only #538 ride commits (content upstream via
+  squash PR #554); `git reset --hard origin/staging` there was
+  classifier-blocked this session — do it manually or approve when asked.
+- [2026-07-24] Park (protocol): intake parked at end of the ship turn while
+  CI runs; re-arm before next repo edit.
