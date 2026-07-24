@@ -7,14 +7,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
-import { getVoiceCorpusStatus } from '@/lib/responses/voice-learning';
+import { UUID_RE } from '@/lib/locations/owner-route';
+import { getVoiceCorpusStatus, MIN_EXAMPLES_FOR_ACTIVATION } from '@/lib/responses/voice-learning';
 import { deriveVoiceReportCard } from '@/lib/responses/voice-report-card';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
-
-const ACTIVATION_THRESHOLD = 5;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(request);
@@ -26,22 +24,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'locationId is required' }, 400);
   }
 
-  const [location] = await sql<{ id: string }[]>`
-    SELECT id FROM businesses
-    WHERE id = ${locationId}::uuid
-      AND account_id = ${user.accountId}::uuid
-      AND archived_at IS NULL
-  `;
-  if (!location) {
-    return jsonResponse({ error: 'Location not found' }, 404);
-  }
-
   try {
+    const [location] = await sql<{ id: string }[]>`
+      SELECT id FROM businesses
+      WHERE id = ${locationId}::uuid
+        AND account_id = ${user.accountId}::uuid
+        AND archived_at IS NULL
+    `;
+    if (!location) {
+      return jsonResponse({ error: 'Location not found' }, 404);
+    }
+
     const status = await getVoiceCorpusStatus(sql, locationId);
     const card = deriveVoiceReportCard(status.examples);
     return jsonResponse({
       locationId,
-      activationThreshold: ACTIVATION_THRESHOLD,
+      activationThreshold: MIN_EXAMPLES_FOR_ACTIVATION,
       editedCount: status.editedCount,
       activated: status.examples.length > 0,
       traits: card.traits,

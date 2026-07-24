@@ -39,3 +39,33 @@ docs. Code-only diff is ~1,100 lines (including the unplanned coverage-fix tests
 estimate — under the 2× re-classification trigger. **VERDICT: ACCEPT — lane stays `normal`, no
 step-0 re-run.** Lesson for future intakes: state whether the estimate includes docs, or the
 gate's raw comparison will over-fire.
+
+## 2026-07-24 — Review fix round (triaged list, fixes 1–13)
+
+1. `deriveLength` averages now computed over CONFORMING pairs only; claim reworded to
+   describe the tightened replies so the numbers can never contradict the pattern.
+2. `deriveCritical` non-cut branch bar raised: negative pair conforms only via new
+   `isSubstantiveRewrite` (editWords ≤ 0.75×draftWords OR word-set Jaccard < 0.7) —
+   "replaced the draft with your own words" is now justified.
+3. `deriveCritical` generalization check now uses the existing `clearsBar` helper.
+4. `TRAILING_SIGNOFF_RE` tightened to name-shaped captures
+   (`/[—–]\s*([A-Z][^—–\n.!?]{0,30})\s*$/`) — "— thanks so much!" no longer a sign-off.
+5. `MIN_EXAMPLES_FOR_ACTIVATION` exported from `voice-learning.ts` (single owner).
+6. Route's local `ACTIVATION_THRESHOLD` deleted; imports `MIN_EXAMPLES_FOR_ACTIVATION`.
+7. Route's local `UUID_RE` deleted; imports the canonical `UUID_RE` from
+   `src/lib/locations/owner-route.ts`.
+8. Ownership SELECT moved inside the route's try/catch — DB failure now flows through
+   `reportCaughtError` → 500; 400/404 semantics unchanged.
+9. `VoiceReportCard.tsx` re-declared interfaces replaced with
+   `import type { RegisterTrait, TraitSnippet }` (restores `RegisterTraitKey` narrowing).
+10. Zero-trait fallback renders `{editedCount}{'+' when ≥10}` — corpus LIMIT 10 means the
+    count is a floor, never falsely absolute.
+11. Conforming-pair snippet test hardened: escape hatches removed; per-trait stripped
+    snippet cores must literally appear in a pair's draft/edit (can fail for every kind).
+12. New tests: length averages from conforming pairs only (mixed cut/expansion corpus);
+    trivial negative-pair typo edit yields no critical trait; trailing "— thanks so much!"
+    is not a sign-off. Existing critical single-pair test unchanged (Derek rewrite is
+    substantive; cut-claim branch still applies).
+13. Intake edge case amended in BOTH `.feature/intake.json` and this plan's intake copy:
+    "Malformed locationId -> 400; foreign or archived locationId -> 404".
+    **VERDICT: intake harmonized to plan contract** (triage: code is right).

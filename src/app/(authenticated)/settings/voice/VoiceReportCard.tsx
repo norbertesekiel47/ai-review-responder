@@ -9,18 +9,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
-
-interface TraitSnippet {
-  before: string;
-  after: string;
-}
-
-interface RegisterTrait {
-  key: string;
-  name: string;
-  claim: string;
-  snippet: TraitSnippet;
-}
+import type { RegisterTrait, TraitSnippet } from '@/lib/responses/voice-report-card';
 
 interface ReportCardResponse {
   activationThreshold: number;
@@ -174,7 +163,8 @@ export function VoiceReportCard({ locationId }: { locationId: string }) {
       ) : data.fallbackSnippet ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, margin: 0 }}>
-            You&apos;ve edited {data.editedCount} replies &mdash; no consistent pattern stands out
+            You&apos;ve edited {data.editedCount}
+            {data.editedCount >= 10 ? '+' : ''} replies &mdash; no consistent pattern stands out
             yet.
           </p>
           <SnippetBlock snippet={data.fallbackSnippet} />

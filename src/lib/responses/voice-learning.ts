@@ -1,7 +1,8 @@
 import type { Sql } from 'postgres';
 import type { VoiceExample } from './types';
 
-const MIN_EXAMPLES_FOR_ACTIVATION = 5;
+/** Single owner of the voice-activation threshold fact. */
+export const MIN_EXAMPLES_FOR_ACTIVATION = 5;
 
 export interface VoiceCorpusStatus {
   /** Posted, owner-edited replies visible in the LIMIT-10 corpus window. */

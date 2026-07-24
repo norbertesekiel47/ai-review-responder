@@ -6,6 +6,19 @@ function pair(originalDraft: string, editedVersion: string, reviewStarRating = 5
   return { originalDraft, editedVersion, reviewStarRating };
 }
 
+function makeWords(count: number, seed: string): string {
+  return Array.from({ length: count }, (_, i) => `${seed}${i}`).join(' ');
+}
+
+/** Strips snippet decorations (leading em-dash, trailing "(N words)", ellipsis). */
+function stripSnippetDecorations(text: string): string {
+  return text
+    .replace(/^\s*[—–]\s*/, '')
+    .replace(/\s*\(\d+ words\)\s*$/, '')
+    .replace(/…$/, '')
+    .trim();
+}
+
 const FORMAL_DRAFT = 'Dear Amanda, thank you so much for taking the time to share your wonderful feedback with us today.';
 const CASUAL_EDIT = 'Hi Amanda — thanks so much! See you next week. — Maria';
 
@@ -56,26 +69,90 @@ describe('deriveVoiceReportCard', () => {
   });
 
   it("every detected trait's snippet comes from a conforming pair", () => {
+    // Corpus engineered to detect greeting, length, sign-off, AND point of
+    // view, so the per-trait assertion below exercises every decoration shape.
     const examples = [
-      pair('Dear Amanda, thank you so much for taking the time to share your wonderful feedback with us today and always.', 'Hi Amanda — thanks so much!'),
-      pair('Dear Tom, we appreciate your feedback about the seating situation on weekends.', 'Hi Tom — glad the flat white landed.'),
-      pair('Dear Rosa, we are so happy to hear that our team made your morning special.', 'Hi Rosa — I read your review to the crew.'),
+      pair(
+        'Dear Amanda, we thank you so much for taking the time to share your wonderful feedback with us today and always.',
+        'Hi Amanda — I loved reading this. — Maria',
+      ),
+      pair(
+        'Dear Tom, we appreciate your feedback about the seating situation on weekends and we will review it.',
+        'Hi Tom — I hear you on seating. — Maria',
+      ),
+      pair(
+        'Dear Rosa, we are so happy to hear that our team made your morning special today.',
+        'Hi Rosa — I read your review to my crew. — Maria',
+      ),
       pair('Dear Priya, thank you for your kind words about our pastries and atmosphere.', 'Hi Priya — the cardamom buns sell out by 10am.'),
       pair('Dear Derek, we sincerely apologize for any inconvenience you may have experienced.', 'Hi Derek — that wait was not okay.'),
     ];
     const { traits } = deriveVoiceReportCard(examples);
-    expect(traits.length).toBeGreaterThan(0);
+    expect(traits.map((t) => t.key)).toEqual(
+      expect.arrayContaining(['greeting', 'length', 'signoff', 'point_of_view']),
+    );
     for (const trait of traits) {
-      const source = examples.find(
-        (p) => p.originalDraft.startsWith(trait.snippet.before.slice(0, 12)) || trait.snippet.before.includes('words')
-          ? true
-          : false,
-      );
-      expect(source).toBeDefined();
-      // Every snippet's after-text must appear in some pair's edited version:
-      const afterCore = trait.snippet.after.replace(/[…]|\(\d+ words\)/g, '').trim().slice(0, 12);
-      expect(examples.some((p) => p.editedVersion.includes(afterCore) || afterCore.startsWith('—'))).toBe(true);
+      // No escape hatches: the stripped snippet core must literally appear in
+      // at least one pair's text on the matching side, for EVERY trait kind.
+      const beforeCore = stripSnippetDecorations(trait.snippet.before);
+      const afterCore = stripSnippetDecorations(trait.snippet.after);
+      expect(beforeCore.length).toBeGreaterThan(0);
+      expect(afterCore.length).toBeGreaterThan(0);
+      expect(
+        examples.some((p) => p.originalDraft.includes(beforeCore)),
+        `snippet.before for ${trait.key} not found in any pair's originalDraft`,
+      ).toBe(true);
+      expect(
+        examples.some((p) => p.editedVersion.includes(afterCore)),
+        `snippet.after for ${trait.key} not found in any pair's editedVersion`,
+      ).toBe(true);
     }
+  });
+
+  it('computes the length claim averages from conforming (cut) pairs only', () => {
+    // 3 cut pairs (20-word drafts -> 10-word edits) + 2 expansions
+    // (5-word drafts -> 30-word edits). Averaging over ALL pairs would yield
+    // drafts 14 / edits 18 — numbers that contradict the cutting pattern.
+    const examples = [
+      pair(makeWords(20, 'draft'), makeWords(10, 'edit')),
+      pair(makeWords(20, 'draft'), makeWords(10, 'edit')),
+      pair(makeWords(20, 'draft'), makeWords(10, 'edit')),
+      pair(makeWords(5, 'short'), makeWords(30, 'long')),
+      pair(makeWords(5, 'short'), makeWords(30, 'long')),
+    ];
+    const length = deriveVoiceReportCard(examples).traits.find((t) => t.key === 'length');
+    expect(length).toBeDefined();
+    expect(length!.claim).toContain('average 10 words');
+    expect(length!.claim).toContain('average 20');
+    expect(length!.claim).not.toContain('18');
+    expect(length!.claim).not.toContain('14');
+  });
+
+  it('treats a trivial negative-pair edit as non-conforming for the critical trait', () => {
+    // One-word typo fix on the 2-star pair: same word count, word-set Jaccard
+    // similarity ~0.82 — not a substantive rewrite, so no critical trait.
+    const examples = [
+      pair(
+        'Dear Derek, we sincerly apologize for the wait you experienced.',
+        'Dear Derek, we sincerely apologize for the wait you experienced.',
+        2,
+      ),
+      pair(FORMAL_DRAFT, CASUAL_EDIT, 5),
+      pair(FORMAL_DRAFT, CASUAL_EDIT, 5),
+      pair(FORMAL_DRAFT, CASUAL_EDIT, 4),
+      pair(FORMAL_DRAFT, CASUAL_EDIT, 5),
+    ];
+    expect(deriveVoiceReportCard(examples).traits.map((t) => t.key)).not.toContain('critical');
+  });
+
+  it('does not read a trailing exclamation clause like "— thanks so much!" as a sign-off', () => {
+    const examples = Array.from({ length: 5 }, (_, i) =>
+      pair(
+        `Dear Guest ${i}, thank you very much for taking the time to review us.`,
+        `Appreciate the visit number ${i} — thanks so much!`,
+      ),
+    );
+    expect(deriveVoiceReportCard(examples).traits.map((t) => t.key)).not.toContain('signoff');
   });
 
   it('detects point-of-view trait when edits shift we-voice drafts to I-voice', () => {

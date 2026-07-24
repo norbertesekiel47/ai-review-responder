@@ -6,8 +6,9 @@
 // Detection bar: a trait renders only when its pattern holds in a strict
 // majority of applicable pairs AND >=2 pairs conform. Critical reviews is
 // exempted (applicable set = negative pairs, star <=2 per classifySentiment,
-// usually size 0-1): it detects at >=1 meaningful negative pair, with claim
-// text scoped to its single evidence pair when only one exists.
+// usually size 0-1): it detects at >=1 substantively rewritten negative pair
+// (see isSubstantiveRewrite), with claim text scoped to its single evidence
+// pair when only one exists.
 // Pairs whose edit is identical to the draft are never conforming.
 
 import { classifySentiment } from '@/lib/reviews/sentiment';
@@ -36,11 +37,14 @@ export interface VoiceReportCardData {
 const MIN_CONFORMING_PAIRS = 2;
 const SNIPPET_MAX_CHARS = 140;
 const LENGTH_CUT_RATIO = 0.75;
+const REWRITE_SIMILARITY_CEILING = 0.7;
 
 const GREETING_RE = /^\s*(hi|hey|hello)\b/i;
 const DEAR_RE = /^\s*dear\b/i;
 const OWN_LINE_SIGNOFF_RE = /^[—–-]{1,2}\s*(.+)$/;
-const TRAILING_SIGNOFF_RE = /[—–]\s*([^—–\n]{1,40})$/;
+// Name-shaped only: starts uppercase, no sentence punctuation, <=31 chars —
+// so trailing clauses like "— thanks so much!" never read as a sign-off.
+const TRAILING_SIGNOFF_RE = /[—–]\s*([A-Z][^—–\n.!?]{0,30})\s*$/;
 const FIRST_SINGULAR_RE = /\b(i|i'm|i'll|i've|i'd|my|me|mine)\b/gi;
 const FIRST_PLURAL_RE = /\b(we|we're|we'll|we've|we'd|our|us|ours)\b/gi;
 
@@ -59,6 +63,29 @@ function firstLine(text: string): string {
 
 function isMeaningfulEdit(pair: VoiceExample): boolean {
   return pair.originalDraft.trim() !== pair.editedVersion.trim();
+}
+
+function wordJaccardSimilarity(a: string, b: string): number {
+  const setA = new Set(a.toLowerCase().split(/\s+/).filter(Boolean));
+  const setB = new Set(b.toLowerCase().split(/\s+/).filter(Boolean));
+  let intersection = 0;
+  for (const word of setA) {
+    if (setB.has(word)) intersection += 1;
+  }
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 1 : intersection / union;
+}
+
+/**
+ * A rewrite is substantive when the owner cut the draft hard (edit <=75% of
+ * the draft's words) or replaced most of its wording (word-set Jaccard < 0.7).
+ * A one-word typo fix is neither.
+ */
+function isSubstantiveRewrite(pair: VoiceExample): boolean {
+  const draftWords = wordCount(pair.originalDraft);
+  const editWords = wordCount(pair.editedVersion);
+  if (editWords <= LENGTH_CUT_RATIO * draftWords) return true;
+  return wordJaccardSimilarity(pair.originalDraft, pair.editedVersion) < REWRITE_SIMILARITY_CEILING;
 }
 
 function clearsBar(conforming: number, applicable: number): boolean {
@@ -111,15 +138,17 @@ function deriveLength(pairs: VoiceExample[]): RegisterTrait | null {
   );
   if (!clearsBar(conforming.length, pairs.length)) return null;
 
+  // Averages over the conforming (tightened) pairs only, so the numbers can
+  // never contradict the cutting pattern the trait claims.
   const average = (values: number[]) => Math.round(values.reduce((sum, n) => sum + n, 0) / values.length);
-  const avgDraft = average(pairs.map((p) => wordCount(p.originalDraft)));
-  const avgEdit = average(pairs.map((p) => wordCount(p.editedVersion)));
+  const avgDraft = average(conforming.map((p) => wordCount(p.originalDraft)));
+  const avgEdit = average(conforming.map((p) => wordCount(p.editedVersion)));
   const evidence = conforming[0];
   if (!evidence) return null;
   return {
     key: 'length',
     name: 'Length',
-    claim: `You tighten replies: your edits average ${avgEdit} words; drafts average ${avgDraft}.`,
+    claim: `You tighten replies: your tightened edits average ${avgEdit} words; the drafts they replaced average ${avgDraft}.`,
     snippet: {
       before: `${truncate(evidence.originalDraft)} (${wordCount(evidence.originalDraft)} words)`,
       after: `${truncate(evidence.editedVersion)} (${wordCount(evidence.editedVersion)} words)`,
@@ -189,14 +218,14 @@ function derivePointOfView(pairs: VoiceExample[]): RegisterTrait | null {
 
 function deriveCritical(pairs: VoiceExample[]): RegisterTrait | null {
   const negative = pairs.filter((p) => classifySentiment(p.reviewStarRating).label === 'negative');
-  const conforming = negative.filter(isMeaningfulEdit);
+  const conforming = negative.filter((p) => isMeaningfulEdit(p) && isSubstantiveRewrite(p));
   if (conforming.length === 0) return null;
 
   const evidence = conforming[0];
   if (!evidence) return null;
   const draftWords = wordCount(evidence.originalDraft);
   const editWords = wordCount(evidence.editedVersion);
-  const generalized = conforming.length >= MIN_CONFORMING_PAIRS && conforming.length * 2 > negative.length;
+  const generalized = clearsBar(conforming.length, negative.length);
 
   let claim: string;
   if (generalized) {
@@ -204,6 +233,7 @@ function deriveCritical(pairs: VoiceExample[]): RegisterTrait | null {
   } else if (editWords < draftWords) {
     claim = `On your ${evidence.reviewStarRating}-star review you cut the draft's ${draftWords} words to ${editWords} of your own.`;
   } else {
+    // Justified: isSubstantiveRewrite guarantees word-set similarity < 0.7 here.
     claim = `On your ${evidence.reviewStarRating}-star review you replaced the draft with your own words.`;
   }
 

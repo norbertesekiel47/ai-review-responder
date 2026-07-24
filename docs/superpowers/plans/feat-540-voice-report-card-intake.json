@@ -33,7 +33,7 @@
     "No negative pairs in the corpus -> Critical reviews row omitted",
     "Pair with draft identical to edited text -> non-conforming for all heuristics",
     "Location switch on multi-location account re-fetches the card",
-    "Invalid or foreign locationId -> 404"
+    "Malformed locationId -> 400; foreign or archived locationId -> 404"
   ],
   "existing_patterns_to_follow": [
     "src/app/api/settings/voice/route.ts (auth helpers, jsonResponse shape, locationId scoping)",

@@ -51,6 +51,7 @@ vi.mock('@/lib/db/server', () => {
 // ── Mock voice-learning corpus reader ───────────────────────────────
 
 vi.mock('@/lib/responses/voice-learning', () => ({
+  MIN_EXAMPLES_FOR_ACTIVATION: 5,
   getVoiceCorpusStatus: (...args: unknown[]) => mockGetVoiceCorpusStatus(...args),
 }));
 
