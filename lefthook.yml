@@ -49,5 +49,7 @@ pre-push:
       run: pnpm ci:outbox-topics
     feature-surface:
       run: pnpm ci:feature-surface
+    agent-config:
+      run: pnpm ci:agent-config
     db-imports:
       run: pnpm ci:db-imports
