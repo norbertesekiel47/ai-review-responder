@@ -32,6 +32,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/migration-immutability-guard.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash-write-guard.sh\""
+          }
+        ]
       }
     ],
     "Stop": [

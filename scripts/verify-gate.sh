@@ -15,7 +15,21 @@
 # once shipped from a "green" local run (the #520 failure class). With the
 # env var set they RUN as part of the gate; without it they appear as a
 # loud SKIP row instead of passing silently.
+#
+# Post-check rows (after the parallel checks):
+#   promised-tests — every tests_to_add entry (a VERBATIM test title) must
+#     exist in a test file; missing titles are listed.
+#   reclassify — WARN when the actual diff exceeds ~2x the intake's
+#     estimated_diff_size (the step 0 lane was probably wrong; feature.md's
+#     re-classification trigger applies).
+#
+# `--review` mode (run once before step 7): the test row runs with
+# coverage, then diff-coverage enforces changed-line coverage (default min
+# 80%, override with DIFF_COVERAGE_MIN) via scripts/diff-coverage.ts.
 set -uo pipefail
+
+REVIEW_MODE=false
+[ "${1:-}" = "--review" ] && REVIEW_MODE=true
 
 INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
@@ -34,7 +48,11 @@ launch() {
 
 launch lint      pnpm lint
 launch typecheck pnpm typecheck
-launch test      pnpm test
+if [ "$REVIEW_MODE" = true ]; then
+  launch test pnpm test:coverage
+else
+  launch test pnpm test
+fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
 while IFS= read -r SCRIPT; do
@@ -84,6 +102,49 @@ for i in "${!NAMES[@]}"; do
   fi
 done
 
+# Synchronous post-check, appended after the parallel rows.
+run_sync() {
+  local name="$1"; shift
+  if "$@" > ".feature/logs/${name}.log" 2>&1; then
+    NAMES+=("$name"); RESULTS+=("PASS")
+  else
+    NAMES+=("$name"); RESULTS+=("FAIL")
+  fi
+}
+
+# --- promised-tests: tests_to_add entries are verbatim test titles ---
+# grep, not rg: rg lives only in the interactive shell here — child bash
+# processes don't have it, and a swallowed `command not found` reads as
+# "every title missing".
+MISSING_TITLES=""
+while IFS= read -r TITLE; do
+  [ -n "$TITLE" ] || continue
+  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker 2>/dev/null && continue
+  MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
+"
+done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)
+if jq -e '.tests_to_add | length > 0' "$INTAKE" >/dev/null 2>&1; then
+  NAMES+=("promised-tests")
+  if [ -n "$MISSING_TITLES" ]; then RESULTS+=("FAIL"); else RESULTS+=("PASS"); fi
+fi
+
+# --- reclassify: actual diff vs the intake's estimated_diff_size ---
+RECLASSIFY_MSG=""
+EST=$(jq -r '.estimated_diff_size // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
+if [ -n "$EST" ] && [ "$EST" -gt 0 ] && [ -n "$BASE" ]; then
+  ACTUAL=$(git diff --shortstat "$BASE" 2>/dev/null \
+    | grep -oE '[0-9]+ (insertion|deletion)' | grep -oE '[0-9]+' | paste -sd+ - | bc 2>/dev/null || echo 0)
+  if [ "${ACTUAL:-0}" -gt $((EST * 2)) ]; then
+    NAMES+=("reclassify"); RESULTS+=("WARN")
+    RECLASSIFY_MSG="actual diff ${ACTUAL} changed lines > 2x estimated_diff_size (${EST}) — re-run step 0 (re-classification trigger)."
+  fi
+fi
+
+# --- diff-coverage (review mode only; consumes the test row's coverage) ---
+if [ "$REVIEW_MODE" = true ]; then
+  run_sync diff-coverage pnpm exec tsx scripts/diff-coverage.ts
+fi
+
 if [ "$INTEGRATION_SKIPPED" -gt 0 ]; then
   NAMES+=("integration-suites")
   RESULTS+=("SKIP")
@@ -109,6 +170,13 @@ if [ "$INTEGRATION_SKIPPED" -gt 0 ]; then
   echo "WARNING: $INTEGRATION_SKIPPED changed integration suite(s) NOT run (TEST_DATABASE_POOL_URL unset)."
   echo "They self-skip locally and can go red in CI — set the var and re-run before review:"
   printf '%s\n' "$CHANGED_INTEGRATION" | sed 's/^/  - /'
+fi
+if [ -n "$MISSING_TITLES" ]; then
+  echo "PROMISED TESTS MISSING (tests_to_add titles not found verbatim in any test file):"
+  printf '%s' "$MISSING_TITLES"
+fi
+if [ -n "$RECLASSIFY_MSG" ]; then
+  echo "RECLASSIFY: $RECLASSIFY_MSG"
 fi
 
 if [ "$PASSED" = "true" ]; then
