@@ -150,6 +150,21 @@ describe('account offboarding table disposition inventory', () => {
     }
   });
 
+  it('offboarding purge sweeps uploads, contacts, and visits', () => {
+    const contactsCsvTables = [
+      'contact_csv_uploads',
+      'solicitation_contacts',
+      'solicitation_visits',
+    ] as const;
+
+    for (const table of contactsCsvTables) {
+      const entry = tableDispositions.find((candidate) => candidate.table === table);
+      expect(entry).toBeDefined();
+      expect(entry?.disposition).toBe('hard_delete');
+      expect(entry?.purgeVerification).toBe('must_be_absent');
+    }
+  });
+
   it('requires purge verification for every applicable table', () => {
     const applicableTables = tableDispositions.filter(
       (entry) => entry.disposition !== 'not_applicable',

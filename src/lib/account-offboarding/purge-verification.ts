@@ -571,6 +571,17 @@ export function verificationQuery(
         WHERE account_offboarding_id = ${offboardingId}::uuid
       `;
 
+    case 'contact_csv_uploads':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM contact_csv_uploads
+        WHERE account_id = ${accountId}::uuid
+      `;
+    case 'solicitation_contacts':
+      return absentByBusiness('solicitation_contacts', accountId, exec);
+    case 'solicitation_visits':
+      return absentByBusiness('solicitation_visits', accountId, exec);
+
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);
   }
@@ -587,6 +598,8 @@ const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
   'onboarding_demos',
   'satisfaction_responses',
   'google_connections',
+  'solicitation_contacts',
+  'solicitation_visits',
 ]);
 
 export function absentByBusiness(

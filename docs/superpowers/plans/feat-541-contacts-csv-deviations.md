@@ -129,3 +129,53 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   markOutboxCompleted skip branch (warn message updated to name both causes;
   worker unit test retitled and now asserts the bound values). `pnpm
   ci:tenant-scope` passes with the baseline unchanged at 405 entries.
+- [2026-07-24] Task 8, two divergences surfaced by wiring the disposition
+  entries — both left for the orchestrator because their fix files are
+  outside Task 8's approved edit surface (`table-disposition.ts`,
+  `purge-verification.ts`, `__tests__/**`):
+  1. **NEW, blocking correctness gap — contract §5 is not yet fully
+     satisfied.** `verifyAccountOffboardingPurge` (read-side check) now
+     covers all three tables, but nothing on the WRITE side deletes them.
+     `worker/jobs/account-offboarding/purge-stages.ts` (`runContentPurgeStage`)
+     and `purge-helpers.ts` (`DELETABLE_BY_BUSINESS`/`deleteByBusiness`) have
+     no entries for `contact_csv_uploads`/`solicitation_contacts`/
+     `solicitation_visits`. `businesses`/`accounts` are `retain_deidentified`
+     (UPDATE-tombstoned, never `DELETE`d), so the migration's `ON DELETE
+     CASCADE` FKs from `contact_csv_uploads` never fire during offboarding —
+     CASCADE only helps Task 6's per-contact delete, not account purge. Net
+     effect: for ANY account that has ever uploaded a contacts CSV,
+     `finalizePurgeInTransaction`'s verification step will now find
+     violation rows for these three tables and throw
+     `account_offboarding_purge_verification_failed`, permanently blocking
+     that account's purge (retryable, but it will never succeed without a
+     code fix). Needs: add
+     `DELETE FROM contact_csv_uploads WHERE account_id = ${accountId}`
+     to `runContentPurgeStage` (alongside the `flagged_responses`/
+     `deleteByBusiness` calls) — `solicitation_contacts`/`solicitation_visits`
+     CASCADE from that single delete via their `created_by_upload_id`/
+     `upload_id` FKs, so no separate delete is needed for those two. This is
+     a functional prerequisite for Task 8 to be complete per contract §5
+     ("the account offboarding delete_data/purge path must sweep uploads,
+     contacts, and visits") — recommend a required Task 8 follow-up commit,
+     or folding it into Task 9 before the full gate runs with
+     `TEST_DATABASE_POOL_URL` set (a live-DB PurgeWorker integration test
+     would have caught this; none currently seeds a contacts-CSV fixture).
+  2. **Test-only, non-blocking** —
+     `src/lib/account-offboarding/__tests__/table-disposition.test.ts`'s
+     pre-existing `classifies every tenant table and explicit account-linked
+     table exactly once` test cross-checks `TABLE_DISPOSITIONS` against
+     `scripts/ci/tenant-tables.ts`'s `TENANT_TABLES` (+ two other allowlists).
+     Adding the three Task 8 entries (required, and correctly flagged by the
+     *other* coverage-lock test, `classifies every directly account-linked
+     table created by migrations`, which now passes) makes this second test
+     fail because `TENANT_TABLES` was never updated for migration 086 — Task
+     1's plan didn't mention `scripts/ci/tenant-tables.ts` and it isn't in
+     Task 9's file list either. Confirmed this is not a Task 8 regression:
+     reproduced on the pre-Task-8 tree (`git stash`), where the OTHER
+     coverage-lock test fails instead for the same underlying reason.
+     `pnpm ci:tenant-scope` and `pnpm ci:rls-audit` both still pass (405/33
+     baselines unchanged) — only this one offboarding-suite unit test
+     regresses. Needs: add `'contact_csv_uploads'`, `'solicitation_contacts'`,
+     `'solicitation_visits'` to `TENANT_TABLES` in
+     `scripts/ci/tenant-tables.ts`. One-line fix, but outside Task 8's
+     approved edit surface — left for the orchestrator/Task 9.
