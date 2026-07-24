@@ -52,41 +52,68 @@ function assertCodexConfig(): void {
   }
 }
 
-function extractHookCommands(value: unknown): string[] {
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function childValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const record = objectRecord(value);
+  return record ? Object.values(record) : [];
+}
+
+function commandValue(value: unknown): string | null {
+  const command = objectRecord(value)?.['command'];
+  return typeof command === 'string' ? command : null;
+}
+
+function extractHookCommands(root: unknown): string[] {
+  const queue: unknown[] = [root];
   const commands: string[] = [];
-  if (Array.isArray(value)) {
-    for (const item of value) commands.push(...extractHookCommands(item));
-    return commands;
-  }
-  if (typeof value !== 'object' || value === null) return commands;
-  for (const [key, child] of Object.entries(value)) {
-    if (key === 'command' && typeof child === 'string') commands.push(child);
-    commands.push(...extractHookCommands(child));
+  while (queue.length > 0) {
+    const value = queue.shift();
+    const command = commandValue(value);
+    if (command) commands.push(command);
+    queue.push(...childValues(value));
   }
   return commands;
+}
+
+function assertHookRegistered(
+  script: string,
+  path: string,
+  commands: string[],
+): void {
+  if (!commands.some((command) => command.includes(`/.codex/hooks/${script}`))) {
+    fail(`${path} is not registered in .codex/hooks.json.`);
+  }
+}
+
+function assertHookSyntax(path: string): void {
+  const syntax = spawnSync('bash', ['-n', path], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (syntax.status !== 0) {
+    fail(`${path} has invalid Bash syntax: ${syntax.stderr.trim()}`);
+  }
+}
+
+function assertHook(script: string, commands: string[]): void {
+  const path = `.codex/hooks/${script}`;
+  if (!existsSync(resolve(REPO_ROOT, path))) {
+    fail(`Missing Codex hook: ${path}`);
+    return;
+  }
+  assertHookRegistered(script, path, commands);
+  assertHookSyntax(path);
 }
 
 function assertHooks(): void {
   const hooks = JSON.parse(read('.codex/hooks.json')) as unknown;
   const commands = extractHookCommands(hooks);
-
-  for (const script of HOOK_SCRIPTS) {
-    const path = `.codex/hooks/${script}`;
-    if (!existsSync(resolve(REPO_ROOT, path))) {
-      fail(`Missing Codex hook: ${path}`);
-      continue;
-    }
-    if (!commands.some((command) => command.includes(`/.codex/hooks/${script}`))) {
-      fail(`${path} is not registered in .codex/hooks.json.`);
-    }
-    const syntax = spawnSync('bash', ['-n', path], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    });
-    if (syntax.status !== 0) {
-      fail(`${path} has invalid Bash syntax: ${syntax.stderr.trim()}`);
-    }
-  }
+  for (const script of HOOK_SCRIPTS) assertHook(script, commands);
 }
 
 function frontmatterFor(skillPath: string): string {
@@ -104,29 +131,26 @@ function valueFor(frontmatter: string, key: string): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
-function assertSkill(skill: string): void {
-  const skillPath = `.agents/skills/${skill}/SKILL.md`;
-  if (!existsSync(resolve(REPO_ROOT, skillPath))) {
-    fail(`Missing project skill: ${skillPath}`);
-    return;
-  }
-
-  const ignored = spawnSync('git', ['check-ignore', '-q', skillPath], {
+function assertNotIgnored(path: string, message: string): void {
+  const ignored = spawnSync('git', ['check-ignore', '-q', path], {
     cwd: REPO_ROOT,
   });
-  if (ignored.status === 0) {
-    fail(`${skillPath} is ignored and would disappear from a clean checkout.`);
-  }
+  if (ignored.status === 0) fail(message);
+}
 
-  const source = read(skillPath);
+function assertSkillSize(skillPath: string, source: string): void {
   if (source.split('\n').length - 1 > 500) {
     fail(`${skillPath} exceeds the 500-line skill-authoring guideline.`);
   }
+}
+
+function assertSkillReferences(skillPath: string, source: string): void {
   if (source.includes('.codex/reference/')) {
     fail(`${skillPath} references the removed .codex/reference tree.`);
   }
+}
 
-  const frontmatter = frontmatterFor(skillPath);
+function assertFrontmatterKeys(skillPath: string, frontmatter: string): void {
   const keys = [...frontmatter.matchAll(/^([A-Za-z][A-Za-z0-9_-]*):/gm)].map(
     (match) => match[1] ?? '',
   );
@@ -135,33 +159,78 @@ function assertSkill(skill: string): void {
       fail(`${skillPath} has unsupported frontmatter key '${key}'.`);
     }
   }
+}
+
+function assertSkillName(skill: string, skillPath: string, frontmatter: string): void {
   if (valueFor(frontmatter, 'name')?.replace(/^["']|["']$/g, '') !== skill) {
     fail(`${skillPath} frontmatter name must be '${skill}'.`);
   }
+}
+
+function assertSkillDescription(skillPath: string, frontmatter: string): void {
   const description = valueFor(frontmatter, 'description');
   if (!description) {
     fail(`${skillPath} must have a non-empty description.`);
   } else if (description.length > 1_024) {
     fail(`${skillPath} description exceeds 1,024 characters.`);
   }
+}
 
-  for (const match of source.matchAll(/\]\(([^)]+)\)/g)) {
-    const target = (match[1] ?? '').split('#')[0] ?? '';
-    if (!target || target.startsWith('http://') || target.startsWith('https://')) {
-      continue;
-    }
-    const resolvedTarget = resolve(REPO_ROOT, dirname(skillPath), target);
-    if (!existsSync(resolvedTarget)) {
-      fail(`${skillPath} has a broken relative link: ${target}`);
-    }
+function linkTarget(match: RegExpExecArray): string {
+  return (match[1] ?? '').replace(/#.*/, '');
+}
+
+function isLocalTarget(target: string): boolean {
+  return target.length > 0 && !/^https?:\/\//.test(target);
+}
+
+function localLinkTarget(match: RegExpExecArray): string | null {
+  const target = linkTarget(match);
+  return isLocalTarget(target) ? target : null;
+}
+
+function assertRelativeLink(skillPath: string, target: string): void {
+  const resolvedTarget = resolve(REPO_ROOT, dirname(skillPath), target);
+  if (!existsSync(resolvedTarget)) {
+    fail(`${skillPath} has a broken relative link: ${target}`);
   }
 }
 
-function assertCanonicalReferences(): void {
+function assertRelativeLinks(skillPath: string, source: string): void {
+  for (const match of source.matchAll(/\]\(([^)]+)\)/g)) {
+    const target = localLinkTarget(match);
+    if (target) assertRelativeLink(skillPath, target);
+  }
+}
+
+function assertSkill(skill: string): void {
+  const skillPath = `.agents/skills/${skill}/SKILL.md`;
+  if (!existsSync(resolve(REPO_ROOT, skillPath))) {
+    fail(`Missing project skill: ${skillPath}`);
+    return;
+  }
+  assertNotIgnored(
+    skillPath,
+    `${skillPath} is ignored and would disappear from a clean checkout.`,
+  );
+  const source = read(skillPath);
+  assertSkillSize(skillPath, source);
+  assertSkillReferences(skillPath, source);
+  const frontmatter = frontmatterFor(skillPath);
+  assertFrontmatterKeys(skillPath, frontmatter);
+  assertSkillName(skill, skillPath, frontmatter);
+  assertSkillDescription(skillPath, frontmatter);
+  assertRelativeLinks(skillPath, source);
+}
+
+function assertNoShadowReferences(): void {
   const staleReferenceDir = resolve(REPO_ROOT, '.codex/reference');
   if (existsSync(staleReferenceDir) && readdirSync(staleReferenceDir).length > 0) {
     fail('.codex/reference must not contain shadow copies of .claude/reference.');
   }
+}
+
+function assertAgentsGuidance(): void {
   const agents = read('AGENTS.md');
   if (agents.includes('no executable hook or MCP configuration was activated')) {
     fail('AGENTS.md still claims that Codex hooks are inactive.');
@@ -169,12 +238,15 @@ function assertCanonicalReferences(): void {
   if (!agents.includes('.codex/HOOKS.md')) {
     fail('AGENTS.md must point to .codex/HOOKS.md.');
   }
-  const ignored = spawnSync('git', ['check-ignore', '-q', 'AGENTS.md'], {
-    cwd: REPO_ROOT,
-  });
-  if (ignored.status === 0) {
-    fail('AGENTS.md is ignored and would disappear from a clean checkout.');
-  }
+}
+
+function assertCanonicalReferences(): void {
+  assertNoShadowReferences();
+  assertAgentsGuidance();
+  assertNotIgnored(
+    'AGENTS.md',
+    'AGENTS.md is ignored and would disappear from a clean checkout.',
+  );
 }
 
 function assertSkillLock(): void {
