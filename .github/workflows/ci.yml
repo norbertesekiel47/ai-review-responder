@@ -44,6 +44,9 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          # Full history: the feature-surface audit needs the merge-base
+          # against the base branch to diff the PR against its fork point.
+          fetch-depth: 0
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
       - name: Run lint
@@ -70,6 +73,8 @@ jobs:
         run: pnpm ci:reviews-status
       - name: Run outbox topics audit
         run: pnpm ci:outbox-topics
+      - name: Run feature-surface audit (intake vs diff)
+        run: pnpm ci:feature-surface
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)

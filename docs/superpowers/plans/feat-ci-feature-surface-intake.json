@@ -1,0 +1,42 @@
+{
+  "classification": "small",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "CI-side enforcement of the intake contract's allowed_edit_surface against the branch diff (platform last line of defense)",
+  "non_goals": [
+    "replacing the in-session hooks",
+    "glob character classes"
+  ],
+  "user_visible_behavior": [
+    "a PR whose diff leaves the declared surface fails the lint job's feature-surface audit"
+  ],
+  "invariants": [
+    "glob semantics stay in lockstep with edit-surface-guard.sh (* crosses /)"
+  ],
+  "edge_cases": [
+    "no committed intake (non-feature branch) passes",
+    "main/staging pass",
+    "docs/ and CONTEXT.md always allowed"
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/ci/outbox-topics-audit.ts (audit + __tests__ pattern)"
+  ],
+  "allowed_edit_surface": [
+    "scripts/ci/feature-surface-audit.ts",
+    "scripts/ci/__tests__/feature-surface-audit.test.ts",
+    "package.json",
+    ".github/workflows/ci.yml",
+    "lefthook.yml"
+  ],
+  "tests_to_add": [
+    "matches the edit-surface-guard bash [[ == ]] semantics: * crosses /"
+  ],
+  "verification_commands": [],
+  "estimated_diff_size": "~220",
+  "dependencies_added": [],
+  "rollback_plan": "revert the PR; the audit is additive and gated behind intake-file presence",
+  "observability": [
+    "CI lint job step 'Run feature-surface audit' output lists violations per file"
+  ],
+  "open_questions": []
+}

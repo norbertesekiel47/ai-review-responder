@@ -47,5 +47,7 @@ pre-push:
       run: pnpm ci:reviews-status
     outbox-topics:
       run: pnpm ci:outbox-topics
+    feature-surface:
+      run: pnpm ci:feature-surface
     db-imports:
       run: pnpm ci:db-imports
