@@ -10,6 +10,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
 import { MAX_UPLOAD_BYTES } from './contacts-csv';
 import { CONSENT_ATTESTATION_VERSION } from './attestation';
+import type { IngestReport } from './ingest';
 import { enqueueCsvIngest } from '@/lib/shared/job-outbox-helpers';
 
 export type CreateUploadResult =
@@ -52,9 +53,11 @@ export async function createContactsCsvUpload(sql: Sql, input: {
   return { ok: true, uploadId };
 }
 
-/** Terminal ingest report as stored JSONB. Task 5's IngestReport (ingest.ts)
- *  is the authoritative shape; this alias only asserts "parsed JSON object". */
-export type UploadStatusReport = Record<string, unknown> | null;
+/** Terminal ingest report as stored JSONB. IngestReport (ingest.ts) is the
+ *  authoritative shape; the only writers are ingestContactsCsvUpload and the
+ *  csv-ingest failed-hook, so the read-side cast below is against a
+ *  single-owner, code-controlled shape. */
+export type UploadStatusReport = IngestReport | null;
 
 export interface UploadStatus {
   id: string;
@@ -65,9 +68,9 @@ export interface UploadStatus {
   report: UploadStatusReport;
 }
 
-function asReportRecord(value: unknown): Record<string, unknown> | null {
+function asReportRecord(value: unknown): IngestReport | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
+  return value as IngestReport;
 }
 
 /** Tenant-scoped status/report read (never returns raw_csv). Scoped by BOTH
