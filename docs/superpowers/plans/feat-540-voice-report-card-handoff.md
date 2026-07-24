@@ -1,8 +1,15 @@
 # Handoff — feat/540-voice-report-card
 
-**Phase:** plan_approved (see `.feature/state.json`)
+**Phase:** reviewed (see `.feature/state.json`)
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-540-voice-report-card`
-**Next step:** /feature step 4 — EXECUTE via `superpowers:subagent-driven-development` (set phase `executing` first).
+**Next step:** /feature step 8 — SHIP, normal lane: push branch, open PR to `main`, confirm ALL GitHub CI checks green (fallow included; React Doctor applies — SURFACE=ui), merge. Then post-merge: `git pull --ff-only` on main, ff `staging`, `scripts/feature-cleanup.sh` (dry then --apply), deviations promotion sweep, `document-feature` skill, domain sweep, entropy counter in `.claude/reference/arch-review-log.md` (was 5/5 BEFORE this merge — architecture pass already due; remind, don't start).
+
+## Steps 4–7 outcome (2026-07-24)
+
+- Tasks T1–T5 landed (commits `5cad26a2`, `c719ad79`, `5385156b`, glossary, `e6befa92` coverage round, `93b23045` review fixes).
+- Gate: GREEN incl. `--review` diff-coverage 98.4%; sole WARN row `reclassify` triaged ACCEPT in deviations file (code diff 1.57× estimate, docs inflate the raw number).
+- Step 7 reviews: both agents APPROVE-with-findings; 10 findings accepted+fixed, 1 rejected (400-vs-404 — intake harmonized to plan contract instead). Full reports + triage verdicts committed under `docs/reviews/feat-540-voice-report-card/`.
+- Deviations file: 5 entries, all ACCEPT — promotion candidates at step 8: (a) plan-time code must account for `noUncheckedIndexedAccess`; (b) intake `estimated_diff_size` should state whether docs count (gate reclassify over-fires otherwise).
 
 ## Source of truth (read these, in order — do not reconstruct from chat)
 

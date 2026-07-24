@@ -109,3 +109,11 @@ explosion, no spaghetti growth, no boundary leak. F1-F4 are quick pre-merge fixe
 - Route test mocks `@/lib/db/auth.requireRole` beneath `requireOwnerWithAccount` (mocking one layer below
   the imported helper). Works and matches the sibling test dialect; a `route-helpers` mock would be less
   coupled to the helper's internals.
+
+## Orchestrator triage verdicts (step 7)
+
+- medium ACTIVATION_THRESHOLD dual owner — ACCEPTED, fixed (MIN_EXAMPLES_FOR_ACTIVATION exported + imported).
+- medium client-side contract re-declaration — ACCEPTED, fixed (import type from voice-report-card).
+- medium vacuous conforming-pair test — ACCEPTED, fixed (escape hatches removed; per-trait core assertions).
+- low inlined clearsBar predicate — ACCEPTED, fixed.
+- low UUID_RE re-declaration — ACCEPTED, fixed (canonical import from owner-route.ts); repo-wide hoist stays a follow-up.

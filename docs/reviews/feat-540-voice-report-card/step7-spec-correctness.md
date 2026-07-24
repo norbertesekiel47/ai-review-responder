@@ -70,3 +70,12 @@ Intake: "Route failures report via reportCaughtError('api/settings/voice/report-
 ## Verdict
 
 Spec conformance is strong: corpus-identity invariant, tenancy scoping, detection bar, activation states, edit surface, and all 10 promised tests check out; the worker prompt path is provably unchanged. The real defects are all in **claim-text soundness** (findings 1, 2, and 4): three deterministic heuristics can emit owner-facing claims their own displayed evidence contradicts. None are security- or data-affecting; all are contained in `voice-report-card.ts` claim construction and one UI copy string.
+
+## Orchestrator triage verdicts (step 7)
+
+- major length-claim averages — ACCEPTED, fixed (averages over conforming pairs; claim reworded).
+- medium critical else-branch over-claim — ACCEPTED, fixed (isSubstantiveRewrite bar: ≤0.75 cut OR Jaccard <0.7).
+- minor fallback editedCount absolute — ACCEPTED, fixed ("10+" floor rendering).
+- minor trailing sign-off false positive — ACCEPTED, fixed (name-shaped TRAILING_SIGNOFF_RE).
+- minor 400 vs intake 404 — REJECTED as code change: code follows the plan's sharper contract (400 malformed / 404 foreign); intake edge-case wording harmonized instead (both copies).
+- minor ownership SELECT outside try/catch — ACCEPTED, fixed (SELECT inside try; reportCaughtError path covers it).
