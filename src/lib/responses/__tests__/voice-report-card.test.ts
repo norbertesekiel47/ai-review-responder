@@ -78,6 +78,34 @@ describe('deriveVoiceReportCard', () => {
     }
   });
 
+  it('detects point-of-view trait when edits shift we-voice drafts to I-voice', () => {
+    // 3 of 5 pairs conform (plural-dominant draft → singular-dominant edit);
+    // the last two are meaningful edits with no first-person voice at all.
+    const examples = [
+      pair(
+        'We are so glad you enjoyed our coffee and we hope to see you soon.',
+        "I'm so glad the coffee landed. I roasted that batch myself.",
+      ),
+      pair(
+        'We appreciate your kind words and our team thanks you.',
+        'I appreciate it. I read your note to my crew.',
+      ),
+      pair(
+        'We are sorry about the wait and our staff will do better.',
+        'I am sorry about the wait. That one is on me.',
+      ),
+      pair('Thanks for visiting.', 'Thanks for stopping by.'),
+      pair('Glad the pastries were a hit.', 'Glad the pastries were such a hit.'),
+    ];
+
+    const trait = deriveVoiceReportCard(examples).traits.find((t) => t.key === 'point_of_view');
+    expect(trait).toBeDefined();
+    expect(trait!.claim).toBe('You write as “I,” not “we.”');
+    // Snippet must come from a conforming pair (the first one, per derivation order).
+    expect(trait!.snippet.before).toContain('We are so glad you enjoyed our coffee');
+    expect(trait!.snippet.after).toContain('I roasted that batch myself');
+  });
+
   it('returns zero traits with activation when no heuristic clears the bar', () => {
     // 5 meaningful edits with no consistent pattern: mixed greetings, mixed
     // lengths (some longer), no sign-offs, we-voice edits, no negative stars.
