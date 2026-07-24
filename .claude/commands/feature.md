@@ -217,8 +217,10 @@ into the PR description so the justification survives.
 
 **NO BASH WRITES**: repo file changes go through Edit/Write only — never
 `sed -i`, shell redirects, `tee`, `mv`/`cp`, or heredocs over repo files
-(routes around the guard). Scratch goes to the scratchpad or
-`.feature/`/`docs/` (exempt surfaces).
+(routes around the guard). The common shapes are hook-enforced
+(`.claude/hooks/bash-write-guard.sh`, armed like the stop gate); this rule
+covers the residue the hook's conservative parser allows. Scratch goes to
+the scratchpad or `.feature/`/`docs/` (exempt surfaces).
 
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
@@ -306,7 +308,16 @@ surface/db flags, runs the applicable checks, writes per-check logs to
   (live-DB suites self-skip locally and can go red in CI — the #520
   class). A gate with that warning is NOT review-ready for DB-touching
   work: set the var and re-run.
+- `promised-tests` row: every `tests_to_add` title must exist VERBATIM in
+  a test file — the edge-case→test mapping is deterministic, not judged.
+- `reclassify` WARN row: actual diff > 2× `estimated_diff_size` fires the
+  re-classification trigger below.
 - Plus any `verification_commands` declared in the intake.
+
+The LAST gate run before step 7 is `scripts/verify-gate.sh --review`: the
+test row runs with coverage and a `diff-coverage` row enforces changed-line
+coverage (default min 80%) — "wrote code, wrote no test for it" fails
+mechanically instead of hoping a reviewer notices.
 
 Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
 after every fix round is cheap; do it.
@@ -380,9 +391,15 @@ receive the triaged file, never a raw accumulation.
 
 ## 7. REVIEW — unified two-axis, confidence-filtered
 
+First run `cd <worktree-root> && bash scripts/blast-radius.sh` — it writes
+`docs/reviews/<branch>/blast-radius.md` listing the importers of every
+changed file (typecheck catches signature breaks; it cannot catch a
+semantic change whose callers relied on the old behavior).
+
 One review round, two parallel fresh agents on the branch diff since the
 fork point, so neither axis pollutes the other. Both receive the triaged
-deviations file as input:
+deviations file; the spec agent also receives `blast-radius.md` (check the
+listed callers against the changed semantics):
 
 - **Spec & correctness agent**: does the diff faithfully implement the
   intake contract and tickets? Flag bugs, drift outside
