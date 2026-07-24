@@ -44,6 +44,19 @@ The orchestrator's context is the scarcest resource in this workflow. Rules:
 - **Look up, don't guess.** Version-specific API usage goes through Context7
   or official docs; repo/issue/CI state goes through `gh`. Memory is not a
   source for anything that can drift.
+- **No backwards-compatibility shims for code with no external consumers.**
+  This is a pre-launch codebase — delete the old path and update callers.
+  A shim needs a named external consumer to justify it.
+- **No new file without justification** (slop invents `utils/helpers.ts`).
+  Name the existing file that was considered and why it doesn't fit —
+  repworth.md's "default is no new file" applies doubly here.
+- **No new env var or feature flag without a registry entry** in
+  `.claude/reference/env-vars.md`, in the same change.
+- **Assert impossible states, don't branch around them.** Defensive
+  handling of a state the invariants exclude is noise that hides real
+  bugs — throw with context instead.
+- **Net-negative bias.** A task adding >150 lines while deleting 0 states
+  why in its summary; "new code only" is a claim to justify, not a default.
 
 ## 0. CLASSIFY — pick the lane before doing anything
 
@@ -55,6 +68,8 @@ Read the request and the code it touches, then classify:
 - **SURFACE = ui** if it touches `src/app/` or `src/components/`;
   **backend** otherwise; **mixed** if both.
 - **SIZE = trivial** if ≤ ~30 lines with no schema/API/contract change.
+- **SIZE = small** if ≤ ~150 expected diff lines across ≤ ~3 files, one
+  seam, no migration, no new dependency.
 - **SIZE = epic** if ANY of: the honest `allowed_edit_surface` can't be
   declared tighter than a few top-level directories; it spans multiple
   risk domains (e.g. schema + billing + worker); it would decompose into
@@ -63,6 +78,17 @@ Read the request and the code it touches, then classify:
 
 **TRIVIAL FAST PATH**: skip steps 1–4 and 6. Branch, implement directly
 in this session, run the step 5 gate, one `/code-review` pass, PR, done.
+
+**SMALL PATH** (the lane between trivial and the full apparatus — a
+half-followed full pipeline is worse than a smaller one followed
+completely): skip steps 3–4 and 6, and step 1's full grilling. Ask only
+what's needed to fill an ABBREVIATED intake — `goal`, `non_goals`,
+`allowed_edit_surface`, `tests_to_add`, `estimated_diff_size` (other
+fields may be empty arrays) — and get sign-off. Then: step 2 setup as
+normal (enforcement still arms), implement IN THIS SESSION with no
+subagent dispatch, step 5 gate, ONE review agent (spec & correctness
+only), step 8 by RISK lane. The full pipeline is reserved for normal+
+features with a real surface.
 
 **EPIC PATH — decompose, don't implement**: this command's enforcement
 loop (tight edit surface, reviewable diffs, one staging ride) only works
@@ -79,7 +105,12 @@ at feature scale, so an epic never runs steps 2–8 directly. Instead:
    path, see step 1). The epic ships as a sequence of small, fully
    disciplined merges — never as one big-bang branch.
 
-State the classification in one line before proceeding.
+State the classification in one line before proceeding — it MUST name the
+specific files you expect to touch and an estimated diff size (recorded as
+`estimated_diff_size` in the intake). When uncertain between two lanes,
+take the HEAVIER one and say so — under-classification is the systematic
+failure mode ("epic" is not a failure state, it's a routing decision), and
+step 5's re-classification trigger checks the estimate against reality.
 
 ## 1. GRILL — in this session (intent + domain language)
 
@@ -129,8 +160,12 @@ step 2 moves it into the worktree and arms the hooks from an ephemeral
   "edge_cases": ["from the grilling session"],
   "existing_patterns_to_follow": ["file/module precedents"],
   "allowed_edit_surface": ["glob list of paths implementation may touch"],
-  "tests_to_add": ["promised tests, mapped to invariants/edge cases"],
+  "tests_to_add": ["VERBATIM test titles — each names the invariant/edge case it covers"],
   "verification_commands": ["gate commands beyond the standard set"],
+  "estimated_diff_size": "±lines from step 0 — step 5 re-checks it against the real diff",
+  "dependencies_added": [],
+  "rollback_plan": "MANDATORY when db_touching: how to back out (down migration / flag flip / revert order)",
+  "observability": ["what log line / metric / Sentry signal proves this works in prod — 'how would I know it broke'"],
   "open_questions": []
 }
 ```
@@ -157,61 +192,33 @@ checkout.
 
 **WORKTREE PATH DISCIPLINE (mandatory)**: some harnesses reset the shell
 cwd between Bash calls (the VSCode extension does), so never assume a `cd`
-persists. Prefix EVERY Bash command with `cd <worktree-root> && …` (one
-compound command, explicit path) and use absolute worktree paths for all
-Edit/Write calls. Enforcement itself does not depend on cwd: the
-edit-surface guard anchors on the edited file's own repo root, and the
-stop gate scans every registered git worktree for an armed
-`.feature/intake.json`. Inspect the parent checkout with `git -C <path>`
-or absolute-path reads, never by relying on a persistent directory change.
+persists. Prefix EVERY Bash command with `cd <worktree-root> && …` and use
+absolute worktree paths for all Edit/Write calls. Enforcement itself does
+not depend on cwd (the guard anchors on the edited file's repo root; the
+stop gate scans registered worktrees). Inspect the parent checkout with
+`git -C <path>`, never by relying on a persistent directory change.
 
-**MOVE the intake in and arm the hooks**: move the step 1 draft to the
-WORKTREE's `docs/superpowers/plans/<branch>-intake.json` (committed with
-the branch — the durable audit trail of the agreed scope; delete the
-parent copy) and COPY it to `.feature/intake.json` at the worktree root.
-The hooks key off the `.feature/` copy — its presence puts the tree in
-"feature mode". `.feature/` is gitignored BY DESIGN (#512): a committed
-intake would follow the merge onto `main` and arm every future main
-session. If the surface is amended mid-run (with my sign-off), update
-BOTH copies. `.feature/deps-justification.md` is likewise ephemeral —
-carry its content into the PR description so the justification survives.
-
-**NO BASH WRITES (hook scoping)**: the guard sees Edit/Write tool calls
-only. Never modify repo files via Bash (`sed -i`, `>` redirects, `mv`,
-heredocs) during a feature run — that routes around enforcement. Scratch
-notes go to the scratchpad or `.feature/`/`docs/` (exempt surfaces), never
-into shell redirects over repo files.
-
-ARM CHECK (mandatory): before proceeding to implementation, prove the
-hooks are actually armed by executing them the way the harness does
-(`bash <script>`, matching the settings.json registration). With
-`.feature/intake.json` present, feed the edit-surface guard an
-out-of-surface probe payload (pick a path NOT covered by the declared
-`allowed_edit_surface` — `__arm_check__/probe.ts` at the worktree root is
-outside any sane surface) and expect exit 2; with no
-`.feature/gate-status.json` present, feed the stop gate an empty payload
-and expect exit 2:
+Then arm enforcement with ONE command:
 
 ```bash
-cd <worktree-root> && echo '{"tool_input":{"file_path":"'"$PWD"'/__arm_check__/probe.ts"}}' | bash ./.claude/hooks/edit-surface-guard.sh; echo "guard exit: $?"
-cd <worktree-root> && echo '{}' | bash ./.claude/hooks/stop-gate.sh; echo "stop-gate exit: $?"
+cd <worktree-root> && bash scripts/feature-setup.sh <path-to-locked-intake.json>
 ```
 
-(The stop gate scans registered worktrees, so its probe returns 2 from any
-cwd inside the repo family once the worktree is armed — but run it with the
-explicit `cd` anyway so the probe is deterministic.)
+It installs the intake (committed `docs/superpowers/plans/` audit copy +
+ephemeral `.feature/intake.json` arming copy — gitignored by design, #512),
+deletes the parent draft, proves the hooks are armed (`scripts/arm-check.sh`
+— any DISARMED output means STOP and report, do not implement), and prints
+cross-worktree surface overlaps. On overlap, surface it to me BEFORE
+planning: agree a merge order (noted in both deviations files) or narrow a
+surface. If the surface is amended mid-run (with my sign-off), update BOTH
+intake copies — and count the amendment (abort criteria, step 5).
+`.feature/deps-justification.md` is likewise ephemeral — carry its content
+into the PR description so the justification survives.
 
-Any other exit code (126, 127, 0) means enforcement is DISARMED (missing
-file, missing jq, or broken registration) — STOP and report to the user
-instead of continuing.
-
-**SURFACE OVERLAP CHECK**: after the ARM CHECK, run
-`cd <worktree-root> && bash scripts/feature-surface-check.sh`. It compares
-this intake's `allowed_edit_surface` against every other armed worktree's.
-On overlap, surface it to me BEFORE planning: parallel runs editing the
-same area mean predictable merge conflicts and cross-branch coordination
-debt — agree a merge order (noted in both deviations files) or narrow a
-surface first.
+**NO BASH WRITES**: repo file changes go through Edit/Write only — never
+`sed -i`, shell redirects, `tee`, `mv`/`cp`, or heredocs over repo files
+(routes around the guard). Scratch goes to the scratchpad or
+`.feature/`/`docs/` (exempt surfaces).
 
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
@@ -275,6 +282,12 @@ subagent hits something the plan didn't anticipate, it writes a note to
 `docs/superpowers/plans/<branch>-deviations.md` rather than dumping context
 on the orchestrator.
 
+**First-task enforcement spot check**: after the FIRST subagent task
+completes, diff `git status --porcelain` paths against
+`allowed_edit_surface`. An out-of-surface file means enforcement did not
+bind for subagent tool calls in this harness — STOP and report; do not
+dispatch further tasks.
+
 ## 5. VERIFY GATE — cheap, before any review
 
 Must be fully green before any review starts, and re-run after every fix
@@ -328,6 +341,21 @@ regression-test) against the failing check, with the log file path and the
 relevant spec slice as its inputs. It returns the diagnosis and fix summary;
 the instrumentation noise stays out of this session.
 
+**Re-classification trigger**: compare the actual branch diff
+(`git diff --stat <fork-point>..HEAD`) against the intake's
+`estimated_diff_size`. If actual exceeds ~2× the estimate, or the edit
+surface has already been amended once, STOP and re-run step 0 with the
+real numbers — the lane was wrong, and the heavier lane's controls exist
+for exactly this feature.
+
+**Abort criteria (sunk cost is not a lane)**: after 3 full gate-fail
+rounds, or a 2nd surface amendment, or any deviation that invalidates a
+locked intake decision — stop patching. Write a post-mortem to
+`docs/superpowers/plans/<branch>-postmortem.md` (what was learned; what
+the intake/plan got wrong), tear the branch down, and restart at step 1
+carrying the post-mortem. The genuinely bad merges come from persisting,
+not restarting.
+
 ## 6. REVIEW 0 — ADVERSARIAL (RISK = high only)
 
 Runs ONLY when RISK = high; skip entirely for normal-risk features (the
@@ -341,10 +369,20 @@ and assumptions — not implementation defects. Triage its findings with
 revisiting the plan (step 3), not just patching code. Re-run step 5 after any
 change.
 
+## 6.5 DEVIATIONS READ-BACK — mandatory before review
+
+Read `docs/superpowers/plans/<branch>-deviations.md` end to end. Every
+entry is, by definition, something the plan did not anticipate — the
+highest-signal bug source on the branch. For each entry, log a one-line
+verdict in the file: ACCEPT (the adaptation is sound) or RE-PLAN (it
+invalidates a locked decision — abort criteria apply). Review agents
+receive the triaged file, never a raw accumulation.
+
 ## 7. REVIEW — unified two-axis, confidence-filtered
 
 One review round, two parallel fresh agents on the branch diff since the
-fork point, so neither axis pollutes the other:
+fork point, so neither axis pollutes the other. Both receive the triaged
+deviations file as input:
 
 - **Spec & correctness agent**: does the diff faithfully implement the
   intake contract and tickets? Flag bugs, drift outside
@@ -424,16 +462,15 @@ Re-run step 5.
 Handoff is proactive, not reactive:
 
 - **Mandatory**: at the step 3→4 boundary (see checkpoint above).
-- **Mandatory**: after step 7 triage completes, update the handoff doc with
-  review verdicts and current step. Reviews are the second-biggest context
-  consumers; a fresh session for step 8 is cheap because everything it
-  needs (branch, plan, review reports, triage verdicts) is on disk.
-- **Thresholds** (check context usage at every step boundary):
-  - **≥50% at a step boundary** → take the exit: update handoff doc, tell
-    me to `/clear` and resume.
-  - **≥60% anywhere** → hard trigger: update the handoff doc now, finish
-    the current step only, then clear. Never start a new step past 60%.
-  - **≥70%** → missed the good exit: handoff immediately, accept the loss.
+- **Unconditional after step 7**: update the handoff doc with review
+  verdicts and current step, then tell me to start a fresh session for
+  step 8 (`/feature-resume <branch>`). Reviews are the biggest context
+  consumers and everything step 8 needs is on disk — no judgment call.
+- **Default fresh at 3→4**: start a fresh session for step 4 unless
+  grilling + planning were genuinely short. There is no reliable way to
+  measure context usage from inside the session — the only rule is: if
+  you think you might be past halfway, take the exit NOW (update handoff,
+  `/clear`, resume). One rule followed beats a threshold ladder ignored.
 - Prefer `/clear` + handoff-doc resume over `/compact`: state lives on
   disk in this workflow, so a clean session reading files beats a lossy
   summary. Reserve `/compact` for mid-grilling (step 1) where no
