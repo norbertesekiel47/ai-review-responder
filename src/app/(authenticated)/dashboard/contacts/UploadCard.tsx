@@ -149,6 +149,10 @@ export function UploadCard({
 
   // ── Status polling (bounded ~2s cadence, 5-minute ceiling) ────────────────
 
+  // False positive: the timer is armed inside the async poll closure (rule
+  // docs pattern D); the returned teardown clears it and `cancelled` stops
+  // re-arming.
+  // oxlint-disable-next-line react-doctor/effect-needs-cleanup
   useEffect(() => {
     if (upload.kind !== 'processing' || currentScope === 'all') return;
     const { uploadId, startedAt } = upload;

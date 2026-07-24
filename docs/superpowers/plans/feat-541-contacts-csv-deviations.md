@@ -420,3 +420,14 @@ invalidates a locked intake decision — NO RE-PLAN required.
   classifier-blocked this session — do it manually or approve when asked.
 - [2026-07-24] Park (protocol): intake parked at end of the ship turn while
   CI runs; re-arm before next repo edit.
+- [2026-07-24] PR #564 CI round 1: react-doctor FAIL (1 error, 4 warnings) +
+  fallow FAIL (complexity/coverage on new UI islands). The react-doctor error
+  (`effect-needs-cleanup`, UploadCard poll effect) was validated against the
+  rule's canonical validation prompt and is a FALSE POSITIVE — the code is the
+  rule docs' own pattern-D correct form (mutable timer id cleared in the
+  returned teardown + cancelled flag); suppressed with a narrow
+  `oxlint-disable-next-line` + rationale comment per the playbook ("the fix is
+  to suppress"). Local re-scan: 0 errors, score 84→90. The 4 warnings are
+  advisory (non-blocking) — left as follow-ups. fallow's failure shares the
+  structural root cause of the user-signed diff-coverage exception (untested
+  UI islands, #563); left RED pending user triage at the merge pause.
