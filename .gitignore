@@ -62,8 +62,39 @@ docs/**/*.zip
 # .claude/ (CLAUDE.md and skills/) IS tracked.
 .claude/settings.local.json
 
-# claude-mem per-machine cross-session memory (populated locally, not shared)
-.agents/
+# Keep per-machine agent memory local, but version the RepWorth-owned skills
+# required by both Codex and Claude Code. Third-party media skills stay local.
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/approval-security/
+!.agents/skills/approval-security/**
+!.agents/skills/cost-guard/
+!.agents/skills/cost-guard/**
+!.agents/skills/doctor-explain/
+!.agents/skills/doctor-explain/**
+!.agents/skills/document-feature/
+!.agents/skills/document-feature/**
+!.agents/skills/feature/
+!.agents/skills/feature/**
+!.agents/skills/feature-resume/
+!.agents/skills/feature-resume/**
+!.agents/skills/flag-flip/
+!.agents/skills/flag-flip/**
+!.agents/skills/new-migration/
+!.agents/skills/new-migration/**
+!.agents/skills/onboarding-demo-cost-guard/
+!.agents/skills/onboarding-demo-cost-guard/**
+!.agents/skills/outbox-pattern/
+!.agents/skills/outbox-pattern/**
+!.agents/skills/react-doctor/
+!.agents/skills/react-doctor/**
+!.agents/skills/repworth-brand-design/
+!.agents/skills/repworth-brand-design/**
+!.agents/skills/runbook/
+!.agents/skills/runbook/**
+!.agents/skills/verify-spec/
+!.agents/skills/verify-spec/**
 
 # Local-only design handoff archives (Claude Design exports)
 .tmp-design/
@@ -99,7 +130,6 @@ poller_cursors.cursor
 # local-only tooling and scratch artifacts
 .claude-octopus/
 .graphify_query.py
-AGENTS.md
 graphify-out/
 scripts/zernio-count-reviews.ts
 

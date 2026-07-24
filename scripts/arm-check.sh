@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/arm-check.sh — prove the /feature enforcement hooks are armed for
 # THIS worktree, invoking them the way the harness does (`bash <script>`,
-# matching the settings.json registration). Run from the worktree root;
+# matching the .codex/hooks.json registration). Run from the worktree root;
 # scripts/feature-setup.sh runs it for you.
 #
 # Exit 0 = ARMED. Non-zero = DISARMED: STOP and report — do not implement.
@@ -19,7 +19,7 @@ fi
 # NOTE: a degenerate surface glob like "*" makes this probe report DISARMED —
 # correctly, since such a surface enforces nothing.
 echo "{\"tool_input\":{\"file_path\":\"$ROOT/__arm_check__/probe.ts\"}}" \
-  | bash ./.claude/hooks/edit-surface-guard.sh >/dev/null 2>&1
+  | bash ./.codex/hooks/edit-surface-guard.sh >/dev/null 2>&1
 GUARD=$?
 
 # Stop-gate probe: with no gate evidence yet, stop must be blocked (exit 2).
@@ -28,7 +28,7 @@ GUARD=$?
 if [ -f .feature/gate-status.json ]; then
   STOP=2
 else
-  echo '{}' | bash ./.claude/hooks/stop-gate.sh >/dev/null 2>&1
+  echo '{}' | bash ./.codex/hooks/stop-gate.sh >/dev/null 2>&1
   STOP=$?
 fi
 
