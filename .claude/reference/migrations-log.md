@@ -1011,9 +1011,10 @@ Revisit triggers:
   `owner_account_id()` shape) verified against migrations 001/034/035 before
   writing — no adjustment needed. `pnpm ci:rls-audit` and `pnpm
   ci:tenant-scope` both pass unchanged (no registry/allowlist entries
-  required by either script for this migration). **Not yet applied to any
-  database** — file only; offboarding table-disposition entries and the
-  ingestion routes/worker land in later tasks on this branch.
+  required by either script for this migration). **Applied to staging
+  2026-07-24** (verified by introspection: 3 tables + 3 indexes + 5
+  constraints + 3 owner-select policies present, RLS enabled); **prod applies
+  at promotion** of feat/541-contacts-csv in lockstep.
 
 - **085** — `competitor_snapshots.rating` REAL → NUMERIC(2,1) (`USING
   round(rating::numeric, 1)`; PR #554 pre-merge review). float4 drifts
