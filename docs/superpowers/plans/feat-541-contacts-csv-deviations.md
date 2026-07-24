@@ -104,3 +104,16 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   persists/logs only the bounded error CLASS (`err.name`), never the message
   — a Postgres unique-violation message/detail can embed handle values (PII
   invariant).
+- [2026-07-24] Task 6, PRE-EXISTING `pnpm ci:tenant-scope` failure (NOT
+  introduced by Task 6 — verified by re-running the audit on the stashed tree
+  at Task 5's commit 29b9aab4, same failure): the audit flags
+  `worker/jobs/csv-ingest/index.ts` (`accounts` + `businesses`: "missing
+  account_id or business_id scope"). That is Task 5's subscription-gate join
+  — a deliberate cross-table read keyed by the trusted `uploadId` aggregate
+  (the upload row's business→account join IS the authoritative pairing). The
+  fix is an allowlist entry (+ `ALLOWLIST_BASELINE` bump) in
+  `scripts/ci/tenant-scope-audit.ts`, which is outside Task 6's approved edit
+  surface, so it is left for the orchestrator (Task 5 follow-up or the Task 9
+  sweep). Task 6's own queries (`src/lib/solicitation/contacts-repo.ts`) pass
+  the audit — both carry `c.business_id = $businessId AND
+  b.account_id = $accountId`.

@@ -23,8 +23,11 @@ vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
 
 import { POST as uploadsPost } from '../uploads/route';
 import { GET as uploadStatusGet } from '../uploads/[id]/route';
+import { GET as contactsListGet } from '../route';
+import { DELETE as contactDelete } from '../[id]/route';
 
 const UPLOAD_ID = '01900000-0000-7000-8000-000000000001';
+const CONTACT_ID = '01900000-0000-7000-8000-000000000002';
 
 // Every /api/dashboard/contacts/* route registers here; Task 6 appends its
 // GET-list + DELETE entries so the flag gate stays covered in one place.
@@ -42,6 +45,21 @@ const routes: ReadonlyArray<{ name: string; invoke: () => Promise<Response> }> =
     invoke: () => uploadStatusGet(
       new NextRequest(`http://localhost:3000/api/dashboard/contacts/uploads/${UPLOAD_ID}`),
       { params: Promise.resolve({ id: UPLOAD_ID }) },
+    ),
+  },
+  {
+    name: 'GET /api/dashboard/contacts',
+    invoke: () => contactsListGet(
+      new NextRequest('http://localhost:3000/api/dashboard/contacts'),
+    ),
+  },
+  {
+    name: 'DELETE /api/dashboard/contacts/[id]',
+    invoke: () => contactDelete(
+      new NextRequest(`http://localhost:3000/api/dashboard/contacts/${CONTACT_ID}`, {
+        method: 'DELETE',
+      }),
+      { params: Promise.resolve({ id: CONTACT_ID }) },
     ),
   },
 ];
