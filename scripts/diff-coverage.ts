@@ -149,6 +149,10 @@ for (const [file, lines] of addedLinesByFile) {
   }
 }
 
+function formatRange(start: number, end: number): string {
+  return start === end ? `${start}` : `${start}-${end}`;
+}
+
 function summarizeRanges(lines: number[]): string {
   const [first, ...rest] = lines;
   if (first === undefined) return '';
@@ -156,15 +160,13 @@ function summarizeRanges(lines: number[]): string {
   let start = first;
   let prev = first;
   for (const line of rest) {
-    if (line === prev + 1) {
-      prev = line;
-      continue;
+    if (line !== prev + 1) {
+      ranges.push(formatRange(start, prev));
+      start = line;
     }
-    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
-    start = line;
     prev = line;
   }
-  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+  ranges.push(formatRange(start, prev));
   return ranges.join(', ');
 }
 

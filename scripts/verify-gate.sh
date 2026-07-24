@@ -142,7 +142,7 @@ fi
 
 # --- diff-coverage (review mode only; consumes the test row's coverage) ---
 if [ "$REVIEW_MODE" = true ]; then
-  run_sync diff-coverage pnpm exec tsx scripts/diff-coverage.ts
+  run_sync diff-coverage pnpm feature:diff-coverage
 fi
 
 if [ "$INTEGRATION_SKIPPED" -gt 0 ]; then
