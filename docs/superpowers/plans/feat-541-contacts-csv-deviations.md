@@ -32,6 +32,25 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   adding an account-linked table must also touch purge-stages.ts +
   scripts/ci/tenant-tables.ts — future schema-ticket intakes should include
   them by default.
+- [2026-07-24] Step-0 re-check (reclassify WARN, user-ACCEPTED): total diff
+  +5,069 tripped the 2× trigger against the 2,000-line estimate, but the split
+  is production code +2,467 (WITHIN the 2,000–2,500 estimate), tests +1,156,
+  docs +1,446 (the workflow's own artifacts). Overage = tests + docs, not
+  scope creep; lane already maximal (high / full pipeline / staging ride).
+  Lane unchanged with user sign-off.
+- [2026-07-24] diff-coverage documented EXCEPTION (user-approved): the FAIL is
+  structural, not missing diligence. (a) ingest.ts/contacts-repo.ts are
+  covered by the live-DB integration suites, which the gate runs as separate
+  vitest invocations whose coverage never merges into coverage-final.json —
+  both suites passed 3× against the local test DB (gate run 1 rows, Task 5
+  and Task 8 reports). (b) ContactsClient.tsx (~600 lines) is untested by
+  repo convention — no dashboard client island has tests; the plan
+  conditioned UI tests on neighbor precedent. Latent gate-script bug also
+  surfaced: TEST_DATABASE_POOL_URL set globally makes the `test` row wake
+  pre-existing WS8 live-DB suites that break inside full vitest runs
+  (singleton-init ordering; reproducible off-branch). Gate-hardening
+  follow-up filed as issue #563. Review proceeds with the gate green on all
+  other rows.
 - [2026-07-24] Planning-phase park: gate run at plan time is green on all 21
   checks EXCEPT `promised-tests` (structurally impossible before execution —
   the 20 promised tests are the work itself). Stop gate is not phase-aware, so
@@ -302,3 +321,28 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   signature/query changes — no mocked unit test asserted exact SQL text
   tightly enough to break). `pnpm ci:rls-audit`, `pnpm lint`, `pnpm
   typecheck` all clean.
+
+- 2026-07-24 (Task 9, registry sweep): `docs/directory.md`'s
+  `supabase/migrations/` section claimed head `078` / next `079`, but
+  migrations `082`–`085` already existed on this branch's base BEFORE #541
+  (pre-existing staleness, not introduced here). Updated the head line to
+  `086` (`086_solicitation_contacts.sql`) / next `087` while adding the #541
+  entry, since leaving a knowingly wrong number while editing the adjacent
+  fact would be a dangling-ref bug per repworth.md. Per-migration narrative
+  remains owned by `.claude/reference/migrations-log.md`.
+
+## Step 6.5 read-back verdicts (orchestrator, 2026-07-24)
+
+Every entry above re-read end to end. Verdicts, in file order: amendments
+#1–#3 ACCEPT (user-approved at the time, waivers recorded); Task 2 minor
+ACCEPT (won't-fix, monitored); step-0 re-check ACCEPT (user); diff-coverage
+exception ACCEPT (user; follow-up #563); parks ACCEPT (protocol);
+Task 3 idempotency_key + as-const ACCEPT (plan text was wrong, code is
+right); Task 4 route-shape divergences ACCEPT (uniform-not-found is the
+stricter posture); Task 5 second JSONB site ACCEPT (allowlist cites both,
+landed in Task 9); Task 5 outbox bookkeeping ACCEPT (precedent-mandated);
+Task 6 pre-existing audit note ACCEPT (superseded by resolution below it);
+Task 5 follow-up strengthening ACCEPT; Task 8 gaps + resolutions ACCEPT
+(purge DELETE proven live; tenant-tables wired; strengthenings verified
+semantics-preserving); Task 9 directory.md staleness fix ACCEPT. No entry
+invalidates a locked intake decision — NO RE-PLAN required.
