@@ -79,7 +79,9 @@
     "docs/reviews/**",
     "src/lib/shared/worker-types.ts",
     "src/lib/shared/__tests__/**",
-    ".claude/CLAUDE.md"
+    ".claude/CLAUDE.md",
+    "worker/jobs/account-offboarding/**",
+    "scripts/ci/tenant-tables.ts"
   ],
   "tests_to_add": [
     "normalizes a 10-digit US phone to E.164",
