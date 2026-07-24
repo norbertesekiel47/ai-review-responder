@@ -90,4 +90,31 @@ describe('parseContactsCsv', () => {
   it('rejects an empty file structurally', () => {
     expect(parseContactsCsv('', TODAY)).toEqual({ structuralFailure: 'missing_required_header' });
   });
+
+  it('rejects the whole file when a quoted field is unterminated', () => {
+    const result = parseContactsCsv(csv([
+      'name,email,last_visit_date,note',
+      'A,a@example.com,2026-07-01,"unterminated note',
+      'B,b@example.com,2026-07-02,would be swallowed',
+    ]), TODAY);
+    expect(result).toEqual({ structuralFailure: 'undecodable_encoding' });
+  });
+
+  it('strips a leading BOM and parses the file normally', () => {
+    const result = parseContactsCsv(`\u{FEFF}${csv([
+      'name,email,last_visit_date',
+      'Ada,ada@example.com,2026-07-01',
+    ])}`, TODAY);
+    if ('structuralFailure' in result) throw new Error('unexpected structural failure');
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.name).toBe('Ada');
+  });
+
+  it('rejects a file containing a U+FFFD replacement character as undecodable', () => {
+    const result = parseContactsCsv(csv([
+      'name,email,last_visit_date',
+      'Ad\u{FFFD}a,a@example.com,2026-07-01',
+    ]), TODAY);
+    expect(result).toEqual({ structuralFailure: 'undecodable_encoding' });
+  });
 });

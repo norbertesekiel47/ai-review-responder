@@ -61,10 +61,12 @@ type CanonicalColumn = 'name' | 'email' | 'phone' | 'last_visit_date' | 'note';
 
 export function parseContactsCsv(csvText: string, todayUtc: string): ParseContactsCsvResult {
   // The route decodes bytes; broken decoding surfaces as U+FFFD.
-  if (csvText.includes('�')) return { structuralFailure: 'undecodable_encoding' };
+  if (csvText.includes('\u{FFFD}')) return { structuralFailure: 'undecodable_encoding' };
 
-  const text = csvText.startsWith('﻿') ? csvText.slice(1) : csvText;
-  const records = tokenizeCsv(text).filter((fields) => !isBlankRecord(fields));
+  const text = csvText.startsWith('\u{FEFF}') ? csvText.slice(1) : csvText;
+  const tokenized = tokenizeCsv(text);
+  if (tokenized === null) return { structuralFailure: 'undecodable_encoding' };
+  const records = tokenized.filter((fields) => !isBlankRecord(fields));
 
   const headerRecord = records[0];
   if (headerRecord === undefined) return { structuralFailure: 'missing_required_header' };
@@ -188,9 +190,13 @@ function isBlankRecord(fields: string[]): boolean {
 
 /** Private RFC-4180 tokenizer (quoted fields, CRLF/LF, escaped quotes) —
  *  mirrors the shape of parseCsvRecords in src/lib/admin/csv-import.ts.
- *  Lenient at EOF: an unterminated quoted field closes at end of input rather
- *  than failing the file — the affected row then fails row validation visibly. */
-function tokenizeCsv(csvText: string): string[][] {
+ *  Strict at EOF: an unterminated quoted field returns null — lenient recovery
+ *  would swallow subsequent rows (newlines included) into the open field, and
+ *  a short-enough merged note would import wrongly while the swallowed rows
+ *  silently vanish. The caller maps null onto the existing
+ *  'undecodable_encoding' structural failure: the file is malformed beyond
+ *  safe row recovery, and the enum is closed by contract. */
+function tokenizeCsv(csvText: string): string[][] | null {
   const records: string[][] = [];
   let fields: string[] = [];
   let current = '';
@@ -229,6 +235,8 @@ function tokenizeCsv(csvText: string): string[][] {
       current += ch;
     }
   }
+
+  if (inQuotes) return null;
 
   if (current.length > 0 || fields.length > 0) {
     fields.push(current);
