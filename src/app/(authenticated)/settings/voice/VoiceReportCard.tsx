@@ -85,6 +85,81 @@ function ProgressDots({ editedCount, threshold }: { editedCount: number; thresho
   );
 }
 
+function TraitRow({ trait }: { trait: RegisterTrait }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: 'var(--rw-app-text-muted)',
+        }}
+      >
+        {trait.name}
+      </div>
+      <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--rw-app-text)', margin: 0 }}>
+        {trait.claim}
+      </p>
+      <SnippetBlock snippet={trait.snippet} />
+    </div>
+  );
+}
+
+// One state renders at a time: error > loading > pre-activation progress >
+// detected traits > zero-trait fallback.
+function ReportCardBody({
+  data,
+  error,
+}: {
+  data: ReportCardResponse | null;
+  error: string | null;
+}) {
+  if (error) {
+    return <p style={{ fontSize: 13, color: '#B91C1C', margin: 0 }}>{error}</p>;
+  }
+  if (!data) {
+    return <SettingsSkeleton rows={2} />;
+  }
+  if (!data.activated) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <ProgressDots editedCount={data.editedCount} threshold={data.activationThreshold} />
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, margin: 0 }}>
+          <strong style={{ color: 'var(--rw-app-text)' }}>
+            {data.editedCount} of {data.activationThreshold} edited replies.
+          </strong>{' '}
+          Only replies you&apos;ve edited and posted count. The report card switches on by
+          itself &mdash; keep editing drafts that don&apos;t sound like you.
+        </p>
+      </div>
+    );
+  }
+  if (data.traits.length > 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {data.traits.map((trait) => (
+          <TraitRow key={trait.key} trait={trait} />
+        ))}
+      </div>
+    );
+  }
+  if (data.fallbackSnippet) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, margin: 0 }}>
+          You&apos;ve edited {data.editedCount}
+          {data.editedCount >= 10 ? '+' : ''} replies &mdash; no consistent pattern stands out
+          yet.
+        </p>
+        <SnippetBlock snippet={data.fallbackSnippet} />
+      </div>
+    );
+  }
+  return null;
+}
+
 // Parent renders this keyed by locationId, so a location switch remounts the
 // component with fresh loading state — no synchronous setState-in-effect reset.
 export function VoiceReportCard({ locationId }: { locationId: string }) {
@@ -123,53 +198,7 @@ export function VoiceReportCard({ locationId }: { locationId: string }) {
 
       <LiveRegion message={error ?? ''} level="assertive" />
 
-      {error ? (
-        <p style={{ fontSize: 13, color: '#B91C1C', margin: 0 }}>{error}</p>
-      ) : !data ? (
-        <SettingsSkeleton rows={2} />
-      ) : !data.activated ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <ProgressDots editedCount={data.editedCount} threshold={data.activationThreshold} />
-          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, margin: 0 }}>
-            <strong style={{ color: 'var(--rw-app-text)' }}>
-              {data.editedCount} of {data.activationThreshold} edited replies.
-            </strong>{' '}
-            Only replies you&apos;ve edited and posted count. The report card switches on by
-            itself &mdash; keep editing drafts that don&apos;t sound like you.
-          </p>
-        </div>
-      ) : data.traits.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {data.traits.map((trait) => (
-            <div key={trait.key} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  color: 'var(--rw-app-text-muted)',
-                }}
-              >
-                {trait.name}
-              </div>
-              <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--rw-app-text)', margin: 0 }}>
-                {trait.claim}
-              </p>
-              <SnippetBlock snippet={trait.snippet} />
-            </div>
-          ))}
-        </div>
-      ) : data.fallbackSnippet ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, margin: 0 }}>
-            You&apos;ve edited {data.editedCount}
-            {data.editedCount >= 10 ? '+' : ''} replies &mdash; no consistent pattern stands out
-            yet.
-          </p>
-          <SnippetBlock snippet={data.fallbackSnippet} />
-        </div>
-      ) : null}
+      <ReportCardBody data={data} error={error} />
     </div>
   );
 }
