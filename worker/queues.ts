@@ -80,6 +80,7 @@ export const queues = {
   judgeVerdict: new Queue(QUEUE_NAMES.JUDGE_VERDICT, { connection: opts, defaultJobOptions }),
   autonomySuspendedNotice: new Queue(QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE, { connection: opts, defaultJobOptions }),
   autonomyAdminAlert: new Queue(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT, { connection: opts, defaultJobOptions }),
+  csvIngest: new Queue(QUEUE_NAMES.CSV_INGEST, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Queues emit 'error' on Redis connection failures; without a listener that
@@ -126,4 +127,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.JUDGE_VERDICT]: queues.judgeVerdict,
   [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: queues.autonomySuspendedNotice,
   [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: queues.autonomyAdminAlert,
+  [QUEUE_NAMES.CSV_INGEST]: queues.csvIngest,
 };

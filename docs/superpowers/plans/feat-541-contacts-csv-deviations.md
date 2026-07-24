@@ -81,3 +81,26 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   plan's own contingency branch, recorded here for the reviews: the POST is
   owner-gated AND writable-subscription-gated, matching every other
   dashboard mutation route.
+- [2026-07-24] Task 5, allowlist follow-up for Task 9: `contact_csv_uploads.report`
+  now has a SECOND production JSONB field-to-parser site —
+  `src/lib/solicitation/ingest.ts` (`parseStoredReport`, the terminal-status
+  no-op re-read the plan requires: "status != 'pending' → return the stored
+  report"), alongside Task 4's `src/lib/solicitation/uploads.ts`
+  (`getUploadStatus`). Pre-execution amendment #2 promised the CLAUDE.md
+  allowlist one `contact_csv_uploads.report` entry; that entry (Task 9 —
+  CLAUDE.md is outside Task 5's edit surface) must cite BOTH sites.
+- [2026-07-24] Task 5, ACCEPTED addition beyond the plan's Step 5 pseudocode:
+  outbox bookkeeping. The plan's `handleCsvIngest` snippet and failed-hook
+  spec never mention `job_outbox`, but the mirrored precedents it mandates do
+  — the judge/notification handlers `markOutboxCompleted` on every exit, and
+  the zernio failed-hook's core is the CAS-first `markOutboxFailed` coupled
+  tx. Without them the OutboxPoller watchdog would re-pend the dispatched row
+  indefinitely (steady-state violation). Implemented: handler marks the
+  outbox row completed on all three exits (missing row / no-entitlement /
+  success); failed-hook takes the advisory lock FIRST (plan's explicit
+  round-2 ordering, ahead of zernio's CAS-first), then gates the upload
+  terminalization on `markOutboxFailed` ownership so a stale exhausted
+  attempt that lost to the watchdog performs no mutation. Also, the hook
+  persists/logs only the bounded error CLASS (`err.name`), never the message
+  — a Postgres unique-violation message/detail can embed handle values (PII
+  invariant).
