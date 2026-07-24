@@ -205,6 +205,14 @@ Any other exit code (126, 127, 0) means enforcement is DISARMED (missing
 file, missing jq, or broken registration) — STOP and report to the user
 instead of continuing.
 
+**SURFACE OVERLAP CHECK**: after the ARM CHECK, run
+`cd <worktree-root> && bash scripts/feature-surface-check.sh`. It compares
+this intake's `allowed_edit_surface` against every other armed worktree's.
+On overlap, surface it to me BEFORE planning: parallel runs editing the
+same area mean predictable merge conflicts and cross-branch coordination
+debt — agree a merge order (noted in both deviations files) or narrow a
+surface first.
+
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
 Before writing the plan, consult the `codebase-design` skill: name the
@@ -280,7 +288,15 @@ surface/db flags, runs the applicable checks, writes per-check logs to
   pre-push gate run, so gate-green can never fail push-time audits.
   (fallow runs in its own CI workflow with its own baseline.)
 - If surface includes ui: `pnpm build`
+- Changed `*.integration.test.ts` suites: RUN when
+  `TEST_DATABASE_POOL_URL` is set; otherwise a loud `SKIP` row + warning
+  (live-DB suites self-skip locally and can go red in CI — the #520
+  class). A gate with that warning is NOT review-ready for DB-touching
+  work: set the var and re-run.
 - Plus any `verification_commands` declared in the intake.
+
+Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
+after every fix round is cheap; do it.
 
 On failure, read back only the log tail and failing test/rule names — never
 the full log. Report the gate as a one-line-per-check PASS/FAIL table.
@@ -357,7 +373,10 @@ triaging.
 Triage both tables with `superpowers:receiving-code-review`: fix what is
 real, reject the rest with stated reasoning. Log accepted/rejected verdicts
 as one-liners in the report file (so a resumed session inherits triage
-state). Re-run step 5.
+state). **COMMIT the review reports + triage verdicts on the branch** —
+uncommitted reports vanish with the worktree at cleanup (two merged
+worktrees were found holding the only copy of their step 7 reports).
+Re-run step 5.
 
 ## 8. SHIP — lane-dependent
 
@@ -380,7 +399,16 @@ state). Re-run step 5.
 - `git pull --ff-only` on local `main` (squash-merge lag).
 - Fast-forward `staging` onto `main` (`git merge --ff-only main`) so it never
   drifts.
-- Remove the sibling worktree and delete the merged branch.
+- **Worktree cleanup**: run `bash scripts/feature-cleanup.sh` from the main
+  checkout (dry run — lists worktrees whose PR merged with clean trees),
+  review the plan, then re-run with `--apply`. This also sweeps earlier
+  merged worktrees that skipped cleanup; never remove by hand with
+  `--force`.
+- **Deviations triage (promotion rule)**: read
+  `docs/superpowers/plans/<branch>-deviations.md` and promote every durable
+  lesson — root cause, test technique, library gotcha, constraint — into
+  `.claude/reference/lab-notes.md` or the CLAUDE.md gotchas. The deviations
+  file stays as the historical record; the lesson must not live only there.
 - Invoke the `document-feature` skill to sweep docs/reference inventories.
 - **Domain sweep**: apply `domain-modeling` one final time — fold any terms
   or decisions that emerged during implementation/review back into
