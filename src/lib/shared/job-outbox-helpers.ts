@@ -9,6 +9,7 @@ import {
   type AutonomySuspensionTrigger,
   type GenerateResponseOriginLane,
   type AutoPostNoticePayload,
+  type CsvIngestPayload,
   type EscalationNoticePayload,
   type GenerateResponsePayload,
   type JudgeVerdictPayload,
@@ -24,6 +25,7 @@ const AGGREGATE_TYPE_REVIEW = 'review';
 const AGGREGATE_TYPE_RESPONSE = 'response';
 const AGGREGATE_TYPE_ESCALATION = 'escalation';
 const AGGREGATE_TYPE_SUSPENSION_EVENT = 'suspension_event';
+const AGGREGATE_TYPE_CONTACT_CSV_UPLOAD = 'contact_csv_upload';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -111,6 +113,13 @@ export interface EnqueueAutonomyAdminAlertInput {
   suspensionEventId: string;
   trigger: AutonomySuspensionTrigger;
   evidence: AutonomySuspensionEvidence;
+}
+
+export interface EnqueueCsvIngestInput {
+  outboxId?: string;
+  uploadId: string;
+  businessId: string;
+  correlationId?: string;
 }
 
 function isRecord(data: unknown): data is Record<string, unknown> {
@@ -508,6 +517,48 @@ export async function enqueueSendNotification(
       ${QUEUE_NAMES.SEND_NOTIFICATION},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the csv_ingest job in the SAME transaction that persists the
+ * contact_csv_uploads row (invariant #2, #541 contract). `aggregate_id =
+ * uploadId` IS the deterministic idempotency key: uploadId is a fresh
+ * uuidv7 minted once per upload, so this helper is called exactly once per
+ * aggregate — unlike publish_response/auto_post_notice (which guard against
+ * re-triggering from multiple call sites via a migration-backed partial
+ * unique index), there is no such index on job_outbox for this topic, so
+ * this is a plain INSERT, mirroring enqueueSendNotification. Retried BullMQ
+ * delivery of this same outbox row is handled by ingestContactsCsvUpload's
+ * own terminal-state check + per-business advisory lock (Task 5), not by an
+ * ON CONFLICT guard here. Wire payload is snake_case CsvIngestPayload
+ * (worker-types.ts); this camelCase-input → snake_case-wire mapping is the
+ * same shape every sibling enqueue helper uses.
+ */
+export async function enqueueCsvIngest(
+  tx: TxClient,
+  input: EnqueueCsvIngestInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: CsvIngestPayload = {
+    upload_id: input.uploadId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.CSV_INGEST},
+      ${AGGREGATE_TYPE_CONTACT_CSV_UPLOAD},
+      ${input.uploadId},
       ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )

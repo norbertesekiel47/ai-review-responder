@@ -374,6 +374,59 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
     try {
       const sql = getE2eSql();
       const offboardingId = randomUUID();
+      // #541 contacts CSV ingestion (migration 086): seed one upload + contact
+      // + visit so this real-DB purge run exercises the write-side DELETE
+      // (purge-stages.ts) against the read-side verification
+      // (purge-verification.ts) for real — a unit test with a mocked
+      // verifyAccountOffboardingPurge can't catch a divergence between them.
+      const contactsCsvUploadId = randomUUID();
+      const contactsCsvContactId = randomUUID();
+      const contactsCsvVisitId = randomUUID();
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO contact_csv_uploads (
+            id, account_id, business_id, filename, byte_size, content_sha256,
+            raw_csv, status, report, attested_by_user_id, attested_at,
+            attestation_version, completed_at
+          ) VALUES (
+            ${contactsCsvUploadId}::uuid,
+            ${seed.accountId}::uuid,
+            ${seed.businessId}::uuid,
+            'purge-fixture.csv',
+            42,
+            ${'a'.repeat(64)},
+            NULL,
+            'completed',
+            ${tx.json({ contactsCreated: 1, contactsMerged: 0, visitsAdded: 1, duplicateVisits: 0, rejectedRows: [] } as never)},
+            ${seed.userId}::uuid,
+            NOW(),
+            'v1',
+            NOW()
+          )
+        `;
+        await tx`
+          INSERT INTO solicitation_contacts (
+            id, business_id, name, email, created_by_upload_id
+          ) VALUES (
+            ${contactsCsvContactId}::uuid,
+            ${seed.businessId}::uuid,
+            'Purge Fixture Contact',
+            'purge-fixture@example.com',
+            ${contactsCsvUploadId}::uuid
+          )
+        `;
+        await tx`
+          INSERT INTO solicitation_visits (
+            id, contact_id, business_id, visit_date, upload_id
+          ) VALUES (
+            ${contactsCsvVisitId}::uuid,
+            ${contactsCsvContactId}::uuid,
+            ${seed.businessId}::uuid,
+            CURRENT_DATE,
+            ${contactsCsvUploadId}::uuid
+          )
+        `;
+      });
       await sql.begin(async (tx) => {
         await tx`
           INSERT INTO account_offboardings (
@@ -493,6 +546,19 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
            OR business_id = ${seed.businessId}::uuid
       `;
       expect(Number(deliveryRetention?.count ?? 0)).toBe(0);
+
+      const [contactsCsvUploadsRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM contact_csv_uploads WHERE account_id = ${seed.accountId}::uuid
+      `;
+      expect(Number(contactsCsvUploadsRemaining?.count ?? 0)).toBe(0);
+      const [solicitationContactsRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_contacts WHERE business_id = ${seed.businessId}::uuid
+      `;
+      expect(Number(solicitationContactsRemaining?.count ?? 0)).toBe(0);
+      const [solicitationVisitsRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_visits WHERE business_id = ${seed.businessId}::uuid
+      `;
+      expect(Number(solicitationVisitsRemaining?.count ?? 0)).toBe(0);
 
       const offboardingHash = createHash('sha256').update(offboardingId).digest('hex');
       const [purgedEvent] = await sql<{

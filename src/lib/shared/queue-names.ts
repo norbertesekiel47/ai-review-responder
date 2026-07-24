@@ -12,6 +12,7 @@
 export const QUEUE_NAMES = {
   INGEST_ZERNIO_REVIEW: 'ingest_zernio_review',
   ZERNIO_INITIAL_BACKFILL: 'zernio_initial_backfill',
+  CSV_INGEST: 'csv_ingest',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

@@ -291,3 +291,14 @@ export interface AccountOffboardingPurgePayload extends BasePayload {
   account_offboarding_id: string;
   account_id: string;
 }
+
+/**
+ * CsvIngestPayload — emitted ONLY by enqueueCsvIngest in the SAME transaction
+ * that persists the contact_csv_uploads row (#541 contract, invariant #2).
+ * snake_case wire fields like every sibling payload, so cross-topic ops
+ * queries (e.g. `payload->>'business_id'`) filter on a single spelling.
+ */
+export interface CsvIngestPayload extends BasePayload {
+  upload_id: string;
+  business_id: string;
+}

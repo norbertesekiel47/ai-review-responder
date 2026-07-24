@@ -24,6 +24,11 @@ export const TENANT_TABLES = [
   'zernio_connections',
   'zernio_finalize_incidents',
   'zernio_backfill_runs',
+  // Owner-read-only RLS (migration 086, #541 contacts/visits CSV ingestion) —
+  // mirrors competitor_snapshots' RLS shape above.
+  'contact_csv_uploads',
+  'solicitation_contacts',
+  'solicitation_visits',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints

@@ -336,6 +336,27 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'must_be_absent',
     reason: 'Keep-my-data token metadata is invalid after purge starts and is removed.',
   },
+  {
+    table: 'contact_csv_uploads',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Upload metadata + consent attestation reference owner-supplied customer PII context and are removed.',
+  },
+  {
+    table: 'solicitation_contacts',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Owner-uploaded customer contact PII (names, emails, phones) is removed entirely.',
+  },
+  {
+    table: 'solicitation_visits',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Visit ledger rows carry customer activity notes and are removed with their contacts.',
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(
