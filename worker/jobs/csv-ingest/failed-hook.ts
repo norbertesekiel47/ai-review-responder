@@ -69,11 +69,15 @@ export async function handleCsvIngestFailed(
       if (!ownsAttempt) return; // a newer dispatched attempt owns the row
       // status='pending' predicate: no-op if the job actually completed (or a
       // concurrent run terminalized) after this failure was recorded.
+      // business_id is bound too — the payload's businessId is the same
+      // trusted aggregate the advisory lock above is keyed on.
       await tx`
         UPDATE contact_csv_uploads
         SET status = 'failed', report = ${tx.json(failedReport as never)},
             raw_csv = NULL, completed_at = NOW()
-        WHERE id = ${job.data.uploadId} AND status = 'pending'
+        WHERE id = ${job.data.uploadId}
+          AND business_id = ${job.data.businessId}
+          AND status = 'pending'
       `;
     });
     state.coupledTerminalTxStarted = false;

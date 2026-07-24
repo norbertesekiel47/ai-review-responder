@@ -240,6 +240,21 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
       DELETE FROM flagged_responses
       WHERE account_id = ${row.account_id}::uuid
     `;
+    // Contacts CSV ingestion (migration 086, #541): deleting the account-scoped
+    // upload rows CASCADEs to solicitation_contacts (created_by_upload_id ON
+    // DELETE CASCADE) and, transitively, to solicitation_visits — both via its
+    // own upload_id FK and via the composite
+    // solicitation_visits_contact_business_fk on solicitation_contacts(id,
+    // business_id) — so no separate DELETE is needed for those two tables.
+    // Verified against 086_solicitation_contacts.sql. businesses/accounts are
+    // retain_deidentified (UPDATE-tombstoned, never DELETEd), so this explicit
+    // DELETE is the only way these three hard_delete/must_be_absent tables
+    // actually get swept; without it, purge-verification.ts fails every
+    // account that has ever uploaded a contacts CSV.
+    await tx`
+      DELETE FROM contact_csv_uploads
+      WHERE account_id = ${row.account_id}::uuid
+    `;
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
     // Guardian escalations (migration 073): review_id FK has no cascade, so

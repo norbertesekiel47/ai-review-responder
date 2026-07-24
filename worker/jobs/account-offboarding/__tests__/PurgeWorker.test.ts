@@ -327,6 +327,16 @@ describe('AccountOffboarding PurgeWorker', () => {
     const enrollmentDelete = calls.find((call) => call.text.includes('DELETE FROM channel_enrollments'));
     expect(enrollmentDelete?.text).toContain('account_id =');
     expect(enrollmentDelete?.scope).toBe('tx');
+    // Contacts CSV ingestion (migration 086, #541): contact_csv_uploads is
+    // hard_delete/must_be_absent and businesses/accounts are never DELETEd
+    // (retain_deidentified), so the account-scoped upload delete is the only
+    // thing that sweeps these rows — solicitation_contacts/solicitation_visits
+    // are NOT deleted explicitly here; they cascade via FK (asserted below).
+    const contactCsvUploadsDelete = calls.find((call) => call.text.includes('DELETE FROM contact_csv_uploads'));
+    expect(contactCsvUploadsDelete?.text).toContain('account_id =');
+    expect(contactCsvUploadsDelete?.scope).toBe('tx');
+    expect(sqlText).not.toContain('DELETE FROM solicitation_contacts');
+    expect(sqlText).not.toContain('DELETE FROM solicitation_visits');
     // Agent run spine tables are hard_delete/must_be_absent (accounts rows are
     // retained de-identified, so their ON DELETE CASCADE never fires) — the
     // purge must delete outcomes then runs explicitly; agent_run_steps cascades

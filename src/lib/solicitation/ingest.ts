@@ -104,10 +104,16 @@ export async function ingestContactsCsvUpload(
     // 'pending' that a concurrent run terminalizes before we acquire the lock.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${expectedBusinessId}`}))`;
 
+    // business_id is bound into the read (tenant-scoped by construction,
+    // mirroring handleCsvIngest's gate query): a payload/row pairing mismatch
+    // yields no row, hitting the missing-row branch below. The `!==` assert
+    // right after stays as defense-in-depth — belt-and-braces in case a
+    // future caller ever re-reads without the bound predicate — but is
+    // unreachable through this bound query today.
     const [upload] = await tx<UploadRow[]>`
       SELECT id, business_id, status, byte_size, raw_csv, report
       FROM contact_csv_uploads
-      WHERE id = ${uploadId}
+      WHERE id = ${uploadId} AND business_id = ${expectedBusinessId}
     `;
     if (!upload) {
       logger.warn('upload row missing — nothing to ingest', { upload_id: uploadId });
@@ -133,18 +139,18 @@ export async function ingestContactsCsvUpload(
 
     // Defensive boundary re-check — the route already enforces the cap.
     if (upload.byte_size > MAX_UPLOAD_BYTES) {
-      return terminalizeUpload(tx, uploadId, 'failed', structuralReport('byte_size_over_cap'));
+      return terminalizeUpload(tx, uploadId, expectedBusinessId, 'failed', structuralReport('byte_size_over_cap'));
     }
 
     const parsed = parseContactsCsv(upload.raw_csv, todayUtc);
     if ('structuralFailure' in parsed) {
-      return terminalizeUpload(tx, uploadId, 'failed', structuralReport(parsed.structuralFailure));
+      return terminalizeUpload(tx, uploadId, expectedBusinessId, 'failed', structuralReport(parsed.structuralFailure));
     }
 
     // Bounded memory: MAX_DATA_ROWS (5,000) caps the candidate list, so
     // whole-file in-memory processing is fine.
     const report = await upsertCandidates(tx, expectedBusinessId, uploadId, parsed.candidates, parsed.rejected);
-    await terminalizeUpload(tx, uploadId, 'completed', report);
+    await terminalizeUpload(tx, uploadId, expectedBusinessId, 'completed', report);
 
     logger.log('csv ingest completed', {
       upload_id: uploadId,
@@ -267,6 +273,7 @@ async function findContactByHandle(
 async function terminalizeUpload(
   tx: TransactionSql,
   uploadId: string,
+  businessId: string,
   status: 'completed' | 'failed',
   report: IngestReport,
 ): Promise<IngestReport> {
@@ -274,7 +281,7 @@ async function terminalizeUpload(
     UPDATE contact_csv_uploads
     SET status = ${status}, report = ${tx.json(report as never)},
         raw_csv = NULL, completed_at = NOW()
-    WHERE id = ${uploadId}
+    WHERE id = ${uploadId} AND business_id = ${businessId}
   `;
   if (status === 'failed') {
     logger.warn('csv ingest terminally failed', {

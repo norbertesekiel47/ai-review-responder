@@ -23,6 +23,15 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   tolerates it; revisit only if owner confusion shows up. Two other findings
   (strict unterminated-quote structural failure mapped to undecodable_encoding;
   escape sequences + BOM/U+FFFD test coverage) were FIXED in a follow-up commit.
+- [2026-07-24] Surface amendment #3 (user-approved WITH explicit waiver): added
+  `worker/jobs/account-offboarding/**` + `scripts/ci/tenant-tables.ts`. Reason:
+  the two Task 8 divergences below — the contract-§5 purge DELETE and the
+  tenant-table registry entries live in files the intake enumeration missed
+  (declaration error, not scope drift; both are wiring the signed-off intake
+  already promised). LESSON for lab-notes promotion at step 8: any migration
+  adding an account-linked table must also touch purge-stages.ts +
+  scripts/ci/tenant-tables.ts — future schema-ticket intakes should include
+  them by default.
 - [2026-07-24] Planning-phase park: gate run at plan time is green on all 21
   checks EXCEPT `promised-tests` (structurally impossible before execution —
   the 20 promised tests are the work itself). Stop gate is not phase-aware, so
@@ -179,3 +188,117 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
      `'solicitation_visits'` to `TENANT_TABLES` in
      `scripts/ci/tenant-tables.ts`. One-line fix, but outside Task 8's
      approved edit surface — left for the orchestrator/Task 9.
+- [2026-07-24] Task 8 follow-up (surface amendment #3 approved: added
+  `worker/jobs/account-offboarding/**` + `scripts/ci/tenant-tables.ts` to the
+  edit surface). Both prior gaps: **RESOLVED**.
+  1. `runContentPurgeStage` (`worker/jobs/account-offboarding/purge-stages.ts`)
+     now does `DELETE FROM contact_csv_uploads WHERE account_id = ...`,
+     commented with the CASCADE reliance. Re-verified the CASCADE claim
+     directly against `086_solicitation_contacts.sql`:
+     `solicitation_contacts.created_by_upload_id` and
+     `solicitation_visits.upload_id` are both
+     `REFERENCES contact_csv_uploads(id) ON DELETE CASCADE`, and
+     `solicitation_visits` also carries the composite
+     `solicitation_visits_contact_business_fk REFERENCES
+     solicitation_contacts (id, business_id) ON DELETE CASCADE` — two
+     independent cascade paths confirm no separate DELETE is needed for the
+     other two tables. Proven, not just asserted: added a contacts-CSV
+     fixture (one upload + one contact + one visit) to the existing live-DB
+     `purge worker completes with shortened non-production window` test in
+     `worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts`
+     and asserted all three tables are empty post-purge — ran it against the
+     local `repworth-testdb` container (`TEST_DATABASE_POOL_URL=postgresql://
+     test:test@localhost:5499/test_ws4`) and it passed on the first try,
+     confirming the write-side delete and read-side verification agree for
+     real. Also extended the mocked `PurgeWorker.test.ts` unit test with an
+     assertion on the new `DELETE FROM contact_csv_uploads` statement
+     (scope `tx`, `account_id =` predicate) and a negative assertion that no
+     explicit `DELETE FROM solicitation_contacts`/`solicitation_visits`
+     appears (cascade-only), mirroring the file's existing
+     `channel_enrollments`/`agent_outcomes` assertion style.
+  2. `TENANT_TABLES` in `scripts/ci/tenant-tables.ts` now includes
+     `contact_csv_uploads`/`solicitation_contacts`/`solicitation_visits`
+     (grouped with a new comment, appended after `zernio_backfill_runs` and
+     before the `inbound_events` deny-all-RLS block — these three have real
+     owner-read-only RLS like `competitor_snapshots`, not deny-all).
+     `table-disposition.test.ts`'s `classifies every tenant table...` test
+     now passes; full offboarding suite is 184/184 (`pnpm vitest run
+     src/lib/account-offboarding worker/jobs/account-offboarding` with
+     `TEST_DATABASE_POOL_URL` set — 26 files, 0 skipped, 0 failed).
+     `pnpm typecheck` and `pnpm lint` are both clean.
+  **NEW gap surfaced by fix #2, UNRESOLVED and blocking `pnpm
+  ci:tenant-scope` green** (confirmed via `git stash` on
+  `scripts/ci/tenant-tables.ts` alone that this is caused by that one file):
+  adding `contact_csv_uploads`/`solicitation_visits` to `TENANT_TABLES` makes
+  `scripts/ci/tenant-scope-audit.ts` start scanning queries against those two
+  tables for the first time, and it flags three pre-existing, deliberately
+  id-scoped call sites as unscoped:
+  `src/lib/solicitation/contacts-repo.ts` (`listContacts`'s
+  `JOIN solicitation_visits v ON v.contact_id = c.id` — `v` carries no direct
+  `business_id`/`account_id` predicate of its own; the file's own doc comment
+  already establishes the pattern: "Contacts carry NO account_id... every
+  query here joins businesses... the join IS the account-scope check" — same
+  transitive-scoping shape the audit already accepts for `solicitation_contacts`
+  itself, just not yet taught to trust it through one more join level to
+  `solicitation_visits`), `src/lib/solicitation/ingest.ts`
+  (`ingestContactsCsvUpload`'s `SELECT ... FROM contact_csv_uploads WHERE id =
+  ${uploadId}` and `terminalizeUpload`'s matching `UPDATE`, both keyed by the
+  trusted upload-id aggregate, business ownership re-checked in app code
+  immediately after the read — same worker-job-scoped-by-trusted-id pattern as
+  Task 5's `handleCsvIngest` gate query), and `worker/jobs/csv-ingest/failed-hook.ts`
+  (`UPDATE contact_csv_uploads ... WHERE id = ${job.data.uploadId} AND status =
+  'pending'`, same pattern). None of these three files are in the edit surface
+  granted to this task (Task 8 + amendment #3 cover only
+  `table-disposition.ts`, `purge-verification.ts`,
+  `src/lib/account-offboarding/__tests__/**`, `worker/jobs/account-offboarding/**`,
+  and `scripts/ci/tenant-tables.ts`) — nor is `scripts/ci/tenant-scope-audit.ts`
+  itself, which is where the fix most likely belongs (an allowlist entry +
+  `ALLOWLIST_BASELINE` bump, the same resolution already used for the Task 6
+  note above, OR a query-strengthening fix at the three call sites themselves,
+  the pattern the "Task 5 follow-up" entry above used to resolve the prior,
+  analogous `worker/jobs/csv-ingest/index.ts` finding). Left for the
+  orchestrator: grant access to `scripts/ci/tenant-scope-audit.ts` and/or
+  `src/lib/solicitation/**` + `worker/jobs/csv-ingest/**`, or route this to a
+  dedicated follow-up task. `pnpm ci:rls-audit` is unaffected and passes (36
+  tenant tables now enable RLS in migrations, up from 33 — the three new
+  tables' RLS is correctly picked up).
+- [2026-07-24] `ci:tenant-scope` blocker above: **RESOLVED via query
+  strengthening** (surface amendment: added `src/lib/solicitation/**` +
+  `worker/jobs/csv-ingest/**`; `scripts/ci/tenant-scope-audit.ts` stayed
+  untouched, no allowlist/baseline change). All three call sites bind a
+  tenant value already held in scope — no site needed a value it didn't
+  already have:
+  1. `src/lib/solicitation/contacts-repo.ts` `listContacts` —
+     `JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id =
+     ${businessId}`. Genuinely redundant-safe, not just audit theater:
+     `solicitation_visits.business_id` is denormalized directly onto the
+     table (migration 086) and is provably always equal to the parent
+     contact's `business_id` via the composite FK
+     `solicitation_visits_contact_business_fk (contact_id, business_id)
+     REFERENCES solicitation_contacts (id, business_id)`.
+  2. `src/lib/solicitation/ingest.ts` — bound `expectedBusinessId` into
+     `ingestContactsCsvUpload`'s upload SELECT (`WHERE id = ${uploadId} AND
+     business_id = ${expectedBusinessId}`) and threaded a new `businessId`
+     parameter through `terminalizeUpload` into its `UPDATE`'s `WHERE`. Kept
+     the existing `upload.business_id !== expectedBusinessId` throw
+     unchanged (per instruction) — added a comment noting it is now
+     unreachable through this bound query (a mismatch yields no row, hitting
+     the `if (!upload)` "missing — nothing to ingest" warn+return-null branch
+     instead) and is kept as defense-in-depth only. Checked for an existing
+     test asserting the old throw-on-mismatch behavior: none exists (
+     `ingest.test.ts` only covers the pure `resolveContactMatch`;
+     `ingest.integration.test.ts` has no mismatch scenario), so nothing
+     needed updating — the coherence check the instruction asked for came up
+     clean.
+  3. `worker/jobs/csv-ingest/failed-hook.ts` — bound `job.data.businessId`
+     into the terminalization `UPDATE`'s `WHERE` (alongside the existing
+     `status = 'pending'` predicate) — same trusted-aggregate value the
+     advisory lock two lines above is already keyed on.
+  Verified: `pnpm ci:tenant-scope` passes with the baseline UNCHANGED at 405
+  entries (no allowlist edit). Full re-run, `TEST_DATABASE_POOL_URL` set:
+  `pnpm vitest run src/lib/solicitation worker/jobs/csv-ingest
+  src/lib/account-offboarding` → 190/190 pass, plus `worker/jobs/account-offboarding`
+  → 69/69 pass (300 total across both commands, 0 regressions from the
+  signature/query changes — no mocked unit test asserted exact SQL text
+  tightly enough to break). `pnpm ci:rls-audit`, `pnpm lint`, `pnpm
+  typecheck` all clean.

@@ -59,7 +59,7 @@ export async function listContacts(
            MAX(v.visit_date)::text AS last_visit_date,
            COUNT(v.id)::int AS visit_count
     FROM solicitation_contacts c
-    JOIN solicitation_visits v ON v.contact_id = c.id
+    JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id = ${businessId}
     JOIN businesses b ON b.id = c.business_id
     WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
     GROUP BY c.id
