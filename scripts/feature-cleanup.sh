@@ -52,7 +52,11 @@ while IFS= read -r WT; do
   else
     echo "WOULD REMOVE $WT (branch '$BRANCH', merged PR #$PR)"
   fi
-done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+done < <(
+  while IFS= read -r -d '' REC; do
+    case "$REC" in ("worktree "*) printf '%s\n' "${REC#worktree }" ;; esac
+  done < <(git worktree list --porcelain -z 2>/dev/null)
+)
 
 if [ "$APPLY" = false ] && [ "$CANDIDATES" -gt 0 ]; then
   echo "Dry run: $CANDIDATES worktree(s) eligible — re-run with --apply to remove."

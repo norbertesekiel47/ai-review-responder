@@ -73,7 +73,11 @@ while IFS= read -r WT; do
       fi
     done < <(jq -r '.allowed_edit_surface[]?' "$SELF_INTAKE")
   done < <(jq -r '.allowed_edit_surface[]?' "$WT/.feature/intake.json")
-done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+done < <(
+  while IFS= read -r -d '' REC; do
+    case "$REC" in ("worktree "*) printf '%s\n' "${REC#worktree }" ;; esac
+  done < <(git worktree list --porcelain -z 2>/dev/null)
+)
 
 [ "$TEST_OVERLAPS" -gt 0 ] && echo "(test-glob overlaps not listed: $TEST_OVERLAPS)"
 

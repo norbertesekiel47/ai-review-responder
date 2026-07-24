@@ -180,6 +180,11 @@ if [ -n "$RECLASSIFY_MSG" ]; then
 fi
 
 if [ "$PASSED" = "true" ]; then
+  # Record the green gate in the machine-readable state (lastGreenGateSha
+  # snapshot) when this is an armed feature run.
+  if [ -f .feature/intake.json ] && [ -f scripts/feature-state.sh ]; then
+    bash scripts/feature-state.sh set-phase gate_green || true
+  fi
   echo "GATE: GREEN"
   exit 0
 else
