@@ -36,6 +36,7 @@
     "ci:fallow": "fallow audit --gate new-only --fail-on-issues --base ${FALLOW_BASE:-origin/main}",
     "ci:fallow:coverage": "tsx scripts/ci/normalize-v8-coverage.ts && fallow audit --gate new-only --fail-on-issues --coverage coverage/coverage-final.json --base ${FALLOW_BASE:-origin/main}",
     "worker": "tsx worker/index.ts",
+    "feature:diff-coverage": "tsx scripts/diff-coverage.ts",
     "redis": "tsx scripts/redis.ts",
     "eval:llm": "tsx tests/llm-eval/run.ts",
     "verify:stripe-prices": "tsx scripts/verify-stripe-price-parity.ts",
