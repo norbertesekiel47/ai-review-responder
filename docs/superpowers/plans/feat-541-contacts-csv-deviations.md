@@ -331,6 +331,61 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   fact would be a dangling-ref bug per repworth.md. Per-migration narrative
   remains owned by `.claude/reference/migrations-log.md`.
 
+## Step 7 review-round fixes (fix agent, 2026-07-24)
+
+- [2026-07-24] Step 7 fix round — six findings resolved (user-approved design
+  for the MAJOR):
+  1. **MAJOR F1 (spec review) — worker subscription-gate mismatch.**
+     `handleCsvIngest` now applies the SAME predicate the upload route uses
+     (`requireWritableOwner` → `assertWritableSubscriptionForAccount`, imported
+     — not duplicated), so past_due-in-grace uploads process. When the account
+     fails the predicate mid-flight, the new
+     `terminalizeUploadForInactiveSubscription` (ingest.ts) terminalizes the
+     upload in the failed-hook's coupled shape — advisory lock FIRST, then a
+     status='pending'-guarded UPDATE writing a zero-count report with the new
+     `error: 'subscription_inactive'` marker (IngestErrorMarker union extended)
+     AND `raw_csv = NULL, completed_at = NOW()` in one tx — then
+     markOutboxCompleted. Raw-CSV lifetime is now bounded on EVERY path. Old
+     no-op test replaced by the two intake titles (`csv ingest worker processes
+     uploads for past_due accounts in grace` / `csv ingest worker terminalizes
+     the upload when the subscription is inactive`); the worker tests exercise
+     the REAL predicate (account rows queued, module not mocked); a live-DB
+     integration test proves the terminal write + idempotent re-call.
+     UploadCard's FailedReport renders a distinct reactivate-and-re-upload
+     message for `subscription_inactive`.
+  2. **Standards #1 (status literals).** New
+     `src/lib/solicitation/upload-status.ts` owns `UPLOAD_STATUSES` +
+     `ContactUploadStatus`/`TerminalUploadStatus` (mirrors
+     subscription-status.ts). New file justified over uploads.ts: the client
+     island imports the constants, and uploads.ts would drag
+     node:crypto/outbox helpers into the browser bundle. All TS comparison and
+     write sites (uploads.ts, ingest.ts, failed-hook, UploadCard) import it;
+     SQL sites bind the constants as values; migration 086's CHECK remains the
+     DB-side end of the contract.
+  3. **Standards #2 (payload casing).** `CsvIngestPayload` renamed to
+     snake_case `upload_id`/`business_id` (worker-types.ts, enqueueCsvIngest
+     wire mapping, worker handler, failed-hook, all tests). Grep-verified no
+     old-name payload references remain. Pre-launch, zero rows in any env.
+  4. **Standards #3 (893-line island).** ContactsClient split along its
+     natural seam: `UploadCard.tsx` (upload lane) + `ContactList.tsx` (list +
+     delete) with ContactsClient as thin composition (~75 lines). Mechanical
+     extraction — markup/classes/copy unchanged; only delta is the
+     `listEpoch` bump flowing through `useCallback`-stable props.
+  5. **Standards #4 (duplicated report parser).** One exported
+     `parseIngestReportValue` in ingest.ts is now THE
+     `contact_csv_uploads.report` JSONB carve-out site; uploads.ts consumes it
+     (asReportRecord deleted). CLAUDE.md allowlist updated: 17 → 16 sites,
+     entry now cites the single shared parser.
+  6. **Standards #5 (triplicated route policy).** New
+     `src/app/api/dashboard/contacts/location-scope.ts`
+     (`requireContactsLocationScope`, three callers) owns the aggregate-400 +
+     uniform-not-found block; the three routes each call it. The flag-gate
+     404 line stays per-route (must run before each route's own auth).
+  Verification: targeted vitest 1069 passed; both solicitation live-DB
+  integration suites pass (7/7, incl. the new terminalization test);
+  `ci:outbox-topics`, `ci:tenant-scope` (baseline 405 unchanged), lint,
+  typecheck, build all green.
+
 ## Step 6.5 read-back verdicts (orchestrator, 2026-07-24)
 
 Every entry above re-read end to end. Verdicts, in file order: amendments

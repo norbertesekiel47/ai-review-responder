@@ -79,8 +79,8 @@ describe('createContactsCsvUpload', () => {
     expect(outboxValues).toContain(result.uploadId);
     const payload = outboxValues.find(isRecord);
     expect(payload).toMatchObject({
-      uploadId: result.uploadId,
-      businessId: INPUT.businessId,
+      upload_id: result.uploadId,
+      business_id: INPUT.businessId,
     });
   });
 

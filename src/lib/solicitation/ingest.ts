@@ -29,6 +29,11 @@ import {
   type RejectedRow,
   type StructuralFailure,
 } from './contacts-csv';
+import {
+  UPLOAD_STATUSES,
+  type ContactUploadStatus,
+  type TerminalUploadStatus,
+} from './upload-status';
 
 export interface ExistingContact { id: string; name: string; email: string | null; phone: string | null; }
 
@@ -66,19 +71,25 @@ export function resolveContactMatch(
   return { action: 'update', contactId: matched.id, set };
 }
 
+/** Terminal error markers, distinct from per-file structural failures:
+ *  `ingest_failed` — the failed-hook exhausted BullMQ retries;
+ *  `subscription_inactive` — the account stopped passing the route's
+ *  writable-subscription predicate before the worker could process. */
+export type IngestErrorMarker = 'ingest_failed' | 'subscription_inactive';
+
 export interface IngestReport {
   contactsCreated: number; contactsMerged: number; visitsAdded: number;
   duplicateVisits: number; rejected: RejectedRow[];
   structuralFailure: StructuralFailure | null;
-  /** Set only by the failed-hook when BullMQ retries are exhausted — lets the
-   *  UI render a terminal failure state distinct from structural rejection. */
-  error?: 'ingest_failed';
+  /** Set only on non-structural terminal failures (see IngestErrorMarker) —
+   *  lets the UI render each terminal state distinctly. */
+  error?: IngestErrorMarker;
 }
 
 interface UploadRow {
   id: string;
   business_id: string;
-  status: string;
+  status: ContactUploadStatus;
   byte_size: number;
   raw_csv: string | null;
   report: unknown;
@@ -102,7 +113,7 @@ export async function ingestContactsCsvUpload(
   return sql.begin(async (tx) => {
     // Lock FIRST, before any status read — a pre-lock peek could see a stale
     // 'pending' that a concurrent run terminalizes before we acquire the lock.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${expectedBusinessId}`}))`;
+    await acquireCsvIngestLock(tx, expectedBusinessId);
 
     // business_id is bound into the read (tenant-scoped by construction,
     // mirroring handleCsvIngest's gate query): a payload/row pairing mismatch
@@ -119,7 +130,7 @@ export async function ingestContactsCsvUpload(
       logger.warn('upload row missing — nothing to ingest', { upload_id: uploadId });
       return null;
     }
-    if (upload.status !== 'pending') {
+    if (upload.status !== UPLOAD_STATUSES.PENDING) {
       // Idempotent retry / lost race against a concurrent run: both are the
       // same no-op — return the stored terminal report.
       return parseStoredReport(upload);
@@ -139,18 +150,18 @@ export async function ingestContactsCsvUpload(
 
     // Defensive boundary re-check — the route already enforces the cap.
     if (upload.byte_size > MAX_UPLOAD_BYTES) {
-      return terminalizeUpload(tx, uploadId, expectedBusinessId, 'failed', structuralReport('byte_size_over_cap'));
+      return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport('byte_size_over_cap'));
     }
 
     const parsed = parseContactsCsv(upload.raw_csv, todayUtc);
     if ('structuralFailure' in parsed) {
-      return terminalizeUpload(tx, uploadId, expectedBusinessId, 'failed', structuralReport(parsed.structuralFailure));
+      return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport(parsed.structuralFailure));
     }
 
     // Bounded memory: MAX_DATA_ROWS (5,000) caps the candidate list, so
     // whole-file in-memory processing is fine.
     const report = await upsertCandidates(tx, expectedBusinessId, uploadId, parsed.candidates, parsed.rejected);
-    await terminalizeUpload(tx, uploadId, expectedBusinessId, 'completed', report);
+    await terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.COMPLETED, report);
 
     logger.log('csv ingest completed', {
       upload_id: uploadId,
@@ -269,12 +280,22 @@ async function findContactByHandle(
   return rows[0] ?? null;
 }
 
+/** Per-business advisory lock shared by every contact_csv_uploads writer in
+ *  this module (the failed-hook takes the same `csv_ingest_<businessId>` key).
+ *  Must be the FIRST statement of the surrounding transaction. */
+async function acquireCsvIngestLock(
+  tx: TransactionSql,
+  businessId: string,
+): Promise<void> {
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${businessId}`}))`;
+}
+
 /** Writes the terminal report AND clears raw_csv in the surrounding tx (§3). */
 async function terminalizeUpload(
   tx: TransactionSql,
   uploadId: string,
   businessId: string,
-  status: 'completed' | 'failed',
+  status: TerminalUploadStatus,
   report: IngestReport,
 ): Promise<IngestReport> {
   await tx`
@@ -283,13 +304,52 @@ async function terminalizeUpload(
         raw_csv = NULL, completed_at = NOW()
     WHERE id = ${uploadId} AND business_id = ${businessId}
   `;
-  if (status === 'failed') {
+  if (status === UPLOAD_STATUSES.FAILED) {
     logger.warn('csv ingest terminally failed', {
       upload_id: uploadId,
       structural_failure: report.structuralFailure,
     });
   }
   return report;
+}
+
+/**
+ * Terminal 'failed' write for an upload whose account no longer passes the
+ * upload route's writable-subscription predicate by the time the worker runs
+ * (route admits past_due-in-grace; mid-flight transitions to cancelled /
+ * pending_payment / expired grace / blocking offboarding land here). Mirrors
+ * the failed-hook's coupled shape: advisory lock FIRST, then a
+ * status='pending'-guarded UPDATE that writes the zero-count
+ * `subscription_inactive` report AND NULLs raw_csv in the SAME transaction —
+ * the raw blob's lifetime stays bounded (§3) on every path, never stranded
+ * 'pending'. Idempotent: a retry (or a lost race against a concurrent
+ * terminal write) finds status != 'pending' and no-ops.
+ */
+export async function terminalizeUploadForInactiveSubscription(
+  sql: Sql,
+  uploadId: string,
+  businessId: string,
+): Promise<void> {
+  const report: IngestReport = {
+    contactsCreated: 0,
+    contactsMerged: 0,
+    visitsAdded: 0,
+    duplicateVisits: 0,
+    rejected: [],
+    structuralFailure: null,
+    error: 'subscription_inactive',
+  };
+  await sql.begin(async (tx) => {
+    await acquireCsvIngestLock(tx, businessId);
+    await tx`
+      UPDATE contact_csv_uploads
+      SET status = ${UPLOAD_STATUSES.FAILED}, report = ${tx.json(report as never)},
+          raw_csv = NULL, completed_at = NOW()
+      WHERE id = ${uploadId} AND business_id = ${businessId}
+        AND status = ${UPLOAD_STATUSES.PENDING}
+    `;
+  });
+  logger.warn('csv ingest terminalized: subscription inactive', { upload_id: uploadId });
 }
 
 function structuralReport(structuralFailure: StructuralFailure): IngestReport {
@@ -303,20 +363,30 @@ function structuralReport(structuralFailure: StructuralFailure): IngestReport {
   };
 }
 
+/**
+ * THE `contact_csv_uploads.report` production JSONB field-to-parser site —
+ * the single shared parser cited in the CLAUDE.md allowlist: Postgres.js
+ * behind PgBouncer may return JSONB as a string (sanctioned carve-out).
+ * Returns null on a non-object value; callers pick their failure posture
+ * (worker impossible-state throw vs read-side tolerance). The cast is against
+ * a single-owner, code-controlled shape: the only writers are this module and
+ * the csv-ingest failed-hook.
+ */
+export function parseIngestReportValue(value: unknown): IngestReport | null {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as IngestReport;
+}
+
 /** Terminal rows always carry a report (DB CHECK); anything else is impossible. */
 function parseStoredReport(upload: UploadRow): IngestReport {
-  // `contact_csv_uploads.report` is a production JSONB field-to-parser site:
-  // Postgres.js behind PgBouncer may return JSONB as a string (sanctioned
-  // carve-out — see the CLAUDE.md allowlist).
-  const parsed: unknown = typeof upload.report === 'string'
-    ? JSON.parse(upload.report)
-    : upload.report;
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  const report = parseIngestReportValue(upload.report);
+  if (report === null) {
     throw new Error(
       `csv_ingest impossible state: terminal upload ${upload.id} (status=${upload.status}) has no report object`,
     );
   }
-  return parsed as IngestReport;
+  return report;
 }
 
 function rejectionHistogram(rejected: RejectedRow[]): Record<string, number> {

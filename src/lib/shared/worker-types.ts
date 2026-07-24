@@ -295,11 +295,10 @@ export interface AccountOffboardingPurgePayload extends BasePayload {
 /**
  * CsvIngestPayload — emitted ONLY by enqueueCsvIngest in the SAME transaction
  * that persists the contact_csv_uploads row (#541 contract, invariant #2).
- * camelCase domain fields (not snake_case like sibling payloads): the worker
- * job handler reads `payload.uploadId`/`payload.businessId` directly and this
- * is the only tenant of this payload shape — see #541 plan Task 3/5.
+ * snake_case wire fields like every sibling payload, so cross-topic ops
+ * queries (e.g. `payload->>'business_id'`) filter on a single spelling.
  */
 export interface CsvIngestPayload extends BasePayload {
-  uploadId: string;
-  businessId: string;
+  upload_id: string;
+  business_id: string;
 }

@@ -7,11 +7,8 @@ import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { clampContactListPage, listContacts } from '@/lib/solicitation/contacts-repo';
-import {
-  resolveDashboardLocation,
-  resolveDashboardRequest,
-  withDashboardOwnerRead,
-} from '@/app/api/dashboard/policy';
+import { withDashboardOwnerRead } from '@/app/api/dashboard/policy';
+import { requireContactsLocationScope } from './location-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,17 +20,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     errorContext: 'api/dashboard/contacts',
     errorMessage: 'Failed to fetch contacts',
   }, async ({ user, accountId }) => {
-    // Contacts are per-location, so the aggregate ("all locations") scope has
-    // no meaning here — the location resolution mirrors the uploads routes.
-    const { scopePolicy } = resolveDashboardRequest(request, user.locationId);
-    if (scopePolicy.mode === 'aggregate') {
-      return errorResponse('A location scope is required', 400);
-    }
-
-    const location = await resolveDashboardLocation(sql, {
+    const location = await requireContactsLocationScope(sql, request, {
       accountId,
-      locationId: scopePolicy.locationId,
-      exposure: 'uniform-not-found',
+      userLocationId: user.locationId,
     });
     if (!location.ok) return location.response;
 

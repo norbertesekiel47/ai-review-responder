@@ -9,7 +9,12 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
-import { ingestContactsCsvUpload, type IngestReport } from '../ingest';
+import {
+  ingestContactsCsvUpload,
+  parseIngestReportValue,
+  terminalizeUploadForInactiveSubscription,
+  type IngestReport,
+} from '../ingest';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -220,5 +225,43 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
     const retried = await ingestContactsCsvUpload(sql(), uploadId, businessId);
     expect(retried).toEqual(report);
     expect(await countRows('solicitation_visits')).toBe(1);
+  });
+
+  it('terminalizes a pending upload with a subscription_inactive report and clears the raw CSV', async () => {
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+
+    await terminalizeUploadForInactiveSubscription(sql(), uploadId, businessId);
+
+    const [row] = await sql()<{
+      status: string; raw_csv: string | null; report: unknown; completed_at: string | null;
+    }[]>`
+      SELECT status, raw_csv, report, completed_at::text AS completed_at
+      FROM contact_csv_uploads
+      WHERE id = ${uploadId}::uuid
+    `;
+    expect(row!.status).toBe('failed');
+    expect(row!.raw_csv).toBeNull();
+    expect(row!.completed_at).not.toBeNull();
+    expect(parseIngestReportValue(row!.report)).toEqual({
+      contactsCreated: 0,
+      contactsMerged: 0,
+      visitsAdded: 0,
+      duplicateVisits: 0,
+      rejected: [],
+      structuralFailure: null,
+      error: 'subscription_inactive',
+    });
+    expect(await countRows('solicitation_contacts')).toBe(0);
+
+    // Idempotent + terminal-state safe: a second call is a status='pending'
+    // guarded no-op that leaves the terminal row untouched.
+    await terminalizeUploadForInactiveSubscription(sql(), uploadId, businessId);
+    const [after] = await sql()<{ status: string }[]>`
+      SELECT status FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
+    `;
+    expect(after!.status).toBe('failed');
   });
 });

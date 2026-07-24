@@ -494,12 +494,12 @@ describe('job outbox helpers', () => {
     expect(tx.mock.calls[0]).toContain('contact_csv_upload');
     expect(tx.mock.calls[0]).toContain('upload-1');
 
-    // camelCase payload matches CsvIngestPayload (worker-types.ts), which the
-    // worker reads as job.data.uploadId / job.data.businessId.
-    const payload = objectArgs(tx).find((arg) => arg.uploadId === 'upload-1');
+    // snake_case wire payload matches CsvIngestPayload (worker-types.ts) and
+    // every sibling payload — ops queries filter on payload->>'business_id'.
+    const payload = objectArgs(tx).find((arg) => arg.upload_id === 'upload-1');
     expect(payload).toEqual({
-      uploadId: 'upload-1',
-      businessId: 'business-1',
+      upload_id: 'upload-1',
+      business_id: 'business-1',
       correlation_id: 'corr-1',
     });
   });
@@ -515,8 +515,8 @@ describe('job outbox helpers', () => {
 
     expect(outboxId).toBe('caller-supplied-id');
     expect(tx.mock.calls[0]).toContain('caller-supplied-id');
-    const payload = objectArgs(tx).find((arg) => arg.uploadId === 'upload-1');
-    expect(payload).toEqual({ uploadId: 'upload-1', businessId: 'business-1' });
+    const payload = objectArgs(tx).find((arg) => arg.upload_id === 'upload-1');
+    expect(payload).toEqual({ upload_id: 'upload-1', business_id: 'business-1' });
   });
 
   it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {

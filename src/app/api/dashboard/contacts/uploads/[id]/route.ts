@@ -8,11 +8,8 @@ import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
 import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { getUploadStatus } from '@/lib/solicitation/uploads';
-import {
-  resolveDashboardLocation,
-  resolveDashboardRequest,
-  withDashboardOwnerRead,
-} from '@/app/api/dashboard/policy';
+import { withDashboardOwnerRead } from '@/app/api/dashboard/policy';
+import { requireContactsLocationScope } from '@/app/api/dashboard/contacts/location-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,18 +28,9 @@ export async function GET(
     // Uniform 404 for a malformed id: same exposure as an unknown upload.
     if (!isValidUuid(id)) return errorResponse('Not found', 404);
 
-    // An upload belongs to exactly one location, so the aggregate ("all
-    // locations") scope has no meaning here — the location resolution below
-    // otherwise mirrors the kpis/agent-team routes.
-    const { scopePolicy } = resolveDashboardRequest(request, user.locationId);
-    if (scopePolicy.mode === 'aggregate') {
-      return errorResponse('A location scope is required', 400);
-    }
-
-    const location = await resolveDashboardLocation(sql, {
+    const location = await requireContactsLocationScope(sql, request, {
       accountId,
-      locationId: scopePolicy.locationId,
-      exposure: 'uniform-not-found',
+      userLocationId: user.locationId,
     });
     if (!location.ok) return location.response;
 

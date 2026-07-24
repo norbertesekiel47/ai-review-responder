@@ -535,9 +535,9 @@ export async function enqueueSendNotification(
  * this is a plain INSERT, mirroring enqueueSendNotification. Retried BullMQ
  * delivery of this same outbox row is handled by ingestContactsCsvUpload's
  * own terminal-state check + per-business advisory lock (Task 5), not by an
- * ON CONFLICT guard here. camelCase payload matches CsvIngestPayload
- * (worker-types.ts), which the worker reads as job.data.uploadId /
- * job.data.businessId.
+ * ON CONFLICT guard here. Wire payload is snake_case CsvIngestPayload
+ * (worker-types.ts); this camelCase-input → snake_case-wire mapping is the
+ * same shape every sibling enqueue helper uses.
  */
 export async function enqueueCsvIngest(
   tx: TxClient,
@@ -545,8 +545,8 @@ export async function enqueueCsvIngest(
 ): Promise<string> {
   const outboxId = input.outboxId ?? uuidv7();
   const payload: CsvIngestPayload = {
-    uploadId: input.uploadId,
-    businessId: input.businessId,
+    upload_id: input.uploadId,
+    business_id: input.businessId,
   };
   if (input.correlationId !== undefined) {
     payload.correlation_id = input.correlationId;

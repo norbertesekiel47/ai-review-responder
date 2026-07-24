@@ -10,7 +10,8 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
 import { MAX_UPLOAD_BYTES } from './contacts-csv';
 import { CONSENT_ATTESTATION_VERSION } from './attestation';
-import type { IngestReport } from './ingest';
+import { parseIngestReportValue, type IngestReport } from './ingest';
+import { UPLOAD_STATUSES, type ContactUploadStatus } from './upload-status';
 import { enqueueCsvIngest } from '@/lib/shared/job-outbox-helpers';
 
 export type CreateUploadResult =
@@ -44,7 +45,7 @@ export async function createContactsCsvUpload(sql: Sql, input: {
          raw_csv, status, attested_by_user_id, attested_at, attestation_version)
       VALUES
         (${uploadId}, ${input.accountId}, ${input.businessId}, ${input.filename},
-         ${byteSize}, ${sha256}, ${input.csvText}, 'pending',
+         ${byteSize}, ${sha256}, ${input.csvText}, ${UPLOAD_STATUSES.PENDING},
          ${input.attestedByUserId}, NOW(), ${CONSENT_ATTESTATION_VERSION})
     `;
     await enqueueCsvIngest(tx, { uploadId, businessId: input.businessId });
@@ -61,16 +62,11 @@ export type UploadStatusReport = IngestReport | null;
 
 export interface UploadStatus {
   id: string;
-  status: string;
+  status: ContactUploadStatus;
   filename: string;
   createdAt: string;
   completedAt: string | null;
   report: UploadStatusReport;
-}
-
-function asReportRecord(value: unknown): IngestReport | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as IngestReport;
 }
 
 /** Tenant-scoped status/report read (never returns raw_csv). Scoped by BOTH
@@ -85,7 +81,7 @@ export async function getUploadStatus(
 ): Promise<UploadStatus | null> {
   const rows = await sql<{
     id: string;
-    status: string;
+    status: ContactUploadStatus;
     filename: string;
     created_at: string;
     completed_at: string | null;
@@ -103,19 +99,15 @@ export async function getUploadStatus(
   const row = rows[0];
   if (!row) return null;
 
-  // `report` is a production JSONB field-to-parser site: Postgres.js behind
-  // PgBouncer may return JSONB as a string (sanctioned carve-out — see the
-  // CLAUDE.md allowlist; the allowlist line itself lands with Task 9).
-  const parsedReport: unknown = typeof row.report === 'string'
-    ? JSON.parse(row.report)
-    : row.report;
-
   return {
     id: row.id,
     status: row.status,
     filename: row.filename,
     createdAt: row.created_at,
     completedAt: row.completed_at,
-    report: asReportRecord(parsedReport),
+    // Stored-report JSONB parsing has ONE owner: parseIngestReportValue in
+    // ingest.ts (the CLAUDE.md-allowlisted PgBouncer carve-out site). Null on
+    // a non-object value is this read side's tolerance posture.
+    report: parseIngestReportValue(row.report),
   };
 }

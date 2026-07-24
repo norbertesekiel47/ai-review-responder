@@ -10,6 +10,7 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mockLogger } = await vi
 
 const mocks = vi.hoisted(() => ({
   ingestContactsCsvUpload: vi.fn(),
+  terminalizeUploadForInactiveSubscription: vi.fn(),
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
   extractOutboxHandle: vi.fn(() => ({ outboxId: 'outbox-1', attempt: 3 })),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/solicitation/ingest', () => ({
   ingestContactsCsvUpload: mocks.ingestContactsCsvUpload,
+  terminalizeUploadForInactiveSubscription: mocks.terminalizeUploadForInactiveSubscription,
 }));
 vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: mocks.markOutboxCompleted,
@@ -35,8 +37,8 @@ const makeJob = (
 ): Job<CsvIngestPayload> => ({
   id: 'bull-job-1',
   data: {
-    uploadId: 'upload-1',
-    businessId: 'business-1',
+    upload_id: 'upload-1',
+    business_id: 'business-1',
     outbox_id: 'outbox-1',
     outbox_attempt: 3,
   },
@@ -46,6 +48,26 @@ const makeJob = (
 }) as unknown as Job<CsvIngestPayload>;
 
 const run = (job = makeJob()) => handleCsvIngest(mockSql as unknown as Sql, job);
+
+/** Row served to the REAL assertWritableSubscriptionForAccount (not mocked —
+ *  the worker must share the upload route's exact predicate, so these tests
+ *  exercise the genuine grace-window/entitlement rules). */
+const accountRow = (overrides: Record<string, unknown> = {}) => ({
+  subscription_status: 'active',
+  past_due_at: null,
+  flags: {},
+  offboarding_id: null,
+  offboarding_account_id: null,
+  offboarding_mode: null,
+  offboarding_status: null,
+  offboarding_failed_step: null,
+  offboarding_access_ends_at: null,
+  offboarding_teardown_started_at: null,
+  offboarding_purge_after: null,
+  offboarding_purge_started_at: null,
+  offboarding_purge_cancelled_at: null,
+  ...overrides,
+});
 
 beforeEach(() => {
   for (const fn of Object.values(mocks)) fn.mockReset();
@@ -58,21 +80,48 @@ beforeEach(() => {
 });
 
 describe('handleCsvIngest', () => {
-  it('csv ingest worker no-ops for subscriptions without full access', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+  it('csv ingest worker processes uploads for past_due accounts in grace', async () => {
+    sqlReturnQueue.push(
+      [{ account_id: 'account-1' }],
+      // Day 2 of the 7-day grace window: requireWritableOwner admits this
+      // owner's upload, so the worker must process it, not strand it.
+      [accountRow({
+        subscription_status: 'past_due',
+        past_due_at: new Date(Date.now() - 2 * 86_400_000),
+      })],
+    );
+    mocks.ingestContactsCsvUpload.mockResolvedValue({
+      contactsCreated: 1, contactsMerged: 0, visitsAdded: 1, duplicateVisits: 0,
+      rejected: [], structuralFailure: null,
+    });
+
+    await run();
+
+    expect(mocks.ingestContactsCsvUpload).toHaveBeenCalledWith(mockSql, 'upload-1', 'business-1');
+    expect(mocks.terminalizeUploadForInactiveSubscription).not.toHaveBeenCalled();
+    expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
+  });
+
+  it('csv ingest worker terminalizes the upload when the subscription is inactive', async () => {
+    sqlReturnQueue.push(
+      [{ account_id: 'account-1' }],
+      [accountRow({ subscription_status: 'cancelled' })],
+    );
 
     await run();
 
     expect(mocks.ingestContactsCsvUpload).not.toHaveBeenCalled();
+    expect(mocks.terminalizeUploadForInactiveSubscription)
+      .toHaveBeenCalledWith(mockSql, 'upload-1', 'business-1');
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
     expect(mockLogger.log).toHaveBeenCalledWith(
-      expect.stringContaining('subscription lacks full access'),
-      expect.objectContaining({ subscription_status: 'pending_payment' }),
+      expect.stringContaining('subscription not writable'),
+      expect.objectContaining({ upload_id: 'upload-1', reason: 'subscription_inactive' }),
     );
   });
 
   it('completes the outbox row without ingesting when the upload row is missing or not paired to the payload business', async () => {
-    // The gate binds the payload's businessId (u.business_id AND b.id), so a
+    // The gate binds the payload's business_id (u.business_id AND b.id), so a
     // deleted upload and a payload/row pairing mismatch are the same empty
     // read — both take this warn-and-complete branch.
     sqlReturnQueue.push([]);
@@ -80,6 +129,7 @@ describe('handleCsvIngest', () => {
     await run();
 
     expect(mocks.ingestContactsCsvUpload).not.toHaveBeenCalled();
+    expect(mocks.terminalizeUploadForInactiveSubscription).not.toHaveBeenCalled();
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('missing or not paired'),
@@ -88,7 +138,7 @@ describe('handleCsvIngest', () => {
   });
 
   it('delegates full-access uploads to the ingest module, then completes the outbox row', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ account_id: 'account-1' }], [accountRow()]);
     mocks.ingestContactsCsvUpload.mockResolvedValue({
       contactsCreated: 1, contactsMerged: 0, visitsAdded: 1, duplicateVisits: 0,
       rejected: [], structuralFailure: null,
@@ -98,8 +148,8 @@ describe('handleCsvIngest', () => {
 
     expect(mocks.ingestContactsCsvUpload).toHaveBeenCalledWith(mockSql, 'upload-1', 'business-1');
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
-    // The subscription gate reads the pairing from the upload row, with the
-    // payload businessId bound into the WHERE (tenant scope by construction).
+    // The pairing gate reads from the upload row, with the payload
+    // business_id bound into the WHERE (tenant scope by construction).
     expect(sqlCalls[0]!.text).toContain('FROM contact_csv_uploads');
     expect(sqlCalls[0]!.values).toEqual(['upload-1', 'business-1', 'business-1']);
   });
@@ -126,7 +176,10 @@ describe('handleCsvIngestFailed', () => {
     );
     const update = sqlCalls.find((call) => call.text.includes('UPDATE contact_csv_uploads'));
     expect(update).toBeDefined();
-    expect(update!.text).toContain("status = 'pending'");
+    // Statuses are bound values sourced from UPLOAD_STATUSES (single owner).
+    expect(update!.text).toContain('AND status = ?');
+    expect(update!.values).toContain('failed');
+    expect(update!.values).toContain('pending');
     expect(update!.values).toContainEqual(expect.objectContaining({ error: 'ingest_failed' }));
   });
 

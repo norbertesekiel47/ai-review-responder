@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import type { Sql } from 'postgres';
 import type { IngestReport } from '@/lib/solicitation/ingest';
+import { UPLOAD_STATUSES } from '@/lib/solicitation/upload-status';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { CsvIngestPayload } from '@/lib/shared/worker-types';
 
@@ -59,7 +60,7 @@ export async function handleCsvIngestFailed(
 
     state.coupledTerminalTxStarted = true;
     await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${job.data.businessId}`}))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${job.data.business_id}`}))`;
       const ownsAttempt = await markOutboxFailed(
         tx,
         state.outboxId!,
@@ -69,15 +70,15 @@ export async function handleCsvIngestFailed(
       if (!ownsAttempt) return; // a newer dispatched attempt owns the row
       // status='pending' predicate: no-op if the job actually completed (or a
       // concurrent run terminalized) after this failure was recorded.
-      // business_id is bound too — the payload's businessId is the same
+      // business_id is bound too — the payload's business_id is the same
       // trusted aggregate the advisory lock above is keyed on.
       await tx`
         UPDATE contact_csv_uploads
-        SET status = 'failed', report = ${tx.json(failedReport as never)},
+        SET status = ${UPLOAD_STATUSES.FAILED}, report = ${tx.json(failedReport as never)},
             raw_csv = NULL, completed_at = NOW()
-        WHERE id = ${job.data.uploadId}
-          AND business_id = ${job.data.businessId}
-          AND status = 'pending'
+        WHERE id = ${job.data.upload_id}
+          AND business_id = ${job.data.business_id}
+          AND status = ${UPLOAD_STATUSES.PENDING}
       `;
     });
     state.coupledTerminalTxStarted = false;

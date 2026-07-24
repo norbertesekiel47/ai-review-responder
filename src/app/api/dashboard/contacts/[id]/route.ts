@@ -14,10 +14,7 @@ import { isValidUuid } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { deleteContact } from '@/lib/solicitation/contacts-repo';
-import {
-  resolveDashboardLocation,
-  resolveDashboardRequest,
-} from '@/app/api/dashboard/policy';
+import { requireContactsLocationScope } from '../location-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,17 +36,9 @@ async function deleteContactHandler(
     // Uniform 404 for a malformed id: same exposure as an unknown contact.
     if (!isValidUuid(id)) return errorResponse('Not found', 404);
 
-    // A contact belongs to exactly one location, so the aggregate scope has
-    // no meaning here — the location resolution mirrors the uploads routes.
-    const { scopePolicy } = resolveDashboardRequest(request, user.locationId);
-    if (scopePolicy.mode === 'aggregate') {
-      return errorResponse('A location scope is required', 400);
-    }
-
-    const location = await resolveDashboardLocation(sql, {
+    const location = await requireContactsLocationScope(sql, request, {
       accountId,
-      locationId: scopePolicy.locationId,
-      exposure: 'uniform-not-found',
+      userLocationId: user.locationId,
     });
     if (!location.ok) return location.response;
 
