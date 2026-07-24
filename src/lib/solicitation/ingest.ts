@@ -136,24 +136,14 @@ export async function ingestContactsCsvUpload(
       return parseStoredReport(upload);
     }
 
-    if (upload.business_id !== expectedBusinessId) {
-      // The route wrote upload row + outbox payload in one transaction, so a
-      // mismatch is an impossible state, not a branch to tolerate.
-      throw new Error(
-        `csv_ingest business mismatch: upload ${uploadId} belongs to ${upload.business_id}, job expected ${expectedBusinessId}`,
-      );
-    }
-    if (upload.raw_csv === null) {
-      // Unrepresentable per the contact_csv_uploads_terminal_consistency CHECK.
-      throw new Error(`csv_ingest impossible state: pending upload ${uploadId} has NULL raw_csv`);
-    }
+    const rawCsv = assertProcessableUpload(upload, expectedBusinessId);
 
     // Defensive boundary re-check — the route already enforces the cap.
     if (upload.byte_size > MAX_UPLOAD_BYTES) {
       return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport('byte_size_over_cap'));
     }
 
-    const parsed = parseContactsCsv(upload.raw_csv, todayUtc);
+    const parsed = parseContactsCsv(rawCsv, todayUtc);
     if ('structuralFailure' in parsed) {
       return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport(parsed.structuralFailure));
     }
@@ -191,60 +181,20 @@ async function upsertCandidates(
   const rejected: RejectedRow[] = [...parseRejected];
 
   for (const candidate of candidates) {
-    const byEmail = candidate.email === null ? null : await findContactByHandle(tx, businessId, 'email', candidate.email);
-    const byPhone = candidate.phone === null ? null : await findContactByHandle(tx, businessId, 'phone', candidate.phone);
-
+    const { byEmail, byPhone } = await findMatches(tx, businessId, candidate);
     const decision = resolveContactMatch(candidate, byEmail, byPhone);
     if (decision.action === 'reject') {
       rejected.push({ row: candidate.rowIndex, reason: decision.reason });
       continue;
     }
 
-    let contactId: string;
-    if (decision.action === 'create') {
-      contactId = uuidv7();
-      // Deliberately NOT an ON CONFLICT upsert: the advisory lock serializes
-      // read-then-write per business, so a conflicting concurrent create is
-      // impossible and a surprise conflict should fail loudly, not merge.
-      await tx`
-        INSERT INTO solicitation_contacts
-          (id, business_id, name, email, phone, created_by_upload_id)
-        VALUES
-          (${contactId}, ${businessId}, ${candidate.name}, ${candidate.email},
-           ${candidate.phone}, ${uploadId})
-      `;
-      contactsCreated += 1;
-    } else {
-      contactId = decision.contactId;
-      const { set } = decision;
-      if (set.name !== undefined || set.email !== undefined || set.phone !== undefined) {
-        // COALESCE keeps unmentioned fields; `set` values are always non-empty.
-        await tx`
-          UPDATE solicitation_contacts
-          SET name = COALESCE(${set.name ?? null}, name),
-              email = COALESCE(${set.email ?? null}, email),
-              phone = COALESCE(${set.phone ?? null}, phone),
-              updated_at = NOW()
-          WHERE id = ${contactId} AND business_id = ${businessId}
-        `;
-        contactsMerged += 1;
-      }
-    }
+    const contact = decision.action === 'create'
+      ? await createContact(tx, businessId, uploadId, candidate)
+      : await updateMatchedContact(tx, businessId, decision);
+    if (contact.outcome === 'created') contactsCreated += 1;
+    if (contact.outcome === 'merged') contactsMerged += 1;
 
-    // Visit upsert (§1.3): unique on (contact_id, visit_date); a non-empty
-    // incoming note refreshes the stored note, an empty/absent one keeps it.
-    // `xmax = 0` ⇔ the row version was freshly inserted (never deleted/updated
-    // in-place by the ON CONFLICT branch) — the one non-obvious SQL trick that
-    // distinguishes visitsAdded from duplicateVisits in a single statement.
-    const [visit] = await tx<{ inserted: boolean }[]>`
-      INSERT INTO solicitation_visits (id, contact_id, business_id, visit_date, note, upload_id)
-      VALUES (${uuidv7()}, ${contactId}, ${businessId}, ${candidate.visitDate},
-              ${candidate.note}, ${uploadId})
-      ON CONFLICT (contact_id, visit_date)
-      DO UPDATE SET note = COALESCE(NULLIF(EXCLUDED.note, ''), solicitation_visits.note)
-      RETURNING (xmax = 0) AS inserted
-    `;
-    if (visit?.inserted === true) {
+    if (await upsertVisit(tx, businessId, uploadId, contact.contactId, candidate)) {
       visitsAdded += 1;
     } else {
       duplicateVisits += 1;
@@ -260,6 +210,105 @@ async function upsertCandidates(
     rejected,
     structuralFailure: null,
   };
+}
+
+async function createContact(
+  tx: TransactionSql,
+  businessId: string,
+  uploadId: string,
+  candidate: ContactCandidate,
+): Promise<{ contactId: string; outcome: 'created' }> {
+  const contactId = uuidv7();
+  // Deliberately NOT an ON CONFLICT upsert: the advisory lock serializes
+  // read-then-write per business, so a conflicting concurrent create is
+  // impossible and a surprise conflict should fail loudly, not merge.
+  await tx`
+    INSERT INTO solicitation_contacts
+      (id, business_id, name, email, phone, created_by_upload_id)
+    VALUES
+      (${contactId}, ${businessId}, ${candidate.name}, ${candidate.email},
+       ${candidate.phone}, ${uploadId})
+  `;
+  return { contactId, outcome: 'created' };
+}
+
+/** Applies an update decision. Report semantics (§1.2, PR #564 review):
+ *  `merged` = a HANDLE was merged into the matched contact; a name-only
+ *  refresh updates the row but is deliberately NOT counted as a merge. */
+async function updateMatchedContact(
+  tx: TransactionSql,
+  businessId: string,
+  decision: Extract<ContactMatchDecision, { action: 'update' }>,
+): Promise<{ contactId: string; outcome: 'merged' | 'name_refreshed' | 'unchanged' }> {
+  const { contactId, set } = decision;
+  const mergesHandle = set.email !== undefined || set.phone !== undefined;
+  if (set.name === undefined && !mergesHandle) return { contactId, outcome: 'unchanged' };
+
+  // COALESCE keeps unmentioned fields; `set` values are always non-empty.
+  await tx`
+    UPDATE solicitation_contacts
+    SET name = COALESCE(${set.name ?? null}, name),
+        email = COALESCE(${set.email ?? null}, email),
+        phone = COALESCE(${set.phone ?? null}, phone),
+        updated_at = NOW()
+    WHERE id = ${contactId} AND business_id = ${businessId}
+  `;
+  return { contactId, outcome: mergesHandle ? 'merged' : 'name_refreshed' };
+}
+
+/** Visit upsert (§1.3): unique on (contact_id, visit_date); a non-empty
+ *  incoming note refreshes the stored note, an empty/absent one keeps it.
+ *  Returns true when the visit row was freshly inserted. `xmax = 0` ⇔ the row
+ *  version was freshly inserted (never deleted/updated in-place by the
+ *  ON CONFLICT branch) — the one non-obvious SQL trick that distinguishes
+ *  visitsAdded from duplicateVisits in a single statement. */
+async function upsertVisit(
+  tx: TransactionSql,
+  businessId: string,
+  uploadId: string,
+  contactId: string,
+  candidate: ContactCandidate,
+): Promise<boolean> {
+  const [visit] = await tx<{ inserted: boolean }[]>`
+    INSERT INTO solicitation_visits (id, contact_id, business_id, visit_date, note, upload_id)
+    VALUES (${uuidv7()}, ${contactId}, ${businessId}, ${candidate.visitDate},
+            ${candidate.note}, ${uploadId})
+    ON CONFLICT (contact_id, visit_date)
+    DO UPDATE SET note = COALESCE(NULLIF(EXCLUDED.note, ''), solicitation_visits.note)
+    RETURNING (xmax = 0) AS inserted
+  `;
+  return visit?.inserted === true;
+}
+
+/** Impossible-state guards for a pending upload row (the route wrote row +
+ *  outbox payload in one transaction; the terminal-consistency CHECK makes a
+ *  pending row without raw CSV unrepresentable). Returns the non-null raw CSV. */
+function assertProcessableUpload(upload: UploadRow, expectedBusinessId: string): string {
+  if (upload.business_id !== expectedBusinessId) {
+    throw new Error(
+      `csv_ingest business mismatch: upload ${upload.id} belongs to ${upload.business_id}, job expected ${expectedBusinessId}`,
+    );
+  }
+  if (upload.raw_csv === null) {
+    throw new Error(`csv_ingest impossible state: pending upload ${upload.id} has NULL raw_csv`);
+  }
+  return upload.raw_csv;
+}
+
+/** Looks up the candidate's normalized handles. Sequential on purpose: both
+ *  SELECTs ride the single transaction connection. */
+async function findMatches(
+  tx: TransactionSql,
+  businessId: string,
+  candidate: ContactCandidate,
+): Promise<{ byEmail: ExistingContact | null; byPhone: ExistingContact | null }> {
+  const byEmail = candidate.email === null
+    ? null
+    : await findContactByHandle(tx, businessId, 'email', candidate.email);
+  const byPhone = candidate.phone === null
+    ? null
+    : await findContactByHandle(tx, businessId, 'phone', candidate.phone);
+  return { byEmail, byPhone };
 }
 
 async function findContactByHandle(

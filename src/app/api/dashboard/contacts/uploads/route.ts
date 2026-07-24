@@ -7,45 +7,55 @@ import { sql } from '@/lib/db/server';
 import {
   errorResponse,
   jsonResponse,
-  requireWritableOwner,
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { MAX_UPLOAD_BYTES } from '@/lib/solicitation/contacts-csv';
 import { createContactsCsvUpload } from '@/lib/solicitation/uploads';
+import { requireContactsWriteAccess } from '../location-scope';
 
 export const dynamic = 'force-dynamic';
 
-async function uploadContactsCsv(request: NextRequest): Promise<NextResponse> {
-  // Flag gate FIRST (invariant #13): when watch-mode is off this surface does
-  // not exist — 404 before auth so the response shape leaks nothing.
-  if (!solicitationWatchEnabled()) return errorResponse('Not found', 404);
+interface ParsedUploadForm {
+  file: Blob;
+  businessId: string;
+  attestationAccepted: boolean;
+}
 
-  // Mutation posture: requireWritableOwner = owner auth + writable-subscription
-  // gate (the write-flavored sibling of the kpis route's read gate).
-  const owner = await requireWritableOwner(sql, request);
+/** Multipart field validation; returns the error response when malformed. */
+function parseUploadForm(
+  formData: FormData,
+): ParsedUploadForm | { response: NextResponse } {
+  const file = formData.get('file');
+  const businessId = formData.get('businessId')?.toString() ?? '';
+  const attestationAccepted = formData.get('attestationAccepted')?.toString() === 'true';
+
+  if (!file || !(file instanceof Blob)) {
+    return { response: errorResponse('missing_file', 400) };
+  }
+  if (!isValidUuid(businessId)) {
+    return { response: errorResponse('invalid_business_id', 400) };
+  }
+  // Size precheck BEFORE buffering the file into a string (precedent:
+  // admin locations csv-import). The module re-checks the decoded bytes.
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return { response: errorResponse('file_too_large', 413) };
+  }
+  return { file, businessId, attestationAccepted };
+}
+
+async function uploadContactsCsv(request: NextRequest): Promise<NextResponse> {
+  // Mutation posture: flag gate FIRST (invariant #13) + requireWritableOwner
+  // (the write-flavored sibling of the kpis route's read gate).
+  const owner = await requireContactsWriteAccess(sql, request);
   if (!owner.ok) return owner.response;
   const { user, accountId } = owner;
 
   try {
-    const formData = await request.formData();
-    const file = formData.get('file');
-    const businessId = formData.get('businessId')?.toString() ?? '';
-    const attestationAccepted = formData.get('attestationAccepted')?.toString() === 'true';
-
-    if (!file || !(file instanceof Blob)) {
-      return errorResponse('missing_file', 400);
-    }
-    if (!isValidUuid(businessId)) {
-      return errorResponse('invalid_business_id', 400);
-    }
-    // Size precheck BEFORE buffering the file into a string (precedent:
-    // admin locations csv-import). The module re-checks the decoded bytes.
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return errorResponse('file_too_large', 413);
-    }
+    const parsed = parseUploadForm(await request.formData());
+    if ('response' in parsed) return parsed.response;
+    const { file, businessId, attestationAccepted } = parsed;
 
     // Business-ownership gate: contact_csv_uploads denormalizes BOTH
     // account_id and business_id, so this SELECT is the app-enforced

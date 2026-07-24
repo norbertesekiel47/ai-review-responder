@@ -19,8 +19,8 @@ export interface ContactListItem {
   visitCount: number;
 }
 
-export const CONTACT_LIST_DEFAULT_LIMIT = 50;
-export const CONTACT_LIST_MAX_LIMIT = 100;
+const CONTACT_LIST_DEFAULT_LIMIT = 50;
+const CONTACT_LIST_MAX_LIMIT = 100;
 
 /** Single owner of the page-bounds rule: limit defaults to 50 and is clamped
  *  to [1, 100]; offset is clamped to >= 0. Non-finite input falls back to the
@@ -47,32 +47,35 @@ export async function listContacts(
 ): Promise<{ contacts: ContactListItem[]; total: number }> {
   const { limit, offset } = clampContactListPage(page);
 
-  const rows = await sql<{
-    id: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    last_visit_date: string;
-    visit_count: number;
-  }[]>`
-    SELECT c.id, c.name, c.email, c.phone,
-           MAX(v.visit_date)::text AS last_visit_date,
-           COUNT(v.id)::int AS visit_count
-    FROM solicitation_contacts c
-    JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id = ${businessId}
-    JOIN businesses b ON b.id = c.business_id
-    WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
-    GROUP BY c.id
-    ORDER BY MAX(v.visit_date) DESC, c.id
-    LIMIT ${limit} OFFSET ${offset}
-  `;
-
-  const countRows = await sql<{ total: number }[]>`
-    SELECT COUNT(*)::int AS total
-    FROM solicitation_contacts c
-    JOIN businesses b ON b.id = c.business_id
-    WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
-  `;
+  // Independent reads on the pooled client (no transaction to order them) —
+  // run the page and the count concurrently.
+  const [rows, countRows] = await Promise.all([
+    sql<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      last_visit_date: string;
+      visit_count: number;
+    }[]>`
+      SELECT c.id, c.name, c.email, c.phone,
+             MAX(v.visit_date)::text AS last_visit_date,
+             COUNT(v.id)::int AS visit_count
+      FROM solicitation_contacts c
+      JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id = ${businessId}
+      JOIN businesses b ON b.id = c.business_id
+      WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
+      GROUP BY c.id
+      ORDER BY MAX(v.visit_date) DESC, c.id
+      LIMIT ${limit} OFFSET ${offset}
+    `,
+    sql<{ total: number }[]>`
+      SELECT COUNT(*)::int AS total
+      FROM solicitation_contacts c
+      JOIN businesses b ON b.id = c.business_id
+      WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
+    `,
+  ]);
 
   return {
     contacts: rows.map((row) => ({

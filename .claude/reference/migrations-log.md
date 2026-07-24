@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **086** — next migration is **087**
+Current head: **087** — next migration is **088**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -964,6 +964,15 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **087** — Covering indexes for the three un-indexed FK columns from 086
+  (#541, PR #564 review): `solicitation_contacts (created_by_upload_id)`,
+  `solicitation_visits (upload_id)`, `contact_csv_uploads
+  (attested_by_user_id)`. The `ON DELETE CASCADE` triggers behind these FKs
+  seq-scan the referencing table per deleted parent row during the
+  offboarding purge sweep. Purely additive `CREATE INDEX IF NOT EXISTS`
+  (plain columns — no expression/partial-index gotchas); **no RLS or
+  retention change** — indexes only. Staging first, then prod, in lockstep.
 
 - **086** — Contacts/visits CSV ingestion + consent attestation schema (#541,
   map #528; contract locked in #535:

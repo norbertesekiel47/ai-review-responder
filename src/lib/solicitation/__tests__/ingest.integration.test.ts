@@ -168,6 +168,40 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
     expect(kept!.note).toBe('Refreshed note');
   });
 
+  it('counts contactsMerged only for handle merges — a name-only refresh is uncounted', async () => {
+    await runIngest(await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,',
+    ].join('\n')));
+
+    // Name-only refresh: matched by email, no new handle. The row updates
+    // (latest non-empty name wins) but is NOT a merge (§1.2, PR #564 review).
+    const nameOnly = await runIngest(await seedUpload([
+      HEADER,
+      'Ada L.,ada@example.com,,2026-01-06,',
+    ].join('\n')));
+    expect(nameOnly).toMatchObject({
+      contactsCreated: 0, contactsMerged: 0, visitsAdded: 1,
+    });
+    const [renamed] = await sql()<{ name: string }[]>`
+      SELECT name FROM solicitation_contacts WHERE business_id = ${businessId}::uuid
+    `;
+    expect(renamed!.name).toBe('Ada L.');
+
+    // Handle merge: the phone lands on the matched contact — counted.
+    const handleMerge = await runIngest(await seedUpload([
+      HEADER,
+      'Ada L.,ada@example.com,4155552671,2026-01-07,',
+    ].join('\n')));
+    expect(handleMerge).toMatchObject({
+      contactsCreated: 0, contactsMerged: 1, visitsAdded: 1,
+    });
+    const [merged] = await sql()<{ phone: string | null }[]>`
+      SELECT phone FROM solicitation_contacts WHERE business_id = ${businessId}::uuid
+    `;
+    expect(merged!.phone).toBe('+14155552671');
+  });
+
   it('partial accept: valid rows land while invalid rows are reported', async () => {
     // Seed two distinct contacts so a later row can straddle them.
     await runIngest(await seedUpload([

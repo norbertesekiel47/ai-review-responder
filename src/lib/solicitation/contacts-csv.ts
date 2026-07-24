@@ -22,16 +22,17 @@ export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_DATA_ROWS = 5000;
 export const MAX_NOTE_LENGTH = 500;
 
-export const ROW_REJECTION_REASONS = [
-  'missing_name', 'missing_handle', 'invalid_email', 'invalid_phone',
-  'invalid_date', 'future_date', 'ambiguous_identity', 'note_too_long',
-] as const;
-export type RowRejectionReason = (typeof ROW_REJECTION_REASONS)[number];
+// The reason/failure vocabularies are TYPE-only: consumers (UI labels via
+// Record<...>, reports) get exhaustiveness from the unions; nothing iterates
+// the values at runtime. Add a runtime array only when a concrete consumer
+// (e.g. #543's executor) needs one.
+export type RowRejectionReason =
+  | 'missing_name' | 'missing_handle' | 'invalid_email' | 'invalid_phone'
+  | 'invalid_date' | 'future_date' | 'ambiguous_identity' | 'note_too_long';
 
-export const STRUCTURAL_FAILURES = [
-  'missing_required_header', 'row_count_over_cap', 'byte_size_over_cap', 'undecodable_encoding',
-] as const;
-export type StructuralFailure = (typeof STRUCTURAL_FAILURES)[number];
+export type StructuralFailure =
+  | 'missing_required_header' | 'row_count_over_cap'
+  | 'byte_size_over_cap' | 'undecodable_encoding';
 
 export interface ContactCandidate {
   rowIndex: number;            // 1-based data-row number (header excluded)
@@ -127,15 +128,8 @@ function parseRow(
   const name = cell('name');
   if (name.length === 0) return { reason: 'missing_name' };
 
-  const rawEmail = cell('email');
-  const rawPhone = cell('phone');
-  if (rawEmail.length === 0 && rawPhone.length === 0) return { reason: 'missing_handle' };
-
-  const email = rawEmail.length > 0 ? normalizeEmail(rawEmail) : null;
-  if (rawEmail.length > 0 && email === null) return { reason: 'invalid_email' };
-
-  const phone = rawPhone.length > 0 ? normalizePhone(rawPhone) : null;
-  if (rawPhone.length > 0 && phone === null) return { reason: 'invalid_phone' };
+  const handles = parseHandles(cell('email'), cell('phone'));
+  if ('reason' in handles) return handles;
 
   const visitDate = parseVisitDate(cell('last_visit_date'));
   if (visitDate === null) return { reason: 'invalid_date' };
@@ -147,11 +141,28 @@ function parseRow(
   return {
     rowIndex,
     name,
-    email,
-    phone,
+    email: handles.email,
+    phone: handles.phone,
     visitDate,
     note: note.length > 0 ? note : null,
   };
+}
+
+/** Normalizes the handle pair, preserving the contract-locked rejection order:
+ *  missing_handle → invalid_email → invalid_phone. */
+function parseHandles(
+  rawEmail: string,
+  rawPhone: string,
+): { email: string | null; phone: string | null } | { reason: RowRejectionReason } {
+  if (rawEmail.length === 0 && rawPhone.length === 0) return { reason: 'missing_handle' };
+
+  const email = rawEmail.length > 0 ? normalizeEmail(rawEmail) : null;
+  if (rawEmail.length > 0 && email === null) return { reason: 'invalid_email' };
+
+  const phone = rawPhone.length > 0 ? normalizePhone(rawPhone) : null;
+  if (rawPhone.length > 0 && phone === null) return { reason: 'invalid_phone' };
+
+  return { email, phone };
 }
 
 /** `YYYY-MM-DD` or `MM/DD/YYYY` → canonical `YYYY-MM-DD`; null when malformed
@@ -197,51 +208,75 @@ function isBlankRecord(fields: string[]): boolean {
  *  'undecodable_encoding' structural failure: the file is malformed beyond
  *  safe row recovery, and the enum is closed by contract. */
 function tokenizeCsv(csvText: string): string[][] | null {
-  const records: string[][] = [];
-  let fields: string[] = [];
-  let current = '';
-  let inQuotes = false;
+  const state = new CsvTokenizerState();
 
   for (let i = 0; i < csvText.length; i++) {
-    const ch = csvText[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < csvText.length && csvText[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ',') {
-      fields.push(current);
-      current = '';
-    } else if (ch === '\n' || ch === '\r') {
-      fields.push(current);
-      records.push(fields);
-      fields = [];
-      current = '';
-      if (ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
-        i++;
-      }
-    } else {
-      current += ch;
-    }
+    // charAt returns '' past the end, which matches no character test below —
+    // same semantics as the bounds-checked lookahead it replaces.
+    const ch = csvText.charAt(i);
+    const next = csvText.charAt(i + 1);
+    i += state.inQuotes
+      ? consumeQuotedChar(state, ch, next)
+      : consumeUnquotedChar(state, ch, next);
   }
 
-  if (inQuotes) return null;
+  if (state.inQuotes) return null;
+  state.flushTrailingRecord();
+  return state.records;
+}
 
-  if (current.length > 0 || fields.length > 0) {
-    fields.push(current);
-    records.push(fields);
+/** Mutable tokenizer state: the record/field accumulators plus quote mode. */
+class CsvTokenizerState {
+  readonly records: string[][] = [];
+  fields: string[] = [];
+  current = '';
+  inQuotes = false;
+
+  endField(): void {
+    this.fields.push(this.current);
+    this.current = '';
   }
 
-  return records;
+  endRecord(): void {
+    this.endField();
+    this.records.push(this.fields);
+    this.fields = [];
+  }
+
+  /** Input without a trailing newline leaves a partial record — flush it. */
+  flushTrailingRecord(): void {
+    if (this.current.length > 0 || this.fields.length > 0) this.endRecord();
+  }
+}
+
+/** One char inside a quoted field. Returns extra chars consumed (1 for `""`). */
+function consumeQuotedChar(state: CsvTokenizerState, ch: string, next: string): number {
+  if (ch !== '"') {
+    state.current += ch;
+    return 0;
+  }
+  if (next === '"') {
+    state.current += '"';
+    return 1;
+  }
+  state.inQuotes = false;
+  return 0;
+}
+
+/** One char outside quotes. Returns extra chars consumed (1 for CRLF). */
+function consumeUnquotedChar(state: CsvTokenizerState, ch: string, next: string): number {
+  if (ch === '"') {
+    state.inQuotes = true;
+    return 0;
+  }
+  if (ch === ',') {
+    state.endField();
+    return 0;
+  }
+  if (ch === '\n' || ch === '\r') {
+    state.endRecord();
+    return ch === '\r' && next === '\n' ? 1 : 0;
+  }
+  state.current += ch;
+  return 0;
 }

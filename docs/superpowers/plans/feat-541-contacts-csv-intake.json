@@ -4,12 +4,12 @@
   "db_touching": true,
   "goal": "Owner-uploaded Contacts/visits CSV ingestion with per-upload blocking Consent attestation per the locked #535 contract: async csv_ingest outbox lane parses/validates/dedupes rows into per-location Contact + Visit rows (normalized handle computed once at ingest), tenant-scoped reads, per-contact hard delete, offboarding purge sweep.",
   "non_goals": [
-    "Batch trigger (solicitation_batches INSERT + build_solicitation_batch outbox row at ingest completion) \u2014 #543 extends the completion transaction",
-    "solicitation_batches / solicitation_asks tables and run-spine widening \u2014 #543",
-    "Batch review UI, env staging flip of SOLICITATION_WATCH_ENABLED \u2014 #544 (this ticket registers the flag, default OFF everywhere)",
+    "Batch trigger (solicitation_batches INSERT + build_solicitation_batch outbox row at ingest completion) — #543 extends the completion transaction",
+    "solicitation_batches / solicitation_asks tables and run-spine widening — #543",
+    "Batch review UI, env staging flip of SOLICITATION_WATCH_ENABLED — #544 (this ticket registers the flag, default OFF everywhere)",
     "Suppression ledger (only the normalized-handle commitment is honored)",
     "Per-row consent columns or any consent-ledger model (send-mode + counsel)",
-    "Upload-undo (impossible post-merge per contract \u00a71.3)",
+    "Upload-undo (impossible post-merge per contract §1.3)",
     "Any send path, veto window, or ask copy",
     "Booking-system integrations as candidate sources"
   ],
@@ -31,33 +31,33 @@
     "Raw CSV text is NULLed in the same transaction as the terminal report (success or terminal failure); metadata (filename, bytes, SHA-256, counts, report, attestation) retained",
     "Never auto-merge two existing contacts (ambiguous_identity rejects)",
     "Normalization happens once at ingest; stored normalized handle is the future suppression join key (never contact_id)",
-    "Never log raw CSV content, handles, names, or notes (PII) \u2014 counts and reasons only",
+    "Never log raw CSV content, handles, names, or notes (PII) — counts and reasons only",
     "Migration 086 is purely additive: no existing table touched"
   ],
   "edge_cases": [
-    "Row's email matches contact X, phone matches contact Y \u2192 reject ambiguous_identity",
-    "Matched contact lacking the row's second handle \u2192 merge it in; name difference \u2192 latest non-empty wins",
-    "Duplicate (contact_id, visit_date) \u2192 count duplicate_visit; non-empty incoming note refreshes stored note",
-    "10-digit phone assumed US \u2192 E.164; unparseable \u2192 invalid_phone",
-    "last_visit_date accepts YYYY-MM-DD and MM/DD/YYYY; future date \u2192 future_date",
-    "Unknown columns ignored; header aliases matched case-insensitively; missing required header \u2192 whole-file reject",
-    ">5 MB or >5,000 data rows or undecodable encoding \u2192 whole-file reject, nothing imported",
+    "Row's email matches contact X, phone matches contact Y → reject ambiguous_identity",
+    "Matched contact lacking the row's second handle → merge it in; name difference → latest non-empty wins",
+    "Duplicate (contact_id, visit_date) → count duplicate_visit; non-empty incoming note refreshes stored note",
+    "10-digit phone assumed US → E.164; unparseable → invalid_phone",
+    "last_visit_date accepts YYYY-MM-DD and MM/DD/YYYY; future date → future_date",
+    "Unknown columns ignored; header aliases matched case-insensitively; missing required header → whole-file reject",
+    ">5 MB or >5,000 data rows or undecodable encoding → whole-file reject, nothing imported",
     "Old visit dates are VALID (staleness is restraint-policy's judgment, not ingest's)",
-    "Flag off \u2192 page hidden and API routes 404",
-    "Multi-location account \u2192 upload targets one selected business_id",
+    "Flag off → page hidden and API routes 404",
+    "Multi-location account → upload targets one selected business_id",
     "Worker retry after partial failure must be idempotent (visit dedupe + handle merge are natural upserts)",
-    "note over length cap \u2192 note_too_long row rejection"
+    "note over length cap → note_too_long row rejection"
   ],
   "existing_patterns_to_follow": [
-    "src/lib/admin/csv-import.ts \u2014 hand-rolled CSV parse, CsvRowFailure/report shape, bounds constants (no new parser dependency)",
-    "src/lib/shared/queue-names.ts + ci:outbox-topics \u2014 topic registration for csv_ingest",
-    "src/lib/shared/job-outbox-helpers.ts \u2014 outbox enqueue helper pattern",
-    "worker/jobs/<domain>/ layout (e.g. worker/jobs/judge/) \u2014 new worker/jobs/csv-ingest/",
-    "src/lib/reviews/flags.ts + src/lib/config/flags readFlag \u2014 new src/lib/solicitation/flags.ts",
-    "src/lib/solicitation/restraint-policy.ts \u2014 module + __tests__ style for the new domain files",
-    "src/lib/account-offboarding/table-disposition.ts \u2014 purge sweep registration",
-    "src/app/(authenticated)/dashboard/** \u2014 page conventions; repworth-brand-design skill for the UI",
-    "supabase/migrations/084_competitor_snapshots.sql \u2014 recent additive-migration style; UUIDv7 PK convention per migrations-log"
+    "src/lib/admin/csv-import.ts — hand-rolled CSV parse, CsvRowFailure/report shape, bounds constants (no new parser dependency)",
+    "src/lib/shared/queue-names.ts + ci:outbox-topics — topic registration for csv_ingest",
+    "src/lib/shared/job-outbox-helpers.ts — outbox enqueue helper pattern",
+    "worker/jobs/<domain>/ layout (e.g. worker/jobs/judge/) — new worker/jobs/csv-ingest/",
+    "src/lib/reviews/flags.ts + src/lib/config/flags readFlag — new src/lib/solicitation/flags.ts",
+    "src/lib/solicitation/restraint-policy.ts — module + __tests__ style for the new domain files",
+    "src/lib/account-offboarding/table-disposition.ts — purge sweep registration",
+    "src/app/(authenticated)/dashboard/** — page conventions; repworth-brand-design skill for the UI",
+    "supabase/migrations/084_competitor_snapshots.sql — recent additive-migration style; UUIDv7 PK convention per migrations-log"
   ],
   "allowed_edit_surface": [
     "supabase/migrations/086_*.sql",
@@ -82,7 +82,8 @@
     ".claude/CLAUDE.md",
     "worker/jobs/account-offboarding/**",
     "scripts/ci/tenant-tables.ts",
-    "docs/security/rls-inventory.md"
+    "docs/security/rls-inventory.md",
+    "supabase/migrations/087_contact_fk_indexes.sql"
   ],
   "tests_to_add": [
     "normalizes a 10-digit US phone to E.164",
@@ -115,9 +116,9 @@
   ],
   "estimated_diff_size": "+2000-2500 / -0 (greenfield subsystem: migration ~120, domain modules ~700, worker job ~300, API routes ~350, dashboard page ~450, tests ~700). Net-positive justified: new domain with no prior code.",
   "dependencies_added": [],
-  "rollback_plan": "Migration 086 is additive-only (contact_csv_uploads, solicitation_contacts, solicitation_visits; no existing-table changes). Back-out order: (1) SOLICITATION_WATCH_ENABLED stays/returns OFF (default) \u2014 surface unreachable; (2) revert the PR; (3) if schema must go, drop the three tables in reverse FK order (visits \u2192 contacts \u2192 uploads) via a down migration, staging Supabase first, prod in lockstep. No data backfill to unwind while flag was never flipped in prod.",
+  "rollback_plan": "Migration 086 is additive-only (contact_csv_uploads, solicitation_contacts, solicitation_visits; no existing-table changes). Back-out order: (1) SOLICITATION_WATCH_ENABLED stays/returns OFF (default) — surface unreachable; (2) revert the PR; (3) if schema must go, drop the three tables in reverse FK order (visits → contacts → uploads) via a down migration, staging Supabase first, prod in lockstep. No data backfill to unwind while flag was never flipped in prod.",
   "observability": [
-    "csv_ingest worker logs (createWorkerLogger, correlationId) at start/terminal with row counts and rejection-reason histogram \u2014 never row content",
+    "csv_ingest worker logs (createWorkerLogger, correlationId) at start/terminal with row counts and rejection-reason histogram — never row content",
     "Upload row carries the terminal report + timestamps: 'did ingest finish and what happened' is a DB query",
     "Ingest failure path writes terminal failure onto the upload row and surfaces via Sentry (worker error capture); stuck csv_ingest outbox rows covered by the existing outbox watchdog",
     "Broken-in-prod signal: uploads stuck in processing status (report never written) or Sentry csv_ingest errors"
