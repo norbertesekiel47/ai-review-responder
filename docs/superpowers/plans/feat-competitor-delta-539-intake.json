@@ -1,0 +1,72 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Add the per-location Competitor Delta line to the weekly Insights digest using the primary tracked keyword's persisted Competitor pack, with the Auto-default rival's review-count gap and review velocity since our last check.",
+  "non_goals": [
+    "Named rival persistence, owner-scoped API, or settings UI from ticket #546",
+    "Changing RankingTrackingScheduler cadence or making new SerpAPI calls",
+    "Rating- or rank-based Competitor Delta copy",
+    "Account-level or multi-keyword aggregation",
+    "Schema changes, migrations, feature flags, or new dependencies"
+  ],
+  "user_visible_behavior": [
+    "A configured location with current and preceding matching Competitor pack snapshots sees the Auto-default rival's review velocity since our last check and the current review-count gap.",
+    "A configured location with a current Competitor pack but no preceding match sees the current review-count gap without velocity.",
+    "A configured location without a usable Competitor pack sees one teaser line that RepWorth is watching the primary tracked keyword.",
+    "A location without a primary tracked keyword or ranking search location omits the Competitor Delta line.",
+    "Owner-picked Named rival dropout and fallback remain governed by the locked #532 semantics and become observable when #546 supplies the persisted pick."
+  ],
+  "invariants": [
+    "Gap equals rival review_count minus the location's own review_count from the same snapshot; rating and rank never affect the displayed gap.",
+    "The Auto-default rival is the smallest positive review-count gap; when none is ahead, use the closest non-positive challenger, with ties broken by rank_position then stable place identity.",
+    "Competitor Delta stays strictly scoped by business_id, primary tracked keyword, and current search_location.",
+    "The read path makes no external call and does not mutate competitor or ranking state.",
+    "competitor_snapshots.rating is parsed from the Postgres.js NUMERIC string into a finite number or null at the read boundary.",
+    "All rival names and teaser keywords are HTML-escaped before rendering."
+  ],
+  "edge_cases": [
+    "A zero review-count gap is a valid Auto-default rival when no competitor is ahead.",
+    "Rows with null review_count, null place_id, an empty title, or is_self=true cannot become the Auto-default rival.",
+    "A snapshot without a self row or with a null self review_count cannot produce gap math and degrades to the teaser.",
+    "A current rival without a preceding place_id match produces gap-only copy.",
+    "Negative velocity is rendered as lost reviews since our last check; zero velocity is rendered as no new reviews since our last check.",
+    "A changed primary keyword or search_location starts a new comparison series naturally.",
+    "Malformed or non-finite NUMERIC rating text is normalized to null and never affects v1 selection or copy."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/jobs/WeeklySummaryWorker.ts loadWeeklyValueInputs for tenant-scoped read aggregation before rendering",
+    "worker/jobs/summary-report-helpers.ts loadLatestRankingSummary for compact typed report inputs",
+    "src/lib/notifications/email/templates/weekly-value-report.ts conditional ranking and intelligence rows",
+    "worker/jobs/__tests__/WeeklySummaryWorker.test.ts queued SQL harness and rendered-parameter assertions",
+    "src/lib/notifications/__tests__/email-templates.test.ts baseWeeklyParams and HTML escaping assertions"
+  ],
+  "allowed_edit_surface": [
+    "CONTEXT.md",
+    "worker/jobs/WeeklySummaryWorker.ts",
+    "worker/jobs/__tests__/WeeklySummaryWorker.test.ts",
+    "src/lib/notifications/email/templates/weekly-value-report.ts",
+    "src/lib/notifications/__tests__/email-templates.test.ts",
+    "docs/superpowers/plans/feat-competitor-delta-539-*.md",
+    "docs/superpowers/plans/feat-competitor-delta-539-intake.json",
+    "docs/reviews/feat-competitor-delta-539/**"
+  ],
+  "tests_to_add": [
+    "selects the Auto-default rival by nearest review-count gap with deterministic tie breakers",
+    "renders review velocity since our last check and the current review-count gap",
+    "degrades Competitor Delta through omit teaser and gap-only empty states",
+    "parses NUMERIC competitor ratings returned by Postgres.js as strings",
+    "escapes the Competitor Delta rival name and teaser keyword"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run worker/jobs/__tests__/WeeklySummaryWorker.test.ts src/lib/notifications/__tests__/email-templates.test.ts"
+  ],
+  "estimated_diff_size": "+180/-10 lines across 5 implementation and test files, plus workflow artifacts",
+  "dependencies_added": [],
+  "rollback_plan": "Revert the application commit; the feature is read-only and has no schema, data, queue, or external-side-effect rollback.",
+  "observability": [
+    "Existing WeeklySummaryWorker structured success/failure logs and weekly_value_report delivery records prove the digest path completed.",
+    "Staging smoke inspects a delivered email against persisted competitor_snapshots for one configured location."
+  ],
+  "open_questions": []
+}
