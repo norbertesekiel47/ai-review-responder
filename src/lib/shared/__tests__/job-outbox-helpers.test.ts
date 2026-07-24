@@ -10,6 +10,7 @@ import {
   enqueueAutonomyAdminAlert,
   enqueueAutonomySuspendedNotice,
   enqueueAutoPostNotice,
+  enqueueCsvIngest,
   enqueueEscalationNotice,
   enqueueGenerateResponse,
   enqueueJudgeVerdict,
@@ -466,6 +467,56 @@ describe('job outbox helpers', () => {
     // correlation_id defaults to a fresh uuid when not supplied.
     const payload = objectArgs(tx).find((arg) => arg.business_id === 'business-1');
     expect(payload?.correlation_id).toBe('outbox-uuid');
+  });
+
+  it('enqueueCsvIngest writes a csv_ingest outbox row with the deterministic idempotency key', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueCsvIngest(tx, {
+      uploadId: 'upload-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    // No ON CONFLICT: unlike publish_response/auto_post_notice there is no
+    // migration-backed partial unique index on job_outbox for this topic —
+    // aggregate_id = uploadId is the deterministic key instead (one fresh
+    // uuidv7 upload -> exactly one enqueue call), and retried delivery is
+    // idempotent at the ingest module's terminal-state check (Task 5).
+    expect(text).not.toContain('ON CONFLICT');
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.CSV_INGEST);
+    // Aggregate vocabulary: aggregate_type 'contact_csv_upload' keyed by the
+    // upload id — that pairing IS the deterministic idempotency key.
+    expect(tx.mock.calls[0]).toContain('contact_csv_upload');
+    expect(tx.mock.calls[0]).toContain('upload-1');
+
+    // camelCase payload matches CsvIngestPayload (worker-types.ts), which the
+    // worker reads as job.data.uploadId / job.data.businessId.
+    const payload = objectArgs(tx).find((arg) => arg.uploadId === 'upload-1');
+    expect(payload).toEqual({
+      uploadId: 'upload-1',
+      businessId: 'business-1',
+      correlation_id: 'corr-1',
+    });
+  });
+
+  it('omits correlation_id from the csv_ingest payload when not provided and honors a supplied outboxId', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueCsvIngest(tx, {
+      outboxId: 'caller-supplied-id',
+      uploadId: 'upload-1',
+      businessId: 'business-1',
+    });
+
+    expect(outboxId).toBe('caller-supplied-id');
+    expect(tx.mock.calls[0]).toContain('caller-supplied-id');
+    const payload = objectArgs(tx).find((arg) => arg.uploadId === 'upload-1');
+    expect(payload).toEqual({ uploadId: 'upload-1', businessId: 'business-1' });
   });
 
   it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {
