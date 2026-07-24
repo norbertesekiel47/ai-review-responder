@@ -117,3 +117,15 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   sweep). Task 6's own queries (`src/lib/solicitation/contacts-repo.ts`) pass
   the audit — both carry `c.business_id = $businessId AND
   b.account_id = $accountId`.
+- [2026-07-24] Task 5 follow-up, audit-driven query strengthening (RESOLVES the
+  Task 6 note above — no allowlist entry needed): the `handleCsvIngest` gate
+  query now BINDS the payload's businessId into the read —
+  `AND u.business_id = ${'$'}{businessId}` plus `AND b.id = ${'$'}{businessId}`
+  (directly-scoped `businesses` alias; `accounts` becomes transitively scoped
+  through the `a.id = b.account_id` join, per the audit's accountTableScoped
+  rule). Semantically a strengthening, not a workaround: it mirrors
+  `ingestContactsCsvUpload`'s expectedBusinessId assert, so a payload/row
+  pairing mismatch now yields no gate row and takes the warn +
+  markOutboxCompleted skip branch (warn message updated to name both causes;
+  worker unit test retitled and now asserts the bound values). `pnpm
+  ci:tenant-scope` passes with the baseline unchanged at 405 entries.

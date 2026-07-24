@@ -59,7 +59,7 @@ beforeEach(() => {
 
 describe('handleCsvIngest', () => {
   it('csv ingest worker no-ops for subscriptions without full access', async () => {
-    sqlReturnQueue.push([{ business_id: 'business-1', subscription_status: 'pending_payment' }]);
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
 
     await run();
 
@@ -71,18 +71,24 @@ describe('handleCsvIngest', () => {
     );
   });
 
-  it('completes the outbox row without ingesting when the upload row is gone', async () => {
+  it('completes the outbox row without ingesting when the upload row is missing or not paired to the payload business', async () => {
+    // The gate binds the payload's businessId (u.business_id AND b.id), so a
+    // deleted upload and a payload/row pairing mismatch are the same empty
+    // read — both take this warn-and-complete branch.
     sqlReturnQueue.push([]);
 
     await run();
 
     expect(mocks.ingestContactsCsvUpload).not.toHaveBeenCalled();
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
-    expect(mockLogger.warn).toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('missing or not paired'),
+      expect.objectContaining({ upload_id: 'upload-1' }),
+    );
   });
 
   it('delegates full-access uploads to the ingest module, then completes the outbox row', async () => {
-    sqlReturnQueue.push([{ business_id: 'business-1', subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
     mocks.ingestContactsCsvUpload.mockResolvedValue({
       contactsCreated: 1, contactsMerged: 0, visitsAdded: 1, duplicateVisits: 0,
       rejected: [], structuralFailure: null,
@@ -92,8 +98,10 @@ describe('handleCsvIngest', () => {
 
     expect(mocks.ingestContactsCsvUpload).toHaveBeenCalledWith(mockSql, 'upload-1', 'business-1');
     expect(mocks.markOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-1', 3);
-    // The subscription gate reads the pairing from the upload row, not the payload.
+    // The subscription gate reads the pairing from the upload row, with the
+    // payload businessId bound into the WHERE (tenant scope by construction).
     expect(sqlCalls[0]!.text).toContain('FROM contact_csv_uploads');
+    expect(sqlCalls[0]!.values).toEqual(['upload-1', 'business-1', 'business-1']);
   });
 });
 

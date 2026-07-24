@@ -21,17 +21,26 @@ export async function handleCsvIngest(
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
 
   // The gate is derived FROM THE UPLOAD ROW, not the raw payload — the upload
-  // row's business → account join is the authoritative pairing.
-  const [gate] = await sql<{ business_id: string; subscription_status: string }[]>`
-    SELECT u.business_id, a.subscription_status
+  // row's business → account join is the authoritative pairing. The payload's
+  // businessId is BOUND into the read (u.business_id AND b.id) so the query is
+  // tenant-scoped by construction, mirroring ingestContactsCsvUpload's
+  // expectedBusinessId assert: a payload/row pairing mismatch yields no row.
+  const [gate] = await sql<{ subscription_status: string }[]>`
+    SELECT a.subscription_status
     FROM contact_csv_uploads u
     JOIN businesses b ON b.id = u.business_id
     JOIN accounts a ON a.id = b.account_id
     WHERE u.id = ${job.data.uploadId}
+      AND u.business_id = ${job.data.businessId}
+      AND b.id = ${job.data.businessId}
   `;
   if (!gate) {
-    // Upload/business deleted mid-flight (offboarding CASCADE) — nothing to do.
-    logger.warn('csv_ingest upload row missing — skipping', { upload_id: job.data.uploadId });
+    // Upload/business deleted mid-flight (offboarding CASCADE) — or the
+    // payload's businessId does not match the upload row's pairing. Either
+    // way there is no entitled work to do for this payload.
+    logger.warn('csv_ingest upload row missing or not paired to payload business — skipping', {
+      upload_id: job.data.uploadId,
+    });
     await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
