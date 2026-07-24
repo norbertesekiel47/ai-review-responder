@@ -75,6 +75,8 @@ jobs:
         run: pnpm ci:outbox-topics
       - name: Run feature-surface audit (intake vs diff)
         run: pnpm ci:feature-surface
+      - name: Run agent configuration audit
+        run: pnpm ci:agent-config
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)
