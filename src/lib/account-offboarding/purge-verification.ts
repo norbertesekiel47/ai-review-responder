@@ -275,6 +275,8 @@ export function verificationQuery(
       return absentByBusiness('monthly_impact_emails', accountId, exec);
     case 'ranking_snapshots':
       return absentByBusiness('ranking_snapshots', accountId, exec);
+    case 'competitor_snapshots':
+      return absentByBusiness('competitor_snapshots', accountId, exec);
     case 'onboarding_drip_log':
       return absentByBusiness('onboarding_drip_log', accountId, exec);
     case 'onboarding_demos':
@@ -580,6 +582,7 @@ const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
   'weekly_summaries',
   'monthly_impact_emails',
   'ranking_snapshots',
+  'competitor_snapshots',
   'onboarding_drip_log',
   'onboarding_demos',
   'satisfaction_responses',

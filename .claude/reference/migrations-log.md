@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **083** — next migration is **084**
+Current head: **085** — next migration is **086**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -965,6 +965,21 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **085** — `competitor_snapshots.rating` REAL → NUMERIC(2,1) (`USING
+  round(rating::numeric, 1)`; PR #554 pre-merge review). float4 drifts
+  (4.8 → 4.80000019…) and would silently mis-match future Delta-line band
+  comparisons; NUMERIC is exact. New migration rather than an 084 amend
+  because 084 was already applied to staging (immutability). Read-side:
+  Postgres.js returns NUMERIC as a JS string — column is write-only until
+  #539, which must parse it. No new table/index — no RLS/retention change.
+- **084** — Competitor pack persistence (#538, map #528, semantics #532). New
+  `competitor_snapshots` table (full ~20 local-pack rows per
+  business+keyword+snapshot_date incl. is_self row; nullable place_id/rating/
+  review_count; data_cid write-only rotation insurance). Replace-pack idempotency
+  (DELETE+INSERT in the RankingTrackingWorker tx) — deliberately no per-row unique
+  key. RLS owner_select mirror of 035 §2f. Retention: exempt (core competitor
+  history, ~20 rows/business/week); revisit if table exceeds ~5M rows or when the
+  Competitor Delta digest line ships.
 - **083** — Owner-unreachable outbox marker (F1, plan
   `docs/superpowers/plans/2026-07-16-prod-hardening-followup-map.md`). Adds
   nullable `job_outbox.completion_reason TEXT` so a `send_notification` job that
