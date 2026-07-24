@@ -26,6 +26,9 @@ Rows marked `— (deny-all)` in the Scope column are **not** owner-scoped by an 
 | `review_exceptions` | `business_id` | Exception records are location-scoped, including identity-collision and publisher failure cases. |
 | `ranking_snapshots` | `business_id` | Ranking history is location-scoped by keyword and snapshot date. |
 | `competitor_snapshots` | `business_id` | Competitor pack rows are location-scoped by keyword and snapshot date. |
+| `contact_csv_uploads` | `account_id` and `business_id` | Contacts CSV upload rows (raw CSV until terminal state, consent attestation, ingest report) are owner SELECT-only; writes are service-role via the upload route and csv_ingest worker (migration 086). |
+| `solicitation_contacts` | `business_id` | Solicitation contacts (normalized handles — PII) are location-scoped; owner reads join through `businesses.account_id`, writes are worker-only (migration 086). |
+| `solicitation_visits` | `business_id` | Visit-ledger rows inherit tenant scope through the target location; a composite FK pins each visit to its contact's location (migration 086). |
 | `approval_audit_log` | `account_id` and `business_id` | Approval forensics are denormalized with account and location scope for owner/admin evidence queries. |
 | `account_audit_log` | `account_id` | Account-level audit entries are scoped to the billing parent. |
 | `account_offboardings` | `account_id` | Owner offboarding lifecycle rows are account-scoped and service-only. RLS is deny-all with no authenticated owner policies; routes and workers must enforce session/account scope in application code. |

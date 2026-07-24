@@ -109,6 +109,8 @@ Next.js App Router pages, grouped by access level.
 | `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
 | `dashboard/reviews/history/page.tsx` | "Past Replies" history tab — account/location-scoped paginated list of every posted Google reply, including pre-RepWorth replies. Gated by `PAST_REPLIES_VIEW_ENABLED`; edit actions are separately gated by `EDIT_REPLIES_ENABLED`. Both Copilot and Autopilot receive the former paid-tier history/edit feature set. |
 | `dashboard/add-location/` | 4-step "add location" wizard (gated by `MULTI_LOCATION_ENABLED`). `AddLocationWizard.tsx` is a composing shell; `wizard/reducer.ts` is the pure state machine; `wizard/useAddLocationWizard.ts` owns the two fetch effects + submit/navigation; `wizard/steps/Step{1..4}*.tsx` are presentational; `wizard/billing.ts` + `wizard/payload.ts` hold the pure proration/payload helpers. |
+| `dashboard/contacts/page.tsx` | **(#541)** Solicitation watch-mode contacts surface. Server-authoritative `SOLICITATION_WATCH_ENABLED` gate — `notFound()` when off (mirrors the API routes); passes the server-owned consent attestation text/version to the client as props so the bundle never imports the solicitation modules. |
+| `dashboard/contacts/ContactsClient.tsx` | **(#541)** Client component: CSV upload with required consent-attestation checkbox, upload report polling (`uploads/[id]`), paginated per-location contacts list + per-contact delete. |
 | `settings/layout.tsx` | Settings shell — renders the grouped `SettingsSidebar` (Responses: Brand Voice, Auto-approval, Notifications · Account: Locations, Profile, Billing, Security) as a persistent left rail; each child route renders its own panel + `TopBar`. |
 | `settings/page.tsx` | Index — server `redirect('/settings/voice')` (Brand Voice is the first tab). |
 | `settings/voice/` | Brand Voice route (`VoiceClient` + `useLocationVoiceForm`): one panel for a single location, per-location selector when >1. Un-gated — renders for every account. |
@@ -228,6 +230,10 @@ _(No `past-replies/*` API routes on `feat/past-replies-view` — the tab is read
 | `channels/telegram/start/route.ts` | POST: starts a Telegram enrollment for the owner (generates QR token). |
 | `channels/telegram/cancel/route.ts` | POST: cancels a pending Telegram enrollment. |
 | `channels/telegram/disable/route.ts` | POST: disables an active Telegram enrollment. |
+| `contacts/route.ts` | **(#541)** GET: paginated per-location contacts list; untrusted `limit`/`offset` clamped by `clampContactListPage` before any SQL. All four `contacts/**` routes 404 **before auth** when `SOLICITATION_WATCH_ENABLED` is off, and reject the aggregate ("all locations") scope with 400. |
+| `contacts/[id]/route.ts` | **(#541)** DELETE: removes one contact (same-origin + `requireWritableOwner`); uniform 404 for malformed/unknown/out-of-scope ids; delegates to `deleteContact` in `src/lib/solicitation/contacts-repo.ts`. |
+| `contacts/uploads/route.ts` | **(#541)** POST: multipart contacts/visits CSV upload with required consent attestation (same-origin + `requireWritableOwner`); delegates to `createContactsCsvUpload` (one tx: upload row + `csv_ingest` outbox enqueue). |
+| `contacts/uploads/[id]/route.ts` | **(#541)** GET: upload status/report read for the dashboard polling loop; delegates to `getUploadStatus` in `src/lib/solicitation/uploads.ts`. |
 
 #### `settings/route.ts`
 
@@ -521,6 +527,15 @@ Phase 2 Solicitation agent (watch-mode first).
 | File | What it does |
 |------|--------------|
 | `restraint-policy.ts` | **(#542)** Pure, sentiment-blind restraint policy: `evaluateAsk` (five per-candidate gates, first-match precedence) + `evaluateBatch` (adds `velocity_banked`), closed six-reason withhold enum, vertical mapper, versioned tunable constants (`RESTRAINT_POLICY_VERSION`). No DB, no clock — `decided_at` + business category arrive via context. Spec: `docs/superpowers/specs/2026-07-23-restraint-policy-v-watch.md`. |
+| `flags.ts` | `solicitationWatchEnabled()` — `SOLICITATION_WATCH_ENABLED` accessor over `readFlag`. Default off; gates the four `/api/dashboard/contacts/**` routes (404 before auth) and the `/dashboard/contacts` page (`notFound()`). Staging flip owned by #544. |
+| `handles.ts` | **(#541)** Normalized-handle kernel (#535 contract §1.1/§6): `normalizeEmail` (lowercase/trim + plausibility) and `normalizePhone` (E.164; US assumed for 10-digit; any letter rejects). Computed ONCE at CSV ingest and stored — the future suppression ledger keys on the stored handle per channel, never on `contact_id`, so delete + re-upload cannot un-suppress. |
+| `contacts-csv.ts` | **(#541)** Pure contacts CSV parse kernel (#535 §2) with a private RFC-4180 tokenizer. Syntax-only validation (staleness is the restraint policy's judgment, never ingest's); closed `ROW_REJECTION_REASONS` + `STRUCTURAL_FAILURES` enums; 5 MB / 5,000-data-row / 500-char-note caps. `todayUtc` arrives as a parameter — no clock reads, identical inputs parse identically. |
+| `attestation.ts` | **(#541)** Versioned consent-attestation code constants (#535 §4): `CONSENT_ATTESTATION_VERSION` + `CONSENT_ATTESTATION_TEXT`. Wording changes MUST bump the version; the version string is stored on every upload row so "which attestation covers this person" is a query, not a guess. |
+| `uploads.ts` | **(#541)** Upload lane: `createContactsCsvUpload` persists the raw CSV + consent attestation AND enqueues `csv_ingest` in ONE tx (invariant #2); `getUploadStatus` is the account-scoped status/report read (a `contact_csv_uploads.report` PgBouncer JSONB parse site — CLAUDE.md allowlist). Injected `Sql` (invariant #15). |
+| `ingest.ts` | **(#541)** Ingest lane: `ingestContactsCsvUpload` — match/merge/upsert of contacts + visits, terminal report write, raw-CSV clearing, ALL inside one tx whose FIRST statement takes a per-business `pg_advisory_xact_lock` (serializes concurrent ingests and the failed-hook terminalizer). `parseStoredReport` is the second `contact_csv_uploads.report` JSONB parse site. PII contract: never logs names/handles/notes/raw CSV — counts and reason histograms only. |
+| `contacts-repo.ts` | **(#541)** Contacts read/delete repo (#535 §5): `listContacts` (bounded; `clampContactListPage` is the single owner of the limit 1–100 / offset ≥ 0 rule) + `deleteContact`. Contacts carry NO `account_id` — every query joins `businesses` on `b.account_id = accountId`; the join IS the account-scope check (invariant #8). |
+
+**Connection:** `POST /api/dashboard/contacts/uploads` → `uploads.ts` (upload row + `csv_ingest` outbox, one tx) → OutboxPoller dispatches → `worker/jobs/csv-ingest/` delegates to `ingest.ts` → the dashboard polls `GET /api/dashboard/contacts/uploads/[id]` for the terminal report. Unit + integration tests colocate in `__tests__/`.
 
 ### `llm/`
 
@@ -767,7 +782,15 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 | `RankingTrackingWorker.ts` | `track-ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
 | `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
 | `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
+| `csv-ingest/index.ts` | `csv_ingest` | **(#541)** Contacts/visits CSV ingest (`handleCsvIngest`). Subscription gate derived from the upload row's business→account join (`subscriptionGrantsFullAccess`, invariant #11 — gated accounts leave the upload `pending`); delegates all match/merge/upsert + report behavior to `src/lib/solicitation/ingest.ts`. PII contract: logs counts/ids only — never names, handles, notes, or raw CSV. |
 | `live-draft-guard.ts` | — (helper) | **(WS5)** `hasLiveOwnerActionableResponse(tx, reviewId)` — shared by `ResponseGeneratorWorker` and `publisher/failed-hook` terminal checkpoints; a run is never completed `failed` while an owner-actionable draft (non-terminal status) exists for the review. |
+
+#### `worker/jobs/csv-ingest/` — contacts CSV ingest package **(#541)**
+
+| File | What it does |
+|------|--------------|
+| `index.ts` | Composition root for the `csv_ingest` queue (see the queue table above). |
+| `failed-hook.ts` | Retry-exhaustion terminalizer (`handleCsvIngestFailed`, mirrors `zernio/ingest-failed-hook.ts`). Takes the SAME per-business advisory lock as the ingest tx, re-reads `status='pending'` under it, then — gated by the exact outbox-attempt CAS — terminalizes the upload to `failed` with an `ingest_failed` report and clears `raw_csv` in one transaction (§3: the raw blob's lifetime is bounded by processing, success or failure). Persists only the bounded error CLASS — raw messages can embed handle values. |
 
 #### `worker/jobs/judge/` — JudgeWorker package **(WS6)**
 
@@ -1062,8 +1085,9 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 ## `supabase/migrations/`
 
-All schema migrations live here, numbered `001` … `078` (repository/local-test
-head; next is `079`). Supabase staging/production migrations remain a user-run
+All schema migrations live here, numbered `001` … `086` (repository/local-test
+head — `086_solicitation_contacts.sql`, the #541 contacts/visits tables; next
+is `087`). Supabase staging/production migrations remain a user-run
 promotion step. WS8 uses `077_copilot_autopilot_expand.sql` only after provider
 preflight reaches zero while traffic is quiesced, then deploys strict code and
 smokes before `078_copilot_autopilot_contract.sql` installs the NULL-safe strict
