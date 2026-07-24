@@ -29,8 +29,9 @@ list_candidates() {
   local BASE
   for BASE in "$PWD" "${CLAUDE_PROJECT_DIR:-}"; do
     [ -n "$BASE" ] || continue
-    git -C "$BASE" worktree list --porcelain 2>/dev/null \
-      | sed -n 's/^worktree //p'
+    while IFS= read -r -d '' REC; do
+      case "$REC" in "worktree "*) printf '%s\n' "${REC#worktree }" ;; esac
+    done < <(git -C "$BASE" worktree list --porcelain -z 2>/dev/null)
   done
 }
 

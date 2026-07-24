@@ -11,8 +11,20 @@
 #    main session; see #512);
 # 2. deletes the parent-checkout draft (one authoritative owner);
 # 3. proves enforcement is armed (scripts/arm-check.sh);
-# 4. reports cross-worktree surface overlaps (scripts/feature-surface-check.sh).
+# 4. reports cross-worktree surface overlaps (scripts/feature-surface-check.sh);
+# 5. initializes .feature/state.json (phase=worktree_ready) via
+#    scripts/feature-state.sh — the machine-readable phase record
+#    /feature-resume reads first.
 set -uo pipefail
+
+# Preflight: every tool the workflow's hooks/scripts require, checked up
+# front with an actionable error instead of a mid-run 127.
+for BIN in git jq pnpm shasum grep; do
+  command -v "$BIN" >/dev/null 2>&1 || {
+    echo "PREFLIGHT FAILED: required tool '$BIN' not found on PATH — install it before arming."
+    exit 1
+  }
+done
 
 SRC=${1:?usage: feature-setup.sh <path-to-locked-intake.json>}
 ROOT=$(git rev-parse --show-toplevel)
@@ -51,6 +63,8 @@ git commit -q -m "chore(feature): intake contract for ${BRANCH}" -- "$DOCS_COPY"
 echo "intake installed: $DOCS_COPY (committed) + .feature/intake.json (arming copy)"
 
 bash scripts/arm-check.sh || exit 1
+
+bash scripts/feature-state.sh set-phase worktree_ready
 
 if ! bash scripts/feature-surface-check.sh; then
   echo "^ SURFACE OVERLAP above — surface it to the user before planning (step 3)."

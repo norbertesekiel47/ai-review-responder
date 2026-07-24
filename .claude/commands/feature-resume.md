@@ -20,8 +20,16 @@ continue: the handoff doc's claims are hints; git state is the truth.
    DISARMED → STOP and report instead of continuing.
 3. **Reconcile claimed state against git state** (do this BEFORE trusting
    the handoff doc):
+   - Read `.feature/state.json` FIRST — the machine-readable phase record
+     (`phase`, `headSha`, `lastGreenGateSha`, `intakeSha256`). If
+     `headSha` ≠ actual `git rev-parse HEAD`, work happened without a
+     phase update — reconcile from git, then re-run
+     `bash scripts/feature-state.sh set-phase <phase>` to repair it. If
+     the file is missing (pre-state-machine run), fall through to the git
+     checks below.
    - `git log --oneline $(git merge-base HEAD origin/main)..HEAD` — do the
-     commits match the tasks the handoff claims are done?
+     commits match the tasks the handoff (and `state.json` phase) claim
+     are done?
    - `git status --porcelain` — uncommitted changes on resume are a RED
      FLAG: surface them to me (whose work? which task? commit or discard?)
      rather than absorbing them silently.
@@ -29,7 +37,8 @@ continue: the handoff doc's claims are hints; git state is the truth.
      `docs/superpowers/plans/<branch>-intake.json`. Divergence means an
      amendment updated one copy only — reconcile with me before any edit.
    - Staleness: is `.feature/gate-status.json` missing, red, or older than
-     HEAD? Say so now — don't leave it for the Stop hook to catch later.
+     HEAD? Does `state.json`'s `lastGreenGateSha` match HEAD? Say so now —
+     don't leave it for the Stop hook to catch later.
    - Main drift: `git rev-list --count HEAD..origin/main`. A branch far
      behind main rots — flag it and propose a rebase/merge before new work.
 4. **Bootstrap state, in this order** (skip files that don't exist yet):

@@ -252,8 +252,11 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
    surface the disagreement to me instead of looping).
 2. Then show me the approved plan and wait for my sign-off.
 
-**CHECKPOINT (step 3→4 boundary)**: after plan sign-off, invoke the
-`handoff` skill and write the handoff doc to the worktree
+**CHECKPOINT (step 3→4 boundary)**: after plan sign-off, run
+`cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved`
+(the machine-readable phase record `/feature-resume` reads first — setup
+initialized it at `worktree_ready`; the gate records `gate_green` itself),
+then invoke the `handoff` skill and write the handoff doc to the worktree
 (`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
 plan, ticket files, and glossary excerpt by path — not restate them. Then:
 - If context usage is already high (grilling ran long), tell me to start a
@@ -267,9 +270,10 @@ plan, ticket files, and glossary excerpt by path — not restate them. Then:
 
 ## 4. EXECUTE — delegated
 
-Invoke `superpowers:subagent-driven-development` FROM this session: dispatch
-fresh per-task subagents against the worktree. Each subagent's task prompt
-MUST include:
+Set the phase first (`bash scripts/feature-state.sh set-phase executing`),
+then invoke `superpowers:subagent-driven-development` FROM this session:
+dispatch fresh per-task subagents against the worktree. Each subagent's
+task prompt MUST include:
 - The relevant `CONTEXT.md` glossary excerpt (so it names things in the
   shared language, not its own invented jargon).
 - The task's spec slice and its blocking-edge context.
@@ -431,7 +435,8 @@ as one-liners in the report file (so a resumed session inherits triage
 state). **COMMIT the review reports + triage verdicts on the branch** —
 uncommitted reports vanish with the worktree at cleanup (two merged
 worktrees were found holding the only copy of their step 7 reports).
-Re-run step 5.
+Re-run step 5. When triage completes, run
+`bash scripts/feature-state.sh set-phase reviewed`.
 
 ## 8. SHIP — lane-dependent
 
