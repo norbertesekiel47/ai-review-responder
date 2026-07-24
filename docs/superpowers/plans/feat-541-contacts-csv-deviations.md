@@ -67,3 +67,17 @@ logs a one-line ACCEPT / RE-PLAN verdict per entry at step 6.5.
   Dropped `as const` from `CONSENT_ATTESTATION_TEXT` (type widens to
   `string`, harmless — it's rendered as UI copy, never narrowed/discriminated
   like `CONSENT_ATTESTATION_VERSION`, which keeps its `as const`).
+- [2026-07-24] Task 4, minor route-shape divergences from "resolve the
+  location context exactly as kpis does" on GET `/uploads/[id]`:
+  (a) aggregate scope (`?scope=all`) returns 400 `A location scope is
+  required` instead of kpis's account-aggregate branch — an upload belongs to
+  exactly one location, so the aggregate mode has no meaning for a
+  single-upload status read; (b) location exposure uses `'uniform-not-found'`
+  (the newer agent-team posture policy.ts itself recommends for new routes)
+  rather than kpis's `'legacy-kpis'` (403 foreign-location) — a new surface
+  should not leak foreign-location existence. POST auth uses
+  `requireWritableOwner` + `withSameOrigin` from route-helpers (no
+  write-flavored wrapper exists in dashboard `policy.ts`) — this is the
+  plan's own contingency branch, recorded here for the reviews: the POST is
+  owner-gated AND writable-subscription-gated, matching every other
+  dashboard mutation route.
