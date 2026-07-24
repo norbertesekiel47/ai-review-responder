@@ -81,7 +81,8 @@
     "src/lib/shared/__tests__/**",
     ".claude/CLAUDE.md",
     "worker/jobs/account-offboarding/**",
-    "scripts/ci/tenant-tables.ts"
+    "scripts/ci/tenant-tables.ts",
+    "docs/security/rls-inventory.md"
   ],
   "tests_to_add": [
     "normalizes a 10-digit US phone to E.164",
@@ -101,7 +102,8 @@
     "upload route rejects when the attestation is not accepted",
     "upload route persists the upload row and csv_ingest outbox row in one transaction",
     "contacts API routes return 404 when SOLICITATION_WATCH_ENABLED is off",
-    "csv ingest worker no-ops for subscriptions without full access",
+    "csv ingest worker processes uploads for past_due accounts in grace",
+    "csv ingest worker terminalizes the upload when the subscription is inactive",
     "hard delete removes the contact and cascades its visits",
     "offboarding purge sweeps uploads, contacts, and visits"
   ],
