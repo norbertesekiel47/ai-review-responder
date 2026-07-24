@@ -17,9 +17,14 @@ import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { VoiceReportCard } from './VoiceReportCard';
 
 export function VoiceClient() {
   const f = useLocationVoiceForm();
+
+  // The hook selects primary/first location on load for single-location
+  // accounts too; the locations[0] fallback is a safety net only.
+  const reportCardLocationId = f.selectedLocationId ?? f.locations[0]?.locationId ?? null;
 
   // Error state
   if (f.fetchError) {
@@ -96,6 +101,11 @@ export function VoiceClient() {
 
       {f.saveError && (
         <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{f.saveError}</p>
+      )}
+
+      {/* Voice Report Card — what voice learning inferred for this location (#540) */}
+      {reportCardLocationId && (
+        <VoiceReportCard key={reportCardLocationId} locationId={reportCardLocationId} />
       )}
     </SettingsShell>
   );
