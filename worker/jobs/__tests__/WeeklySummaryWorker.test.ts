@@ -148,6 +148,53 @@ function competitorSnapshot(
   };
 }
 
+/** LEFT-JOIN miss: a window date whose Competitor pack was persisted empty. */
+const EMPTY_PACK_SENTINEL = {
+  snapshot_date: null,
+  rank_position: null,
+  place_id: null,
+  title: null,
+  rating: null,
+  review_count: null,
+  is_self: null,
+};
+
+/**
+ * Composes the competitor lane's single-statement result set — one row per
+ * (window date × pack entry) with the context columns repeated — from the
+ * domain facts a test declares. Mirrors resolveNamedRival's one CTE read:
+ * a date with no pack rows survives as the empty-pack sentinel, and a
+ * location with no ranking snapshots at all survives with a NULL window_date.
+ */
+function competitorLaneRows(opts: {
+  competitorSettings?: unknown[];
+  competitorRankingDates?: unknown[];
+  competitorSnapshots?: unknown[];
+}): unknown[] {
+  const [settings] = (opts.competitorSettings ?? []) as Array<{
+    keyword: string;
+    search_location: string;
+  }>;
+  if (!settings) return [];
+  const context = {
+    keyword: settings.keyword,
+    search_location: settings.search_location,
+    rival_place_id: null,
+    rival_title_snapshot: null,
+  };
+  const dates = (opts.competitorRankingDates ?? []) as Array<{ snapshot_date: string }>;
+  if (dates.length === 0) return [{ ...context, window_date: null, ...EMPTY_PACK_SENTINEL }];
+
+  const packs = (opts.competitorSnapshots ?? []) as Array<{ snapshot_date: string }>;
+  return dates.flatMap(({ snapshot_date }): unknown[] => {
+    const entries = packs.filter((entry) => entry.snapshot_date === snapshot_date);
+    if (entries.length === 0) {
+      return [{ ...context, window_date: snapshot_date, ...EMPTY_PACK_SENTINEL }];
+    }
+    return entries.map((entry) => ({ ...context, window_date: snapshot_date, ...entry }));
+  });
+}
+
 /**
  * Pushes the standard SQL return sequence for a full happy-path run.
  *
@@ -193,21 +240,14 @@ function pushHappyPathSqlQueue(opts: {
     sqlReturnQueue.push(opts.initialRanking ?? [{ rank_position: 8 }]);     // 8. initial ranking
   }
   sqlReturnQueue.push(opts.ownerWithAuth ?? []);                            // 9. dashboard eligibility
-  sqlReturnQueue.push(opts.competitorSettings ?? []);                       // 10. Competitor Delta settings
-  if (opts.competitorSettings && opts.competitorSettings.length > 0) {
-    const rankingDates = opts.competitorRankingDates ?? [];
-    sqlReturnQueue.push(rankingDates);                                      // 11. latest two exact-series ranking dates
-    if (rankingDates.length > 0) {
-      sqlReturnQueue.push(opts.competitorSnapshots ?? []);                  // 12. Competitor packs for those dates
-    }
-  }
-  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 13. upsert
-  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 14. claim UPDATE
-  // 15. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
+  sqlReturnQueue.push(competitorLaneRows(opts));                            // 10. competitor lane (ONE CTE read)
+  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 11. upsert
+  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 12. claim UPDATE
+  // 13. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
   if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
-    sqlReturnQueue.push([]);                                                // 15. UPDATE summary_text
+    sqlReturnQueue.push([]);                                                // 13. UPDATE summary_text
   }
-  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 16. guarded UPDATE sent_at
+  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 14. guarded UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
@@ -347,7 +387,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
     sqlReturnQueue.push([]);                         // latest ranking
     sqlReturnQueue.push([]);                         // dashboard eligibility
-    sqlReturnQueue.push([]);                         // Competitor Delta settings
+    sqlReturnQueue.push([]);                         // competitor lane (ONE CTE read)
     sqlReturnQueue.push([]);                         // upsert returns empty
     sqlReturnQueue.push([{ sent_at: '2026-04-07', claimed_at: '2026-04-07' }]); // distinguish query: sent_at IS NOT NULL
 
@@ -372,7 +412,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
     sqlReturnQueue.push([]);                         // latest ranking
     sqlReturnQueue.push([]);                         // dashboard eligibility
-    sqlReturnQueue.push([]);                         // Competitor Delta settings
+    sqlReturnQueue.push([]);                         // competitor lane (ONE CTE read)
     sqlReturnQueue.push([]);                         // upsert returns empty
     sqlReturnQueue.push([{ sent_at: null, claimed_at: new Date().toISOString() }]); // distinguish: claimed but not sent
 
@@ -426,34 +466,36 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     const params = mockBuildWeeklyValueReportHtml.mock.calls[0]![0];
     expect(params.competitorDelta).toEqual({
       kind: 'rival',
-      rivalName: 'Alpha Bakery',
-      gap: 5,
-      reviewVelocity: 4,
+      line: {
+        rivalName: 'Alpha Bakery',
+        gap: 5,
+        reviewVelocity: 4,
+        source: 'auto_default',
+      },
     });
 
-    const settingsQuery = sqlCalls.find(({ text }) => text.includes("tracked_keywords->>0"));
-    expect(settingsQuery?.values).toEqual(['biz-1']);
-    const datesQuery = sqlCalls.find(({ text }) => (
-      text.includes('FROM ranking_snapshots') && text.includes('search_location')
-    ));
-    expect(datesQuery?.values).toEqual([
-      'biz-1',
-      ' best bakery ',
-      '34.0522000,-118.2437000',
-    ]);
-    const packQuery = sqlCalls.find(({ text }) => text.includes('FROM competitor_snapshots'));
-    expect(packQuery?.values).toEqual([
-      'biz-1',
-      ' best bakery ',
-      '34.0522000,-118.2437000',
-      ['2026-07-20', '2026-07-06'],
-    ]);
+    // The whole lane is ONE statement: RankingTrackingWorker replaces the pack
+    // wholesale and overwrites search_location on a same-day re-run, so
+    // sequential reads can observe a pack that does not match the dates just
+    // read. READ COMMITTED makes db.begin() no help — the single read is the fix.
+    const laneQueries = sqlCalls.filter(({ text }) => text.includes('competitor_snapshots'));
+    expect(laneQueries).toHaveLength(1);
+    const laneQuery = laneQueries[0]!;
+    expect(laneQuery.values).toEqual(['biz-1', 'biz-1', 'biz-1']);
+    expect(laneQuery.text).toContain('tracked_keywords->>0');
+    expect(laneQuery.text).toContain('FROM ranking_snapshots');
+    // Keyword + search_location are correlated inside SQL rather than round-tripped
+    // as parameters — that correlation is now the query's contract.
+    expect(laneQuery.text).toContain('rs.keyword = ctx.keyword');
+    expect(laneQuery.text).toContain('rs.search_location = ctx.search_location');
+    expect(laneQuery.text).toContain('cs.keyword = ctx.keyword');
+    expect(laneQuery.text).toContain('cs.search_location IS NOT DISTINCT FROM ctx.search_location');
     // DATE columns must be cast ::text or Postgres.js returns JS Date objects
     // and every === string comparison downstream is silently false (the
     // string fixtures in this suite cannot catch that — the query shape is
     // the contract).
-    expect(datesQuery?.text).toContain('snapshot_date::text');
-    expect(packQuery?.text).toContain('snapshot_date::text');
+    expect(laneQuery.text).toContain('d.snapshot_date::text AS window_date');
+    expect(laneQuery.text).toContain('cs.snapshot_date::text AS snapshot_date');
   });
 
   it('selects lexical place identity for equal-gap NULL-rank rivals independent of SQL order', async () => {
@@ -471,9 +513,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
       kind: 'rival',
-      rivalName: 'Alpha Bakery',
-      gap: 5,
-      reviewVelocity: null,
+      line: {
+        rivalName: 'Alpha Bakery',
+        gap: 5,
+        reviewVelocity: null,
+        source: 'auto_default',
+      },
     });
   });
 
@@ -483,7 +528,8 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     await handleWeeklySummary(makeJob());
 
     expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toBeNull();
-    expect(sqlCalls.some(({ text }) => text.includes('FROM competitor_snapshots'))).toBe(false);
+    // Unconfigured still costs exactly the one lane read, never a second.
+    expect(sqlCalls.filter(({ text }) => text.includes('competitor_snapshots'))).toHaveLength(1);
 
     mockBuildWeeklyValueReportHtml.mockClear();
     sqlCalls.length = 0;
@@ -514,9 +560,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
       kind: 'rival',
-      rivalName: 'Behind Bakery',
-      gap: -10,
-      reviewVelocity: null,
+      line: {
+        rivalName: 'Behind Bakery',
+        gap: -10,
+        reviewVelocity: null,
+        source: 'auto_default',
+      },
     });
   });
 
@@ -545,13 +594,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       kind: 'teaser',
       keyword: 'best bakery',
     });
-    const packQuery = sqlCalls.find(({ text }) => text.includes('competitor_snapshots'));
-    expect(packQuery?.values).toEqual([
-      'biz-1',
-      'best bakery',
-      'Los Angeles, California',
-      ['2026-07-20', '2026-07-06'],
-    ]);
+    // The empty pack for the newest date is a recorded fact, and the LEFT JOIN
+    // keeps that date in the window instead of silently falling back to the
+    // older pack.
+    const laneQueries = sqlCalls.filter(({ text }) => text.includes('competitor_snapshots'));
+    expect(laneQueries).toHaveLength(1);
+    expect(laneQueries[0]!.values).toEqual(['biz-1', 'biz-1', 'biz-1']);
   });
 
   it('parses NUMERIC competitor ratings returned by Postgres.js as strings', async () => {
@@ -568,9 +616,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
       kind: 'rival',
-      rivalName: 'String Rating Bakery',
-      gap: 3,
-      reviewVelocity: null,
+      line: {
+        rivalName: 'String Rating Bakery',
+        gap: 3,
+        reviewVelocity: null,
+        source: 'auto_default',
+      },
     });
   });
 

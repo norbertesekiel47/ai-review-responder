@@ -27,7 +27,10 @@ function baseWeeklyParams(overrides: Partial<WeeklyValueReportParams> = {}): Wee
 }
 
 function rivalDelta(rivalName: string, gap: number, reviewVelocity: number | null) {
-  return { kind: 'rival' as const, rivalName, gap, reviewVelocity };
+  return {
+    kind: 'rival' as const,
+    line: { rivalName, gap, reviewVelocity, source: 'auto_default' as const },
+  };
 }
 
 function baseMonthlyParams(overrides: Partial<MonthlyImpactEmailParams> = {}): MonthlyImpactEmailParams {
