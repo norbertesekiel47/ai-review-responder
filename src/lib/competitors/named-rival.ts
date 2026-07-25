@@ -180,8 +180,15 @@ function selectNamedRival(
   const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
   const self = currentRows.find((row) => row.is_self && Number.isInteger(row.review_count));
 
+  // The blank-title exclusion mirrors `selectAutoDefaultRival` and the picker's
+  // option filter: 084 stores `title = ''` when SerpAPI omits a name, and an
+  // unnameable rival would render a nameless digest line. Honoring the pick
+  // requires a row we can NAME, not merely one we can count.
   const pickedRow = currentRows.find(
-    (row) => row.place_id === pick.placeId && !row.is_self && Number.isInteger(row.review_count),
+    (row) => row.place_id === pick.placeId
+      && !row.is_self
+      && Number.isInteger(row.review_count)
+      && row.title.trim().length > 0,
   );
   if (pickedRow && self) {
     return {
@@ -193,7 +200,8 @@ function selectNamedRival(
   // The pick is not usable in the latest pack. It is a DROPOUT only when the
   // pick was present in the immediately preceding snapshot — first-absent is
   // derived from the same two-date window that drives velocity (#532 item 4).
-  // Present-but-unusable (NULL review count) is not a dropout: nothing left.
+  // Present-but-unusable (NULL review count, or a blank title) is not a
+  // dropout: the rival is still in the pack, just uncountable or unnameable.
   const presentButUnusable = currentRows.some((row) => row.place_id === pick.placeId);
   const wasInPreceding = precedingDate !== undefined
     && rows.some((row) => row.snapshot_date === precedingDate && row.place_id === pick.placeId);
@@ -610,10 +618,18 @@ async function storeRivalPick(
       -- commit a NEW date's pack in between, the old date's rows remain
       -- persisted, and we would happily store a rival absent from the
       -- now-latest pack.
+      --
+      -- The subquery is scoped by search location as well as keyword, matching
+      -- the NULL-safe comparison above: a location whose effective search
+      -- location changed keeps the old lane's rows, and an unscoped MAX() would
+      -- return a date belonging to a DIFFERENT lane's pack than the one both
+      -- read paths derive their window from.
       AND cs.snapshot_date = (
         SELECT MAX(cs2.snapshot_date)
         FROM competitor_snapshots cs2
-        WHERE cs2.business_id = b.id AND cs2.keyword = cs.keyword
+        WHERE cs2.business_id = b.id
+          AND cs2.keyword = cs.keyword
+          AND cs2.search_location IS NOT DISTINCT FROM cs.search_location
       )
     RETURNING b.rival_picked_at
   `;

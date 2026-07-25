@@ -45,10 +45,8 @@ function optionTexts(select: HTMLElement): (string | null)[] {
   return within(select).getAllByRole('option').map((option) => option.textContent);
 }
 
-function renderClient(views: RivalPickerView[], multiLocation = false, locations = LOCATIONS) {
-  return render(
-    <CompetitorsClient views={views} locations={locations} multiLocation={multiLocation} />,
-  );
+function renderClient(views: RivalPickerView[], locations = LOCATIONS) {
+  return render(<CompetitorsClient views={views} locations={locations} />);
 }
 
 describe('CompetitorsClient', () => {
@@ -174,7 +172,6 @@ describe('CompetitorsClient', () => {
         READY_VIEW,
         { state: 'awaiting_pack', businessId: SECOND_BUSINESS_ID, keyword: 'bakery' },
       ],
-      true,
       [...LOCATIONS, { id: SECOND_BUSINESS_ID, name: 'Harbour Bakery' }],
     );
 

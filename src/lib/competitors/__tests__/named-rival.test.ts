@@ -182,6 +182,29 @@ describe('selectNamedRival', () => {
     expect(result).toMatchObject({ kind: 'rival', line: { rivalName: 'Near Ahead', source: 'auto_default' } });
   });
 
+  it('falls back to the Auto-default rival when the picked rival has a blank title in the latest pack', () => {
+    // 084 stores `title = ''` when SerpAPI omits a name. The rival is still in
+    // the pack, so this is present-but-unusable — same as a NULL review count:
+    // the Auto-default line renders and NO dropout note fires.
+    const rows = [
+      packRow(SELF),
+      packRow({ place_id: 'ChIJ_near', title: 'Near Ahead', review_count: 110 }),
+      packRow({ place_id: 'ChIJ_picked', title: '   ', review_count: 180 }),
+      packRow({ snapshot_date: '2026-07-06', ...SELF, review_count: 96 }),
+      packRow({ snapshot_date: '2026-07-06', place_id: 'ChIJ_near', title: 'Near Ahead', review_count: 108 }),
+      packRow({ snapshot_date: '2026-07-06', place_id: 'ChIJ_picked', title: 'Old Mill Bakery', review_count: 175 }),
+    ];
+
+    const result = selectNamedRival(rows, '2026-07-20', '2026-07-06', {
+      placeId: 'ChIJ_picked', titleSnapshot: 'Old Mill Bakery',
+    });
+
+    expect(result).toEqual({
+      kind: 'rival',
+      line: { rivalName: 'Near Ahead', gap: 10, reviewVelocity: 2, source: 'auto_default' },
+    });
+  });
+
   it('labels the Auto-default rival source when there is no pick at all', () => {
     const rows = [packRow(SELF), packRow({ place_id: 'ChIJ_near', title: 'Near Ahead', review_count: 110 })];
     expect(selectNamedRival(rows, '2026-07-20', undefined, null)).toMatchObject({

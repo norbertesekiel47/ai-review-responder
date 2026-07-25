@@ -26,7 +26,6 @@ interface LocationSummary {
 interface Props {
   views: RivalPickerView[];
   locations: LocationSummary[];
-  multiLocation: boolean;
 }
 
 /** The location a message belongs to, so a two-location page never mislabels it. */
@@ -35,12 +34,13 @@ interface Notice {
   message: string;
 }
 
-export function CompetitorsClient({ views: initialViews, locations, multiLocation }: Props) {
+export function CompetitorsClient({ views: initialViews, locations }: Props) {
   const [views, setViews] = useState<RivalPickerView[]>(initialViews);
-  // Multi-location settings mode also requires the flag, so an account with
-  // several locations and the flag off would otherwise render several
-  // indistinguishable pickers. Name every block whenever there is more than one.
-  const showLocationNames = multiLocation || views.length > 1;
+  // Location count only — deliberately NOT gated on MULTI_LOCATION_ENABLED. An
+  // account holding several active locations with the flag off still renders a
+  // picker per location, and unnamed blocks would be indistinguishable. Do not
+  // "restore" a flag check here.
+  const showLocationNames = views.length > 1;
   const [savingId, setSavingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 

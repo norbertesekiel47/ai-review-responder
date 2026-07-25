@@ -9,8 +9,6 @@ import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { loadRivalPickerView } from '@/lib/competitors/named-rival';
 import { getDisplayLabel } from '@/lib/locations/display-label';
-import { multiLocationEnabled } from '@/lib/locations/flags';
-import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { asLocationId } from '@/lib/shared/ids';
 import { CompetitorsClient } from './CompetitorsClient';
@@ -43,7 +41,6 @@ export default async function CompetitorsSettingsPage() {
           id: location.id,
           name: getDisplayLabel(location),
         }))}
-        multiLocation={shouldUseMultiLocationSettings(multiLocationEnabled(), locations.length)}
       />
     </>
   );
