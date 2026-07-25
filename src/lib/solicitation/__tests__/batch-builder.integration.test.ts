@@ -12,62 +12,28 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  acquireFeature543DatabaseLock,
+  assertFeature543LocalTestDatabaseUrl,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  resolveFeature543TestDatabaseUrl,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
 import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
 
-function localTestDatabaseUrl(): string | undefined {
-  if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
-  try {
-    const raw = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const line = raw.split('\n').find((candidate) =>
-      /^\s*TEST_DATABASE_POOL_URL\s*=/.test(candidate),
-    );
-    return line
-      ?.replace(/^\s*TEST_DATABASE_POOL_URL\s*=\s*/, '')
-      .trim()
-      .replace(/^["']|["']$/g, '');
-  } catch {
-    return undefined;
-  }
-}
-
-const testDatabaseUrl = localTestDatabaseUrl();
-// verify-gate runs changed integration files in separate processes against one DB.
-// Keep this feature's schema setup and large fixture lifecycles from overlapping.
-const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
-// The gate can run three copies of every changed suite (full test, the declared
-// integration group, and the changed-file row). Keep a bounded wait covering
-// 3 × the ~47s builder suite plus the nine shorter critical sections and load
-// margin; migration 088 DDL means the lock cannot safely cover setup alone.
-const FEATURE_543_DATABASE_LOCK_TIMEOUT_MS = 5 * 60_000;
+const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
 const businessId = randomUUID();
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: postgresType.Sql | undefined;
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 let tenant: TenantSeed | undefined;
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('batch-builder integration database was not initialized');
   return db;
-}
-
-function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
-  let parsed: URL | undefined;
-  try {
-    parsed = databaseUrl === undefined ? undefined : new URL(databaseUrl);
-  } catch {
-    parsed = undefined;
-  }
-  const isLocalPostgres =
-    parsed !== undefined &&
-    (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
-    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
-  if (databaseUrl === undefined || !isLocalPostgres) {
-    throw new Error('batch-builder integration requires a local (localhost) test database');
-  }
-  return databaseUrl;
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -86,19 +52,6 @@ async function assertStillBlocked(promise: Promise<unknown>): Promise<void> {
     }),
   ]);
   expect(outcome).toBe('blocked');
-}
-
-async function releaseFeatureDatabaseLock(): Promise<void> {
-  if (!featureDatabaseLock) return;
-  const lock = featureDatabaseLock;
-  featureDatabaseLock = undefined;
-  try {
-    await lock`
-      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
-  } finally {
-    await lock.end({ timeout: 5 });
-  }
 }
 
 async function seedCompletedUpload(): Promise<string> {
@@ -241,11 +194,8 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   timeout: 90_000,
 }, () => {
   beforeAll(async () => {
-    const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
-    await featureDatabaseLock`
-      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
+    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
     db = postgres(databaseUrl, {
       max: 4,
       prepare: false,
@@ -274,7 +224,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         'active', 'automotive'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_TIMEOUT_MS);
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
@@ -301,7 +251,8 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       try {
         if (db) await db.end({ timeout: 5 });
       } finally {
-        await releaseFeatureDatabaseLock();
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
       }
     }
   }, 120_000);
@@ -943,7 +894,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     `;
 
     const batch = await seedBatch();
-    const boundedSql = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), {
+    const boundedSql = postgres(assertFeature543LocalTestDatabaseUrl(testDatabaseUrl), {
       max: 1,
       prepare: false,
     });

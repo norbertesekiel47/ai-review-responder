@@ -8,6 +8,13 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  acquireFeature543DatabaseLock,
+  assertFeature543LocalTestDatabaseUrl,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  resolveFeature543TestDatabaseUrl,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
@@ -17,57 +24,16 @@ import {
   type IngestReport,
 } from '../ingest';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
-// verify-gate runs changed integration files in separate processes against one DB.
-// Keep this feature's schema setup and large fixture lifecycles from overlapping.
-const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
-// The gate can run three copies of every changed suite (full test, the declared
-// integration group, and the changed-file row). Keep a bounded wait covering
-// 3 × the ~47s builder suite plus the nine shorter critical sections and load
-// margin; migration 088 DDL means the lock cannot safely cover setup alone.
-const FEATURE_543_DATABASE_LOCK_TIMEOUT_MS = 5 * 60_000;
+const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: postgresType.Sql | undefined;
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('csv ingest integration database was not initialized');
   return db;
-}
-
-// Local-host refusal guard (mirrors the governor integration suite): any
-// localhost/127.0.0.1 Postgres is accepted, everything else — notably any
-// Supabase/pooler host — is refused. Never widen this to remote hosts.
-function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
-  let parsed: URL | undefined;
-  try {
-    parsed = databaseUrl === undefined ? undefined : new URL(databaseUrl);
-  } catch {
-    parsed = undefined;
-  }
-  const isLocalPostgres =
-    parsed !== undefined &&
-    (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
-    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
-  if (databaseUrl === undefined || !isLocalPostgres) {
-    throw new Error('csv ingest integration requires a local (localhost) test database');
-  }
-  return databaseUrl;
-}
-
-async function releaseFeatureDatabaseLock(): Promise<void> {
-  if (!featureDatabaseLock) return;
-  const lock = featureDatabaseLock;
-  featureDatabaseLock = undefined;
-  try {
-    await lock`
-      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
-  } finally {
-    await lock.end({ timeout: 5 });
-  }
 }
 
 async function seedUpload(csvText: string): Promise<string> {
@@ -104,13 +70,13 @@ async function countRows(table: 'solicitation_contacts' | 'solicitation_visits')
 
 const HEADER = 'name,email,phone,last_visit_date,note';
 
-describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_000 }, () => {
+describeWithDb('contacts CSV ingest against live local Postgres', {
+  enabled: Boolean(testDatabaseUrl),
+  timeout: 30_000,
+}, () => {
   beforeAll(async () => {
-    const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
-    await featureDatabaseLock`
-      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
+    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'CSV Ingest Integration Owner',
@@ -127,7 +93,7 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
         'active'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_TIMEOUT_MS);
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await sql()`
@@ -151,7 +117,8 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
       try {
         if (db) await db.end({ timeout: 5 });
       } finally {
-        await releaseFeatureDatabaseLock();
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
       }
     }
   }, 120_000);

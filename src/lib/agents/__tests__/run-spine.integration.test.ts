@@ -6,6 +6,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
+  acquireFeature543DatabaseLock,
+  assertFeature543LocalTestDatabaseUrl,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  resolveFeature543TestDatabaseUrl,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
@@ -31,48 +38,13 @@ import { commitWeeklyInsightsDigest } from '../../../../worker/jobs/WeeklySummar
 // migration 071 is born on this branch, so no shared test DB can have it yet;
 // beforeAll applies the (fully idempotent) migration file, which becomes a
 // no-op everywhere once 071 ships.
-function localTestDatabaseUrl(): string | undefined {
-  if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
-  try {
-    const raw = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const line = raw.split('\n').find((candidate) =>
-      /^\s*TEST_DATABASE_POOL_URL\s*=/.test(candidate),
-    );
-    return line
-      ?.replace(/^\s*TEST_DATABASE_POOL_URL\s*=\s*/, '')
-      .trim()
-      .replace(/^["']|["']$/g, '');
-  } catch {
-    return undefined;
-  }
-}
-
-const testDatabaseUrl = localTestDatabaseUrl();
-// verify-gate runs changed integration files in separate processes against one DB.
-// Keep this feature's schema setup and large fixture lifecycles from overlapping.
-const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
-// The gate can run three copies of every changed suite (full test, the declared
-// integration group, and the changed-file row). Keep a bounded wait covering
-// 3 × the ~47s builder suite plus the nine shorter critical sections and load
-// margin; migration 088 DDL means the lock cannot safely cover setup alone.
-const FEATURE_543_DATABASE_LOCK_TIMEOUT_MS = 5 * 60_000;
+const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
 
 // max: 2 — the concurrency tests intentionally run two transactions at once.
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: postgresType.Sql | undefined;
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 let tenant: TenantSeed | undefined;
 const solicitationBusinessId = randomUUID();
-
-function assertLocalTestDatabaseUrl(databaseUrl: string): string {
-  const parsed = new URL(databaseUrl);
-  if (
-    (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') ||
-    (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1')
-  ) {
-    throw new Error('run-spine integration requires a local test database');
-  }
-  return databaseUrl;
-}
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('run-spine integration database was not initialized');
@@ -99,29 +71,13 @@ async function startRun(subjectId: string): Promise<string> {
   return runId;
 }
 
-async function releaseFeatureDatabaseLock(): Promise<void> {
-  if (!featureDatabaseLock) return;
-  const lock = featureDatabaseLock;
-  featureDatabaseLock = undefined;
-  try {
-    await lock`
-      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
-  } finally {
-    await lock.end({ timeout: 5 });
-  }
-}
-
 describeWithDb(
   'run-spine writers against live Postgres',
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl!);
-    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
-    await featureDatabaseLock`
-      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
+    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
     db = postgres(databaseUrl, { max: 2, prepare: false });
     await db.unsafe(
       readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
@@ -148,7 +104,7 @@ describeWithDb(
         'active'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_TIMEOUT_MS);
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     try {
@@ -163,7 +119,8 @@ describeWithDb(
       try {
         if (db) await db.end({ timeout: 5 });
       } finally {
-        await releaseFeatureDatabaseLock();
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
       }
     }
   }, 120_000);

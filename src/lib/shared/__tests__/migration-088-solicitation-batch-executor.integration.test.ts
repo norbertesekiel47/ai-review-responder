@@ -6,42 +6,25 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
+  acquireFeature543DatabaseLock,
+  assertFeature543LocalTestDatabaseUrl,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  resolveFeature543TestDatabaseUrl,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+import {
   cleanupTenantAccount,
   seedTenantAccount,
 } from '@/lib/shared/__tests__/live-db-tenant';
 
-function localTestDatabaseUrl(): string | undefined {
-  if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
-  try {
-    const raw = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const line = raw.split('\n').find((candidate) =>
-      /^\s*TEST_DATABASE_POOL_URL\s*=/.test(candidate),
-    );
-    return line
-      ?.replace(/^\s*TEST_DATABASE_POOL_URL\s*=\s*/, '')
-      .trim()
-      .replace(/^["']|["']$/g, '');
-  } catch {
-    return undefined;
-  }
-}
-
-const testDatabaseUrl = localTestDatabaseUrl();
-// verify-gate runs changed integration files in separate processes against one DB.
-// Keep this feature's schema setup and large fixture lifecycles from overlapping.
-const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
-// The gate can run three copies of every changed suite (full test, the declared
-// integration group, and the changed-file row). Keep a bounded wait covering
-// 3 × the ~47s builder suite plus the nine shorter critical sections and load
-// margin; migration 088 DDL means the lock cannot safely cover setup alone.
-const FEATURE_543_DATABASE_LOCK_TIMEOUT_MS = 5 * 60_000;
+const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
 const migrationPath = resolve(
   process.cwd(),
   'supabase/migrations/088_solicitation_batch_executor.sql',
 );
 
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: postgresType.Sql | undefined;
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 
 function normalizeSql(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -49,36 +32,6 @@ function normalizeSql(value: string): string {
 
 function readMigration088Sql(): string {
   return readFileSync(migrationPath, 'utf-8');
-}
-
-function assertLocalMigrationDatabaseUrl(databaseUrl: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(databaseUrl);
-  } catch {
-    throw new Error('migration 088 tests require a local (localhost) test database');
-  }
-
-  const isLocalPostgres =
-    (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
-    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
-  if (!isLocalPostgres) {
-    throw new Error('migration 088 tests require a local (localhost) test database');
-  }
-  return databaseUrl;
-}
-
-async function releaseFeatureDatabaseLock(): Promise<void> {
-  if (!featureDatabaseLock) return;
-  const lock = featureDatabaseLock;
-  featureDatabaseLock = undefined;
-  try {
-    await lock`
-      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
-  } finally {
-    await lock.end({ timeout: 5 });
-  }
 }
 
 describe('migration 088 checked-in SQL contract', () => {
@@ -156,10 +109,10 @@ describe('migration 088 checked-in SQL contract', () => {
 
   it('refuses to connect migration tests to a remote Postgres host', () => {
     expect(() =>
-      assertLocalMigrationDatabaseUrl(
+      assertFeature543LocalTestDatabaseUrl(
         'postgresql://test:test@db.example.supabase.co:5432/postgres',
       ),
-    ).toThrow('migration 088 tests require a local (localhost) test database');
+    ).toThrow('feature 543 integration requires a local (localhost) test database');
   });
 });
 
@@ -168,24 +121,22 @@ describeWithDb(
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    const databaseUrl = assertLocalMigrationDatabaseUrl(testDatabaseUrl!);
-    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
-    await featureDatabaseLock`
-      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
-    `;
+    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
     db = postgres(databaseUrl, {
       max: 1,
       prepare: false,
     });
     await db.unsafe(readMigration088Sql());
     await db.unsafe(readMigration088Sql());
-  }, FEATURE_543_DATABASE_LOCK_TIMEOUT_MS);
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     try {
       if (db) await db.end({ timeout: 5 });
     } finally {
-      await releaseFeatureDatabaseLock();
+      await featureDatabaseLock?.release();
+      featureDatabaseLock = undefined;
     }
   }, 120_000);
 
