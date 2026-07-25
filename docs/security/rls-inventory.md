@@ -29,6 +29,8 @@ Rows marked `— (deny-all)` in the Scope column are **not** owner-scoped by an 
 | `contact_csv_uploads` | `account_id` and `business_id` | Contacts CSV upload rows (raw CSV until terminal state, consent attestation, ingest report) are owner SELECT-only; writes are service-role via the upload route and csv_ingest worker (migration 086). |
 | `solicitation_contacts` | `business_id` | Solicitation contacts (normalized handles — PII) are location-scoped; owner reads join through `businesses.account_id`, writes are worker-only (migration 086). |
 | `solicitation_visits` | `business_id` | Visit-ledger rows inherit tenant scope through the target location; a composite FK pins each visit to its contact's location (migration 086). |
+| `solicitation_batches` | `account_id` and `business_id` | Solicitation batch lifecycle rows are owner SELECT-only. The policy itself requires `built_at IS NOT NULL`, so pending or failed construction is not owner-visible (migration 088). |
+| `solicitation_asks` | `account_id` and `business_id` | Authoritative per-candidate send/withhold decisions are owner SELECT-only and tenant-pinned to both their batch and contact. In watch-mode, `send` means would-send only (migration 088). |
 | `approval_audit_log` | `account_id` and `business_id` | Approval forensics are denormalized with account and location scope for owner/admin evidence queries. |
 | `account_audit_log` | `account_id` | Account-level audit entries are scoped to the billing parent. |
 | `account_offboardings` | `account_id` | Owner offboarding lifecycle rows are account-scoped and service-only. RLS is deny-all with no authenticated owner policies; routes and workers must enforce session/account scope in application code. |

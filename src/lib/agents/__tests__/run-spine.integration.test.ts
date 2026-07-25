@@ -12,6 +12,7 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
   completeRun,
+  recordCompletedChildRuns,
   recordOutcome,
   recordStep,
   startOrGetActiveRun,
@@ -30,11 +31,39 @@ import { commitWeeklyInsightsDigest } from '../../../../worker/jobs/WeeklySummar
 // migration 071 is born on this branch, so no shared test DB can have it yet;
 // beforeAll applies the (fully idempotent) migration file, which becomes a
 // no-op everywhere once 071 ships.
-const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+function localTestDatabaseUrl(): string | undefined {
+  if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
+  try {
+    const raw = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
+    const line = raw.split('\n').find((candidate) =>
+      /^\s*TEST_DATABASE_POOL_URL\s*=/.test(candidate),
+    );
+    return line
+      ?.replace(/^\s*TEST_DATABASE_POOL_URL\s*=\s*/, '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
+  } catch {
+    return undefined;
+  }
+}
+
+const testDatabaseUrl = localTestDatabaseUrl();
 
 // max: 2 — the concurrency tests intentionally run two transactions at once.
 let db: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
+const solicitationBusinessId = randomUUID();
+
+function assertLocalTestDatabaseUrl(databaseUrl: string): string {
+  const parsed = new URL(databaseUrl);
+  if (
+    (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') ||
+    (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1')
+  ) {
+    throw new Error('run-spine integration requires a local test database');
+  }
+  return databaseUrl;
+}
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('run-spine integration database was not initialized');
@@ -61,16 +90,37 @@ async function startRun(subjectId: string): Promise<string> {
   return runId;
 }
 
-describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, () => {
+describeWithDb(
+  'run-spine writers against live Postgres',
+  { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
+  () => {
   beforeAll(async () => {
-    db = postgres(testDatabaseUrl!, { max: 2, prepare: false });
+    db = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl!), { max: 2, prepare: false });
     await db.unsafe(
       readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
+    );
+    await db.unsafe(
+      readFileSync(
+        resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
+        'utf-8',
+      ),
     );
     tenant = await seedTenantAccount(db, {
       userName: 'Run Spine Owner',
       accountDisplayName: 'Run Spine Account',
     });
+    await db`
+      INSERT INTO businesses (
+        id, name, owner_name, owner_email, account_id, subscription_status
+      ) VALUES (
+        ${solicitationBusinessId}::uuid,
+        'Solicitation Run Spine',
+        'Run Spine Owner',
+        ${tenant.ownerEmail},
+        ${tenant.accountId}::uuid,
+        'active'
+      )
+    `;
   });
 
   afterAll(async () => {
@@ -79,6 +129,7 @@ describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, (
       await sql()`DELETE FROM agent_outcomes WHERE account_id = ${tenant.accountId}::uuid`;
       // agent_run_steps cascade with their runs.
       await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM businesses WHERE id = ${solicitationBusinessId}::uuid`;
       await cleanupTenantAccount(sql(), tenant);
     }
     await db.end({ timeout: 5 });
@@ -181,6 +232,81 @@ describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, (
       WHERE agent_run_id = ${runId} AND outcome_kind = 'reply_posted'
     `;
     expect(Number(rows[0]!.count)).toBe(1);
+  });
+
+  it('persists Solicitation parent linkage and completed children against migration 088', async () => {
+    const batchId = randomUUID();
+    const askId = randomUUID();
+    const childRunId = randomUUID();
+
+    const { runId: parentRunId } = await sql().begin((tx) =>
+      startOrGetActiveRun(tx, {
+        kind: 'solicitation_batch',
+        subjectType: 'solicitation_batch',
+        subjectId: batchId,
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+      }),
+    );
+
+    await sql().begin((tx) =>
+      recordCompletedChildRuns(tx, {
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+        parentRunId,
+        children: [{
+          runId: childRunId,
+          askId,
+          decision: 'withhold',
+          withheldReason: 'stale_visit',
+        }],
+      }),
+    );
+
+    const [child] = await sql()<{
+      parent_run_id: string | null;
+      kind: string;
+      subject_type: string;
+      subject_id: string;
+      status: string;
+      ended_at: Date | null;
+    }[]>`
+      SELECT parent_run_id, kind, subject_type, subject_id, status, ended_at
+      FROM agent_runs
+      WHERE id = ${childRunId}::uuid
+    `;
+    expect(child).toMatchObject({
+      parent_run_id: parentRunId,
+      kind: 'solicitation_ask',
+      subject_type: 'solicitation_ask',
+      subject_id: askId,
+      status: 'completed',
+    });
+    expect(child?.ended_at).not.toBeNull();
+
+    const steps = await sql()<{
+      step_index: number;
+      step_key: string;
+      attributed_agent: string;
+      detail: unknown;
+    }[]>`
+      SELECT step_index, step_key, attributed_agent, detail
+      FROM agent_run_steps
+      WHERE agent_run_id = ${childRunId}::uuid
+    `;
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      step_index: 1,
+      step_key: 'ask_evaluated',
+      attributed_agent: 'solicitation',
+    });
+    const rawDetail = steps[0]!.detail;
+    const detail = typeof rawDetail === 'string' ? JSON.parse(rawDetail) : rawDetail;
+    expect(detail).toEqual({
+      ask_id: askId,
+      decision: 'withhold',
+      withheld_reason: 'stale_visit',
+    });
   });
 
   it('completeRun transitions once, no-ops on replay, throws on a missing run', async () => {
@@ -328,4 +454,5 @@ describeWithDb('run-spine writers against live Postgres', { timeout: 30_000 }, (
       )`;
     }
   });
-});
+  },
+);

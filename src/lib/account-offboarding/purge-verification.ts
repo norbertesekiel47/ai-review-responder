@@ -581,6 +581,18 @@ export function verificationQuery(
       return absentByBusiness('solicitation_contacts', accountId, exec);
     case 'solicitation_visits':
       return absentByBusiness('solicitation_visits', accountId, exec);
+    case 'solicitation_batches':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_batches
+        WHERE account_id = ${accountId}::uuid
+      `;
+    case 'solicitation_asks':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_asks
+        WHERE account_id = ${accountId}::uuid
+      `;
 
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);

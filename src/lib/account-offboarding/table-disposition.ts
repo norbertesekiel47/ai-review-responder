@@ -357,6 +357,20 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'must_be_absent',
     reason: 'Visit ledger rows carry customer activity notes and are removed with their contacts.',
   },
+  {
+    table: 'solicitation_batches',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Solicitation batch lifecycle rows are customer workflow data and cascade from their source upload.',
+  },
+  {
+    table: 'solicitation_asks',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Authoritative per-contact solicitation decisions are customer data and cascade from their batch.',
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(

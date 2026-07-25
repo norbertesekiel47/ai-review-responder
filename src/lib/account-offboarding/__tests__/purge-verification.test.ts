@@ -133,6 +133,42 @@ describe('purge verification', () => {
     expect(judgeQuery?.values).toEqual([accountId]);
   });
 
+  it('fails closed on surviving Solicitation batches or asks', async () => {
+    const accountId = '00000000-0000-7000-8000-000000000001';
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes('FROM solicitation_batches')) return [{ violation_count: 1 }];
+      if (text.includes('FROM solicitation_asks')) return [{ violation_count: 2 }];
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId,
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    }, mockSql);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'solicitation_batches',
+        disposition: 'hard_delete',
+        violationCount: 1,
+      }),
+      expect.objectContaining({
+        table: 'solicitation_asks',
+        disposition: 'hard_delete',
+        violationCount: 2,
+      }),
+    ]);
+    for (const table of ['solicitation_batches', 'solicitation_asks']) {
+      const query = calls.find((call) => call.text.includes(`FROM ${table}`));
+      expect(query?.text).toContain('WHERE account_id = ?::uuid');
+      expect(query?.values).toEqual([accountId]);
+    }
+  });
+
   it('uses explicit account, business, offboarding, and compliance retention scopes', async () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',

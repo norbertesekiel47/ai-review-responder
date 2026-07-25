@@ -18,18 +18,34 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';
+import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
 
 type TxClient = TransactionSql;
 
-export const AGENT_PERSONAS = ['reply', 'guardian', 'insights', 'system'] as const;
-export type AgentPersona = (typeof AGENT_PERSONAS)[number];
+export const AGENT_PERSONAS = [
+  'reply',
+  'guardian',
+  'insights',
+  'solicitation',
+  'system',
+] as const;
+export type AttributedAgentPersona = (typeof AGENT_PERSONAS)[number];
+// The existing owner timeline does not expose Solicitation runs in T1.
+// Ticket #544 widens that read-model/display contract with the batch UI.
+export type AgentPersona = Exclude<AttributedAgentPersona, 'solicitation'>;
 
-export const AGENT_RUN_KINDS = ['review_handler', 'weekly_insights'] as const;
+export const AGENT_RUN_KINDS = [
+  'review_handler',
+  'weekly_insights',
+  'solicitation_batch',
+  'solicitation_ask',
+] as const;
 
 export const AGENT_OUTCOME_KINDS = [
   'reply_drafted', 'reply_posted', 'reply_auto_posted',
   'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
   'review_escalated', 'escalation_resolved', 'digest_sent',
+  'solicitation_batch_built',
 ] as const;
 export type AgentOutcomeKind = (typeof AGENT_OUTCOME_KINDS)[number];
 
@@ -47,11 +63,13 @@ export const STEP_PERSONA = {
   owner_notified: 'reply',
   reply_posted: 'reply',
   digest_sent: 'insights',
-} as const satisfies Record<string, AgentPersona>;
+  ask_evaluated: 'solicitation',
+  batch_built: 'solicitation',
+} as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;
 
-export function personaForStep(stepKey: AgentStepKey): AgentPersona {
+export function personaForStep(stepKey: AgentStepKey): AttributedAgentPersona {
   return STEP_PERSONA[stepKey];
 }
 
@@ -60,15 +78,19 @@ interface StartRunBase {
   accountId: string;
   businessId: string | null;
   correlationId?: string;
+  parentRunId?: string;
 }
 
 // Discriminated on kind so the DB's agent_runs_kind_subject_type_pairing
 // CHECK (migration 071) is unrepresentable to violate in TS: review_handler
-// only pairs with a 'review' subject, weekly_insights with 'account_week'.
+// only pairs with a 'review' subject, weekly_insights with 'account_week',
+// and each Solicitation kind with its same-named subject type.
 export type StartRunInput = StartRunBase &
   (
     | { kind: 'review_handler'; subjectType: 'review' }
     | { kind: 'weekly_insights'; subjectType: 'account_week' }
+    | { kind: 'solicitation_batch'; subjectType: 'solicitation_batch' }
+    | { kind: 'solicitation_ask'; subjectType: 'solicitation_ask' }
   );
 
 export interface StartRunResult {
@@ -89,11 +111,11 @@ export async function startOrGetActiveRun(
   const inserted = await tx<{ id: string }[]>`
     INSERT INTO agent_runs (
       id, account_id, business_id, kind, subject_type, subject_id,
-      status, correlation_id
+      status, correlation_id, parent_run_id
     ) VALUES (
       ${runId}, ${input.accountId}, ${input.businessId}, ${input.kind},
       ${input.subjectType}, ${input.subjectId}, 'running',
-      ${input.correlationId ?? null}
+      ${input.correlationId ?? null}, ${input.parentRunId ?? null}
     )
     ON CONFLICT (kind, subject_type, subject_id) WHERE status = 'running'
     DO NOTHING
@@ -117,6 +139,95 @@ export async function startOrGetActiveRun(
     );
   }
   return { runId: existing.id, created: false };
+}
+
+interface CompletedChildRunBase {
+  runId: string;
+  askId: string;
+}
+
+export type CompletedChildRunInput = CompletedChildRunBase &
+  (
+    | { decision: 'send'; withheldReason?: never }
+    | { decision: 'withhold'; withheldReason: WithholdReason }
+  );
+
+export interface RecordCompletedChildRunsInput {
+  accountId: string;
+  businessId: string;
+  parentRunId: string;
+  children: readonly CompletedChildRunInput[];
+}
+
+/**
+ * Set-based logical fan-out writer for already-decided Solicitation asks.
+ * The caller writes the authoritative solicitation_asks rows first, then
+ * calls this function in the same transaction and links those asks to the
+ * supplied run ids. This seam writes only completed child runs and their one
+ * ask_evaluated step; its inputs/detail are ids and closed enums, never PII.
+ */
+export async function recordCompletedChildRuns(
+  tx: TxClient,
+  input: RecordCompletedChildRunsInput,
+): Promise<void> {
+  if (input.children.length === 0) return;
+
+  const runIds = input.children.map((child) => child.runId);
+  const askIds = input.children.map((child) => child.askId);
+  const decisions = input.children.map((child) => child.decision);
+  const withheldReasons = input.children.map(
+    (child) => child.decision === 'withhold' ? child.withheldReason : null,
+  );
+
+  const insertedRuns = await tx<{ id: string }[]>`
+    INSERT INTO agent_runs (
+      id, account_id, business_id, kind, subject_type, subject_id,
+      status, parent_run_id, started_at, ended_at
+    )
+    SELECT
+      child.run_id, ${input.accountId}, ${input.businessId},
+      'solicitation_ask', 'solicitation_ask', child.ask_id,
+      'completed', ${input.parentRunId}, NOW(), NOW()
+    FROM unnest(
+      ${runIds}::uuid[],
+      ${askIds}::text[]
+    ) AS child(run_id, ask_id)
+    RETURNING id
+  `;
+  if (insertedRuns.count !== input.children.length) {
+    throw new Error(
+      `run-spine: expected ${input.children.length} completed child runs, inserted ${insertedRuns.count}`,
+    );
+  }
+
+  const stepIds = input.children.map(() => uuidv7());
+  const insertedSteps = await tx<{ id: string }[]>`
+    INSERT INTO agent_run_steps (
+      id, agent_run_id, step_index, step_key, attributed_agent,
+      status, detail
+    )
+    SELECT
+      child.step_id, child.run_id, 1, 'ask_evaluated', 'solicitation',
+      'completed',
+      jsonb_strip_nulls(jsonb_build_object(
+        'ask_id', child.ask_id,
+        'decision', child.decision,
+        'withheld_reason', child.withheld_reason
+      ))
+    FROM unnest(
+      ${stepIds}::uuid[],
+      ${runIds}::uuid[],
+      ${askIds}::text[],
+      ${decisions}::text[],
+      ${withheldReasons}::text[]
+    ) AS child(step_id, run_id, ask_id, decision, withheld_reason)
+    RETURNING id
+  `;
+  if (insertedSteps.count !== input.children.length) {
+    throw new Error(
+      `run-spine: expected ${input.children.length} ask_evaluated steps, inserted ${insertedSteps.count}`,
+    );
+  }
 }
 
 /**
@@ -193,7 +304,7 @@ export interface RecordOutcomeInput {
   runId: string;
   accountId: string;
   businessId: string | null;
-  attributedAgent: AgentPersona;
+  attributedAgent: AttributedAgentPersona;
   outcomeKind: AgentOutcomeKind;
   unitCount?: number;
 }
