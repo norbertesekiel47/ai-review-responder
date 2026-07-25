@@ -21,6 +21,7 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
 import {
   extractOutboxHandle,
+  lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompleted,
   markOutboxCompletedIfOwned,
   markOutboxFailed,
@@ -40,6 +41,38 @@ beforeEach(() => {
 });
 
 describe('outbox writers — dispatchedRow attempt-guard composition', () => {
+  it('lockDispatchedOutboxAttemptIfOwned prevents a stale build attempt from creating a parent', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([{ id: 'outbox-1' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+    );
+
+    await expect(
+      lockDispatchedOutboxAttemptIfOwned(execMock, 'outbox-1', 3),
+    ).resolves.toBe(true);
+    await expect(
+      lockDispatchedOutboxAttemptIfOwned(execMock, 'outbox-1', 2),
+    ).resolves.toBe(false);
+    await expect(
+      lockDispatchedOutboxAttemptIfOwned(execMock, 'outbox-1', 4),
+    ).resolves.toBe(false);
+    await expect(
+      lockDispatchedOutboxAttemptIfOwned(execMock, 'outbox-1', Number.NaN),
+    ).resolves.toBe(false);
+
+    expect(sqlCalls).toHaveLength(3);
+    for (const query of sqlCalls) {
+      expect(query.text).toContain('SELECT id FROM job_outbox');
+      expect(query.text).toContain("status = 'dispatched'");
+      expect(query.text).toContain('attempts =');
+      expect(query.text).toContain('FOR UPDATE');
+    }
+    expect(sqlCalls[0]!.values).toEqual(['outbox-1', 3]);
+    expect(sqlCalls[1]!.values).toEqual(['outbox-1', 2]);
+    expect(sqlCalls[2]!.values).toEqual(['outbox-1', 4]);
+  });
+
   it('markOutboxCompleted attempt-guards the WHERE when the attempt is known', async () => {
     sqlReturnQueue.push(mkTaggedResult([{ id: 'x' }]));
     await markOutboxCompleted(execMock, 'outbox-1', 3);

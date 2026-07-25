@@ -21,6 +21,25 @@ const dispatchedRow = (exec: SqlExecutor, outboxId: string, attempt?: number) =>
     ? exec`id = ${outboxId} AND status = 'dispatched' AND attempts = ${attempt}`
     : exec`id = ${outboxId} AND status = 'dispatched'`;
 
+/**
+ * Locks the exact still-dispatched outbox attempt inside the caller's open
+ * transaction. A stale worker or terminal row returns false, allowing callers
+ * to exit before mutating coupled domain state.
+ */
+export async function lockDispatchedOutboxAttemptIfOwned(
+  exec: SqlExecutor,
+  outboxId: string,
+  attempt: number,
+): Promise<boolean> {
+  if (!hasAttempt(attempt)) return false;
+  const rows = await exec<{ id: string }[]>`
+    SELECT id FROM job_outbox
+    WHERE ${dispatchedRow(exec, outboxId, attempt)}
+    FOR UPDATE
+  `;
+  return rows.count > 0;
+}
+
 function warnOutboxNoop(label: string, outboxId: string, attempt: number): void {
   console.warn(
     `[outbox] ${label} no-op for ${outboxId} attempt=${attempt} — row already moved or attempt superseded`,
