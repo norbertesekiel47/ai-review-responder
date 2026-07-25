@@ -1,63 +1,122 @@
-# Handoff — #546 rival picker (step 3 → step 4)
+# Handoff — #546 rival picker (step 7 → step 8)
 
 **Resume with:** `/feature-resume feat/546-rival-picker` from
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-546-rival-picker`.
-Do not re-read the grilling or plan-review conversation — everything below is on disk.
+Everything below is on disk — no prior transcript is needed.
 
 ## State
 
 | | |
 |---|---|
-| Branch | `feat/546-rival-picker` (worktree above, sibling — not nested) |
-| Phase | `plan_approved` (`.feature/state.json`, head `4221e5b7`) |
-| Enforcement | ARMED (`scripts/arm-check.sh` re-verified after the amendment) |
-| Next step | **4 — EXECUTE** via `superpowers:subagent-driven-development` |
-| Amendments used | **1 of 1** — a second triggers abort criteria |
-| Review rounds used | **3 of 3** — the adversarial plan gate is closed, do not reopen it |
+| Branch | `feat/546-rival-picker` (sibling worktree, not nested) |
+| Phase | `reviewed` (`.feature/state.json`) |
+| Enforcement | ARMED |
+| Next step | **8 — SHIP**, RISK=high lane: **staging ride first**, then PR to `main`, pause for explicit merge approval |
+| Amendments used | **2** — #1 migration tests, #2 tenant-scope allowlist (both owner-approved; see `surface_amendments` in the intake) |
+| Plan review rounds | 3 of 3, closed at step 3 — do not reopen |
+| Code review | step 7 complete, both axes, triaged and committed |
 
-## Artifacts (read these, not this file)
+## What shipped
 
-- Plan: `docs/superpowers/plans/feat-546-rival-picker.md` — 5 tracer tasks, full code, blocking edges
-- Intake contract: `.feature/intake.json` (arming) / `docs/superpowers/plans/feat-546-rival-picker-intake.json` (audit) — identical, both carry the amendment + `surface_amendments`
-- Ticket: `gh issue view 546`; map `#528`; locked semantics on closed `#532` (read its two comments)
-- Glossary: `CONTEXT.md` § "Competitor Delta" — Named rival / Auto-default rival / Competitor pack, use verbatim
+All five plan tasks, in order:
 
-## What was decided in grilling (do not re-litigate)
+| Task | Commit | What |
+|---|---|---|
+| 1 | `9f3167b4` | Migration 089 — 3 nullable pick columns on `businesses`; `analytics_events_event_name_check` extended; 069's drift-guard narrowed and handed to 089 |
+| 2 | `4ee64b34` | `src/lib/competitors/named-rival.ts` extracted from `WeeklySummaryWorker` (which shrank 596→478 lines); 3 sequential reads collapsed to ONE CTE query |
+| 2b | `8518dc97` | Two `tenant-root-lookup` allowlist entries + baseline 405→407 |
+| — | `1a0d5354` | Intake amendment #2 recorded in both copies |
+| 3 | `b8c134bf` | `selectNamedRival` — pick honored, dropout note, source-discriminated digest copy, `competitor_delta_resolved` log line, CONTEXT.md sharpened |
+| 4 | `fc2ce4f9` | `loadRivalPickerView` + `setNamedRivalPick`, owner-scoped GET/PUT route, durable `competitor_rival_picked` event |
+| 5 | `470ba518` | `/settings/competitors` page + client + sidebar nav item |
+| — | `6fdf5e9a` | Three test titles conformed to the intake contract verbatim; step 6.5 triage recorded |
+| — | `d7559b00` | Step 7 review fixes (below) |
+| — | `860402ba` | **Unrelated** owner-approved runbook doc commit (staging channels smoke test). Outside the edit surface by explicit decision — do not treat as drift. |
 
-Recorded in full in the intake. The seven locked forks: full vertical slice incl. digest honoring · pick stored as three columns on `businesses` · dropout derived from the two-snapshot window, never stored · new `/settings/competitors` page · pack-order dropdown retaining an absent pick · source-discriminated copy with the live pack title winning · server-validated writes with a server-derived title snapshot · durable `competitor_rival_picked` analytics event.
+## Step 8 — what to do
 
-## What the 3 adversarial rounds changed (the expensive knowledge)
+1. **Ride staging first.** Apply migration **089 to the staging Supabase project BEFORE deploying**, then land the branch on `staging` (push auto-deploys the full stack).
+   - **Hard ordering constraint:** the lane query now SELECTs `rival_place_id` / `rival_title_snapshot`, so this branch **cannot run anywhere 089 has not been applied**. Migration before deploy, not alongside.
+   - 089 is NOT purely additive — it DROP/ADDs `analytics_events_event_name_check`, taking a brief ACCESS EXCLUSIVE lock and re-validating the table. `SET lock_timeout = '5s'` is in the migration.
+2. **Smoke on staging:** pick a rival on `/settings/competitors`, confirm the weekly digest's Competitor Delta line names it without the `Auto-selected rival: ` prefix; clear it and confirm the prefix returns.
+3. **PR to `main`**, all GitHub CI checks green, then **PAUSE for explicit merge approval**. Apply 089 to prod Supabase in lockstep at promotion.
+4. After merge: `git pull --ff-only` on `main`, fast-forward `staging`, run `scripts/feature-cleanup.sh` (dry run first), then the post-merge sweep below.
 
-These are the things a fresh agent would otherwise get wrong. All are already written into the plan — this list exists so you don't "simplify" them back out:
+## Verification status — read this before claiming green
 
-1. **`analytics_events.event_name` is a DB CHECK allowlist** (046, last extended by 069), not just a TS array. Migration 089 must DROP/re-ADD it or every pick transaction rolls back. `ci:analytics-events` does NOT catch this — it only compares the TS array to `docs/analytics/events.md`.
-2. **`migration-069-trial-subscription.test.ts:44-49` breaks the moment any event name is added** — it asserts its own (immutable) CHECK list equals the current `ANALYTICS_EVENT_NAMES`. Task 1 narrows it to its historical list and moves the live check to 089's test. This is a repo-wide landmine → promote to `.claude/reference/lab-notes.md` at step 8.
-3. **`db.begin()` does not give snapshot isolation** — Postgres defaults to READ COMMITTED, one snapshot per *statement*. The digest read is therefore ONE CTE query (exact shape in Task 2), not three statements in a transaction.
-4. **The pick write must resolve keyword, search location AND the latest snapshot date INSIDE the `UPDATE … FROM`.** Passing any of them in from an earlier read reopens the race: the worker can commit a new-date pack in between, and we store a rival absent from the now-latest pack. Locking is the wrong tool — the worker's row lock is keyed per snapshot_date, so it cannot serialize a new-date insert, and making it serialize would mean editing `RankingTrackingWorker.ts` (out of surface).
-5. **The dropout guard is `currentRows.length === 0`, not `!self`.** A non-empty pack lacking our `is_self` row is real data and a real dropout must still fire; guarding on `self` trades a false positive for a false negative.
-6. **Retry idempotency needs both**: `rival_picked_at` bumped only on `IS DISTINCT FROM`, and the clear carrying `AND rival_place_id IS NOT NULL`. Both event-key timestamps come from `RETURNING`, never JS `new Date()`.
-7. **`businessId` goes in the analytics properties blob, not just the column** — `AnalyticsDispatchPoller`'s `RETURNING` never selects `business_id`, so the column never reaches PostHog.
-8. **Rejected finding, do not "fix" it:** excluding blank-title rows from the picker is deliberate — the shipped `selectAutoDefaultRival` already refuses them, so a blank-title rival is one the digest could never name.
+`.feature/gate-status.json` is **RED on `test` and `diff-coverage`**, and that is a
+known, owner-accepted environmental result, not an unknown. Full evidence is in the
+deviations file under "Step 5 — verify gate evidence". Summary:
 
-## Step 4 instructions
+- **Green:** lint, typecheck, build, all 13 `ci:*` audits, `promised-tests` (all 19
+  intake titles verbatim), and the dedicated `named-rival.integration` row — which
+  **RAN against live Postgres, it did not SKIP**.
+- **`test` red** from nondeterministic Postgres deadlocks in *unrelated* live-DB
+  suites: the failing set was 13 → 5 → 4 → 6 → 2 files across runs, never the same
+  twice. Many integration suites re-apply migrations and delete from the same tables
+  in parallel against ONE shared test database.
+- **Proof it is contention:** single-threaded (`vitest run --no-file-parallelism`)
+  the suite is **782/782 files, 9568 tests, 0 failed**. Vitest ignores
+  `VITEST_MAX_FORKS`/`MAX_THREADS`, so the gate cannot be serialized without
+  `fileParallelism: false` in `vitest.config.ts` — a repo-wide change that belongs
+  to its own ticket.
+- **`diff-coverage` red only downstream** (no `coverage-final.json` when `test`
+  fails). Measured directly: **478/507 added lines, 94.3%, min 80% — PASS.**
+- **`reclassify` WARN**: 4835 changed lines vs a 900 estimate. Split — production
+  **+1211/−161** (1.35×, inside tolerance), tests +1596, docs/CI +1801. Owner
+  decision: note it, do not re-run step 0.
+- To reproduce a local run, export `TEST_DATABASE_POOL_URL` **and**
+  `DATABASE_POOL_URL` (both to the LOCAL test DB — `vitest.setup.ts` otherwise
+  defaults the singleton to an unreachable placeholder that live-DB suites hit
+  through production code paths).
 
-`bash scripts/feature-state.sh set-phase executing`, then dispatch one fresh subagent per task in plan order. Tasks 1 and 2 have no blocking edges and may run in parallel; 3 → 4 → 5 are strictly sequential.
+## Step 7 review outcome
 
-Every task prompt must carry the `CONTEXT.md` glossary excerpt and the task's blocking-edge context. **After the FIRST subagent completes, diff `git status --porcelain` against `allowed_edit_surface`** — an out-of-surface path means enforcement did not bind for subagent tool calls; STOP and report.
+Two agents, both axes. Full reports + triage verdicts in `docs/reviews/feat-546-rival-picker/`.
 
-Deviations go to `docs/superpowers/plans/feat-546-rival-picker-deviations.md`, never into a widened scope.
+**Fixed in `d7559b00`:**
+1. **Blank-title guard on the pick-honor path** — `selectNamedRival` rejected blank
+   titles nowhere, unlike every sibling path. 084 stores `title = ''` when SerpAPI
+   omits a name, so a picked rival losing its name rendered a **nameless line in a
+   customer-facing email**. Now falls back to the Auto-default rival with no dropout
+   note (same semantics as the NULL-review-count case).
+2. **`search_location` added to the write's `MAX(snapshot_date)` subquery** — it
+   scoped by business+keyword only, while both read paths scope by search location too.
+3. **Dead `multiLocation` prop removed** — `shouldUseMultiLocationSettings(flag,n) || n>1`
+   is algebraically `n>1`, so the page advertised flag-awareness it could not have.
+   Behavior unchanged and intentional; the prop was the lie.
 
-## Gate notes for step 5
+**Deferred — valid, recorded, NOT dismissed.** Each needs its own ticket because it
+is a cross-seam refactor that would breach this intake's edit surface:
+- The write derives "latest pack" from `competitor_snapshots` while the reads derive
+  it from `ranking_snapshots`; an **empty** latest pack makes the write's `MAX` fall
+  back to the prior date and accept a pick the reads consider stale.
+- The "nameable rival" rule is written three times (TS filter, TS guard, SQL
+  predicate). Fix 1 re-aligned them; the triplication remains.
+- Lane derivation (primary keyword + effective search location) is duplicated 3× in
+  `named-rival.ts` and a 4th time in `worker/jobs/RankingTrackingWorker.ts:244-246`.
+  Drift there yields zero-row joins → permanent "teaser"/"awaiting_pack" with no error.
+- `requireSettingsOwner` + 3 type aliases are byte-identical to
+  `settings/auto-approval/route.ts` — second use of a tenant-isolation guard, still
+  un-extracted.
+- `__testing` exports the decision core — effectively a second public interface,
+  contradicting the module header's "callers learn three functions".
 
-- `TEST_DATABASE_POOL_URL` **must** be set — this work is DB-touching and the plan adds an integration suite. A SKIP row makes the gate non-review-ready (the #520 class).
-- Final gate run before review is `scripts/verify-gate.sh --review`.
-- `promised-tests` checks all 19 intake titles verbatim; the plan's test titles were written to match.
-- No `fast-check` property test is mandated — this touches neither billing, approval/auto-approval, nor escalation.
+## Post-merge sweep (step 8 tail)
 
-## Suggested skills
-
-`superpowers:subagent-driven-development` (step 4 driver) · `new-migration` (Task 1, before any SQL) · `repworth-brand-design` (Task 5, before any JSX) · `tdd` (per-task red-green) · `superpowers:receiving-code-review` (step 7 triage) · `flag-flip` **not** needed (no flag) · `outbox-pattern` **not** needed (no async work added).
-
-## Ship lane (step 8)
-
-RISK=high → **staging ride first**. Migration 089 applies to staging Supabase before the PR, prod in lockstep at promotion. Then PR to `main`, all CI green, pause for explicit merge approval.
+- **Promote to `.claude/reference/lab-notes.md`** — three durable lessons, none
+  specific to this feature:
+  1. **The immutable-CHECK migration-test landmine.** Whichever per-migration test
+     holds the live "CHECK list ⟺ TS allowlist" assertion breaks the next time a
+     value is added, because the migration it guards can never grow. Now handed
+     058 → 069 → 089. It generalises beyond `analytics_events`:
+     `agent_outcomes.outcome_kind` has the same shape.
+  2. **Parallel shared-test-DB contention — and CI hides it.** These suites skip in
+     CI because `TEST_DATABASE_POOL_URL` is unset, so the deadlocks only ever appear
+     locally. That is the #520 blind spot, demonstrated repo-wide.
+  3. **A blocked `UPDATE … FROM` does NOT see a concurrent committed pack.** Under
+     READ COMMITTED, EvalPlanQual re-checks the *target* tuple but keeps the
+     statement's original snapshot for joined tables — so a lock-blocked interleaving
+     cannot test a stale-join race. Measured with a four-variant probe.
+- Run `document-feature`, then a final `domain-modeling` sweep.
+- Increment the merge counter in `.claude/reference/arch-review-log.md`.
