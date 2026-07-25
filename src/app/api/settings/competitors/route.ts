@@ -25,13 +25,13 @@ type OwnerWithAccountResult = Awaited<ReturnType<typeof requireOwnerWithAccount>
 type OwnerWithAccount = Extract<OwnerWithAccountResult, { ok: true }>;
 type SettingsOwnerResult = OwnerWithAccount | { ok: false; response: NextResponse };
 
-// `.strict()` is load-bearing: a client-supplied `title` must be a 400, not a
-// silently ignored field. The display name reaching a rendered email is
+// `strictObject` is load-bearing: a client-supplied `title` must be a 400, not
+// a silently ignored field. The display name reaching a rendered email is
 // server-derived from the matched pack row, and nothing else may set it.
-const RivalPickSchema = z.object({
-  businessId: z.string().uuid(),
+const RivalPickSchema = z.strictObject({
+  businessId: z.uuid(),
   placeId: z.string().min(1).max(255).nullable(),
-}).strict();
+});
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const owner = await requireSettingsOwner(request);
