@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { deriveNavSection } from '@/components/dashboard/shell/active-nav';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
@@ -61,17 +62,7 @@ export function Sidebar({
     }
   }
 
-  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews;
-  // /dashboard/requests and /dashboard/requests/contacts both highlight
-  // Requests; /dashboard/analytics highlights Analytics; everything else under
-  // /dashboard highlights Dashboard.
-  const isReviews = pathname.startsWith('/dashboard/reviews');
-  const isRequests = pathname.startsWith('/dashboard/requests');
-  const isAnalytics = pathname.startsWith('/dashboard/analytics');
-  const isDashboard =
-    pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !isReviews && !isRequests && !isAnalytics);
-  const isSettings = pathname.startsWith('/settings');
+  const activeNav = deriveNavSection(pathname);
 
   const initials = deriveInitials(ownerName, ownerEmail);
   const displayOwner = ownerName.trim() || (ownerEmail.split('@')[0] ?? '');
@@ -91,23 +82,29 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">
-        <Link href="/dashboard" className={`nav-item ${isDashboard ? 'active' : ''}`}>
+        <Link href="/dashboard" className={`nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}>
           <Icon name="home" /> Dashboard
         </Link>
-        <Link href="/dashboard/reviews" className={`nav-item ${isReviews ? 'active' : ''}`}>
+        <Link
+          href="/dashboard/reviews"
+          className={`nav-item ${activeNav === 'reviews' ? 'active' : ''}`}
+        >
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
         {solicitationEnabled && (
           <Link
             href="/dashboard/requests"
-            className={`nav-item ${isRequests ? 'active' : ''}`}
-            aria-current={isRequests ? 'page' : undefined}
+            className={`nav-item ${activeNav === 'requests' ? 'active' : ''}`}
+            aria-current={activeNav === 'requests' ? 'page' : undefined}
           >
             <Icon name="trend" /> Requests
           </Link>
         )}
-        <Link href="/dashboard/analytics" className={`nav-item ${isAnalytics ? 'active' : ''}`}>
+        <Link
+          href="/dashboard/analytics"
+          className={`nav-item ${activeNav === 'analytics' ? 'active' : ''}`}
+        >
           <Icon name="chart" /> Analytics
         </Link>
       </div>
@@ -115,7 +112,7 @@ export function Sidebar({
       <div className="nav-divider" />
 
       <div className="nav-section">
-        <Link href="/settings" className={`nav-item ${isSettings ? 'active' : ''}`}>
+        <Link href="/settings" className={`nav-item ${activeNav === 'settings' ? 'active' : ''}`}>
           <Icon name="cog" /> Settings
         </Link>
       </div>

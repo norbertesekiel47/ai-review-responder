@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { deriveNavSection } from '@/components/dashboard/shell/active-nav';
 import { usePendingCount } from '@/contexts/PendingCountContext';
 
 interface Props {
@@ -16,13 +17,12 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
+  // Home is an EXACT match here, unlike the sidebar's Dashboard row which is the
+  // catch-all for any unmatched /dashboard/* route. That difference is
+  // deliberate and predates #544, so it is kept rather than folded into
+  // deriveNavSection.
   const isHome = pathname === '/dashboard';
-  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews;
-  // /dashboard/requests and /dashboard/requests/contacts both highlight Requests.
-  const isReviews = pathname.startsWith('/dashboard/reviews');
-  const isRequests = pathname.startsWith('/dashboard/requests');
-  const isAnalytics = pathname.startsWith('/dashboard/analytics');
-  const isSettings = pathname.startsWith('/settings');
+  const activeNav = deriveNavSection(pathname);
 
   return (
     <nav className="mobile-tabbar" aria-label="Dashboard">
@@ -35,8 +35,8 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
       </Link>
       <Link
         href="/dashboard/reviews"
-        className={`mtab ${isReviews ? 'active' : ''}`}
-        aria-current={isReviews ? 'page' : undefined}
+        className={`mtab ${activeNav === 'reviews' ? 'active' : ''}`}
+        aria-current={activeNav === 'reviews' ? 'page' : undefined}
       >
         <Icon name="inbox" size={22} /> Reviews
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
@@ -44,23 +44,23 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
       {solicitationEnabled && (
         <Link
           href="/dashboard/requests"
-          className={`mtab ${isRequests ? 'active' : ''}`}
-          aria-current={isRequests ? 'page' : undefined}
+          className={`mtab ${activeNav === 'requests' ? 'active' : ''}`}
+          aria-current={activeNav === 'requests' ? 'page' : undefined}
         >
           <Icon name="trend" size={22} /> Requests
         </Link>
       )}
       <Link
         href="/dashboard/analytics"
-        className={`mtab ${isAnalytics ? 'active' : ''}`}
-        aria-current={isAnalytics ? 'page' : undefined}
+        className={`mtab ${activeNav === 'analytics' ? 'active' : ''}`}
+        aria-current={activeNav === 'analytics' ? 'page' : undefined}
       >
         <Icon name="chart" size={22} /> Analytics
       </Link>
       <Link
         href="/settings"
-        className={`mtab ${isSettings ? 'active' : ''}`}
-        aria-current={isSettings ? 'page' : undefined}
+        className={`mtab ${activeNav === 'settings' ? 'active' : ''}`}
+        aria-current={activeNav === 'settings' ? 'page' : undefined}
       >
         <Icon name="cog" size={22} /> Settings
       </Link>
