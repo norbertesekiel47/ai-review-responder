@@ -221,6 +221,107 @@
   color: var(--rw-app-text-muted);
 }
 
+/* ---------- Ghost pipeline (no batch / building / stalled) ---------- */
+
+/* The two ghost modes are the same skeleton; only the copy and this opacity
+   change, which is why they are one component. */
+.rq-ghost .rq-funnel--ghost { opacity: 0.55; }
+
+.rq-rung--ghost {
+  border-style: dashed;
+  background: transparent;
+}
+.rq-rung--ghost .rq-rung-num { color: var(--rw-app-text-soft); }
+
+.rq-ghost-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+/* console.css's .btn is ~36px tall and has no focus-visible rule of its own,
+   so every action on this surface opts into the 44px target and a visible
+   ring rather than inheriting a gap. */
+.rq-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration: none;
+}
+.rq-action:focus-visible {
+  outline: 2px solid var(--rw-sage-deep);
+  outline-offset: 3px;
+}
+
+/* The gate list is ordered because the policy is: the FIRST check that stops
+   someone is the only reason recorded. */
+.rq-gates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rq-gate {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rw-hair);
+}
+.rq-gate:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* Grayed-out, but still AA against the card: this teaches the rule set, so the
+   words have to stay readable. */
+.rq-chip--ghost {
+  background: var(--rw-recess);
+  color: var(--rw-app-text-muted);
+  border-color: var(--rw-hair-2);
+}
+
+.rq-gate-copy {
+  flex: 1 1 260px;
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+
+/* ---------- Loading / error / gone ---------- */
+
+.rq-state-body {
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+  margin: 0 0 16px 0;
+}
+
+.rq-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rq-skeleton-bar {
+  height: 14px;
+  width: 60%;
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-recess);
+  animation: rq-pulse 1.6s ease-in-out infinite;
+}
+.rq-skeleton-bar--wide { width: 85%; }
+.rq-skeleton-bar--short { width: 35%; }
+
+@keyframes rq-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
 /* ---------- Footnote ---------- */
 
 .rq-footnote {
@@ -255,4 +356,5 @@
    so this surface opts its own cards out. */
 @media (prefers-reduced-motion: reduce) {
   .rq-stack .section-enter { animation: none; }
+  .rq-skeleton-bar { animation: none; }
 }
