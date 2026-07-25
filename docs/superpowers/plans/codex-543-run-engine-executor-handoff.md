@@ -2,14 +2,16 @@
 
 ## Checkpoint
 
-- Phase: `replanning` after mandatory adversarial review
+- Phase: step-7 review triaged; final post-review gate next
 - Branch: `codex/543-run-engine-executor`
 - Worktree:
   `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-543-run-engine-executor`
 - Risk/surface: high / backend / DB-touching
 - Implementation status:
   T1 `551e171b`, T2 `ff824766`, T3 `dc0f76c9`, T4 `bd1d9e97`,
-  parallel-DB isolation `cc6d2c4c`
+  parallel-DB isolation `cc6d2c4c`, adversarial remediation
+  `e09f5d08` through `d0bf4671`, DB-lock diagnosis `9fc3c5d7`, final-review
+  fixes `644ce265` and `57c262a1`
 - Migration status: 088 reserved by this feature; unapplied everywhere
 - Blocked migration: issue #546 remains out of flight
 
@@ -20,6 +22,12 @@ and an unbounded visit-by-ask history join. The second surface amendment
 triggered the feature workflow abort criterion, so
 `codex-543-run-engine-executor-postmortem.md` records the restart and the
 intake/plan now lock the four fixes plus exact regression titles.
+
+The post-fix spec/correctness review passed with no findings. The standards
+review's three medium findings were triaged ACCEPT / ACCEPT / ADAPT and its
+post-fix verdict is PASS. Review artifacts and blast radius live under
+`docs/reviews/codex-543-run-engine-executor/`. The final review gate must be
+run from the commit containing those reports and the 21 promised tests.
 
 The high-risk plan reviewer reached its three-round cap with one final
 edit-surface omission. That omission was corrected by adding the shared
@@ -59,12 +67,14 @@ feature lane for the reasons recorded in the plan's classification section.
 ## Resume
 
 1. Confirm both intake copies match and the ARM CHECK is green.
-2. Obtain the required high-risk plan approval for the restarted T5 tracer.
-3. Delegate the three implementation slices to fresh subagents using TDD.
-4. Run the full DB-backed gate and `pnpm build`; integration SKIP is not
-   acceptable.
-5. Continue the deviations read-back and two-axis review only after the
-   remediation gate is fully green.
+2. Commit the triaged review artifacts, amended intake/plan, deviations, and
+   this handoff.
+3. Run `scripts/verify-gate.sh --review` with the disposable localhost DB;
+   integration SKIP is not acceptable.
+4. Set feature state to `reviewed` only when that gate is green.
+5. Resume the high-risk ship lane in a fresh session: staging migration 088,
+   deploy, and smoke first; production migration and issue #546 stay out of
+   flight until the approved promotion step.
 
 Do not reconstruct intent from conversation history. Read the intake, plan,
 specification, ADR, and named glossary excerpt above.

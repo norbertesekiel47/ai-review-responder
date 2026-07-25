@@ -287,6 +287,27 @@ unapplied outside the disposable local test database.
 promises remain green, and the full DB-backed feature gate plus `pnpm build`
 passes from the remediation HEAD.
 
+### T6 — Final-review type and test-harness remediation
+
+**Blocking edges:** T5 and the first green review gate.
+
+Close the accepted standards findings without changing product scope:
+
+1. type account-wide persisted `agent_outcomes.attributed_agent` rows with
+   the full storage union, including `solicitation`, while keeping the
+   review-handler timeline/display union intentionally narrow;
+2. replace four copied feature database URL/advisory-lock harnesses with one
+   test-only helper whose PostgreSQL `statement_timeout` expires before the
+   five-minute Vitest hook and whose failure path closes the waiting session;
+3. use that extraction to bring the large builder integration suite below the
+   1,000-line presumptive threshold without splitting one DDL-safe lifecycle
+   into extra gate rows.
+
+**Acceptance:** the two added verbatim regression titles pass, the timeout
+test proves a cancelled waiter cannot retain the advisory lock, the four
+existing integration suites still serialize for their full lifecycles, and
+the complete DB-backed review gate is green again.
+
 ## Verification and staging order
 
 1. Run each tracer's focused unit/integration tests during TDD.

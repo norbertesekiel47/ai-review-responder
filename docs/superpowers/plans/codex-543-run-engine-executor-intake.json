@@ -35,6 +35,8 @@
     "Authoritative solicitation_asks rows are inserted before their child spine rows, then linked to agent_run_id in the same atomic transaction.",
     "Account offboarding removes batches and asks through the contact_csv_uploads cascade and verifies both tables are absent.",
     "All run-spine JSONB detail and failure metadata contains ids, enums, and counts only, never contact PII.",
+    "Persisted agent persona types include every value accepted by the database, including solicitation; review-timeline display types remain intentionally narrower because those queries are review_handler-scoped.",
+    "The shared feature-543 database test lock has a database-enforced acquisition deadline shorter than its test-runner hook deadline and closes the waiting session on timeout.",
     "Migration 088 is additive/re-runnable, uses UUIDv7 application-supplied primary keys, and is not applied ahead of the high-risk staging ride."
   ],
   "edge_cases": [
@@ -53,7 +55,9 @@
     "A prior batch sent contact A and velocity-banked contact B; the next batch treats A as over_contacted while B remains eligible.",
     "The parent run is archived before child runs or asks.",
     "A dispatched build job starts after the account enters delete_data offboarding and must close without reading contact history or creating asks or runs.",
-    "One contact accumulates many visits and prior asks; candidate scheduling still joins only the independently reduced latest rows rather than multiplying both histories."
+    "One contact accumulates many visits and prior asks; candidate scheduling still joins only the independently reduced latest rows rather than multiplying both histories.",
+    "A persisted solicitation_batch_built outcome is returned by the account-wide agent-team query even though the current display summary intentionally has no Solicitation bucket.",
+    "Another test process holds the feature database lock past the database acquisition deadline; the waiter is cancelled and closed before the Vitest hook deadline."
   ],
   "existing_patterns_to_follow": [
     "src/lib/agents/run-spine.ts as the only writer seam for agent_runs, agent_run_steps, and agent_outcomes; commitWeeklyInsightsDigest as the same-transaction terminal-attribution precedent.",
@@ -76,8 +80,10 @@
     "supabase/migrations/088_*.sql",
     "scripts/ci/tenant-tables.ts",
     "src/lib/agents/run-spine.ts",
+    "src/lib/agents/read.ts",
     "src/lib/agents/__tests__/run-spine.test.ts",
     "src/lib/agents/__tests__/run-spine.integration.test.ts",
+    "src/lib/agents/__tests__/read.test.ts",
     "src/lib/shared/queue-names.ts",
     "src/lib/shared/worker-types.ts",
     "src/lib/shared/job-outbox-helpers.ts",
@@ -85,6 +91,8 @@
     "src/lib/shared/__tests__/job-outbox-helpers.test.ts",
     "src/lib/shared/__tests__/outbox.test.ts",
     "src/lib/shared/__tests__/migration-088-*.integration.test.ts",
+    "src/lib/shared/__tests__/helpers/feature-543-database-lock.ts",
+    "src/lib/shared/__tests__/feature-543-database-lock.integration.test.ts",
     "src/lib/solicitation/ingest.ts",
     "src/lib/solicitation/batch-builder.ts",
     "src/lib/solicitation/__tests__/ingest.integration.test.ts",
@@ -102,7 +110,7 @@
     "worker/background/pollers/health-alert/__tests__/checks.test.ts",
     "worker/queues.ts",
     "worker/index.ts",
-    "docs/reviews/codex/543-run-engine-executor/**"
+    "docs/reviews/codex-543-run-engine-executor/**"
   ],
   "tests_to_add": [
     "migration 088 widens the run spine and creates tenant-safe Solicitation batch tables",
@@ -123,7 +131,9 @@
     "migration 088 rejects cross-account and cross-business parent and ask run links",
     "build_solicitation_batch treats delete_data offboarding as gate_closed before candidate evaluation",
     "health alerts include terminal build_solicitation_batch outbox failures",
-    "candidate history query pre-aggregates visits and asks before the 5000-contact limit"
+    "candidate history query pre-aggregates visits and asks before the 5000-contact limit",
+    "agent team summary accepts persisted Solicitation outcomes without changing displayed totals",
+    "feature 543 database lock times out in Postgres and releases its session"
   ],
   "verification_commands": [
     "pnpm exec vitest run src/lib/agents/__tests__/run-spine.test.ts src/lib/shared/__tests__/job-outbox-helpers.test.ts src/lib/shared/__tests__/outbox.test.ts src/lib/solicitation/__tests__/batch-builder.test.ts worker/jobs/solicitation-batch/__tests__",
@@ -132,6 +142,7 @@
     "pnpm ci:rls-audit",
     "pnpm ci:tenant-scope",
     "pnpm exec vitest run worker/background/pollers/health-alert/__tests__/checks.test.ts",
+    "pnpm exec vitest run src/lib/agents/__tests__/read.test.ts src/lib/shared/__tests__/feature-543-database-lock.integration.test.ts",
     "pnpm build"
   ],
   "estimated_diff_size": "approximately 4000 changed lines at the post-implementation reclassification checkpoint; 3999 measured across 39 files after the parallel-database isolation fix, while remaining a tight four-tracer high-risk backend feature",
