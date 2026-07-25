@@ -142,7 +142,9 @@ describe('readLatestBatch', () => {
     expect(view.contactsOnFile).toBe(1240);
   });
 
-  it('returns hasBatch false when the location\'s uploads completed before watch-mode was enabled', async () => {
+  // Double-quoted deliberately: the promised-tests gate matches this title as a
+  // literal substring, so a backslash-escaped apostrophe would never match.
+  it("returns hasBatch false when the location's uploads completed before watch-mode was enabled", async () => {
     // The exact post-flip state: contacts exist from a completed upload, but
     // no batch was ever built because the flag was off when it finished.
     const { sql, tx } = createMockSql([[], [], [{ n: 1240 }]]);
