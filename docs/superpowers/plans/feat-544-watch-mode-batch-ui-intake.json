@@ -1,0 +1,109 @@
+{
+  "classification": "high",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Ship the owner-facing Requests screen — the latest Solicitation batch rendered as a funnel hero plus its spoilage report of withheld Asks grouped by withhold reason — behind server-authoritative SOLICITATION_WATCH_ENABLED, and flip that flag on in staging.",
+  "non_goals": [
+    "Send-mode anything: no real sends, no suppression ledger, no email adapter, no veto window",
+    "Batch history: no /dashboard/requests/[batchId] route, no prior-batch list or strip",
+    "The `expired` lifecycle state: no staleness constant, no staleness banner (send-mode owns it, per run-engine-executor-shape.md:87-90)",
+    "Backfilling batches for uploads that completed while SOLICITATION_WATCH_ENABLED was off",
+    "Persisting build-time poolCount, or displaying candidate-window truncation in the owner UI (worker log keeps that duty)",
+    "Owner actions on decisions: no approve, reject, or override of an Ask — read-only apart from the automatic reviewed_at write",
+    "Filter chips or pagination over the withheld ledger (#537 variant-C interaction, deferred)",
+    "The production flag flip — this ticket flips staging only",
+    "Judge auditing of withhold decisions; Governor per-gate suspension"
+  ],
+  "user_visible_behavior": [
+    "A new `Requests` sidebar row appears between Reviews and Analytics, only when watch-mode is on",
+    "/dashboard/requests renders the most recent Solicitation batch for the selected location: a funnel hero (contacts on file -> evaluated -> queued) above a withheld ledger grouped by withhold reason in precedence order",
+    "The six withhold reason codes render verbatim as mono chips (no_consent, suppressed, already_reviewed, stale_visit, over_contacted, velocity_banked), each paired with an owner-readable label",
+    "Every reason group shows its exact total plus at most 10 evidence rows, with '...and N more' when the group is larger",
+    "A reason with no withholds renders as an explicit zero-count group ('Nobody this batch'), so the enum stays visible",
+    "already_reviewed evidence shows the matched review date only, never a star rating (ADR 0012)",
+    "velocity_banked renders as banked, not refused — 'first in line for the next batch'",
+    "With no batch row, the screen shows the ghost-pipeline empty state teaching the six gates plus an upload CTA; when contacts already exist it adds one line naming the contacts-on-file count",
+    "With a batch whose built_at is null, the screen shows a building state and polls at the UploadCard cadence, falling back to 'still processing' at the ceiling",
+    "A built batch with zero asks renders the real funnel with 0 queued, not the empty state",
+    "The contacts upload surface moves from /dashboard/contacts to /dashboard/requests/contacts, reachable from the Requests header and the empty-state CTA",
+    "Opening a batch records solicitation_batches.reviewed_at once; nothing the owner can click changes a decision",
+    "With watch-mode off, /dashboard/requests, /dashboard/requests/contacts and the batch API all 404, and the sidebar row is absent"
+  ],
+  "invariants": [
+    "Invariant #13: SOLICITATION_WATCH_ENABLED stays server-authoritative — no NEXT_PUBLIC companion; the Sidebar learns it via a server prop from (authenticated)/layout.tsx",
+    "Invariant #8: every read is scoped by account_id and business_id; aggregate ('all locations') scope is rejected with one 400",
+    "Invariant #15: src/lib/solicitation/** takes `sql` as an explicit parameter; only route handlers and pages import the db singleton",
+    "The flag gate precedes auth on every route — 404 before 401, so the surface does not exist when off",
+    "ADR 0012: no star rating, sentiment field, or predicted-sentiment signal appears anywhere on this surface",
+    "The withhold-reason enum is closed and rendered verbatim; the UI never coins, renames, or collapses a reason code",
+    "The reviewed_at write is idempotent first-write-wins (WHERE reviewed_at IS NULL) and never overwrites",
+    "The batch API response is bounded by construction — 6 reason groups x 10 evidence rows — regardless of batch or pool size",
+    "Every funnel number derives from solicitation_asks, so the hero and the ledger cannot disagree"
+  ],
+  "edge_cases": [
+    "Uploads completed while the flag was off produce no batch row at all — the screen must show the ghost state with a contacts-on-file line, never an error (this is the first state visible after the staging flip)",
+    "A batch row exists with built_at NULL because the worker has not run yet, or is mid-build",
+    "A built batch with zero asks (empty pool, or every candidate rejected at ingest validation)",
+    "A location whose pool exceeds the 5,000 evaluation bound: truncation is deliberately invisible in the owner UI, worker log only",
+    "A location with several batches: only the most recent is rendered, older ones become unreachable",
+    "Aggregate / all-locations scope selected in the location picker",
+    "A businessId belonging to another account -> uniform-not-found, never a distinguishable response",
+    "reviewed_at already set from a prior view -> the second view must not move it",
+    "`suppressed` has no v-watch source and can never fire in v1 -> renders as an explicit zero group, not omitted",
+    "Upload validation rejections belong to the upload report, never to the withheld ledger (#533 boundary rule)"
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/api/dashboard/contacts/route.ts:15-25 — flag gate -> withDashboardOwnerRead -> requireContactsLocationScope; the batch GET copies this line for line",
+    "src/app/api/dashboard/contacts/location-scope.ts:26-41 — aggregate rejection plus uniform-not-found location resolution",
+    "src/app/(authenticated)/dashboard/contacts/page.tsx:11-24 — notFound() on the flag, server-owned constants passed as props to a client island",
+    "src/app/(authenticated)/dashboard/contacts/UploadCard.tsx:21-23,195-246 — bounded polling (2s cadence, 5-minute ceiling, inFlight overlap guard)",
+    "src/lib/solicitation/contacts-repo.ts — tenant-scoped read module taking `sql` explicitly",
+    "src/lib/solicitation/restraint-policy.ts:111-131 — WithholdEvidence typed shapes are the read model's source of truth for evidence rendering",
+    "prototype/537-watch-mode-batch-screen — the visual and interaction source for the funnel hero, reason chips and ghost empty state",
+    "repworth-brand-design skill — mandatory for every new UI surface"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/**",
+    "src/app/(authenticated)/dashboard/requests/**",
+    "src/app/(authenticated)/dashboard/contacts/**",
+    "src/app/api/dashboard/solicitation/**",
+    "src/app/api/dashboard/contacts/**",
+    "src/components/dashboard/shell/Sidebar.tsx",
+    "src/components/dashboard/__tests__/Sidebar.test.tsx",
+    "src/app/(authenticated)/layout.tsx",
+    "src/app/(authenticated)/__tests__/**",
+    ".claude/reference/env-vars.md",
+    "CONTEXT.md",
+    "docs/directory.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "returns 404 before auth when SOLICITATION_WATCH_ENABLED is off",
+    "rejects aggregate location scope with 400",
+    "returns uniform 404 for a location owned by another account",
+    "returns the most recent batch when a location has several",
+    "returns exact withheld counts per reason and at most 10 evidence rows per group",
+    "returns hasBatch false when the location's uploads completed before watch-mode was enabled",
+    "records reviewed_at once and does not overwrite it on a second view",
+    "renders the six withhold reason codes verbatim",
+    "renders no star rating anywhere on the batch screen",
+    "renders the ghost pipeline empty state with the contacts-on-file count when no batch exists",
+    "renders the building state while built_at is null and stops polling at the ceiling",
+    "renders a zero-queued funnel rather than the empty state when a built batch has no asks",
+    "renders suppressed as an explicit zero-count group",
+    "hides the Requests sidebar row when watch-mode is off"
+  ],
+  "verification_commands": [
+    "TEST_DATABASE_POOL_URL=... pnpm vitest run src/lib/solicitation/__tests__/batch-read.integration.test.ts"
+  ],
+  "estimated_diff_size": "+950 / -40",
+  "dependencies_added": [],
+  "rollback_plan": "No migration to reverse (db_touching false). Back-out is the flag: set SOLICITATION_WATCH_ENABLED=false on BOTH the Vercel staging environment and the Railway staging worker — the page, the sub-route and the batch API all 404 and the sidebar row disappears, leaving no reachable data path. Code back-out is a revert of the squash commit; nothing else depends on the new read module.",
+  "observability": [
+    "solicitation_batches.reviewed_at — the durable, tenant-scoped, SQL-queryable proof that an owner opened the spoilage report; the map's engagement question is answered by a join, not a third-party tool",
+    "One structured log line per batch read carrying { hasBatch, askCount, sendCount, businessId } — this is what turns the feared silent failure (a correct-looking empty state over a location that has a batch) into an unambiguous signal: hasBatch:false in the log next to a batch row in Postgres is the bug",
+    "Sentry coverage comes free from the route's existing errorContext wiring via withDashboardOwnerRead"
+  ],
+  "open_questions": []
+}
