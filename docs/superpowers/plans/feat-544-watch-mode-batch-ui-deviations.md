@@ -287,3 +287,37 @@ helper is still called `feature-543-…` while it is now the shared serialisatio
 protocol for every live-DB suite. Renaming it touches
 `src/lib/shared/__tests__/helpers/**`, which is outside this ticket's edit
 surface — same shape as the M2 verdict, so it is filed rather than widened.
+
+## 2026-07-25 (resume) — shipping with one knowingly-red gate row
+
+**Decision (human, at the resume):** file the residual blocker against #543 and
+proceed to step 8. Filed as **#573**.
+
+After the lock fix above, the gate reduces to exactly one real failure and one
+cascade behind it:
+
+| Row | Status |
+|---|---|
+| lint, typecheck, build, all 14 `ci:*` audits, promised-tests | PASS |
+| all three live-DB lanes | PASS (were FAIL) |
+| `test` | FAIL — one test, `batch-builder.integration.test.ts`, `deadlock detected` |
+| `diff-coverage` | FAIL — cascade; vitest exits non-zero so `coverage-final.json` is never written |
+| `reclassify` | WARN — deliberately left visible, see above |
+
+`batch-builder.integration.test.ts` is **byte-identical to `origin/main`**
+(introduced by #543 / PR #571) and fails only under full gate load — it passes
+alone and passes concurrently with all three sibling solicitation suites. It is
+not #544's code and not #544's regression; it was already failing in this
+session's first gate run, before any edit.
+
+**Why shipping anyway is defensible, stated plainly rather than waved past:**
+CI never runs the suite (no `.env.local` in CI, so its self-hydration returns
+undefined and it skips), so the PR's CI is unaffected and remains the
+authoritative gate. The local `gate-status.json` therefore stays RED and the
+Stop hook will refuse to call this session "complete" — that is the intended
+behaviour of a red gate and is being accepted knowingly, not worked around.
+`lastGreenGateSha` is deliberately NOT advanced.
+
+**What would change this call:** if #573 turns out to be a real defect in
+`buildSolicitationBatch` rather than in the suite's fixture setup, it is a
+production concern and #544's staging ride should stop until it is understood.
