@@ -68,11 +68,11 @@
     "src/app/(authenticated)/dashboard/contacts/**",
     "src/app/api/dashboard/solicitation/**",
     "src/app/api/dashboard/contacts/**",
-    "src/components/dashboard/shell/Sidebar.tsx",
-    "src/components/dashboard/__tests__/Sidebar.test.tsx",
+    "src/components/dashboard/**",
     "src/app/(authenticated)/layout.tsx",
     "src/app/(authenticated)/__tests__/**",
     ".claude/reference/env-vars.md",
+    ".claude/CLAUDE.md",
     "CONTEXT.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
@@ -95,7 +95,7 @@
     "hides the Requests sidebar row when watch-mode is off"
   ],
   "verification_commands": [
-    "TEST_DATABASE_POOL_URL=... pnpm vitest run src/lib/solicitation/__tests__/batch-read.integration.test.ts"
+    "TEST_DATABASE_POOL_URL=... pnpm vitest run src/lib/solicitation/__tests__/batch-view.integration.test.ts"
   ],
   "estimated_diff_size": "+950 / -40",
   "dependencies_added": [],
