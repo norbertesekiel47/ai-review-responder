@@ -69,6 +69,7 @@ beforeEach(() => {
   mocks.buildSolicitationBatch.mockResolvedValue({
     status: 'built',
     candidateCount: 30,
+    poolCount: 42,
     sendCount: 25,
     withholdCount: 5,
     withheldByReason: {
@@ -102,6 +103,8 @@ describe('Solicitation batch worker success path', () => {
       business_id: 'business-1',
       outbox_attempt: 3,
       selected_count: 30,
+      pool_count: 42,
+      truncated_count: 12,
       send_count: 25,
       withhold_count: 5,
       withheld_by_reason: {

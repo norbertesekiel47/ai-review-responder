@@ -255,6 +255,7 @@ describe('solicitation batch candidate loader', () => {
         upload_id: 'upload-1',
         consent_attested: true,
       }]),
+      mkTaggedResult([{ pool_count: 1 }]),
       mkTaggedResult([{
         contact_id: 'contact-1',
         prior_batch_id: 'prior-batch-1',
@@ -275,6 +276,7 @@ describe('solicitation batch candidate loader', () => {
     expect(result).toMatchObject({
       status: 'built',
       candidateCount: 1,
+      poolCount: 1,
       sendCount: 0,
       withholdCount: 1,
     });

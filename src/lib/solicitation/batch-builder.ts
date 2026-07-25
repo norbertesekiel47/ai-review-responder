@@ -48,6 +48,9 @@ interface BuildSolicitationBatchInput {
 export interface BuiltSolicitationBatchResult {
   status: 'built';
   candidateCount: number;
+  // Total business contact pool at build time; poolCount > candidateCount
+  // means the MAX_DATA_ROWS evaluation window truncated (S4: never silent).
+  poolCount: number;
   sendCount: number;
   withholdCount: number;
   withheldByReason: Record<WithholdReason, number>;
@@ -278,7 +281,10 @@ function emptyReasonCounts(): Record<WithholdReason, number> {
   ) as Record<WithholdReason, number>;
 }
 
-function summarize(decisions: readonly AskDecision[]): BuiltSolicitationBatchResult {
+function summarize(
+  decisions: readonly AskDecision[],
+  poolCount: number,
+): BuiltSolicitationBatchResult {
   const withheldByReason = emptyReasonCounts();
   let sendCount = 0;
   for (const decision of decisions) {
@@ -291,6 +297,7 @@ function summarize(decisions: readonly AskDecision[]): BuiltSolicitationBatchRes
   return {
     status: 'built',
     candidateCount: decisions.length,
+    poolCount,
     sendCount,
     withholdCount: decisions.length - sendCount,
     withheldByReason,
@@ -444,6 +451,13 @@ async function constructBatch(
       LIMIT ${MAX_DATA_ROWS}
     `;
 
+    const [poolRow] = await tx<{ pool_count: number }[]>`
+      SELECT count(*)::int AS pool_count
+      FROM solicitation_contacts
+      WHERE business_id = ${businessId}::uuid
+    `;
+    const poolCount = poolRow?.pool_count ?? candidateWindow.length;
+
     const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
     let priorSends: PriorSendRow[] = [];
     if (contactIds.length > 0) {
@@ -478,7 +492,7 @@ async function constructBatch(
         businessCategory: business.category,
       },
     );
-    const summary = summarize(decisions);
+    const summary = summarize(decisions, poolCount);
 
     const askIds = decisions.map(() => uuidv7());
     const runIds = decisions.map(() => uuidv7());

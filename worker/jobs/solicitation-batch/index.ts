@@ -37,6 +37,8 @@ export async function handleSolicitationBatch(
         business_id: job.data.business_id,
         outbox_attempt: attempt,
         selected_count: result.candidateCount,
+        pool_count: result.poolCount,
+        truncated_count: Math.max(0, result.poolCount - result.candidateCount),
         send_count: result.sendCount,
         withhold_count: result.withholdCount,
         withheld_by_reason: result.withheldByReason,
