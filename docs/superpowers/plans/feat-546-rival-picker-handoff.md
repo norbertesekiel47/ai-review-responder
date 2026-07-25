@@ -42,7 +42,7 @@ All five plan tasks, in order:
 | 089 → staging Supabase | ✅ **applied + verified** (`kubdiqdhqbhwmqfditeg`) |
 | Branch → `staging` | ⛔ **not landed** — merge aborted, blocked (below) |
 | Staging deploy | none triggered; `origin/staging` is byte-identical to before |
-| PR to `main` | not opened |
+| PR to `main` | ✅ **open — [#574](https://github.com/RepWorth/ai-review-responder/pull/574)**, awaiting explicit merge approval |
 
 ### 8.1 — migration applied (done)
 
@@ -95,7 +95,11 @@ next feature to ride staging hits exactly the same wall.
 ### 8.3 — resume from here
 
 1. Settle the 8.2 decision, land the branch on `staging`, let the push
-   auto-deploy the full stack. (Skip 8.1 — already applied.)
+   auto-deploy the full stack. (Skip 8.1 — already applied.) **PR #574 was
+   opened ahead of this at the owner's explicit request, so the staging ride
+   and the PR are now running out of the lane's usual order** — if #574 merges
+   without a ride, the smoke test below moves to prod and 089 must be applied
+   to prod *before* the deploy lands.
 2. **Smoke on staging:** pick a rival on `/settings/competitors`, confirm the weekly digest's Competitor Delta line names it without the `Auto-selected rival: ` prefix; clear it and confirm the prefix returns.
 3. **PR to `main`**, all GitHub CI checks green, then **PAUSE for explicit merge approval**. Apply 089 to prod Supabase in lockstep at promotion.
 4. After merge: `git pull --ff-only` on `main`, fast-forward `staging`, run `scripts/feature-cleanup.sh` (dry run first), then the post-merge sweep below.
