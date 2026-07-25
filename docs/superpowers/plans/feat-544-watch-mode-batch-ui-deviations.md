@@ -216,3 +216,74 @@ means tests run ~2.5× production code on this kind of feature. `estimated_diff_
 is deliberately **left at its original value** so the WARN stays visible in the
 record; silently rewriting it to match reality would erase exactly the signal the
 trigger exists to produce.
+
+## 2026-07-25 (resume) — CORRECTION: the blocker was ours, not environmental
+
+**Supersedes "verify-gate races itself on the shared local Postgres (BLOCKER,
+environmental)" above.** That entry's evidence was sound and its per-suite
+isolation runs stand. Its *conclusion* was wrong in a way that mattered: it
+classified the failure as a `scripts/verify-gate.sh` defect outside
+`allowed_edit_surface` and filed it as someone else's follow-up. The defect was
+in this branch's own test file, inside the edit surface, and is now fixed.
+
+**Actual root cause.** Feature #543 already established a cross-process
+serialisation protocol for live-DB suites on the shared local Postgres: a
+session-scoped advisory lock,
+`pg_advisory_lock(hashtext('repworth_feature_543_integration'))`, in
+`src/lib/shared/__tests__/helpers/feature-543-database-lock.ts`.
+`batch-builder.integration.test.ts` acquires it in `beforeAll` and releases it in
+`afterAll`. `batch-view.integration.test.ts` — added by **#544, this branch** —
+never enrolled: it read `process.env.TEST_DATABASE_POOL_URL` and connected
+directly. Two unsynchronised writers then seeded and truncated overlapping
+`solicitation_*` tables concurrently, and Postgres reported
+`PostgresError: deadlock detected` in whichever suite lost.
+
+**Why "unset the env var and the collision goes away" does not work.** The #543
+helper's `resolveFeature543TestDatabaseUrl()` deliberately falls back to reading
+`.env.local` when the shell variable is absent, so `batch-builder` runs
+*regardless* of the shell environment. A gate run with
+`env -u TEST_DATABASE_POOL_URL` still put two writers on the database — this was
+tried on resume and reproduced the same red gate, with `deadlock detected`
+naming the mechanism outright. Serialising by withholding the variable is not
+available; enrolling in the lock is the only correct fix.
+
+**Fix (in surface — `src/lib/solicitation/**`).** Two suites needed enrolling,
+not one. Each now acquires the lock before opening its pool and releases it in a
+`finally` chain in reverse acquisition order, on every path including a
+`beforeAll` that failed after taking it (a leaked advisory lock would block every
+other live-DB suite for the life of the session). Both hooks carry
+`FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS`.
+
+- `batch-view.integration.test.ts` — added by #544.
+- `contacts-repo.integration.test.ts` — pre-existing, and the partner in the
+  surviving deadlock. It writes `solicitation_contacts` / `solicitation_visits` /
+  `contact_csv_uploads`, exactly the tables `batch-view` seeds, and had never
+  been enrolled. Enrolling `batch-view` alone moved the gate from two red DB
+  rows to one; the second round found this and closed it.
+
+**Verification — the previously failing scenarios, run directly:**
+
+| Run | Before | After |
+|---|---|---|
+| `batch-view` ‖ `batch-builder` | `deadlock detected`, one suite red | 8/8 and 12/12 green |
+| all four solicitation suites concurrent | `deadlock detected` | 8/8, 12/12, 2/2, 9/9 green — zero deadlock lines |
+
+That is reproduce-then-fix evidence, not a gate re-roll: the suites were run
+against each other on purpose, which is the collision the gate creates by
+accident.
+
+**Scope of what is fixed.** 52 live-DB suites exist in this repo; only 7 hold the
+lock (5 from #543, plus the 2 enrolled here). The remaining ~45 are still
+unsynchronised writers on the shared local Postgres. They do not collide with
+this branch because they touch different table families — but the protocol is
+opt-in and silent when skipped, so the next suite that touches `solicitation_*`
+without enrolling will reproduce this exact blocker. That is a repo-wide gap
+outside this ticket's surface; it is named here so the follow-up is not lost.
+
+**The earlier follow-up is withdrawn.** `scripts/verify-gate.sh` needs no change
+and no ticket; it was correctly running suites in parallel and surfacing a real
+defect in this branch's tests. What remains is a naming point, not a bug: the
+helper is still called `feature-543-…` while it is now the shared serialisation
+protocol for every live-DB suite. Renaming it touches
+`src/lib/shared/__tests__/helpers/**`, which is outside this ticket's edit
+surface — same shape as the M2 verdict, so it is filed rather than widened.

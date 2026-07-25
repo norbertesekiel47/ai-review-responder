@@ -1,6 +1,9 @@
 # Handoff — feat-544-watch-mode-batch-ui
 
-**Phase at write time:** `plan_approved` (step 3 complete, step 4 starting).
+**Phase:** `reviewed` — steps 4–7 are done; **step 8 (the ship lane) is all that
+remains**. Refreshed on the 2026-07-25 resume, which found this doc still
+claiming `plan_approved` / "nothing implemented" four commits after execution
+finished. Trust `.feature/state.json` over prose if they ever disagree again.
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-544-watch-mode-batch-ui`
 **Ticket:** #544 · **Wayfinder map:** #528 (destination ticket — closing it reaches the map's destination)
 
@@ -55,11 +58,32 @@ Second carried item: Q3's query plan on a 5,000-ask batch. The ask indexes lead 
 
 ## State of the branch
 
-Nothing implemented. Commits so far: setup + intake + plan/handoff docs only.
+**T1–T5 implemented and reviewed. T6 (access-policy rename) deliberately
+DROPPED** — reasoning in the deviations file. Step 7's dual review produced 9
+findings (4 spec/correctness, 5 standards); all 9 were accepted and applied.
+Two follow-ups were deliberately left unfixed as out-of-surface, both recorded
+in `docs/reviews/feat-544-watch-mode-batch-ui/step7-triage.md`.
+
+The branch was parked mid-run (`.feature/intake.json` → `intake.parked.json`)
+with a red gate. The resume re-armed it and fixed the blocker; see the
+CORRECTION entry at the end of the deviations file — the cause was this
+branch's own integration suite not enrolling in #543's advisory-lock protocol,
+not a `verify-gate.sh` defect as first recorded.
 
 ## Next action
 
-Re-arm (`mv .feature/intake.parked.json .feature/intake.json`) if parked, confirm `bash scripts/arm-check.sh` shows ARMED, then execute T1 → T6 per the plan via `superpowers:subagent-driven-development`. After the FIRST subagent task, diff `git status --porcelain` against `allowed_edit_surface` — an out-of-surface file means enforcement did not bind and execution must stop.
+**Step 8, the ship lane** (below). Do not re-execute T1–T6 — they are done.
+
+Confirm `bash scripts/arm-check.sh` shows ARMED and that
+`.feature/gate-status.json` is green and newer than HEAD before shipping.
+
+Running the gate requires the live-DB variable exported, or the changed
+integration suite reports `SKIP` and the warning line is telling the truth:
+
+```
+export TEST_DATABASE_POOL_URL=$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2-)
+bash scripts/verify-gate.sh --review
+```
 
 ## Ship lane (RISK = high)
 
