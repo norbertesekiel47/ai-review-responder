@@ -8,6 +8,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
   ingestContactsCsvUpload,
@@ -102,9 +103,15 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
   });
 
   afterEach(async () => {
+    await sql()`
+      DELETE FROM job_outbox
+      WHERE aggregate_type = 'solicitation_batch'
+        AND payload->>'business_id' = ${businessId}
+    `;
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
+    delete process.env.SOLICITATION_WATCH_ENABLED;
   });
 
   afterAll(async () => {
@@ -259,6 +266,130 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
     const retried = await ingestContactsCsvUpload(sql(), uploadId, businessId);
     expect(retried).toEqual(report);
     expect(await countRows('solicitation_visits')).toBe(1);
+  });
+
+  it('completed CSV ingest creates exactly one unbuilt batch and build_solicitation_batch outbox row when watch-mode is enabled', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+
+    const report = await runIngest(uploadId);
+
+    const rows = await sql()<{
+      batch_id: string;
+      source_upload_id: string;
+      built_at: string | null;
+      topic: string;
+      aggregate_id: string;
+      payload: unknown;
+    }[]>`
+      SELECT
+        batch.id::text AS batch_id,
+        batch.source_upload_id::text AS source_upload_id,
+        batch.built_at::text AS built_at,
+        outbox.topic,
+        outbox.aggregate_id::text AS aggregate_id,
+        outbox.payload
+      FROM solicitation_batches batch
+      JOIN job_outbox outbox
+        ON outbox.aggregate_id = batch.id
+       AND outbox.aggregate_type = 'solicitation_batch'
+      WHERE batch.source_upload_id = ${uploadId}::uuid
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      source_upload_id: uploadId,
+      built_at: null,
+      topic: QUEUE_NAMES.BUILD_SOLICITATION_BATCH,
+      aggregate_id: rows[0]!.batch_id,
+    });
+    expect(rows[0]!.payload).toMatchObject({
+      batch_id: rows[0]!.batch_id,
+      business_id: businessId,
+    });
+
+    expect(await ingestContactsCsvUpload(sql(), uploadId, businessId)).toEqual(report);
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id = ${uploadId}::uuid)::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND aggregate_id = ${rows[0]!.batch_id}::uuid)::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '1', outbox_count: '1' });
+  });
+
+  it('completed CSV ingest creates no batch or build outbox when watch-mode is disabled', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'false';
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+
+    await runIngest(uploadId);
+
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id = ${uploadId}::uuid)::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND payload->>'business_id' = ${businessId})::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '0', outbox_count: '0' });
+  });
+
+  it('failed and subscription-inactive uploads create no batch or build outbox', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const structurallyFailedUploadId = await seedUpload([
+      'name,email',
+      'Ada Lovelace,ada@example.com',
+    ].join('\n'));
+    const inactiveUploadId = await seedUpload([
+      HEADER,
+      'Bob Byrne,,4155552671,2026-01-06,',
+    ].join('\n'));
+
+    const failedReport = await runIngest(structurallyFailedUploadId);
+    await terminalizeUploadForInactiveSubscription(sql(), inactiveUploadId, businessId);
+
+    expect(failedReport.structuralFailure).not.toBeNull();
+    const uploads = await sql()<{ id: string; status: string }[]>`
+      SELECT id::text AS id, status
+      FROM contact_csv_uploads
+      WHERE id IN (${structurallyFailedUploadId}::uuid, ${inactiveUploadId}::uuid)
+      ORDER BY id
+    `;
+    expect(uploads).toEqual(
+      [
+        { id: structurallyFailedUploadId, status: 'failed' },
+        { id: inactiveUploadId, status: 'failed' },
+      ].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id IN (
+           ${structurallyFailedUploadId}::uuid,
+           ${inactiveUploadId}::uuid
+         ))::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND payload->>'business_id' = ${businessId})::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '0', outbox_count: '0' });
   });
 
   it('terminalizes a pending upload with a subscription_inactive report and clears the raw CSV', async () => {

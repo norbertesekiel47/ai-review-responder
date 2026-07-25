@@ -10,6 +10,7 @@ import {
   enqueueAutonomyAdminAlert,
   enqueueAutonomySuspendedNotice,
   enqueueAutoPostNotice,
+  enqueueBuildSolicitationBatch,
   enqueueCsvIngest,
   enqueueEscalationNotice,
   enqueueGenerateResponse,
@@ -517,6 +518,30 @@ describe('job outbox helpers', () => {
     expect(tx.mock.calls[0]).toContain('caller-supplied-id');
     const payload = objectArgs(tx).find((arg) => arg.upload_id === 'upload-1');
     expect(payload).toEqual({ upload_id: 'upload-1', business_id: 'business-1' });
+  });
+
+  it('enqueueBuildSolicitationBatch writes an identifiers-only batch build job', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueBuildSolicitationBatch(tx, {
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).not.toContain('ON CONFLICT');
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.BUILD_SOLICITATION_BATCH);
+    expect(tx.mock.calls[0]).toContain('solicitation_batch');
+    expect(tx.mock.calls[0]).toContain('batch-1');
+    expect(objectArgs(tx)).toContainEqual({
+      batch_id: 'batch-1',
+      business_id: 'business-1',
+      correlation_id: 'corr-1',
+    });
   });
 
   it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {

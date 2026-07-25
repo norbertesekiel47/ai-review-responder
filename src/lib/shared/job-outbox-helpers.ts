@@ -9,6 +9,7 @@ import {
   type AutonomySuspensionTrigger,
   type GenerateResponseOriginLane,
   type AutoPostNoticePayload,
+  type BuildSolicitationBatchPayload,
   type CsvIngestPayload,
   type EscalationNoticePayload,
   type GenerateResponsePayload,
@@ -26,6 +27,7 @@ const AGGREGATE_TYPE_RESPONSE = 'response';
 const AGGREGATE_TYPE_ESCALATION = 'escalation';
 const AGGREGATE_TYPE_SUSPENSION_EVENT = 'suspension_event';
 const AGGREGATE_TYPE_CONTACT_CSV_UPLOAD = 'contact_csv_upload';
+const AGGREGATE_TYPE_SOLICITATION_BATCH = 'solicitation_batch';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -118,6 +120,13 @@ export interface EnqueueAutonomyAdminAlertInput {
 export interface EnqueueCsvIngestInput {
   outboxId?: string;
   uploadId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueBuildSolicitationBatchInput {
+  outboxId?: string;
+  batchId: string;
   businessId: string;
   correlationId?: string;
 }
@@ -559,6 +568,38 @@ export async function enqueueCsvIngest(
       ${QUEUE_NAMES.CSV_INGEST},
       ${AGGREGATE_TYPE_CONTACT_CSV_UPLOAD},
       ${input.uploadId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues one build job for a newly-created unbuilt Solicitation batch.
+ * The caller owns replay idempotency through the source-upload unique batch
+ * insert and calls this helper only when that insert returns a row.
+ */
+export async function enqueueBuildSolicitationBatch(
+  tx: TxClient,
+  input: EnqueueBuildSolicitationBatchInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: BuildSolicitationBatchPayload = {
+    batch_id: input.batchId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH},
+      ${AGGREGATE_TYPE_SOLICITATION_BATCH},
+      ${input.batchId},
       ${tx.json(payload as never)},
       ${JOB_OUTBOX_STATUS_PENDING}
     )

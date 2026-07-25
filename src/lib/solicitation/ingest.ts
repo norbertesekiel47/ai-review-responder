@@ -21,6 +21,7 @@
 
 import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import type { Sql, TransactionSql } from 'postgres';
+import { enqueueBuildSolicitationBatch } from '@/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import {
   MAX_UPLOAD_BYTES,
@@ -29,6 +30,7 @@ import {
   type RejectedRow,
   type StructuralFailure,
 } from './contacts-csv';
+import { solicitationWatchEnabled } from './flags';
 import {
   UPLOAD_STATUSES,
   type ContactUploadStatus,
@@ -95,6 +97,12 @@ interface UploadRow {
   report: unknown;
 }
 
+interface UploadTerminalization {
+  report: IngestReport;
+  solicitationBatchesCreated: number;
+  buildJobsEnqueued: number;
+}
+
 const logger = createWorkerLogger('[csv-ingest]');
 
 /** Worker-facing single entry point: loads the upload row, parses, matches,
@@ -140,18 +148,38 @@ export async function ingestContactsCsvUpload(
 
     // Defensive boundary re-check — the route already enforces the cap.
     if (upload.byte_size > MAX_UPLOAD_BYTES) {
-      return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport('byte_size_over_cap'));
+      const terminalization = await terminalizeUpload(
+        tx,
+        uploadId,
+        expectedBusinessId,
+        UPLOAD_STATUSES.FAILED,
+        structuralReport('byte_size_over_cap'),
+      );
+      return terminalization.report;
     }
 
     const parsed = parseContactsCsv(rawCsv, todayUtc);
     if ('structuralFailure' in parsed) {
-      return terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.FAILED, structuralReport(parsed.structuralFailure));
+      const terminalization = await terminalizeUpload(
+        tx,
+        uploadId,
+        expectedBusinessId,
+        UPLOAD_STATUSES.FAILED,
+        structuralReport(parsed.structuralFailure),
+      );
+      return terminalization.report;
     }
 
     // Bounded memory: MAX_DATA_ROWS (5,000) caps the candidate list, so
     // whole-file in-memory processing is fine.
     const report = await upsertCandidates(tx, expectedBusinessId, uploadId, parsed.candidates, parsed.rejected);
-    await terminalizeUpload(tx, uploadId, expectedBusinessId, UPLOAD_STATUSES.COMPLETED, report);
+    const terminalization = await terminalizeUpload(
+      tx,
+      uploadId,
+      expectedBusinessId,
+      UPLOAD_STATUSES.COMPLETED,
+      report,
+    );
 
     logger.log('csv ingest completed', {
       upload_id: uploadId,
@@ -160,6 +188,8 @@ export async function ingestContactsCsvUpload(
       visits_added: report.visitsAdded,
       duplicate_visits: report.duplicateVisits,
       rejected_total: report.rejected.length,
+      solicitation_batches_created: terminalization.solicitationBatchesCreated,
+      build_solicitation_batch_jobs_enqueued: terminalization.buildJobsEnqueued,
       ...rejectionHistogram(report.rejected),
     });
     return report;
@@ -346,20 +376,55 @@ async function terminalizeUpload(
   businessId: string,
   status: TerminalUploadStatus,
   report: IngestReport,
-): Promise<IngestReport> {
+): Promise<UploadTerminalization> {
   await tx`
     UPDATE contact_csv_uploads
     SET status = ${status}, report = ${tx.json(report as never)},
         raw_csv = NULL, completed_at = NOW()
     WHERE id = ${uploadId} AND business_id = ${businessId}
   `;
+  const batchCreated =
+    status === UPLOAD_STATUSES.COMPLETED &&
+    solicitationWatchEnabled() &&
+    await createSolicitationBatchTrigger(tx, uploadId, businessId);
   if (status === UPLOAD_STATUSES.FAILED) {
     logger.warn('csv ingest terminally failed', {
       upload_id: uploadId,
       structural_failure: report.structuralFailure,
     });
   }
-  return report;
+  return {
+    report,
+    solicitationBatchesCreated: batchCreated ? 1 : 0,
+    buildJobsEnqueued: batchCreated ? 1 : 0,
+  };
+}
+
+/** Creates the unbuilt batch and its durable build job as one paired write.
+ *  The source-upload unique constraint makes an upload replay a no-op; only a
+ *  newly-returned batch is eligible to enqueue work. */
+async function createSolicitationBatchTrigger(
+  tx: TransactionSql,
+  uploadId: string,
+  businessId: string,
+): Promise<boolean> {
+  const batchId = uuidv7();
+  const rows = await tx<{ id: string }[]>`
+    INSERT INTO solicitation_batches
+      (id, account_id, business_id, source_upload_id, built_at)
+    SELECT
+      ${batchId}, upload.account_id, upload.business_id, upload.id, NULL
+    FROM contact_csv_uploads upload
+    WHERE upload.id = ${uploadId}
+      AND upload.business_id = ${businessId}
+      AND upload.status = ${UPLOAD_STATUSES.COMPLETED}
+    ON CONFLICT (source_upload_id) DO NOTHING
+    RETURNING id
+  `;
+  if (rows.length === 0) return false;
+
+  await enqueueBuildSolicitationBatch(tx, { batchId, businessId });
+  return true;
 }
 
 /**
