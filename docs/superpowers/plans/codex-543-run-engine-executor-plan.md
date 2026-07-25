@@ -3,6 +3,9 @@
 _Locked via ticket-seeded `feature` grilling. Terms follow `CONTEXT.md`,
 `docs/superpowers/specs/2026-07-23-run-engine-executor-shape.md`, and ADR 0011._
 
+_Restarted after the mandatory adversarial review at `cc48de5e`; rationale is
+recorded in `codex-543-run-engine-executor-postmortem.md`._
+
 ## Classification and contract
 
 - **Risk:** high — worker execution plus migration 088.
@@ -20,6 +23,10 @@ _Locked via ticket-seeded `feature` grilling. Terms follow `CONTEXT.md`,
 - **Intake:** `docs/superpowers/plans/codex-543-run-engine-executor-intake.json`.
 - **Migration boundary:** migration 088 belongs to this branch; issue #546 and
   its migration remain out of flight until #543 lands.
+- **Review restart:** four no-ship findings are now locked requirements:
+  database-enforced composite tenancy for run links, the shared offboarding
+  processing gate inside preparation, failed-topic health alert coverage, and
+  independently reduced visit/ask histories before the candidate join.
 
 ## Module and seam design
 
@@ -94,16 +101,21 @@ order: outbox ownership CAS first, then parent failure.
 Add migration 088 and the minimum run-spine interface needed to represent a
 parent `solicitation_batch` run and completed `solicitation_ask` children:
 
-- add nullable `agent_runs.parent_run_id` with `ON DELETE SET NULL` and its FK
-  index;
+- add nullable `agent_runs.parent_run_id` with an
+  `(account_id, business_id, parent_run_id)` composite FK that nulls only
+  `parent_run_id` through an explicit column-specific
+  `ON DELETE SET NULL (parent_run_id)` action on archival, plus its FK index;
+- expose the referenced `UNIQUE (account_id, business_id, id)` key on
+  `agent_runs`;
 - add the two additive run/subject pairings, `solicitation` persona,
   `ask_evaluated` / `batch_built` step keys, and
   `solicitation_batch_built` outcome without changing the three-state status
   enum or active-run partial index;
 - create `solicitation_batches` and `solicitation_asks` with application
   UUIDv7 ids, composite Business integrity, owner-read-only RLS, idempotency
-  constraints, archival-safe `agent_run_id`, and indexes serving candidate
-  history/window queries;
+  constraints, an `(account_id, business_id, agent_run_id)` composite FK that
+  uses `ON DELETE SET NULL (agent_run_id)` so the tenant columns remain
+  non-null on archival, and indexes serving candidate history/window queries;
 - make the `solicitation_batches` owner SELECT policy itself require
   `built_at IS NOT NULL`;
 - add `parentRunId` and a set-based completed-child interface to
@@ -115,7 +127,8 @@ parent `solicitation_batch` run and completed `solicitation_ask` children:
 
 TDD slices:
 
-1. migration catalog/constraint/RLS behavior;
+1. migration catalog/constraint/RLS behavior, including separate rejected
+   cross-account and cross-Business parent and ask run links;
 2. parent linkage while the active-run conflict predicate stays exact;
 3. set-based completed children with one `ask_evaluated` step each.
 
@@ -165,8 +178,15 @@ Implement the batch-builder deep module and its worker handler:
   the outbox → batch/run lock order used by construction and the failed hook;
 - return immediately on `built_at IS NOT NULL` without creating another
   parent;
-- find an active parent and revalidate the feature flag plus
-  `subscriptionGrantsFullAccess` on every attempt; when a gate is closed,
+- find an active parent and revalidate the feature flag,
+  `subscriptionGrantsFullAccess`, and the shared account-offboarding
+  processing gate inside the owned preparation transaction on every attempt;
+  after resolving the batch account, call
+  `lockAccountBeforeOffboardingProjection`, then issue a later
+  `getOffboardingState` SQL command and apply `isProcessingBlocked` so a
+  concurrent confirm transaction cannot insert `delete_data` between a stale
+  projection snapshot and parent creation; when any gate is closed, including
+  `delete_data`,
   atomically completion-CAS the owned outbox and delete the unbuilt batch,
   creating no failed run when no parent exists but terminalizing an existing
   parent with bounded `gate_closed` attribution;
@@ -175,9 +195,11 @@ Implement the batch-builder deep module and its worker handler:
 - in the construction transaction, completion-CAS the exact outbox attempt
   first, then lock/re-read the batch and acquire the distinct per-Business
   advisory lock;
-- select at most 5,000 distinct contacts from the whole accumulated location
-  pool, ordered by least-recently-evaluated ask (NULL first), latest visit
-  descending, then contact id;
+- independently reduce visits to the latest completed-upload visit and asks
+  to the latest qualifying evaluation per Business/contact before joining
+  them to the whole accumulated location pool; only then select at most 5,000
+  distinct contacts ordered by least-recently-evaluated ask (NULL first),
+  latest visit descending, then contact id;
 - derive consent from the latest visit's completed upload, set
   `suppression=null` and `matchedReview=null`, and derive `priorBatch` from the
   latest prior ask with `status='send'` only;
@@ -196,7 +218,8 @@ existing outcome kinds.
 
 TDD slices:
 
-1. candidate window cap/rotation and priorBatch semantics;
+1. candidate window cap/rotation, independently bounded history joins, and
+   priorBatch semantics;
 2. one atomic success from outbox ownership through built batch;
 3. concurrent same-Business builds serialize and observe prior sends;
 4. committed retry does not create a second running parent or duplicate
@@ -229,14 +252,40 @@ Complete the production worker path:
 TDD slices:
 
 1. no-parent flag/subscription skip;
-2. gate closure after parent start terminalizes that parent without
-   evaluating candidates;
+2. gate closure, including a synchronized dispatched-job-versus-`delete_data`
+   race that proves the account lock is acquired before the later lifecycle
+   read and that no contact-history query, ask, or child run occurs; after
+   parent start the owned closure terminalizes that parent without evaluating
+   candidates;
 3. stale ownership no-op occurs before parent mutation;
 4. exhaustion marks the owned parent and outbox only;
-5. queue/worker registration is covered by outbox-topic and type gates.
+5. queue/worker registration is covered by outbox-topic and type gates;
+6. failed-topic health checks include terminal
+   `build_solicitation_batch` outbox rows.
 
-**Acceptance:** all fifteen intake test titles exist verbatim and pass; the
+**Acceptance:** all nineteen intake test titles exist verbatim and pass; the
 worker entry point remains registration/lifecycle only.
+
+### T5 — Adversarial-review remediation
+
+**Blocking edges:** T1–T4 at `cc48de5e`.
+
+Apply the four locked no-ship corrections as narrow TDD slices:
+
+1. database-enforced composite tenancy for parent and ask run links, with
+   both cross-account and cross-Business rejection cases;
+2. account-row lock followed by a later shared offboarding-state read before
+   any candidate history read;
+3. latest-row history reduction before the bounded candidate join;
+4. terminal batch-outbox inclusion in the existing health-alert query.
+
+This tracer changes no product scope: it makes the original tenancy, gate,
+observability, and bounded-work promises executable. Migration 088 remains
+unapplied outside the disposable local test database.
+
+**Acceptance:** the four added verbatim regression titles pass, all original
+promises remain green, and the full DB-backed feature gate plus `pnpm build`
+passes from the remediation HEAD.
 
 ## Verification and staging order
 
@@ -262,7 +311,7 @@ after code rollback, staging first.
 
 Production evidence is the structured batch aggregate, parent
 `solicitation_batch_built` outcome/unit count, `built_at`, and existing
-failed-outbox/Sentry worker signals. Never log or copy contact PII into run
+failed-outbox health alert plus Sentry worker signals. Never log or copy contact PII into run
 details, outcome metadata, or structured logs.
 
 ## Open questions

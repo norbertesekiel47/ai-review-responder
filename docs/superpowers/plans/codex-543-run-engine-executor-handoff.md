@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-- Phase: `executing` (T1–T4 committed; verify gate next)
+- Phase: `replanning` after mandatory adversarial review
 - Branch: `codex/543-run-engine-executor`
 - Worktree:
   `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-543-run-engine-executor`
@@ -12,6 +12,14 @@
   parallel-DB isolation `cc6d2c4c`
 - Migration status: 088 reserved by this feature; unapplied everywhere
 - Blocked migration: issue #546 remains out of flight
+
+The first full DB-backed gate passed at `cc48de5e`, then the mandatory
+adversarial review found four valid no-ship gaps: tenant-composite run foreign
+keys, the shared offboarding processing gate, terminal batch failure alerts,
+and an unbounded visit-by-ask history join. The second surface amendment
+triggered the feature workflow abort criterion, so
+`codex-543-run-engine-executor-postmortem.md` records the restart and the
+intake/plan now lock the four fixes plus exact regression titles.
 
 The high-risk plan reviewer reached its three-round cap with one final
 edit-surface omission. That omission was corrected by adding the shared
@@ -51,10 +59,12 @@ feature lane for the reasons recorded in the plan's classification section.
 ## Resume
 
 1. Confirm both intake copies match and the ARM CHECK is green.
-2. Run `scripts/verify-gate.sh`; DB-touching integration SKIP is not
+2. Obtain the required high-risk plan approval for the restarted T5 tracer.
+3. Delegate the three implementation slices to fresh subagents using TDD.
+4. Run the full DB-backed gate and `pnpm build`; integration SKIP is not
    acceptable.
-3. Continue through the high-risk adversarial implementation review only
-   after the gate is fully green.
+5. Continue the deviations read-back and two-axis review only after the
+   remediation gate is fully green.
 
 Do not reconstruct intent from conversation history. Read the intake, plan,
 specification, ADR, and named glossary excerpt above.

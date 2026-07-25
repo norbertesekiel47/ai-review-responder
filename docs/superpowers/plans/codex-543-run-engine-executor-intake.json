@@ -21,15 +21,15 @@
   ],
   "invariants": [
     "Watch-mode sends nothing and performs no external API call.",
-    "The batch candidate window contains at most 5,000 distinct contacts and rotates by least-recently-evaluated ask before latest-visit ordering.",
+    "The batch candidate window contains at most 5,000 distinct contacts and rotates by least-recently-evaluated ask before latest-visit ordering; latest visit and latest qualifying ask are each reduced to one row per Business/contact before they are joined to the bounded contact pool.",
     "Simulated contact history and priorBatch include only prior asks with status='send'; velocity_banked and every other withhold never start MIN_GAP_DAYS.",
     "Batch construction is atomic with originating outbox completion: no partial asks, child runs, parent terminal attribution, or built_at can commit.",
     "A stale outbox attempt creates no parent and writes no batch decisions; the exact dispatched outbox attempt is locked before any batch or run mutation, and completion CAS precedes the coupled construction transaction.",
     "Concurrent batch builds for one Business serialize before reading ask history so the later batch observes the earlier would-have-sent inclusions.",
     "The existing agent_runs_one_active_per_subject predicate remains byte-for-byte WHERE status = 'running', and agent_runs keeps its three-state status enum.",
-    "Every new schema relationship is tenant-safe, owner reads are RLS-protected, and all domain queries are explicitly Business-scoped.",
+    "Every new schema relationship is tenant-safe, owner reads are RLS-protected, and all domain queries are explicitly Business-scoped; agent_runs exposes UNIQUE (account_id, business_id, id), parent_run_id and solicitation_asks.agent_run_id are enforced by (account_id, business_id, run_id) composite foreign keys, and their ON DELETE SET NULL column lists null only parent_run_id or agent_run_id.",
     "Only subscriptionGrantsFullAccess statuses execute the worker; trialing remains fully entitled.",
-    "Feature-flag and subscription gates are rechecked on every attempt; a gate-closed attempt never evaluates candidates, even when it must terminalize an already-started parent.",
+    "Feature-flag, subscription, and shared account-offboarding processing gates are rechecked inside the owned preparation transaction on every attempt; preparation calls lockAccountBeforeOffboardingProjection before a later getOffboardingState read and applies isProcessingBlocked under READ COMMITTED, so delete_data and every other processing-blocked state are gate-closed and never evaluate candidates, even when an already-dispatched job must terminalize an already-started parent.",
     "Solicitation asks outlive 180-day run archival through agent_run_id ON DELETE SET NULL.",
     "Owner SELECT access to solicitation_batches requires built_at IS NOT NULL in the RLS predicate, not only in a future read-model query.",
     "Authoritative solicitation_asks rows are inserted before their child spine rows, then linked to agent_run_id in the same atomic transaction.",
@@ -51,7 +51,9 @@
     "A completed upload is replayed and must not create a second batch or outbox row.",
     "A structurally failed or subscription-inactive upload creates no batch.",
     "A prior batch sent contact A and velocity-banked contact B; the next batch treats A as over_contacted while B remains eligible.",
-    "The parent run is archived before child runs or asks."
+    "The parent run is archived before child runs or asks.",
+    "A dispatched build job starts after the account enters delete_data offboarding and must close without reading contact history or creating asks or runs.",
+    "One contact accumulates many visits and prior asks; candidate scheduling still joins only the independently reduced latest rows rather than multiplying both histories."
   ],
   "existing_patterns_to_follow": [
     "src/lib/agents/run-spine.ts as the only writer seam for agent_runs, agent_run_steps, and agent_outcomes; commitWeeklyInsightsDigest as the same-transaction terminal-attribution precedent.",
@@ -96,8 +98,11 @@
     "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
     "worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts",
     "worker/jobs/solicitation-batch/**",
+    "worker/background/pollers/health-alert/checks.ts",
+    "worker/background/pollers/health-alert/__tests__/checks.test.ts",
     "worker/queues.ts",
-    "worker/index.ts"
+    "worker/index.ts",
+    "docs/reviews/codex/543-run-engine-executor/**"
   ],
   "tests_to_add": [
     "migration 088 widens the run spine and creates tenant-safe Solicitation batch tables",
@@ -114,7 +119,11 @@
     "build_solicitation_batch gate closure after parent start completes the owned outbox and fails that parent as gate_closed",
     "lockDispatchedOutboxAttemptIfOwned prevents a stale build attempt from creating a parent",
     "build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden",
-    "account offboarding purge cascades from contact uploads through Solicitation batches and asks"
+    "account offboarding purge cascades from contact uploads through Solicitation batches and asks",
+    "migration 088 rejects cross-account and cross-business parent and ask run links",
+    "build_solicitation_batch treats delete_data offboarding as gate_closed before candidate evaluation",
+    "health alerts include terminal build_solicitation_batch outbox failures",
+    "candidate history query pre-aggregates visits and asks before the 5000-contact limit"
   ],
   "verification_commands": [
     "pnpm exec vitest run src/lib/agents/__tests__/run-spine.test.ts src/lib/shared/__tests__/job-outbox-helpers.test.ts src/lib/shared/__tests__/outbox.test.ts src/lib/solicitation/__tests__/batch-builder.test.ts worker/jobs/solicitation-batch/__tests__",
@@ -122,6 +131,7 @@
     "pnpm ci:outbox-topics",
     "pnpm ci:rls-audit",
     "pnpm ci:tenant-scope",
+    "pnpm exec vitest run worker/background/pollers/health-alert/__tests__/checks.test.ts",
     "pnpm build"
   ],
   "estimated_diff_size": "approximately 4000 changed lines at the post-implementation reclassification checkpoint; 3999 measured across 39 files after the parallel-database isolation fix, while remaining a tight four-tracer high-risk backend feature",
@@ -130,7 +140,7 @@
   "observability": [
     "Structured worker logs include batch_id, business_id, selected_count, send_count, withhold counts by closed reason, and retry/skip outcome without contact PII.",
     "solicitation_batch_built agent outcome records unit_count equal to selected candidates on the parent run.",
-    "Exhausted failures mark the parent run failed with bounded metadata and leave the failed build_solicitation_batch outbox row visible to existing failed-topic health checks and Sentry worker lifecycle capture; intentional gate closure after parent start records bounded gate_closed attribution and completes the owned outbox.",
+    "Exhausted failures mark the parent run failed with bounded metadata and leave the failed build_solicitation_batch outbox row visible to the failed-topic health alert query and Sentry worker lifecycle capture; intentional gate closure after parent start records bounded gate_closed attribution and completes the owned outbox.",
     "built_at NULL versus non-NULL provides an introspectable pending/complete construction fact without a stored lifecycle status."
   ],
   "open_questions": []
