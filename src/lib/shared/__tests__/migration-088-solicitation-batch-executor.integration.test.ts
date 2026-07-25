@@ -30,6 +30,11 @@ const testDatabaseUrl = localTestDatabaseUrl();
 // verify-gate runs changed integration files in separate processes against one DB.
 // Keep this feature's schema setup and large fixture lifecycles from overlapping.
 const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
+// The gate can run three copies of every changed suite (full test, the declared
+// integration group, and the changed-file row). Keep a bounded wait covering
+// 3 × the ~47s builder suite plus the nine shorter critical sections and load
+// margin; migration 088 DDL means the lock cannot safely cover setup alone.
+const FEATURE_543_DATABASE_LOCK_TIMEOUT_MS = 5 * 60_000;
 const migrationPath = resolve(
   process.cwd(),
   'supabase/migrations/088_solicitation_batch_executor.sql',
@@ -174,7 +179,7 @@ describeWithDb(
     });
     await db.unsafe(readMigration088Sql());
     await db.unsafe(readMigration088Sql());
-  }, 120_000);
+  }, FEATURE_543_DATABASE_LOCK_TIMEOUT_MS);
 
   afterAll(async () => {
     try {
