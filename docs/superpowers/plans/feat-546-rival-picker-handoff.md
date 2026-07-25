@@ -33,11 +33,69 @@ All five plan tasks, in order:
 | — | `d7559b00` | Step 7 review fixes (below) |
 | — | `860402ba` | **Unrelated** owner-approved runbook doc commit (staging channels smoke test). Outside the edit surface by explicit decision — do not treat as drift. |
 
-## Step 8 — what to do
+## Step 8 — progress, 2026-07-25
 
-1. **Ride staging first.** Apply migration **089 to the staging Supabase project BEFORE deploying**, then land the branch on `staging` (push auto-deploys the full stack).
-   - **Hard ordering constraint:** the lane query now SELECTs `rival_place_id` / `rival_title_snapshot`, so this branch **cannot run anywhere 089 has not been applied**. Migration before deploy, not alongside.
-   - 089 is NOT purely additive — it DROP/ADDs `analytics_events_event_name_check`, taking a brief ACCESS EXCLUSIVE lock and re-validating the table. `SET lock_timeout = '5s'` is in the migration.
+**Step 8.1 is DONE. Step 8.2 is BLOCKED on an owner decision about `staging` drift.**
+
+| | |
+|---|---|
+| 089 → staging Supabase | ✅ **applied + verified** (`kubdiqdhqbhwmqfditeg`) |
+| Branch → `staging` | ⛔ **not landed** — merge aborted, blocked (below) |
+| Staging deploy | none triggered; `origin/staging` is byte-identical to before |
+| PR to `main` | not opened |
+
+### 8.1 — migration applied (done)
+
+089 is on staging, verified by **schema introspection, not the ledger**: three
+nullable columns on `businesses` (`text`/`text`/`timestamptz`) and
+`analytics_events_event_name_check` containing `competitor_rival_picked` with
+`convalidated = true`. Preflight found zero `analytics_events` rows outside the
+new allowlist, so the constraint re-ADD validated clean. Applied via
+`apply_migration` under the name `089_competitor_rival_pick`, matching the
+ledger precedent set by `088_solicitation_batch_executor`.
+
+This is safe to leave in place with the code un-deployed: the columns are
+nullable and nothing reads them until the branch lands. It does **not** need
+re-applying when the ride resumes.
+
+### 8.2 — BLOCKER: `staging` has drifted 58 commits from `main`
+
+`git merge --no-ff feat/546-rival-picker` into `staging` **conflicted on 8
+files** (`WeeklySummaryWorker.ts`, `weekly-value-report.ts`,
+`batch-builder.ts`, `solicitation-batch/index.ts` + their tests, and two plan
+docs). The merge was **aborted**; both the `staging` branch and the
+`staging-ride` worktree are clean and untouched.
+
+Root cause is squash-merge drift, not a real code conflict. Measured:
+
+- `git cherry origin/main origin/staging` → **53 commits unique to staging**, and
+  every one is a pre-squash original of **#541**, **#539**, or **#543** — all
+  three already merged into `main` as single squashed commits (`#564`, `#570`,
+  `#571`). Same work, different SHAs, so git sees add/add collisions.
+- `git diff origin/main origin/staging` → **4 insertions, 151 deletions**.
+  Staging is *behind* main in content: it lacks 151 lines of late PR review
+  fixes, and its 4 unique lines are superseded earlier forms of code main has
+  since refactored. **Nothing on `staging` exists that `main` does not.**
+- Cause: CLAUDE.md's "after promotion, fast-forward `staging` onto `main`"
+  step was skipped after those three merges.
+
+**Owner asked to stop here** rather than pick a realignment. The two paths:
+
+1. **Reset and re-ride** (recommended): `git reset --hard origin/main` on
+   `staging`, merge `feat/546-rival-picker` (conflict-free — the branch already
+   contains all of `origin/main`), `git push --force-with-lease`. Yields a
+   staging env equal to prod + this feature, which is what the ride should test.
+   Cost: force-push rewrites `staging` history. Content-safe per the diff above.
+2. **Hand-resolve** all 8 conflicts taking main's side. No force-push, but it
+   preserves the drift and re-conflicts on the next ride.
+
+Either way the drift is a **pre-existing repo issue, not caused by #546** — the
+next feature to ride staging hits exactly the same wall.
+
+### 8.3 — resume from here
+
+1. Settle the 8.2 decision, land the branch on `staging`, let the push
+   auto-deploy the full stack. (Skip 8.1 — already applied.)
 2. **Smoke on staging:** pick a rival on `/settings/competitors`, confirm the weekly digest's Competitor Delta line names it without the `Auto-selected rival: ` prefix; clear it and confirm the prefix returns.
 3. **PR to `main`**, all GitHub CI checks green, then **PAUSE for explicit merge approval**. Apply 089 to prod Supabase in lockstep at promotion.
 4. After merge: `git pull --ff-only` on `main`, fast-forward `staging`, run `scripts/feature-cleanup.sh` (dry run first), then the post-merge sweep below.

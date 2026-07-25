@@ -995,8 +995,16 @@ Revisit triggers:
   `ANALYTICS_EVENT_NAMES`" drift-guard, handed off from
   `migration-069-trial-subscription.test.ts`. No RLS change (`businesses`'
   existing policies cover the new columns) and no retention change (no new
-  table). Not applied by this task — **staging first, then prod at promotion in
-  lockstep**.
+  table).
+
+  **Applied to staging Supabase (`kubdiqdhqbhwmqfditeg`) 2026-07-25**, ahead of
+  the deploy — the lane query SELECTs `rival_place_id`/`rival_title_snapshot`, so
+  the branch cannot run anywhere 089 is absent. Verified by schema introspection,
+  not the migration ledger: the three columns exist as nullable
+  (`text`/`text`/`timestamptz`), and `analytics_events_event_name_check` contains
+  `competitor_rival_picked` with `convalidated = true`. Preflight found zero
+  `analytics_events` rows outside the new allowlist, so the re-ADD validated
+  clean. **Not yet applied to prod** — apply at promotion, in lockstep.
 
 - **088** — Solicitation batch executor persistence foundation (#543 plan T1;
   ADR 0011). Adds nullable `agent_runs.parent_run_id` with `ON DELETE SET NULL`
