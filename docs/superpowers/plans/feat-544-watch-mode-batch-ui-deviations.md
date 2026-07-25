@@ -361,12 +361,59 @@ HTTP. Proof came instead from an authenticated browser session (below).
 - `/dashboard/requests/contacts` renders at its NEW path (the #544 move) with the
   attestation copy and `consent_attestation_v1` recorded on upload.
 
-**Not proven here:** the built-batch funnel hero and spoilage report, which need
-a real batch. Reaching that state requires uploading contact data and signing the
-consent attestation ("these are real customers … I am authorized"), which is the
-owner's assertion to make, not the agent's. Handed to the human. Note #543's own
-staging smoke already proved the worker half (batch built, 1 ask, `decision=send`,
-parent + child runs), so the untested gap is the UI's built-batch rendering only.
+**Full-loop smoke — COMPLETE (2026-07-25).** The owner uploaded a 42-row
+synthetic CSV (agent-generated against the parser's real header aliases and the
+restraint-policy constants; all handles on RFC-reserved `example.com` /
+`+1415555…`, so nothing could reach a real person even if watch-mode were
+bypassed). The owner ticked the consent attestation — the agent declined to,
+since it is the owner's assertion to make.
+
+Ingest report: 40 contacts created, 0 merged, 40 visits added, 0 duplicates.
+2 rejected rows with correct distinct reasons — row 41 `Visit date is in the
+future`, row 42 `Invalid visit date`. The UI correctly separates these from
+policy withholds: *"Rows that failed validation … never reached these checks and
+are not held back."*
+
+Funnel: **40 candidates evaluated → 15 held back → 25 would have been sent.**
+
+Reconciled against the database, not just the screen — the "hero and ledger
+cannot disagree" invariant holds end to end:
+
+| Check | UI | `solicitation_asks` | Match |
+|---|---|---|---|
+| evaluated | 40 | 40 asks | ✓ |
+| would have been sent | 25 | 25 `status='send'` | ✓ |
+| held back | 15 | 15 `status='withhold'` | ✓ |
+| `stale_visit` | 8 | 8 | ✓ |
+| `velocity_banked` | 7 | 7 | ✓ |
+
+`reviewed_at` **is written on first render of a built batch**: `built_at`
+23:38:59Z, `reviewed_at` 23:39:45Z — 46s later, at the agent's first page load,
+not at build time. Confirms decision 3 (dedicated POST on render, not folded
+into the GET).
+
+Vertical resolved to the 30-day window (`other`) — the stale evidence line reads
+*"Visited May 20, 2026, 66 days ago · past the 30-day window for your trade"*.
+The CSV was deliberately built to be unambiguous under every window (14–45 days)
+because the vertical could not be confirmed in advance.
+
+**Better than predicted:** the spoilage report lists **all six reasons including
+zero-count ones** ("Reasons that held nobody are listed too, so you can see the
+whole rule set"), rather than only the groups that fired. The pre-smoke
+prediction that it would show "two reason groups, not six" was wrong.
+
+**Still unexercised, and honestly so:**
+
+- `no_consent`, `suppressed`, `already_reviewed`, `over_contacted` all rendered
+  `0 held back / Nobody this batch.` They need prior state (a suppression mark, a
+  matched review, or an earlier batch inside `MIN_GAP_DAYS`=30) that a first
+  upload cannot create. Their **zero path** is proven; their **non-zero path** is
+  not.
+- The **10-evidence-rows-per-reason cap** was not exercised — the largest group
+  was 8, under the cap. `EVIDENCE_ROWS_PER_REASON` remains covered by the
+  integration suite only.
+- The **building** state was not observed live; the batch had already built by
+  the time the page was opened.
 
 **Correction to session-start memory:** an injected observation claimed this flag
 was already enabled on Railway staging from the #543 work. It was `false` when
