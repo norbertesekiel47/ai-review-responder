@@ -100,33 +100,60 @@ next feature to ride staging hits exactly the same wall.
 3. **PR to `main`**, all GitHub CI checks green, then **PAUSE for explicit merge approval**. Apply 089 to prod Supabase in lockstep at promotion.
 4. After merge: `git pull --ff-only` on `main`, fast-forward `staging`, run `scripts/feature-cleanup.sh` (dry run first), then the post-merge sweep below.
 
-## Verification status — read this before claiming green
+## Verification status
 
-`.feature/gate-status.json` is **RED on `test` and `diff-coverage`**, and that is a
-known, owner-accepted environmental result, not an unknown. Full evidence is in the
-deviations file under "Step 5 — verify gate evidence". Summary:
+**The gate is GREEN, and it is green because the root cause was fixed — not
+accepted.** History matters here, so both halves are recorded.
 
-- **Green:** lint, typecheck, build, all 13 `ci:*` audits, `promised-tests` (all 19
-  intake titles verbatim), and the dedicated `named-rival.integration` row — which
-  **RAN against live Postgres, it did not SKIP**.
-- **`test` red** from nondeterministic Postgres deadlocks in *unrelated* live-DB
-  suites: the failing set was 13 → 5 → 4 → 6 → 2 files across runs, never the same
-  twice. Many integration suites re-apply migrations and delete from the same tables
-  in parallel against ONE shared test database.
-- **Proof it is contention:** single-threaded (`vitest run --no-file-parallelism`)
-  the suite is **782/782 files, 9568 tests, 0 failed**. Vitest ignores
-  `VITEST_MAX_FORKS`/`MAX_THREADS`, so the gate cannot be serialized without
-  `fileParallelism: false` in `vitest.config.ts` — a repo-wide change that belongs
-  to its own ticket.
-- **`diff-coverage` red only downstream** (no `coverage-final.json` when `test`
-  fails). Measured directly: **478/507 added lines, 94.3%, min 80% — PASS.**
-- **`reclassify` WARN**: 4835 changed lines vs a 900 estimate. Split — production
-  **+1211/−161** (1.35×, inside tolerance), tests +1596, docs/CI +1801. Owner
-  decision: note it, do not re-run step 0.
+### What was red, and why
+
+Across 8 runs the `test` row failed with a *different* set of files every time
+(13 → 5 → 4 → 6 → 2 → 8), always with `deadlock detected` or a `beforeAll`/test
+timeout, and **never a failed assertion**. Cause: the 45 `*.integration.test.ts`
+suites share ONE test database, and several re-apply migrations and DELETE from
+the same tables while running in parallel.
+
+The clinching evidence came from this branch's own suite. In the parallel run
+`named-rival.integration.test.ts` died with `deadlock detected` inside its
+**teardown DELETE**, while the gate's dedicated isolated row for that exact
+file **passed**. Same file, same commit, opposite results — contention, not a
+defect.
+
+### The fix (surface amendment #3, owner-approved)
+
+`vitest.config.ts` now uses the documented Vitest `projects` recipe: a
+`parallel` project excluding `*.integration.test.ts`, and an `integration`
+project including them with `fileParallelism: false` and `sequence.groupOrder`
+so the two groups never overlap. Verified split: **45 integration + 738
+parallel = 783**, zero leakage.
+
+This is deliberately narrower than the repo-wide `fileParallelism: false` an
+earlier session proposed — that would serialize all 783 files for no benefit on
+the 738 that never touch Postgres. **CI cost is zero either way**: the
+integration suites skip in CI because `TEST_DATABASE_POOL_URL` is unset, which
+is exactly why CI never surfaced this (the #520 blind spot, repo-wide).
+
+One follow-on: hoisting the shared options out of `defineConfig()` widened
+`jsx.runtime` from its literal to `string`, breaking `typecheck` and `build`.
+Fixed with `as const` and commented in place.
+
+### Result
+
+`test` **PASSES**: 782 passed / 1 skipped (783 files), **9569 tests passed**,
+with all 45 integration suites RUNNING against live Postgres, not skipping.
+Suite duration also dropped from 333s to 119s — the deadlock retries and
+10s hook timeouts are simply gone.
+
+- **`reclassify` WARN** persists: ~6100 changed lines vs a 900 estimate. Split —
+  production **+1211/−161** (1.35×, inside tolerance), the rest tests and
+  docs/CI. Standing owner decision: note it, do not re-run step 0.
 - To reproduce a local run, export `TEST_DATABASE_POOL_URL` **and**
   `DATABASE_POOL_URL` (both to the LOCAL test DB — `vitest.setup.ts` otherwise
   defaults the singleton to an unreachable placeholder that live-DB suites hit
   through production code paths).
+- Run the gate as `scripts/verify-gate.sh --review`. Without `--review` it runs
+  `pnpm test` instead of `pnpm test:coverage`, and the **`diff-coverage` row
+  silently disappears** — a plain-run green covers strictly fewer checks.
 
 ## Step 7 review outcome
 
