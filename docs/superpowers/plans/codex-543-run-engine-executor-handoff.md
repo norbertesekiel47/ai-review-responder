@@ -8,7 +8,8 @@
   `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-543-run-engine-executor`
 - Risk/surface: high / backend / DB-touching
 - Implementation status:
-  T1 `551e171b`, T2 `ff824766`, T3 `dc0f76c9`, T4 `bd1d9e97`
+  T1 `551e171b`, T2 `ff824766`, T3 `dc0f76c9`, T4 `bd1d9e97`,
+  parallel-DB isolation `cc6d2c4c`
 - Migration status: 088 reserved by this feature; unapplied everywhere
 - Blocked migration: issue #546 remains out of flight
 
@@ -17,7 +18,7 @@ edit-surface omission. That omission was corrected by adding the shared
 outbox module and its focused test to the intake; the user explicitly approved
 the corrected contract on 2026-07-24.
 
-Post-T4 reclassification measured 3,846 changed lines across 39 files. This
+Post-fix reclassification measured 3,999 changed lines across 39 files. This
 exceeds twice the original estimate but remains in the same high-risk backend
 feature lane for the reasons recorded in the plan's classification section.
 

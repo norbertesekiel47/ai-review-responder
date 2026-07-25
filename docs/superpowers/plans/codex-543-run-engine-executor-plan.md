@@ -7,11 +7,13 @@ _Locked via ticket-seeded `feature` grilling. Terms follow `CONTEXT.md`,
 
 - **Risk:** high — worker execution plus migration 088.
 - **Surface:** backend.
-- **Diff reclassification:** the post-T4 branch contains 3,846 changed lines
-  across 39 files (3,801 additions, 45 deletions), above twice the original
+- **Diff reclassification:** the post-implementation branch contains 3,999
+  changed lines across 39 files after the parallel-database isolation fix,
+  above twice the original
   1,500-line estimate. Most growth is executable evidence: the real-Postgres
-  5,001-contact/concurrency suite, migration catalog coverage, and
-  account-offboarding cascade coverage. The lane remains a high-risk,
+  5,001-contact/concurrency suite, migration catalog coverage,
+  account-offboarding cascade coverage, and fail-safe shared-DB test
+  isolation. The lane remains a high-risk,
   normal-sized backend feature rather than an epic: four completed tracers,
   one schema/worker risk domain, a tight named-file surface, and no open
   investigation.
