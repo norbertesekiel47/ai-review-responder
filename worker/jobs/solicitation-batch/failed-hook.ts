@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
-import { completeRun } from '@/lib/agents/run-spine';
+import { failSolicitationBatchRun } from '@/lib/agents/run-spine';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
@@ -93,9 +93,12 @@ export async function handleSolicitationBatchFailed(
       `;
       if (!activeParent) return;
 
-      await completeRun(tx, activeParent.id, 'failed', {
-        code: 'build_failed',
-        error_class: errorClass,
+      await failSolicitationBatchRun(tx, {
+        runId: activeParent.id,
+        failure: {
+          code: 'build_failed',
+          errorClass,
+        },
       });
       parentTerminalized = true;
     });

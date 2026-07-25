@@ -15,11 +15,14 @@ import {
   STEP_PERSONA,
   personaForStep,
   startOrGetActiveRun,
+  startOrGetSolicitationBatchRun,
   findActiveReviewRun,
   recordCompletedChildRuns,
   recordStep,
   recordOutcome,
   completeRun,
+  completeSolicitationBatchRun,
+  failSolicitationBatchRun,
 } from '../run-spine';
 
 describe('run-spine constants', () => {
@@ -186,6 +189,29 @@ describe('startOrGetActiveRun', () => {
   });
 });
 
+describe('startOrGetSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('starts the Solicitation parent through a batch-specific spine seam', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'batch-run-1' }]));
+
+    const out = await startOrGetSolicitationBatchRun(tx(harness), {
+      batchId: 'batch-1',
+      accountId: 'account-1',
+      businessId: 'business-1',
+      correlationId: 'correlation-1',
+    });
+
+    expect(out).toEqual({ runId: 'batch-run-1', created: true });
+    const insert = harness.sqlCalls[0]!;
+    expect(insert.text).toContain('INSERT INTO agent_runs');
+    expect(insert.values).toContain('solicitation_batch');
+    expect(insert.values).toContain('batch-1');
+    expect(insert.values).toContain('correlation-1');
+  });
+});
+
 describe('recordCompletedChildRuns', () => {
   let harness: MockSqlHarness;
   beforeEach(() => { harness = createMockSql(); });
@@ -343,5 +369,89 @@ describe('completeRun', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([])); // probe: no row
     await expect(completeRun(tx(harness), 'missing', 'completed'))
       .rejects.toThrow(/run not found/i);
+  });
+});
+
+describe('completeSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('atomically records the batch aggregate, zero-unit outcome, and completion through one Solicitation seam', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ ok: 1 }]),
+      mkTaggedResult([{ next_index: 1 }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ id: 'parent-run-1' }]),
+    );
+
+    await completeSolicitationBatchRun(tx(harness), {
+      runId: 'parent-run-1',
+      accountId: 'account-1',
+      businessId: 'business-1',
+      batchId: 'batch-1',
+      candidateCount: 0,
+      sendCount: 0,
+      withholdCount: 0,
+      withheldByReason: {
+        no_consent: 0,
+        suppressed: 0,
+        already_reviewed: 0,
+        stale_visit: 0,
+        over_contacted: 0,
+        velocity_banked: 0,
+      },
+    });
+
+    expect(harness.sqlCalls).toHaveLength(5);
+    const [lock, , step, outcome, completion] = harness.sqlCalls;
+    expect(lock!.text).toContain('FOR UPDATE');
+    expect(step!.text).toContain('INSERT INTO agent_run_steps');
+    expect(step!.values).toContain('batch_built');
+    expect(step!.values).toContainEqual({
+      batch_id: 'batch-1',
+      candidate_count: 0,
+      send_count: 0,
+      withhold_count: 0,
+      withheld_by_reason: {
+        no_consent: 0,
+        suppressed: 0,
+        already_reviewed: 0,
+        stale_visit: 0,
+        over_contacted: 0,
+        velocity_banked: 0,
+      },
+    });
+    expect(outcome!.text).toContain('INSERT INTO agent_outcomes');
+    expect(outcome!.values).toContain('solicitation_batch_built');
+    expect(outcome!.values).toContain(0);
+    expect(completion!.text).toContain('UPDATE agent_runs');
+    expect(completion!.values).toContain('completed');
+  });
+});
+
+describe('failSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('records bounded gate-closure attribution while failing the parent', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'parent-run-1' }]));
+
+    await failSolicitationBatchRun(tx(harness), {
+      runId: 'parent-run-1',
+      failure: {
+        code: 'gate_closed',
+        gate: 'flag_disabled',
+      },
+    });
+
+    expect(harness.sqlCalls).toHaveLength(1);
+    const transition = harness.sqlCalls[0]!;
+    expect(transition.text).toContain('UPDATE agent_runs');
+    expect(transition.values).toContain('failed');
+    expect(transition.values).toContainEqual({
+      code: 'gate_closed',
+      gate: 'flag_disabled',
+    });
   });
 });

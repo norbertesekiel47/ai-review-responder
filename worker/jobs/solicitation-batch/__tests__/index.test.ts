@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     () => { outboxId: string; attempt: number | undefined }
   >(() => ({ outboxId: 'outbox-1', attempt: 3 })),
   markOutboxFailed: vi.fn(),
-  completeRun: vi.fn(),
+  failSolicitationBatchRun: vi.fn(),
   logger: {
     log: vi.fn(),
     warn: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock('@/lib/shared/outbox', () => ({
   markOutboxFailed: mocks.markOutboxFailed,
 }));
 vi.mock('@/lib/agents/run-spine', () => ({
-  completeRun: mocks.completeRun,
+  failSolicitationBatchRun: mocks.failSolicitationBatchRun,
 }));
 vi.mock('@/lib/shared/logger', () => ({
   createWorkerLogger: () => mocks.logger,
@@ -58,13 +58,13 @@ beforeEach(() => {
   mocks.buildSolicitationBatch.mockReset();
   mocks.extractOutboxHandle.mockReset();
   mocks.markOutboxFailed.mockReset();
-  mocks.completeRun.mockReset();
+  mocks.failSolicitationBatchRun.mockReset();
   mocks.logger.log.mockReset();
   mocks.logger.warn.mockReset();
   mocks.logger.error.mockReset();
   mocks.extractOutboxHandle.mockReturnValue({ outboxId: 'outbox-1', attempt: 3 });
   mocks.markOutboxFailed.mockResolvedValue(true);
-  mocks.completeRun.mockResolvedValue(undefined);
+  mocks.failSolicitationBatchRun.mockResolvedValue(undefined);
   resetMockSql();
   mocks.buildSolicitationBatch.mockResolvedValue({
     status: 'built',
@@ -161,7 +161,7 @@ describe('Solicitation batch worker exhausted failure path', () => {
     );
 
     expect(mocks.markOutboxFailed).not.toHaveBeenCalled();
-    expect(mocks.completeRun).not.toHaveBeenCalled();
+    expect(mocks.failSolicitationBatchRun).not.toHaveBeenCalled();
     expect(sqlCalls).toHaveLength(0);
   });
 
@@ -187,15 +187,16 @@ describe('Solicitation batch worker exhausted failure path', () => {
       'business-1',
       'business-1',
     ]);
-    expect(mocks.completeRun).toHaveBeenCalledWith(
+    expect(mocks.failSolicitationBatchRun).toHaveBeenCalledWith(
       mockSql,
-      'parent-run-1',
-      'failed',
-      { code: 'build_failed', error_class: 'Error' },
+      {
+        runId: 'parent-run-1',
+        failure: { code: 'build_failed', errorClass: 'Error' },
+      },
     );
     expect(
       mocks.markOutboxFailed.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.completeRun.mock.invocationCallOrder[0]!);
+    ).toBeLessThan(mocks.failSolicitationBatchRun.mock.invocationCallOrder[0]!);
   });
 
   it('writes no parent terminal state when the outbox attempt is stale', async () => {
@@ -207,7 +208,7 @@ describe('Solicitation batch worker exhausted failure path', () => {
       new Error('stale'),
     );
 
-    expect(mocks.completeRun).not.toHaveBeenCalled();
+    expect(mocks.failSolicitationBatchRun).not.toHaveBeenCalled();
     expect(sqlCalls).toHaveLength(0);
   });
 
@@ -224,6 +225,6 @@ describe('Solicitation batch worker exhausted failure path', () => {
         new Error('boom'),
       ),
     ).resolves.toBeUndefined();
-    expect(mocks.completeRun).toHaveBeenCalledOnce();
+    expect(mocks.failSolicitationBatchRun).toHaveBeenCalledOnce();
   });
 });

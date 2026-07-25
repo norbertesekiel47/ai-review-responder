@@ -103,7 +103,7 @@ export interface StartRunResult {
  * the agent_runs_one_active_per_subject partial unique index — the ON CONFLICT
  * clause below must match its predicate byte-for-byte (migration 071).
  */
-export async function startOrGetActiveRun(
+async function startOrGetActiveRunInternal(
   tx: TxClient,
   input: StartRunInput,
 ): Promise<StartRunResult> {
@@ -139,6 +139,39 @@ export async function startOrGetActiveRun(
     );
   }
   return { runId: existing.id, created: false };
+}
+
+export async function startOrGetActiveRun(
+  tx: TxClient,
+  input: StartRunInput,
+): Promise<StartRunResult> {
+  return startOrGetActiveRunInternal(tx, input);
+}
+
+export interface StartSolicitationBatchRunInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+/**
+ * Start or reuse the parent attribution run for one Solicitation batch.
+ * Domain callers cannot select an unrelated run/subject pairing through this
+ * seam, while the generic writer remains available to the review pipelines.
+ */
+export async function startOrGetSolicitationBatchRun(
+  tx: TxClient,
+  input: StartSolicitationBatchRunInput,
+): Promise<StartRunResult> {
+  return startOrGetActiveRunInternal(tx, {
+    kind: 'solicitation_batch',
+    subjectType: 'solicitation_batch',
+    subjectId: input.batchId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    correlationId: input.correlationId,
+  });
 }
 
 interface CompletedChildRunBase {
@@ -267,7 +300,7 @@ export interface RecordStepInput {
  * wait and hand two appenders the same index. Persona comes from
  * STEP_PERSONA — callers cannot mis-attribute a step.
  */
-export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<void> {
+async function appendRunStep(tx: TxClient, input: RecordStepInput): Promise<void> {
   const lock = await tx<{ ok: number }[]>`
     SELECT 1 AS ok FROM agent_runs WHERE id = ${input.runId} FOR UPDATE
   `;
@@ -293,6 +326,10 @@ export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<
   `;
 }
 
+export async function recordStep(tx: TxClient, input: RecordStepInput): Promise<void> {
+  await appendRunStep(tx, input);
+}
+
 export interface RecordOutcomeInput {
   /**
    * Always a real run id: a null agent_run_id would silently escape the
@@ -314,7 +351,7 @@ export interface RecordOutcomeInput {
  * agent_outcomes_once_per_run_kind partial unique index byte-for-byte
  * (migration 071), so a BullMQ retry after commit cannot double-emit.
  */
-export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Promise<void> {
+async function emitRunOutcome(tx: TxClient, input: RecordOutcomeInput): Promise<void> {
   await tx`
     INSERT INTO agent_outcomes (
       id, account_id, business_id, agent_run_id, attributed_agent,
@@ -328,13 +365,17 @@ export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Pr
   `;
 }
 
+export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Promise<void> {
+  await emitRunOutcome(tx, input);
+}
+
 /**
  * Terminal transition. Only 'running' runs transition (idempotent: a retry
  * that re-completes an already-terminal run is a no-op, matching the
  * agent_runs_terminal_consistency CHECK). A runId that matches NO run at all
  * throws — that is a caller bug, not a replay.
  */
-export async function completeRun(
+async function transitionRunToTerminal(
   tx: TxClient,
   runId: string,
   status: 'completed' | 'failed',
@@ -360,4 +401,90 @@ export async function completeRun(
     throw new Error(`run-spine: run not found for completeRun(${runId}, ${status})`);
   }
   // Row exists but is already terminal — a replayed completion is a no-op.
+}
+
+export async function completeRun(
+  tx: TxClient,
+  runId: string,
+  status: 'completed' | 'failed',
+  error?: Record<string, unknown>,
+): Promise<void> {
+  await transitionRunToTerminal(tx, runId, status, error);
+}
+
+export interface CompleteSolicitationBatchRunInput {
+  runId: string;
+  accountId: string;
+  businessId: string;
+  batchId: string;
+  candidateCount: number;
+  sendCount: number;
+  withholdCount: number;
+  withheldByReason: Readonly<Record<WithholdReason, number>>;
+}
+
+/**
+ * Terminal attribution for one successfully built Solicitation batch.
+ *
+ * The caller supplies the transaction that also persists the authoritative
+ * asks and batch built_at fact. This focused seam keeps the parent step,
+ * outcome, and completion inseparable while accepting ids/enums/counts only.
+ */
+export async function completeSolicitationBatchRun(
+  tx: TxClient,
+  input: CompleteSolicitationBatchRunInput,
+): Promise<void> {
+  await appendRunStep(tx, {
+    runId: input.runId,
+    stepKey: 'batch_built',
+    detail: {
+      batch_id: input.batchId,
+      candidate_count: input.candidateCount,
+      send_count: input.sendCount,
+      withhold_count: input.withholdCount,
+      withheld_by_reason: input.withheldByReason,
+    },
+  });
+  await emitRunOutcome(tx, {
+    runId: input.runId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    attributedAgent: 'solicitation',
+    outcomeKind: 'solicitation_batch_built',
+    unitCount: input.candidateCount,
+  });
+  await transitionRunToTerminal(tx, input.runId, 'completed');
+}
+
+export type SolicitationBatchRunFailure =
+  | {
+      code: 'gate_closed';
+      gate: 'flag_disabled' | 'subscription_inactive';
+    }
+  | {
+      code: 'build_failed';
+      errorClass: string;
+    };
+
+export interface FailSolicitationBatchRunInput {
+  runId: string;
+  failure: SolicitationBatchRunFailure;
+}
+
+/**
+ * Terminal attribution for an owned Solicitation parent that cannot finish.
+ * The closed union prevents callers from turning this into a generic spine
+ * escape hatch; values remain bounded gates or sanitized error-class names.
+ */
+export async function failSolicitationBatchRun(
+  tx: TxClient,
+  input: FailSolicitationBatchRunInput,
+): Promise<void> {
+  const error = input.failure.code === 'gate_closed'
+    ? input.failure
+    : {
+        code: input.failure.code,
+        error_class: input.failure.errorClass,
+      };
+  await transitionRunToTerminal(tx, input.runId, 'failed', error);
 }

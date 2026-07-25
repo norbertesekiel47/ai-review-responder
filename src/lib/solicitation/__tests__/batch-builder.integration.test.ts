@@ -227,6 +227,15 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       max: 4,
       prepare: false,
     });
+    await db.unsafe(
+      readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
+    );
+    await db.unsafe(
+      readFileSync(
+        resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
+        'utf-8',
+      ),
+    );
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',
       accountDisplayName: 'Batch Builder Integration Account',

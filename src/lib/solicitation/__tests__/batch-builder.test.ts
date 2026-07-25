@@ -14,11 +14,10 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
 const mocks = vi.hoisted(() => ({
   lockDispatchedOutboxAttemptIfOwned: vi.fn(),
   markOutboxCompletedIfOwned: vi.fn(),
-  startOrGetActiveRun: vi.fn(),
+  startOrGetSolicitationBatchRun: vi.fn(),
   recordCompletedChildRuns: vi.fn(),
-  recordStep: vi.fn(),
-  recordOutcome: vi.fn(),
-  completeRun: vi.fn(),
+  completeSolicitationBatchRun: vi.fn(),
+  failSolicitationBatchRun: vi.fn(),
   solicitationWatchEnabled: vi.fn(),
 }));
 
@@ -27,11 +26,10 @@ vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompletedIfOwned: mocks.markOutboxCompletedIfOwned,
 }));
 vi.mock('@/lib/agents/run-spine', () => ({
-  startOrGetActiveRun: mocks.startOrGetActiveRun,
+  startOrGetSolicitationBatchRun: mocks.startOrGetSolicitationBatchRun,
   recordCompletedChildRuns: mocks.recordCompletedChildRuns,
-  recordStep: mocks.recordStep,
-  recordOutcome: mocks.recordOutcome,
-  completeRun: mocks.completeRun,
+  completeSolicitationBatchRun: mocks.completeSolicitationBatchRun,
+  failSolicitationBatchRun: mocks.failSolicitationBatchRun,
 }));
 vi.mock('../flags', () => ({
   solicitationWatchEnabled: mocks.solicitationWatchEnabled,
@@ -44,11 +42,13 @@ beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.lockDispatchedOutboxAttemptIfOwned.mockResolvedValue(true);
   mocks.markOutboxCompletedIfOwned.mockResolvedValue(true);
-  mocks.startOrGetActiveRun.mockResolvedValue({ runId: 'parent-run-1', created: true });
+  mocks.startOrGetSolicitationBatchRun.mockResolvedValue({
+    runId: 'parent-run-1',
+    created: true,
+  });
   mocks.recordCompletedChildRuns.mockResolvedValue(undefined);
-  mocks.recordStep.mockResolvedValue(undefined);
-  mocks.recordOutcome.mockResolvedValue(undefined);
-  mocks.completeRun.mockResolvedValue(undefined);
+  mocks.completeSolicitationBatchRun.mockResolvedValue(undefined);
+  mocks.failSolicitationBatchRun.mockResolvedValue(undefined);
   mocks.solicitationWatchEnabled.mockReturnValue(true);
 });
 
@@ -85,11 +85,12 @@ describe('solicitation batch candidate loader', () => {
       'outbox-1',
       2,
     );
-    expect(mocks.completeRun).toHaveBeenCalledWith(
+    expect(mocks.failSolicitationBatchRun).toHaveBeenCalledWith(
       mockSql,
-      'parent-run-1',
-      'failed',
-      { code: 'gate_closed', gate: 'flag_disabled' },
+      {
+        runId: 'parent-run-1',
+        failure: { code: 'gate_closed', gate: 'flag_disabled' },
+      },
     );
     const deleteIndex = sqlCalls.findIndex((call) =>
       call.text.includes('DELETE FROM solicitation_batches'),
@@ -97,7 +98,7 @@ describe('solicitation batch candidate loader', () => {
     expect(deleteIndex).toBeGreaterThanOrEqual(0);
     expect(
       mocks.markOutboxCompletedIfOwned.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.completeRun.mock.invocationCallOrder[0]!);
+    ).toBeLessThan(mocks.failSolicitationBatchRun.mock.invocationCallOrder[0]!);
     expect(
       mocks.markOutboxCompletedIfOwned.mock.invocationCallOrder[0],
     ).toBeLessThan(mockSql.mock.invocationCallOrder[deleteIndex]!);
@@ -153,6 +154,15 @@ describe('solicitation batch candidate loader', () => {
       sendCount: 0,
       withholdCount: 1,
     });
+    expect(mocks.startOrGetSolicitationBatchRun).toHaveBeenCalledWith(
+      mockSql,
+      {
+        batchId: 'batch-1',
+        accountId: 'account-1',
+        businessId: 'business-1',
+        correlationId: undefined,
+      },
+    );
     const candidateQuery = sqlCalls.find((call) =>
       call.text.includes('FROM solicitation_contacts c'),
     );
@@ -182,6 +192,26 @@ describe('solicitation batch candidate loader', () => {
           }),
         ],
       }),
+    );
+    expect(mocks.completeSolicitationBatchRun).toHaveBeenCalledWith(
+      mockSql,
+      {
+        runId: 'parent-run-1',
+        accountId: 'account-1',
+        businessId: 'business-1',
+        batchId: 'batch-1',
+        candidateCount: 1,
+        sendCount: 0,
+        withholdCount: 1,
+        withheldByReason: {
+          no_consent: 0,
+          suppressed: 0,
+          already_reviewed: 0,
+          stale_visit: 0,
+          over_contacted: 1,
+          velocity_banked: 0,
+        },
+      },
     );
   });
 });

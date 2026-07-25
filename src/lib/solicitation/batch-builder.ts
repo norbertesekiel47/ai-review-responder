@@ -12,11 +12,10 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Sql, TransactionSql } from 'postgres';
 import {
-  completeRun,
+  completeSolicitationBatchRun,
+  failSolicitationBatchRun,
   recordCompletedChildRuns,
-  recordOutcome,
-  recordStep,
-  startOrGetActiveRun,
+  startOrGetSolicitationBatchRun,
 } from '@/lib/agents/run-spine';
 import {
   lockDispatchedOutboxAttemptIfOwned,
@@ -178,9 +177,12 @@ async function prepareBatch(
       if (!completed) return { status: 'stale' };
 
       if (activeParent) {
-        await completeRun(tx, activeParent.id, 'failed', {
-          code: 'gate_closed',
-          gate: gateReason,
+        await failSolicitationBatchRun(tx, {
+          runId: activeParent.id,
+          failure: {
+            code: 'gate_closed',
+            gate: gateReason,
+          },
         });
       }
       await tx`
@@ -206,10 +208,8 @@ async function prepareBatch(
       };
     }
 
-    const parent = await startOrGetActiveRun(tx, {
-      kind: 'solicitation_batch',
-      subjectType: 'solicitation_batch',
-      subjectId: batch.id,
+    const parent = await startOrGetSolicitationBatchRun(tx, {
+      batchId: batch.id,
       accountId: batch.account_id,
       businessId: batch.business_id,
       correlationId: input.correlationId,
@@ -494,26 +494,16 @@ async function constructBatch(
       }
     }
 
-    await recordStep(tx, {
-      runId: preparation.parentRunId,
-      stepKey: 'batch_built',
-      detail: {
-        batch_id: batch.id,
-        candidate_count: summary.candidateCount,
-        send_count: summary.sendCount,
-        withhold_count: summary.withholdCount,
-        withheld_by_reason: summary.withheldByReason,
-      },
-    });
-    await recordOutcome(tx, {
+    await completeSolicitationBatchRun(tx, {
       runId: preparation.parentRunId,
       accountId: batch.account_id,
       businessId: batch.business_id,
-      attributedAgent: 'solicitation',
-      outcomeKind: 'solicitation_batch_built',
-      unitCount: summary.candidateCount,
+      batchId: batch.id,
+      candidateCount: summary.candidateCount,
+      sendCount: summary.sendCount,
+      withholdCount: summary.withholdCount,
+      withheldByReason: summary.withheldByReason,
     });
-    await completeRun(tx, preparation.parentRunId, 'completed');
 
     const built = await tx<{ id: string }[]>`
       UPDATE solicitation_batches
