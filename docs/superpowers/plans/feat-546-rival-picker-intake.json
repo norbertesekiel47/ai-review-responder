@@ -86,7 +86,8 @@
     "CONTEXT.md",
     "docs/reviews/**",
     "docs/superpowers/plans/**",
-    "src/app/globals.css"
+    "src/app/globals.css",
+    "scripts/ci/tenant-scope-allowlist.ts"
   ],
   "tests_to_add": [
     "returns the owner pick as the Named rival when the picked place_id is in the latest pack",
@@ -127,6 +128,7 @@
   ],
   "open_questions": [],
   "surface_amendments": [
-    "2026-07-25 (round-3 plan review, owner-approved): added src/lib/shared/__tests__/migration-*.test.ts. Registering competitor_rival_picked in ANALYTICS_EVENT_NAMES breaks migration-069-trial-subscription.test.ts, which holds the repo's only 'CHECK list == ANALYTICS_EVENT_NAMES' drift-guard against an immutable migration. 069 is narrowed to its historical list; 089's new guard takes over the live-equality check. AMENDMENT COUNT: 1 -- a second triggers the workflow's abort criteria."
+    "2026-07-25 (round-3 plan review, owner-approved): added src/lib/shared/__tests__/migration-*.test.ts. Registering competitor_rival_picked in ANALYTICS_EVENT_NAMES breaks migration-069-trial-subscription.test.ts, which holds the repo's only 'CHECK list == ANALYTICS_EVENT_NAMES' drift-guard against an immutable migration. 069 is narrowed to its historical list; 089's new guard takes over the live-equality check. AMENDMENT COUNT: 1 -- a second triggers the workflow's abort criteria.",
+    "2026-07-25 (Task 2 execution, owner-approved): added scripts/ci/tenant-scope-allowlist.ts. resolveNamedRival's collapsed lane query puts its businesses and ranking_snapshots scope predicates inside the ctx/dates CTE bodies, and tenant-scope-audit.ts runs stripSelectSubqueries before matching WHERE/ON -- so correctly-scoped predicates are invisible to it. Not restructurable: 'latest two snapshot dates' needs ORDER BY + LIMIT, which needs a subquery. Resolved exactly as the identical scanner limitation already is for src/lib/kpi/service.ts: two tenant-root-lookup entries + ALLOWLIST_BASELINE 405 -> 407. AMENDMENT COUNT: 2. Owner ruled the abort criterion targets SCOPE DRIFT, not CI-registry bookkeeping: this changes zero product scope, is a mandatory registration for any DB-touching module with a CTE, and arguably belonged in the surface from the start. Workflow continues; this is a deliberate, recorded exception, not a precedent for widening product surface."
   ]
 }
