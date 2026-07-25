@@ -15,6 +15,7 @@ import type { LocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
 import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
+import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import {
   ACCOUNT_OFFBOARDING_STATUS_PATH,
@@ -163,6 +164,11 @@ export default async function AuthenticatedLayout({
   const ownerName = appUser?.owner_name ?? '';
   const ownerEmail = appUser?.email ?? authUser.email ?? '';
 
+  // Server-authoritative flag read (invariant #13). Both navs learn watch-mode
+  // state only from this prop — no NEXT_PUBLIC companion exists, and adding one
+  // would fail ci:static-policy.
+  const solicitationEnabled = solicitationWatchEnabled();
+
   return (
     <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
       <div className="rw-grain" aria-hidden="true" />
@@ -177,10 +183,11 @@ export default async function AuthenticatedLayout({
               businessName={businessName}
               ownerName={ownerName}
               ownerEmail={ownerEmail}
+              solicitationEnabled={solicitationEnabled}
             />
             <div className="main">{children}</div>
           </div>
-          <MobileTabBar />
+          <MobileTabBar solicitationEnabled={solicitationEnabled} />
         </PendingCountProvider>
       </AuthenticatedProviders>
     </div>

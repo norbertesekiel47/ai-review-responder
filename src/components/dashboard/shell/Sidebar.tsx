@@ -14,6 +14,10 @@ interface Props {
   businessName: string;
   ownerName: string;
   ownerEmail: string;
+  /** Server-authoritative SOLICITATION_WATCH_ENABLED, passed down from
+   *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
+   *  only through this prop — there is no NEXT_PUBLIC companion. */
+  solicitationEnabled: boolean;
 }
 
 function deriveInitials(name: string, email: string): string {
@@ -28,6 +32,7 @@ export function Sidebar({
   businessName,
   ownerName,
   ownerEmail,
+  solicitationEnabled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
@@ -57,13 +62,15 @@ export function Sidebar({
   }
 
   // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews;
-  // /dashboard/analytics highlights Analytics; everything else under /dashboard
-  // highlights Dashboard.
+  // /dashboard/requests and /dashboard/requests/contacts both highlight
+  // Requests; /dashboard/analytics highlights Analytics; everything else under
+  // /dashboard highlights Dashboard.
   const isReviews = pathname.startsWith('/dashboard/reviews');
+  const isRequests = pathname.startsWith('/dashboard/requests');
   const isAnalytics = pathname.startsWith('/dashboard/analytics');
   const isDashboard =
     pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !isReviews && !isAnalytics);
+    (pathname.startsWith('/dashboard/') && !isReviews && !isRequests && !isAnalytics);
   const isSettings = pathname.startsWith('/settings');
 
   const initials = deriveInitials(ownerName, ownerEmail);
@@ -91,6 +98,15 @@ export function Sidebar({
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
+        {solicitationEnabled && (
+          <Link
+            href="/dashboard/requests"
+            className={`nav-item ${isRequests ? 'active' : ''}`}
+            aria-current={isRequests ? 'page' : undefined}
+          >
+            <Icon name="trend" /> Requests
+          </Link>
+        )}
         <Link href="/dashboard/analytics" className={`nav-item ${isAnalytics ? 'active' : ''}`}>
           <Icon name="chart" /> Analytics
         </Link>

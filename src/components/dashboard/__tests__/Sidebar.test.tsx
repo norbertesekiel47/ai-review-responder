@@ -58,6 +58,7 @@ describe('Sidebar', () => {
           businessName="Bristol Bay Coffee"
           ownerName="Maya Chen"
           ownerEmail="maya@bristolbay.co"
+          solicitationEnabled={false}
         />,
       ),
     );
@@ -74,7 +75,7 @@ describe('Sidebar', () => {
   it('never renders a standalone Past Replies nav item (folded into Reviews → History)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
@@ -83,7 +84,7 @@ describe('Sidebar', () => {
   it('marks active nav item based on usePathname', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
@@ -93,7 +94,7 @@ describe('Sidebar', () => {
   it('renders the Reviews nav item (Insights/Past Replies removed)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
@@ -104,7 +105,7 @@ describe('Sidebar', () => {
   it('renders the Analytics nav item (final order: Dashboard · Reviews · Analytics · Settings)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
@@ -114,7 +115,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i }).className).toContain('active');
@@ -125,18 +126,72 @@ describe('Sidebar', () => {
     const user = userEvent.setup();
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" />,
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
       ),
     );
     await user.click(screen.getByRole('button', { name: /sign out/i }));
     expect(screen.getByRole('button', { name: /sign out|signing out/i })).toBeInTheDocument();
   });
 
+  it('hides the Requests sidebar row when watch-mode is off', () => {
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+      ),
+    );
+    expect(screen.queryByRole('link', { name: /requests/i })).not.toBeInTheDocument();
+  });
+
+  it('renders exactly one Requests row, between Reviews and Analytics, when watch-mode is on', () => {
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+      ),
+    );
+    const requests = screen.getAllByRole('link', { name: /requests/i });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toHaveAttribute('href', '/dashboard/requests');
+
+    const navOrder = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'));
+    expect(navOrder.indexOf('/dashboard/reviews')).toBeLessThan(
+      navOrder.indexOf('/dashboard/requests'),
+    );
+    expect(navOrder.indexOf('/dashboard/requests')).toBeLessThan(
+      navOrder.indexOf('/dashboard/analytics'),
+    );
+  });
+
+  it('marks Requests active on /dashboard/requests without lighting up Dashboard', () => {
+    pathnameMock.mockReturnValue('/dashboard/requests');
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+      ),
+    );
+    const requests = screen.getByRole('link', { name: /requests/i });
+    expect(requests.className).toContain('active');
+    expect(requests).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /^dashboard$/i }).className).not.toContain('active');
+  });
+
+  it('keeps Requests active on the nested /dashboard/requests/contacts route', () => {
+    pathnameMock.mockReturnValue('/dashboard/requests/contacts');
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: /requests/i }).className).toContain('active');
+    expect(screen.getByRole('link', { name: /^dashboard$/i }).className).not.toContain('active');
+  });
+
   it('shows LocationPicker instead of static businessName for multi-location accounts', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" />,
+        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" solicitationEnabled={false} />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },

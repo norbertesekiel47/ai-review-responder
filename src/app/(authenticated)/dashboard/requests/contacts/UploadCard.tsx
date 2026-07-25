@@ -12,7 +12,7 @@ import type {
 } from '@/lib/solicitation/contacts-csv';
 
 /**
- * Upload lane of /dashboard/contacts (#541): file + attestation form, submit,
+ * Upload lane of /dashboard/requests/contacts (#541): file + attestation form, submit,
  * bounded status polling, and terminal report/failure rendering. Split from
  * ContactsClient so each concern stays independently scannable; the only
  * integration point with the contact list is `onIngestCompleted`.

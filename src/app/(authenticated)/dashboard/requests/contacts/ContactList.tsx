@@ -5,7 +5,7 @@ import { useLocationScope } from '@/contexts/LocationContext';
 import type { ContactListItem } from '@/lib/solicitation/contacts-repo';
 
 /**
- * Contact-list lane of /dashboard/contacts (#541): paginated tenant-scoped
+ * Contact-list lane of /dashboard/requests/contacts (#541): paginated tenant-scoped
  * list, confirm-step hard delete. Split from ContactsClient so each concern
  * stays independently scannable; `epoch` (bumped by the parent when an ingest
  * completes) and `onRefresh` (bumps the same counter after a delete or a
