@@ -64,7 +64,7 @@
   "verification_commands": [
     "pnpm exec vitest run worker/jobs/__tests__/WeeklySummaryWorker.test.ts src/lib/notifications/__tests__/email-templates.test.ts"
   ],
-  "estimated_diff_size": "+430/-10 implementation, test, glossary, and intake lines, plus approximately 210 required plan/handoff lines; reclassified from +180/-10 after edge-case coverage and the accepted empty-pack regression exposed the honest size",
+  "estimated_diff_size": "+1120/-10 total branch lines: approximately 435 source/test lines, 285 glossary/intake/plan/handoff lines, and 374 required blast-radius/adversarial/unified-review lines; classification remains high-risk backend normal because product code stays within four files and one read-only seam",
   "dependencies_added": [],
   "rollback_plan": "Revert the application commit; the feature is read-only and has no schema, data, queue, or external-side-effect rollback.",
   "observability": [

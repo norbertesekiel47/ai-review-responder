@@ -48,6 +48,12 @@ implementation/test/glossary/intake total to approximately `+430/-10`; the
 gate also counts roughly 210 mandatory plan/handoff lines. Classification
 remains high-risk/backend/normal and the signed edit surface is unchanged.
 
+After unified review, the branch total is approximately `+1120/-10`: about
+435 source/test lines, 285 glossary/intake/plan/handoff lines, and 374 required
+review/blast-radius lines. This second mechanical reclassification still does
+not change the lane: product code remains four files, one read-only seam, no
+schema/API/flag/dependency, and one tracer ticket.
+
 ---
 
 ## Task 1: Competitor Delta from persisted pack to delivered digest
