@@ -441,7 +441,7 @@ describe('failSolicitationBatchRun', () => {
       runId: 'parent-run-1',
       failure: {
         code: 'gate_closed',
-        gate: 'flag_disabled',
+        gate: 'account_offboarding_blocked',
       },
     });
 
@@ -451,7 +451,7 @@ describe('failSolicitationBatchRun', () => {
     expect(transition.values).toContain('failed');
     expect(transition.values).toContainEqual({
       code: 'gate_closed',
-      gate: 'flag_disabled',
+      gate: 'account_offboarding_blocked',
     });
   });
 });

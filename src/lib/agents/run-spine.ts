@@ -459,7 +459,10 @@ export async function completeSolicitationBatchRun(
 export type SolicitationBatchRunFailure =
   | {
       code: 'gate_closed';
-      gate: 'flag_disabled' | 'subscription_inactive';
+      gate:
+        | 'flag_disabled'
+        | 'subscription_inactive'
+        | 'account_offboarding_blocked';
     }
   | {
       code: 'build_failed';
