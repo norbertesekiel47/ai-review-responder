@@ -331,10 +331,42 @@ flag, so the §8.4 ordering chain does not apply and it carries no hard coupling
 | Environment | Flag | Value | UTC | Why |
 |---|---|---|---|---|
 | Railway staging worker (`repworth-worker`, env `staging`) | `SOLICITATION_WATCH_ENABLED` | `false` → `true` | 2026-07-25T22:40:42Z | Enables the completed-ingest trigger so a CSV upload creates one unbuilt batch + one `build_solicitation_batch` outbox row |
-| Vercel staging | `SOLICITATION_WATCH_ENABLED` | **not yet flipped** | — | Blocked: no Vercel project link / MCP auth in this environment |
+| Vercel staging (project `rep-worth`, custom env `staging`) | `SOLICITATION_WATCH_ENABLED` | unset → `true` | flip + redeploy verified by 2026-07-25T23:09:10Z | Un-gates the Requests pages, the batch GET/POST routes, and the nav row |
 
-Verified by reading the value back, not by assuming the write took. Worker
-reports Online after the variable-triggered redeploy.
+Verified by reading each value back, not by assuming the write took. Worker
+reports Online after the variable-triggered redeploy. The Vercel env change was
+followed by an explicit redeploy (`rep-worth-j10i0h908`, Environment=`staging`,
+Ready) because a Vercel deployment captures its env at creation time — the
+git-sourced deploy from the `staging` push predated the variable by minutes and
+would not have seen it.
+
+**The HTTP smoke was inconclusive and was not accepted as proof.** `curl` against
+`/dashboard/requests`, `/dashboard/requests/contacts` and
+`/api/dashboard/solicitation/batch` all returned 302, which initially read as
+"flag on, route exists". A negative control killed that inference: a bogus path
+returns 302 as well, because middleware redirects every unauthenticated request
+to login before routing. Flag state is simply not observable over unauthenticated
+HTTP. Proof came instead from an authenticated browser session (below).
+
+**Smoke — what is actually proven (authenticated, staging.repworth.net):**
+
+- The `Requests` nav row renders. It is hidden unless `layout.tsx` passes
+  `solicitationEnabled`, so its presence *is* the flag being on.
+- `/dashboard/requests` renders the no-batch ghost pipeline: `Watch-mode ·
+  nothing sent` badge, em-dash funnel (candidates evaluated / held back / would
+  have been sent), and the `Upload a contacts CSV` CTA.
+- The six-reason ledger renders in first-match precedence order: `no_consent`,
+  `suppressed`, `already_reviewed`, `stale_visit`, `over_contacted`,
+  `velocity_banked`.
+- `/dashboard/requests/contacts` renders at its NEW path (the #544 move) with the
+  attestation copy and `consent_attestation_v1` recorded on upload.
+
+**Not proven here:** the built-batch funnel hero and spoilage report, which need
+a real batch. Reaching that state requires uploading contact data and signing the
+consent attestation ("these are real customers … I am authorized"), which is the
+owner's assertion to make, not the agent's. Handed to the human. Note #543's own
+staging smoke already proved the worker half (batch built, 1 ask, `decision=send`,
+parent + child runs), so the untested gap is the UI's built-batch rendering only.
 
 **Correction to session-start memory:** an injected observation claimed this flag
 was already enabled on Railway staging from the #543 work. It was `false` when
