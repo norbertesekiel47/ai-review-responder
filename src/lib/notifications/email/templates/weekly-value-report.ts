@@ -45,69 +45,46 @@ export interface WeeklyValueReportParams {
   } | null;
 }
 
-export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): string {
-  const {
-    businessName, weekStartDate, weekEndDate,
-    totalReviews, totalResponded, notableReviews,
-    intelligenceBrief, baselineResponseRate, fourWeekAvgReviews,
-    ranking, competitorDelta, dashboardUrl, feedbackUrls,
-  } = params;
-
-  const safeName = escapeHtml(businessName);
-  const responseRate = totalReviews > 0 ? Math.round((totalResponded / totalReviews) * 100) : 0;
-  const weekRange = `${formatWeekDate(weekStartDate)} – ${formatWeekDate(weekEndDate)}`;
-  const timeSavedMinutes = totalResponded * 7;
-
-  // Value-delivered header
-  const valueHeader = `This week RepWorth handled ${totalResponded} review${totalResponded !== 1 ? 's' : ''} for you, saving you approximately ${timeSavedMinutes} minutes`;
-
-  // Response rate lift
-  const baselineHtml = baselineResponseRate !== null
-    ? ` <span style="font-size:13px;color:#6b7280;">(was ${baselineResponseRate}% before RepWorth)</span>`
-    : '';
-
-  // Review velocity
-  const velocityHtml = `
-    <tr><td style="padding:12px 24px 0;">
-      <p style="margin:0;font-size:14px;color:#374151;">New reviews this week: <strong>${totalReviews}</strong> | 4-week average: <strong>${fourWeekAvgReviews}</strong></p>
-    </td></tr>`;
-
-  // Ranking (conditional)
-  const rankingHtml = ranking
+function renderRankingHtml(ranking: WeeklyValueReportParams['ranking']): string {
+  return ranking
     ? `
     <tr><td style="padding:12px 24px 0;">
       <p style="margin:0;font-size:14px;color:#374151;">Your ranking for &lsquo;${escapeHtml(ranking.keyword)}&rsquo;: <strong>#${ranking.currentRank}</strong> (was #${ranking.initialRank} when you joined)</p>
     </td></tr>`
     : '';
+}
 
-  let competitorDeltaHtml = '';
-  if (competitorDelta?.kind === 'teaser') {
-    competitorDeltaHtml = `
+function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
+  if (!competitorDelta) return '';
+  if (competitorDelta.kind === 'teaser') {
+    return `
     <tr><td style="padding:12px 24px 0;">
       <p style="margin:0;font-size:14px;color:#374151;">RepWorth is watching &lsquo;${escapeHtml(competitorDelta.keyword)}&rsquo; and will report Competitor Delta after our next check.</p>
     </td></tr>`;
-  } else if (competitorDelta?.kind === 'rival') {
-    let velocityCopy = '';
-    if (competitorDelta.reviewVelocity !== null) {
-      if (competitorDelta.reviewVelocity > 0) {
-        const reviewLabel = competitorDelta.reviewVelocity === 1 ? 'review' : 'reviews';
-        velocityCopy = ` gained ${competitorDelta.reviewVelocity} ${reviewLabel} since our last check;`;
-      } else if (competitorDelta.reviewVelocity < 0) {
-        const lost = Math.abs(competitorDelta.reviewVelocity);
-        const reviewLabel = lost === 1 ? 'review' : 'reviews';
-        velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
-      } else {
-        velocityCopy = ' had no new reviews since our last check;';
-      }
+  }
+
+  let velocityCopy = '';
+  if (competitorDelta.reviewVelocity !== null) {
+    if (competitorDelta.reviewVelocity > 0) {
+      const reviewLabel = competitorDelta.reviewVelocity === 1 ? 'review' : 'reviews';
+      velocityCopy = ` gained ${competitorDelta.reviewVelocity} ${reviewLabel} since our last check;`;
+    } else if (competitorDelta.reviewVelocity < 0) {
+      const lost = Math.abs(competitorDelta.reviewVelocity);
+      const reviewLabel = lost === 1 ? 'review' : 'reviews';
+      velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
+    } else {
+      velocityCopy = ' had no new reviews since our last check;';
     }
-    competitorDeltaHtml = `
+  }
+
+  return `
     <tr><td style="padding:12px 24px 0;">
       <p style="margin:0;font-size:14px;color:#374151;">Auto-selected rival: ${escapeHtml(competitorDelta.rivalName)}${velocityCopy} gap now ${competitorDelta.gap}</p>
     </td></tr>`;
-  }
+}
 
-  // Intelligence brief (conditional)
-  const briefHtml = intelligenceBrief
+function renderBriefHtml(intelligenceBrief: string | null): string {
+  return intelligenceBrief
     ? `
     <tr><td style="padding:16px 24px 0;">
       <div style="background:#f0f9ff;border-radius:6px;padding:12px;border-left:3px solid #3b82f6;">
@@ -116,35 +93,39 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
       </div>
     </td></tr>`
     : '';
+}
 
-  // Notable reviews
-  let notableHtml = '';
-  if (notableReviews.length > 0) {
-    const items = notableReviews.map((r) => {
-      const stars = renderStars(r.starRating);
-      const text = r.reviewText ? escapeHtml(truncate(r.reviewText, 150)) : 'Rating only';
-      return `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;"><span style="font-size:16px;">${stars}</span> <strong>${escapeHtml(r.reviewerName)}</strong><br><span style="color:#4b5563;font-size:14px;">${text}</span></td></tr>`;
-    }).join('');
-    notableHtml = `
+function renderNotableReviewsHtml(
+  notableReviews: WeeklyValueReportParams['notableReviews'],
+): string {
+  if (notableReviews.length === 0) return '';
+  const items = notableReviews.map((review) => {
+    const stars = renderStars(review.starRating);
+    const text = review.reviewText
+      ? escapeHtml(truncate(review.reviewText, 150))
+      : 'Rating only';
+    return `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;"><span style="font-size:16px;">${stars}</span> <strong>${escapeHtml(review.reviewerName)}</strong><br><span style="color:#4b5563;font-size:14px;">${text}</span></td></tr>`;
+  }).join('');
+  return `
       <tr><td style="padding:16px 24px 0;">
         <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Reviews needing attention</p>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${items}</table>
       </td></tr>`;
-  }
+}
 
-  // Dashboard link (conditional). Use the shared escapeHrefUrl helper for
-  // both & and " escaping (a query-string `?token=abc&type=invite` would
-  // otherwise render as `?token=abc&type=invite` and risk being mis-parsed
-  // as an HTML entity reference by strict parsers).
-  const dashboardHtml = dashboardUrl
+function renderDashboardHtml(dashboardUrl: string | null): string {
+  return dashboardUrl
     ? `
     <tr><td style="padding:16px 24px 0;" align="center">
       <a href="${escapeHrefUrl(dashboardUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your full dashboard &rarr;</a>
     </td></tr>`
     : '';
+}
 
-  // Satisfaction pulse (conditional) — escape URLs for href attributes
-  const pulseSection = feedbackUrls
+function renderPulseSection(
+  feedbackUrls: WeeklyValueReportParams['feedbackUrls'],
+): string {
+  return feedbackUrls
     ? `
         <tr><td style="padding:20px 24px 0;">
           <p style="margin:0 0 12px;font-size:14px;color:#374151;text-align:center;">How was your experience this week?</p>
@@ -163,7 +144,31 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
           </table>
         </td></tr>`
     : '';
+}
 
+interface WeeklyReportShellParts {
+  safeName: string;
+  weekRange: string;
+  valueHeader: string;
+  totalReviews: number;
+  totalResponded: number;
+  responseRate: number;
+  baselineHtml: string;
+  velocityHtml: string;
+  rankingHtml: string;
+  competitorDeltaHtml: string;
+  briefHtml: string;
+  notableHtml: string;
+  dashboardHtml: string;
+  pulseSection: string;
+}
+
+function renderWeeklyReportShell(parts: WeeklyReportShellParts): string {
+  const {
+    safeName, weekRange, valueHeader, totalReviews, totalResponded, responseRate,
+    baselineHtml, velocityHtml, rankingHtml, competitorDeltaHtml, briefHtml,
+    notableHtml, dashboardHtml, pulseSection,
+  } = parts;
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -216,4 +221,49 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
   </table>
 </body>
 </html>`;
+}
+
+export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): string {
+  const {
+    businessName, weekStartDate, weekEndDate,
+    totalReviews, totalResponded, notableReviews,
+    intelligenceBrief, baselineResponseRate, fourWeekAvgReviews,
+    ranking, competitorDelta, dashboardUrl, feedbackUrls,
+  } = params;
+
+  const safeName = escapeHtml(businessName);
+  const responseRate = totalReviews > 0 ? Math.round((totalResponded / totalReviews) * 100) : 0;
+  const weekRange = `${formatWeekDate(weekStartDate)} – ${formatWeekDate(weekEndDate)}`;
+  const timeSavedMinutes = totalResponded * 7;
+
+  // Value-delivered header
+  const valueHeader = `This week RepWorth handled ${totalResponded} review${totalResponded !== 1 ? 's' : ''} for you, saving you approximately ${timeSavedMinutes} minutes`;
+
+  // Response rate lift
+  const baselineHtml = baselineResponseRate !== null
+    ? ` <span style="font-size:13px;color:#6b7280;">(was ${baselineResponseRate}% before RepWorth)</span>`
+    : '';
+
+  // Review velocity
+  const velocityHtml = `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">New reviews this week: <strong>${totalReviews}</strong> | 4-week average: <strong>${fourWeekAvgReviews}</strong></p>
+    </td></tr>`;
+
+  return renderWeeklyReportShell({
+    safeName,
+    weekRange,
+    valueHeader,
+    totalReviews,
+    totalResponded,
+    responseRate,
+    baselineHtml,
+    velocityHtml,
+    rankingHtml: renderRankingHtml(ranking),
+    competitorDeltaHtml: renderCompetitorDeltaHtml(competitorDelta),
+    briefHtml: renderBriefHtml(intelligenceBrief),
+    notableHtml: renderNotableReviewsHtml(notableReviews),
+    dashboardHtml: renderDashboardHtml(dashboardUrl),
+    pulseSection: renderPulseSection(feedbackUrls),
+  });
 }
