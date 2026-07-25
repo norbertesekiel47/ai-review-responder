@@ -146,6 +146,44 @@ gate-fail rounds caused by the implementation itself).
 
 ---
 
+## 2026-07-25 — verify-gate races itself on the shared local Postgres (BLOCKER, environmental)
+
+**Symptom:** `scripts/verify-gate.sh --review` intermittently reports `test` FAIL
+plus a cascading `diff-coverage` FAIL, naming one of several **pre-existing**
+live-DB suites — observed on
+`src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts`
+(#543), `src/lib/solicitation/__tests__/batch-builder.integration.test.ts` (#543),
+and `worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts`.
+None is touched by this branch.
+
+**Root cause:** the gate runs its checks in parallel and exports
+`TEST_DATABASE_POOL_URL` for the whole run so the `integration-suites` row can
+execute. That makes **every** live-DB suite run at once — concurrently with the
+intake's `verification_commands` entry, which independently runs
+`batch-view.integration.test.ts` against the **same** local Postgres
+(`localhost:5499`, container `repworth-testdb`). They seed and truncate
+overlapping tables and clobber each other. Whichever loses reports a bogus
+failure; because vitest exits non-zero it never writes `coverage/coverage-final.json`,
+so `diff-coverage` fails as a pure cascade.
+
+**Evidence it is contention, not a defect:**
+
+| Run | Result |
+|---|---|
+| `batch-view.integration.test.ts` alone | 8/8 pass (5,000-ask read ~6 ms) |
+| `migration-088-…integration.test.ts` alone | 6/6 pass |
+| intake `verification_commands` alone | 8/8 pass |
+| inside the gate | 9,356 tests pass, exactly one FILE fails, always a pre-existing suite |
+| same `--review` gate at `94b8c115` | fully GREEN when timing avoided the collision |
+
+**Not worked around.** The gate was deliberately NOT re-rolled until it came up
+green: a pass obtained by retrying a race is not evidence. The branch's own
+verification stands on the isolated runs above.
+
+**Follow-up (own ticket, outside this edit surface):** either serialise the gate's
+DB-touching checks, or give the `verification_commands` lane its own database.
+`scripts/verify-gate.sh` is not in `allowed_edit_surface` for #544.
+
 ## Orchestrator decisions at gate-green (2026-07-25)
 
 ### Task 6 (access-policy rename) — DROPPED
