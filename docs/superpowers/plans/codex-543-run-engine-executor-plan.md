@@ -7,11 +7,14 @@ _Locked via ticket-seeded `feature` grilling. Terms follow `CONTEXT.md`,
 
 - **Risk:** high — worker execution plus migration 088.
 - **Surface:** backend.
-- **Estimated diff:** approximately 1,500 lines (about 825
-  production/schema, 675 tests/docs), reclassified after the required surface
-  amendments for mandatory account-offboarding coverage and shared
-  exact-attempt outbox locking. The feature remains normal-sized: one
-  worker/domain seam, one migration, and a tight named-file surface.
+- **Diff reclassification:** the post-T4 branch contains 3,846 changed lines
+  across 39 files (3,801 additions, 45 deletions), above twice the original
+  1,500-line estimate. Most growth is executable evidence: the real-Postgres
+  5,001-contact/concurrency suite, migration catalog coverage, and
+  account-offboarding cascade coverage. The lane remains a high-risk,
+  normal-sized backend feature rather than an epic: four completed tracers,
+  one schema/worker risk domain, a tight named-file surface, and no open
+  investigation.
 - **Intake:** `docs/superpowers/plans/codex-543-run-engine-executor-intake.json`.
 - **Migration boundary:** migration 088 belongs to this branch; issue #546 and
   its migration remain out of flight until #543 lands.

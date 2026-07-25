@@ -124,7 +124,7 @@
     "pnpm ci:tenant-scope",
     "pnpm build"
   ],
-  "estimated_diff_size": "approximately 1,500 lines: about 825 production/schema lines plus 675 focused tests and documentation",
+  "estimated_diff_size": "reclassified at the post-T4 checkpoint: 3,846 actual changed lines across 39 files (3,801 additions, 45 deletions); remains a tight four-tracer high-risk backend feature, with most growth in real-Postgres batch/concurrency, migration, and offboarding tests",
   "dependencies_added": [],
   "rollback_plan": "Default-off SOLICITATION_WATCH_ENABLED is the immediate rollback: keep or flip it false so no new batches trigger and queued unbuilt work self-removes. Revert worker and trigger code before any schema rollback. Migration 088 is additive and immutable after application; leave its nullable column/tables in place in production unless an explicit pre-data destructive rollback is approved. If removal is required before meaningful data exists, create a new follow-up migration (never edit 088) that restores the prior CHECKs, drops parent_run_id only after code rollback, and drops solicitation_asks then solicitation_batches. Apply any rollback staging first, then production in lockstep. #546 remains blocked until #543 lands.",
   "observability": [
