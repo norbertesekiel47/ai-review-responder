@@ -368,6 +368,27 @@ describe('getAgentTeamSummary', () => {
     expect(harness.sqlCalls[0]!.values[1]).toBeInstanceOf(Date);
   });
 
+  it('agent team summary accepts persisted Solicitation outcomes without changing displayed totals', async () => {
+    harness.sqlReturnQueue.push([
+      {
+        attributed_agent: 'solicitation',
+        outcome_kind: 'solicitation_batch_built',
+        n: 7,
+      },
+      { attributed_agent: 'reply', outcome_kind: 'reply_posted', n: 2 },
+      { attributed_agent: 'guardian', outcome_kind: 'review_escalated', n: 3 },
+      { attributed_agent: 'insights', outcome_kind: 'digest_sent', n: 4 },
+    ]);
+
+    await expect(
+      getAgentTeamSummary(
+        harness.mockSql as unknown as Sql,
+        { kind: 'account', accountId: 'account-1' },
+        '30d',
+      ),
+    ).resolves.toEqual({ reply: 2, guardian: 3, insights: 4 });
+  });
+
   it('adds the business filter for a location-scoped summary', async () => {
     harness.sqlReturnQueue.push([
       { attributed_agent: 'reply', outcome_kind: 'reply_posted', n: 1 },
