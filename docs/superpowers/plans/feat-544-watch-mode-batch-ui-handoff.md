@@ -72,7 +72,36 @@ not a `verify-gate.sh` defect as first recorded.
 
 ## Next action
 
-**Step 8, the ship lane** (below). Do not re-execute T1–T6 — they are done.
+**Step 8 is IN PROGRESS.** Do not re-execute T1–T6 — they are done.
+
+Completed on the 2026-07-25 resume:
+
+- Blocker fixed (`f94bf1d0`) — see the CORRECTION entry in the deviations file.
+- `#573` filed for the residual pre-existing `batch-builder` flake.
+- Railway staging worker `SOLICITATION_WATCH_ENABLED` → `true` (read back to verify).
+- `feat-544` merged into `staging` and pushed (`769b2693..f64541c9`); 9
+  squash-drift conflicts resolved to main's canonical versions. Merged tree
+  typechecks 0 errors, lint clean.
+- `feat-544-watch-mode-batch-ui` pushed to origin.
+
+**Resume here, in order:**
+
+1. `vercel link` (not linked; Vercel MCP has no token) — then set
+   `SOLICITATION_WATCH_ENABLED=true` on the **staging** custom env and redeploy.
+   Until this is done the Requests surface 404s on staging even though the code
+   is deployed.
+2. Smoke upload → building → funnel on staging.
+3. PR to `main`, then **pause for merge approval**. No production flip.
+
+**Known-red gate, accepted deliberately (human call).** `gate-status.json` stays
+RED on `test` + `diff-coverage`; both trace to #573, which is foreign to this
+branch and never runs in CI. `lastGreenGateSha` is deliberately NOT advanced —
+HEAD has not passed a full local gate, and the record says so rather than
+manufacturing a green by re-rolling an intermittent suite.
+
+**Also outstanding, not this ticket:** `staging` is 58 commits ahead of `main`,
+against the "fast-forward staging onto main after promotion" rule. That drift
+produced the 9 merge conflicts and needs its own cleanup.
 
 Confirm `bash scripts/arm-check.sh` shows ARMED and that
 `.feature/gate-status.json` is green and newer than HEAD before shipping.
