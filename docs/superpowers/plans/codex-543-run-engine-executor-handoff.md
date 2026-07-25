@@ -78,3 +78,49 @@ feature lane for the reasons recorded in the plan's classification section.
 
 Do not reconstruct intent from conversation history. Read the intake, plan,
 specification, ADR, and named glossary excerpt above.
+
+## Ship-lane progress (2026-07-25, step 8 high-risk)
+
+Fresh session executing the step-8 staging ride. Chronological on-disk record:
+
+1. **Rebased** `codex/543-run-engine-executor` onto `origin/main` (absorbed
+   docs commit `414ac17e`). New tip `3f1d743d`. Proven inert:
+   `git diff 673d2170 3f1d743d -- . ':!docs/**' ':!.claude/reference/arch-review-log.md'`
+   is EMPTY — code byte-identical to the reviewed green gate `673d2170`.
+2. **Local pre-ship gate is RED on `test`/`diff-coverage` only** — a local-harness
+   artifact, NOT a #543 defect. `verify-gate.sh` runs `pnpm test:coverage`
+   (whole-repo, all integration suites) CONCURRENTLY with the dedicated
+   `integration-*` rows against one local Postgres; other features' live-DB
+   suites (demos/lifecycle, autopilot-entitlement, migration-074/076/077/078,
+   escalations, suspension, health-alert) lose cross-process deadlock races.
+   Across 3 runs (2 default, 1 `VITEST_MAX_WORKERS=1` serialized) **no #543
+   suite ever failed**; every #543-specific check (lint, typecheck, all CI
+   audits, all 5 #543 integration rows, promised-tests, build) passed every
+   run. `diff-coverage` fails only because the deadlocked `test` row never
+   writes `coverage-final.json`. **User decision: accept CI as the authoritative
+   full-suite gate** (CLAUDE.md: "CI stays the full-suite gate"; CI's `test`
+   job runs unit-only without a local pool URL and is green). See deviations D7.
+3. **Migration 088 applied to STAGING Supabase** (`kubdiqdhqbhwmqfditeg`,
+   RepWorth-staging) via MCP `apply_migration`, after pre-flighting every FK
+   prerequisite. Verified by schema introspection (NOT the ledger): both tables
+   created, `agent_runs.parent_run_id` added, all 3 tenant-composite FKs present,
+   `kind_check` includes `solicitation_batch`, RLS on both tables, all 10 new
+   indexes present. **PROD migration deliberately NOT applied** (out of flight).
+4. **Landed on staging**: reset the stale local `staging` worktree (10 leftover
+   #538 commits, already upstream via merged PR #554) to `origin/staging`
+   `6197a95f`, merged `codex/543` (`--no-ff`, no conflicts), pushed →
+   `origin/staging` `769b2693`. Push used `--no-verify` (documented escape hatch;
+   pre-push hook was re-running the same flaky local DB suites; staging pushes
+   are not CI-gated). Full-stack staging auto-deploy triggered.
+
+### Remaining (this session or a resume):
+- Railway staging worker `repworth-worker` (deployment `9b723cbb`) redeploying
+  with new code, flag OFF.
+- **Flip `SOLICITATION_WATCH_ENABLED=true` in staging** (Railway worker env +
+  Vercel staging custom env + Vercel redeploy) — owned by #544, done here via
+  `flag-flip` skill. NOT an autonomy flag, no ordering constraint.
+- **Smoke**: flag-on contacts CSV upload → exactly one built batch + a forced
+  retry (plan §5).
+- **Open PR to `main`**, confirm CI green, PAUSE for explicit merge approval.
+  Apply migration 088 to PROD Supabase (`udeyaqnvpojbwgoaxwdg`) in lockstep only
+  at promotion. Issue #546 stays blocked until #543 lands.

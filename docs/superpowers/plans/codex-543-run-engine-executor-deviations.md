@@ -67,3 +67,27 @@ closes failed waiters, and is covered by a real timeout/session-cleanup test.
 Centralizing the harness reduces the builder suite to 967 lines; splitting the
 suite was rejected because each new file would add another separately
 scheduled full-lifecycle migration-088 lock holder.
+
+## D7 — Post-rebase local gate can't go green (whole-repo integration concurrency)
+
+The step-8 rebase onto `origin/main` (docs-only) invalidated the committed
+green gate's freshness, so the pre-ship `verify-gate.sh --review` was re-run
+with `TEST_DATABASE_POOL_URL` set. It went RED on `test` + `diff-coverage`
+across three runs (2 default, 1 `VITEST_MAX_WORKERS=1`). Root cause:
+`verify-gate.sh` launches `pnpm test:coverage` (the whole repo, incl. every
+`*.integration.test.ts`) CONCURRENTLY with the dedicated changed-suite
+`integration-*` rows, all against one local Postgres. Other features' live-DB
+suites lose cross-process deadlock races (`deadlock detected`, `duplicate key`,
+`Hook timed out`); the victim set shifts run to run. No #543 suite ever failed;
+every #543-specific check passed every run. `diff-coverage` is downstream —
+the deadlocked `test:coverage` never emits `coverage-final.json`.
+`VITEST_MAX_WORKERS=1` serializes within a process but cannot fix cross-process
+contention. Code is byte-identical to the reviewed green gate `673d2170`.
+
+**VERDICT: ACCEPT.** Not a branch defect. The user accepted CI as the
+authoritative full-suite gate (CLAUDE.md: "CI stays the full-suite gate"; CI's
+`test` job runs unit-only without a local pool URL and self-skips integration).
+The gate-harness flaw (`test:coverage` inheriting the DB URL and running
+whole-repo integration alongside the isolated rows) is a general local-harness
+hardening item, out of #543's surface — worth a follow-up ticket, not a
+#543-blocking fix.
