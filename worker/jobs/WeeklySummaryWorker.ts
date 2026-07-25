@@ -316,8 +316,11 @@ async function loadCompetitorDelta(
   const searchLocation = settings?.search_location;
   if (!keyword?.trim() || !searchLocation?.trim()) return null;
 
+  // snapshot_date is a DATE column: without ::text Postgres.js hands back a
+  // JS Date object, and the === string comparisons downstream are always
+  // false (lab note: keep DATE values ::text end-to-end).
   const rankingDates = await db<{ snapshot_date: string }[]>`
-    SELECT snapshot_date
+    SELECT snapshot_date::text AS snapshot_date
     FROM ranking_snapshots
     WHERE business_id = ${businessId}
       AND keyword = ${keyword}
@@ -329,7 +332,7 @@ async function loadCompetitorDelta(
   if (snapshotDates.length === 0) return { kind: 'teaser', keyword };
 
   const rows = await db<CompetitorSnapshotRow[]>`
-    SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
+    SELECT snapshot_date::text AS snapshot_date, rank_position, place_id, title, rating, review_count, is_self
     FROM competitor_snapshots
     WHERE business_id = ${businessId}
       AND keyword = ${keyword}

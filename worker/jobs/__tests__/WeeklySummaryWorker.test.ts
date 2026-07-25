@@ -448,6 +448,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       '34.0522000,-118.2437000',
       ['2026-07-20', '2026-07-06'],
     ]);
+    // DATE columns must be cast ::text or Postgres.js returns JS Date objects
+    // and every === string comparison downstream is silently false (the
+    // string fixtures in this suite cannot catch that — the query shape is
+    // the contract).
+    expect(datesQuery?.text).toContain('snapshot_date::text');
+    expect(packQuery?.text).toContain('snapshot_date::text');
   });
 
   it('selects lexical place identity for equal-gap NULL-rank rivals independent of SQL order', async () => {
