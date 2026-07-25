@@ -118,6 +118,36 @@ function makeJob(overrides: Partial<WeeklySummaryPayload> = {}): Job<WeeklySumma
   } as Job<WeeklySummaryPayload>;
 }
 
+function configuredCompetitorSettings(
+  searchLocation = 'Los Angeles, California',
+  keyword = 'best bakery',
+): Array<{ keyword: string; search_location: string }> {
+  return [{ keyword, search_location: searchLocation }];
+}
+
+function competitorSnapshot(
+  placeId: string,
+  title: string,
+  reviewCount: number,
+  overrides: Partial<{
+    snapshot_date: string;
+    rank_position: number | null;
+    rating: string;
+    is_self: boolean;
+  }> = {},
+) {
+  return {
+    snapshot_date: '2026-07-20',
+    rank_position: 1,
+    place_id: placeId,
+    title,
+    rating: '4.8',
+    review_count: reviewCount,
+    is_self: false,
+    ...overrides,
+  };
+}
+
 /**
  * Pushes the standard SQL return sequence for a full happy-path run.
  *
@@ -142,6 +172,9 @@ function pushHappyPathSqlQueue(opts: {
   latestRanking?: unknown[];
   initialRanking?: unknown[];
   ownerWithAuth?: unknown[];
+  competitorSettings?: unknown[];
+  competitorRankingDates?: unknown[];
+  competitorSnapshots?: unknown[];
   upsertRow?: unknown[];
   summaryText?: string | null;
   sentFlipRow?: unknown[];
@@ -160,13 +193,21 @@ function pushHappyPathSqlQueue(opts: {
     sqlReturnQueue.push(opts.initialRanking ?? [{ rank_position: 8 }]);     // 8. initial ranking
   }
   sqlReturnQueue.push(opts.ownerWithAuth ?? []);                            // 9. dashboard eligibility
-  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 10. upsert
-  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 11. claim UPDATE
-  // 12. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
-  if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
-    sqlReturnQueue.push([]);                                                // 12. UPDATE summary_text
+  sqlReturnQueue.push(opts.competitorSettings ?? []);                       // 10. Competitor Delta settings
+  if (opts.competitorSettings && opts.competitorSettings.length > 0) {
+    const rankingDates = opts.competitorRankingDates ?? [];
+    sqlReturnQueue.push(rankingDates);                                      // 11. latest two exact-series ranking dates
+    if (rankingDates.length > 0) {
+      sqlReturnQueue.push(opts.competitorSnapshots ?? []);                  // 12. Competitor packs for those dates
+    }
   }
-  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 13. guarded UPDATE sent_at
+  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 13. upsert
+  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 14. claim UPDATE
+  // 15. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
+  if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
+    sqlReturnQueue.push([]);                                                // 15. UPDATE summary_text
+  }
+  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 16. guarded UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
@@ -306,6 +347,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
     sqlReturnQueue.push([]);                         // latest ranking
     sqlReturnQueue.push([]);                         // dashboard eligibility
+    sqlReturnQueue.push([]);                         // Competitor Delta settings
     sqlReturnQueue.push([]);                         // upsert returns empty
     sqlReturnQueue.push([{ sent_at: '2026-04-07', claimed_at: '2026-04-07' }]); // distinguish query: sent_at IS NOT NULL
 
@@ -330,6 +372,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
     sqlReturnQueue.push([]);                         // latest ranking
     sqlReturnQueue.push([]);                         // dashboard eligibility
+    sqlReturnQueue.push([]);                         // Competitor Delta settings
     sqlReturnQueue.push([]);                         // upsert returns empty
     sqlReturnQueue.push([{ sent_at: null, claimed_at: new Date().toISOString() }]); // distinguish: claimed but not sent
 
@@ -351,6 +394,183 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       keyword: 'pizza near me',
       currentRank: 3,
       initialRank: 8,
+    });
+  });
+
+  it('selects the Auto-default rival by nearest review-count gap with deterministic tie breakers', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(
+        '34.0522000,-118.2437000',
+        ' best bakery ',
+      ),
+      competitorRankingDates: [
+        { snapshot_date: '2026-07-20' },
+        { snapshot_date: '2026-07-06' },
+      ],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { rank_position: 4, is_self: true }),
+        competitorSnapshot('rival-null-rank', 'Null Rank Bakery', 105, { rank_position: null, rating: '4.9' }),
+        competitorSnapshot('rival-b', 'Beta Bakery', 105, { rank_position: 2, rating: '4.7' }),
+        competitorSnapshot('rival-a', 'Alpha Bakery', 105, { rank_position: 2, rating: '4.6' }),
+        competitorSnapshot('rival-far', 'Far Ahead Bakery', 106, { rating: '5.0' }),
+        competitorSnapshot('rival-a', 'Alpha Bakery', 101, {
+          snapshot_date: '2026-07-06',
+          rank_position: 3,
+          rating: '4.5',
+        }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    const params = mockBuildWeeklyValueReportHtml.mock.calls[0]![0];
+    expect(params.competitorDelta).toEqual({
+      kind: 'rival',
+      rivalName: 'Alpha Bakery',
+      gap: 5,
+      reviewVelocity: 4,
+    });
+
+    const settingsQuery = sqlCalls.find(({ text }) => text.includes("tracked_keywords->>0"));
+    expect(settingsQuery?.values).toEqual(['biz-1']);
+    const datesQuery = sqlCalls.find(({ text }) => (
+      text.includes('FROM ranking_snapshots') && text.includes('search_location')
+    ));
+    expect(datesQuery?.values).toEqual([
+      'biz-1',
+      ' best bakery ',
+      '34.0522000,-118.2437000',
+    ]);
+    const packQuery = sqlCalls.find(({ text }) => text.includes('FROM competitor_snapshots'));
+    expect(packQuery?.values).toEqual([
+      'biz-1',
+      ' best bakery ',
+      '34.0522000,-118.2437000',
+      ['2026-07-20', '2026-07-06'],
+    ]);
+    // DATE columns must be cast ::text or Postgres.js returns JS Date objects
+    // and every === string comparison downstream is silently false (the
+    // string fixtures in this suite cannot catch that — the query shape is
+    // the contract).
+    expect(datesQuery?.text).toContain('snapshot_date::text');
+    expect(packQuery?.text).toContain('snapshot_date::text');
+  });
+
+  it('selects lexical place identity for equal-gap NULL-rank rivals independent of SQL order', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
+        competitorSnapshot('zulu-place', 'Zulu Bakery', 105, { rank_position: null }),
+        competitorSnapshot('alpha-place', 'Alpha Bakery', 105, { rank_position: null }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'rival',
+      rivalName: 'Alpha Bakery',
+      gap: 5,
+      reviewVelocity: null,
+    });
+  });
+
+  it('degrades Competitor Delta through omit teaser and gap-only empty states', async () => {
+    pushHappyPathSqlQueue();
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toBeNull();
+    expect(sqlCalls.some(({ text }) => text.includes('FROM competitor_snapshots'))).toBe(false);
+
+    mockBuildWeeklyValueReportHtml.mockClear();
+    sqlCalls.length = 0;
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorSnapshots: [],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'teaser',
+      keyword: 'best bakery',
+    });
+
+    mockBuildWeeklyValueReportHtml.mockClear();
+    sqlCalls.length = 0;
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
+        competitorSnapshot('rival-behind', 'Behind Bakery', 90, { rank_position: 2, rating: '4.7' }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'rival',
+      rivalName: 'Behind Bakery',
+      gap: -10,
+      reviewVelocity: null,
+    });
+  });
+
+  it('teases when a newer exact-series ranking observation has an empty Competitor pack', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [
+        { snapshot_date: '2026-07-20' },
+        { snapshot_date: '2026-07-06' },
+      ],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, {
+          snapshot_date: '2026-07-06',
+          is_self: true,
+        }),
+        competitorSnapshot('stale-rival', 'Stale Rival', 105, {
+          snapshot_date: '2026-07-06',
+          rank_position: 2,
+        }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'teaser',
+      keyword: 'best bakery',
+    });
+    const packQuery = sqlCalls.find(({ text }) => text.includes('competitor_snapshots'));
+    expect(packQuery?.values).toEqual([
+      'biz-1',
+      'best bakery',
+      'Los Angeles, California',
+      ['2026-07-20', '2026-07-06'],
+    ]);
+  });
+
+  it('parses NUMERIC competitor ratings returned by Postgres.js as strings', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
+        competitorSnapshot('rival-place', 'String Rating Bakery', 103, { rank_position: 2, rating: '   ' }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'rival',
+      rivalName: 'String Rating Bakery',
+      gap: 3,
+      reviewVelocity: null,
     });
   });
 
