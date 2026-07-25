@@ -321,3 +321,21 @@ behaviour of a red gate and is being accepted knowingly, not worked around.
 **What would change this call:** if #573 turns out to be a real defect in
 `buildSolicitationBatch` rather than in the suite's fixture setup, it is a
 production concern and #544's staging ride should stop until it is understood.
+
+## Step 8 ship lane — flag flip record
+
+Per the `flag-flip` skill. `SOLICITATION_WATCH_ENABLED` is not an autonomy
+flag, so the §8.4 ordering chain does not apply and it carries no hard couplings;
+`env-vars.md` assigns its staging flip to #544.
+
+| Environment | Flag | Value | UTC | Why |
+|---|---|---|---|---|
+| Railway staging worker (`repworth-worker`, env `staging`) | `SOLICITATION_WATCH_ENABLED` | `false` → `true` | 2026-07-25T22:40:42Z | Enables the completed-ingest trigger so a CSV upload creates one unbuilt batch + one `build_solicitation_batch` outbox row |
+| Vercel staging | `SOLICITATION_WATCH_ENABLED` | **not yet flipped** | — | Blocked: no Vercel project link / MCP auth in this environment |
+
+Verified by reading the value back, not by assuming the write took. Worker
+reports Online after the variable-triggered redeploy.
+
+**Correction to session-start memory:** an injected observation claimed this flag
+was already enabled on Railway staging from the #543 work. It was `false` when
+read. Live state wins; the memory was stale.
