@@ -450,6 +450,27 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     ]);
   });
 
+  it('selects lexical place identity for equal-gap NULL-rank rivals independent of SQL order', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
+        competitorSnapshot('zulu-place', 'Zulu Bakery', 105, { rank_position: null }),
+        competitorSnapshot('alpha-place', 'Alpha Bakery', 105, { rank_position: null }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'rival',
+      rivalName: 'Alpha Bakery',
+      gap: 5,
+      reviewVelocity: null,
+    });
+  });
+
   it('degrades Competitor Delta through omit teaser and gap-only empty states', async () => {
     pushHappyPathSqlQueue();
 
@@ -533,7 +554,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
       competitorSnapshots: [
         competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
-        competitorSnapshot('rival-place', 'String Rating Bakery', 103, { rank_position: 2, rating: 'not-a-finite-rating' }),
+        competitorSnapshot('rival-place', 'String Rating Bakery', 103, { rank_position: 2, rating: '   ' }),
       ],
     });
 

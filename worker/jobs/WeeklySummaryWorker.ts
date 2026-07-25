@@ -232,7 +232,7 @@ async function loadWeeklyValueInputs(
 }
 
 function parseCompetitorRating(rating: string | null): number | null {
-  if (rating === null) return null;
+  if (rating === null || rating.trim().length === 0) return null;
   const parsed = Number(rating);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -270,10 +270,12 @@ function selectAutoDefaultRival(
       : right.gap - left.gap;
     if (gapOrder !== 0) return gapOrder;
 
-    const rankOrder = (left.row.rank_position ?? Number.POSITIVE_INFINITY)
-      - (right.row.rank_position ?? Number.POSITIVE_INFINITY);
-    if (rankOrder !== 0) return rankOrder;
-    return left.row.place_id! < right.row.place_id! ? -1 : 1;
+    const leftRank = left.row.rank_position ?? Number.POSITIVE_INFINITY;
+    const rightRank = right.row.rank_position ?? Number.POSITIVE_INFINITY;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    if (left.row.place_id! < right.row.place_id!) return -1;
+    if (left.row.place_id! > right.row.place_id!) return 1;
+    return 0;
   });
 
   const selected = eligible[0]!;
