@@ -26,10 +26,15 @@ function baseWeeklyParams(overrides: Partial<WeeklyValueReportParams> = {}): Wee
   };
 }
 
-function rivalDelta(rivalName: string, gap: number, reviewVelocity: number | null) {
+function rivalDelta(
+  rivalName: string,
+  gap: number,
+  reviewVelocity: number | null,
+  source: 'auto_default' | 'owner_pick' = 'auto_default',
+) {
   return {
     kind: 'rival' as const,
-    line: { rivalName, gap, reviewVelocity, source: 'auto_default' as const },
+    line: { rivalName, gap, reviewVelocity, source },
   };
 }
 
@@ -246,6 +251,55 @@ describe('buildWeeklyValueReportHtml', () => {
     }));
     expect(omittedHtml).not.toContain('Auto-selected rival:');
     expect(omittedHtml).not.toContain('Competitor Delta');
+  });
+
+  it('labels the Auto-default rival "Auto-selected rival:" and omits the prefix for an owner pick', () => {
+    const autoHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta("Joe's Bakery", 27, 4, 'auto_default'),
+    }));
+    expect(autoHtml).toContain(
+      'Auto-selected rival: Joe&#39;s Bakery gained 4 reviews since our last check; gap now 27',
+    );
+
+    const pickHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta("Joe's Bakery", 27, 4, 'owner_pick'),
+    }));
+    expect(pickHtml).toContain(
+      'Joe&#39;s Bakery gained 4 reviews since our last check; gap now 27',
+    );
+    expect(pickHtml).not.toContain('Auto-selected rival:');
+  });
+
+  it('renders the dropout note above the Auto-default line', () => {
+    const html = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: {
+        kind: 'dropout',
+        droppedName: 'Old Mill Bakery',
+        fallback: { rivalName: 'Near Ahead', gap: 10, reviewVelocity: 2, source: 'auto_default' },
+      },
+    }));
+
+    expect(html).toContain('Old Mill Bakery dropped out of your local pack.');
+    expect(html).toContain('Auto-selected rival: Near Ahead gained 2 reviews since our last check; gap now 10');
+    expect(html.indexOf('dropped out of your local pack')).toBeLessThan(html.indexOf('Auto-selected rival:'));
+  });
+
+  it('renders the dropout note alone when no Auto-default rival is available', () => {
+    const html = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: { kind: 'dropout', droppedName: 'Old Mill Bakery', fallback: null },
+    }));
+
+    expect(html).toContain('Old Mill Bakery dropped out of your local pack.');
+    expect(html).not.toContain('Auto-selected rival:');
+  });
+
+  it('escapes the dropped rival name in the dropout note', () => {
+    const html = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: { kind: 'dropout', droppedName: '<Rival & "Co">', fallback: null },
+    }));
+
+    expect(html).toContain('&lt;Rival &amp; &quot;Co&quot;&gt; dropped out of your local pack.');
+    expect(html).not.toContain('<Rival');
   });
 
   it('includes dashboard link when provided', () => {

@@ -19,6 +19,7 @@ const {
   mockRecordStep,
   mockRecordOutcome,
   mockCompleteRun,
+  mockLogger,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[]; inTransaction: boolean }[] = [];
@@ -76,6 +77,7 @@ const {
     mockRecordStep: spineMock('record_step'),
     mockRecordOutcome: spineMock('record_outcome'),
     mockCompleteRun: spineMock('complete_run'),
+    mockLogger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 });
 
@@ -100,6 +102,12 @@ vi.mock('../../../src/lib/agents/run-spine', () => ({
   recordStep: mockRecordStep,
   recordOutcome: mockRecordOutcome,
   completeRun: mockCompleteRun,
+}));
+// Only the logger factory is replaced — `toError`/`logUnhandledPollError` stay
+// real for every other module in this import graph.
+vi.mock('../../../src/lib/shared/logger', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/lib/shared/logger')>()),
+  createWorkerLogger: () => mockLogger,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
@@ -170,6 +178,7 @@ function competitorLaneRows(opts: {
   competitorSettings?: unknown[];
   competitorRankingDates?: unknown[];
   competitorSnapshots?: unknown[];
+  rivalPick?: { place_id: string; title_snapshot: string | null };
 }): unknown[] {
   const [settings] = (opts.competitorSettings ?? []) as Array<{
     keyword: string;
@@ -179,8 +188,8 @@ function competitorLaneRows(opts: {
   const context = {
     keyword: settings.keyword,
     search_location: settings.search_location,
-    rival_place_id: null,
-    rival_title_snapshot: null,
+    rival_place_id: opts.rivalPick?.place_id ?? null,
+    rival_title_snapshot: opts.rivalPick?.title_snapshot ?? null,
   };
   const dates = (opts.competitorRankingDates ?? []) as Array<{ snapshot_date: string }>;
   if (dates.length === 0) return [{ ...context, window_date: null, ...EMPTY_PACK_SENTINEL }];
@@ -222,6 +231,7 @@ function pushHappyPathSqlQueue(opts: {
   competitorSettings?: unknown[];
   competitorRankingDates?: unknown[];
   competitorSnapshots?: unknown[];
+  rivalPick?: { place_id: string; title_snapshot: string | null };
   upsertRow?: unknown[];
   summaryText?: string | null;
   sentFlipRow?: unknown[];
@@ -496,6 +506,60 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     // the contract).
     expect(laneQuery.text).toContain('d.snapshot_date::text AS window_date');
     expect(laneQuery.text).toContain('cs.snapshot_date::text AS snapshot_date');
+  });
+
+  it('reports the owner-picked Named rival instead of the Auto-default one', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [
+        { snapshot_date: '2026-07-20' },
+        { snapshot_date: '2026-07-06' },
+      ],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { rank_position: 4, is_self: true }),
+        competitorSnapshot('rival-near', 'Near Ahead Bakery', 105, { rank_position: 2 }),
+        competitorSnapshot('rival-picked', 'Old Mill Bakery', 180, { rank_position: 3 }),
+        competitorSnapshot('rival-picked', 'Old Mill Bakery', 175, { snapshot_date: '2026-07-06' }),
+      ],
+      rivalPick: { place_id: 'rival-picked', title_snapshot: 'Old Mill Bakery' },
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'rival',
+      line: {
+        rivalName: 'Old Mill Bakery',
+        gap: 80,
+        reviewVelocity: 5,
+        source: 'owner_pick',
+      },
+    });
+    // The pick rides the same single statement as the pack — a second read
+    // could observe a pick that does not belong to these pack rows.
+    expect(sqlCalls.filter(({ text }) => text.includes('competitor_snapshots'))).toHaveLength(1);
+  });
+
+  it('logs competitor_delta_resolved with the source that rendered', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
+        competitorSnapshot('rival-picked', 'Old Mill Bakery', 180),
+      ],
+      rivalPick: { place_id: 'rival-picked', title_snapshot: 'Old Mill Bakery' },
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    const resolvedCalls = mockLogger.log.mock.calls.filter(
+      ([message]) => message === 'competitor_delta_resolved',
+    );
+    expect(resolvedCalls).toHaveLength(1);
+    expect(resolvedCalls[0]![1]).toEqual({ businessId: 'biz-1', source: 'owner_pick' });
+    // Third-party business names never reach the logs — businessId correlates.
+    expect(JSON.stringify(mockLogger.log.mock.calls)).not.toContain('Old Mill Bakery');
   });
 
   it('selects lexical place identity for equal-gap NULL-rank rivals independent of SQL order', async () => {

@@ -172,11 +172,24 @@ async function loadWeeklyReviewStats(
   };
 }
 
+/**
+ * Which Competitor Delta variant rendered, for the digest observability line.
+ * Deliberately excludes the rival's name: a third-party business name is not
+ * ours to log, and businessId is enough to correlate a run.
+ */
+function competitorDeltaSource(competitorDelta: CompetitorDelta): string {
+  if (competitorDelta === null) return 'omitted';
+  if (competitorDelta.kind === 'teaser') return 'teaser';
+  if (competitorDelta.kind === 'dropout') return 'dropout';
+  return competitorDelta.line.source;
+}
+
 async function loadWeeklyValueInputs(
   db: Sql,
   businessId: LocationId,
   weekStartDate: string,
   weekEndDate: string,
+  logger: WorkerLogger,
 ): Promise<WeeklyValueInputs> {
   const reviewsForSummary = await db<WeeklyReviewRow[]>`
     SELECT star_rating, review_text FROM reviews
@@ -202,6 +215,10 @@ async function loadWeeklyValueInputs(
     cfg.NEXT_PUBLIC_APP_URL,
   );
   const competitorDelta = await resolveNamedRival(db, businessId);
+  logger.log('competitor_delta_resolved', {
+    businessId,
+    source: competitorDeltaSource(competitorDelta),
+  });
   return {
     reviewsForSummary,
     fourWeekAvgReviews: parseFloat(avgRow?.avg ?? '0'),
@@ -406,7 +423,7 @@ export async function handleWeeklySummary(
   const { business, businessId, outboxId, outboxAttempt } = context;
   const weekEndDate = weekEndDateFor(week_start_date);
   const stats = await loadWeeklyReviewStats(sql, businessId, week_start_date, weekEndDate);
-  const valueInputs = await loadWeeklyValueInputs(sql, businessId, week_start_date, weekEndDate);
+  const valueInputs = await loadWeeklyValueInputs(sql, businessId, week_start_date, weekEndDate, logger);
   const summaryRow = await acquireWeeklySummary(sql, {
     businessId,
     weekStartDate: week_start_date,

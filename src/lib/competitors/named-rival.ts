@@ -28,6 +28,12 @@ export type CompetitorDelta =
   | { kind: 'dropout'; droppedName: string; fallback: NamedRivalLine | null }
   | null;
 
+/** The owner's stored Named rival pick, as persisted on `businesses` (089). */
+export interface StoredRivalPick {
+  placeId: string;
+  titleSnapshot: string;
+}
+
 interface CompetitorSnapshotRow {
   snapshot_date: string;
   rank_position: number | null;
@@ -74,6 +80,39 @@ function parseCompetitorRating(rating: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Builds the Competitor Delta line for one already-chosen pack row.
+ *
+ * Single owner of the gap and review-velocity arithmetic: gap is the rival's
+ * review count minus ours (never rating or rank), and velocity is measured
+ * against the SAME place_id in the immediately preceding snapshot — absent or
+ * uncountable there means "no velocity", not zero.
+ */
+function buildLineForRow(
+  row: NormalizedCompetitorSnapshotRow,
+  selfReviewCount: number,
+  rows: NormalizedCompetitorSnapshotRow[],
+  precedingDate: string | undefined,
+  source: NamedRivalLine['source'],
+): NamedRivalLine {
+  const preceding = precedingDate
+    ? rows.find((candidate) => (
+      candidate.snapshot_date === precedingDate
+      && candidate.place_id === row.place_id
+      && Number.isInteger(candidate.review_count)
+    ))
+    : undefined;
+
+  return {
+    rivalName: row.title,
+    gap: row.review_count! - selfReviewCount,
+    reviewVelocity: preceding?.review_count === null || preceding?.review_count === undefined
+      ? null
+      : row.review_count! - preceding.review_count,
+    source,
+  };
+}
+
 function selectAutoDefaultRival(
   rows: NormalizedCompetitorSnapshotRow[],
   currentDate: string,
@@ -116,22 +155,64 @@ function selectAutoDefaultRival(
   });
 
   const selected = eligible[0]!;
-  const preceding = precedingDate
-    ? rows.find((row) => (
-      row.snapshot_date === precedingDate
-      && row.place_id === selected.row.place_id
-      && Number.isInteger(row.review_count)
-    ))
-    : undefined;
+  return buildLineForRow(selected.row, self.review_count, rows, precedingDate, 'auto_default');
+}
 
-  return {
-    rivalName: selected.row.title,
-    gap: selected.gap,
-    reviewVelocity: preceding?.review_count === null || preceding?.review_count === undefined
-      ? null
-      : selected.row.review_count! - preceding.review_count,
-    source: 'auto_default',
-  };
+/**
+ * Resolves the Named rival for one snapshot window: the owner's pick where it
+ * is usable in the latest Competitor pack, otherwise the Auto-default rival —
+ * with a one-off dropout note the first week a pick leaves the pack.
+ *
+ * A pick is never auto-removed here; this function only decides what THIS
+ * digest reports.
+ */
+function selectNamedRival(
+  rows: NormalizedCompetitorSnapshotRow[],
+  currentDate: string,
+  precedingDate: string | undefined,
+  pick: StoredRivalPick | null,
+): CompetitorDelta {
+  const autoDefault = selectAutoDefaultRival(rows, currentDate, precedingDate);
+  if (!pick) return autoDefault ? { kind: 'rival', line: autoDefault } : null;
+
+  const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
+  const self = currentRows.find((row) => row.is_self && Number.isInteger(row.review_count));
+
+  const pickedRow = currentRows.find(
+    (row) => row.place_id === pick.placeId && !row.is_self && Number.isInteger(row.review_count),
+  );
+  if (pickedRow && self) {
+    return {
+      kind: 'rival',
+      line: buildLineForRow(pickedRow, self.review_count!, rows, precedingDate, 'owner_pick'),
+    };
+  }
+
+  // The pick is not usable in the latest pack. It is a DROPOUT only when the
+  // pick was present in the immediately preceding snapshot — first-absent is
+  // derived from the same two-date window that drives velocity (#532 item 4).
+  // Present-but-unusable (NULL review count) is not a dropout: nothing left.
+  const presentButUnusable = currentRows.some((row) => row.place_id === pick.placeId);
+  const wasInPreceding = precedingDate !== undefined
+    && rows.some((row) => row.snapshot_date === precedingDate && row.place_id === pick.placeId);
+
+  // GUARD: never claim a rival dropped out of a pack we have no rows for. 084
+  // treats an empty pack for a date as a recorded fact (SerpAPI returned
+  // nothing), and with zero rows EVERY place_id looks "absent" — rendering
+  // "<Rival> dropped out of your local pack" when the truth is "we have no pack
+  // data", with a null fallback leaving the owner a bare false alarm.
+  //
+  // Guard on the ROW COUNT, not on `self`: a non-empty pack that simply lacks
+  // our is_self row (our location fell out of its own local pack) is real pack
+  // data, and a pick that left it really did leave. Suppressing that case would
+  // trade a false positive for a false negative.
+  if (currentRows.length === 0) return autoDefault ? { kind: 'rival', line: autoDefault } : null;
+
+  if (!presentButUnusable && wasInPreceding) {
+    return { kind: 'dropout', droppedName: pick.titleSnapshot, fallback: autoDefault };
+  }
+
+  return autoDefault ? { kind: 'rival', line: autoDefault } : null;
 }
 
 function isPackJoinRow(row: NamedRivalContextRow): row is PackJoinRow {
@@ -231,16 +312,23 @@ export async function resolveNamedRival(
     ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST
   `;
 
-  const keyword = rows[0]?.keyword;
-  const searchLocation = rows[0]?.search_location;
+  const context = rows[0];
+  const keyword = context?.keyword;
+  const searchLocation = context?.search_location;
   if (!keyword?.trim() || !searchLocation?.trim()) return null;
 
   const { snapshotDates, packRows } = toObservationWindow(rows);
   if (snapshotDates.length === 0) return { kind: 'teaser', keyword };
 
-  const line = selectAutoDefaultRival(packRows, snapshotDates[0]!, snapshotDates[1]);
-  return line ? { kind: 'rival', line } : { kind: 'teaser', keyword };
+  // The pick rides the SAME statement as the pack (the `ctx` CTE above): a
+  // second read could observe a pick that does not belong to these pack rows.
+  const pick: StoredRivalPick | null = context?.rival_place_id
+    ? { placeId: context.rival_place_id, titleSnapshot: context.rival_title_snapshot ?? context.rival_place_id }
+    : null;
+
+  return selectNamedRival(packRows, snapshotDates[0]!, snapshotDates[1], pick)
+    ?? { kind: 'teaser', keyword };
 }
 
 /** Internal seam exposed for unit tests only — not part of the module's interface. */
-export const __testing = { selectAutoDefaultRival, parseCompetitorRating };
+export const __testing = { selectAutoDefaultRival, selectNamedRival, parseCompetitorRating };

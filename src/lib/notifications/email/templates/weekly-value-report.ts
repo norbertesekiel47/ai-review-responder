@@ -3,7 +3,7 @@
 // Recurring Insights agent report sent every Monday with the past week's
 // review activity.
 import { escapeHtml } from '@/lib/shared/html';
-import type { CompetitorDelta } from '@/lib/competitors/named-rival';
+import type { CompetitorDelta, NamedRivalLine } from '@/lib/competitors/named-rival';
 import { renderStars, truncate, escapeHrefUrl } from './shared';
 
 // Re-exported so the `src/lib/notifications/email` barrel keeps serving the
@@ -54,8 +54,34 @@ function renderRankingHtml(ranking: WeeklyValueReportParams['ranking']): string 
     : '';
 }
 
+function renderRivalLineHtml(line: NamedRivalLine): string {
+  let velocityCopy = '';
+  if (line.reviewVelocity !== null) {
+    if (line.reviewVelocity > 0) {
+      const reviewLabel = line.reviewVelocity === 1 ? 'review' : 'reviews';
+      velocityCopy = ` gained ${line.reviewVelocity} ${reviewLabel} since our last check;`;
+    } else if (line.reviewVelocity < 0) {
+      const lost = Math.abs(line.reviewVelocity);
+      const reviewLabel = lost === 1 ? 'review' : 'reviews';
+      velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
+    } else {
+      velocityCopy = ' had no new reviews since our last check;';
+    }
+  }
+
+  // The Auto-default rival is always disclosed as algorithmic; an owner's own
+  // pick is never presented as auto-selected (CONTEXT.md, Auto-default rival).
+  const prefix = line.source === 'auto_default' ? 'Auto-selected rival: ' : '';
+
+  return `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">${prefix}${escapeHtml(line.rivalName)}${velocityCopy} gap now ${line.gap}</p>
+    </td></tr>`;
+}
+
 function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
   if (!competitorDelta) return '';
+
   if (competitorDelta.kind === 'teaser') {
     return `
     <tr><td style="padding:12px 24px 0;">
@@ -64,27 +90,14 @@ function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
   }
 
   if (competitorDelta.kind === 'dropout') {
-    throw new Error('unreachable: dropout lands in #546 Task 3');
-  }
-
-  let velocityCopy = '';
-  if (competitorDelta.line.reviewVelocity !== null) {
-    if (competitorDelta.line.reviewVelocity > 0) {
-      const reviewLabel = competitorDelta.line.reviewVelocity === 1 ? 'review' : 'reviews';
-      velocityCopy = ` gained ${competitorDelta.line.reviewVelocity} ${reviewLabel} since our last check;`;
-    } else if (competitorDelta.line.reviewVelocity < 0) {
-      const lost = Math.abs(competitorDelta.line.reviewVelocity);
-      const reviewLabel = lost === 1 ? 'review' : 'reviews';
-      velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
-    } else {
-      velocityCopy = ' had no new reviews since our last check;';
-    }
-  }
-
-  return `
+    const note = `
     <tr><td style="padding:12px 24px 0;">
-      <p style="margin:0;font-size:14px;color:#374151;">Auto-selected rival: ${escapeHtml(competitorDelta.line.rivalName)}${velocityCopy} gap now ${competitorDelta.line.gap}</p>
+      <p style="margin:0;font-size:14px;color:#374151;">${escapeHtml(competitorDelta.droppedName)} dropped out of your local pack.</p>
     </td></tr>`;
+    return competitorDelta.fallback ? note + renderRivalLineHtml(competitorDelta.fallback) : note;
+  }
+
+  return renderRivalLineHtml(competitorDelta.line);
 }
 
 function renderBriefHtml(intelligenceBrief: string | null): string {
