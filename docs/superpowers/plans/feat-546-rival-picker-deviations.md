@@ -124,3 +124,82 @@ Short log of things the plan did not anticipate. One entry per surprise.
   Auto-default one` in the worker suite — the plan's only new worker test asserts
   the log line, which would still pass if the pick never flowed from the `ctx`
   CTE into the rendered delta.
+
+## Task 4 — picker view + write route + analytics
+
+- **A lock-blocked interleaving CANNOT observe a concurrent pack replacement —
+  measured, not assumed.** The plan's two concurrency tests were sketched as
+  "block the write on a row lock, let the worker commit a new pack, release".
+  A throwaway two-connection probe against the test DB says that construction
+  can never fail a correct implementation: under READ COMMITTED, when
+  `UPDATE b … FROM cs` blocks on the `businesses` row lock and the blocker
+  commits, EvalPlanQual re-checks the *target* tuple but keeps the statement's
+  original snapshot for the joined `competitor_snapshots`. All four probe
+  variants (same-date / new-date × blocker-touches-target / not) resumed and
+  stored the removed rival. So both concurrency tests are written as the real
+  request-level race instead — `loadRivalPickerView` renders the option, a
+  **second connection** commits the pack change, then the submit lands — which
+  is deterministic and is what the owner actually experiences. Mutation-tested:
+  replacing the `MAX(snapshot_date)` subquery with `IS NOT NULL` fails *only*
+  the new-date test, so that test is a genuine discriminator for the
+  pre-resolved-date hole the adversarial review found.
+
+- **Zero rows from the write is ambiguous, and the plan's `RivalPickStaleError`
+  alone would have leaked a foreign location as a 409.** `UPDATE … WHERE b.id =
+  … AND b.account_id = …` returns zero rows both for "not a pickable rival" and
+  for "not your location", and the clear's zero-row case adds a third meaning
+  ("already cleared"). Both writers therefore call a shared `assertLocationOwned`
+  on the failure path only — after the write has already been declined, so no
+  race is reopened — which is what makes the plan's own "404 for a businessId
+  outside the caller's account" module test achievable. Without it a foreign
+  *clear* would have returned 200.
+
+- **`rival_picked_at = CASE … END` gained an `OR b.rival_picked_at IS NULL`
+  leg.** The plan's `IS DISTINCT FROM` guard alone lets `RETURNING
+  rival_picked_at` come back NULL for a row where `rival_place_id` is already
+  set but the timestamp is not (only reachable by a hand-edited row), and
+  `.toISOString()` on it would throw while building the event key. The extra leg
+  keeps `RETURNING` non-null without weakening retry idempotency.
+
+- **Backticks inside a SQL template literal terminate the string.** The plan's
+  comment "derived from `b` INSIDE the statement" pasted verbatim into the
+  tagged template produced a parse error, not a comment. Reworded without
+  backticks.
+
+- **The test DB was two migrations behind, not one.** 089 was expected; the
+  shared local DB was also pre-085, so `competitor_snapshots.rating` was still
+  `REAL`. Postgres.js hands `REAL` back as a JS number, and
+  `parseCompetitorRating(rating: string | null)` calls `.trim()` on it — the
+  suite would have crashed on a type that cannot occur in staging/prod. Both
+  migrations were applied to the test DB, and the suite carries a guarded,
+  advisory-locked `applyRivalPickMigrationsIfMissing` (074-helper convention) so
+  it is self-sufficient on a fresh DB.
+
+- **`src/lib/analytics/__tests__/events.test.ts` pins the allowlist array
+  exactly.** Registering the event broke it; the expected array and the
+  not-client-postable list were both extended. The plan did not mention this
+  file (only `ci:analytics-events` and the 089 migration test).
+
+- **`loadRivalPickerView` uses three flat statements, not one CTE.** Deliberate:
+  the Task 2 collapse needed `tenant-root-lookup` allowlist entries precisely
+  because the audit strips SELECT subqueries, and `scripts/ci/tenant-scope-allowlist.ts`
+  is outside this task's edit surface. Three flat, individually-scoped reads
+  pass `ci:tenant-scope` unchanged (407 entries, baseline 407). The consistency
+  argument the digest needs does not apply to a read-only view whose worst
+  outcome is rendering a pack replaced a moment ago — and the write re-validates
+  membership against committed state regardless.
+
+- **GET validates `businessId` as a UUID before the branded cast.** Not in the
+  plan, which specified strict Zod for the PUT body only. Without it a malformed
+  search param reaches a `uuid` column and turns a 400-shaped request into a 500
+  plus Sentry noise.
+
+- **Full-suite `pnpm test` is flaky against the shared local test DB, and it is
+  not this task's doing.** Several suites (`account-offboarding/integration-lifecycle`,
+  `solicitation/batch-builder.integration`) parse `.env.local` in their own
+  `vi.hoisted()` block, so they run live even when `TEST_DATABASE_POOL_URL` is
+  unset in the environment, and they deadlock against parallel siblings.
+  Excluding ONE unrelated file (`migration-089-…test.ts`) moves the failure to a
+  different suite, which is the signature of scheduling perturbation rather than
+  a semantic conflict. Verified green: every audit, `typecheck`, `lint`, and the
+  three suites this task owns.

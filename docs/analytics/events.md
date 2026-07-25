@@ -217,3 +217,14 @@ CSV content.
 - **Required properties:** `status` (`cancelled`)
 - **Optional properties:** none
 - **Privacy notes:** the Stripe subscription id appears only in the dedup event key, never in properties.
+
+### `competitor_rival_picked`
+- **Status:** live
+- **Description:** An owner set or cleared the Named rival for one location's Competitor Delta line. The probe-engagement signal for wayfinder map #528 — it measures whether owners actually steer the competitive comparison rather than leaving the Auto-default rival in place.
+- **Owner:** `setNamedRivalPick` (`src/lib/competitors/named-rival.ts`), called by the owner-scoped competitors settings route (`PUT /api/settings/competitors`)
+- **Source:** server-side, in the same transaction as the `businesses` pick write (durable; **not** client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `competitor_rival_picked:<business_id>:<place_id | "cleared">:<rival_picked_at | cleared_at>` — the timestamp comes from the write's `RETURNING`, never a JS clock, so a retried identical request re-mints the same key and `ON CONFLICT` drops it.
+- **Required properties:** `action` (`set` or `cleared`), `placeId` (the picked Place ID; `null` on clear), `businessId`
+- **Optional properties:** none
+- **Privacy notes:** IDs only. `businessId` is duplicated into properties on purpose — `AnalyticsDispatchPoller` forwards only the properties blob to PostHog, so the `analytics_events.business_id` column never leaves Postgres and the location dimension would otherwise be unavailable. No rival display name is sent (it is third-party business content, not our fact to publish).

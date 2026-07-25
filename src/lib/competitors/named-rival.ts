@@ -9,8 +9,10 @@
 // composition roots (WeeklySummaryWorker, the settings route) import the
 // singleton and pass it down.
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type { LocationId } from '@/lib/shared/ids';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 
 // The FINAL shape lands here in #546 Task 2, even though `source` is always
 // 'auto_default' and `dropout` is unreachable until Task 3. Introducing an
@@ -328,6 +330,339 @@ export async function resolveNamedRival(
 
   return selectNamedRival(packRows, snapshotDates[0]!, snapshotDates[1], pick)
     ?? { kind: 'teaser', keyword };
+}
+
+// ── Owner-facing rival picker (#546 Task 4) ──────────────────────────────────
+
+/** One pickable rival from the location's latest Competitor pack. */
+export interface RivalOption {
+  placeId: string;
+  title: string;
+  rankPosition: number | null;
+  reviewCount: number | null;
+  rating: number | null;
+}
+
+/** The location's current Named rival pick, as the picker should render it. */
+export interface PickedRival {
+  placeId: string;
+  /** Live pack title while the pick is in the pack, else the stored snapshot. */
+  title: string;
+  inLatestPack: boolean;
+}
+
+export type RivalPickerView =
+  | { state: 'not_configured'; businessId: string }
+  | { state: 'awaiting_pack'; businessId: string; keyword: string }
+  | { state: 'ready'; businessId: string; keyword: string; options: RivalOption[]; pick: PickedRival | null };
+
+/** The caller asked for a location their account does not own, or that does not exist. */
+export class RivalPickNotFoundError extends Error {
+  constructor(businessId: string) {
+    super(`No location ${businessId} in this account`);
+    this.name = 'RivalPickNotFoundError';
+  }
+}
+
+/** The submitted place_id is not a pickable rival in the location's latest pack. */
+export class RivalPickStaleError extends Error {
+  constructor(placeId: string) {
+    super(`Place ${placeId} is not a pickable rival in the latest competitor pack`);
+    this.name = 'RivalPickStaleError';
+  }
+}
+
+export interface RivalPickerScope {
+  accountId: string;
+  businessId: LocationId;
+}
+
+export interface SetNamedRivalPickInput extends RivalPickerScope {
+  /** `null` clears the pick, returning the location to the Auto-default rival. */
+  placeId: string | null;
+  userId: string | null;
+}
+
+interface RivalPickerContextRow {
+  keyword: string | null;
+  search_location: string | null;
+  rival_place_id: string | null;
+  rival_title_snapshot: string | null;
+}
+
+interface PackOptionRow {
+  rank_position: number | null;
+  place_id: string | null;
+  title: string;
+  rating: string | null;
+  review_count: number | null;
+  is_self: boolean;
+}
+
+/**
+ * A pack row an owner may pick and the digest can actually name.
+ *
+ * The blank-title exclusion is deliberate and mirrors `selectAutoDefaultRival`:
+ * offering a whitespace-only title here would let an owner select a rival no
+ * digest line could ever render.
+ */
+function isPickableOption(row: PackOptionRow): row is PackOptionRow & { place_id: string } {
+  return !row.is_self
+    && row.place_id !== null
+    && row.place_id.length > 0
+    && row.title.trim().length > 0;
+}
+
+/**
+ * Loads the owner-facing rival picker state for one location.
+ *
+ * Three flat reads rather than the single CTE `resolveNamedRival` uses: this is
+ * a read-only view whose worst concurrent outcome is rendering a pack that was
+ * replaced a moment ago, and `setNamedRivalPick` re-validates membership
+ * against committed state anyway — so the digest's one-statement consistency
+ * requirement does not apply here, and flat predicates stay legible.
+ *
+ * @throws RivalPickNotFoundError when `businessId` is not a location of `accountId`.
+ */
+export async function loadRivalPickerView(
+  db: Sql,
+  { accountId, businessId }: RivalPickerScope,
+): Promise<RivalPickerView> {
+  const [context] = await db<RivalPickerContextRow[]>`
+    SELECT
+      b.tracked_keywords->>0 AS keyword,
+      CASE
+        WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL
+          THEN b.google_place_lat::text || ',' || b.google_place_lng::text
+        ELSE b.ranking_search_location
+      END AS search_location,
+      b.rival_place_id,
+      b.rival_title_snapshot
+    FROM businesses b
+    WHERE b.id = ${businessId} AND b.account_id = ${accountId}
+  `;
+  if (!context) throw new RivalPickNotFoundError(businessId);
+
+  const { keyword, search_location: searchLocation } = context;
+  if (!keyword?.trim() || !searchLocation?.trim()) {
+    return { state: 'not_configured', businessId };
+  }
+
+  // ranking_snapshots — not competitor_snapshots — answers "has a run happened
+  // for this lane": 084 treats an empty pack for a date as a recorded fact, so
+  // asking the pack table would misreport a real empty pack as "no pack yet".
+  const [latest] = await db<{ snapshot_date: string }[]>`
+    SELECT rs.snapshot_date::text AS snapshot_date
+    FROM ranking_snapshots rs
+    WHERE rs.business_id = ${businessId}
+      AND rs.keyword = ${keyword}
+      AND rs.search_location = ${searchLocation}
+    ORDER BY rs.snapshot_date DESC
+    LIMIT 1
+  `;
+  if (!latest) return { state: 'awaiting_pack', businessId, keyword };
+
+  const packRows = await db<PackOptionRow[]>`
+    SELECT cs.rank_position, cs.place_id, cs.title, cs.rating, cs.review_count, cs.is_self
+    FROM competitor_snapshots cs
+    WHERE cs.business_id = ${businessId}
+      AND cs.keyword = ${keyword}
+      AND cs.search_location IS NOT DISTINCT FROM ${searchLocation}
+      AND cs.snapshot_date = ${latest.snapshot_date}::date
+    ORDER BY cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST
+  `;
+
+  const options: RivalOption[] = packRows.filter(isPickableOption).map((row) => ({
+    placeId: row.place_id,
+    title: row.title,
+    rankPosition: row.rank_position,
+    reviewCount: row.review_count,
+    rating: parseCompetitorRating(row.rating),
+  }));
+
+  // `options` may legitimately be empty (a pack of one, or an empty pack) —
+  // the client renders the no-rivals copy rather than an error.
+  return { state: 'ready', businessId, keyword, options, pick: toPickedRival(context, options) };
+}
+
+function toPickedRival(
+  context: RivalPickerContextRow,
+  options: RivalOption[],
+): PickedRival | null {
+  const placeId = context.rival_place_id;
+  if (!placeId) return null;
+
+  const live = options.find((option) => option.placeId === placeId);
+  return {
+    placeId,
+    title: live?.title ?? context.rival_title_snapshot ?? placeId,
+    inLatestPack: live !== undefined,
+  };
+}
+
+/**
+ * Sets or clears the location's Named rival pick and records the owner action.
+ *
+ * `placeId === null` clears the pick, returning the location to the
+ * Auto-default rival. A pick is validated and stored by ONE statement, so no
+ * pack replacement can slip between the check and the write; the stored display
+ * name is read from the matched pack row, never from an argument.
+ *
+ * Retry-safe: an identical resubmission leaves `rival_picked_at` untouched, and
+ * that timestamp seeds the analytics event key, so the retry's event conflicts
+ * away instead of double-counting one owner action.
+ *
+ * @throws RivalPickNotFoundError when `businessId` is not a location of `accountId`.
+ * @throws RivalPickStaleError when `placeId` is not a pickable rival in the latest pack.
+ */
+export async function setNamedRivalPick(
+  db: Sql,
+  input: SetNamedRivalPickInput,
+): Promise<RivalPickerView> {
+  const { accountId, businessId, placeId, userId } = input;
+
+  await db.begin(async (tx) => {
+    const decidedAt = placeId === null
+      ? await clearRivalPick(tx, input)
+      : await storeRivalPick(tx, input, placeId);
+
+    // A clear that matched no row was already cleared — no owner action to record.
+    if (!decidedAt) return;
+
+    await enqueueAnalyticsEvent(tx, {
+      eventName: 'competitor_rival_picked',
+      eventKey: makeAnalyticsEventKey('competitor_rival_picked', [
+        businessId,
+        placeId ?? 'cleared',
+        decidedAt.toISOString(),
+      ]),
+      distinctId: accountId,
+      accountId,
+      userId,
+      businessId,
+      // businessId is ALSO in properties, not only in the analytics_events
+      // business_id column: AnalyticsDispatchPoller's RETURNING never selects
+      // that column, so it never leaves Postgres. The properties blob is the
+      // only way the location dimension reaches PostHog.
+      properties: { action: placeId === null ? 'cleared' : 'set', placeId, businessId },
+    });
+  });
+
+  // Re-read outside the transaction so the caller renders committed state.
+  return loadRivalPickerView(db, { accountId, businessId });
+}
+
+/**
+ * Validates and stores the pick in ONE statement.
+ *
+ * A `SELECT` to validate followed by an `UPDATE` to store leaves a window in
+ * which RankingTrackingWorker can commit a replacement pack, after which we
+ * persist a pick for a rival no longer in the pack — and the very next digest
+ * would fire a dropout note for a rival the owner picked seconds earlier.
+ * Locking is the wrong tool: the worker's `ranking_snapshots` row lock is keyed
+ * on (business, keyword, snapshot_date), so locking whichever row is currently
+ * latest serializes nothing when the worker inserts a NEW date.
+ */
+async function storeRivalPick(
+  tx: TransactionSql,
+  { accountId, businessId }: RivalPickerScope,
+  placeId: string,
+): Promise<Date> {
+  const [updated] = await tx<{ rival_picked_at: Date }[]>`
+    UPDATE businesses b
+    SET rival_place_id = cs.place_id,
+        rival_title_snapshot = cs.title,
+        -- A retried request that re-submits the SAME rival must not move this
+        -- timestamp: it seeds the analytics event key, and a moving key would
+        -- double-count one owner action as two engagement events. A rename-only
+        -- refresh (same place_id, new title) likewise updates the snapshot
+        -- without moving it — that is not a new owner action. The IS NULL leg
+        -- only fires for a hand-edited row and keeps RETURNING non-null.
+        rival_picked_at = CASE
+          WHEN b.rival_place_id IS DISTINCT FROM cs.place_id OR b.rival_picked_at IS NULL
+            THEN NOW()
+          ELSE b.rival_picked_at
+        END
+    FROM competitor_snapshots cs
+    WHERE b.id = ${businessId}
+      AND b.account_id = ${accountId}
+      AND cs.business_id = ${businessId}
+      AND cs.place_id = ${placeId}
+      -- Keyword and search location are derived from the businesses row INSIDE
+      -- the statement, never passed in: a value resolved by an earlier read is
+      -- a value that can have changed by now.
+      AND cs.keyword = b.tracked_keywords->>0
+      AND cs.search_location IS NOT DISTINCT FROM (
+        CASE
+          WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL
+            THEN b.google_place_lat::text || ',' || b.google_place_lng::text
+          ELSE b.ranking_search_location
+        END
+      )
+      AND cs.is_self = false
+      -- btrim, not <> '': the picker options and the digest both reject
+      -- whitespace-only titles via trim(), and a bare <> '' would let a direct
+      -- API request store a rival the digest can never name.
+      AND btrim(cs.title) <> ''
+      -- LOAD-BEARING: the latest date is computed in the same statement, not
+      -- supplied. Passing in a date resolved earlier in the request reopens
+      -- exactly the window this statement exists to close — the worker can
+      -- commit a NEW date's pack in between, the old date's rows remain
+      -- persisted, and we would happily store a rival absent from the
+      -- now-latest pack.
+      AND cs.snapshot_date = (
+        SELECT MAX(cs2.snapshot_date)
+        FROM competitor_snapshots cs2
+        WHERE cs2.business_id = b.id AND cs2.keyword = cs.keyword
+      )
+    RETURNING b.rival_picked_at
+  `;
+  // Zero rows == the place_id is not a pickable rival in the latest committed
+  // pack — whether it never was, or a pack replacement just landed. It is also
+  // what a foreign location returns, so ownership is disambiguated separately.
+  if (!updated) {
+    await assertLocationOwned(tx, { accountId, businessId });
+    throw new RivalPickStaleError(placeId);
+  }
+  return updated.rival_picked_at;
+}
+
+/** Clears the pick. Resolves to `null` when there was nothing to clear. */
+async function clearRivalPick(
+  tx: TransactionSql,
+  { accountId, businessId }: RivalPickerScope,
+): Promise<Date | null> {
+  const [cleared] = await tx<{ cleared_at: Date }[]>`
+    UPDATE businesses
+    SET rival_place_id = NULL, rival_title_snapshot = NULL, rival_picked_at = NULL
+    WHERE id = ${businessId} AND account_id = ${accountId}
+      -- Without this, a retried clear matches the already-cleared row and
+      -- returns a fresh NOW(), minting a second event key that slips past the
+      -- ON CONFLICT dedupe.
+      AND rival_place_id IS NOT NULL
+    RETURNING NOW() AS cleared_at
+  `;
+  if (cleared) return cleared.cleared_at;
+
+  // Zero rows is either "already cleared" (benign) or "not your location".
+  await assertLocationOwned(tx, { accountId, businessId });
+  return null;
+}
+
+/**
+ * Distinguishes a zero-row write caused by a failed predicate from one caused
+ * by the location belonging to another account. Only ever runs on the failure
+ * path, where the write has already been declined.
+ */
+async function assertLocationOwned(
+  tx: TransactionSql,
+  { accountId, businessId }: RivalPickerScope,
+): Promise<void> {
+  const [owned] = await tx<{ id: string }[]>`
+    SELECT id FROM businesses
+    WHERE id = ${businessId} AND account_id = ${accountId}
+  `;
+  if (!owned) throw new RivalPickNotFoundError(businessId);
 }
 
 /** Internal seam exposed for unit tests only — not part of the module's interface. */

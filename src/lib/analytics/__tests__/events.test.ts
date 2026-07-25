@@ -28,6 +28,7 @@ describe('analytics events', () => {
       'trial_converted',
       'trial_payment_failed',
       'trial_cancelled',
+      'competitor_rival_picked',
     ]);
   });
 
@@ -58,6 +59,8 @@ describe('analytics events', () => {
       'offboarding_reactivated',
       'offboarding_teardown_completed',
       'offboarding_purged',
+      // #546: the rival pick is a durable server-side write, never client intent.
+      'competitor_rival_picked',
     ]) {
       expect(isClientEnqueueableEventName(name)).toBe(false);
     }
