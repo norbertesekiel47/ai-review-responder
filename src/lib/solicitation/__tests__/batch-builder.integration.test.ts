@@ -2,15 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import type { Job } from 'bullmq';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { startOrGetActiveRun } from '@/lib/agents/run-spine';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
+import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
 
@@ -137,6 +141,20 @@ async function build(batch: SeedBatchResult) {
     outboxId: batch.outboxId,
     attempt: batch.attempt,
     correlationId: 'batch-builder-integration',
+  });
+}
+
+async function seedParentRun(batchId: string): Promise<string> {
+  return sql().begin(async (tx) => {
+    const parent = await startOrGetActiveRun(tx, {
+      kind: 'solicitation_batch',
+      subjectType: 'solicitation_batch',
+      subjectId: batchId,
+      accountId: tenant!.accountId,
+      businessId,
+      correlationId: 'batch-builder-integration-parent',
+    });
+    return parent.runId;
   });
 }
 
@@ -452,6 +470,222 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       built_at: null,
       parents: 0,
     });
+  });
+
+  it('build_solicitation_batch removes no-parent unbuilt work when the flag or subscription gate closes', async () => {
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, '2026-07-23');
+    const flagClosed = await seedBatch(2);
+    const untouched = await seedBatch(2);
+
+    delete process.env.SOLICITATION_WATCH_ENABLED;
+    await expect(build(flagClosed)).resolves.toEqual({
+      status: 'gate_closed',
+      reason: 'flag_disabled',
+      parentTerminalized: false,
+    });
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const subscriptionClosed = await seedBatch(4);
+    let subscriptionResult;
+    try {
+      await sql()`
+        UPDATE accounts
+        SET subscription_status = 'cancelled'
+        WHERE id = ${tenant!.accountId}::uuid
+      `;
+      subscriptionResult = await build(subscriptionClosed);
+    } finally {
+      await sql()`
+        UPDATE accounts
+        SET subscription_status = 'active'
+        WHERE id = ${tenant!.accountId}::uuid
+      `;
+    }
+    expect(subscriptionResult).toEqual({
+      status: 'gate_closed',
+      reason: 'subscription_inactive',
+      parentTerminalized: false,
+    });
+
+    const [state] = await sql()<{
+      target_batches: number;
+      untouched_batches: number;
+      target_parents: number;
+      target_asks: number;
+      completed_outboxes: number;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*)::int
+         FROM solicitation_batches
+         WHERE id IN (
+           ${flagClosed.batchId}::uuid,
+           ${subscriptionClosed.batchId}::uuid
+         )) AS target_batches,
+        (SELECT COUNT(*)::int
+         FROM solicitation_batches
+         WHERE id = ${untouched.batchId}::uuid
+           AND built_at IS NULL) AS untouched_batches,
+        (SELECT COUNT(*)::int
+         FROM agent_runs
+         WHERE kind = 'solicitation_batch'
+           AND subject_id IN (
+             ${flagClosed.batchId},
+             ${subscriptionClosed.batchId}
+           )) AS target_parents,
+        (SELECT COUNT(*)::int
+         FROM solicitation_asks
+         WHERE batch_id IN (
+           ${flagClosed.batchId}::uuid,
+           ${subscriptionClosed.batchId}::uuid
+         )) AS target_asks,
+        (SELECT COUNT(*)::int
+         FROM job_outbox
+         WHERE id IN (
+           ${flagClosed.outboxId}::uuid,
+           ${subscriptionClosed.outboxId}::uuid
+         )
+           AND status = 'completed') AS completed_outboxes
+    `;
+    expect(state).toEqual({
+      target_batches: 0,
+      untouched_batches: 1,
+      target_parents: 0,
+      target_asks: 0,
+      completed_outboxes: 2,
+    });
+  });
+
+  it('build_solicitation_batch gate closure after parent start completes the owned outbox and fails that parent as gate_closed', async () => {
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, '2026-07-23');
+    const target = await seedBatch(3);
+    const untouched = await seedBatch(3);
+    const targetParentId = await seedParentRun(target.batchId);
+    const untouchedParentId = await seedParentRun(untouched.batchId);
+
+    delete process.env.SOLICITATION_WATCH_ENABLED;
+    await expect(build(target)).resolves.toEqual({
+      status: 'gate_closed',
+      reason: 'flag_disabled',
+      parentTerminalized: true,
+    });
+
+    const [state] = await sql()<{
+      target_batch_count: number;
+      untouched_batch_count: number;
+      outbox_status: string;
+      target_parent_status: string;
+      target_error_code: string | null;
+      target_error_gate: string | null;
+      untouched_parent_status: string;
+      target_asks: number;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM solicitation_batches
+         WHERE id = ${target.batchId}::uuid) AS target_batch_count,
+        (SELECT COUNT(*)::int FROM solicitation_batches
+         WHERE id = ${untouched.batchId}::uuid
+           AND built_at IS NULL) AS untouched_batch_count,
+        (SELECT status FROM job_outbox
+         WHERE id = ${target.outboxId}::uuid) AS outbox_status,
+        (SELECT status FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_parent_status,
+        (SELECT error->>'code' FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_error_code,
+        (SELECT error->>'gate' FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_error_gate,
+        (SELECT status FROM agent_runs
+         WHERE id = ${untouchedParentId}::uuid) AS untouched_parent_status,
+        (SELECT COUNT(*)::int FROM solicitation_asks
+         WHERE batch_id = ${target.batchId}::uuid) AS target_asks
+    `;
+    expect(state).toEqual({
+      target_batch_count: 0,
+      untouched_batch_count: 1,
+      outbox_status: 'completed',
+      target_parent_status: 'failed',
+      target_error_code: 'gate_closed',
+      target_error_gate: 'flag_disabled',
+      untouched_parent_status: 'running',
+      target_asks: 0,
+    });
+  });
+
+  it('build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, '2026-07-23');
+    const target = await seedBatch(3);
+    const untouched = await seedBatch(3);
+    const targetParentId = await seedParentRun(target.batchId);
+    const untouchedParentId = await seedParentRun(untouched.batchId);
+    const job = {
+      id: target.outboxId,
+      data: {
+        batch_id: target.batchId,
+        business_id: businessId,
+        outbox_id: target.outboxId,
+        outbox_attempt: target.attempt,
+        correlation_id: 'batch-builder-exhaustion',
+      },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    } as unknown as Job<BuildSolicitationBatchPayload>;
+
+    await handleSolicitationBatchFailed(
+      sql(),
+      job,
+      new Error('contact-name@example.test must never be persisted'),
+    );
+
+    const [state] = await sql()<{
+      target_batch_count: number;
+      target_built_at: string | null;
+      target_outbox_status: string;
+      target_last_error: string | null;
+      target_parent_status: string;
+      target_error_code: string | null;
+      target_error_class: string | null;
+      untouched_parent_status: string;
+      untouched_outbox_status: string;
+      target_asks: number;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM solicitation_batches
+         WHERE id = ${target.batchId}::uuid) AS target_batch_count,
+        (SELECT built_at::text FROM solicitation_batches
+         WHERE id = ${target.batchId}::uuid) AS target_built_at,
+        (SELECT status FROM job_outbox
+         WHERE id = ${target.outboxId}::uuid) AS target_outbox_status,
+        (SELECT last_error FROM job_outbox
+         WHERE id = ${target.outboxId}::uuid) AS target_last_error,
+        (SELECT status FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_parent_status,
+        (SELECT error->>'code' FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_error_code,
+        (SELECT error->>'error_class' FROM agent_runs
+         WHERE id = ${targetParentId}::uuid) AS target_error_class,
+        (SELECT status FROM agent_runs
+         WHERE id = ${untouchedParentId}::uuid) AS untouched_parent_status,
+        (SELECT status FROM job_outbox
+         WHERE id = ${untouched.outboxId}::uuid) AS untouched_outbox_status,
+        (SELECT COUNT(*)::int FROM solicitation_asks
+         WHERE batch_id = ${target.batchId}::uuid) AS target_asks
+    `;
+    expect(state).toEqual({
+      target_batch_count: 1,
+      target_built_at: null,
+      target_outbox_status: 'failed',
+      target_last_error: 'build_solicitation_batch_exhausted:Error',
+      target_parent_status: 'failed',
+      target_error_code: 'build_failed',
+      target_error_class: 'Error',
+      untouched_parent_status: 'running',
+      untouched_outbox_status: 'dispatched',
+      target_asks: 0,
+    });
+    expect(JSON.stringify(state)).not.toContain('contact-name@example.test');
   });
 
   it('candidate windows are capped at 5000 and rotate by least-recently-evaluated ask', async () => {

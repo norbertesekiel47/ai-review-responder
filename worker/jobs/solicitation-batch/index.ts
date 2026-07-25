@@ -29,22 +29,41 @@ export async function handleSolicitationBatch(
     correlationId: job.data.correlation_id,
   });
 
-  if (result.status === 'built') {
-    logger.log('solicitation batch build finished', {
-      status: result.status,
-      candidate_count: result.candidateCount,
-      send_count: result.sendCount,
-      withhold_count: result.withholdCount,
-      withheld_by_reason: result.withheldByReason,
-    });
-    return;
-  }
-
-  logger.log('solicitation batch build finished', result.status === 'gate_closed'
-    ? {
+  try {
+    if (result.status === 'built') {
+      logger.log('solicitation batch build finished', {
         status: result.status,
-        reason: result.reason,
-        parent_terminalized: result.parentTerminalized,
-      }
-    : { status: result.status });
+        batch_id: job.data.batch_id,
+        business_id: job.data.business_id,
+        outbox_attempt: attempt,
+        selected_count: result.candidateCount,
+        send_count: result.sendCount,
+        withhold_count: result.withholdCount,
+        withheld_by_reason: result.withheldByReason,
+      });
+      return;
+    }
+
+    logger.log(
+      'solicitation batch build finished',
+      result.status === 'gate_closed'
+        ? {
+            status: result.status,
+            batch_id: job.data.batch_id,
+            business_id: job.data.business_id,
+            outbox_attempt: attempt,
+            reason: result.reason,
+            parent_terminalized: result.parentTerminalized,
+          }
+        : {
+            status: result.status,
+            batch_id: job.data.batch_id,
+            business_id: job.data.business_id,
+            outbox_attempt: attempt,
+          },
+    );
+  } catch {
+    // Construction/skip is already durable. Structured logging is
+    // observability-only and must not turn a completed job into a retry.
+  }
 }
