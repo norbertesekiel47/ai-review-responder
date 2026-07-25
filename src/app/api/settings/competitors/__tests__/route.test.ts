@@ -119,7 +119,7 @@ describe('/api/settings/competitors', () => {
     mockSetNamedRivalPick.mockResolvedValue(readyView());
   });
 
-  it('returns 404 and writes no analytics event for a businessId outside the caller’s account', async () => {
+  it("returns 404 and writes no analytics event for a businessId outside the caller's account", async () => {
     mockLoadRivalPickerView.mockRejectedValueOnce(new RivalPickNotFoundError(BUSINESS_ID));
 
     const res = await GET(makeRequest('GET'));

@@ -232,3 +232,111 @@ Short log of things the plan did not anticipate. One entry per surprise.
 - **`SettingsSidebar.test.tsx`'s "renders both group labels and all items"
   enumerates every nav item.** Adding Competitors without extending that array
   would have left the test claiming completeness while checking 7 of 8 items.
+
+---
+
+## Step 6.5 — deviations triage (orchestrator, pre-review)
+
+Every entry above read end to end and given a verdict. ACCEPT = the adaptation
+is sound and stands. RE-PLAN = it invalidates a locked intake decision (abort
+criteria). **No entry was verdicted RE-PLAN.**
+
+**Task 1 — all ACCEPT.** The drift-guard handoff (069 → 089) follows the
+precedent 058 → 069 already set; the two test-authoring corrections
+(whole-file `DEFAULT` false-positive, orphaned import) are the agent fixing its
+own work. The migration-test landmine is the single highest-value lesson on this
+branch and is tagged for lab-notes promotion at step 8.
+
+**Task 2 — all ACCEPT, one with a noted cost.** The "existing competitor cases
+pass unmodified" neutrality proof was unachievable *as written* — those cases
+assert the three-statement shape the same task ordered collapsed, so the plan
+contradicted itself. Re-basing the proof onto resolved `competitorDelta` values
+and byte-identical rendered HTML preserves what the proof was *for*. Genuine
+coverage loss recorded and accepted: keyword/search_location are no longer bound
+params, so their round-trip is asserted as query text rather than values. The
+tenant-scope allowlist entries cost surface amendment #2 (owner-approved).
+
+**Task 3 — all ACCEPT.** Three plan snippets did not compile or pass as written
+(`escapeHtml` does not emit `&rsquo;`; `WorkerLogger` has no `.info`; no logger
+was in scope at the call site). Each was corrected against the real module
+rather than worked around. `selectAutoDefaultRival` delegating to
+`buildLineForRow` removes duplicated gap/velocity arithmetic — a deepening, not
+a scope widening.
+
+**Task 4 — all ACCEPT; two are load-bearing corrections to the plan.**
+1. *`assertLocationOwned` on the failure path* — the plan's design would have
+   returned **409 for a foreign location and 200 for a foreign clear**, because
+   zero rows from `UPDATE … WHERE b.id = … AND b.account_id = …` is ambiguous
+   between "not pickable", "not yours", and "already cleared". This is a real
+   tenant-isolation defect caught in implementation, and it is what makes the
+   intake's own 404 test achievable. Invariant #8 holds only because of it.
+2. *The concurrency tests were re-derived from a measurement* — the plan's
+   lock-blocked interleaving provably cannot fail a correct implementation
+   (under READ COMMITTED a blocked `UPDATE … FROM` keeps its statement snapshot
+   for the joined table via EvalPlanQual; all four probe variants stored the
+   removed rival). Rewritten as the real request-level race and mutation-tested:
+   swapping `MAX(snapshot_date)` for `IS NOT NULL` fails only the new-date test.
+   A plan-faithful implementation here would have shipped two tests that could
+   never fail.
+   Also accepted: the `OR rival_picked_at IS NULL` leg (prevents `.toISOString()`
+   on a NULL `RETURNING`), `loadRivalPickerView` using three flat scoped reads
+   instead of a CTE (keeps `ci:tenant-scope` green without more allowlist
+   entries; it is a read whose worst case is rendering a just-replaced pack),
+   and GET validating `businessId` as a UUID before the branded cast.
+
+**Task 5 — all ACCEPT.** Reusing `.auto-policy-warning` avoids splitting the
+settings stylesheet for one message box; ORing `views.length > 1` prevents
+indistinguishable pickers on a flag-off multi-location account; extending the
+sidebar test's enumeration keeps it honest about completeness.
+
+---
+
+## Step 5 — verify gate evidence
+
+Final state: **every row green except `test` and `diff-coverage`**, both of
+which fail for reasons external to this branch. Recorded here because a red gate
+row must never be waved through silently.
+
+- **What is green:** lint, typecheck, build, all 13 `ci:*` audits,
+  `promised-tests` (all 19 intake titles verbatim), and the dedicated
+  `named-rival.integration` row — which **RAN against live Postgres, it did not
+  SKIP** (the #520 class the plan explicitly warned about).
+- **`test` — nondeterministic Postgres deadlocks in unrelated live-DB suites.**
+  Run-to-run the failing set was 13 → 5 → 4 → 6 → 2 files, never the same twice,
+  always `deadlock detected` / `lock timeout` / a CHECK violated by another
+  suite's rows. Multiple integration suites re-apply migrations and delete from
+  the same tables in parallel against ONE shared test database.
+  `migration-074-…integration.test.ts` already carries a source comment about
+  "nondeterministic 40P01 deadlocks in full-suite runs" and a hand-rolled apply
+  lock, so this long predates #546.
+- **Proof it is contention, not a defect:** single-threaded
+  (`vitest run --no-file-parallelism`) the full suite is **782/782 files, 9568
+  tests passed, 0 failed**. Vitest ignores `VITEST_MAX_FORKS`/`MAX_THREADS`, so
+  the gate cannot be serialized without adding `fileParallelism: false` to
+  `vitest.config.ts` — a repo-wide change that would slow every CI run and
+  belongs to its own ticket, not this feature.
+- **`diff-coverage` is downstream only** — it needs `coverage-final.json`, which
+  is not written when `test` fails. Measured directly against a completed
+  coverage run: **478/507 added instrumented lines covered, 94.3% (min 80%) —
+  PASS.** Uncovered: the server page's data-loading body, two client error
+  branches.
+- **Two test-environment repairs made while diagnosing** (test data, not code):
+  deleted 8 orphaned `agent_outcomes` rows with
+  `outcome_kind = 'solicitation_batch_built'` — a kind added by the later
+  solicitation work that migration 074's immutable CHECK cannot contain, so
+  074's idempotency test failed against them; and pointed the DB singleton at the
+  local test database for the run, since `vitest.setup.ts` defaults
+  `DATABASE_POOL_URL` to an unreachable placeholder that live-DB suites then hit
+  through production code paths.
+- **Owner decision:** proceed to review on this evidence rather than change
+  repo-wide test config inside this feature.
+
+**For step 8 lab-notes promotion, two repo-level findings beyond this feature:**
+1. The parallel-shared-test-DB contention above, plus the fact that **CI hides
+   it** — `TEST_DATABASE_POOL_URL` is unset there, so every one of these suites
+   skips. That is exactly the #520 blind spot CLAUDE.md warns about, now
+   demonstrated repo-wide rather than for one suite.
+2. The immutable-CHECK migration-test landmine generalises beyond
+   `analytics_events`: `agent_outcomes.outcome_kind` has the same shape, and any
+   re-runnable migration test asserting an immutable CHECK will break when a
+   later migration widens the domain.

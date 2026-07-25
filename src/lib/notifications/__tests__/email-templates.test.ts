@@ -253,7 +253,7 @@ describe('buildWeeklyValueReportHtml', () => {
     expect(omittedHtml).not.toContain('Competitor Delta');
   });
 
-  it('labels the Auto-default rival "Auto-selected rival:" and omits the prefix for an owner pick', () => {
+  it("labels the Auto-default rival 'Auto-selected rival:' and omits the prefix for an owner pick", () => {
     const autoHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
       competitorDelta: rivalDelta("Joe's Bakery", 27, 4, 'auto_default'),
     }));

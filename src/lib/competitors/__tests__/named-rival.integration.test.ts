@@ -422,7 +422,7 @@ describeWithDb('rival picker — live picker view + atomic pick write', { timeou
     expect(await readAnalyticsEvents()).toHaveLength(0);
   });
 
-  it('rejects a pick targeting the location’s own is_self pack row', async () => {
+  it("rejects a pick targeting the location's own is_self pack row", async () => {
     await expect(pick(SELF)).rejects.toBeInstanceOf(RivalPickStaleError);
 
     const stored = await readPickColumns();
@@ -538,7 +538,7 @@ describeWithDb('rival picker — live picker view + atomic pick write', { timeou
     expect(await readAnalyticsEvents()).toHaveLength(2);
   });
 
-  it('returns 404 and writes no analytics event for a businessId outside the caller’s account', async () => {
+  it("returns 404 and writes no analytics event for a businessId outside the caller's account", async () => {
     await expect(
       loadRivalPickerView(sql(), { accountId: outsider.accountId, businessId: location }),
     ).rejects.toBeInstanceOf(RivalPickNotFoundError);
