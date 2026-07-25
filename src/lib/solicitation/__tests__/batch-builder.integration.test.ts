@@ -65,6 +65,24 @@ function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
   return databaseUrl;
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function assertStillBlocked(promise: Promise<unknown>): Promise<void> {
+  const outcome = await Promise.race([
+    promise.then(() => 'completed', () => 'rejected'),
+    new Promise<'blocked'>((resolveBlocked) => {
+      setTimeout(() => resolveBlocked('blocked'), 150);
+    }),
+  ]);
+  expect(outcome).toBe('blocked');
+}
+
 async function releaseFeatureDatabaseLock(): Promise<void> {
   if (!featureDatabaseLock) return;
   const lock = featureDatabaseLock;
@@ -511,6 +529,92 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     });
   });
 
+  it('a dispatched builder serializes behind delete_data offboarding and closes without history effects', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, '2026-07-23');
+    const batch = await seedBatch(2);
+    const offboardingId = randomUUID();
+    const accountLockHeld = deferred();
+    const allowOffboardingCommit = deferred();
+    let offboardingWriter: Promise<unknown> | undefined;
+    let dispatchedBuilder: Promise<unknown> | undefined;
+
+    try {
+      offboardingWriter = sql().begin(async (tx) => {
+        await tx`SET LOCAL lock_timeout = '4s'`;
+        await tx`SET LOCAL statement_timeout = '7s'`;
+        await tx`
+          SELECT id
+          FROM accounts
+          WHERE id = ${tenant!.accountId}::uuid
+          FOR UPDATE
+        `;
+        accountLockHeld.resolve();
+        await allowOffboardingCommit.promise;
+        await tx`
+          INSERT INTO account_offboardings (id, account_id, mode, status)
+          VALUES (
+            ${offboardingId}::uuid,
+            ${tenant!.accountId}::uuid,
+            'delete_data',
+            'pending'
+          )
+        `;
+      });
+      await accountLockHeld.promise;
+
+      dispatchedBuilder = build(batch);
+      await assertStillBlocked(dispatchedBuilder);
+      allowOffboardingCommit.resolve();
+
+      await offboardingWriter;
+      await expect(dispatchedBuilder).resolves.toEqual({
+        status: 'gate_closed',
+        reason: 'account_offboarding_blocked',
+        parentTerminalized: false,
+      });
+
+      const [state] = await sql()<{
+        batch_count: number;
+        outbox_status: string;
+        ask_count: number;
+        run_count: number;
+      }[]>`
+        SELECT
+          (SELECT COUNT(*)::int
+           FROM solicitation_batches
+           WHERE id = ${batch.batchId}::uuid) AS batch_count,
+          (SELECT status
+           FROM job_outbox
+           WHERE id = ${batch.outboxId}::uuid) AS outbox_status,
+          (SELECT COUNT(*)::int
+           FROM solicitation_asks
+           WHERE batch_id = ${batch.batchId}::uuid) AS ask_count,
+          (SELECT COUNT(*)::int
+           FROM agent_runs
+           WHERE account_id = ${tenant!.accountId}::uuid
+             AND subject_id = ${batch.batchId}) AS run_count
+      `;
+      expect(state).toEqual({
+        batch_count: 0,
+        outbox_status: 'completed',
+        ask_count: 0,
+        run_count: 0,
+      });
+    } finally {
+      allowOffboardingCommit.resolve();
+      await Promise.allSettled([
+        offboardingWriter ?? Promise.resolve(),
+        dispatchedBuilder ?? Promise.resolve(),
+      ]);
+      await sql()`
+        DELETE FROM account_offboardings
+        WHERE id = ${offboardingId}::uuid
+      `;
+    }
+  });
+
   it('build_solicitation_batch removes no-parent unbuilt work when the flag or subscription gate closes', async () => {
     const uploadId = await seedCompletedUpload();
     await seedContact(uploadId, '2026-07-23');
@@ -726,6 +830,136 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     });
     expect(JSON.stringify(state)).not.toContain('contact-name@example.test');
   });
+
+  it('repeated visit and evaluation histories remain buildable under a bounded statement timeout', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    const contactId = await seedContact(uploadId, '2026-07-23');
+    const fixtureSeed = randomUUID();
+    const historyRows = 4_000;
+
+    await sql()`
+      WITH fixtures AS (
+        SELECT
+          n,
+          md5(${fixtureSeed} || '-upload-' || n::text)::uuid AS upload_id
+        FROM generate_series(1, ${historyRows}) AS n
+      )
+      INSERT INTO contact_csv_uploads (
+        id, account_id, business_id, filename, byte_size, content_sha256,
+        raw_csv, status, report, attested_by_user_id, attested_at,
+        attestation_version, completed_at
+      )
+      SELECT
+        upload_id,
+        ${tenant!.accountId}::uuid,
+        ${businessId}::uuid,
+        'history.csv',
+        1,
+        md5(${fixtureSeed} || '-sha-' || n::text)
+          || md5(${fixtureSeed} || '-sha-tail-' || n::text),
+        NULL,
+        'completed',
+        ${sql().json({ accepted: 1 })},
+        ${tenant!.userId}::uuid,
+        NOW(),
+        ${CONSENT_ATTESTATION_VERSION},
+        NOW()
+      FROM fixtures
+    `;
+    await sql()`
+      WITH fixtures AS (
+        SELECT
+          n,
+          md5(${fixtureSeed} || '-upload-' || n::text)::uuid AS upload_id,
+          md5(${fixtureSeed} || '-batch-' || n::text)::uuid AS batch_id
+        FROM generate_series(1, ${historyRows}) AS n
+      )
+      INSERT INTO solicitation_batches (
+        id, account_id, business_id, source_upload_id, built_at, created_at
+      )
+      SELECT
+        batch_id,
+        ${tenant!.accountId}::uuid,
+        ${businessId}::uuid,
+        upload_id,
+        NOW(),
+        NOW() - INTERVAL '1 second'
+      FROM fixtures
+    `;
+    await sql()`
+      WITH fixtures AS (
+        SELECT
+          n,
+          md5(${fixtureSeed} || '-upload-' || n::text)::uuid AS upload_id,
+          md5(${fixtureSeed} || '-visit-' || n::text)::uuid AS visit_id
+        FROM generate_series(1, ${historyRows}) AS n
+      )
+      INSERT INTO solicitation_visits (
+        id, contact_id, business_id, visit_date, upload_id
+      )
+      SELECT
+        visit_id,
+        ${contactId}::uuid,
+        ${businessId}::uuid,
+        '2026-07-23'::date - n,
+        upload_id
+      FROM fixtures
+    `;
+    await sql()`
+      WITH fixtures AS (
+        SELECT
+          n,
+          md5(${fixtureSeed} || '-batch-' || n::text)::uuid AS batch_id,
+          md5(${fixtureSeed} || '-ask-' || n::text)::uuid AS ask_id
+        FROM generate_series(1, ${historyRows}) AS n
+      )
+      INSERT INTO solicitation_asks (
+        id, account_id, business_id, batch_id, contact_id, status,
+        withheld_reason, evidence, decided_at
+      )
+      SELECT
+        ask_id,
+        ${tenant!.accountId}::uuid,
+        ${businessId}::uuid,
+        batch_id,
+        ${contactId}::uuid,
+        'withhold',
+        'stale_visit',
+        ${sql().json({
+          contact_id: contactId,
+          policy_version: 'history-fixture',
+          decided_at: '2026-07-23T00:00:00.000Z',
+          decision: 'withhold',
+          reason: 'stale_visit',
+        })},
+        NOW() - n * INTERVAL '1 second'
+      FROM fixtures
+    `;
+
+    const batch = await seedBatch();
+    const boundedSql = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), {
+      max: 1,
+      prepare: false,
+    });
+    try {
+      await boundedSql`SET statement_timeout = '2s'`;
+      await expect(
+        buildSolicitationBatch(boundedSql, {
+          batchId: batch.batchId,
+          businessId,
+          outboxId: batch.outboxId,
+          attempt: batch.attempt,
+          correlationId: 'batch-builder-history-bound',
+        }),
+      ).resolves.toMatchObject({
+        status: 'built',
+        candidateCount: 1,
+      });
+    } finally {
+      await boundedSql.end({ timeout: 5 });
+    }
+  }, 30_000);
 
   it('candidate windows are capped at 5000 and rotate by least-recently-evaluated ask', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';

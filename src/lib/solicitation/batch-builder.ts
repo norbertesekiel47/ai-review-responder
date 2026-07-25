@@ -18,6 +18,11 @@ import {
   startOrGetSolicitationBatchRun,
 } from '@/lib/agents/run-spine';
 import {
+  getOffboardingState,
+  isProcessingBlocked,
+  lockAccountBeforeOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
+import {
   lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned,
 } from '@/lib/shared/outbox';
@@ -55,7 +60,10 @@ export type BuildSolicitationBatchResult =
   | { status: 'already_built' }
   | {
       status: 'gate_closed';
-      reason: 'flag_disabled' | 'subscription_inactive';
+      reason:
+        | 'flag_disabled'
+        | 'subscription_inactive'
+        | 'account_offboarding_blocked';
       parentTerminalized: boolean;
     };
 
@@ -74,10 +82,6 @@ interface ConstructionBatchRow {
 }
 
 interface CandidateWindowRow {
-  contact_id: string;
-}
-
-interface CandidateVisitRow {
   contact_id: string;
   last_visit_date: string;
   upload_id: string;
@@ -103,7 +107,13 @@ type PreparationResult =
 
 function closedGateReason(
   subscriptionStatus: string,
-): 'flag_disabled' | 'subscription_inactive' | null {
+  processingBlocked: boolean,
+):
+  | 'flag_disabled'
+  | 'subscription_inactive'
+  | 'account_offboarding_blocked'
+  | null {
+  if (processingBlocked) return 'account_offboarding_blocked';
   if (!solicitationWatchEnabled()) return 'flag_disabled';
   if (!subscriptionGrantsFullAccess(subscriptionStatus)) return 'subscription_inactive';
   return null;
@@ -148,6 +158,16 @@ async function prepareBatch(
       return { status: 'already_built' };
     }
 
+    const accountExists = await lockAccountBeforeOffboardingProjection(
+      tx,
+      batch.account_id,
+    );
+    if (!accountExists) {
+      throw new Error(
+        `solicitation batch builder: account missing for batch ${batch.id}`,
+      );
+    }
+
     const [account] = await tx<{ subscription_status: string }[]>`
       SELECT subscription_status
       FROM accounts
@@ -158,6 +178,7 @@ async function prepareBatch(
         `solicitation batch builder: account missing for batch ${batch.id}`,
       );
     }
+    const offboardingState = await getOffboardingState(batch.account_id, tx);
 
     const [activeParent] = await tx<{ id: string }[]>`
       SELECT id
@@ -171,7 +192,10 @@ async function prepareBatch(
       FOR UPDATE
     `;
 
-    const gateReason = closedGateReason(account.subscription_status);
+    const gateReason = closedGateReason(
+      account.subscription_status,
+      isProcessingBlocked(offboardingState),
+    );
     if (gateReason !== null) {
       const completed = await completeOwnedAttempt(tx, input);
       if (!completed) return { status: 'stale' };
@@ -224,7 +248,7 @@ async function prepareBatch(
 }
 
 function toCandidate(
-  row: CandidateVisitRow,
+  row: CandidateWindowRow,
   priorSend: PriorSendRow | undefined,
 ): AskCandidate {
   return {
@@ -307,6 +331,49 @@ async function constructBatch(
 
     const accountId = batch.account_id;
     const businessId = batch.business_id;
+    const accountExists = await lockAccountBeforeOffboardingProjection(tx, accountId);
+    if (!accountExists) {
+      throw new Error(
+        `solicitation batch builder: account missing for batch ${batch.id}`,
+      );
+    }
+    const [account] = await tx<{ subscription_status: string }[]>`
+      SELECT subscription_status
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+    `;
+    if (!account) {
+      throw new Error(
+        `solicitation batch builder: account missing for batch ${batch.id}`,
+      );
+    }
+    const offboardingState = await getOffboardingState(accountId, tx);
+    const gateReason = closedGateReason(
+      account.subscription_status,
+      isProcessingBlocked(offboardingState),
+    );
+    if (gateReason !== null) {
+      await failSolicitationBatchRun(tx, {
+        runId: preparation.parentRunId,
+        failure: {
+          code: 'gate_closed',
+          gate: gateReason,
+        },
+      });
+      await tx`
+        DELETE FROM solicitation_batches
+        WHERE id = ${batch.id}::uuid
+          AND account_id = ${accountId}::uuid
+          AND business_id = ${businessId}::uuid
+          AND built_at IS NULL
+      `;
+      return {
+        status: 'gate_closed',
+        reason: gateReason,
+        parentTerminalized: true,
+      };
+    }
+
     const [business] = await tx<{ category: string | null }[]>`
       SELECT category
       FROM businesses
@@ -320,32 +387,11 @@ async function constructBatch(
     }
 
     const candidateWindow = await tx<CandidateWindowRow[]>`
-      SELECT c.id::text AS contact_id
-      FROM solicitation_contacts c
-      JOIN solicitation_visits v
-        ON v.contact_id = c.id
-       AND v.business_id = ${businessId}::uuid
-      LEFT JOIN solicitation_asks evaluation_ask
-        ON evaluation_ask.contact_id = c.id
-       AND evaluation_ask.business_id = ${businessId}::uuid
-      WHERE c.business_id = ${businessId}::uuid
-      GROUP BY c.id
-      ORDER BY
-        MAX(evaluation_ask.decided_at) ASC NULLS FIRST,
-        MAX(v.visit_date) DESC,
-        c.id ASC
-      LIMIT ${MAX_DATA_ROWS}
-    `;
-
-    const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
-    let latestVisits: CandidateVisitRow[] = [];
-    let priorSends: PriorSendRow[] = [];
-    if (contactIds.length > 0) {
-      latestVisits = await tx<CandidateVisitRow[]>`
+      WITH latest_completed_visits AS (
         SELECT DISTINCT ON (v.contact_id)
-          v.contact_id::text AS contact_id,
-          v.visit_date::text AS last_visit_date,
-          v.upload_id::text AS upload_id,
+          v.contact_id,
+          v.visit_date,
+          v.upload_id,
           (
             u.status = 'completed'
             AND u.attested_at IS NOT NULL
@@ -357,10 +403,42 @@ async function constructBatch(
          AND u.account_id = ${accountId}::uuid
          AND u.business_id = ${businessId}::uuid
         WHERE v.business_id = ${businessId}::uuid
-          AND v.contact_id = ANY(${contactIds}::uuid[])
           AND u.status = 'completed'
-        ORDER BY v.contact_id, v.visit_date DESC, v.upload_id ASC
-      `;
+        ORDER BY
+          v.contact_id,
+          v.visit_date DESC,
+          v.upload_id ASC,
+          v.id ASC
+      ),
+      latest_evaluations AS (
+        SELECT
+          evaluation_ask.contact_id,
+          MAX(evaluation_ask.decided_at) AS decided_at
+        FROM solicitation_asks evaluation_ask
+        WHERE evaluation_ask.business_id = ${businessId}::uuid
+        GROUP BY evaluation_ask.contact_id
+      )
+      SELECT
+        c.id::text AS contact_id,
+        latest_visit.visit_date::text AS last_visit_date,
+        latest_visit.upload_id::text AS upload_id,
+        latest_visit.consent_attested
+      FROM solicitation_contacts c
+      JOIN latest_completed_visits latest_visit
+        ON latest_visit.contact_id = c.id
+      LEFT JOIN latest_evaluations latest_evaluation
+        ON latest_evaluation.contact_id = c.id
+      WHERE c.business_id = ${businessId}::uuid
+      ORDER BY
+        latest_evaluation.decided_at ASC NULLS FIRST,
+        latest_visit.visit_date DESC,
+        c.id ASC
+      LIMIT ${MAX_DATA_ROWS}
+    `;
+
+    const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
+    let priorSends: PriorSendRow[] = [];
+    if (contactIds.length > 0) {
       priorSends = await tx<PriorSendRow[]>`
         SELECT DISTINCT ON (send_ask.contact_id)
           send_ask.contact_id::text AS contact_id,
@@ -377,21 +455,12 @@ async function constructBatch(
       `;
     }
 
-    const visitsByContact = new Map(
-      latestVisits.map((visit) => [visit.contact_id, visit]),
-    );
     const priorSendsByContact = new Map(
       priorSends.map((priorSend) => [priorSend.contact_id, priorSend]),
     );
-    const candidates = candidateWindow.map((candidate) => {
-      const visit = visitsByContact.get(candidate.contact_id);
-      if (!visit) {
-        throw new Error(
-          `solicitation batch builder: latest completed visit missing for contact ${candidate.contact_id}`,
-        );
-      }
-      return toCandidate(visit, priorSendsByContact.get(candidate.contact_id));
-    });
+    const candidates = candidateWindow.map((candidate) =>
+      toCandidate(candidate, priorSendsByContact.get(candidate.contact_id)),
+    );
 
     const decidedAt = new Date().toISOString();
     const decisions = evaluateBatch(
