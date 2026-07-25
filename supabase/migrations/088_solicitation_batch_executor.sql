@@ -20,11 +20,39 @@ SET LOCAL lock_timeout = '3s';
 ALTER TABLE agent_runs
   ADD COLUMN IF NOT EXISTS parent_run_id UUID;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'agent_runs'::regclass
+      AND conname = 'agent_runs_account_business_id_uniq'
+  ) THEN
+    ALTER TABLE agent_runs
+      ADD CONSTRAINT agent_runs_account_business_id_uniq
+      UNIQUE (account_id, business_id, id);
+  END IF;
+END
+$$;
+
+-- MATCH SIMPLE composite FKs skip validation when any referencing column is
+-- NULL. A parented run must therefore be Business-scoped so tenant validation
+-- cannot be bypassed through agent_runs.business_id's legacy nullable shape.
+ALTER TABLE agent_runs
+  DROP CONSTRAINT IF EXISTS agent_runs_parent_business_required;
+ALTER TABLE agent_runs
+  ADD CONSTRAINT agent_runs_parent_business_required
+  CHECK (parent_run_id IS NULL OR business_id IS NOT NULL);
+
 ALTER TABLE agent_runs
   DROP CONSTRAINT IF EXISTS agent_runs_parent_run_id_fkey;
 ALTER TABLE agent_runs
-  ADD CONSTRAINT agent_runs_parent_run_id_fkey
-  FOREIGN KEY (parent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL;
+  DROP CONSTRAINT IF EXISTS agent_runs_parent_run_tenant_fkey;
+ALTER TABLE agent_runs
+  ADD CONSTRAINT agent_runs_parent_run_tenant_fkey
+  FOREIGN KEY (account_id, business_id, parent_run_id)
+  REFERENCES agent_runs (account_id, business_id, id)
+  ON DELETE SET NULL (parent_run_id);
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_parent_run
   ON agent_runs (parent_run_id)
@@ -125,7 +153,7 @@ CREATE TABLE IF NOT EXISTS solicitation_asks (
   status TEXT NOT NULL,
   withheld_reason TEXT,
   evidence JSONB NOT NULL,
-  agent_run_id UUID REFERENCES agent_runs(id) ON DELETE SET NULL,
+  agent_run_id UUID,
   decided_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT solicitation_asks_batch_contact_uniq UNIQUE (batch_id, contact_id),
@@ -149,6 +177,18 @@ CREATE TABLE IF NOT EXISTS solicitation_asks (
     )
   )
 );
+
+-- CREATE TABLE IF NOT EXISTS does not retrofit constraints onto a pre-existing
+-- local test table, so replace the legacy id-only FK explicitly on every run.
+ALTER TABLE solicitation_asks
+  DROP CONSTRAINT IF EXISTS solicitation_asks_agent_run_id_fkey;
+ALTER TABLE solicitation_asks
+  DROP CONSTRAINT IF EXISTS solicitation_asks_agent_run_tenant_fkey;
+ALTER TABLE solicitation_asks
+  ADD CONSTRAINT solicitation_asks_agent_run_tenant_fkey
+  FOREIGN KEY (account_id, business_id, agent_run_id)
+  REFERENCES agent_runs (account_id, business_id, id)
+  ON DELETE SET NULL (agent_run_id);
 
 -- Candidate-window scheduling needs the latest evaluation of every contact;
 -- simulated contact history is a separate send-only clock. velocity_banked

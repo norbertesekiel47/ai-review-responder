@@ -1,9 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  cleanupTenantAccount,
+  seedTenantAccount,
+} from '@/lib/shared/__tests__/live-db-tenant';
 
 function localTestDatabaseUrl(): string | undefined {
   if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
@@ -86,6 +91,20 @@ describe('migration 088 checked-in SQL contract', () => {
         ON agent_runs (parent_run_id)
         WHERE parent_run_id IS NOT NULL
     `));
+    expect(migrationSql).toContain(normalizeSql(`
+      ADD CONSTRAINT agent_runs_account_business_id_uniq
+      UNIQUE (account_id, business_id, id)
+    `));
+    expect(migrationSql).toContain(normalizeSql(`
+      ADD CONSTRAINT agent_runs_parent_business_required
+      CHECK (parent_run_id IS NULL OR business_id IS NOT NULL)
+    `));
+    expect(migrationSql).toContain(normalizeSql(`
+      ADD CONSTRAINT agent_runs_parent_run_tenant_fkey
+      FOREIGN KEY (account_id, business_id, parent_run_id)
+      REFERENCES agent_runs (account_id, business_id, id)
+      ON DELETE SET NULL (parent_run_id)
+    `));
     expect(migrationSql).toContain(
       "CHECK (kind IN ('review_handler', 'weekly_insights', 'solicitation_batch', 'solicitation_ask'))",
     );
@@ -113,9 +132,12 @@ describe('migration 088 checked-in SQL contract', () => {
     expect(migrationSql).toContain(
       'CONSTRAINT solicitation_asks_batch_contact_uniq UNIQUE (batch_id, contact_id)',
     );
-    expect(migrationSql).toContain(
-      'agent_run_id UUID REFERENCES agent_runs(id) ON DELETE SET NULL',
-    );
+    expect(migrationSql).toContain(normalizeSql(`
+      ADD CONSTRAINT solicitation_asks_agent_run_tenant_fkey
+      FOREIGN KEY (account_id, business_id, agent_run_id)
+      REFERENCES agent_runs (account_id, business_id, id)
+      ON DELETE SET NULL (agent_run_id)
+    `));
     expect(migrationSql).toContain(
       'CREATE POLICY solicitation_batches_owner_select ON solicitation_batches FOR SELECT TO authenticated USING (account_id = owner_account_id() AND built_at IS NOT NULL)',
     );
@@ -182,12 +204,245 @@ describeWithDb(
     );
   });
 
+  it('migration 088 rejects cross-account and cross-business parent and ask run links', async () => {
+    const primaryTenant = await seedTenantAccount(db!, {
+      accountDisplayName: 'Migration 088 Primary Tenant',
+    });
+    const otherTenant = await seedTenantAccount(db!, {
+      accountDisplayName: 'Migration 088 Other Tenant',
+    });
+    const primaryBusinessId = randomUUID();
+    const siblingBusinessId = randomUUID();
+    const otherBusinessId = randomUUID();
+    const uploadId = randomUUID();
+    const contactId = randomUUID();
+    const batchId = randomUUID();
+    const otherAccountRunId = randomUUID();
+    const siblingBusinessRunId = randomUUID();
+    const validParentRunId = randomUUID();
+    const validChildRunId = randomUUID();
+    const validAskId = randomUUID();
+
+    const insertRun = async (input: {
+      id: string;
+      accountId: string;
+      businessId: string | null;
+      subjectId: string;
+      parentRunId?: string;
+    }): Promise<void> => {
+      await db!`
+        INSERT INTO agent_runs (
+          id, account_id, business_id, kind, subject_type, subject_id,
+          correlation_id, parent_run_id
+        ) VALUES (
+          ${input.id}::uuid, ${input.accountId}::uuid, ${input.businessId}::uuid,
+          'solicitation_ask', 'solicitation_ask', ${input.subjectId},
+          'migration-088-tenant-integrity', ${input.parentRunId ?? null}::uuid
+        )
+      `;
+    };
+
+    const expectParentRunRejection = async (parentRunId: string): Promise<void> => {
+      const childRunId = randomUUID();
+      try {
+        await expect(insertRun({
+          id: childRunId,
+          accountId: primaryTenant.accountId,
+          businessId: primaryBusinessId,
+          subjectId: childRunId,
+          parentRunId,
+        })).rejects.toMatchObject({
+          code: '23503',
+          constraint_name: 'agent_runs_parent_run_tenant_fkey',
+        });
+      } finally {
+        await db!`DELETE FROM agent_runs WHERE id = ${childRunId}::uuid`;
+      }
+    };
+
+    const expectAskRunRejection = async (agentRunId: string): Promise<void> => {
+      const askId = randomUUID();
+      try {
+        await expect(db!`
+          INSERT INTO solicitation_asks (
+            id, account_id, business_id, batch_id, contact_id, status,
+            withheld_reason, evidence, agent_run_id, decided_at
+          ) VALUES (
+            ${askId}::uuid, ${primaryTenant.accountId}::uuid,
+            ${primaryBusinessId}::uuid, ${batchId}::uuid, ${contactId}::uuid,
+            'send', NULL, ${db!.json({ decision: 'send' })},
+            ${agentRunId}::uuid, NOW()
+          )
+        `).rejects.toMatchObject({
+          code: '23503',
+          constraint_name: 'solicitation_asks_agent_run_tenant_fkey',
+        });
+      } finally {
+        await db!`DELETE FROM solicitation_asks WHERE id = ${askId}::uuid`;
+      }
+    };
+
+    try {
+      await db!`
+        INSERT INTO businesses (
+          id, name, owner_name, owner_email, account_id, subscription_status
+        ) VALUES
+          (
+            ${primaryBusinessId}::uuid, 'Migration 088 Primary Business',
+            'Primary Owner', ${primaryTenant.ownerEmail},
+            ${primaryTenant.accountId}::uuid, 'active'
+          ),
+          (
+            ${siblingBusinessId}::uuid, 'Migration 088 Sibling Business',
+            'Primary Owner', ${primaryTenant.ownerEmail},
+            ${primaryTenant.accountId}::uuid, 'active'
+          ),
+          (
+            ${otherBusinessId}::uuid, 'Migration 088 Other Business',
+            'Other Owner', ${otherTenant.ownerEmail},
+            ${otherTenant.accountId}::uuid, 'active'
+          )
+      `;
+      await db!`
+        INSERT INTO contact_csv_uploads (
+          id, account_id, business_id, filename, byte_size, content_sha256,
+          raw_csv, status, report, attested_by_user_id, attested_at,
+          attestation_version, completed_at
+        ) VALUES (
+          ${uploadId}::uuid, ${primaryTenant.accountId}::uuid,
+          ${primaryBusinessId}::uuid, 'migration-088.csv', 1,
+          ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
+          NULL, 'completed', ${db!.json({ accepted: 1 })},
+          ${primaryTenant.userId}::uuid, NOW(), 'migration-088-test', NOW()
+        )
+      `;
+      await db!`
+        INSERT INTO solicitation_contacts (
+          id, business_id, name, email, created_by_upload_id
+        ) VALUES (
+          ${contactId}::uuid, ${primaryBusinessId}::uuid,
+          'Migration 088 Contact', ${`${contactId}@example.test`}, ${uploadId}::uuid
+        )
+      `;
+      await db!`
+        INSERT INTO solicitation_batches (
+          id, account_id, business_id, source_upload_id
+        ) VALUES (
+          ${batchId}::uuid, ${primaryTenant.accountId}::uuid,
+          ${primaryBusinessId}::uuid, ${uploadId}::uuid
+        )
+      `;
+      await insertRun({
+        id: otherAccountRunId,
+        accountId: otherTenant.accountId,
+        businessId: otherBusinessId,
+        subjectId: otherAccountRunId,
+      });
+      await insertRun({
+        id: siblingBusinessRunId,
+        accountId: primaryTenant.accountId,
+        businessId: siblingBusinessId,
+        subjectId: siblingBusinessRunId,
+      });
+      await insertRun({
+        id: validParentRunId,
+        accountId: primaryTenant.accountId,
+        businessId: primaryBusinessId,
+        subjectId: validParentRunId,
+      });
+
+      await expectParentRunRejection(otherAccountRunId);
+      await expectParentRunRejection(siblingBusinessRunId);
+      const unscopedChildRunId = randomUUID();
+      try {
+        await expect(insertRun({
+          id: unscopedChildRunId,
+          accountId: primaryTenant.accountId,
+          businessId: null,
+          subjectId: unscopedChildRunId,
+          parentRunId: otherAccountRunId,
+        })).rejects.toMatchObject({
+          code: '23514',
+          constraint_name: 'agent_runs_parent_business_required',
+        });
+      } finally {
+        await db!`DELETE FROM agent_runs WHERE id = ${unscopedChildRunId}::uuid`;
+      }
+      await expectAskRunRejection(otherAccountRunId);
+      await expectAskRunRejection(siblingBusinessRunId);
+
+      await insertRun({
+        id: validChildRunId,
+        accountId: primaryTenant.accountId,
+        businessId: primaryBusinessId,
+        subjectId: validChildRunId,
+        parentRunId: validParentRunId,
+      });
+      await db!`
+        INSERT INTO solicitation_asks (
+          id, account_id, business_id, batch_id, contact_id, status,
+          withheld_reason, evidence, agent_run_id, decided_at
+        ) VALUES (
+          ${validAskId}::uuid, ${primaryTenant.accountId}::uuid,
+          ${primaryBusinessId}::uuid, ${batchId}::uuid, ${contactId}::uuid,
+          'send', NULL, ${db!.json({ decision: 'send' })},
+          ${validParentRunId}::uuid, NOW()
+        )
+      `;
+
+      await db!`DELETE FROM agent_runs WHERE id = ${validParentRunId}::uuid`;
+
+      const [childAfterDelete] = await db!<{
+        account_id: string;
+        business_id: string;
+        parent_run_id: string | null;
+      }[]>`
+        SELECT account_id, business_id, parent_run_id
+        FROM agent_runs
+        WHERE id = ${validChildRunId}::uuid
+      `;
+      expect(childAfterDelete).toEqual({
+        account_id: primaryTenant.accountId,
+        business_id: primaryBusinessId,
+        parent_run_id: null,
+      });
+
+      const [askAfterDelete] = await db!<{
+        account_id: string;
+        business_id: string;
+        agent_run_id: string | null;
+      }[]>`
+        SELECT account_id, business_id, agent_run_id
+        FROM solicitation_asks
+        WHERE id = ${validAskId}::uuid
+      `;
+      expect(askAfterDelete).toEqual({
+        account_id: primaryTenant.accountId,
+        business_id: primaryBusinessId,
+        agent_run_id: null,
+      });
+    } finally {
+      await db!`
+        DELETE FROM businesses
+        WHERE id IN (
+          ${primaryBusinessId}::uuid,
+          ${siblingBusinessId}::uuid,
+          ${otherBusinessId}::uuid
+        )
+      `;
+      await cleanupTenantAccount(db!, primaryTenant);
+      await cleanupTenantAccount(db!, otherTenant);
+    }
+  });
+
   it('pins tenant-composite, idempotency, archival, history, and zero-unit catalog facts', async () => {
     const constraints = await db!<{ constraint_name: string; definition: string }[]>`
       SELECT conname AS constraint_name, pg_get_constraintdef(oid) AS definition
       FROM pg_constraint
       WHERE conname IN (
-        'agent_runs_parent_run_id_fkey',
+        'agent_runs_account_business_id_uniq',
+        'agent_runs_parent_business_required',
+        'agent_runs_parent_run_tenant_fkey',
         'agent_outcomes_unit_count_check',
         'solicitation_batches_source_upload_uniq',
         'solicitation_batches_business_account_fk',
@@ -196,7 +451,7 @@ describeWithDb(
         'solicitation_asks_business_account_fk',
         'solicitation_asks_batch_tenant_fk',
         'solicitation_asks_contact_business_fk',
-        'solicitation_asks_agent_run_id_fkey'
+        'solicitation_asks_agent_run_tenant_fkey'
       )
       ORDER BY conname
     `;
@@ -207,8 +462,14 @@ describeWithDb(
       ]),
     );
 
-    expect(definition.get('agent_runs_parent_run_id_fkey')).toContain(
-      'FOREIGN KEY (parent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL',
+    expect(definition.get('agent_runs_account_business_id_uniq')).toBe(
+      'UNIQUE (account_id, business_id, id)',
+    );
+    expect(definition.get('agent_runs_parent_business_required')).toContain(
+      'CHECK (((parent_run_id IS NULL) OR (business_id IS NOT NULL)))',
+    );
+    expect(definition.get('agent_runs_parent_run_tenant_fkey')).toContain(
+      'FOREIGN KEY (account_id, business_id, parent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (parent_run_id)',
     );
     expect(definition.get('agent_outcomes_unit_count_check')).toContain(
       "outcome_kind = 'solicitation_batch_built'::text",
@@ -234,8 +495,8 @@ describeWithDb(
     expect(definition.get('solicitation_asks_contact_business_fk')).toContain(
       'FOREIGN KEY (contact_id, business_id) REFERENCES solicitation_contacts(id, business_id) ON DELETE CASCADE',
     );
-    expect(definition.get('solicitation_asks_agent_run_id_fkey')).toContain(
-      'FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL',
+    expect(definition.get('solicitation_asks_agent_run_tenant_fkey')).toContain(
+      'FOREIGN KEY (account_id, business_id, agent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (agent_run_id)',
     );
 
     const indexes = await db!<{ indexname: string; indexdef: string }[]>`
