@@ -124,3 +124,34 @@ Fresh session executing the step-8 staging ride. Chronological on-disk record:
 - **Open PR to `main`**, confirm CI green, PAUSE for explicit merge approval.
   Apply migration 088 to PROD Supabase (`udeyaqnvpojbwgoaxwdg`) in lockstep only
   at promotion. Issue #546 stays blocked until #543 lands.
+
+### Completion update (2026-07-25)
+- **PR #571** opened (`codex/543` → `main`). CI initially RED only on `fallow`
+  (4 CRAP findings in `ingest.ts`, all inflated by fallow CI coverage omitting
+  integration → apparent 0% coverage; 2 of the 4 are unchanged #541 functions
+  swept in by #543's mechanical touch). Fixed by inline
+  `// fallow-ignore-next-line complexity` suppressions with justifications,
+  following the repo's 67-use precedent (commit `6e4ad551`, in-surface `ingest.ts`).
+  **CI is now fully GREEN incl. `fallow`/`test`/`e2e`; `mergeStateStatus: CLEAN`.**
+  CI's `test` (unit-only) passing confirms the local RED is the D7 harness artifact.
+- **Staging smoke PASSED (Supabase-driven, deployed worker).** Browser smoke was
+  blocked — Vercel staging flag is OFF and unreachable from this CLI (personal
+  scope). Instead: temporarily set the Railway worker flag ON, seeded tenant-scoped
+  rows under trialing Tancia Resort (business `019f877f-…-7018319c5513`) replicating
+  the trigger (completed upload + contact + visit + unbuilt batch + pending
+  `build_solicitation_batch` outbox), and the DEPLOYED staging OutboxPoller+worker
+  built it: `built_at` set, **1 `send` ask**, parent `solicitation_batch` run +
+  child `solicitation_ask` run both `completed`, outbox `completed`. Forced-retry
+  idempotency: no duplicate asks/runs (manual re-dispatch hit a same-attempt BullMQ
+  job-id collision so didn't re-run the worker — the true `already_built` idempotent
+  path is integration-test-covered, not re-proven on staging). **All seeded rows
+  cleaned up (verified all-zero).** Railway worker flag reverted to OFF — staging
+  restored to clean pre-smoke state (both flags off; coordinated flip stays #544's).
+- **Remaining: PAUSED for explicit merge approval on PR #571.** On merge: apply
+  migration 088 to PROD Supabase (`udeyaqnvpojbwgoaxwdg`) in lockstep; `git pull
+  --ff-only` main; ff `staging` onto main; worktree cleanup; promote lessons;
+  `document-feature`; entropy counter. Issue #546 unblocks after #543 lands.
+- **Local Stop-hook gate stays RED** (D7 harness artifact; unresolvable locally
+  without fabrication/gate-edits). Park via `mv .feature/intake.json
+  .feature/intake.parked.json` if a clean session end is needed (classifier blocks
+  the assistant from doing this).
