@@ -239,10 +239,9 @@ function parseCompetitorRating(rating: string | null): number | null {
 
 function selectAutoDefaultRival(
   rows: NormalizedCompetitorSnapshotRow[],
+  currentDate: string,
+  precedingDate: string | undefined,
 ): CompetitorDelta {
-  const currentDate = rows[0]?.snapshot_date;
-  if (!currentDate) return null;
-
   const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
   const self = currentRows.find(
     (row) => row.is_self && Number.isInteger(row.review_count),
@@ -278,7 +277,6 @@ function selectAutoDefaultRival(
   });
 
   const selected = eligible[0]!;
-  const precedingDate = rows.find((row) => row.snapshot_date !== currentDate)?.snapshot_date;
   const preceding = precedingDate
     ? rows.find((row) => (
       row.snapshot_date === precedingDate
@@ -316,29 +314,31 @@ async function loadCompetitorDelta(
   const searchLocation = settings?.search_location;
   if (!keyword?.trim() || !searchLocation?.trim()) return null;
 
+  const rankingDates = await db<{ snapshot_date: string }[]>`
+    SELECT snapshot_date
+    FROM ranking_snapshots
+    WHERE business_id = ${businessId}
+      AND keyword = ${keyword}
+      AND search_location = ${searchLocation}
+    ORDER BY snapshot_date DESC
+    LIMIT 2
+  `;
+  const snapshotDates = rankingDates.map((row) => row.snapshot_date);
+  if (snapshotDates.length === 0) return { kind: 'teaser', keyword };
+
   const rows = await db<CompetitorSnapshotRow[]>`
-    WITH latest_dates AS (
-      SELECT DISTINCT dates.snapshot_date
-      FROM competitor_snapshots dates
-      WHERE dates.business_id = ${businessId}
-        AND dates.keyword = ${keyword}
-        AND dates.search_location = ${searchLocation}
-      ORDER BY dates.snapshot_date DESC
-      LIMIT 2
-    )
-    SELECT snapshots.snapshot_date, snapshots.rank_position, snapshots.place_id,
-           snapshots.title, snapshots.rating, snapshots.review_count, snapshots.is_self
-    FROM competitor_snapshots snapshots
-    WHERE snapshots.business_id = ${businessId}
-      AND snapshots.keyword = ${keyword}
-      AND snapshots.search_location = ${searchLocation}
-      AND snapshots.snapshot_date IN (SELECT snapshot_date FROM latest_dates)
-    ORDER BY snapshots.snapshot_date DESC,
-             snapshots.rank_position ASC NULLS LAST,
-             snapshots.place_id ASC NULLS LAST
+    SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
+    FROM competitor_snapshots
+    WHERE business_id = ${businessId}
+      AND keyword = ${keyword}
+      AND search_location = ${searchLocation}
+      AND snapshot_date = ANY(${snapshotDates}::date[])
+    ORDER BY snapshot_date DESC, rank_position ASC NULLS LAST, place_id ASC NULLS LAST
   `;
   const rival = selectAutoDefaultRival(
     rows.map((row) => ({ ...row, rating: parseCompetitorRating(row.rating) })),
+    snapshotDates[0]!,
+    snapshotDates[1],
   );
   return rival ?? { kind: 'teaser', keyword };
 }

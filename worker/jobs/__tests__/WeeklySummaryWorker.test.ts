@@ -173,6 +173,7 @@ function pushHappyPathSqlQueue(opts: {
   initialRanking?: unknown[];
   ownerWithAuth?: unknown[];
   competitorSettings?: unknown[];
+  competitorRankingDates?: unknown[];
   competitorSnapshots?: unknown[];
   upsertRow?: unknown[];
   summaryText?: string | null;
@@ -194,15 +195,19 @@ function pushHappyPathSqlQueue(opts: {
   sqlReturnQueue.push(opts.ownerWithAuth ?? []);                            // 9. dashboard eligibility
   sqlReturnQueue.push(opts.competitorSettings ?? []);                       // 10. Competitor Delta settings
   if (opts.competitorSettings && opts.competitorSettings.length > 0) {
-    sqlReturnQueue.push(opts.competitorSnapshots ?? []);                    // 11. latest two Competitor packs
+    const rankingDates = opts.competitorRankingDates ?? [];
+    sqlReturnQueue.push(rankingDates);                                      // 11. latest two exact-series ranking dates
+    if (rankingDates.length > 0) {
+      sqlReturnQueue.push(opts.competitorSnapshots ?? []);                  // 12. Competitor packs for those dates
+    }
   }
-  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 12. upsert
-  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 13. claim UPDATE
-  // 14. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
+  sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 13. upsert
+  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 14. claim UPDATE
+  // 15. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
   if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
-    sqlReturnQueue.push([]);                                                // 14. UPDATE summary_text
+    sqlReturnQueue.push([]);                                                // 15. UPDATE summary_text
   }
-  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 15. guarded UPDATE sent_at
+  sqlReturnQueue.push(opts.sentFlipRow ?? [{ id: 'claimed-id' }]);          // 16. guarded UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
@@ -398,6 +403,10 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
         '34.0522000,-118.2437000',
         ' best bakery ',
       ),
+      competitorRankingDates: [
+        { snapshot_date: '2026-07-20' },
+        { snapshot_date: '2026-07-06' },
+      ],
       competitorSnapshots: [
         competitorSnapshot('self-place', 'Test Biz', 100, { rank_position: 4, is_self: true }),
         competitorSnapshot('rival-null-rank', 'Null Rank Bakery', 105, { rank_position: null, rating: '4.9' }),
@@ -424,14 +433,20 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     const settingsQuery = sqlCalls.find(({ text }) => text.includes("tracked_keywords->>0"));
     expect(settingsQuery?.values).toEqual(['biz-1']);
+    const datesQuery = sqlCalls.find(({ text }) => (
+      text.includes('FROM ranking_snapshots') && text.includes('search_location')
+    ));
+    expect(datesQuery?.values).toEqual([
+      'biz-1',
+      ' best bakery ',
+      '34.0522000,-118.2437000',
+    ]);
     const packQuery = sqlCalls.find(({ text }) => text.includes('FROM competitor_snapshots'));
     expect(packQuery?.values).toEqual([
       'biz-1',
       ' best bakery ',
       '34.0522000,-118.2437000',
-      'biz-1',
-      ' best bakery ',
-      '34.0522000,-118.2437000',
+      ['2026-07-20', '2026-07-06'],
     ]);
   });
 
@@ -461,6 +476,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlCalls.length = 0;
     pushHappyPathSqlQueue({
       competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
       competitorSnapshots: [
         competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
         competitorSnapshot('rival-behind', 'Behind Bakery', 90, { rank_position: 2, rating: '4.7' }),
@@ -477,9 +493,44 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     });
   });
 
+  it('teases when a newer exact-series ranking observation has an empty Competitor pack', async () => {
+    pushHappyPathSqlQueue({
+      competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [
+        { snapshot_date: '2026-07-20' },
+        { snapshot_date: '2026-07-06' },
+      ],
+      competitorSnapshots: [
+        competitorSnapshot('self-place', 'Test Biz', 100, {
+          snapshot_date: '2026-07-06',
+          is_self: true,
+        }),
+        competitorSnapshot('stale-rival', 'Stale Rival', 105, {
+          snapshot_date: '2026-07-06',
+          rank_position: 2,
+        }),
+      ],
+    });
+
+    await handleWeeklySummary(makeJob());
+
+    expect(mockBuildWeeklyValueReportHtml.mock.calls[0]![0].competitorDelta).toEqual({
+      kind: 'teaser',
+      keyword: 'best bakery',
+    });
+    const packQuery = sqlCalls.find(({ text }) => text.includes('competitor_snapshots'));
+    expect(packQuery?.values).toEqual([
+      'biz-1',
+      'best bakery',
+      'Los Angeles, California',
+      ['2026-07-20', '2026-07-06'],
+    ]);
+  });
+
   it('parses NUMERIC competitor ratings returned by Postgres.js as strings', async () => {
     pushHappyPathSqlQueue({
       competitorSettings: configuredCompetitorSettings(),
+      competitorRankingDates: [{ snapshot_date: '2026-07-20' }],
       competitorSnapshots: [
         competitorSnapshot('self-place', 'Test Biz', 100, { is_self: true }),
         competitorSnapshot('rival-place', 'String Rating Bakery', 103, { rank_position: 2, rating: 'not-a-finite-rating' }),
