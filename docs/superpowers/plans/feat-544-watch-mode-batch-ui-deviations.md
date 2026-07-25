@@ -104,3 +104,77 @@ actually asks for (`hasBatch:false` next to a batch row in Postgres).
 The handoff said the live-DB suite could not be run. `.env.local` in this
 worktree carries a localhost `TEST_DATABASE_POOL_URL`, so
 `batch-view.integration.test.ts` was written **and executed**: 8/8 pass.
+
+---
+
+## Triage (step 6.5, orchestrator, 2026-07-25)
+
+Every entry read end to end before review. Verdicts:
+
+1. **ACCEPT — with a carried action.** The structural argument is sound: the
+   documented pooler hazard is *session*-scoped `SET`, and CLAUDE.md's
+   `SELECT … FOR UPDATE` gotcha is explicitly about statements **outside**
+   `sql.begin()`; neither applies to a transaction-scoped `SET` inside one.
+   But argued ≠ measured. **Staging must read `transaction_isolation` through
+   the pooled URL before anyone calls the purge race closed.** This is now a
+   named step in the ship lane, not a footnote.
+2. **ACCEPT.** Verified independently against migration 088:159 —
+   `solicitation_asks_batch_contact_uniq UNIQUE (batch_id, contact_id)` is a
+   batch_id-leading index. The escalation trigger I wrote rested on my own
+   misreading of the index list; the subagent was right to kill it rather than
+   escalate a non-problem. `db_touching` stays false and the ship lane is
+   unchanged.
+3. **ACCEPT.** The reshape preserves the one property that mattered — still a
+   single statement, so the "hero and ledger cannot disagree" invariant holds —
+   and it fixes a real audit blind spot rather than working around it with an
+   allowlist bump that was out of surface anyway. **Durable lesson for
+   lab-notes:** `scripts/ci/tenant-scope-audit.ts` strips every `( SELECT …)`
+   before looking for predicates, so **CTE bodies are invisible to it**; a
+   correctly-scoped CTE fails the audit. Scope predicates must appear outside
+   any subquery to be seen.
+4. **ACCEPT.** A Vercel route handler is stateless per request; adding
+   cross-request state purely to sample a log line would be machinery in
+   service of nothing. Skipping the log entirely while `building` achieves the
+   stated goal (no ~150-line spam per build) and preserves the
+   `hasBatch:false` signal the observability contract asks for.
+5. **ACCEPT.** Informational, and it materially improved the evidence — the
+   live-DB suite ran (8/8, 5,000-ask read ~6–7 ms) instead of being deferred.
+
+**No RE-PLAN verdicts. Abort criteria not triggered** (one surface amendment,
+one non-surface correction to a broken `verification_commands` placeholder, zero
+gate-fail rounds caused by the implementation itself).
+
+---
+
+## Orchestrator decisions at gate-green (2026-07-25)
+
+### Task 6 (access-policy rename) — DROPPED
+
+It was sequenced last and marked droppable precisely for this situation. It
+delivers **zero** user-visible behavior and would rewire four working contacts
+routes on a branch already 4.5× its estimated size. The cost of keeping it:
+`requireContactsLocationScope` / `requireContactsWriteAccess` are now imported by
+the solicitation route family too, so the names undersell their scope. Filed as a
+follow-up rather than carried — a reviewer flagging the naming is correct, and
+the answer is "yes, and it has a ticket."
+
+### Re-classification trigger — FIRED, lane unchanged
+
+`reclassify` WARN: 4,269 changed lines vs. a `+950 / -40` estimate (~4.5×).
+Step 0 re-run against real numbers:
+
+- **RISK stays `high`** — unchanged drivers (staging flag flip, tenant-scoped
+  reads). Still no migration; `db_touching` confirmed false by deviation 2.
+- **SURFACE stays `mixed`.**
+- **NOT an epic.** Checked against every epic criterion: the edit surface *was*
+  declared tightly and held (first-task spot check clean, `feature-surface`
+  audit green all run); it spans one risk domain, not several; it decomposed
+  into 6 tickets, not >8; and no investigation questions remain open.
+
+So the lane was right and the **estimate was wrong**. Root cause: I sized the
+feature by its production code (~1,100 lines) and ignored test volume, which came
+in at ~2,900 lines — TDD plus 14 verbatim contract titles plus a live-DB suite
+means tests run ~2.5× production code on this kind of feature. `estimated_diff_size`
+is deliberately **left at its original value** so the WARN stays visible in the
+record; silently rewriting it to match reality would erase exactly the signal the
+trigger exists to produce.
