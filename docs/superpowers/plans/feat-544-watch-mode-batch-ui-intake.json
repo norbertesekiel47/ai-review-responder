@@ -95,7 +95,7 @@
     "hides the Requests sidebar row when watch-mode is off"
   ],
   "verification_commands": [
-    "TEST_DATABASE_POOL_URL=\"$(sed -n 's/^TEST_DATABASE_POOL_URL=//p' .env.local | head -1 | sed 's/^[\"'\\'']//; s/[\"'\\'']$//')\" pnpm vitest run src/lib/solicitation/__tests__/batch-view.integration.test.ts"
+    "TEST_DATABASE_POOL_URL=$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2-) pnpm vitest run src/lib/solicitation/__tests__/batch-view.integration.test.ts"
   ],
   "estimated_diff_size": "+950 / -40",
   "dependencies_added": [],
