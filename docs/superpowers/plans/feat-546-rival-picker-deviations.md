@@ -32,23 +32,26 @@ Short log of things the plan did not anticipate. One entry per surprise.
 
 ## Task 2 — extract `named-rival.ts`
 
-- **BLOCKER: `pnpm ci:tenant-scope` fails on the new module, and the fix lives
-  outside Task 2's edit surface.** `predicateClauses` in
-  `scripts/ci/tenant-scope-audit.ts` runs `stripSelectSubqueries` before matching
-  `WHERE`/`ON` clauses, so every predicate inside a CTE body is invisible to it.
-  The collapsed lane query is correctly scoped (`b.id = ${businessId}`,
+- **The single-CTE collapse trips `ci:tenant-scope`; resolving it cost surface
+  amendment #2.** `predicateClauses` in `scripts/ci/tenant-scope-audit.ts` runs
+  `stripSelectSubqueries` before matching `WHERE`/`ON` clauses, so every
+  predicate inside a CTE body is invisible to it. The lane query is correctly
+  scoped on all three legs (`b.id = ${businessId}`,
   `rs.business_id = ${businessId}`, `cs.business_id = ${businessId}`), but the
-  first two live inside `ctx`/`dates` and the scanner reports
+  first two live inside `ctx`/`dates`, so the scanner reported
   `businesses: missing … scope` and `ranking_snapshots: missing … scope`.
   `competitor_snapshots` passes because its predicate is in the outer `ON`.
-  This is not fixable by restructuring: "latest two snapshot dates" needs a
-  `LIMIT`, which needs a subquery. The sanctioned resolution is the same one
-  already used for the identical scanner limitation elsewhere (see the
-  `src/lib/kpi` entry: *"Scanner strips SELECT subqueries before predicate
-  analysis"*) — two `tenant-root-lookup` entries in
-  `scripts/ci/tenant-scope-allowlist.ts` plus `ALLOWLIST_BASELINE` 405 → 407.
-  Left undone by Task 2 because that file is outside the task's permitted edit
-  surface.
+  Not fixable by restructuring: "latest two snapshot dates" needs a `LIMIT`,
+  which needs a subquery. Precedent: `src/lib/kpi/service.ts` carries seven
+  `tenant-root-lookup` entries for this exact limitation, worded *"Scanner
+  strips SELECT subqueries before predicate analysis"*. **Resolved** with two
+  `tenant-root-lookup` entries sharing a hoisted `NAMED_RIVAL_LANE_SQL` const
+  (the file's stated convention for a query the audit attributes to more than
+  one table) plus `ALLOWLIST_BASELINE` 405 → 407 — which required adding
+  `scripts/ci/tenant-scope-allowlist.ts` to the task's edit surface,
+  **amendment #2**. Durable lesson: a CTE-shaped read in a `src/lib` domain
+  module will always need an allowlist entry, so budget that file into the
+  surface up front rather than discovering it at verification time.
 
 - **The plan's "existing WeeklySummaryWorker competitor cases must pass
   unmodified" neutrality proof is unachievable as stated.** Those cases assert on
