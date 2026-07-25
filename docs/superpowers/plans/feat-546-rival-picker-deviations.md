@@ -203,3 +203,32 @@ Short log of things the plan did not anticipate. One entry per surprise.
   different suite, which is the signature of scheduling perturbation rather than
   a semantic conflict. Verified green: every audit, `typecheck`, `lint`, and the
   three suites this task owns.
+
+## Task 5 — settings page
+
+- **No CSS was added; the inline notice reuses `.auto-policy-warning`.** Every
+  settings class the page needs already exists, but they live in
+  `src/app/(authenticated)/_styles/settings.css`, which is outside this task's
+  edit surface (only `globals.css` was allowed). Putting a settings-scoped
+  class in `globals.css` would split the settings stylesheet across two files
+  for one message box, so the existing warning box is reused as-is.
+
+- **Location names are shown whenever there is more than one view, not only
+  when `multiLocation` is true.** `shouldUseMultiLocationSettings` also requires
+  `MULTI_LOCATION_ENABLED`, so an account with several active locations and the
+  flag off would have rendered several indistinguishable pickers. The prop
+  contract is unchanged; the component ORs it with `views.length > 1`.
+
+- **The select is labelled with `<label htmlFor>` rather than the auto-approval
+  client's visible-span-plus-duplicated-`aria-label` pattern.** Same accessible
+  name (`Named rival for '<keyword>'`), one source of truth, and it keeps the
+  format hint out of the computed name.
+
+- **Two tests beyond the five promised titles.** The 409 `pack_refreshed` path
+  (inline message + GET reload) and the multi-location labelled blocks are both
+  behavior the plan specifies but did not name a test for; neither is reachable
+  from the five fixtures.
+
+- **`SettingsSidebar.test.tsx`'s "renders both group labels and all items"
+  enumerates every nav item.** Adding Competitors without extending that array
+  would have left the test claiming completeness while checking 7 of 8 items.

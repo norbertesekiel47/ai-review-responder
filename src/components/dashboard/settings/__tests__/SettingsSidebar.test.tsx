@@ -17,7 +17,7 @@ describe('SettingsSidebar', () => {
     render(<SettingsSidebar />);
     expect(screen.getByText('Responses')).toBeInTheDocument();
     expect(screen.getByText('Account')).toBeInTheDocument();
-    for (const label of ['Brand Voice', 'Auto-approval', 'Notifications', 'Locations', 'Profile', 'Billing', 'Security']) {
+    for (const label of ['Brand Voice', 'Auto-approval', 'Notifications', 'Competitors', 'Locations', 'Profile', 'Billing', 'Security']) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument();
     }
   });
