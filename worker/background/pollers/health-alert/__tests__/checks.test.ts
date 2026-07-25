@@ -137,6 +137,27 @@ describe('health-alert checks', () => {
       expect(template.join(' ')).toContain('FROM job_outbox');
       expect(values).toContain(QUEUE_NAMES.GENERATE_RESPONSE);
     });
+
+    it('health alerts include terminal build_solicitation_batch outbox failures', async () => {
+      sqlReturnQueue.push([{ topic: QUEUE_NAMES.BUILD_SOLICITATION_BATCH, count: 1 }]);
+
+      const findings = await checkFailedOutboxByTopic(mockSql, CFG);
+
+      expect(findings).toEqual([
+        expect.objectContaining({
+          key: `outbox_failed:${QUEUE_NAMES.BUILD_SOLICITATION_BATCH}`,
+          level: 'error',
+          detail: {
+            topic: QUEUE_NAMES.BUILD_SOLICITATION_BATCH,
+            count: 1,
+            window_s: CFG.failedWindowS,
+          },
+        }),
+      ]);
+      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      expect(template.join(' ')).toContain('FROM job_outbox');
+      expect(values).toContain(QUEUE_NAMES.BUILD_SOLICITATION_BATCH);
+    });
   });
 
   describe('checkFailedInboundEvents', () => {

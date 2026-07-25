@@ -53,9 +53,10 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
   };
 }
 
-// Public-path outbox topics that exhausted all retries (status='failed') — a
-// failed publish/notify is a customer-visible stall, and a terminal
-// generate_response failure is a dropped paid draft. Not transient blips.
+// Owner-impacting outbox topics that exhausted all retries (status='failed') —
+// failed publish/notify jobs are customer-visible stalls, terminal response
+// generation drops a paid draft, and terminal solicitation batch construction
+// leaves the batch owner-hidden. Not transient blips.
 export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
   // Window on completed_at: markOutboxFailed sets completed_at = NOW() when a row
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
@@ -65,7 +66,12 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
     SELECT topic, COUNT(*)::int AS count
     FROM job_outbox
     WHERE status = 'failed'
-      AND topic IN (${QUEUE_NAMES.PUBLISH_RESPONSE}, ${QUEUE_NAMES.SEND_NOTIFICATION}, ${QUEUE_NAMES.GENERATE_RESPONSE})
+      AND topic IN (
+        ${QUEUE_NAMES.PUBLISH_RESPONSE},
+        ${QUEUE_NAMES.SEND_NOTIFICATION},
+        ${QUEUE_NAMES.GENERATE_RESPONSE},
+        ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH}
+      )
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic
   `;
