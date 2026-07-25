@@ -5,7 +5,10 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../src/lib/config/worker';
-import { buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
+import {
+  buildWeeklyValueReportHtml,
+  type CompetitorDelta,
+} from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
@@ -49,10 +52,30 @@ interface WeeklyReviewStats {
   notableReviews: WeeklyNotableReview[];
 }
 
+interface CompetitorDeltaSettingsRow {
+  keyword: string | null;
+  search_location: string | null;
+}
+
+interface CompetitorSnapshotRow {
+  snapshot_date: string;
+  rank_position: number | null;
+  place_id: string | null;
+  title: string;
+  rating: string | null;
+  review_count: number | null;
+  is_self: boolean;
+}
+
+interface NormalizedCompetitorSnapshotRow extends Omit<CompetitorSnapshotRow, 'rating'> {
+  rating: number | null;
+}
+
 interface WeeklyValueInputs {
   reviewsForSummary: WeeklyReviewRow[];
   fourWeekAvgReviews: number;
   ranking: Awaited<ReturnType<typeof loadLatestRankingSummary>>;
+  competitorDelta: CompetitorDelta;
   dashboardUrl: string | null;
   appUrl: string | undefined;
   csrfSecret: string | undefined;
@@ -196,14 +219,126 @@ async function loadWeeklyValueInputs(
     await ownerHasDashboardAuth(db, businessId),
     cfg.NEXT_PUBLIC_APP_URL,
   );
+  const competitorDelta = await loadCompetitorDelta(db, businessId);
   return {
     reviewsForSummary,
     fourWeekAvgReviews: parseFloat(avgRow?.avg ?? '0'),
     ranking,
+    competitorDelta,
     dashboardUrl,
     appUrl: cfg.NEXT_PUBLIC_APP_URL,
     csrfSecret: cfg.CSRF_SECRET,
   };
+}
+
+function parseCompetitorRating(rating: string | null): number | null {
+  if (rating === null) return null;
+  const parsed = Number(rating);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function selectAutoDefaultRival(
+  rows: NormalizedCompetitorSnapshotRow[],
+): CompetitorDelta {
+  const currentDate = rows[0]?.snapshot_date;
+  if (!currentDate) return null;
+
+  const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
+  const self = currentRows.find(
+    (row) => row.is_self && Number.isInteger(row.review_count),
+  );
+  if (!self || self.review_count === null) return null;
+
+  const candidates = currentRows
+    .filter((row) => (
+      !row.is_self
+      && row.place_id !== null
+      && row.place_id.length > 0
+      && row.title.trim().length > 0
+      && Number.isInteger(row.review_count)
+    ))
+    .map((row) => ({
+      row,
+      gap: row.review_count! - self.review_count!,
+    }));
+  if (candidates.length === 0) return null;
+
+  const ahead = candidates.filter(({ gap }) => gap > 0);
+  const eligible = ahead.length > 0 ? ahead : candidates;
+  eligible.sort((left, right) => {
+    const gapOrder = ahead.length > 0
+      ? left.gap - right.gap
+      : right.gap - left.gap;
+    if (gapOrder !== 0) return gapOrder;
+
+    const rankOrder = (left.row.rank_position ?? Number.POSITIVE_INFINITY)
+      - (right.row.rank_position ?? Number.POSITIVE_INFINITY);
+    if (rankOrder !== 0) return rankOrder;
+    return left.row.place_id! < right.row.place_id! ? -1 : 1;
+  });
+
+  const selected = eligible[0]!;
+  const precedingDate = rows.find((row) => row.snapshot_date !== currentDate)?.snapshot_date;
+  const preceding = precedingDate
+    ? rows.find((row) => (
+      row.snapshot_date === precedingDate
+      && row.place_id === selected.row.place_id
+      && Number.isInteger(row.review_count)
+    ))
+    : undefined;
+
+  return {
+    kind: 'rival',
+    rivalName: selected.row.title,
+    gap: selected.gap,
+    reviewVelocity: preceding?.review_count === null || preceding?.review_count === undefined
+      ? null
+      : selected.row.review_count! - preceding.review_count,
+  };
+}
+
+async function loadCompetitorDelta(
+  db: Sql,
+  businessId: LocationId,
+): Promise<CompetitorDelta> {
+  const [settings] = await db<CompetitorDeltaSettingsRow[]>`
+    SELECT
+      tracked_keywords->>0 AS keyword,
+      CASE
+        WHEN google_place_lat IS NOT NULL AND google_place_lng IS NOT NULL
+          THEN google_place_lat::text || ',' || google_place_lng::text
+        ELSE ranking_search_location
+      END AS search_location
+    FROM businesses
+    WHERE id = ${businessId}
+  `;
+  const keyword = settings?.keyword;
+  const searchLocation = settings?.search_location;
+  if (!keyword?.trim() || !searchLocation?.trim()) return null;
+
+  const rows = await db<CompetitorSnapshotRow[]>`
+    WITH scoped AS (
+      SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
+      FROM competitor_snapshots
+      WHERE business_id = ${businessId}
+        AND keyword = ${keyword}
+        AND search_location = ${searchLocation}
+    ),
+    latest_dates AS (
+      SELECT DISTINCT snapshot_date
+      FROM scoped
+      ORDER BY snapshot_date DESC
+      LIMIT 2
+    )
+    SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
+    FROM scoped
+    WHERE snapshot_date IN (SELECT snapshot_date FROM latest_dates)
+    ORDER BY snapshot_date DESC, rank_position ASC NULLS LAST, place_id ASC NULLS LAST
+  `;
+  const rival = selectAutoDefaultRival(
+    rows.map((row) => ({ ...row, rating: parseCompetitorRating(row.rating) })),
+  );
+  return rival ?? { kind: 'teaser', keyword };
 }
 
 async function upsertWeeklySummary(
@@ -431,6 +566,7 @@ export async function handleWeeklySummary(
     baselineResponseRate: calculateBaselineResponseRate(business),
     fourWeekAvgReviews: valueInputs.fourWeekAvgReviews,
     ranking: valueInputs.ranking,
+    competitorDelta: valueInputs.competitorDelta,
     dashboardUrl: valueInputs.dashboardUrl,
     feedbackUrls: weeklyFeedbackUrls(
       valueInputs.appUrl,

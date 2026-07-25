@@ -15,6 +15,11 @@ function formatWeekDate(iso: string): string {
   }
 }
 
+export type CompetitorDelta =
+  | { kind: 'teaser'; keyword: string }
+  | { kind: 'rival'; rivalName: string; gap: number; reviewVelocity: number | null }
+  | null;
+
 export interface WeeklyValueReportParams {
   businessName: string;
   weekStartDate: string;
@@ -30,6 +35,7 @@ export interface WeeklyValueReportParams {
   baselineResponseRate: number | null;
   fourWeekAvgReviews: number;
   ranking: { keyword: string; currentRank: number; initialRank: number } | null;
+  competitorDelta: CompetitorDelta;
   dashboardUrl: string | null;
   /** HMAC-signed feedback URLs for satisfaction pulse. null if CSRF_SECRET not configured. */
   feedbackUrls: {
@@ -44,7 +50,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
     businessName, weekStartDate, weekEndDate,
     totalReviews, totalResponded, notableReviews,
     intelligenceBrief, baselineResponseRate, fourWeekAvgReviews,
-    ranking, dashboardUrl, feedbackUrls,
+    ranking, competitorDelta, dashboardUrl, feedbackUrls,
   } = params;
 
   const safeName = escapeHtml(businessName);
@@ -73,6 +79,32 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
       <p style="margin:0;font-size:14px;color:#374151;">Your ranking for &lsquo;${escapeHtml(ranking.keyword)}&rsquo;: <strong>#${ranking.currentRank}</strong> (was #${ranking.initialRank} when you joined)</p>
     </td></tr>`
     : '';
+
+  let competitorDeltaHtml = '';
+  if (competitorDelta?.kind === 'teaser') {
+    competitorDeltaHtml = `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">RepWorth is watching &lsquo;${escapeHtml(competitorDelta.keyword)}&rsquo; and will report Competitor Delta after our next check.</p>
+    </td></tr>`;
+  } else if (competitorDelta?.kind === 'rival') {
+    let velocityCopy = '';
+    if (competitorDelta.reviewVelocity !== null) {
+      if (competitorDelta.reviewVelocity > 0) {
+        const reviewLabel = competitorDelta.reviewVelocity === 1 ? 'review' : 'reviews';
+        velocityCopy = ` gained ${competitorDelta.reviewVelocity} ${reviewLabel} since our last check;`;
+      } else if (competitorDelta.reviewVelocity < 0) {
+        const lost = Math.abs(competitorDelta.reviewVelocity);
+        const reviewLabel = lost === 1 ? 'review' : 'reviews';
+        velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
+      } else {
+        velocityCopy = ' had no new reviews since our last check;';
+      }
+    }
+    competitorDeltaHtml = `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">Auto-selected rival: ${escapeHtml(competitorDelta.rivalName)}${velocityCopy} gap now ${competitorDelta.gap}</p>
+    </td></tr>`;
+  }
 
   // Intelligence brief (conditional)
   const briefHtml = intelligenceBrief
@@ -171,6 +203,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
         </td></tr>
         ${velocityHtml}
         ${rankingHtml}
+        ${competitorDeltaHtml}
         ${briefHtml}
         ${notableHtml}
         ${dashboardHtml}

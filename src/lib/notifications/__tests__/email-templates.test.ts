@@ -19,10 +19,15 @@ function baseWeeklyParams(overrides: Partial<WeeklyValueReportParams> = {}): Wee
     baselineResponseRate: null,
     fourWeekAvgReviews: 9,
     ranking: null,
+    competitorDelta: null,
     dashboardUrl: null,
     feedbackUrls: null,
     ...overrides,
   };
+}
+
+function rivalDelta(rivalName: string, gap: number, reviewVelocity: number | null) {
+  return { kind: 'rival' as const, rivalName, gap, reviewVelocity };
 }
 
 function baseMonthlyParams(overrides: Partial<MonthlyImpactEmailParams> = {}): MonthlyImpactEmailParams {
@@ -188,6 +193,56 @@ describe('buildWeeklyValueReportHtml', () => {
   it('omits ranking section when null', () => {
     const html = buildWeeklyValueReportHtml(baseWeeklyParams({ ranking: null }));
     expect(html).not.toContain('Your ranking for');
+  });
+
+  it('renders review velocity since our last check and the current review-count gap', () => {
+    const gainedHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta("Joe's Bakery", 27, 4),
+    }));
+    expect(gainedHtml).toContain(
+      'Auto-selected rival: Joe&#39;s Bakery gained 4 reviews since our last check; gap now 27',
+    );
+    expect(gainedHtml).not.toContain('Joe&#39;s Bakery gained 4 reviews this week');
+
+    const unchangedHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta('Still Bakery', 0, 0),
+    }));
+    expect(unchangedHtml).toContain(
+      'Auto-selected rival: Still Bakery had no new reviews since our last check; gap now 0',
+    );
+
+    const lostHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta('Behind Bakery', -10, -2),
+    }));
+    expect(lostHtml).toContain(
+      'Auto-selected rival: Behind Bakery lost 2 reviews since our last check; gap now -10',
+    );
+  });
+
+  it('escapes the Competitor Delta rival name and teaser keyword', () => {
+    const gapOnlyHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: rivalDelta('<Rival & "Co">', 2, null),
+    }));
+    expect(gapOnlyHtml).toContain(
+      'Auto-selected rival: &lt;Rival &amp; &quot;Co&quot;&gt; gap now 2',
+    );
+    expect(gapOnlyHtml).not.toContain('<Rival');
+    expect(gapOnlyHtml).not.toContain('since our last check');
+
+    const teaserHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: { kind: 'teaser', keyword: '<best & bakery>' },
+    }));
+    expect(teaserHtml).toContain(
+      'RepWorth is watching &lsquo;&lt;best &amp; bakery&gt;&rsquo; and will report Competitor Delta after our next check.',
+    );
+    expect(teaserHtml).not.toContain('<best');
+    expect(teaserHtml).not.toContain('next week');
+
+    const omittedHtml = buildWeeklyValueReportHtml(baseWeeklyParams({
+      competitorDelta: null,
+    }));
+    expect(omittedHtml).not.toContain('Auto-selected rival:');
+    expect(omittedHtml).not.toContain('Competitor Delta');
   });
 
   it('includes dashboard link when provided', () => {
