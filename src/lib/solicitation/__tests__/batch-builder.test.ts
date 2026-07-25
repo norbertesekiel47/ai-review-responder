@@ -293,20 +293,40 @@ describe('solicitation batch candidate loader', () => {
     const priorSendQuery = sqlCalls.find((call) =>
       call.text.includes('FROM solicitation_asks send_ask'),
     );
-    expect(candidateQuery?.text).toContain('WITH latest_completed_visits AS');
-    expect(candidateQuery?.text).toContain('latest_evaluations AS');
-    expect(candidateQuery?.text).toContain('FROM solicitation_visits v');
+    expect(candidateQuery?.text).toContain('JOIN solicitation_visits latest_visit');
     expect(candidateQuery?.text).toContain('JOIN contact_csv_uploads u');
+    expect(candidateQuery?.text).toContain('FROM solicitation_visits candidate_visit');
+    expect(candidateQuery?.text).toContain('JOIN contact_csv_uploads candidate_upload');
+    expect(candidateQuery?.text).toContain('LEFT JOIN solicitation_asks latest_evaluation');
+    expect(candidateQuery?.text).toContain('FROM solicitation_asks candidate_ask');
     expect(candidateQuery?.text).toContain("u.status = 'completed'");
     expect(candidateQuery?.text).toContain(
-      'GROUP BY evaluation_ask.contact_id',
+      'candidate_upload.account_id = ?::uuid',
     );
     expect(candidateQuery?.text).toContain(
-      'JOIN latest_completed_visits latest_visit',
+      'candidate_upload.business_id = ?::uuid',
     );
     expect(candidateQuery?.text).toContain(
-      'LEFT JOIN latest_evaluations latest_evaluation',
+      'candidate_visit.business_id = ?::uuid',
     );
+    expect(candidateQuery?.text).toContain(
+      'latest_visit.business_id = ?::uuid',
+    );
+    expect(candidateQuery?.text).toContain('u.account_id = ?::uuid');
+    expect(candidateQuery?.text).toContain('u.business_id = ?::uuid');
+    expect(candidateQuery?.text).toContain(
+      'latest_evaluation.account_id = ?::uuid',
+    );
+    expect(candidateQuery?.text).toContain(
+      'latest_evaluation.business_id = ?::uuid',
+    );
+    expect(candidateQuery?.text).toContain(
+      'candidate_ask.account_id = ?::uuid',
+    );
+    expect(candidateQuery?.text).toContain(
+      'candidate_ask.business_id = ?::uuid',
+    );
+    expect(candidateQuery?.text).toContain('c.business_id = ?::uuid');
     expect(priorSendQuery?.text).toContain("send_ask.status = 'send'");
     expect(candidateQuery?.text).toContain(
       'latest_evaluation.decided_at ASC NULLS FIRST',

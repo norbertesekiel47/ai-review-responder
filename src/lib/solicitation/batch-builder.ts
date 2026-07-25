@@ -387,47 +387,55 @@ async function constructBatch(
     }
 
     const candidateWindow = await tx<CandidateWindowRow[]>`
-      WITH latest_completed_visits AS (
-        SELECT DISTINCT ON (v.contact_id)
-          v.contact_id,
-          v.visit_date,
-          v.upload_id,
-          (
-            u.status = 'completed'
-            AND u.attested_at IS NOT NULL
-            AND u.attestation_version IS NOT NULL
-          ) AS consent_attested
-        FROM solicitation_visits v
-        JOIN contact_csv_uploads u
-          ON u.id = v.upload_id
-         AND u.account_id = ${accountId}::uuid
-         AND u.business_id = ${businessId}::uuid
-        WHERE v.business_id = ${businessId}::uuid
-          AND u.status = 'completed'
-        ORDER BY
-          v.contact_id,
-          v.visit_date DESC,
-          v.upload_id ASC,
-          v.id ASC
-      ),
-      latest_evaluations AS (
-        SELECT
-          evaluation_ask.contact_id,
-          MAX(evaluation_ask.decided_at) AS decided_at
-        FROM solicitation_asks evaluation_ask
-        WHERE evaluation_ask.business_id = ${businessId}::uuid
-        GROUP BY evaluation_ask.contact_id
-      )
       SELECT
         c.id::text AS contact_id,
         latest_visit.visit_date::text AS last_visit_date,
         latest_visit.upload_id::text AS upload_id,
-        latest_visit.consent_attested
+        (
+          u.status = 'completed'
+          AND u.attested_at IS NOT NULL
+          AND u.attestation_version IS NOT NULL
+        ) AS consent_attested
       FROM solicitation_contacts c
-      JOIN latest_completed_visits latest_visit
+      JOIN solicitation_visits latest_visit
         ON latest_visit.contact_id = c.id
-      LEFT JOIN latest_evaluations latest_evaluation
+       AND latest_visit.business_id = ${businessId}::uuid
+       AND latest_visit.id = (
+         SELECT candidate_visit.id
+         FROM solicitation_visits candidate_visit
+         JOIN contact_csv_uploads candidate_upload
+           ON candidate_upload.id = candidate_visit.upload_id
+          AND candidate_upload.account_id = ${accountId}::uuid
+          AND candidate_upload.business_id = ${businessId}::uuid
+          AND candidate_upload.status = 'completed'
+         WHERE candidate_visit.contact_id = c.id
+           AND candidate_visit.business_id = ${businessId}::uuid
+         ORDER BY
+           candidate_visit.visit_date DESC,
+           candidate_visit.upload_id ASC,
+           candidate_visit.id ASC
+         LIMIT 1
+       )
+      JOIN contact_csv_uploads u
+        ON u.id = latest_visit.upload_id
+       AND u.account_id = ${accountId}::uuid
+       AND u.business_id = ${businessId}::uuid
+       AND u.status = 'completed'
+      LEFT JOIN solicitation_asks latest_evaluation
         ON latest_evaluation.contact_id = c.id
+       AND latest_evaluation.account_id = ${accountId}::uuid
+       AND latest_evaluation.business_id = ${businessId}::uuid
+       AND latest_evaluation.id = (
+         SELECT candidate_ask.id
+         FROM solicitation_asks candidate_ask
+         WHERE candidate_ask.contact_id = c.id
+           AND candidate_ask.account_id = ${accountId}::uuid
+           AND candidate_ask.business_id = ${businessId}::uuid
+         ORDER BY
+           candidate_ask.decided_at DESC,
+           candidate_ask.id DESC
+         LIMIT 1
+       )
       WHERE c.business_id = ${businessId}::uuid
       ORDER BY
         latest_evaluation.decided_at ASC NULLS FIRST,
