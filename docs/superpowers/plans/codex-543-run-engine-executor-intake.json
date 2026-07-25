@@ -16,20 +16,24 @@
   "user_visible_behavior": [
     "When SOLICITATION_WATCH_ENABLED is on and a contacts CSV ingest completes, the system creates one unbuilt Solicitation batch and durable build_solicitation_batch outbox job in that same transaction.",
     "The worker evaluates a deterministic window from the whole accumulated location pool, records send or withhold asks and their parent/child run graph atomically, marks the batch built, and transmits nothing.",
-    "Owner-facing readers can only observe batches after built_at is set; partial or failed construction remains hidden.",
-    "When the flag or full-access subscription gate closes before execution, unbuilt work is removed and no failed run is recorded."
+    "Owner-facing readers can only observe batches after built_at is set; the owner SELECT policy itself hides partial or failed construction.",
+    "When the flag or full-access subscription gate closes before execution, owned unbuilt work is removed; no-parent work creates no failed run, while an already-started parent is terminalized with bounded gate_closed attribution."
   ],
   "invariants": [
     "Watch-mode sends nothing and performs no external API call.",
     "The batch candidate window contains at most 5,000 distinct contacts and rotates by least-recently-evaluated ask before latest-visit ordering.",
     "Simulated contact history and priorBatch include only prior asks with status='send'; velocity_banked and every other withhold never start MIN_GAP_DAYS.",
     "Batch construction is atomic with originating outbox completion: no partial asks, child runs, parent terminal attribution, or built_at can commit.",
-    "A stale outbox attempt writes no batch decisions; ownership CAS precedes the coupled construction transaction.",
+    "A stale outbox attempt creates no parent and writes no batch decisions; the exact dispatched outbox attempt is locked before any batch or run mutation, and completion CAS precedes the coupled construction transaction.",
     "Concurrent batch builds for one Business serialize before reading ask history so the later batch observes the earlier would-have-sent inclusions.",
     "The existing agent_runs_one_active_per_subject predicate remains byte-for-byte WHERE status = 'running', and agent_runs keeps its three-state status enum.",
     "Every new schema relationship is tenant-safe, owner reads are RLS-protected, and all domain queries are explicitly Business-scoped.",
     "Only subscriptionGrantsFullAccess statuses execute the worker; trialing remains fully entitled.",
+    "Feature-flag and subscription gates are rechecked on every attempt; a gate-closed attempt never evaluates candidates, even when it must terminalize an already-started parent.",
     "Solicitation asks outlive 180-day run archival through agent_run_id ON DELETE SET NULL.",
+    "Owner SELECT access to solicitation_batches requires built_at IS NOT NULL in the RLS predicate, not only in a future read-model query.",
+    "Authoritative solicitation_asks rows are inserted before their child spine rows, then linked to agent_run_id in the same atomic transaction.",
+    "Account offboarding removes batches and asks through the contact_csv_uploads cascade and verifies both tables are absent.",
     "All run-spine JSONB detail and failure metadata contains ids, enums, and counts only, never contact PII.",
     "Migration 088 is additive/re-runnable, uses UUIDv7 application-supplied primary keys, and is not applied ahead of the high-risk staging ride."
   ],
@@ -38,9 +42,11 @@
     "The accumulated pool exceeds 5,000 contacts and bounded windows must rotate without cursor state.",
     "Two uploads for one Business finish close together and their batch jobs run concurrently.",
     "The BullMQ job retries after construction committed but before its process returned.",
+    "A committed retry observes built_at before parent creation and cannot leak a second running parent.",
     "The BullMQ job crashes during construction and the transaction rolls back while the parent remains reusable.",
     "The feature flag or subscription entitlement closes after ingest created the unbuilt batch but before the build job starts.",
-    "A stale BullMQ attempt loses outbox ownership while a newer attempt exists.",
+    "The feature flag or subscription entitlement closes after an earlier attempt already started the parent; the owned retry deletes the unbuilt batch and fails that parent with gate_closed attribution.",
+    "A stale BullMQ attempt loses outbox ownership before parent preparation while a newer attempt exists.",
     "The job exhausts retries after the parent was started.",
     "A completed upload is replayed and must not create a second batch or outbox row.",
     "A structurally failed or subscription-inactive upload creates no batch.",
@@ -50,10 +56,11 @@
   "existing_patterns_to_follow": [
     "src/lib/agents/run-spine.ts as the only writer seam for agent_runs, agent_run_steps, and agent_outcomes; commitWeeklyInsightsDigest as the same-transaction terminal-attribution precedent.",
     "src/lib/solicitation/ingest.ts and worker/jobs/csv-ingest/ as the transaction, per-Business advisory-lock, subscription-gate, structured-log, and exhaustion-hook precedents.",
-    "src/lib/shared/job-outbox-helpers.ts plus src/lib/shared/outbox.ts for typed outbox enqueue and ownership-checked completion.",
+    "src/lib/shared/job-outbox-helpers.ts plus src/lib/shared/outbox.ts for typed outbox enqueue, exact-attempt preparation locking, and ownership-checked completion.",
     "supabase/migrations/071_agent_run_spine.sql, 074_trust_dial_veto_window.sql, and 086_solicitation_contacts.sql for CHECK widening, partial-index predicate preservation, UUIDv7, composite tenant FKs, and owner-read-only RLS.",
     "scripts/ci/tenant-tables.ts and docs/security/rls-inventory.md for new tenant-table registration.",
-    "src/lib/solicitation/restraint-policy.ts evaluateBatch as the pure deterministic decision seam."
+    "src/lib/solicitation/restraint-policy.ts evaluateBatch as the pure deterministic decision seam.",
+    "src/lib/account-offboarding/table-disposition.ts, purge-verification.ts, and worker/jobs/account-offboarding/purge-stages.ts for mandatory hard-delete inventory, verification, and cascade coverage."
   ],
   "allowed_edit_surface": [
     "CONTEXT.md",
@@ -72,13 +79,22 @@
     "src/lib/shared/queue-names.ts",
     "src/lib/shared/worker-types.ts",
     "src/lib/shared/job-outbox-helpers.ts",
+    "src/lib/shared/outbox.ts",
     "src/lib/shared/__tests__/job-outbox-helpers.test.ts",
+    "src/lib/shared/__tests__/outbox.test.ts",
     "src/lib/shared/__tests__/migration-088-*.integration.test.ts",
     "src/lib/solicitation/ingest.ts",
     "src/lib/solicitation/batch-builder.ts",
     "src/lib/solicitation/__tests__/ingest.integration.test.ts",
     "src/lib/solicitation/__tests__/batch-builder.test.ts",
     "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+    "src/lib/account-offboarding/table-disposition.ts",
+    "src/lib/account-offboarding/purge-verification.ts",
+    "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+    "src/lib/account-offboarding/__tests__/purge-verification.test.ts",
+    "worker/jobs/account-offboarding/purge-stages.ts",
+    "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
+    "worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts",
     "worker/jobs/solicitation-batch/**",
     "worker/queues.ts",
     "worker/index.ts"
@@ -93,25 +109,28 @@
     "priorBatch reads only would-have-sent asks and never velocity_banked decisions",
     "build_solicitation_batch atomically records decisions and completes the parent and owned outbox",
     "concurrent location batches serialize so the later batch observes earlier would-have-sent history",
-    "retry after committed construction does not duplicate asks or child runs",
-    "build_solicitation_batch removes unbuilt work when the flag or subscription gate closes",
-    "build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden"
+    "retry after committed construction does not create an extra parent or duplicate asks or child runs",
+    "build_solicitation_batch removes no-parent unbuilt work when the flag or subscription gate closes",
+    "build_solicitation_batch gate closure after parent start completes the owned outbox and fails that parent as gate_closed",
+    "lockDispatchedOutboxAttemptIfOwned prevents a stale build attempt from creating a parent",
+    "build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden",
+    "account offboarding purge cascades from contact uploads through Solicitation batches and asks"
   ],
   "verification_commands": [
-    "pnpm exec vitest run src/lib/agents/__tests__/run-spine.test.ts src/lib/shared/__tests__/job-outbox-helpers.test.ts src/lib/solicitation/__tests__/batch-builder.test.ts worker/jobs/solicitation-batch/__tests__",
+    "pnpm exec vitest run src/lib/agents/__tests__/run-spine.test.ts src/lib/shared/__tests__/job-outbox-helpers.test.ts src/lib/shared/__tests__/outbox.test.ts src/lib/solicitation/__tests__/batch-builder.test.ts worker/jobs/solicitation-batch/__tests__",
     "pnpm exec vitest run src/lib/agents/__tests__/run-spine.integration.test.ts src/lib/solicitation/__tests__/ingest.integration.test.ts src/lib/solicitation/__tests__/batch-builder.integration.test.ts src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts",
     "pnpm ci:outbox-topics",
     "pnpm ci:rls-audit",
     "pnpm ci:tenant-scope",
     "pnpm build"
   ],
-  "estimated_diff_size": "approximately 1,300 lines: about 750 production/schema lines plus 550 focused tests and documentation",
+  "estimated_diff_size": "approximately 1,500 lines: about 825 production/schema lines plus 675 focused tests and documentation",
   "dependencies_added": [],
   "rollback_plan": "Default-off SOLICITATION_WATCH_ENABLED is the immediate rollback: keep or flip it false so no new batches trigger and queued unbuilt work self-removes. Revert worker and trigger code before any schema rollback. Migration 088 is additive and immutable after application; leave its nullable column/tables in place in production unless an explicit pre-data destructive rollback is approved. If removal is required before meaningful data exists, create a new follow-up migration (never edit 088) that restores the prior CHECKs, drops parent_run_id only after code rollback, and drops solicitation_asks then solicitation_batches. Apply any rollback staging first, then production in lockstep. #546 remains blocked until #543 lands.",
   "observability": [
     "Structured worker logs include batch_id, business_id, selected_count, send_count, withhold counts by closed reason, and retry/skip outcome without contact PII.",
     "solicitation_batch_built agent outcome records unit_count equal to selected candidates on the parent run.",
-    "Exhausted failures mark the parent run failed with bounded metadata and leave the failed build_solicitation_batch outbox row visible to existing failed-topic health checks and Sentry worker lifecycle capture.",
+    "Exhausted failures mark the parent run failed with bounded metadata and leave the failed build_solicitation_batch outbox row visible to existing failed-topic health checks and Sentry worker lifecycle capture; intentional gate closure after parent start records bounded gate_closed attribution and completes the owned outbox.",
     "built_at NULL versus non-NULL provides an introspectable pending/complete construction fact without a stored lifecycle status."
   ],
   "open_questions": []
