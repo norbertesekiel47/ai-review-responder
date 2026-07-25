@@ -4,10 +4,13 @@
 
 - Branch: `feat/competitor-delta-539`
 - Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-competitor-delta-539`
-- Phase: unified review complete; final `--review` gate refresh pending at the
-  handoff-update HEAD, then set machine phase to `reviewed`
+- Phase: `reviewed`
+- Reviewed implementation HEAD before this handoff-only update: `98bf1b82`
 - Enforcement: armed; edit-surface and stop-gate probes both returned the required exit code 2 after plan sign-off.
 - Plan review: adversarial round 1 `REVISE`; round 2 `APPROVED`.
+- Upstream moved during review: `origin/main` is one docs-only commit ahead
+  (`414ac17e`, architecture-review log). Sync the feature branch with current
+  `origin/main` and rerun the review gate before the staging ride.
 
 ## Read in this order
 
