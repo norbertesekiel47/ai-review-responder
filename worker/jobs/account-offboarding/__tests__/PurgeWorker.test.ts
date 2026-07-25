@@ -337,6 +337,8 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(contactCsvUploadsDelete?.scope).toBe('tx');
     expect(sqlText).not.toContain('DELETE FROM solicitation_contacts');
     expect(sqlText).not.toContain('DELETE FROM solicitation_visits');
+    expect(sqlText).not.toContain('DELETE FROM solicitation_batches');
+    expect(sqlText).not.toContain('DELETE FROM solicitation_asks');
     // Agent run spine tables are hard_delete/must_be_absent (accounts rows are
     // retained de-identified, so their ON DELETE CASCADE never fires) — the
     // purge must delete outcomes then runs explicitly; agent_run_steps cascades

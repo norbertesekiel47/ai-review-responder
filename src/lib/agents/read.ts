@@ -4,7 +4,11 @@ import type { EscalationStatus } from '@/lib/escalations/types';
 import type { TriageOutput, TriageSeverity } from '@/lib/reviews/triage-schema';
 import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
 import { dashboardWindowParams, type DashboardWindow } from '@/lib/kpi/types';
-import type { AgentOutcomeKind, AgentPersona } from './run-spine';
+import type {
+  AgentOutcomeKind,
+  AgentPersona,
+  AttributedAgentPersona,
+} from './run-spine';
 
 export type RunDisplayState =
   | 'in_progress'
@@ -159,7 +163,7 @@ type OutcomeRow = {
 };
 
 type TeamSummaryRow = {
-  attributed_agent: AgentPersona;
+  attributed_agent: AttributedAgentPersona;
   outcome_kind: AgentOutcomeKind;
   n: number;
 };

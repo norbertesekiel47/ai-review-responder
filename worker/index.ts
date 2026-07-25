@@ -27,6 +27,8 @@ import { handleJudgeVerdict } from './jobs/judge/JudgeWorker';
 import { handleJudgeFailed } from './jobs/judge/failed-hook';
 import { handleCsvIngest } from './jobs/csv-ingest';
 import { handleCsvIngestFailed } from './jobs/csv-ingest/failed-hook';
+import { handleSolicitationBatch } from './jobs/solicitation-batch';
+import { handleSolicitationBatchFailed } from './jobs/solicitation-batch/failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -51,6 +53,7 @@ import type {
   JudgeVerdictPayload,
   PublishResponsePayload,
   CsvIngestPayload,
+  BuildSolicitationBatchPayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -279,6 +282,21 @@ const csvIngestWorker = new Worker<CsvIngestPayload>(
 
 csvIngestWorker.on('failed', (job, err) => handleCsvIngestFailed(sql, job, err));
 
+// Solicitation watch-mode logical fan-out (#543). Default BullMQ concurrency
+// is one slot: each bounded build may evaluate up to 5,000 candidates and
+// same-Business serialization remains owned by the batch-builder transaction.
+const solicitationBatchWorker = new Worker<BuildSolicitationBatchPayload>(
+  QUEUE_NAMES.BUILD_SOLICITATION_BATCH,
+  withJobLogContext<BuildSolicitationBatchPayload>((job) =>
+    handleSolicitationBatch(sql, job),
+  ),
+  workerOpts,
+);
+
+solicitationBatchWorker.on('failed', (job, err) =>
+  handleSolicitationBatchFailed(sql, job, err),
+);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -391,6 +409,7 @@ const workersByQueue = {
   [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: autonomyAdminAlertWorker,
   [QUEUE_NAMES.JUDGE_VERDICT]: judgeVerdictWorker,
   [QUEUE_NAMES.CSV_INGEST]: csvIngestWorker,
+  [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: solicitationBatchWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

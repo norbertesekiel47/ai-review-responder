@@ -15,26 +15,42 @@ import {
   STEP_PERSONA,
   personaForStep,
   startOrGetActiveRun,
+  startOrGetSolicitationBatchRun,
   findActiveReviewRun,
+  recordCompletedChildRuns,
   recordStep,
   recordOutcome,
   completeRun,
+  completeSolicitationBatchRun,
+  failSolicitationBatchRun,
 } from '../run-spine';
 
 describe('run-spine constants', () => {
-  it('exposes the three customer personas plus system', () => {
-    expect(AGENT_PERSONAS).toEqual(['reply', 'guardian', 'insights', 'system']);
+  it('exposes the customer personas plus system', () => {
+    expect(AGENT_PERSONAS).toEqual([
+      'reply',
+      'guardian',
+      'insights',
+      'solicitation',
+      'system',
+    ]);
   });
 
-  it('run kinds match migration 071 CHECK', () => {
-    expect(AGENT_RUN_KINDS).toEqual(['review_handler', 'weekly_insights']);
+  it('run kinds match migration 088 CHECK', () => {
+    expect(AGENT_RUN_KINDS).toEqual([
+      'review_handler',
+      'weekly_insights',
+      'solicitation_batch',
+      'solicitation_ask',
+    ]);
   });
 
-  it('outcome kinds match the migration 074 CHECK (071 superset + reply_vetoed_by_owner)', () => {
+  it('outcome kinds match the migration 088 CHECK', () => {
     expect(AGENT_OUTCOME_KINDS).toEqual([
       'reply_drafted', 'reply_posted', 'reply_auto_posted',
       'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
       'review_escalated', 'escalation_resolved', 'digest_sent',
+      'solicitation_batch_built',
     ]);
   });
 });
@@ -58,6 +74,8 @@ describe('persona map', () => {
     expect(personaForStep('escalation_raised')).toBe('guardian');
     expect(personaForStep('escalation_sent')).toBe('guardian');
     expect(personaForStep('digest_sent')).toBe('insights');
+    expect(personaForStep('ask_evaluated')).toBe('solicitation');
+    expect(personaForStep('batch_built')).toBe('solicitation');
   });
 });
 
@@ -147,6 +165,90 @@ describe('startOrGetActiveRun', () => {
       accountId: 'acct-1',
       businessId: 'biz-1',
     })).rejects.toThrow(/active run/i);
+  });
+
+  it('startOrGetActiveRun records Solicitation parent linkage without changing the active-run conflict predicate', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'ask-run-1' }]));
+
+    const out = await startOrGetActiveRun(tx(harness), {
+      kind: 'solicitation_ask',
+      subjectType: 'solicitation_ask',
+      subjectId: 'ask-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      parentRunId: 'batch-run-1',
+    });
+
+    expect(out).toEqual({ runId: 'ask-run-1', created: true });
+    const insert = harness.sqlCalls[0]!;
+    expect(insert.text).toContain('parent_run_id');
+    expect(insert.values).toContain('batch-run-1');
+    expect(insert.text).toContain(
+      "ON CONFLICT (kind, subject_type, subject_id) WHERE status = 'running'",
+    );
+  });
+});
+
+describe('startOrGetSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('starts the Solicitation parent through a batch-specific spine seam', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'batch-run-1' }]));
+
+    const out = await startOrGetSolicitationBatchRun(tx(harness), {
+      batchId: 'batch-1',
+      accountId: 'account-1',
+      businessId: 'business-1',
+      correlationId: 'correlation-1',
+    });
+
+    expect(out).toEqual({ runId: 'batch-run-1', created: true });
+    const insert = harness.sqlCalls[0]!;
+    expect(insert.text).toContain('INSERT INTO agent_runs');
+    expect(insert.values).toContain('solicitation_batch');
+    expect(insert.values).toContain('batch-1');
+    expect(insert.values).toContain('correlation-1');
+  });
+});
+
+describe('recordCompletedChildRuns', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('recordCompletedChildRuns bulk-writes one completed child and ask_evaluated step per ask', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'child-run-1' }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'step-1' }]));
+
+    await recordCompletedChildRuns(tx(harness), {
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+      parentRunId: 'batch-run-1',
+      children: [
+        {
+          runId: 'child-run-1',
+          askId: 'ask-1',
+          decision: 'withhold',
+          withheldReason: 'velocity_banked',
+        },
+      ],
+    });
+
+    expect(harness.sqlCalls).toHaveLength(2);
+    const [runs, steps] = harness.sqlCalls;
+    expect(runs!.text).toContain('INSERT INTO agent_runs');
+    expect(runs!.text).toContain('FROM unnest(');
+    expect(runs!.text).toContain("'solicitation_ask'");
+    expect(runs!.text).toContain("'completed'");
+    expect(runs!.values).toContainEqual(['child-run-1']);
+    expect(runs!.values).toContainEqual(['ask-1']);
+    expect(steps!.text).toContain('INSERT INTO agent_run_steps');
+    expect(steps!.text).toContain('FROM unnest(');
+    expect(steps!.text).toContain("'ask_evaluated'");
+    expect(steps!.text).toContain("'solicitation'");
+    expect(steps!.values).toContainEqual(['velocity_banked']);
+    expect(harness.sqlCalls.map((call) => call.text).join('\n'))
+      .not.toContain('solicitation_asks');
   });
 });
 
@@ -267,5 +369,89 @@ describe('completeRun', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([])); // probe: no row
     await expect(completeRun(tx(harness), 'missing', 'completed'))
       .rejects.toThrow(/run not found/i);
+  });
+});
+
+describe('completeSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('atomically records the batch aggregate, zero-unit outcome, and completion through one Solicitation seam', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ ok: 1 }]),
+      mkTaggedResult([{ next_index: 1 }]),
+      mkTaggedResult([]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ id: 'parent-run-1' }]),
+    );
+
+    await completeSolicitationBatchRun(tx(harness), {
+      runId: 'parent-run-1',
+      accountId: 'account-1',
+      businessId: 'business-1',
+      batchId: 'batch-1',
+      candidateCount: 0,
+      sendCount: 0,
+      withholdCount: 0,
+      withheldByReason: {
+        no_consent: 0,
+        suppressed: 0,
+        already_reviewed: 0,
+        stale_visit: 0,
+        over_contacted: 0,
+        velocity_banked: 0,
+      },
+    });
+
+    expect(harness.sqlCalls).toHaveLength(5);
+    const [lock, , step, outcome, completion] = harness.sqlCalls;
+    expect(lock!.text).toContain('FOR UPDATE');
+    expect(step!.text).toContain('INSERT INTO agent_run_steps');
+    expect(step!.values).toContain('batch_built');
+    expect(step!.values).toContainEqual({
+      batch_id: 'batch-1',
+      candidate_count: 0,
+      send_count: 0,
+      withhold_count: 0,
+      withheld_by_reason: {
+        no_consent: 0,
+        suppressed: 0,
+        already_reviewed: 0,
+        stale_visit: 0,
+        over_contacted: 0,
+        velocity_banked: 0,
+      },
+    });
+    expect(outcome!.text).toContain('INSERT INTO agent_outcomes');
+    expect(outcome!.values).toContain('solicitation_batch_built');
+    expect(outcome!.values).toContain(0);
+    expect(completion!.text).toContain('UPDATE agent_runs');
+    expect(completion!.values).toContain('completed');
+  });
+});
+
+describe('failSolicitationBatchRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('records bounded gate-closure attribution while failing the parent', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'parent-run-1' }]));
+
+    await failSolicitationBatchRun(tx(harness), {
+      runId: 'parent-run-1',
+      failure: {
+        code: 'gate_closed',
+        gate: 'account_offboarding_blocked',
+      },
+    });
+
+    expect(harness.sqlCalls).toHaveLength(1);
+    const transition = harness.sqlCalls[0]!;
+    expect(transition.text).toContain('UPDATE agent_runs');
+    expect(transition.values).toContain('failed');
+    expect(transition.values).toContainEqual({
+      code: 'gate_closed',
+      gate: 'account_offboarding_blocked',
+    });
   });
 });

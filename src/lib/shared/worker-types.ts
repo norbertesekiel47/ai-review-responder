@@ -302,3 +302,13 @@ export interface CsvIngestPayload extends BasePayload {
   upload_id: string;
   business_id: string;
 }
+
+/**
+ * BuildSolicitationBatchPayload — emitted after a contact CSV upload reaches
+ * completed status and creates its unbuilt Solicitation batch in the same
+ * transaction. IDs only; the worker reads the accumulated location pool.
+ */
+export interface BuildSolicitationBatchPayload extends BasePayload {
+  batch_id: string;
+  business_id: string;
+}

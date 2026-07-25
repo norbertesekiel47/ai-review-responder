@@ -23,8 +23,10 @@
 // mock transport short-circuits both. All env mutations are restored in
 // afterAll so later files in the same worker see the original values.
 
-import { it, expect, afterAll, vi } from 'vitest';
+import { it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // ── Point the production `sql` singleton at the test DB BEFORE app imports ───
 // Mirrors integration-edit-existing-reply.test.ts: `src/lib/db/server.ts`
@@ -97,6 +99,23 @@ import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-
 // so `RUN` is the authoritative gate — passed to describeWithDb as `enabled`.
 // It is also read in afterAll below, so it stays a named const.
 const RUN = !!testDbUrl;
+
+beforeAll(async () => {
+  if (!RUN) return;
+  const parsed = new URL(testDbUrl!);
+  if (
+    (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') ||
+    (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1')
+  ) {
+    throw new Error('offboarding migration 088 setup requires a local test database');
+  }
+  await getE2eSql().unsafe(
+    readFileSync(
+      resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
+      'utf8',
+    ),
+  );
+});
 
 afterAll(async () => {
   if (RUN) await closeSeedDb();
@@ -369,7 +388,7 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
     }
   });
 
-  it('purge worker completes with shortened non-production window', async () => {
+  it('account offboarding purge cascades from contact uploads through Solicitation batches and asks', async () => {
     const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
     try {
       const sql = getE2eSql();
@@ -382,6 +401,8 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       const contactsCsvUploadId = randomUUID();
       const contactsCsvContactId = randomUUID();
       const contactsCsvVisitId = randomUUID();
+      const solicitationBatchId = randomUUID();
+      const solicitationAskId = randomUUID();
       await sql.begin(async (tx) => {
         await tx`
           INSERT INTO contact_csv_uploads (
@@ -424,6 +445,37 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
             ${seed.businessId}::uuid,
             CURRENT_DATE,
             ${contactsCsvUploadId}::uuid
+          )
+        `;
+        await tx`
+          INSERT INTO solicitation_batches (
+            id, account_id, business_id, source_upload_id, built_at
+          ) VALUES (
+            ${solicitationBatchId}::uuid,
+            ${seed.accountId}::uuid,
+            ${seed.businessId}::uuid,
+            ${contactsCsvUploadId}::uuid,
+            NOW()
+          )
+        `;
+        await tx`
+          INSERT INTO solicitation_asks (
+            id, account_id, business_id, batch_id, contact_id,
+            status, evidence, decided_at
+          ) VALUES (
+            ${solicitationAskId}::uuid,
+            ${seed.accountId}::uuid,
+            ${seed.businessId}::uuid,
+            ${solicitationBatchId}::uuid,
+            ${contactsCsvContactId}::uuid,
+            'send',
+            ${tx.json({
+              contact_id: contactsCsvContactId,
+              policy_version: 'purge-fixture',
+              decided_at: '2026-07-24T00:00:00.000Z',
+              decision: 'send',
+            } as never)},
+            NOW()
           )
         `;
       });
@@ -559,6 +611,14 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
         SELECT COUNT(*) AS count FROM solicitation_visits WHERE business_id = ${seed.businessId}::uuid
       `;
       expect(Number(solicitationVisitsRemaining?.count ?? 0)).toBe(0);
+      const [solicitationBatchesRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_batches WHERE account_id = ${seed.accountId}::uuid
+      `;
+      expect(Number(solicitationBatchesRemaining?.count ?? 0)).toBe(0);
+      const [solicitationAsksRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_asks WHERE account_id = ${seed.accountId}::uuid
+      `;
+      expect(Number(solicitationAsksRemaining?.count ?? 0)).toBe(0);
 
       const offboardingHash = createHash('sha256').update(offboardingId).digest('hex');
       const [purgedEvent] = await sql<{

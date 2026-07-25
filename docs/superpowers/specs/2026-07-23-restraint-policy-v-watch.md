@@ -46,6 +46,12 @@ is covered by construction. Like `suppressed`, the code ships (and #542
 contract-tests it) purely for enum stability against send-mode, where per-row
 consent semantics (the open counsel question, #531 §6.1) can make it live.
 
+`already_reviewed` also has no truthful v-watch source: reviews do not carry a
+contact email/phone identity, and deterministic-only v1 forbids fuzzy or
+name-based matching. The #543 executor therefore passes
+`matchedReview: null`. The reason stays in the stable enum for the later
+attribution source; this ticket does not widen schema to manufacture one.
+
 ## 2. Precedence — first-match wins
 
 Gates are evaluated in a fixed order and short-circuit on the first failure;

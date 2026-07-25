@@ -150,11 +150,13 @@ describe('account offboarding table disposition inventory', () => {
     }
   });
 
-  it('offboarding purge sweeps uploads, contacts, and visits', () => {
+  it('offboarding purge sweeps uploads, contacts, visits, batches, and asks', () => {
     const contactsCsvTables = [
       'contact_csv_uploads',
       'solicitation_contacts',
       'solicitation_visits',
+      'solicitation_batches',
+      'solicitation_asks',
     ] as const;
 
     for (const table of contactsCsvTables) {

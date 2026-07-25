@@ -8,6 +8,14 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  acquireFeature543DatabaseLock,
+  assertFeature543LocalTestDatabaseUrl,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  resolveFeature543TestDatabaseUrl,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
   ingestContactsCsvUpload,
@@ -16,35 +24,16 @@ import {
   type IngestReport,
 } from '../ingest';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('csv ingest integration database was not initialized');
   return db;
-}
-
-// Local-host refusal guard (mirrors the governor integration suite): any
-// localhost/127.0.0.1 Postgres is accepted, everything else — notably any
-// Supabase/pooler host — is refused. Never widen this to remote hosts.
-function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
-  let parsed: URL | undefined;
-  try {
-    parsed = databaseUrl === undefined ? undefined : new URL(databaseUrl);
-  } catch {
-    parsed = undefined;
-  }
-  const isLocalPostgres =
-    parsed !== undefined &&
-    (parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:') &&
-    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
-  if (databaseUrl === undefined || !isLocalPostgres) {
-    throw new Error('csv ingest integration requires a local (localhost) test database');
-  }
-  return databaseUrl;
 }
 
 async function seedUpload(csvText: string): Promise<string> {
@@ -81,9 +70,14 @@ async function countRows(table: 'solicitation_contacts' | 'solicitation_visits')
 
 const HEADER = 'name,email,phone,last_visit_date,note';
 
-describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_000 }, () => {
+describeWithDb('contacts CSV ingest against live local Postgres', {
+  enabled: Boolean(testDatabaseUrl),
+  timeout: 30_000,
+}, () => {
   beforeAll(async () => {
-    db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'CSV Ingest Integration Owner',
       accountDisplayName: 'CSV Ingest Integration Account',
@@ -99,20 +93,35 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
         'active'
       )
     `;
-  });
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
+    await sql()`
+      DELETE FROM job_outbox
+      WHERE aggregate_type = 'solicitation_batch'
+        AND payload->>'business_id' = ${businessId}
+    `;
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
+    delete process.env.SOLICITATION_WATCH_ENABLED;
   });
 
   afterAll(async () => {
-    if (!db) return;
-    await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    if (tenant) await cleanupTenantAccount(db, tenant);
-    await db.end();
-  });
+    try {
+      if (db) {
+        await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        if (tenant) await cleanupTenantAccount(db, tenant);
+      }
+    } finally {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
+      }
+    }
+  }, 120_000);
 
   it('re-uploading an overlapping export adds no new visits and reports duplicate_visit', async () => {
     const firstCsv = [
@@ -259,6 +268,130 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
     const retried = await ingestContactsCsvUpload(sql(), uploadId, businessId);
     expect(retried).toEqual(report);
     expect(await countRows('solicitation_visits')).toBe(1);
+  });
+
+  it('completed CSV ingest creates exactly one unbuilt batch and build_solicitation_batch outbox row when watch-mode is enabled', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+
+    const report = await runIngest(uploadId);
+
+    const rows = await sql()<{
+      batch_id: string;
+      source_upload_id: string;
+      built_at: string | null;
+      topic: string;
+      aggregate_id: string;
+      payload: unknown;
+    }[]>`
+      SELECT
+        batch.id::text AS batch_id,
+        batch.source_upload_id::text AS source_upload_id,
+        batch.built_at::text AS built_at,
+        outbox.topic,
+        outbox.aggregate_id::text AS aggregate_id,
+        outbox.payload
+      FROM solicitation_batches batch
+      JOIN job_outbox outbox
+        ON outbox.aggregate_id = batch.id
+       AND outbox.aggregate_type = 'solicitation_batch'
+      WHERE batch.source_upload_id = ${uploadId}::uuid
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      source_upload_id: uploadId,
+      built_at: null,
+      topic: QUEUE_NAMES.BUILD_SOLICITATION_BATCH,
+      aggregate_id: rows[0]!.batch_id,
+    });
+    expect(rows[0]!.payload).toMatchObject({
+      batch_id: rows[0]!.batch_id,
+      business_id: businessId,
+    });
+
+    expect(await ingestContactsCsvUpload(sql(), uploadId, businessId)).toEqual(report);
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id = ${uploadId}::uuid)::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND aggregate_id = ${rows[0]!.batch_id}::uuid)::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '1', outbox_count: '1' });
+  });
+
+  it('completed CSV ingest creates no batch or build outbox when watch-mode is disabled', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'false';
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+
+    await runIngest(uploadId);
+
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id = ${uploadId}::uuid)::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND payload->>'business_id' = ${businessId})::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '0', outbox_count: '0' });
+  });
+
+  it('failed and subscription-inactive uploads create no batch or build outbox', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const structurallyFailedUploadId = await seedUpload([
+      'name,email',
+      'Ada Lovelace,ada@example.com',
+    ].join('\n'));
+    const inactiveUploadId = await seedUpload([
+      HEADER,
+      'Bob Byrne,,4155552671,2026-01-06,',
+    ].join('\n'));
+
+    const failedReport = await runIngest(structurallyFailedUploadId);
+    await terminalizeUploadForInactiveSubscription(sql(), inactiveUploadId, businessId);
+
+    expect(failedReport.structuralFailure).not.toBeNull();
+    const uploads = await sql()<{ id: string; status: string }[]>`
+      SELECT id::text AS id, status
+      FROM contact_csv_uploads
+      WHERE id IN (${structurallyFailedUploadId}::uuid, ${inactiveUploadId}::uuid)
+      ORDER BY id
+    `;
+    expect(uploads).toEqual(
+      [
+        { id: structurallyFailedUploadId, status: 'failed' },
+        { id: inactiveUploadId, status: 'failed' },
+      ].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    const [counts] = await sql()<{
+      batch_count: string;
+      outbox_count: string;
+    }[]>`
+      SELECT
+        (SELECT COUNT(*) FROM solicitation_batches
+         WHERE source_upload_id IN (
+           ${structurallyFailedUploadId}::uuid,
+           ${inactiveUploadId}::uuid
+         ))::text AS batch_count,
+        (SELECT COUNT(*) FROM job_outbox
+         WHERE aggregate_type = 'solicitation_batch'
+           AND payload->>'business_id' = ${businessId})::text AS outbox_count
+    `;
+    expect(counts).toEqual({ batch_count: '0', outbox_count: '0' });
   });
 
   it('terminalizes a pending upload with a subscription_inactive report and clears the raw CSV', async () => {

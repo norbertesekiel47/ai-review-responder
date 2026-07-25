@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **087** — next migration is **088**
+Current head: **088** — next migration is **089**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -32,6 +32,8 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `account_audit_log` | **keep forever** — deliberate | none (compliance/audit surface) |
 | `approval_audit_log` | **keep forever** — deliberate | none (backs invariant #3's recorded-approval evidence chain) |
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
+| `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
+| `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
 
 Revisit triggers:
 
@@ -965,6 +967,34 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **088** — Solicitation batch executor persistence foundation (#543 plan T1;
+  ADR 0011). Adds nullable `agent_runs.parent_run_id` with `ON DELETE SET NULL`
+  plus its partial RI-support index. Widens only the run kind/subject pairing,
+  attributed-agent, and outcome/unit-count CHECKs for the
+  `solicitation_batch` parent, `solicitation_ask` completed children,
+  `solicitation` persona, and `solicitation_batch_built` outcome. The
+  three-state run status enum and `agent_runs_one_active_per_subject WHERE
+  status = 'running'` remain unchanged. Zero `agent_outcomes.unit_count` is
+  legal only for an empty `solicitation_batch_built` aggregate; every prior
+  outcome kind remains strictly positive.
+
+  Creates `solicitation_batches` (one per source upload) and
+  `solicitation_asks` (one authoritative send/withhold decision per candidate
+  per batch), with app-supplied UUIDv7 ids, composite account/Business/source
+  upload/contact FKs, source-upload idempotency, the closed six-reason withhold
+  domain, and archival-safe `solicitation_asks.agent_run_id ON DELETE SET
+  NULL`. Candidate-window indexes cover the accumulated Business pool and
+  latest visit; separate any-decision and partial `status = 'send'` history
+  indexes ensure simulated contact history never starts from
+  `velocity_banked` or another withhold. Owner-read-only RLS covers both
+  tables, and the `solicitation_batches_owner_select` policy itself requires
+  `built_at IS NOT NULL`. Account offboarding hard-deletes both through the
+  `contact_csv_uploads → solicitation_batches → solicitation_asks` cascade and
+  verifies both tables fail-closed before stamping purge complete. Additive,
+  transactional, and re-runnable; not remotely applied by T1. Apply staging
+  first only when #543 reaches its high-risk staging migration step, then
+  production at promotion in lockstep.
+
 - **087** — Covering indexes for the three un-indexed FK columns from 086
   (#541, PR #564 review): `solicitation_contacts (created_by_upload_id)`,
   `solicitation_visits (upload_id)`, `contact_csv_uploads
@@ -1193,6 +1223,8 @@ Revisit triggers:
 | `contact_csv_uploads` | One row per Contacts/visits CSV upload (#541, migration 086): transport fields (`raw_csv`, NULLed at terminal state), status machine, terminal `report JSONB`, and the per-upload consent attestation. Owner-read-only RLS keyed on `account_id`. |
 | `solicitation_contacts` | Deduped contact identity keyed `(business_id, normalized handle)` (migration 086); two partial unique indexes (email, phone) enforce identity. Business-scoped only — no denormalized `account_id`. Owner-read-only RLS via `businesses`. |
 | `solicitation_visits` | Append-only visit ledger, unique on `(contact_id, visit_date)` (migration 086) — re-uploads are idempotent by construction. Composite FK to `solicitation_contacts (id, business_id)` enforces same-location integrity. Owner-read-only RLS via `businesses`. |
+| `solicitation_batches` | Evaluated Solicitation cohort + lifecycle parent (migration 088). One row per source upload; `built_at IS NULL` is pending construction and is hidden by owner RLS. |
+| `solicitation_asks` | Authoritative per-candidate send/withhold decisions (migration 088). Child run is attribution only; `agent_run_id ON DELETE SET NULL` preserves asks through run archival. |
 
 ## Response Status Values
 

@@ -29,6 +29,11 @@ export const TENANT_TABLES = [
   'contact_csv_uploads',
   'solicitation_contacts',
   'solicitation_visits',
+  // Owner-read-only RLS (migration 088, #543 Solicitation executor).
+  // Batch SELECT also requires built_at IS NOT NULL at the policy layer so
+  // partial/failed logical fan-out never becomes owner-visible.
+  'solicitation_batches',
+  'solicitation_asks',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints
