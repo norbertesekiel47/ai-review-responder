@@ -34,27 +34,38 @@ type Phase =
   /** Polling gave up. `view` is null when even the first read never answered. */
   | { kind: 'stalled'; view: BatchView | null }
   | { kind: 'error' }
-  /** 404 — watch-mode was switched off mid-session, so the route is gone. */
-  | { kind: 'gone' };
+  /**
+   * 404. Deliberately one state for two causes: watch-mode was switched off
+   * mid-session, OR the selected location no longer resolves (archived, or a
+   * stale `rw_location_scope` cookie — `resolveDashboardLocation`'s
+   * uniform-not-found). The two MUST stay indistinguishable (invariant #13: the
+   * surface does not exist when the flag is off), so the copy names neither.
+   */
+  | { kind: 'unavailable' };
 
 const LOADING: Phase = { kind: 'loading' };
 
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
-  const { phase, retry } = useLatestBatch(currentScope);
+  const { phase, announcement, retry } = useLatestBatch(currentScope);
 
   const builtBatchId =
     phase.kind === 'ready' && phase.view.state === 'built' ? phase.view.batchId : null;
   useReviewedPing(builtBatchId, currentScope);
-  const announcement = useCompletionAnnouncement(phase);
 
   return (
     <>
       <TopBar
         title="Requests"
         subtitle="What RepWorth would ask for — and everyone it held back, with the reason."
+        // The upload surface has to be reachable from every state of this
+        // screen, not only the empty-state CTA — the screen an owner sits on
+        // right after uploading is `building`, which has no other path to it.
+        rightLink={{ href: '/dashboard/requests/contacts', label: 'Contacts' }}
       />
-      <div className="content">
+      {/* rq-surface scopes this route's reduced-motion opt-out to every card it
+          renders, including the ones outside .rq-stack. */}
+      <div className="content rq-surface">
         {/* Mounted unconditionally: a live region only announces changes to a
             region already in the DOM, and the building screen it reports on is
             gone by the time there is anything to say. */}
@@ -78,11 +89,14 @@ function Screen({ phase, onRetry }: { phase: Phase; onRetry: () => void }) {
           onAction={onRetry}
         />
       );
-    case 'gone':
+    case 'unavailable':
+      // Cause-neutral on purpose: a 404 here means the flag is off OR the
+      // selected location no longer resolves, and naming either one would both
+      // be wrong half the time and leak flag state.
       return (
         <FailureCard
-          title="This screen is no longer available"
-          body="Review requests have been switched off for your account. Reload to get back to your dashboard."
+          title="This page isn't available right now"
+          body="We could not open Requests for the location you have selected. Reload to get back to your dashboard."
           actionLabel="Reload the page"
           onAction={() => window.location.reload()}
         />
@@ -160,13 +174,22 @@ function FailureCard({
 
 // ── Fetching and bounded polling ────────────────────────────────────────────
 
+/**
+ * Announced only for a batch that finished WHILE the owner was watching. A batch
+ * that was already built when the screen opened is not news, and announcing it
+ * on every load would train screen-reader users to ignore the region.
+ */
+const COMPLETION_ANNOUNCEMENT = 'Your batch is ready. Nothing was sent.';
+
 interface ScopedPhase {
   scope: string;
   phase: Phase;
+  /** Empty except on the poll tick that observed building → built. */
+  announcement: string;
 }
 
 /**
- * One poll loop per location scope. Three things the UploadCard precedent does
+ * One poll loop per location scope. Four things the UploadCard precedent does
  * not give for free:
  *
  * 1. The deadline is checked BEFORE the `inFlight` guard — one hung fetch
@@ -177,14 +200,32 @@ interface ScopedPhase {
  * 3. Polling runs only while the batch is `building`. An empty screen does not
  *    poll: a CSV finishing in another tab will not appear until reload, which
  *    is the accepted trade for not polling forever on an idle screen.
+ * 4. The completion announcement is produced HERE, by the loop that actually
+ *    observes the transition, and carried on the same state as the phase. A
+ *    separate mirror hook could not re-announce: a live region only announces a
+ *    CHANGE, so setting the identical string on a second building → built (via
+ *    the location switcher) is a React bail-out and says nothing. Carrying it on
+ *    the phase means every non-transition tick clears it, and `wasBuilding` is a
+ *    per-run local rather than a ref — so it cannot leak across a scope switch
+ *    and announce another location's batch as if it had just finished.
  */
-function useLatestBatch(currentScope: string): { phase: Phase; retry: () => void } {
-  const [state, setState] = useState<ScopedPhase>({ scope: currentScope, phase: LOADING });
+function useLatestBatch(currentScope: string): {
+  phase: Phase;
+  announcement: string;
+  retry: () => void;
+} {
+  const [state, setState] = useState<ScopedPhase>({
+    scope: currentScope,
+    phase: LOADING,
+    announcement: '',
+  });
   const [attempt, setAttempt] = useState(0);
 
   // A phase belonging to a superseded scope reads as loading, so no effect is
-  // needed to reset it on switch.
-  const phase = state.scope === currentScope ? state.phase : LOADING;
+  // needed to reset it on switch. The announcement is keyed the same way.
+  const superseded = state.scope !== currentScope;
+  const phase = superseded ? LOADING : state.phase;
+  const announcement = superseded ? '' : state.announcement;
 
   useEffect(() => {
     // The API rejects aggregate scope with a 400, so it is never asked.
@@ -195,6 +236,7 @@ function useLatestBatch(currentScope: string): { phase: Phase; retry: () => void
     let stopped = false;
     let inFlight = false;
     let latest: BatchView | null = null;
+    let wasBuilding = false;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const stop = () => {
@@ -208,7 +250,11 @@ function useLatestBatch(currentScope: string): { phase: Phase; retry: () => void
       if (Date.now() - startedAt > POLL_CEILING_MS) {
         stop();
         controller.abort();
-        setState({ scope: currentScope, phase: { kind: 'stalled', view: latest } });
+        setState({
+          scope: currentScope,
+          phase: { kind: 'stalled', view: latest },
+          announcement: '',
+        });
         return;
       }
       if (inFlight) return;
@@ -222,9 +268,20 @@ function useLatestBatch(currentScope: string): { phase: Phase; retry: () => void
           stop();
           return;
         }
+        const building = outcome.kind === 'ready' && outcome.view.state === 'building';
+        const justBuilt =
+          wasBuilding && outcome.kind === 'ready' && outcome.view.state === 'built';
+        wasBuilding = building;
+
         if (outcome.kind === 'ready') latest = outcome.view;
-        if (outcome.kind !== 'ready' || outcome.view.state !== 'building') stop();
-        setState({ scope: currentScope, phase: outcome });
+        // Every non-building outcome ends the loop: no_batch, built, error,
+        // unavailable and auth.
+        if (!building) stop();
+        setState({
+          scope: currentScope,
+          phase: outcome,
+          announcement: justBuilt ? COMPLETION_ANNOUNCEMENT : '',
+        });
       } finally {
         inFlight = false;
       }
@@ -239,17 +296,17 @@ function useLatestBatch(currentScope: string): { phase: Phase; retry: () => void
   }, [currentScope, attempt]);
 
   const retry = useCallback(() => {
-    setState({ scope: currentScope, phase: LOADING });
+    setState({ scope: currentScope, phase: LOADING, announcement: '' });
     setAttempt((value) => value + 1);
   }, [currentScope]);
 
-  return { phase, retry };
+  return { phase, announcement, retry };
 }
 
 type FetchOutcome =
   | { kind: 'ready'; view: BatchView }
   | { kind: 'error' }
-  | { kind: 'gone' }
+  | { kind: 'unavailable' }
   | { kind: 'auth' };
 
 /** Returns null only when the request was aborted — the caller then commits
@@ -260,7 +317,7 @@ async function fetchLatestBatch(
 ): Promise<FetchOutcome | null> {
   try {
     const response = await fetch(withSolicitationScope(BATCH_PATH, scope), { signal });
-    if (response.status === 404) return { kind: 'gone' };
+    if (response.status === 404) return { kind: 'unavailable' };
     if (response.status === 401) return { kind: 'auth' };
     if (!response.ok) {
       console.error(`[requests] batch fetch failed with ${response.status}`);
@@ -272,30 +329,6 @@ async function fetchLatestBatch(
     console.error('[requests] batch fetch could not reach the server', error);
     return { kind: 'error' };
   }
-}
-
-// ── Completion announcement ─────────────────────────────────────────────────
-
-/** Announces built-after-building only. A batch that was already built when the
- *  screen opened is not news, and announcing it on every load would train
- *  screen-reader users to ignore the region. */
-function useCompletionAnnouncement(phase: Phase): string {
-  const wasBuilding = useRef(false);
-  const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    if (phase.kind !== 'ready') return;
-    if (phase.view.state === 'building') {
-      wasBuilding.current = true;
-      return;
-    }
-    if (phase.view.state === 'built' && wasBuilding.current) {
-      wasBuilding.current = false;
-      setMessage('Your batch is ready. Nothing was sent.');
-    }
-  }, [phase]);
-
-  return message;
 }
 
 // ── reviewed_at ping ────────────────────────────────────────────────────────

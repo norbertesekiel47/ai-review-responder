@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import { WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
+import { VERTICALS, WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
 import { BatchReport } from '../BatchReport';
 
@@ -222,6 +222,38 @@ describe('BatchReport (built batch)', () => {
     expect(container.textContent).toContain('are listed in the upload report');
   });
 
+  it('never renders a raw snake_case vertical in owner-facing prose', () => {
+    // The withhold codes are deliberately verbatim; `Vertical` is not — it is an
+    // internal classification, so "for personal_care." / "for other." must never
+    // reach the owner. The sweep is scoped to the evidence line so the verbatim
+    // reason chips do not mask a regression.
+    for (const vertical of VERTICALS) {
+      const row = askRow(0, {
+        ...envelope(0),
+        decision: 'withhold',
+        reason: 'stale_visit',
+        last_visit_date: '2026-06-12',
+        days_since_visit: 43,
+        vertical,
+        matched_keyword: null,
+        freshness_window_days: 21,
+      });
+      const view = builtBatch({
+        groups: WITHHOLD_REASONS.map((reason) =>
+          reason === 'stale_visit'
+            ? { reason, total: 1, sample: [row] }
+            : { reason, total: 0, sample: [] },
+        ),
+      });
+      const { container, unmount } = render(<BatchReport view={view} />);
+      const evidence = container.querySelector('.rq-row-evidence')?.textContent ?? '';
+
+      expect(evidence).toMatch(/past the 21-day window for /);
+      expect(evidence).not.toMatch(/[a-z]+_[a-z]+/);
+      unmount();
+    }
+  });
+
   it('renders a zero-queued funnel for a built batch with no asks', () => {
     render(
       <BatchReport
@@ -253,6 +285,11 @@ describe('BatchReport styles', () => {
       'utf-8',
     );
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+    // The override must cover the whole surface wrapper, not just .rq-stack:
+    // the loading, choose-a-location and failure cards render .section-enter
+    // with no .rq-stack ancestor.
+    expect(css).toMatch(/\.rq-surface \.section-enter \{ animation: none; \}/);
+    expect(css).not.toMatch(/\.rq-stack \.section-enter/);
   });
 
   it('gives focusable targets a visible focus ring and a 44px minimum', () => {

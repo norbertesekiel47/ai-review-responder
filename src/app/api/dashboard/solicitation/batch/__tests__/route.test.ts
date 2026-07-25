@@ -182,6 +182,27 @@ describe('GET/POST /api/dashboard/solicitation/batch', () => {
     );
   });
 
+  it('logs the reviewed row count so a zero-row update is diagnosable', async () => {
+    // markBatchReviewed's whole contract is that 0 must not look like a failure
+    // NOR like a success. The route keeps answering 204 (0 rows is a legitimate
+    // "already reviewed"), so the log line is the only place a caller that
+    // omitted ?scope= — three-key UPDATE, zero rows, lost engagement signal —
+    // leaves a symptom.
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockMarkBatchReviewed.mockResolvedValue(0);
+
+    const response = await POST(reviewedRequest(withSolicitationScope('', OTHER_LOCATION_ID)));
+
+    expect(response.status).toBe(204);
+    const line = log.mock.calls
+      .map((call) => String(call[0]))
+      .find((entry) => entry.includes('batch_reviewed_ping'));
+    expect(line).toBeDefined();
+    expect(line).toContain('"rowsUpdated":0');
+    expect(line).toContain(OTHER_LOCATION_ID);
+    log.mockRestore();
+  });
+
   it('maps a malformed batchId onto the uniform 404', async () => {
     const response = await POST(reviewedRequest('', { batchId: 'not-a-uuid' }));
 

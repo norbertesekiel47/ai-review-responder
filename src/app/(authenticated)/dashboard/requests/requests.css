@@ -352,9 +352,16 @@
   .rq-group-count { margin-left: 0; }
 }
 
-/* console.css's .section-enter animation is not itself reduced-motion guarded,
-   so this surface opts its own cards out. */
+/* Reduced-motion opt-out for the WHOLE surface, not just .rq-stack: the
+   loading, choose-a-location and failure cards render .section-enter with no
+   .rq-stack ancestor, so a .rq-stack-scoped override left three of the six
+   screens animating. .rq-surface sits on this route's content wrapper
+   (RequestsClient), so every card the route renders is covered.
+
+   The override lives here at all because console.css's .section-enter keyframes
+   are not themselves reduced-motion guarded, and console.css is outside this
+   ticket's edit surface — guarding it at the source is the right follow-up. */
 @media (prefers-reduced-motion: reduce) {
-  .rq-stack .section-enter { animation: none; }
+  .rq-surface .section-enter { animation: none; }
   .rq-skeleton-bar { animation: none; }
 }

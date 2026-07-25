@@ -39,39 +39,71 @@ const GATE_COPY: Record<WithholdReason, string> = {
 
 const NUMBER_FORMAT = new Intl.NumberFormat();
 
-interface GhostPipelineProps {
-  mode: 'no_batch' | 'building';
-  contactsOnFile: number;
-  /**
-   * Polling gave up at the ceiling. Still the building screen — the build is
-   * running on the worker either way — but nothing is in flight any more, so
-   * the busy state is dropped and the owner gets an explicit way to re-check.
-   */
-  stalled?: boolean;
-  onCheckAgain?: () => void;
-}
+/**
+ * The three things this screen can be. `stalled` is not a fourth screen: it is
+ * `building` after polling gave up at the ceiling — the build is still running
+ * on the worker either way — so the busy state is dropped and the owner gets an
+ * explicit way to re-check.
+ */
+type GhostState = 'no_batch' | 'building' | 'stalled';
 
-export function GhostPipeline({
-  mode,
-  contactsOnFile,
-  stalled = false,
-  onCheckAgain,
-}: GhostPipelineProps) {
+const GHOST_COPY: Record<GhostState, { headline: string; subhead: string }> = {
+  no_batch: {
+    headline: 'No batch yet',
+    subhead:
+      'Upload the customers you have served and RepWorth will work out who it would ask — without asking anyone.',
+  },
+  building: {
+    headline: 'Building your batch…',
+    subhead: 'Evaluating your contacts against the checks below. Nothing is sent either way.',
+  },
+  stalled: {
+    headline: 'Still processing',
+    subhead:
+      'This is taking longer than usual. The build keeps running on our side; check again in a few minutes.',
+  },
+};
+
+/**
+ * Invalid states are defined away rather than branched around: `stalled` and
+ * `onCheckAgain` exist only together, and only on `building`. So
+ * `<GhostPipeline mode="no_batch" stalled />` and a `stalled` with no handler
+ * (a dead "Check again" button) are both compile errors, and the renderer never
+ * has to defend against either.
+ */
+type GhostPipelineProps =
+  | {
+      mode: 'no_batch' | 'building';
+      contactsOnFile: number;
+      stalled?: never;
+      onCheckAgain?: never;
+    }
+  | {
+      mode: 'building';
+      contactsOnFile: number;
+      stalled: true;
+      onCheckAgain: () => void;
+    };
+
+export function GhostPipeline(props: GhostPipelineProps) {
+  const { mode, contactsOnFile } = props;
+  const state: GhostState = props.stalled ? 'stalled' : mode;
   const building = mode === 'building';
+  const { headline, subhead } = GHOST_COPY[state];
 
   return (
     <div className="rq-stack">
       <section
         className="card section-enter section-enter-1 rq-ghost"
-        aria-busy={building && !stalled ? 'true' : undefined}
+        aria-busy={state === 'building' ? 'true' : undefined}
       >
         <div className="rq-hero-head">
           <h2 className="card-h2" style={{ marginBottom: 0 }}>
-            {building ? headline(stalled) : 'No batch yet'}
+            {headline}
           </h2>
           <span className="rq-watch-pill">Watch-mode · nothing sent</span>
         </div>
-        <p className="rq-built">{subhead(building, stalled)}</p>
+        <p className="rq-built">{subhead}</p>
 
         <ol className="rq-funnel rq-funnel--ghost" aria-label="Batch funnel">
           <GhostRung caption="candidates evaluated" />
@@ -80,9 +112,13 @@ export function GhostPipeline({
         </ol>
 
         {building ? (
-          stalled && (
+          props.stalled && (
             <div className="rq-ghost-actions">
-              <button type="button" className="btn btn-secondary rq-action" onClick={onCheckAgain}>
+              <button
+                type="button"
+                className="btn btn-secondary rq-action"
+                onClick={props.onCheckAgain}
+              >
                 Check again
               </button>
             </div>
@@ -133,18 +169,4 @@ function GhostRung({ caption }: { caption: string }) {
       <span className="rq-rung-cap">{caption}</span>
     </li>
   );
-}
-
-function headline(stalled: boolean): string {
-  return stalled ? 'Still processing' : 'Building your batch…';
-}
-
-function subhead(building: boolean, stalled: boolean): string {
-  if (!building) {
-    return 'Upload the customers you have served and RepWorth will work out who it would ask — without asking anyone.';
-  }
-  if (stalled) {
-    return 'This is taking longer than usual. The build keeps running on our side; check again in a few minutes.';
-  }
-  return 'Evaluating your contacts against the checks below. Nothing is sent either way.';
 }

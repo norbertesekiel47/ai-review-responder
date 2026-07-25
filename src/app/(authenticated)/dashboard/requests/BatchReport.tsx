@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
+import type { Vertical, WithholdReason } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
 import './requests.css';
 
@@ -41,6 +41,25 @@ const REASON_META: Record<
 const COUNT_NOUN: Record<'hold' | 'bank', string> = {
   hold: 'held back',
   bank: 'banked',
+};
+
+/**
+ * Owner-readable gloss for the second closed enum on this surface. `Vertical` is
+ * an internal classification, not a code the owner is meant to learn — unlike
+ * the withhold reasons, it is never rendered verbatim. Keyed
+ * `Record<Vertical, string>` so a drifted enum is a compile error, and `other`
+ * (an unmapped `businesses.category`) reads as a trade rather than as the word
+ * "other".
+ */
+const VERTICAL_LABEL: Record<Vertical, string> = {
+  food_and_drink: 'food and drink',
+  retail: 'retail',
+  personal_care: 'personal care',
+  fitness: 'fitness',
+  medical_dental: 'medical and dental',
+  automotive: 'automotive',
+  home_services: 'home services',
+  other: 'your trade',
 };
 
 export function BatchReport({ view }: { view: BuiltBatch }) {
@@ -182,7 +201,7 @@ function evidenceLine(row: AskRow): string {
       const matched = evidence.matched_keyword
         ? ` (matched “${evidence.matched_keyword}”)`
         : '';
-      return `Visited ${formatDay(evidence.last_visit_date)}, ${evidence.days_since_visit} days ago · past the ${evidence.freshness_window_days}-day window for ${evidence.vertical}${matched}.`;
+      return `Visited ${formatDay(evidence.last_visit_date)}, ${evidence.days_since_visit} days ago · past the ${evidence.freshness_window_days}-day window for ${VERTICAL_LABEL[evidence.vertical]}${matched}.`;
     }
     case 'over_contacted':
       return `Already in a batch on ${formatDay(evidence.prior_decision_at)} · ${evidence.min_gap_days}-day minimum gap between asks.`;

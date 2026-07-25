@@ -31,6 +31,7 @@ import { RequestsClient } from '../RequestsClient';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
+const POLL_INTERVAL_MS = 2_000;
 const POLL_CEILING_MS = 5 * 60 * 1_000;
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -216,7 +217,7 @@ describe('RequestsClient — loading, scope, failure', () => {
     expect(screen.getByText(/3 contacts on file/i)).toBeInTheDocument();
   });
 
-  it('tells the owner the surface is gone and reloads when the flag is flipped off mid-session', async () => {
+  it('answers a 404 with cause-neutral copy that never blames the feature flag', async () => {
     const reload = vi.fn();
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -226,7 +227,12 @@ describe('RequestsClient — loading, scope, failure', () => {
     render(<RequestsClient />);
     await flush();
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/no longer available/i);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/isn't available right now/i);
+    // A 404 is ALSO an unresolvable location (archived, or a stale
+    // rw_location_scope cookie), so copy naming the flag would be wrong half the
+    // time — and distinguishing the two would leak flag state (invariant #13).
+    expect(alert.textContent).not.toMatch(/switched off|turned off|disabled|feature/i);
     fireEvent.click(screen.getByRole('button', { name: /reload/i }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -286,6 +292,95 @@ describe('RequestsClient — loading, scope, failure', () => {
     await advance(POLL_CEILING_MS + 5_000);
     expect(screen.getByText(/still processing/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Header affordance and live region ───────────────────────────────────────
+
+/** Answers batch reads from `views` in order (clamped at the last), and every
+ *  reviewed ping with 204, so a test can script a phase sequence by URL rather
+ *  than by call index. */
+function routedFetch(views: BatchView[]) {
+  let index = 0;
+  return vi.fn().mockImplementation((url: string) => {
+    if (String(url).includes('/batch/reviewed')) return Promise.resolve(NO_CONTENT);
+    const view = views[Math.min(index, views.length - 1)] as BatchView;
+    index += 1;
+    return Promise.resolve(jsonResponse(200, view));
+  });
+}
+
+describe('RequestsClient — contacts reachable from the header', () => {
+  // user_visible_behavior #11: the upload surface is reachable "from the
+  // Requests header and the empty-state CTA". The CTA only exists on no_batch,
+  // so without the header link the building / stalled / error / 404 / aggregate
+  // screens — including the one an owner sits on right after uploading — have
+  // no path to it at all.
+  const states: Array<[string, () => void]> = [
+    ['no batch', () => vi.stubGlobal('fetch', routedFetch([noBatchView(0)]))],
+    ['building', () => vi.stubGlobal('fetch', routedFetch([buildingView()]))],
+    ['built', () => vi.stubGlobal('fetch', routedFetch([builtView()]))],
+    ['error', () => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(500, {})))],
+    ['unavailable', () => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, {})))],
+    [
+      'aggregate scope',
+      () => {
+        scope.current = 'all';
+        vi.stubGlobal('fetch', vi.fn());
+      },
+    ],
+  ];
+
+  for (const [label, stubFetch] of states) {
+    it(`links to the contacts upload surface from the header in the ${label} state`, async () => {
+      stubFetch();
+      render(<RequestsClient />);
+      await flush();
+
+      expect(screen.getByRole('link', { name: 'Contacts' })).toHaveAttribute(
+        'href',
+        '/dashboard/requests/contacts',
+      );
+    });
+  }
+});
+
+describe('RequestsClient — completion announcement', () => {
+  it('re-announces a second building → built transition instead of going silent', async () => {
+    // A live region only announces a CHANGE. Setting the identical string a
+    // second time is a React bail-out and screen-reader users hear nothing, so
+    // the message has to be cleared between transitions.
+    vi.stubGlobal(
+      'fetch',
+      routedFetch([buildingView(), builtView({ batchId: 'batch-1' }), buildingView(), builtView({ batchId: 'batch-2' })]),
+    );
+
+    const { rerender } = render(<RequestsClient />);
+    await flush();
+    const liveRegion = screen.getByRole('status');
+    expect(liveRegion.textContent).toBe('');
+
+    await advance(POLL_INTERVAL_MS);
+    expect(liveRegion.textContent).toMatch(/your batch is ready/i);
+
+    // Switching location clears the announcement AND the wasBuilding latch —
+    // this is the assertion the old code failed, and the reason the second
+    // transition below is audible at all.
+    scope.current = 'loc-2';
+    rerender(<RequestsClient />);
+    await flush();
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    await advance(POLL_INTERVAL_MS);
+    expect(screen.getByRole('status').textContent).toMatch(/your batch is ready/i);
+  });
+
+  it('stays silent for a batch that was already built when the screen opened', async () => {
+    vi.stubGlobal('fetch', routedFetch([builtView()]));
+    render(<RequestsClient />);
+    await flush();
+
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 });
 

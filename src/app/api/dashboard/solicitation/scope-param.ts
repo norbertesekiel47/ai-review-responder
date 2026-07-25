@@ -1,13 +1,18 @@
 /**
- * The location-scope query param for the Solicitation dashboard routes.
+ * The location-scope query param, for the Solicitation client islands that have
+ * to SEND it.
  *
- * Pinned in one place because the failure it prevents is silent:
- * `resolveDashboardRequest` (src/app/api/dashboard/policy.ts) falls back to the
+ * This constant is a MIRROR, not the owner. The authoritative reader is
+ * `resolveDashboardRequest` (src/app/api/dashboard/policy.ts), which parses the
+ * literal `'scope'` for every dashboard route; this file exists so the
+ * Solicitation clients stop re-typing that literal, and it must stay in
+ * lockstep with policy.ts — changing the param name means changing both, and
+ * the route tests asserting the round-trip are what catch a drift.
+ *
+ * Pinned because the failure it prevents is silent: policy.ts falls back to the
  * owner's default location when the param is absent or misspelled, so a client
  * that gets the name wrong reads — or writes — a different location while every
- * response still looks healthy. Client fetches build their URLs with
- * `withSolicitationScope`; the route tests assert the round-trip, which is what
- * ties this constant to policy.ts's reader.
+ * response still looks healthy.
  *
  * Deliberately free of server imports so client islands can use it without
  * pulling the DB client into the browser bundle.

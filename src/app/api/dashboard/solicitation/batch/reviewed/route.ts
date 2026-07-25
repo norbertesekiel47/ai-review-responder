@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { errorResponse, withSameOrigin } from '@/lib/auth/route-helpers';
+import { createWorkerLogger } from '@/lib/shared/logger';
 import { isValidUuid } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { markBatchReviewed } from '@/lib/solicitation/batch-view';
@@ -19,6 +20,10 @@ import {
 } from '@/app/api/dashboard/contacts/location-scope';
 
 export const dynamic = 'force-dynamic';
+
+// Same single structured-logging owner the GET uses; the createWorkerLogger name
+// is historical, not a worker-only scope.
+const logger = createWorkerLogger('api/dashboard/solicitation/batch/reviewed');
 
 /** The batch id, or null when the body is absent, malformed, or not a UUID. */
 async function readBatchId(request: NextRequest): Promise<string | null> {
@@ -55,8 +60,17 @@ async function markBatchReviewedHandler(request: NextRequest): Promise<NextRespo
     const batchId = await readBatchId(request);
     if (batchId === null) return errorResponse('Not found', 404);
 
-    // 0 rows means "already reviewed" — an idempotent no-op, not a failure.
-    await markBatchReviewed(sql, accountId, location.locationId, batchId);
+    // 0 rows means "already reviewed" — an idempotent no-op, not a failure, so
+    // the status is 204 either way. The count is LOGGED because that is the only
+    // thing separating that legitimate no-op from the silent failure the comment
+    // above names: a caller that omits ?scope= keys the UPDATE on the owner's
+    // default location, matches zero rows, and loses the engagement signal with
+    // no other symptom. rowsUpdated:0 in this line is that symptom.
+    const rowsUpdated = await markBatchReviewed(sql, accountId, location.locationId, batchId);
+    logger.log('batch_reviewed_ping', {
+      rowsUpdated,
+      businessId: location.locationId,
+    });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     reportCaughtError('api/dashboard/solicitation/batch/reviewed', error, { accountId });
