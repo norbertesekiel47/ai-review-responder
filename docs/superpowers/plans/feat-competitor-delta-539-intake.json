@@ -64,7 +64,7 @@
   "verification_commands": [
     "pnpm exec vitest run worker/jobs/__tests__/WeeklySummaryWorker.test.ts src/lib/notifications/__tests__/email-templates.test.ts"
   ],
-  "estimated_diff_size": "+350/-10 lines across 5 implementation and test files, plus workflow artifacts; reclassified from +180/-10 after the green worker slice exposed fixture-heavy edge-case coverage",
+  "estimated_diff_size": "+430/-10 implementation, test, glossary, and intake lines, plus approximately 210 required plan/handoff lines; reclassified from +180/-10 after edge-case coverage and the accepted empty-pack regression exposed the honest size",
   "dependencies_added": [],
   "rollback_plan": "Revert the application commit; the feature is read-only and has no schema, data, queue, or external-side-effect rollback.",
   "observability": [

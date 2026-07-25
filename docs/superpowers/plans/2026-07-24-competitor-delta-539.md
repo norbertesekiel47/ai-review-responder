@@ -43,6 +43,11 @@ a revised `+350/-10` estimate with unchanged risk, surface, architecture, and
 behavior. Fixture builders should recover 70–90 lines after the complete
 focused suite is green.
 
+The accepted adversarial empty-pack regression then brought the honest
+implementation/test/glossary/intake total to approximately `+430/-10`; the
+gate also counts roughly 210 mandatory plan/handoff lines. Classification
+remains high-risk/backend/normal and the signed edit surface is unchanged.
+
 ---
 
 ## Task 1: Competitor Delta from persisted pack to delivered digest
