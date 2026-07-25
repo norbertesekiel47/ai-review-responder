@@ -18,8 +18,12 @@ import {
 } from '../ingest';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+// verify-gate runs changed integration files in separate processes against one DB.
+// Keep this feature's schema setup and large fixture lifecycles from overlapping.
+const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
 
 let db: postgresType.Sql | undefined;
+let featureDatabaseLock: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 
@@ -46,6 +50,19 @@ function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
     throw new Error('csv ingest integration requires a local (localhost) test database');
   }
   return databaseUrl;
+}
+
+async function releaseFeatureDatabaseLock(): Promise<void> {
+  if (!featureDatabaseLock) return;
+  const lock = featureDatabaseLock;
+  featureDatabaseLock = undefined;
+  try {
+    await lock`
+      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+  } finally {
+    await lock.end({ timeout: 5 });
+  }
 }
 
 async function seedUpload(csvText: string): Promise<string> {
@@ -84,7 +101,12 @@ const HEADER = 'name,email,phone,last_visit_date,note';
 
 describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
-    db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
+    await featureDatabaseLock`
+      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+    db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'CSV Ingest Integration Owner',
       accountDisplayName: 'CSV Ingest Integration Account',
@@ -100,7 +122,7 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
         'active'
       )
     `;
-  });
+  }, 120_000);
 
   afterEach(async () => {
     await sql()`
@@ -115,11 +137,19 @@ describeWithDb('contacts CSV ingest against live local Postgres', { timeout: 30_
   });
 
   afterAll(async () => {
-    if (!db) return;
-    await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    if (tenant) await cleanupTenantAccount(db, tenant);
-    await db.end();
-  });
+    try {
+      if (db) {
+        await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        if (tenant) await cleanupTenantAccount(db, tenant);
+      }
+    } finally {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await releaseFeatureDatabaseLock();
+      }
+    }
+  }, 120_000);
 
   it('re-uploading an overlapping export adds no new visits and reports duplicate_visit', async () => {
     const firstCsv = [

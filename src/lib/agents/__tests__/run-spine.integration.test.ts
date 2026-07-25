@@ -48,9 +48,13 @@ function localTestDatabaseUrl(): string | undefined {
 }
 
 const testDatabaseUrl = localTestDatabaseUrl();
+// verify-gate runs changed integration files in separate processes against one DB.
+// Keep this feature's schema setup and large fixture lifecycles from overlapping.
+const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
 
 // max: 2 — the concurrency tests intentionally run two transactions at once.
 let db: postgresType.Sql | undefined;
+let featureDatabaseLock: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
 const solicitationBusinessId = randomUUID();
 
@@ -90,12 +94,30 @@ async function startRun(subjectId: string): Promise<string> {
   return runId;
 }
 
+async function releaseFeatureDatabaseLock(): Promise<void> {
+  if (!featureDatabaseLock) return;
+  const lock = featureDatabaseLock;
+  featureDatabaseLock = undefined;
+  try {
+    await lock`
+      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+  } finally {
+    await lock.end({ timeout: 5 });
+  }
+}
+
 describeWithDb(
   'run-spine writers against live Postgres',
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    db = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl!), { max: 2, prepare: false });
+    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl!);
+    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
+    await featureDatabaseLock`
+      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+    db = postgres(databaseUrl, { max: 2, prepare: false });
     await db.unsafe(
       readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
     );
@@ -121,19 +143,25 @@ describeWithDb(
         'active'
       )
     `;
-  });
+  }, 120_000);
 
   afterAll(async () => {
-    if (!db) return;
-    if (tenant) {
-      await sql()`DELETE FROM agent_outcomes WHERE account_id = ${tenant.accountId}::uuid`;
-      // agent_run_steps cascade with their runs.
-      await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
-      await sql()`DELETE FROM businesses WHERE id = ${solicitationBusinessId}::uuid`;
-      await cleanupTenantAccount(sql(), tenant);
+    try {
+      if (db && tenant) {
+        await sql()`DELETE FROM agent_outcomes WHERE account_id = ${tenant.accountId}::uuid`;
+        // agent_run_steps cascade with their runs.
+        await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
+        await sql()`DELETE FROM businesses WHERE id = ${solicitationBusinessId}::uuid`;
+        await cleanupTenantAccount(sql(), tenant);
+      }
+    } finally {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await releaseFeatureDatabaseLock();
+      }
     }
-    await db.end({ timeout: 5 });
-  });
+  }, 120_000);
 
   it('two concurrent startOrGetActiveRun calls converge on one run', async () => {
     const subjectId = randomUUID();

@@ -35,8 +35,12 @@ function localTestDatabaseUrl(): string | undefined {
 }
 
 const testDatabaseUrl = localTestDatabaseUrl();
+// verify-gate runs changed integration files in separate processes against one DB.
+// Keep this feature's schema setup and large fixture lifecycles from overlapping.
+const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
 const businessId = randomUUID();
 let db: postgresType.Sql | undefined;
+let featureDatabaseLock: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
 
 function sql(): postgresType.Sql {
@@ -59,6 +63,19 @@ function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
     throw new Error('batch-builder integration requires a local (localhost) test database');
   }
   return databaseUrl;
+}
+
+async function releaseFeatureDatabaseLock(): Promise<void> {
+  if (!featureDatabaseLock) return;
+  const lock = featureDatabaseLock;
+  featureDatabaseLock = undefined;
+  try {
+    await lock`
+      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+  } finally {
+    await lock.end({ timeout: 5 });
+  }
 }
 
 async function seedCompletedUpload(): Promise<string> {
@@ -201,7 +218,12 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   timeout: 90_000,
 }, () => {
   beforeAll(async () => {
-    db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), {
+    const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
+    await featureDatabaseLock`
+      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+    db = postgres(databaseUrl, {
       max: 4,
       prepare: false,
     });
@@ -220,7 +242,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         'active', 'automotive'
       )
     `;
-  });
+  }, 120_000);
 
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
@@ -238,11 +260,19 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   }, 30_000);
 
   afterAll(async () => {
-    if (!db) return;
-    await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    if (tenant) await cleanupTenantAccount(db, tenant);
-    await db.end();
-  });
+    try {
+      if (db) {
+        await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        if (tenant) await cleanupTenantAccount(db, tenant);
+      }
+    } finally {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await releaseFeatureDatabaseLock();
+      }
+    }
+  }, 120_000);
 
   it('build_solicitation_batch atomically records decisions and completes the parent and owned outbox', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';

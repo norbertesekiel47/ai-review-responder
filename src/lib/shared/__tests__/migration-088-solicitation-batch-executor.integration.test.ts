@@ -22,12 +22,16 @@ function localTestDatabaseUrl(): string | undefined {
 }
 
 const testDatabaseUrl = localTestDatabaseUrl();
+// verify-gate runs changed integration files in separate processes against one DB.
+// Keep this feature's schema setup and large fixture lifecycles from overlapping.
+const FEATURE_543_DATABASE_LOCK_KEY = 'repworth_feature_543_integration';
 const migrationPath = resolve(
   process.cwd(),
   'supabase/migrations/088_solicitation_batch_executor.sql',
 );
 
 let db: postgresType.Sql | undefined;
+let featureDatabaseLock: postgresType.Sql | undefined;
 
 function normalizeSql(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -52,6 +56,19 @@ function assertLocalMigrationDatabaseUrl(databaseUrl: string): string {
     throw new Error('migration 088 tests require a local (localhost) test database');
   }
   return databaseUrl;
+}
+
+async function releaseFeatureDatabaseLock(): Promise<void> {
+  if (!featureDatabaseLock) return;
+  const lock = featureDatabaseLock;
+  featureDatabaseLock = undefined;
+  try {
+    await lock`
+      SELECT pg_advisory_unlock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+  } finally {
+    await lock.end({ timeout: 5 });
+  }
 }
 
 describe('migration 088 checked-in SQL contract', () => {
@@ -124,17 +141,26 @@ describeWithDb(
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    db = postgres(assertLocalMigrationDatabaseUrl(testDatabaseUrl!), {
+    const databaseUrl = assertLocalMigrationDatabaseUrl(testDatabaseUrl!);
+    featureDatabaseLock = postgres(databaseUrl, { max: 1, prepare: false });
+    await featureDatabaseLock`
+      SELECT pg_advisory_lock(hashtext(${FEATURE_543_DATABASE_LOCK_KEY}))
+    `;
+    db = postgres(databaseUrl, {
       max: 1,
       prepare: false,
     });
     await db.unsafe(readMigration088Sql());
     await db.unsafe(readMigration088Sql());
-  });
+  }, 120_000);
 
   afterAll(async () => {
-    if (db) await db.end({ timeout: 5 });
-  });
+    try {
+      if (db) await db.end({ timeout: 5 });
+    } finally {
+      await releaseFeatureDatabaseLock();
+    }
+  }, 120_000);
 
   it('keeps the active-run predicate and three-state status enum exact', async () => {
     const [activeIndex] = await db!<{ predicate: string | null }[]>`
