@@ -317,23 +317,25 @@ async function loadCompetitorDelta(
   if (!keyword?.trim() || !searchLocation?.trim()) return null;
 
   const rows = await db<CompetitorSnapshotRow[]>`
-    WITH scoped AS (
-      SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
-      FROM competitor_snapshots
-      WHERE business_id = ${businessId}
-        AND keyword = ${keyword}
-        AND search_location = ${searchLocation}
-    ),
-    latest_dates AS (
-      SELECT DISTINCT snapshot_date
-      FROM scoped
-      ORDER BY snapshot_date DESC
+    WITH latest_dates AS (
+      SELECT DISTINCT dates.snapshot_date
+      FROM competitor_snapshots dates
+      WHERE dates.business_id = ${businessId}
+        AND dates.keyword = ${keyword}
+        AND dates.search_location = ${searchLocation}
+      ORDER BY dates.snapshot_date DESC
       LIMIT 2
     )
-    SELECT snapshot_date, rank_position, place_id, title, rating, review_count, is_self
-    FROM scoped
-    WHERE snapshot_date IN (SELECT snapshot_date FROM latest_dates)
-    ORDER BY snapshot_date DESC, rank_position ASC NULLS LAST, place_id ASC NULLS LAST
+    SELECT snapshots.snapshot_date, snapshots.rank_position, snapshots.place_id,
+           snapshots.title, snapshots.rating, snapshots.review_count, snapshots.is_self
+    FROM competitor_snapshots snapshots
+    WHERE snapshots.business_id = ${businessId}
+      AND snapshots.keyword = ${keyword}
+      AND snapshots.search_location = ${searchLocation}
+      AND snapshots.snapshot_date IN (SELECT snapshot_date FROM latest_dates)
+    ORDER BY snapshots.snapshot_date DESC,
+             snapshots.rank_position ASC NULLS LAST,
+             snapshots.place_id ASC NULLS LAST
   `;
   const rival = selectAutoDefaultRival(
     rows.map((row) => ({ ...row, rating: parseCompetitorRating(row.rating) })),

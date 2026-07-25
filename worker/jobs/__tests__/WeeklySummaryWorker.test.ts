@@ -429,6 +429,9 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       'biz-1',
       ' best bakery ',
       '34.0522000,-118.2437000',
+      'biz-1',
+      ' best bakery ',
+      '34.0522000,-118.2437000',
     ]);
   });
 
