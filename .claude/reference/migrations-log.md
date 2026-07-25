@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **088** — next migration is **089**
+Current head: **089** — next migration is **090**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -966,6 +966,37 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **089** — Owner-picked Named rival for the Competitor Delta line (#546, map
+  #528; semantics locked in #532 item 2). Adds three nullable columns to
+  `businesses` — `rival_place_id`, `rival_title_snapshot`, `rival_picked_at` —
+  following 014's precedent that per-location ranking/competitor config lives on
+  `businesses`; a location has at most one pick, so a 1:1 column set beats a side
+  table and the digest's existing `businesses` SELECT picks them up at zero extra
+  query cost. No backfill, no default: existing rows keep NULL and fall back to
+  the Auto-default rival exactly as today. **Deliberately no FK to
+  `competitor_snapshots`** — 084 replaces packs wholesale on every ranking run, so
+  an FK would cascade-delete a pick the owner explicitly made; pack membership is
+  a read-side question answered per-digest by `resolveNamedRival`.
+  `rival_title_snapshot` is server-derived from the matched pack row at pick time
+  (never client-supplied — it reaches a rendered email) and is read only for the
+  dropout note and the settings UI's absent-pick entry.
+
+  **Not additive-only.** The migration also DROPs and re-ADDs
+  `analytics_events_event_name_check` to register `competitor_rival_picked`
+  (constraint introduced in 046, last extended by 069) — that takes a brief
+  ACCESS EXCLUSIVE lock on `analytics_events` and re-validates every existing
+  row, hence `lock_timeout = '5s'`. The end state is idempotent on re-run, but
+  the execution is not a no-op. Registering the name in `ANALYTICS_EVENT_NAMES`
+  alone would not work: every pick transaction would ROLL BACK on the constraint,
+  and `ci:analytics-events` would not catch it (it compares the TS allowlist
+  against `docs/analytics/events.md`, never the database). 089 is now the latest
+  constraint-extending migration, so it also carries the "effective CHECK list ⊇
+  `ANALYTICS_EVENT_NAMES`" drift-guard, handed off from
+  `migration-069-trial-subscription.test.ts`. No RLS change (`businesses`'
+  existing policies cover the new columns) and no retention change (no new
+  table). Not applied by this task — **staging first, then prod at promotion in
+  lockstep**.
 
 - **088** — Solicitation batch executor persistence foundation (#543 plan T1;
   ADR 0011). Adds nullable `agent_runs.parent_run_id` with `ON DELETE SET NULL`

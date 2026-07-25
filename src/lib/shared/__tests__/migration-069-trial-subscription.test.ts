@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANALYTICS_EVENT_NAMES } from '@/lib/analytics/events';
 
 const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/069_trial_subscription.sql'),
@@ -41,11 +40,35 @@ describe('migration 069 - card-up-front trial', () => {
     }
   });
 
-  it('keeps the effective event_name CHECK list in sync with ANALYTICS_EVENT_NAMES (drift-guard)', () => {
+  // The live "effective CHECK list ⟺ ANALYTICS_EVENT_NAMES" drift-guard moved to
+  // migration-089 (the LATEST migration that replaces the constraint, adding
+  // competitor_rival_picked). 069 is no longer the head of this constraint, and
+  // its SQL is immutable — so its list can never grow again. What remains here is
+  // 069's own historical list, pinned as a literal.
+  it('pins 069 own historical event_name CHECK list', () => {
     const checkMatch = sql.match(/event_name IN\s*\(([^)]*)\)/i);
     expect(checkMatch).not.toBeNull();
-    const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
-    expect(namesInCheck).toEqual([...ANALYTICS_EVENT_NAMES].sort());
+    const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(namesInCheck).toEqual([
+      'signup_started',
+      'email_verified',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'gbp_connect_started',
+      'gbp_connect_failed',
+      'gbp_connected',
+      'first_review_ingested',
+      'first_response_drafted',
+      'activation_completed',
+      'offboarding_started',
+      'offboarding_reactivated',
+      'offboarding_teardown_completed',
+      'offboarding_purged',
+      'trial_started',
+      'trial_converted',
+      'trial_payment_failed',
+      'trial_cancelled',
+    ]);
   });
 
   it('does not introduce a NEXT_PUBLIC_ companion or a subscription_status CHECK constraint', () => {
