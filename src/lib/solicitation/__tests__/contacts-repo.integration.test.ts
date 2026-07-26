@@ -8,6 +8,11 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  acquireFeature543DatabaseLock,
+  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
+  type Feature543DatabaseLock,
+} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { deleteContact, listContacts } from '../contacts-repo';
 
@@ -16,6 +21,9 @@ const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 let db: postgresType.Sql | undefined;
 let tenant: TenantSeed | undefined;
 let otherTenant: TenantSeed | undefined;
+// Serialises against the sibling solicitation live-DB suites, which write the
+// same `solicitation_*` tables. Without it they deadlock one another.
+let featureDatabaseLock: Feature543DatabaseLock | undefined;
 const businessId = randomUUID();
 const uploadId = randomUUID();
 
@@ -80,7 +88,9 @@ async function contactExists(contactId: string): Promise<boolean> {
 
 describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
-    db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'Contacts Repo Integration Owner',
       accountDisplayName: 'Contacts Repo Integration Account',
@@ -109,21 +119,33 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
          'customers.csv', 1, ${'0'.repeat(64)}, 'x', 'pending',
          ${tenant.userId}::uuid, NOW(), ${CONSENT_ATTESTATION_VERSION})
     `;
-  });
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
   });
 
+  // Release in the reverse of acquisition order, and on every path: a
+  // `beforeAll` that failed after taking the lock still holds it, and a leaked
+  // advisory lock blocks every other live-DB suite until the session dies.
   afterAll(async () => {
-    if (!db) return;
-    await db`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
-    await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    if (tenant) await cleanupTenantAccount(db, tenant);
-    if (otherTenant) await cleanupTenantAccount(db, otherTenant);
-    await db.end();
-  });
+    try {
+      if (db) {
+        await db`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
+        await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        if (tenant) await cleanupTenantAccount(db, tenant);
+        if (otherTenant) await cleanupTenantAccount(db, otherTenant);
+      }
+    } finally {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
+      }
+    }
+  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
 
   it('hard delete removes the contact and cascades its visits', async () => {
     const targetId = await seedContact({

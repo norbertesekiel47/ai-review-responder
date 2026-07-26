@@ -1,0 +1,388 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { LiveRegion } from '@/components/ui/LiveRegion';
+import { useLocationScope } from '@/contexts/LocationContext';
+import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
+import type { BatchView } from '@/lib/solicitation/batch-view';
+import { BatchReport } from './BatchReport';
+import { GhostPipeline } from './GhostPipeline';
+import './requests.css';
+
+/**
+ * Client island for /dashboard/requests (#544): reads the latest Solicitation
+ * batch for the selected location and renders one screen per outcome.
+ *
+ * The whole screen is a function of `phase`, and `phase` is keyed by the
+ * location scope it was fetched for — a superseded location's response can
+ * never be rendered against the location the owner switched to.
+ */
+
+const BATCH_PATH = '/api/dashboard/solicitation/batch';
+const REVIEWED_PATH = '/api/dashboard/solicitation/batch/reviewed';
+
+/** UploadCard's cadence and ceiling — one owner would be better, but the two
+ *  surfaces poll different routes for different reasons, so they are pinned
+ *  independently rather than coupled through a shared constant. */
+const POLL_INTERVAL_MS = 2_000;
+const POLL_CEILING_MS = 5 * 60 * 1_000;
+
+type Phase =
+  | { kind: 'loading' }
+  | { kind: 'ready'; view: BatchView }
+  /** Polling gave up. `view` is null when even the first read never answered. */
+  | { kind: 'stalled'; view: BatchView | null }
+  | { kind: 'error' }
+  /**
+   * 404. Deliberately one state for two causes: watch-mode was switched off
+   * mid-session, OR the selected location no longer resolves (archived, or a
+   * stale `rw_location_scope` cookie — `resolveDashboardLocation`'s
+   * uniform-not-found). The two MUST stay indistinguishable (invariant #13: the
+   * surface does not exist when the flag is off), so the copy names neither.
+   */
+  | { kind: 'unavailable' };
+
+const LOADING: Phase = { kind: 'loading' };
+
+export function RequestsClient() {
+  const { currentScope } = useLocationScope();
+  const { phase, announcement, retry } = useLatestBatch(currentScope);
+
+  const builtBatchId =
+    phase.kind === 'ready' && phase.view.state === 'built' ? phase.view.batchId : null;
+  useReviewedPing(builtBatchId, currentScope);
+
+  return (
+    <>
+      <TopBar
+        title="Requests"
+        subtitle="What RepWorth would ask for — and everyone it held back, with the reason."
+        // The upload surface has to be reachable from every state of this
+        // screen, not only the empty-state CTA — the screen an owner sits on
+        // right after uploading is `building`, which has no other path to it.
+        rightLink={{ href: '/dashboard/requests/contacts', label: 'Contacts' }}
+      />
+      {/* rq-surface scopes this route's reduced-motion opt-out to every card it
+          renders, including the ones outside .rq-stack. */}
+      <div className="content rq-surface">
+        {/* Mounted unconditionally: a live region only announces changes to a
+            region already in the DOM, and the building screen it reports on is
+            gone by the time there is anything to say. */}
+        <LiveRegion message={announcement} />
+        {currentScope === 'all' ? <ChooseLocation /> : <Screen phase={phase} onRetry={retry} />}
+      </div>
+    </>
+  );
+}
+
+function Screen({ phase, onRetry }: { phase: Phase; onRetry: () => void }) {
+  switch (phase.kind) {
+    case 'loading':
+      return <LoadingCard />;
+    case 'error':
+      return (
+        <FailureCard
+          title="Could not load your latest batch"
+          body="Something went wrong reading it. Nothing was sent, and nothing changed."
+          actionLabel="Try again"
+          onAction={onRetry}
+        />
+      );
+    case 'unavailable':
+      // Cause-neutral on purpose: a 404 here means the flag is off OR the
+      // selected location no longer resolves, and naming either one would both
+      // be wrong half the time and leak flag state.
+      return (
+        <FailureCard
+          title="This page isn't available right now"
+          body="We could not open Requests for the location you have selected. Reload to get back to your dashboard."
+          actionLabel="Reload the page"
+          onAction={() => window.location.reload()}
+        />
+      );
+    case 'stalled':
+      return (
+        <GhostPipeline
+          mode="building"
+          contactsOnFile={phase.view?.contactsOnFile ?? 0}
+          stalled
+          onCheckAgain={onRetry}
+        />
+      );
+    case 'ready':
+      if (phase.view.state === 'built') return <BatchReport view={phase.view} />;
+      return (
+        <GhostPipeline
+          // A built batch with queued 0 is NOT this screen: it asked for
+          // nobody, which is a result, not an absence.
+          mode={phase.view.state}
+          contactsOnFile={phase.view.contactsOnFile}
+        />
+      );
+  }
+}
+
+// ── Screens without a batch to show ─────────────────────────────────────────
+
+function ChooseLocation() {
+  return (
+    <div className="card section-enter section-enter-1">
+      <h2 className="card-h2">Choose a location</h2>
+      <p className="rq-state-body">
+        Review requests are built per location. Pick one from the switcher to see
+        its latest batch.
+      </p>
+    </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <div className="card section-enter section-enter-1 rq-ghost" aria-busy="true">
+      <h2 className="card-h2">Loading the latest batch…</h2>
+      <div className="rq-skeleton" aria-hidden="true">
+        <span className="rq-skeleton-bar rq-skeleton-bar--wide" />
+        <span className="rq-skeleton-bar" />
+        <span className="rq-skeleton-bar rq-skeleton-bar--short" />
+      </div>
+    </div>
+  );
+}
+
+function FailureCard({
+  title,
+  body,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  body: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="card section-enter section-enter-1" role="alert">
+      <h2 className="card-h2">{title}</h2>
+      <p className="rq-state-body">{body}</p>
+      <button type="button" className="btn btn-secondary rq-action" onClick={onAction}>
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+// ── Fetching and bounded polling ────────────────────────────────────────────
+
+/**
+ * Announced only for a batch that finished WHILE the owner was watching. A batch
+ * that was already built when the screen opened is not news, and announcing it
+ * on every load would train screen-reader users to ignore the region.
+ */
+const COMPLETION_ANNOUNCEMENT = 'Your batch is ready. Nothing was sent.';
+
+interface ScopedPhase {
+  scope: string;
+  phase: Phase;
+  /** Empty except on the poll tick that observed building → built. */
+  announcement: string;
+}
+
+/**
+ * One poll loop per location scope. Four things the UploadCard precedent does
+ * not give for free:
+ *
+ * 1. The deadline is checked BEFORE the `inFlight` guard — one hung fetch
+ *    leaves `inFlight` true forever, so an inFlight-first check means no later
+ *    tick ever reaches the ceiling and the bound silently never fires.
+ * 2. State is keyed by scope AND the in-flight request is aborted on switch,
+ *    so an old location's late answer cannot overwrite the new location.
+ * 3. Polling runs only while the batch is `building`. An empty screen does not
+ *    poll: a CSV finishing in another tab will not appear until reload, which
+ *    is the accepted trade for not polling forever on an idle screen.
+ * 4. The completion announcement is produced HERE, by the loop that actually
+ *    observes the transition, and carried on the same state as the phase. A
+ *    separate mirror hook could not re-announce: a live region only announces a
+ *    CHANGE, so setting the identical string on a second building → built (via
+ *    the location switcher) is a React bail-out and says nothing. Carrying it on
+ *    the phase means every non-transition tick clears it, and `wasBuilding` is a
+ *    per-run local rather than a ref — so it cannot leak across a scope switch
+ *    and announce another location's batch as if it had just finished.
+ */
+function useLatestBatch(currentScope: string): {
+  phase: Phase;
+  announcement: string;
+  retry: () => void;
+} {
+  const [state, setState] = useState<ScopedPhase>({
+    scope: currentScope,
+    phase: LOADING,
+    announcement: '',
+  });
+  const [attempt, setAttempt] = useState(0);
+
+  // A phase belonging to a superseded scope reads as loading, so no effect is
+  // needed to reset it on switch. The announcement is keyed the same way.
+  const superseded = state.scope !== currentScope;
+  const phase = superseded ? LOADING : state.phase;
+  const announcement = superseded ? '' : state.announcement;
+
+  useEffect(() => {
+    // The API rejects aggregate scope with a 400, so it is never asked.
+    if (currentScope === 'all') return;
+
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let stopped = false;
+    let inFlight = false;
+    let latest: BatchView | null = null;
+    let wasBuilding = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const stop = () => {
+      stopped = true;
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+
+    const poll = async () => {
+      if (stopped) return;
+      if (Date.now() - startedAt > POLL_CEILING_MS) {
+        stop();
+        controller.abort();
+        setState({
+          scope: currentScope,
+          phase: { kind: 'stalled', view: latest },
+          announcement: '',
+        });
+        return;
+      }
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const outcome = await fetchLatestBatch(currentScope, controller.signal);
+        if (stopped || outcome === null) return;
+        if (outcome.kind === 'auth') {
+          // The dashboard's own auth redirect owns this; another error screen
+          // would race it and blame the owner for being logged out.
+          stop();
+          return;
+        }
+        const building = outcome.kind === 'ready' && outcome.view.state === 'building';
+        const justBuilt =
+          wasBuilding && outcome.kind === 'ready' && outcome.view.state === 'built';
+        wasBuilding = building;
+
+        if (outcome.kind === 'ready') latest = outcome.view;
+        // Every non-building outcome ends the loop: no_batch, built, error,
+        // unavailable and auth.
+        if (!building) stop();
+        setState({
+          scope: currentScope,
+          phase: outcome,
+          announcement: justBuilt ? COMPLETION_ANNOUNCEMENT : '',
+        });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void poll();
+    timer = setInterval(() => void poll(), POLL_INTERVAL_MS);
+    return () => {
+      stop();
+      controller.abort();
+    };
+  }, [currentScope, attempt]);
+
+  const retry = useCallback(() => {
+    setState({ scope: currentScope, phase: LOADING, announcement: '' });
+    setAttempt((value) => value + 1);
+  }, [currentScope]);
+
+  return { phase, announcement, retry };
+}
+
+type FetchOutcome =
+  | { kind: 'ready'; view: BatchView }
+  | { kind: 'error' }
+  | { kind: 'unavailable' }
+  | { kind: 'auth' };
+
+/** Returns null only when the request was aborted — the caller then commits
+ *  nothing, because the scope it belonged to is no longer on screen. */
+async function fetchLatestBatch(
+  scope: string,
+  signal: AbortSignal,
+): Promise<FetchOutcome | null> {
+  try {
+    const response = await fetch(withSolicitationScope(BATCH_PATH, scope), { signal });
+    if (response.status === 404) return { kind: 'unavailable' };
+    if (response.status === 401) return { kind: 'auth' };
+    if (!response.ok) {
+      console.error(`[requests] batch fetch failed with ${response.status}`);
+      return { kind: 'error' };
+    }
+    return { kind: 'ready', view: (await response.json()) as BatchView };
+  } catch (error) {
+    if (signal.aborted) return null;
+    console.error('[requests] batch fetch could not reach the server', error);
+    return { kind: 'error' };
+  }
+}
+
+// ── reviewed_at ping ────────────────────────────────────────────────────────
+
+/**
+ * Records that a human opened the spoilage report. Fired from an effect, so it
+ * runs when BatchReport has actually rendered — not when the fetch resolved.
+ *
+ * The guard is keyed by `batchId`, never a boolean: a scalar "already pinged"
+ * flag would mark batch A and then suppress batch B after a location switch.
+ *
+ * A hidden tab does not ping. That is the entire reason this is a POST rather
+ * than a side effect of the GET — the signal has to mean somebody looked.
+ */
+function useReviewedPing(batchId: string | null, scope: string): void {
+  const pinged = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (batchId === null || pinged.current === batchId) return;
+
+    const send = () => {
+      if (pinged.current === batchId) return;
+      if (document.visibilityState !== 'visible') return;
+      pinged.current = batchId;
+      void postReviewed(scope, batchId).then((ok) => {
+        // A failed ping must not permanently claim the batch: clearing the
+        // ref lets the visibilitychange path retry on the next focus.
+        if (!ok && pinged.current === batchId) pinged.current = null;
+      });
+    };
+
+    send();
+    if (pinged.current === batchId) return;
+
+    document.addEventListener('visibilitychange', send);
+    return () => document.removeEventListener('visibilitychange', send);
+  }, [batchId, scope]);
+}
+
+/** Failures are reported, never swallowed: "the owner never opened it" and "the
+ *  write failed" must not look the same in the engagement numbers. */
+async function postReviewed(scope: string, batchId: string): Promise<boolean> {
+  try {
+    const response = await fetch(withSolicitationScope(REVIEWED_PATH, scope), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batchId }),
+    });
+    if (!response.ok) {
+      console.error(`[requests] reviewed ping failed with ${response.status}`);
+    }
+    return response.ok;
+  } catch (error) {
+    console.error('[requests] reviewed ping could not reach the server', error);
+    return false;
+  }
+}

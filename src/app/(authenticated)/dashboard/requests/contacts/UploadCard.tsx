@@ -3,6 +3,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { UploadStatus } from '@/lib/solicitation/uploads';
 import type { IngestReport } from '@/lib/solicitation/ingest';
 import { UPLOAD_STATUSES } from '@/lib/solicitation/upload-status';
@@ -12,7 +13,7 @@ import type {
 } from '@/lib/solicitation/contacts-csv';
 
 /**
- * Upload lane of /dashboard/contacts (#541): file + attestation form, submit,
+ * Upload lane of /dashboard/requests/contacts (#541): file + attestation form, submit,
  * bounded status polling, and terminal report/failure rendering. Split from
  * ContactsClient so each concern stays independently scannable; the only
  * integration point with the contact list is `onIngestCompleted`.
@@ -250,7 +251,7 @@ async function fetchPollOutcome(
 ): Promise<{ phase: UploadPhase; completed: boolean } | null> {
   try {
     const res = await fetch(
-      `/api/dashboard/contacts/uploads/${uploadId}?scope=${scope}`,
+      withSolicitationScope(`/api/dashboard/contacts/uploads/${uploadId}`, scope),
     );
     if (res.status === 404) {
       return {

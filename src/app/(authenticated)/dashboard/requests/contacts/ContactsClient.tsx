@@ -7,7 +7,7 @@ import { UploadCard } from './UploadCard';
 import { ContactList } from './ContactList';
 
 /**
- * /dashboard/contacts — contacts/visits CSV upload + report + contact list
+ * /dashboard/requests/contacts — contacts/visits CSV upload + report + contact list
  * (#541, contract #535). Thin composition of the two lanes: UploadCard (form,
  * polling, report) and ContactList (list, delete, pagination). The server
  * component (page.tsx) owns the flag gate and the attestation constants;

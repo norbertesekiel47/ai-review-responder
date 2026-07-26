@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { ContactListItem } from '@/lib/solicitation/contacts-repo';
 
 /**
- * Contact-list lane of /dashboard/contacts (#541): paginated tenant-scoped
+ * Contact-list lane of /dashboard/requests/contacts (#541): paginated tenant-scoped
  * list, confirm-step hard delete. Split from ContactsClient so each concern
  * stays independently scannable; `epoch` (bumped by the parent when an ingest
  * completes) and `onRefresh` (bumps the same counter after a delete or a
@@ -155,7 +156,10 @@ function useContactListFetch(
 async function fetchContactPage(scope: string, offset: number): Promise<ListResult> {
   try {
     const res = await fetch(
-      `/api/dashboard/contacts?scope=${scope}&limit=${PAGE_LIMIT}&offset=${offset}`,
+      withSolicitationScope(
+        `/api/dashboard/contacts?limit=${PAGE_LIMIT}&offset=${offset}`,
+        scope,
+      ),
     );
     if (!res.ok) {
       const body: { error?: string } = await res.json().catch(() => ({}));
@@ -217,7 +221,7 @@ function useContactDelete(currentScope: string, onRefresh: () => void): ContactD
 async function requestContactDelete(contactId: string, scope: string): Promise<string | null> {
   try {
     const res = await fetch(
-      `/api/dashboard/contacts/${contactId}?scope=${scope}`,
+      withSolicitationScope(`/api/dashboard/contacts/${contactId}`, scope),
       { method: 'DELETE' },
     );
     if (res.status === 204) return null;

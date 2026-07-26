@@ -1,0 +1,367 @@
+/* Requests (#544) — the watch-mode Solicitation batch screen: funnel hero over
+   a reason-grouped spoilage report. Warm Editorial Console tokens only
+   (_styles/tokens.css); colocated with the route so the whole surface is one
+   deletable folder, matching landing-experience.css / auth-island.css.
+
+   Contrast notes (all against --rw-card #FFFDF9 or the chip's own wash, AA 4.5:1):
+   · --rw-app-text-muted #6B5E50 ≈ 6.2:1 — the floor for evidence copy. The
+     fainter --rw-app-text-soft is ~2.9:1 and is used ONLY for non-text rules,
+     never for words.
+   · --rw-blush-deep on --rw-blush-soft is ~4.2:1, and --rw-violet on
+     --rw-violet-soft ~3.4:1 — both short of AA, so the chip inks are mixed
+     toward the espresso ink. The plain token stays as the first declaration so
+     a browser without color-mix still gets the brand hue. */
+
+.rq-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------- Funnel hero ---------- */
+
+.rq-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.rq-watch-pill {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rw-sage-deep);
+  background: var(--rw-sage-soft);
+  border: 1px solid var(--rw-sage-line);
+  border-radius: var(--rw-radius-pill);
+  padding: 5px 13px;
+  white-space: nowrap;
+}
+
+.rq-built {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+  margin: 0 0 18px 0;
+}
+
+.rq-funnel {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: rq-rung;
+}
+
+.rq-rung {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  flex: 1 1 150px;
+  padding: 14px 16px;
+  border-radius: var(--rw-radius-lg);
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-hair);
+}
+
+/* The chevron between rungs is decorative: the <ol> already carries the order. */
+.rq-rung + .rq-rung {
+  position: relative;
+}
+.rq-rung + .rq-rung::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid var(--rw-hair-2);
+  border-right: 1.5px solid var(--rw-hair-2);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.rq-rung-num {
+  font-family: var(--rw-font-display);
+  font-size: 30px;
+  line-height: 1.1;
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+}
+.rq-rung--send .rq-rung-num { color: var(--rw-sage-deep); }
+.rq-rung--hold .rq-rung-num {
+  color: var(--rw-blush-deep);
+  color: color-mix(in srgb, var(--rw-blush-deep) 80%, var(--rw-app-text));
+}
+
+.rq-rung-cap {
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+}
+
+/* contactsOnFile has a different denominator than the batch rungs, so it is
+   fenced off by a rule instead of sitting inside the funnel. */
+.rq-fact {
+  margin: 18px 0 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--rw-hair);
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+.rq-fact-lead {
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+
+/* ---------- Withheld ledger (the spoilage report) ---------- */
+
+.rq-ledger-sub {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+  margin: -8px 0 18px 0;
+}
+
+.rq-group + .rq-group { margin-top: 20px; }
+
+.rq-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--rw-hair-2);
+}
+
+.rq-group-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 0;
+  font: var(--rw-app-h3);
+  font-family: var(--rw-font-display);
+}
+
+.rq-group-label {
+  font-family: var(--rw-font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+
+.rq-group-count {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--rw-app-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rq-chip {
+  display: inline-block;
+  font-family: var(--rw-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: var(--rw-radius-pill);
+  border: 1px solid var(--rw-hair-2);
+}
+.rq-chip--hold {
+  background: var(--rw-blush-soft);
+  color: var(--rw-blush-deep);
+  color: color-mix(in srgb, var(--rw-blush-deep) 80%, var(--rw-app-text));
+  border-color: color-mix(in srgb, var(--rw-blush-deep) 25%, transparent);
+}
+.rq-chip--bank {
+  background: var(--rw-violet-soft);
+  color: var(--rw-violet);
+  color: color-mix(in srgb, var(--rw-violet) 62%, var(--rw-app-text));
+  border-color: color-mix(in srgb, var(--rw-violet) 34%, transparent);
+}
+
+.rq-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rq-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--rw-hair);
+}
+.rq-row:last-child { border-bottom: none; }
+.rq-row-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+.rq-row-evidence {
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+}
+
+.rq-empty {
+  margin: 9px 0 0 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--rw-app-text-muted);
+}
+
+.rq-more {
+  margin: 9px 0 0 0;
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+}
+
+/* ---------- Ghost pipeline (no batch / building / stalled) ---------- */
+
+/* The two ghost modes are the same skeleton; only the copy and this opacity
+   change, which is why they are one component. */
+.rq-ghost .rq-funnel--ghost { opacity: 0.55; }
+
+.rq-rung--ghost {
+  border-style: dashed;
+  background: transparent;
+}
+.rq-rung--ghost .rq-rung-num { color: var(--rw-app-text-soft); }
+
+.rq-ghost-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+/* console.css's .btn is ~36px tall and has no focus-visible rule of its own,
+   so every action on this surface opts into the 44px target and a visible
+   ring rather than inheriting a gap. */
+.rq-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration: none;
+}
+.rq-action:focus-visible {
+  outline: 2px solid var(--rw-sage-deep);
+  outline-offset: 3px;
+}
+
+/* The gate list is ordered because the policy is: the FIRST check that stops
+   someone is the only reason recorded. */
+.rq-gates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rq-gate {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rw-hair);
+}
+.rq-gate:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* Grayed-out, but still AA against the card: this teaches the rule set, so the
+   words have to stay readable. */
+.rq-chip--ghost {
+  background: var(--rw-recess);
+  color: var(--rw-app-text-muted);
+  border-color: var(--rw-hair-2);
+}
+
+.rq-gate-copy {
+  flex: 1 1 260px;
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+
+/* ---------- Loading / error / gone ---------- */
+
+.rq-state-body {
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+  margin: 0 0 16px 0;
+}
+
+.rq-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rq-skeleton-bar {
+  height: 14px;
+  width: 60%;
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-recess);
+  animation: rq-pulse 1.6s ease-in-out infinite;
+}
+.rq-skeleton-bar--wide { width: 85%; }
+.rq-skeleton-bar--short { width: 35%; }
+
+@keyframes rq-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ---------- Footnote ---------- */
+
+.rq-footnote {
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+  padding: 0 4px;
+  margin: 0;
+}
+.rq-footnote-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  font-weight: 600;
+  color: var(--rw-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rq-footnote-link:hover { color: var(--rw-app-text); }
+.rq-footnote-link:focus-visible {
+  outline: 2px solid var(--rw-sage-deep);
+  outline-offset: 3px;
+  border-radius: var(--rw-radius-sm);
+}
+
+@media (max-width: 720px) {
+  .rq-watch-pill { margin-left: 0; }
+  .rq-group-count { margin-left: 0; }
+}
+
+/* Reduced-motion opt-out for the WHOLE surface, not just .rq-stack: the
+   loading, choose-a-location and failure cards render .section-enter with no
+   .rq-stack ancestor, so a .rq-stack-scoped override left three of the six
+   screens animating. .rq-surface sits on this route's content wrapper
+   (RequestsClient), so every card the route renders is covered.
+
+   The override lives here at all because console.css's .section-enter keyframes
+   are not themselves reduced-motion guarded, and console.css is outside this
+   ticket's edit surface — guarding it at the source is the right follow-up. */
+@media (prefers-reduced-motion: reduce) {
+  .rq-surface .section-enter { animation: none; }
+  .rq-skeleton-bar { animation: none; }
+}

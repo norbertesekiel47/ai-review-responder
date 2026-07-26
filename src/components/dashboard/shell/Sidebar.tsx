@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { deriveNavSection } from '@/components/dashboard/shell/active-nav';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
@@ -14,6 +15,10 @@ interface Props {
   businessName: string;
   ownerName: string;
   ownerEmail: string;
+  /** Server-authoritative SOLICITATION_WATCH_ENABLED, passed down from
+   *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
+   *  only through this prop — there is no NEXT_PUBLIC companion. */
+  solicitationEnabled: boolean;
 }
 
 function deriveInitials(name: string, email: string): string {
@@ -28,6 +33,7 @@ export function Sidebar({
   businessName,
   ownerName,
   ownerEmail,
+  solicitationEnabled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
@@ -56,15 +62,7 @@ export function Sidebar({
     }
   }
 
-  // /dashboard/reviews and /dashboard/reviews/history both highlight Reviews;
-  // /dashboard/analytics highlights Analytics; everything else under /dashboard
-  // highlights Dashboard.
-  const isReviews = pathname.startsWith('/dashboard/reviews');
-  const isAnalytics = pathname.startsWith('/dashboard/analytics');
-  const isDashboard =
-    pathname === '/dashboard' ||
-    (pathname.startsWith('/dashboard/') && !isReviews && !isAnalytics);
-  const isSettings = pathname.startsWith('/settings');
+  const activeNav = deriveNavSection(pathname);
 
   const initials = deriveInitials(ownerName, ownerEmail);
   const displayOwner = ownerName.trim() || (ownerEmail.split('@')[0] ?? '');
@@ -84,14 +82,29 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">
-        <Link href="/dashboard" className={`nav-item ${isDashboard ? 'active' : ''}`}>
+        <Link href="/dashboard" className={`nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}>
           <Icon name="home" /> Dashboard
         </Link>
-        <Link href="/dashboard/reviews" className={`nav-item ${isReviews ? 'active' : ''}`}>
+        <Link
+          href="/dashboard/reviews"
+          className={`nav-item ${activeNav === 'reviews' ? 'active' : ''}`}
+        >
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </Link>
-        <Link href="/dashboard/analytics" className={`nav-item ${isAnalytics ? 'active' : ''}`}>
+        {solicitationEnabled && (
+          <Link
+            href="/dashboard/requests"
+            className={`nav-item ${activeNav === 'requests' ? 'active' : ''}`}
+            aria-current={activeNav === 'requests' ? 'page' : undefined}
+          >
+            <Icon name="trend" /> Requests
+          </Link>
+        )}
+        <Link
+          href="/dashboard/analytics"
+          className={`nav-item ${activeNav === 'analytics' ? 'active' : ''}`}
+        >
           <Icon name="chart" /> Analytics
         </Link>
       </div>
@@ -99,7 +112,7 @@ export function Sidebar({
       <div className="nav-divider" />
 
       <div className="nav-section">
-        <Link href="/settings" className={`nav-item ${isSettings ? 'active' : ''}`}>
+        <Link href="/settings" className={`nav-item ${activeNav === 'settings' ? 'active' : ''}`}>
           <Icon name="cog" /> Settings
         </Link>
       </div>
