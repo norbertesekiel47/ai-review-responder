@@ -56,6 +56,11 @@ export interface BuiltSolicitationBatchResult {
   withheldByReason: Record<WithholdReason, number>;
 }
 
+type ClosedGateReason =
+  | 'flag_disabled'
+  | 'subscription_inactive'
+  | 'account_offboarding_blocked';
+
 export type BuildSolicitationBatchResult =
   | BuiltSolicitationBatchResult
   | { status: 'stale' }
@@ -63,10 +68,7 @@ export type BuildSolicitationBatchResult =
   | { status: 'already_built' }
   | {
       status: 'gate_closed';
-      reason:
-        | 'flag_disabled'
-        | 'subscription_inactive'
-        | 'account_offboarding_blocked';
+      reason: ClosedGateReason;
       parentTerminalized: boolean;
     };
 
@@ -111,15 +113,68 @@ type PreparationResult =
 function closedGateReason(
   subscriptionStatus: string,
   processingBlocked: boolean,
-):
-  | 'flag_disabled'
-  | 'subscription_inactive'
-  | 'account_offboarding_blocked'
-  | null {
+): ClosedGateReason | null {
   if (processingBlocked) return 'account_offboarding_blocked';
   if (!solicitationWatchEnabled()) return 'flag_disabled';
   if (!subscriptionGrantsFullAccess(subscriptionStatus)) return 'subscription_inactive';
   return null;
+}
+
+/**
+ * Sole owner of the batch gate: locks the account row, projects offboarding,
+ * and derives the closed-gate reason. Preparation and construction each call it
+ * once — the double evaluation is deliberate, and construction's re-check is
+ * the load-bearing one, so the result is never cached across the two
+ * transactions.
+ *
+ * Lock order: this takes the `accounts` row lock, so it MUST be called before
+ * any other row lock in the same transaction (in preparation, before the
+ * `agent_runs` SELECT … FOR UPDATE). Calling it later would invert the
+ * accounts-then-agent_runs order that the rest of the lane assumes.
+ */
+async function evaluateBatchGate(
+  tx: TransactionSql,
+  ids: { batchId: string; accountId: string },
+): Promise<ClosedGateReason | null> {
+  const accountExists = await lockAccountBeforeOffboardingProjection(
+    tx,
+    ids.accountId,
+  );
+  if (!accountExists) {
+    throw new Error(
+      `solicitation batch builder: account missing for batch ${ids.batchId}`,
+    );
+  }
+
+  const [account] = await tx<{ subscription_status: string }[]>`
+    SELECT subscription_status
+    FROM accounts
+    WHERE id = ${ids.accountId}::uuid
+  `;
+  if (!account) {
+    throw new Error(
+      `solicitation batch builder: account missing for batch ${ids.batchId}`,
+    );
+  }
+
+  const offboardingState = await getOffboardingState(ids.accountId, tx);
+  return closedGateReason(
+    account.subscription_status,
+    isProcessingBlocked(offboardingState),
+  );
+}
+
+async function deleteUnbuiltBatch(
+  tx: TransactionSql,
+  ids: { batchId: string; accountId: string; businessId: string },
+): Promise<void> {
+  await tx`
+    DELETE FROM solicitation_batches
+    WHERE id = ${ids.batchId}::uuid
+      AND account_id = ${ids.accountId}::uuid
+      AND business_id = ${ids.businessId}::uuid
+      AND built_at IS NULL
+  `;
 }
 
 async function completeOwnedAttempt(
@@ -161,27 +216,12 @@ async function prepareBatch(
       return { status: 'already_built' };
     }
 
-    const accountExists = await lockAccountBeforeOffboardingProjection(
-      tx,
-      batch.account_id,
-    );
-    if (!accountExists) {
-      throw new Error(
-        `solicitation batch builder: account missing for batch ${batch.id}`,
-      );
-    }
-
-    const [account] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM accounts
-      WHERE id = ${batch.account_id}::uuid
-    `;
-    if (!account) {
-      throw new Error(
-        `solicitation batch builder: account missing for batch ${batch.id}`,
-      );
-    }
-    const offboardingState = await getOffboardingState(batch.account_id, tx);
+    // Before the agent_runs lock below: evaluateBatchGate takes the accounts
+    // row lock, and this transaction's order is accounts-then-agent_runs.
+    const gateReason = await evaluateBatchGate(tx, {
+      batchId: batch.id,
+      accountId: batch.account_id,
+    });
 
     const [activeParent] = await tx<{ id: string }[]>`
       SELECT id
@@ -195,10 +235,6 @@ async function prepareBatch(
       FOR UPDATE
     `;
 
-    const gateReason = closedGateReason(
-      account.subscription_status,
-      isProcessingBlocked(offboardingState),
-    );
     if (gateReason !== null) {
       const completed = await completeOwnedAttempt(tx, input);
       if (!completed) return { status: 'stale' };
@@ -212,13 +248,11 @@ async function prepareBatch(
           },
         });
       }
-      await tx`
-        DELETE FROM solicitation_batches
-        WHERE id = ${batch.id}::uuid
-          AND account_id = ${batch.account_id}::uuid
-          AND business_id = ${batch.business_id}::uuid
-          AND built_at IS NULL
-      `;
+      await deleteUnbuiltBatch(tx, {
+        batchId: batch.id,
+        accountId: batch.account_id,
+        businessId: batch.business_id,
+      });
       return {
         status: 'gate_closed',
         reason: gateReason,
@@ -338,27 +372,12 @@ async function constructBatch(
 
     const accountId = batch.account_id;
     const businessId = batch.business_id;
-    const accountExists = await lockAccountBeforeOffboardingProjection(tx, accountId);
-    if (!accountExists) {
-      throw new Error(
-        `solicitation batch builder: account missing for batch ${batch.id}`,
-      );
-    }
-    const [account] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-    `;
-    if (!account) {
-      throw new Error(
-        `solicitation batch builder: account missing for batch ${batch.id}`,
-      );
-    }
-    const offboardingState = await getOffboardingState(accountId, tx);
-    const gateReason = closedGateReason(
-      account.subscription_status,
-      isProcessingBlocked(offboardingState),
-    );
+    // Re-evaluated here on purpose: this is the load-bearing check, taken under
+    // the batch row lock and the per-Business advisory lock.
+    const gateReason = await evaluateBatchGate(tx, {
+      batchId: batch.id,
+      accountId,
+    });
     if (gateReason !== null) {
       await failSolicitationBatchRun(tx, {
         runId: preparation.parentRunId,
@@ -367,13 +386,11 @@ async function constructBatch(
           gate: gateReason,
         },
       });
-      await tx`
-        DELETE FROM solicitation_batches
-        WHERE id = ${batch.id}::uuid
-          AND account_id = ${accountId}::uuid
-          AND business_id = ${businessId}::uuid
-          AND built_at IS NULL
-      `;
+      await deleteUnbuiltBatch(tx, {
+        batchId: batch.id,
+        accountId,
+        businessId,
+      });
       return {
         status: 'gate_closed',
         reason: gateReason,

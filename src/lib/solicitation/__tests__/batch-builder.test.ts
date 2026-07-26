@@ -228,6 +228,163 @@ describe('solicitation batch candidate loader', () => {
     ).toBeLessThan(mockSql.mock.invocationCallOrder[deleteIndex]!);
   });
 
+  it('prepareBatch and constructBatch derive the closed-gate reason from one owner', async () => {
+    // Every gate condition is closed at once, so the shared precedence
+    // (offboarding → flag_disabled → subscription_inactive) decides the reason.
+    const allGatesClosed = () => {
+      mocks.solicitationWatchEnabled.mockReturnValue(false);
+      mocks.getOffboardingState.mockResolvedValue({
+        id: 'offboarding-1',
+        accountId: 'account-1',
+        mode: 'delete_data',
+        status: 'pending',
+      });
+      mocks.isProcessingBlocked.mockReturnValue(true);
+    };
+
+    allGatesClosed();
+    sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'cancelled' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toEqual({
+      status: 'gate_closed',
+      reason: 'account_offboarding_blocked',
+      parentTerminalized: false,
+    });
+    const preparationAccountRead = sqlCalls.find((call) =>
+      call.text.includes('FROM accounts'),
+    );
+    const preparationDelete = sqlCalls.find((call) =>
+      call.text.includes('DELETE FROM solicitation_batches'),
+    );
+
+    // Second run: preparation's gate is open, construction's is closed. The
+    // double evaluation is deliberate — only the reason derivation is shared.
+    resetMockSql();
+    mocks.lockAccountBeforeOffboardingProjection.mockClear();
+    mocks.getOffboardingState.mockClear();
+    sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ subscription_status: 'cancelled' }]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+    allGatesClosed();
+    mocks.solicitationWatchEnabled.mockReturnValueOnce(true);
+    mocks.isProcessingBlocked.mockReturnValueOnce(false);
+    mocks.getOffboardingState.mockResolvedValueOnce(null);
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toEqual({
+      status: 'gate_closed',
+      reason: 'account_offboarding_blocked',
+      parentTerminalized: true,
+    });
+
+    // Both call sites evaluate the gate — and each evaluation is the same
+    // account read and the same unbuilt-batch delete, byte for byte.
+    expect(mocks.lockAccountBeforeOffboardingProjection).toHaveBeenCalledTimes(2);
+    expect(mocks.getOffboardingState).toHaveBeenCalledTimes(2);
+    const constructionAccountRead = sqlCalls.filter((call) =>
+      call.text.includes('FROM accounts'),
+    );
+    expect(constructionAccountRead).toHaveLength(2);
+    for (const call of constructionAccountRead) {
+      expect(call.text).toBe(preparationAccountRead?.text);
+      expect(call.values).toEqual(['account-1']);
+    }
+    const constructionDelete = sqlCalls.find((call) =>
+      call.text.includes('DELETE FROM solicitation_batches'),
+    );
+    expect(constructionDelete?.text).toBe(preparationDelete?.text);
+    expect(constructionDelete?.values).toEqual(preparationDelete?.values);
+    expect(constructionDelete?.values).toEqual([
+      'batch-1',
+      'account-1',
+      'business-1',
+    ]);
+  });
+
+  it('evaluateBatchGate runs before the activeParent row lock in prepareBatch', async () => {
+    mocks.solicitationWatchEnabled.mockReturnValue(false);
+    sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toMatchObject({ status: 'gate_closed', reason: 'flag_disabled' });
+
+    const accountReadIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('FROM accounts'),
+    );
+    const activeParentIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('FROM agent_runs'),
+    );
+    expect(accountReadIndex).toBeGreaterThanOrEqual(0);
+    expect(activeParentIndex).toBeGreaterThanOrEqual(0);
+    expect(sqlCalls[activeParentIndex]!.text).toContain('FOR UPDATE');
+
+    // The accounts row lock is taken before the agent_runs row lock; reversing
+    // it would invert this transaction's lock order.
+    expect(accountReadIndex).toBeLessThan(activeParentIndex);
+    const activeParentOrder = mockSql.mock.invocationCallOrder[activeParentIndex]!;
+    expect(
+      mocks.lockAccountBeforeOffboardingProjection.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(activeParentOrder);
+    expect(
+      mocks.getOffboardingState.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(activeParentOrder);
+  });
+
   it('candidate history query pre-aggregates visits and asks before the 5000-contact limit', async () => {
     sqlReturnQueue.push(
       mkTaggedResult([{
