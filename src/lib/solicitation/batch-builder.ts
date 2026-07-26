@@ -309,6 +309,123 @@ function toCandidate(
   };
 }
 
+interface CandidatePool {
+  candidates: AskCandidate[];
+  // Total business contact pool, independent of the window truncation.
+  poolCount: number;
+}
+
+/**
+ * Sole owner of the **Batch candidate window**: each batch draws from the whole
+ * accumulated location pool, ordered least-recently-evaluated first and bounded
+ * to MAX_DATA_ROWS. Also reports the untruncated pool size so a truncated
+ * window is never silent (S4), and joins each candidate's most recent prior
+ * send so the restraint policy can reason about repeat asks.
+ *
+ * Reads only under the caller's batch row lock and per-Business advisory lock.
+ * Returns no contact PII beyond the ids the policy needs.
+ */
+async function loadCandidatePool(
+  tx: TransactionSql,
+  ids: { accountId: string; businessId: string },
+): Promise<CandidatePool> {
+  const { accountId, businessId } = ids;
+
+  const candidateWindow = await tx<CandidateWindowRow[]>`
+    SELECT
+      c.id::text AS contact_id,
+      latest_visit.visit_date::text AS last_visit_date,
+      latest_visit.upload_id::text AS upload_id,
+      (
+        u.status = 'completed'
+        AND u.attested_at IS NOT NULL
+        AND u.attestation_version IS NOT NULL
+      ) AS consent_attested
+    FROM solicitation_contacts c
+    JOIN solicitation_visits latest_visit
+      ON latest_visit.contact_id = c.id
+     AND latest_visit.business_id = ${businessId}::uuid
+     AND latest_visit.id = (
+       SELECT candidate_visit.id
+       FROM solicitation_visits candidate_visit
+       JOIN contact_csv_uploads candidate_upload
+         ON candidate_upload.id = candidate_visit.upload_id
+        AND candidate_upload.account_id = ${accountId}::uuid
+        AND candidate_upload.business_id = ${businessId}::uuid
+        AND candidate_upload.status = 'completed'
+       WHERE candidate_visit.contact_id = c.id
+         AND candidate_visit.business_id = ${businessId}::uuid
+       ORDER BY
+         candidate_visit.visit_date DESC,
+         candidate_visit.upload_id ASC,
+         candidate_visit.id ASC
+       LIMIT 1
+     )
+    JOIN contact_csv_uploads u
+      ON u.id = latest_visit.upload_id
+     AND u.account_id = ${accountId}::uuid
+     AND u.business_id = ${businessId}::uuid
+     AND u.status = 'completed'
+    LEFT JOIN solicitation_asks latest_evaluation
+      ON latest_evaluation.contact_id = c.id
+     AND latest_evaluation.account_id = ${accountId}::uuid
+     AND latest_evaluation.business_id = ${businessId}::uuid
+     AND latest_evaluation.id = (
+       SELECT candidate_ask.id
+       FROM solicitation_asks candidate_ask
+       WHERE candidate_ask.contact_id = c.id
+         AND candidate_ask.account_id = ${accountId}::uuid
+         AND candidate_ask.business_id = ${businessId}::uuid
+       ORDER BY
+         candidate_ask.decided_at DESC,
+         candidate_ask.id DESC
+       LIMIT 1
+     )
+    WHERE c.business_id = ${businessId}::uuid
+    ORDER BY
+      latest_evaluation.decided_at ASC NULLS FIRST,
+      latest_visit.visit_date DESC,
+      c.id ASC
+    LIMIT ${MAX_DATA_ROWS}
+  `;
+
+  const [poolRow] = await tx<{ pool_count: number }[]>`
+    SELECT count(*)::int AS pool_count
+    FROM solicitation_contacts
+    WHERE business_id = ${businessId}::uuid
+  `;
+  const poolCount = poolRow?.pool_count ?? candidateWindow.length;
+
+  const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
+  let priorSends: PriorSendRow[] = [];
+  if (contactIds.length > 0) {
+    priorSends = await tx<PriorSendRow[]>`
+      SELECT DISTINCT ON (send_ask.contact_id)
+        send_ask.contact_id::text AS contact_id,
+        send_ask.batch_id::text AS prior_batch_id,
+        send_ask.decided_at::text AS prior_decision_at
+      FROM solicitation_asks send_ask
+      WHERE send_ask.business_id = ${businessId}::uuid
+        AND send_ask.contact_id = ANY(${contactIds}::uuid[])
+        AND send_ask.status = 'send'
+      ORDER BY
+        send_ask.contact_id,
+        send_ask.decided_at DESC,
+        send_ask.id DESC
+    `;
+  }
+
+  const priorSendsByContact = new Map(
+    priorSends.map((priorSend) => [priorSend.contact_id, priorSend]),
+  );
+  return {
+    candidates: candidateWindow.map((candidate) =>
+      toCandidate(candidate, priorSendsByContact.get(candidate.contact_id)),
+    ),
+    poolCount,
+  };
+}
+
 function emptyReasonCounts(): Record<WithholdReason, number> {
   return Object.fromEntries(
     WITHHOLD_REASONS.map((reason) => [reason, 0]),
@@ -336,6 +453,125 @@ function summarize(
     withholdCount: decisions.length - sendCount,
     withheldByReason,
   };
+}
+
+interface BatchIdentity {
+  id: string;
+  accountId: string;
+  businessId: string;
+}
+
+/**
+ * Sole owner of the authoritative ask write: the `solicitation_asks` rows, the
+ * completed child runs, and the ask→run link are one atomicity unit. Each write
+ * asserts its own affected-row count, so a partially applied set aborts the
+ * caller's transaction rather than producing an ask without a run (or a run
+ * without a link).
+ *
+ * Ask and run ids are minted here because the link depends on both; the caller
+ * never needs them. No contact PII beyond `contact_id` reaches the row set.
+ */
+async function commitAskDecisions(
+  tx: TransactionSql,
+  args: {
+    batch: BatchIdentity;
+    parentRunId: string;
+    decisions: readonly AskDecision[];
+    decidedAt: string;
+  },
+): Promise<void> {
+  const { batch, parentRunId, decisions, decidedAt } = args;
+
+  const askIds = decisions.map(() => uuidv7());
+  const runIds = decisions.map(() => uuidv7());
+  const askRows = decisions.map((decision, index) => ({
+    id: askIds[index]!,
+    account_id: batch.accountId,
+    business_id: batch.businessId,
+    batch_id: batch.id,
+    contact_id: decision.contact_id,
+    status: decision.decision,
+    withheld_reason: decision.decision === 'withhold' ? decision.reason : null,
+    evidence: decision,
+    decided_at: decidedAt,
+  }));
+
+  if (askRows.length > 0) {
+    const insertedAsks = await tx<{ id: string }[]>`
+      INSERT INTO solicitation_asks (
+        id, account_id, business_id, batch_id, contact_id,
+        status, withheld_reason, evidence, decided_at
+      )
+      SELECT
+        ask.id,
+        ask.account_id,
+        ask.business_id,
+        ask.batch_id,
+        ask.contact_id,
+        ask.status,
+        ask.withheld_reason,
+        ask.evidence,
+        ask.decided_at
+      FROM jsonb_to_recordset(${tx.json(askRows as never)}) AS ask(
+        id uuid,
+        account_id uuid,
+        business_id uuid,
+        batch_id uuid,
+        contact_id uuid,
+        status text,
+        withheld_reason text,
+        evidence jsonb,
+        decided_at timestamptz
+      )
+      RETURNING id
+    `;
+    if (insertedAsks.count !== askRows.length) {
+      throw new Error(
+        `solicitation batch builder: expected ${askRows.length} asks, inserted ${insertedAsks.count}`,
+      );
+    }
+  }
+
+  await recordCompletedChildRuns(tx, {
+    accountId: batch.accountId,
+    businessId: batch.businessId,
+    parentRunId,
+    children: decisions.map((decision, index) =>
+      decision.decision === 'send'
+        ? {
+            runId: runIds[index]!,
+            askId: askIds[index]!,
+            decision: 'send',
+          }
+        : {
+            runId: runIds[index]!,
+            askId: askIds[index]!,
+            decision: 'withhold',
+            withheldReason: decision.reason,
+          },
+    ),
+  });
+
+  if (askRows.length > 0) {
+    const linkedAsks = await tx<{ id: string }[]>`
+      UPDATE solicitation_asks ask
+      SET agent_run_id = link.run_id
+      FROM unnest(
+        ${askIds}::uuid[],
+        ${runIds}::uuid[]
+      ) AS link(ask_id, run_id)
+      WHERE ask.id = link.ask_id
+        AND ask.batch_id = ${batch.id}::uuid
+        AND ask.account_id = ${batch.accountId}::uuid
+        AND ask.business_id = ${batch.businessId}::uuid
+      RETURNING ask.id
+    `;
+    if (linkedAsks.count !== askRows.length) {
+      throw new Error(
+        `solicitation batch builder: expected ${askRows.length} linked asks, updated ${linkedAsks.count}`,
+      );
+    }
+  }
 }
 
 async function constructBatch(
@@ -410,96 +646,10 @@ async function constructBatch(
       );
     }
 
-    const candidateWindow = await tx<CandidateWindowRow[]>`
-      SELECT
-        c.id::text AS contact_id,
-        latest_visit.visit_date::text AS last_visit_date,
-        latest_visit.upload_id::text AS upload_id,
-        (
-          u.status = 'completed'
-          AND u.attested_at IS NOT NULL
-          AND u.attestation_version IS NOT NULL
-        ) AS consent_attested
-      FROM solicitation_contacts c
-      JOIN solicitation_visits latest_visit
-        ON latest_visit.contact_id = c.id
-       AND latest_visit.business_id = ${businessId}::uuid
-       AND latest_visit.id = (
-         SELECT candidate_visit.id
-         FROM solicitation_visits candidate_visit
-         JOIN contact_csv_uploads candidate_upload
-           ON candidate_upload.id = candidate_visit.upload_id
-          AND candidate_upload.account_id = ${accountId}::uuid
-          AND candidate_upload.business_id = ${businessId}::uuid
-          AND candidate_upload.status = 'completed'
-         WHERE candidate_visit.contact_id = c.id
-           AND candidate_visit.business_id = ${businessId}::uuid
-         ORDER BY
-           candidate_visit.visit_date DESC,
-           candidate_visit.upload_id ASC,
-           candidate_visit.id ASC
-         LIMIT 1
-       )
-      JOIN contact_csv_uploads u
-        ON u.id = latest_visit.upload_id
-       AND u.account_id = ${accountId}::uuid
-       AND u.business_id = ${businessId}::uuid
-       AND u.status = 'completed'
-      LEFT JOIN solicitation_asks latest_evaluation
-        ON latest_evaluation.contact_id = c.id
-       AND latest_evaluation.account_id = ${accountId}::uuid
-       AND latest_evaluation.business_id = ${businessId}::uuid
-       AND latest_evaluation.id = (
-         SELECT candidate_ask.id
-         FROM solicitation_asks candidate_ask
-         WHERE candidate_ask.contact_id = c.id
-           AND candidate_ask.account_id = ${accountId}::uuid
-           AND candidate_ask.business_id = ${businessId}::uuid
-         ORDER BY
-           candidate_ask.decided_at DESC,
-           candidate_ask.id DESC
-         LIMIT 1
-       )
-      WHERE c.business_id = ${businessId}::uuid
-      ORDER BY
-        latest_evaluation.decided_at ASC NULLS FIRST,
-        latest_visit.visit_date DESC,
-        c.id ASC
-      LIMIT ${MAX_DATA_ROWS}
-    `;
-
-    const [poolRow] = await tx<{ pool_count: number }[]>`
-      SELECT count(*)::int AS pool_count
-      FROM solicitation_contacts
-      WHERE business_id = ${businessId}::uuid
-    `;
-    const poolCount = poolRow?.pool_count ?? candidateWindow.length;
-
-    const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
-    let priorSends: PriorSendRow[] = [];
-    if (contactIds.length > 0) {
-      priorSends = await tx<PriorSendRow[]>`
-        SELECT DISTINCT ON (send_ask.contact_id)
-          send_ask.contact_id::text AS contact_id,
-          send_ask.batch_id::text AS prior_batch_id,
-          send_ask.decided_at::text AS prior_decision_at
-        FROM solicitation_asks send_ask
-        WHERE send_ask.business_id = ${businessId}::uuid
-          AND send_ask.contact_id = ANY(${contactIds}::uuid[])
-          AND send_ask.status = 'send'
-        ORDER BY
-          send_ask.contact_id,
-          send_ask.decided_at DESC,
-          send_ask.id DESC
-      `;
-    }
-
-    const priorSendsByContact = new Map(
-      priorSends.map((priorSend) => [priorSend.contact_id, priorSend]),
-    );
-    const candidates = candidateWindow.map((candidate) =>
-      toCandidate(candidate, priorSendsByContact.get(candidate.contact_id)),
-    );
+    const { candidates, poolCount } = await loadCandidatePool(tx, {
+      accountId,
+      businessId,
+    });
 
     const decidedAt = new Date().toISOString();
     const decisions = evaluateBatch(
@@ -511,96 +661,12 @@ async function constructBatch(
     );
     const summary = summarize(decisions, poolCount);
 
-    const askIds = decisions.map(() => uuidv7());
-    const runIds = decisions.map(() => uuidv7());
-    const askRows = decisions.map((decision, index) => ({
-      id: askIds[index]!,
-      account_id: batch.account_id,
-      business_id: batch.business_id,
-      batch_id: batch.id,
-      contact_id: decision.contact_id,
-      status: decision.decision,
-      withheld_reason: decision.decision === 'withhold' ? decision.reason : null,
-      evidence: decision,
-      decided_at: decidedAt,
-    }));
-
-    if (askRows.length > 0) {
-      const insertedAsks = await tx<{ id: string }[]>`
-        INSERT INTO solicitation_asks (
-          id, account_id, business_id, batch_id, contact_id,
-          status, withheld_reason, evidence, decided_at
-        )
-        SELECT
-          ask.id,
-          ask.account_id,
-          ask.business_id,
-          ask.batch_id,
-          ask.contact_id,
-          ask.status,
-          ask.withheld_reason,
-          ask.evidence,
-          ask.decided_at
-        FROM jsonb_to_recordset(${tx.json(askRows as never)}) AS ask(
-          id uuid,
-          account_id uuid,
-          business_id uuid,
-          batch_id uuid,
-          contact_id uuid,
-          status text,
-          withheld_reason text,
-          evidence jsonb,
-          decided_at timestamptz
-        )
-        RETURNING id
-      `;
-      if (insertedAsks.count !== askRows.length) {
-        throw new Error(
-          `solicitation batch builder: expected ${askRows.length} asks, inserted ${insertedAsks.count}`,
-        );
-      }
-    }
-
-    await recordCompletedChildRuns(tx, {
-      accountId: batch.account_id,
-      businessId: batch.business_id,
+    await commitAskDecisions(tx, {
+      batch: { id: batch.id, accountId, businessId },
       parentRunId: preparation.parentRunId,
-      children: decisions.map((decision, index) =>
-        decision.decision === 'send'
-          ? {
-              runId: runIds[index]!,
-              askId: askIds[index]!,
-              decision: 'send',
-            }
-          : {
-              runId: runIds[index]!,
-              askId: askIds[index]!,
-              decision: 'withhold',
-              withheldReason: decision.reason,
-            },
-      ),
+      decisions,
+      decidedAt,
     });
-
-    if (askRows.length > 0) {
-      const linkedAsks = await tx<{ id: string }[]>`
-        UPDATE solicitation_asks ask
-        SET agent_run_id = link.run_id
-        FROM unnest(
-          ${askIds}::uuid[],
-          ${runIds}::uuid[]
-        ) AS link(ask_id, run_id)
-        WHERE ask.id = link.ask_id
-          AND ask.batch_id = ${batch.id}::uuid
-          AND ask.account_id = ${batch.account_id}::uuid
-          AND ask.business_id = ${batch.business_id}::uuid
-        RETURNING ask.id
-      `;
-      if (linkedAsks.count !== askRows.length) {
-        throw new Error(
-          `solicitation batch builder: expected ${askRows.length} linked asks, updated ${linkedAsks.count}`,
-        );
-      }
-    }
 
     await completeSolicitationBatchRun(tx, {
       runId: preparation.parentRunId,
