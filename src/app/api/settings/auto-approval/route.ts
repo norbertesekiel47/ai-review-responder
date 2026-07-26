@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
-import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
-import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireSettingsOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
@@ -15,15 +14,12 @@ import { AutoApprovalPatchSchema, type AutoApprovalPatchRequest } from '@/lib/au
 
 export const dynamic = 'force-dynamic';
 
-type OwnerWithAccountResult = Awaited<ReturnType<typeof requireOwnerWithAccount>>;
-type OwnerWithAccount = Extract<OwnerWithAccountResult, { ok: true }>;
-type SettingsOwnerResult = OwnerWithAccount | { ok: false; response: NextResponse };
 type ParsedPatchBody =
   | { ok: true; body: AutoApprovalPatchRequest }
   | { ok: false; response: NextResponse };
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireSettingsOwner(request);
+  const owner = await requireSettingsOwner(sql, request);
   if (!owner.ok) return owner.response;
 
   try {
@@ -39,7 +35,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 async function patchSettings(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireSettingsOwner(request);
+  const owner = await requireSettingsOwner(sql, request);
   if (!owner.ok) return owner.response;
 
   if (hasImpersonationCookie(request)) {
@@ -71,21 +67,6 @@ async function patchSettings(request: NextRequest): Promise<NextResponse> {
     reportCaughtError('api/settings/auto-approval PATCH', error, { accountId: owner.accountId });
     return jsonResponse({ error: 'internal_error' }, 500);
   }
-}
-
-async function requireSettingsOwner(request: NextRequest): Promise<SettingsOwnerResult> {
-  if (request.nextUrl.searchParams.has('accountId')) {
-    return { ok: false, response: jsonResponse({ error: 'account_id_not_allowed' }, 400) };
-  }
-  const owner = await requireOwnerWithAccount(request);
-  if (!owner.ok) return owner;
-
-  const offboardingState = await getOffboardingState(owner.accountId, sql);
-  if (isOperationalUIBlocked(offboardingState)) {
-    return { ok: false, response: jsonResponse({ error: 'account_offboarding_blocked' }, 403) };
-  }
-
-  return owner;
 }
 
 async function parsePatchBody(request: NextRequest): Promise<ParsedPatchBody> {

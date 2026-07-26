@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
+import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
@@ -193,6 +194,44 @@ export async function requireWritableOwner(
   const writable = await assertWritableSubscriptionForAccount(owner.accountId, sql);
   if (!writable.ok) {
     return { ok: false, response: jsonResponse({ error: writable.error }, writable.status) };
+  }
+
+  return owner;
+}
+
+export type SettingsOwnerResult = OwnerAccountResult;
+
+/**
+ * Owner gate for the account-scoped `/api/settings/*` routes: rejects an
+ * `?accountId` query parameter → requireOwnerWithAccount → operational-UI
+ * offboarding gate. Returns the owner user + accountId on success, or the
+ * inline no-store JSON response (400 account_id_not_allowed / 401 / 403
+ * no-account / 403 account_offboarding_blocked) on failure. Unexpected non-auth
+ * failures propagate as 5xx (see requireRoleOr401).
+ *
+ * The `?accountId` rejection runs BEFORE the owner is resolved: the parameter is
+ * never a legitimate input on these routes, so accepting the request far enough
+ * to resolve an owner would leave a tenant-selection knob half-honoured. The
+ * order is the guard, not an optimization.
+ *
+ * Unlike requireWritableOwner this checks only the offboarding gate, not the
+ * writable-subscription gate — settings reads and rival/auto-approval writes
+ * stay available to past-due accounts.
+ */
+export async function requireSettingsOwner(
+  sql: postgres.Sql,
+  request: NextRequest,
+): Promise<SettingsOwnerResult> {
+  if (request.nextUrl.searchParams.has('accountId')) {
+    return { ok: false, response: jsonResponse({ error: 'account_id_not_allowed' }, 400) };
+  }
+
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner;
+
+  const offboardingState = await getOffboardingState(owner.accountId, sql);
+  if (isOperationalUIBlocked(offboardingState)) {
+    return { ok: false, response: jsonResponse({ error: 'account_offboarding_blocked' }, 403) };
   }
 
   return owner;
