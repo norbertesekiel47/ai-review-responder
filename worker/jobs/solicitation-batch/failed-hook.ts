@@ -34,7 +34,7 @@ function logFailureSafely(
   }
 }
 
-interface TerminalCheckpoint {
+interface TerminalTransitionOutcome {
   ownsAttempt: boolean;
   parentTerminalized: boolean;
 }
@@ -48,7 +48,7 @@ interface TerminalCheckpoint {
  * transaction's first statement, so no query or lock can be introduced above
  * it. Throws on any write failure; the caller decides the recovery posture.
  */
-async function commitTerminalCheckpoint(
+async function commitTerminalTransition(
   sql: Sql,
   handle: {
     batchId: string;
@@ -57,8 +57,8 @@ async function commitTerminalCheckpoint(
     attempt: number;
   },
   errorClass: string,
-): Promise<TerminalCheckpoint> {
-  const checkpoint: TerminalCheckpoint = {
+): Promise<TerminalTransitionOutcome> {
+  const outcome: TerminalTransitionOutcome = {
     ownsAttempt: false,
     parentTerminalized: false,
   };
@@ -66,13 +66,13 @@ async function commitTerminalCheckpoint(
   await sql.begin(async (tx) => {
     // Coupled terminal transition: ownership CAS FIRST. Do not add a query
     // or lock above this statement.
-    checkpoint.ownsAttempt = await markOutboxFailed(
+    outcome.ownsAttempt = await markOutboxFailed(
       tx,
       handle.outboxId,
       `build_solicitation_batch_exhausted:${errorClass}`,
       handle.attempt,
     );
-    if (!checkpoint.ownsAttempt) return;
+    if (!outcome.ownsAttempt) return;
 
     const [activeParent] = await tx<{ id: string }[]>`
       SELECT parent.id
@@ -99,10 +99,10 @@ async function commitTerminalCheckpoint(
         errorClass,
       },
     });
-    checkpoint.parentTerminalized = true;
+    outcome.parentTerminalized = true;
   });
 
-  return checkpoint;
+  return outcome;
 }
 
 /**
@@ -132,9 +132,9 @@ export async function handleSolicitationBatchFailed(
     return;
   }
 
-  let checkpoint: TerminalCheckpoint;
+  let outcome: TerminalTransitionOutcome;
   try {
-    checkpoint = await commitTerminalCheckpoint(
+    outcome = await commitTerminalTransition(
       sql,
       {
         batchId: job.data.batch_id,
@@ -158,11 +158,11 @@ export async function handleSolicitationBatchFailed(
   }
 
   logFailureSafely({
-    status: checkpoint.ownsAttempt ? 'terminalized' : 'stale',
+    status: outcome.ownsAttempt ? 'terminalized' : 'stale',
     batch_id: job.data.batch_id,
     business_id: job.data.business_id,
     outbox_attempt: attempt,
     error_class: errorClass,
-    parent_terminalized: checkpoint.parentTerminalized,
+    parent_terminalized: outcome.parentTerminalized,
   });
 }

@@ -110,6 +110,13 @@ type PreparationResult =
   | ReadyPreparation
   | Exclude<BuildSolicitationBatchResult, BuiltSolicitationBatchResult>;
 
+/** The one id triple every batch-scoped helper in this module takes. */
+interface BatchIdentity {
+  id: string;
+  accountId: string;
+  businessId: string;
+}
+
 function closedGateReason(
   subscriptionStatus: string,
   processingBlocked: boolean,
@@ -134,30 +141,26 @@ function closedGateReason(
  */
 async function evaluateBatchGate(
   tx: TransactionSql,
-  ids: { batchId: string; accountId: string },
+  batch: BatchIdentity,
 ): Promise<ClosedGateReason | null> {
-  const accountExists = await lockAccountBeforeOffboardingProjection(
+  const accountLocked = await lockAccountBeforeOffboardingProjection(
     tx,
-    ids.accountId,
+    batch.accountId,
   );
-  if (!accountExists) {
-    throw new Error(
-      `solicitation batch builder: account missing for batch ${ids.batchId}`,
-    );
-  }
-
-  const [account] = await tx<{ subscription_status: string }[]>`
-    SELECT subscription_status
-    FROM accounts
-    WHERE id = ${ids.accountId}::uuid
-  `;
+  const [account] = accountLocked
+    ? await tx<{ subscription_status: string }[]>`
+        SELECT subscription_status
+        FROM accounts
+        WHERE id = ${batch.accountId}::uuid
+      `
+    : [];
   if (!account) {
     throw new Error(
-      `solicitation batch builder: account missing for batch ${ids.batchId}`,
+      `solicitation batch builder: account missing for batch ${batch.id}`,
     );
   }
 
-  const offboardingState = await getOffboardingState(ids.accountId, tx);
+  const offboardingState = await getOffboardingState(batch.accountId, tx);
   return closedGateReason(
     account.subscription_status,
     isProcessingBlocked(offboardingState),
@@ -166,13 +169,13 @@ async function evaluateBatchGate(
 
 async function deleteUnbuiltBatch(
   tx: TransactionSql,
-  ids: { batchId: string; accountId: string; businessId: string },
+  batch: BatchIdentity,
 ): Promise<void> {
   await tx`
     DELETE FROM solicitation_batches
-    WHERE id = ${ids.batchId}::uuid
-      AND account_id = ${ids.accountId}::uuid
-      AND business_id = ${ids.businessId}::uuid
+    WHERE id = ${batch.id}::uuid
+      AND account_id = ${batch.accountId}::uuid
+      AND business_id = ${batch.businessId}::uuid
       AND built_at IS NULL
   `;
 }
@@ -216,12 +219,15 @@ async function prepareBatch(
       return { status: 'already_built' };
     }
 
+    const identity: BatchIdentity = {
+      id: batch.id,
+      accountId: batch.account_id,
+      businessId: batch.business_id,
+    };
+
     // Before the agent_runs lock below: evaluateBatchGate takes the accounts
     // row lock, and this transaction's order is accounts-then-agent_runs.
-    const gateReason = await evaluateBatchGate(tx, {
-      batchId: batch.id,
-      accountId: batch.account_id,
-    });
+    const gateReason = await evaluateBatchGate(tx, identity);
 
     const [activeParent] = await tx<{ id: string }[]>`
       SELECT id
@@ -248,11 +254,7 @@ async function prepareBatch(
           },
         });
       }
-      await deleteUnbuiltBatch(tx, {
-        batchId: batch.id,
-        accountId: batch.account_id,
-        businessId: batch.business_id,
-      });
+      await deleteUnbuiltBatch(tx, identity);
       return {
         status: 'gate_closed',
         reason: gateReason,
@@ -309,27 +311,33 @@ function toCandidate(
   };
 }
 
-interface CandidatePool {
+interface CandidateWindow {
+  // The window: the bounded cohort this batch evaluates.
   candidates: AskCandidate[];
-  // Total business contact pool, independent of the window truncation.
+  // The pool the window was drawn from: every contact at the location,
+  // independent of the window truncation.
   poolCount: number;
 }
 
 /**
- * Sole owner of the **Batch candidate window**: each batch draws from the whole
- * accumulated location pool, ordered least-recently-evaluated first and bounded
- * to MAX_DATA_ROWS. Also reports the untruncated pool size so a truncated
- * window is never silent (S4), and joins each candidate's most recent prior
- * send so the restraint policy can reason about repeat asks.
+ * Sole owner of the **Batch candidate window**: the bounded cohort this batch
+ * evaluates, drawn from the whole accumulated location pool, ordered
+ * least-recently-evaluated first and bounded to MAX_DATA_ROWS.
+ *
+ * Window and pool are distinct: `candidates` is the window, `poolCount` is the
+ * untruncated location pool it came from, so `poolCount > candidates.length`
+ * is how a truncated window stays visible (S4: never silent). Also joins each
+ * candidate's most recent prior send so the restraint policy can reason about
+ * repeat asks.
  *
  * Reads only under the caller's batch row lock and per-Business advisory lock.
  * Returns no contact PII beyond the ids the policy needs.
  */
-async function loadCandidatePool(
+async function loadCandidateWindow(
   tx: TransactionSql,
-  ids: { accountId: string; businessId: string },
-): Promise<CandidatePool> {
-  const { accountId, businessId } = ids;
+  batch: BatchIdentity,
+): Promise<CandidateWindow> {
+  const { accountId, businessId } = batch;
 
   const candidateWindow = await tx<CandidateWindowRow[]>`
     SELECT
@@ -453,12 +461,6 @@ function summarize(
     withholdCount: decisions.length - sendCount,
     withheldByReason,
   };
-}
-
-interface BatchIdentity {
-  id: string;
-  accountId: string;
-  businessId: string;
 }
 
 /**
@@ -608,12 +610,10 @@ async function constructBatch(
 
     const accountId = batch.account_id;
     const businessId = batch.business_id;
+    const identity: BatchIdentity = { id: batch.id, accountId, businessId };
     // Re-evaluated here on purpose: this is the load-bearing check, taken under
     // the batch row lock and the per-Business advisory lock.
-    const gateReason = await evaluateBatchGate(tx, {
-      batchId: batch.id,
-      accountId,
-    });
+    const gateReason = await evaluateBatchGate(tx, identity);
     if (gateReason !== null) {
       await failSolicitationBatchRun(tx, {
         runId: preparation.parentRunId,
@@ -622,11 +622,7 @@ async function constructBatch(
           gate: gateReason,
         },
       });
-      await deleteUnbuiltBatch(tx, {
-        batchId: batch.id,
-        accountId,
-        businessId,
-      });
+      await deleteUnbuiltBatch(tx, identity);
       return {
         status: 'gate_closed',
         reason: gateReason,
@@ -646,10 +642,7 @@ async function constructBatch(
       );
     }
 
-    const { candidates, poolCount } = await loadCandidatePool(tx, {
-      accountId,
-      businessId,
-    });
+    const { candidates, poolCount } = await loadCandidateWindow(tx, identity);
 
     const decidedAt = new Date().toISOString();
     const decisions = evaluateBatch(
@@ -662,7 +655,7 @@ async function constructBatch(
     const summary = summarize(decisions, poolCount);
 
     await commitAskDecisions(tx, {
-      batch: { id: batch.id, accountId, businessId },
+      batch: identity,
       parentRunId: preparation.parentRunId,
       decisions,
       decidedAt,

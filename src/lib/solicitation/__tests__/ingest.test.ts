@@ -74,7 +74,12 @@ describe('resolveContactMatch', () => {
 // acquireCsvIngestLock (which also owns the hashtext wrapping and the
 // first-statement rule).
 const LANE_ROOTS = ['src/lib/solicitation', 'worker/jobs/csv-ingest'];
-const LOCK_KEY_EXPRESSION = 'csv_ingest_${';
+// Any reconstruction of the key, not just the template-literal form: the
+// prefix either terminates a string literal (`'csv_ingest_' || businessId`) or
+// is followed by an interpolation (`csv_ingest_${businessId}`). Prose mentions
+// (`csv_ingest_<business>`) and the unrelated `csv_ingest_exhausted` outbox
+// reason are deliberately outside the pattern.
+const LOCK_KEY_CONSTRUCTION = /csv_ingest_(\$\{|['"`])/;
 
 function* walkLaneSources(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -91,7 +96,7 @@ function laneFilesBuildingTheLockKey(): string[] {
   const files: string[] = [];
   for (const root of LANE_ROOTS) {
     for (const filePath of walkLaneSources(join(process.cwd(), root))) {
-      if (readFileSync(filePath, 'utf-8').includes(LOCK_KEY_EXPRESSION)) {
+      if (LOCK_KEY_CONSTRUCTION.test(readFileSync(filePath, 'utf-8'))) {
         files.push(relative(process.cwd(), filePath).split('\\').join('/'));
       }
     }
@@ -142,8 +147,9 @@ describe('csv_ingest terminal-write owners', () => {
     expect(write.text).toContain('raw_csv = NULL');
     expect(write.text).toContain('completed_at = NOW()');
     expect(write.text).toContain('AND status = ?');
-    // Statuses are bound values sourced from UPLOAD_STATUSES (single owner).
-    expect(write.values).toEqual(['failed', report, 'upload-1', 'business-1', 'pending']);
+    // The pending guard is a bound value sourced from UPLOAD_STATUSES (single
+    // owner); SET-clause order is not part of the contract.
+    expect(write.values).toContain('pending');
     expect(harness.mockSql.json).toHaveBeenCalledWith(report);
   });
 

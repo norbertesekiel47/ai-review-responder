@@ -2,10 +2,10 @@
  * Ingest lane for the contacts/visits CSV (#541, contract #535 §1.2/§1.3/§3):
  * match/merge/upsert of contacts + visits, terminal report, raw CSV clearing.
  *
- * Concurrency contract: ALL DB work happens inside ONE transaction whose FIRST
- * statement takes `pg_advisory_xact_lock(hashtext('csv_ingest_' || businessId))`.
- * The per-business advisory lock serializes concurrent ingests AND the
- * failed-hook terminalizer (worker/jobs/csv-ingest/failed-hook.ts takes the
+ * Concurrency contract: ALL DB work happens inside ONE transaction that opens
+ * by taking the per-business csv_ingest advisory lock — `acquireCsvIngestLock`
+ * below owns that lock's mechanics. The lock serializes concurrent ingests AND
+ * the failed-hook terminalizer (worker/jobs/csv-ingest/failed-hook.ts takes the
  * SAME lock), so read-then-write matching cannot double-create a contact and
  * terminalization cannot race an in-flight retry. Plain FOR UPDATE cannot
  * cover not-yet-existing contact rows; the PgBouncer FOR-UPDATE gotcha does

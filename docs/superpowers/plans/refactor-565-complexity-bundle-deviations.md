@@ -61,6 +61,21 @@ pre-grilling estimate would size.
 No surface amendment occurred in the widening direction; the surface was
 *narrowed* once, when former-T2/T3 were dropped on measurement.
 
+*Later gate runs report a larger number (2625) — the delta is the two committed
+step-7 review reports plus this file. Docs only; the analysis above is unchanged.*
+
+**Gate-arming incident (fix round).** The review fix-round agent, told to clean
+up its scratch `.feature/fallow-health.json`, removed `.feature/intake.json` and
+`.feature/state.json` with it. The immediately following `verify-gate.sh --review`
+therefore ran **DISARMED** and reported GREEN while silently skipping the
+intake-driven rows (`build`, `promised-tests`, the four `verification_commands`
+extras, `reclassify`) — a green that meant materially less than it appeared to.
+Caught by noticing the row count had dropped versus the previous run. The intake
+was restored from the committed copy, the branch re-armed, the fix round's four
+changed files confirmed in-surface after the fact, and the full 24-row gate re-run
+green. Lesson: a shrinking gate table is a disarm signal, not a faster run — the
+row count is worth reading, not just the verdict.
+
 ## T5 — decompose the executor
 
 **Measured before/after** (`npx fallow health --complexity --format json`,
