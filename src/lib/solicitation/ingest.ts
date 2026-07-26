@@ -371,14 +371,53 @@ async function findContactByHandle(
   return rows[0] ?? null;
 }
 
-/** Per-business advisory lock shared by every contact_csv_uploads writer in
- *  this module (the failed-hook takes the same `csv_ingest_<businessId>` key).
- *  Must be the FIRST statement of the surrounding transaction. */
-async function acquireCsvIngestLock(
+/** THE owner of the csv_ingest advisory lock: the `csv_ingest_<businessId>`
+ *  key, its `pg_advisory_xact_lock(hashtext(…))` wrapping, and the rule that it
+ *  must be the FIRST statement of the surrounding transaction. Every
+ *  `contact_csv_uploads` STATUS TRANSITION — here and in the csv-ingest
+ *  failed-hook — goes through this function; a caller that rebuilt the key
+ *  itself would still have to remember the other two facts. */
+export async function acquireCsvIngestLock(
   tx: TransactionSql,
   businessId: string,
 ): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtext(${`csv_ingest_${businessId}`}))`;
+}
+
+export interface TerminalUploadWrite {
+  uploadId: string;
+  businessId: string;
+  status: TerminalUploadStatus;
+  report: IngestReport;
+}
+
+/**
+ * THE single writer of a `contact_csv_uploads` terminal state (§3): the
+ * `status='pending'`-guarded UPDATE, the report encoding, `raw_csv = NULL` and
+ * `completed_at = NOW()`, all in the caller's transaction. Callers own the
+ * advisory lock (`acquireCsvIngestLock`) and any follow-on work.
+ *
+ * Matching 0 rows is a tolerated, silent no-op on every path — deliberately NOT
+ * asserted. Only advisory-lock holders change `status`, so for a row that still
+ * exists the predicate cannot change the outcome; but the row may be GONE:
+ * `worker/jobs/account-offboarding/purge-stages.ts` hard-DELETEs
+ * `contact_csv_uploads` by `account_id` WITHOUT taking the lock, so an
+ * offboarding purge can commit between an ingest's pending read and this write.
+ * That race completes the ingest job normally today. Turning it into an assert
+ * would convert it into a throw → BullMQ retries → exhaustion → failed-hook
+ * noise, so this function returns void and no caller inspects a row count.
+ */
+export async function writeTerminalUploadState(
+  tx: TransactionSql,
+  { uploadId, businessId, status, report }: TerminalUploadWrite,
+): Promise<void> {
+  await tx`
+    UPDATE contact_csv_uploads
+    SET status = ${status}, report = ${tx.json(report as never)},
+        raw_csv = NULL, completed_at = NOW()
+    WHERE id = ${uploadId} AND business_id = ${businessId}
+      AND status = ${UPLOAD_STATUSES.PENDING}
+  `;
 }
 
 /** Writes the terminal report AND clears raw_csv in the surrounding tx (§3). */
@@ -393,12 +432,7 @@ async function terminalizeUpload(
   status: TerminalUploadStatus,
   report: IngestReport,
 ): Promise<UploadTerminalization> {
-  await tx`
-    UPDATE contact_csv_uploads
-    SET status = ${status}, report = ${tx.json(report as never)},
-        raw_csv = NULL, completed_at = NOW()
-    WHERE id = ${uploadId} AND business_id = ${businessId}
-  `;
+  await writeTerminalUploadState(tx, { uploadId, businessId, status, report });
   const batchCreated =
     status === UPLOAD_STATUSES.COMPLETED &&
     solicitationWatchEnabled() &&
@@ -471,13 +505,12 @@ export async function terminalizeUploadForInactiveSubscription(
   };
   await sql.begin(async (tx) => {
     await acquireCsvIngestLock(tx, businessId);
-    await tx`
-      UPDATE contact_csv_uploads
-      SET status = ${UPLOAD_STATUSES.FAILED}, report = ${tx.json(report as never)},
-          raw_csv = NULL, completed_at = NOW()
-      WHERE id = ${uploadId} AND business_id = ${businessId}
-        AND status = ${UPLOAD_STATUSES.PENDING}
-    `;
+    await writeTerminalUploadState(tx, {
+      uploadId,
+      businessId,
+      status: UPLOAD_STATUSES.FAILED,
+      report,
+    });
   });
   logger.warn('csv ingest terminalized: subscription inactive', { upload_id: uploadId });
 }
