@@ -2,60 +2,59 @@
   "classification": "high",
   "surface": "mixed",
   "db_touching": true,
-  "goal": "Give the csv_ingest advisory-lock key, the contact_csv_uploads terminal write, the Solicitation batch gate re-check, and the settings-owner route preamble exactly one owner each, and decompose the fallow complexity hotspots in the contacts ingest lane and the Solicitation batch executor until each named function clears the complexity threshold on its own (measured by a targeted `fallow health --complexity` run, not by ci:fallow) — with zero change to observable behavior.",
+  "goal": "Give the csv_ingest advisory-lock key, the contact_csv_uploads terminal write, the Solicitation batch gate re-check, and the settings-owner route preamble exactly one owner each, and decompose the two batch-builder functions that carry real complexity findings — with zero change to observable behavior.",
   "non_goals": [
     "No behavior change of any kind: same statuses, same reports, same withhold reasons, same HTTP status codes, same log lines.",
     "No schema change and no migration (head stays 089).",
     "No new feature flag and no new env var.",
     "No change to restraint-policy decisions, the Batch candidate window query semantics, or Ask evidence shape.",
-    "recordCompletedChildRuns is deliberately NOT decomposed (two set-based INSERTs each followed by a count assertion; splitting adds names without hiding complexity). Verdict logged on #565.",
+    "recordCompletedChildRuns is NOT decomposed (two set-based INSERTs each followed by a count assertion; splitting adds names without hiding complexity). Verdict logged on #565.",
     "No change to the failed-hook outbox CAS choreography or crash-net bookkeeping — those stay in worker/jobs/*/failed-hook.ts.",
     "Not touching worker/jobs/zernio/ingest-failed-hook.ts (the mirrored terminalizer) — a separate lane, separate table.",
-    "The uploads route's business-ownership SELECT stays in the route. Moving it into createContactsCsvUpload was considered and CUT: it would force a ≤5MB decode before rejecting a foreign business, and would reorder ownership against the module's existing attestation/size validations (flipping a foreign-business + rejected-attestation request from 404 to 400). Neither is acceptable on a no-behavior-change branch.",
-    "Not fixing the purge/ingest race itself (purge-stages.ts:256 deletes without the advisory lock). It is pre-existing, tolerated, and outside this surface — file it, don't fix it here."
+    "DROPPED — the ingest.ts decomposition (former T2). Measured: with all four `fallow-ignore-next-line complexity` comments stripped, ingest.ts yields ZERO complexity findings. Those suppressions guard CRAP (complexity x uncovered^2) which only materializes under `ci:fallow:coverage`, where vitest coverage omits the integration suites that actually cover these functions. Decomposition cannot clear a coverage-driven finding. The suppressions and their comments stay untouched; the coverage blind spot is filed as its own ticket.",
+    "DROPPED — the uploads-route work (former T3). Measured: uploadContactsCsv and parseUploadForm appear in neither `findings` nor `large_functions`. Also cut on its own merits: moving the ownership SELECT into createContactsCsvUpload would force a <=5MB decode before rejecting a foreign business and would flip a foreign-business + rejected-attestation request from 404 to 400.",
+    "Not fixing the purge/ingest race (purge-stages.ts:256 hard-DELETEs without the advisory lock). Pre-existing, tolerated, out of surface — filed, not fixed."
   ],
   "user_visible_behavior": [
     "None. This is a behavior-preserving refactor; the acceptance test is that every existing unit + integration suite stays green unmodified except where a call signature moved."
   ],
   "invariants": [
     "Invariant #15: src/lib/** and worker helpers receive their DB client explicitly — the extracted requireSettingsOwner takes (sql, request); route-helpers.ts must NOT import @/lib/db/server.",
-    "Invariant #2: the transactional outbox coupling is untouched — every terminal write stays in the SAME transaction as its outbox CAS.",
+    "Invariant #2: the transactional outbox coupling is untouched — every terminal write stays in the SAME transaction as its outbox CAS, in the same statement order.",
     "Invariant #8: every extracted query keeps its account_id/business_id scoping predicates verbatim.",
-    "Invariant #12: entry points orchestrate, modules own failure behavior.",
-    "csv_ingest concurrency contract: every transaction that performs a contact_csv_uploads STATUS TRANSITION takes the per-business advisory lock as its FIRST statement, using the SAME key. This does NOT extend to every writer of the table — worker/jobs/account-offboarding/purge-stages.ts:256 hard-DELETEs by account_id without the lock (out of scope here, and the reason the ingest 0-row case is reachable rather than impossible).",
+    "csv_ingest concurrency contract: every transaction that performs a contact_csv_uploads STATUS TRANSITION takes the per-business advisory lock as its FIRST statement, using the SAME key. This does NOT extend to every writer of the table — worker/jobs/account-offboarding/purge-stages.ts:256 hard-DELETEs by account_id without the lock, which is why the ingest 0-row case is reachable rather than impossible.",
     "PII contract: the ingest lane and the batch executor never log names, emails, phones, notes, or raw CSV text — counts and closed enums only.",
-    "Terminal-write contract after this change: every contact_csv_uploads terminal write carries the status='pending' predicate. Because only lock-holders change status, the predicate is a no-op for the ingest path; a 0-row result there means the ROW IS GONE (offboarding purge race), which today completes the job silently and MUST continue to."
+    "Terminal-write contract: every contact_csv_uploads terminal write carries the status='pending' predicate. Because only lock-holders change status, the predicate cannot change the outcome for a row that still exists; a 0-row result means the row is GONE (offboarding purge race), which completes the job silently today and MUST continue to.",
+    "Lock-order contract: in prepareBatch the accounts row lock is taken BEFORE the agent_runs row lock. evaluateBatchGate must therefore be called before the activeParent SELECT ... FOR UPDATE."
   ],
   "edge_cases": [
     "Ingest path terminal write matching 0 rows: REACHABLE, not impossible — the offboarding purge (purge-stages.ts:256) can delete the row between the pending read at ingest.ts:136 and the write at ingest.ts:155/167. Today the unguarded UPDATE matches 0 rows and the job completes normally; the refactor must preserve exactly that. Do NOT assert or throw here.",
     "failed-hook and terminalizeUploadForInactiveSubscription terminal write matching 0 rows: legitimate no-op (lost race against a concurrent terminal write / completed job / purge) — must stay silent.",
     "prepareBatch and constructBatch re-check the same gate (flag / subscription / offboarding) at two different times by design; sharing the check must NOT collapse them into one evaluation — construction's re-check is the load-bearing one.",
     "The shared gate helper must preserve each caller's DIFFERENT failure posture: prepareBatch fails an activeParent only when one exists; constructBatch always fails preparation.parentRunId.",
+    "Calling evaluateBatchGate AFTER prepareBatch's activeParent SELECT ... FOR UPDATE would reverse the accounts->agent_runs lock order on a refactor-only branch. It must be called before.",
     "requireSettingsOwner rejects an ?accountId query parameter BEFORE resolving the owner — the order is the guard, not an optimization.",
     "Extracting requireSettingsOwner must not change the auto-approval route's impersonation branch, which runs AFTER the shared preamble and only on PATCH.",
-    "`pnpm ci:fallow` (--gate new-only) audits only CHANGED files and fails only on findings ATTRIBUTED AS INTRODUCED vs the origin/main snapshot. It therefore binds T2 (where deleting an existing suppression surfaces a finding the base lacked) but does NOT bind T5/T3, whose hotspots are already findings in the base and stay 'inherited' no matter what. Those tickets need a target-specific `fallow health --complexity` assertion instead — ci:fallow passing is NOT evidence they were decomposed.",
-    "Only src/lib/solicitation/ingest.ts carries inline `fallow-ignore-next-line complexity` suppressions (4, at :124/:207/:279/:388). 'No suppression remaining' is vacuously true everywhere else and must not be used as those tickets' acceptance test."
+    "`pnpm ci:fallow` (--gate new-only) audits only CHANGED files and fails only on findings ATTRIBUTED AS INTRODUCED vs the origin/main snapshot. The batch-builder findings already exist in the base, so they stay 'inherited' and ci:fallow passes whether or not T5 happens. ci:fallow is a regression check (do not introduce NEW hotspots), never proof of decomposition — that is what the targeted complexity check in verification_commands is for.",
+    "`fallow health` rejects positional path arguments (exit 2), has no scoping flag, and exits 1 on ANY project finding. It can only be used via the JSON-plus-inline-check form in verification_commands; invoking it directly in a gate makes the gate permanently red."
   ],
   "existing_patterns_to_follow": [
     "src/lib/solicitation/ingest.ts parseIngestReportValue — the house comment style for a single-owner helper whose callers pick their own failure posture.",
     "src/lib/auth/route-helpers.ts requireOwnerWithAccount / requireWritableOwner — the { ok: true, ... } | { ok: false, response } result shape and the describe(<fnName>) test style in src/lib/auth/__tests__/route-helpers.test.ts.",
-    "worker/jobs/csv-ingest/__tests__/index.test.ts:169 — the raw-SQL-text assertion style that pins the advisory-lock key.",
+    "worker/jobs/csv-ingest/__tests__/index.test.ts:169 — the raw-SQL-text assertion style that pins the advisory-lock key and statement order.",
     "src/lib/solicitation/batch-builder.ts closedGateReason — the existing pure gate-reason function the shared gate helper wraps."
   ],
   "allowed_edit_surface": [
     "src/lib/solicitation/ingest.ts",
-    "src/lib/solicitation/uploads.ts",
-    "src/lib/solicitation/batch-builder.ts",
     "src/lib/solicitation/__tests__/ingest.test.ts",
     "src/lib/solicitation/__tests__/ingest.integration.test.ts",
-    "src/lib/solicitation/__tests__/uploads.test.ts",
+    "src/lib/solicitation/batch-builder.ts",
     "src/lib/solicitation/__tests__/batch-builder.test.ts",
     "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-    "src/app/api/dashboard/contacts/uploads/route.ts",
-    "src/app/api/settings/auto-approval/route.ts",
-    "src/app/api/settings/competitors/route.ts",
     "src/lib/auth/route-helpers.ts",
     "src/lib/auth/__tests__/route-helpers.test.ts",
+    "src/app/api/settings/auto-approval/route.ts",
+    "src/app/api/settings/competitors/route.ts",
     "worker/jobs/csv-ingest/failed-hook.ts",
     "worker/jobs/csv-ingest/__tests__/index.test.ts",
     "worker/jobs/solicitation-batch/failed-hook.ts",
@@ -67,20 +66,20 @@
     "acquireCsvIngestLock is the single owner of the csv_ingest advisory-lock key",
     "the csv-ingest failed hook takes the advisory lock through acquireCsvIngestLock",
     "writeTerminalUploadState guards the terminal write with the pending predicate",
-    "writeTerminalUploadState returns false when no pending row transitioned",
     "ingestContactsCsvUpload completes normally when its terminal write finds no pending row",
     "prepareBatch and constructBatch derive the closed-gate reason from one owner",
+    "evaluateBatchGate runs before the activeParent row lock in prepareBatch",
     "requireSettingsOwner rejects an accountId query parameter with 400",
     "requireSettingsOwner returns 403 when offboarding blocks the operational UI",
     "requireSettingsOwner forwards the owner when the account is not offboarding"
   ],
   "verification_commands": [
     "pnpm ci:fallow",
-    "FALLOW_SKIP_BINARY_VERIFY=1 npx fallow health --complexity --format json src/lib/solicitation/ingest.ts src/lib/solicitation/batch-builder.ts worker/jobs/solicitation-batch/failed-hook.ts src/app/api/dashboard/contacts/uploads/route.ts",
+    "npx fallow health --complexity --format json > .feature/fallow-health.json 2>/dev/null || true; node -e \"const f=require('./.feature/fallow-health.json').findings.filter(x=>x.path.includes('solicitation/batch-builder.ts')); if(f.length){console.error('FAIL: batch-builder complexity findings remain: '+f.map(x=>x.name+':'+x.line+' cyc='+x.cyclomatic+' cog='+x.cognitive).join(', ')); process.exit(1);} console.log('PASS: batch-builder complexity clear');\"",
     "pnpm test src/lib/solicitation/__tests__/ingest.integration.test.ts",
     "pnpm test src/lib/solicitation/__tests__/batch-builder.integration.test.ts"
   ],
-  "estimated_diff_size": "±600 lines across ~17 files; production lines near net-zero or negative (decomposition + de-duplication), growth is tests",
+  "estimated_diff_size": "±420 lines across ~14 files; production lines net-negative (de-duplication + decomposition), growth is tests",
   "dependencies_added": [],
   "rollback_plan": "No schema change, no migration, no flag. Rollback is a straight revert of the squash-merge commit; nothing to un-apply on either Supabase project. The staging ride precedes the prod merge, so a defect surfaces before promotion.",
   "observability": [
