@@ -7,10 +7,12 @@ Where those docs and this one disagree, this one wins. Architecture invariants i
 [.claude/CLAUDE.md](../../.claude/CLAUDE.md) still win over everything.
 **Altitude:** Fresh analysis + locked decisions. Each build phase below still gets its own
 spec → plan → implementation cycle.
-**Build status (2026-07-22):** Phase 1 (WS1–WS8) is SHIPPED to `main` and
-staging-proven end-to-end — see **§8 As-built status**, which records what was
-built, where it diverged from this design, and what remains before production
-go-live. §§1–7 are preserved as the accepted design; §8 is the reality overlay.
+**Build status (2026-07-26):** Phase 1 (WS1–WS8) is SHIPPED and staging-proven
+(§8). **Phase 2a (Solicitation watch-mode) is also SHIPPED** — run engine +
+Solicitation agent live on staging behind `SOLICITATION_WATCH_ENABLED`, both
+probes on `main`, migrations 084–089 in prod/staging lockstep; see **§9.2's
+DESTINATION REACHED banner**. §§1–7 are preserved as the accepted design;
+§8 is the Phase 1 reality overlay; §9 is the Solicitation roadmap + status.
 
 ---
 
@@ -423,11 +425,14 @@ autonomy flags; Autopilot flips only after the gates above, Copilot-first.
 
 ### 8.5 Deliberately still NOT built (per this design)
 
-Run engine/executor (Phase 2, Solicitation is its first tenant), Solicitation
-agent (v1.1), calibrated-confidence router, GBP posting adapter (awaiting
-access), conversational surface, cross-agent coordination keys, outcome
-billing. None of these block launch; all remain sequenced as §4 specified,
-with the run engine + Solicitation now sub-phased per §9 (locked 2026-07-23).
+~~Run engine/executor (Phase 2, Solicitation is its first tenant), Solicitation
+agent (v1.1)~~ — **both SHIPPED in watch-mode 2026-07-26** (§9.2; logical
+fan-out only, physical fan-out/join and the send path remain send-mode scope).
+Still deliberately not built: Solicitation **send-mode** (§9.3 — consent
+ledger, suppression, email adapter, real sends), calibrated-confidence router,
+GBP posting adapter (awaiting access), conversational surface, cross-agent
+coordination keys, outcome billing. None of these block launch; all remain
+sequenced as §4 specified, sub-phased per §9.
 
 ## 9. Solicitation roadmap (locked 2026-07-23)
 

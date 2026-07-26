@@ -27,6 +27,20 @@ Jump to the dated entries by subsystem (search the anchors below):
 
 ## 2026-04-09
 
+### Postgres.js NUMERIC/DATE decoding (not the JSONB carve-out)
+- [2026-07-25] Competitor Delta digest compared `snapshot_date === currentDate`
+  and every location degraded to the teaser branch → Postgres.js decodes DATE
+  columns to JS `Date` objects, so `===` against a string is always false; unit
+  tests with string fixtures cannot catch it → select `snapshot_date::text` and
+  keep DATE values strings end-to-end, plus pin the query shape in the suite
+  (`expect(query.text).toContain('snapshot_date::text')`). Caught in PR #570
+  review; same family as the timestamptz-µs lab note.
+- [2026-07-25] Postgres.js returns **NUMERIC as a JS string** (precision
+  preservation) — `competitor_snapshots.rating NUMERIC(2,1)` reads back as
+  `"4.8"`, not `4.8`. Any consumer must `Number(...)` at the read boundary.
+  This is NOT the PgBouncer JSONB carve-out (different decoder, applies
+  everywhere) — do not add such sites to CLAUDE.md's JSONB allowlist.
+
 ### Postgres.js + PgBouncer JSONB string wrapping
 Postgres.js + PgBouncer returns JSONB columns as plain strings, not parsed
 objects. Guard every JSONB read:
