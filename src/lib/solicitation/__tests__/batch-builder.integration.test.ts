@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import type { Job } from 'bullmq';
 import postgres from 'postgres';
@@ -13,22 +11,27 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
-  acquireFeature543DatabaseLock,
-  assertFeature543LocalTestDatabaseUrl,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  resolveFeature543TestDatabaseUrl,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
 import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
 
-const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
+const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
 
 function sql(): postgresType.Sql {
@@ -194,21 +197,16 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   timeout: 90_000,
 }, () => {
   beforeAll(async () => {
-    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, {
       max: 4,
       prepare: false,
     });
-    await db.unsafe(
-      readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
-    );
-    await db.unsafe(
-      readFileSync(
-        resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
-        'utf-8',
-      ),
-    );
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',
       accountDisplayName: 'Batch Builder Integration Account',
@@ -224,7 +222,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         'active', 'automotive'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
@@ -894,7 +892,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     `;
 
     const batch = await seedBatch();
-    const boundedSql = postgres(assertFeature543LocalTestDatabaseUrl(testDatabaseUrl), {
+    const boundedSql = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl), {
       max: 1,
       prepare: false,
     });

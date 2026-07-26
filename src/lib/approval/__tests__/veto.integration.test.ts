@@ -16,8 +16,6 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
@@ -25,7 +23,11 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { startOrGetActiveRun } from '@/lib/agents/run-spine';
@@ -137,10 +139,10 @@ describeWithDb('vetoAutoPost against live Postgres (publish-vs-veto race)', { ti
   beforeAll(async () => {
     // max > 2: races below hold one transaction open while a second runs.
     db = postgres(testDatabaseUrl!, { max: 4, prepare: false });
-    await db.unsafe(
-      readFileSync(resolve(process.cwd(), 'supabase/migrations', '071_agent_run_spine.sql'), 'utf-8'),
-    );
-    await applyMigration074IfMissing(db);
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_074_TRUST_DIAL_VETO_WINDOW,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Veto Race Owner',
       accountDisplayName: 'Veto Race Account',

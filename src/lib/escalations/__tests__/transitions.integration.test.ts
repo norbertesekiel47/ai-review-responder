@@ -13,8 +13,6 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
@@ -22,6 +20,11 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_073_REVIEW_ESCALATIONS,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { completeRun, startOrGetActiveRun } from '@/lib/agents/run-spine';
 import { acknowledgeEscalation, resolveEscalation } from '../transitions';
 
@@ -82,9 +85,7 @@ async function resolvedOutcomeRows(): Promise<{ agent_run_id: string; attributed
 describeWithDb('escalation transitions against live Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    for (const migration of ['071_agent_run_spine.sql', '073_review_escalations.sql']) {
-      await db.unsafe(readFileSync(resolve(process.cwd(), 'supabase/migrations', migration), 'utf-8'));
-    }
+    await assertSchemaReady(db, [MIGRATION_071_RUN_SPINE, MIGRATION_073_REVIEW_ESCALATIONS]);
     tenant = await seedTenantAccount(db, {
       userName: 'Escalation Transitions Owner',
       accountDisplayName: 'Escalation Transitions Account',

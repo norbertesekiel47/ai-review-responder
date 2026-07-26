@@ -6,7 +6,7 @@ const hasSupabaseBrowserEnv = Boolean(
 
 // The DB-backed lifecycle scenarios that used to live here (cancel_only /
 // reactivation / delete_data / keep-my-data / purge) were ported to
-// `worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts`
+// `worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts`
 // (issue #283): their dynamic src/worker imports broke under Playwright's
 // transform, so they never ran — the Vitest integration lane imports app code
 // natively and executes in the CI `test` job.
