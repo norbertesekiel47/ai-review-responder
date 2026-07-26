@@ -7,7 +7,43 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-07-23 (Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-07-26 (Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Solicitation watch-mode shipped: map #528 destination reached (2026-07-26, PRs #554–#575)
+
+Phase 2a of the Solicitation roadmap (design doc §9.2) is COMPLETE. The agent
+runs end-to-end on staging in watch-mode: owner uploads a customer CSV (with
+blocking consent attestation) → the run engine builds a batch as parent/child
+runs on the spine → the restraint policy decides send/withhold per candidate
+with typed evidence → the owner sees the decisions on the Requests screen —
+and **nothing is sent**. Both warm-up probes are also live. What is true now:
+
+- **Probes**: the weekly digest carries a Competitor Delta line (review-count
+  gap vs a Named rival — owner-picked via the settings Rival picker, else a
+  deterministic Auto-default), reading `competitor_snapshots` persisted from
+  the SAME SerpAPI calls `RankingTrackingWorker` always made; the Voice Report
+  Card at `/settings/voice` shows five evidenced register traits derived from
+  the owner's own reply edits (zero new data collection).
+- **The new shape**: `src/lib/solicitation/` (restraint-policy, contacts-csv,
+  ingest, batch-builder, batch-view, flags) · `src/lib/competitors/`
+  (named-rival) · `worker/jobs/csv-ingest/` + `worker/jobs/solicitation-batch/`
+  (each with failed-hooks) · `src/app/(authenticated)/dashboard/requests/`
+  (funnel-hero batch screen + contacts page) · run spine widened with
+  `parent_run_id`, `solicitation_batch`/`solicitation_ask` kinds, persona
+  `solicitation`, outcome `solicitation_batch_built` (ADR 0011) ·
+  `solicitation_batches`/`solicitation_asks` as the authoritative decision
+  records (survive 180-day run archival).
+- **Migrations 084–089** applied to staging AND prod in lockstep, all
+  introspection-verified. Flag: `SOLICITATION_WATCH_ENABLED=true` on staging
+  only (evidence: `docs/runbooks/evidence/2026-07-26-solicitation-watch-mode-staging-flip.md`);
+  prod stays off until the production bring-up.
+- **Sentiment-blindness is structural** (ADR 0012): the withhold enum has no
+  `recent_negative`, evidence carries no star ratings, and the Requests UI
+  renders `already_reviewed` with a date but never a rating.
+- **Deferred debt, tracked**: #555 (restraint-policy date fail-open — gates
+  send-mode), #565 (complexity/consolidation bundle), #567/#568 (arch-review
+  R1/R2), #569, #572, #573. Next effort: the send-mode map (§9.3), opened only
+  after watch-mode engagement signal (reviewed_at pings, rival picks, uploads).
 
 ## Quick summary — Restraint policy module: first Phase 2 Solicitation code (2026-07-23, PR #551)
 

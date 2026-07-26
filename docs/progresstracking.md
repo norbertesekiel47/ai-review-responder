@@ -1046,3 +1046,62 @@ session is due before the counter grows further (user schedules it; see
 `.claude/reference/arch-review-log.md`).
 
 ---
+
+## 2026-07-23 → 2026-07-26 — Solicitation watch-mode: wayfinder map #528 charted, worked, and DESTINATION REACHED
+
+The full arc from `/adhd` ideation to a live agent, in one map (issue #528,
+now closed with every ticket indexed in its Decisions-so-far):
+
+**Charting (2026-07-23):** destination locked by grilling (watch-mode live,
+probes don't gate, owner-CSV candidates, all-paying-tiers flag) → design doc
+§9 written (PR #545) → 16 tickets + blocking edges → 3 research subagents
+resolved same-day (#529 run-spine gap, #530 SerpAPI fields, #531 policy
+constraints — gating binds SELECTION even in watch-mode).
+
+**Decision layer:** 4 parallel grilling sessions → PRs #547–#550 (executor
+shape + ADR 0011; restraint policy + ADR 0012 — renumbered from a 0011
+collision at merge; Delta semantics; CSV contract). Cross-PR review caught the
+ADR collision, a 4-way CONTEXT.md append, and a ticket-range slip. Two
+prototypes (#536 Voice Report Card, #537 batch screen) resolved with decisions
++ throwaway branches.
+
+**Implementation wave (2026-07-24 → 26), every PR through review + fix-round
+discipline:**
+- **#554** (#538 competitor snapshots, migrations 084+**085** — REAL→NUMERIC
+  amendment shipped as a new migration when the immutability guard correctly
+  blocked editing staging-applied 084).
+- **#561** (#540 Voice Report Card screen; APPROVE-WITH-NITS; two cosmetic
+  follow-ups on the ticket).
+- **#564** (#541 CSV ingestion, migrations 086+**087** — cascade-FK indexes
+  from review; fix round closed a real polling-effect leak + fallow debt;
+  merged with complexity advisories → #565).
+- **#570** (#539 Delta digest line; review caught a production-fatal
+  DATE-vs-string filter — every location would have degraded to teaser
+  forever; fixed `::text` end-to-end + query-shape pin; #532 semantics
+  amendments recorded).
+- **#571** (#543 run-engine executor, migration 088; all five pinned
+  carry-forwards resolved — whole-pool candidate set with 5,000 bound +
+  rotation, banked-never-in-history test-pinned, executor failed-hook with D4
+  amended, truncation logging added post-review).
+- **#574** (#546 rival picker, migration 089; dropout-note glossary
+  reconciled; title-snapshot made deterministic).
+- **#575** (#544 Requests surface; reviewed-ping made retry-safe;
+  pending-visibility divergence from 088 RLS documented in-code).
+
+**Architecture review (2026-07-24, threshold 8 merges):** 6 findings, none
+blocking — S1/S2 (ingest lock-key + terminalizer duplication → #569/#565),
+S3/S4 (pre-build executor findings, resolved in #543's grilling), R1
+(single-replica invariant unguarded → #567), R2 (outbox seam 13 typed helpers
+vs 28 raw writers → #568). Counter reset, then 4 completion-wave merges → 4.
+
+**Destination (2026-07-26):** `staging` reset onto `main` (squash protocol),
+Railway worker SUCCESS + Vercel Ready, `SOLICITATION_WATCH_ENABLED=true` on
+both staging surfaces (prod OFF). Evidence:
+`docs/runbooks/evidence/2026-07-26-solicitation-watch-mode-staging-flip.md`.
+Owner SSO smoke pending (upload → batch → funnel + verbatim withhold chips).
+
+**Open debt carried forward:** #555 (send-mode gate), #565, #567, #568, #569,
+#572, #573. Next effort: send-mode map per design doc §9.3, after watch-mode
+engagement signal.
+
+---

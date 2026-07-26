@@ -122,7 +122,8 @@ decide *where new worker code goes*:
   per-domain subfolder when a worker has helpers (`response-generation/`,
   `notification/`, `auto-post-notice/`, `publisher/`, `zernio/`, `billing/`,
   `onboarding-demo/`, `account-offboarding/`, `judge/`, `escalation-notice/`,
-  `autonomy-suspended-notice/`, `pending-post-notice/`).
+  `autonomy-suspended-notice/`, `pending-post-notice/`, `csv-ingest/`,
+  `solicitation-batch/`).
 - **Publishing goes through the `ReviewPublisher` seam** (`src/lib/publishing/review-publisher.ts`):
   the `worker/jobs/publisher/` call-sites resolve + post via `getReviewPublisher()`
   (`resolveTarget`/`publishReply`/`deleteReply`/`findReply`), NOT `zernioClient`
