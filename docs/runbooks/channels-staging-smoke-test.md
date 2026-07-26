@@ -26,11 +26,31 @@ before any production flag flip.
                        'notification_deliveries_auto_post_notice_claim');
   -- expect: BOTH rows. Without these the FYI enqueue / claim ON CONFLICT errors at runtime.
   ```
-- [ ] `CHANNELS_TELEGRAM_ENABLED=true` (+ `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`)
-  on Railway **and** Vercel staging; `setWebhook` pointed at the **staging** worker URL.
+- [ ] **Use a SEPARATE staging bot, not the prod `@RepWorthBot`.** Register
+  `@RepWorthStagingBot` with BotFather and set its token + secret on staging:
+  `CHANNELS_TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN` (the **staging** bot's
+  token), `TELEGRAM_WEBHOOK_SECRET`, and **`TELEGRAM_BOT_USERNAME=RepWorthStagingBot`**
+  on Railway **and** Vercel staging; `setWebhook` (with the **staging** bot token)
+  pointed at the **staging** worker URL.
+  > ⚠️ The deep-link bot username is rendered by the **Vercel** dashboard route
+  > (`dashboard/channels/telegram/start`), which falls back to `RepWorthBot` when
+  > `TELEGRAM_BOT_USERNAME` is unset. If you skip it, the QR/link opens the **prod**
+  > `@RepWorthBot` instead of `@RepWorthStagingBot`; the prod bot can't resolve a
+  > staging token, so `/start` silently does nothing. (A bare `/start` / `start`
+  > with no token is also a deliberate no-op — only the full deep-link
+  > `/start <token>` enrolls.)
 - [ ] (WhatsApp only) `CHANNELS_WHATSAPP_ENABLED=true` + `TWILIO_*` + `WHATSAPP_APPROVAL_TEMPLATE_SID`
   set; the Twilio sandbox/sender reachable. (FYI on WhatsApp also needs
   `WHATSAPP_AUTOPOST_TEMPLATE_SID` — leave it UNSET to test graceful degradation in T8.)
+- [ ] **(WhatsApp only) Each tester phone must JOIN the Twilio sandbox first.**
+  From every test phone, send `join <two-word-sandbox-keyword>` (keyword + sandbox
+  number are on Twilio Console → Messaging → Try it out → WhatsApp sandbox; the
+  number must match staging's `TWILIO_WHATSAPP_NUMBER`) **before** opening the
+  enrollment link.
+  > ⚠️ Skip this and Twilio replies *"your number whatsapp +<digits> is not
+  > connected to a Sandbox"* and the `start-<token>` message never reaches the
+  > worker. Sandbox membership also lapses after ~72h of inactivity — re-`join`
+  > if a previously-working number goes quiet.
 - [ ] A test **account + location (business)** on staging with an **active Zernio
   connection** and a known `account_id` / `business_id`. Capture them:
   ```sql
@@ -50,6 +70,12 @@ Throughout: run SQL in the **staging** Supabase SQL editor. `APP=https://<stagin
 1. In the staging dashboard → **Settings → Channels**, start a Telegram enrollment
    (and/or WhatsApp). Scan the QR / tap the deep link, send `/start <token>` (TG)
    or `start-<token>` (WhatsApp) from the test phone.
+   - **Telegram:** confirm the link opens **@RepWorthStagingBot** (not `@RepWorthBot`).
+     If it opens `@RepWorthBot`, `TELEGRAM_BOT_USERNAME` is unset on Vercel staging
+     (see Prereqs). Tapping the START button auto-sends `/start <token>`; don't type
+     `/start` by hand (a tokenless `/start` is a silent no-op).
+   - **WhatsApp:** the test phone must already have `join`ed the Twilio sandbox
+     (see Prereqs), or Twilio bounces the message before the worker sees it.
 2. Verify it went `verified`:
    ```sql
    SELECT channel, status, handle, location_id, archived_at

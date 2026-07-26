@@ -21,6 +21,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Brand Voice', href: '/settings/voice', icon: 'sparkle' },
       { label: 'Auto-approval', href: '/settings/auto-approval', icon: 'shield' },
       { label: 'Notifications', href: '/settings/channels', icon: 'inbox' },
+      { label: 'Competitors', href: '/settings/competitors', icon: 'chart' },
     ],
   },
   {

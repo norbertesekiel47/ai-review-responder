@@ -3,7 +3,12 @@
 // Recurring Insights agent report sent every Monday with the past week's
 // review activity.
 import { escapeHtml } from '@/lib/shared/html';
+import type { CompetitorDelta, NamedRivalLine } from '@/lib/competitors/named-rival';
 import { renderStars, truncate, escapeHrefUrl } from './shared';
+
+// Re-exported so the `src/lib/notifications/email` barrel keeps serving the
+// type to existing consumers; `named-rival.ts` owns the declaration.
+export type { CompetitorDelta };
 
 function formatWeekDate(iso: string): string {
   try {
@@ -14,11 +19,6 @@ function formatWeekDate(iso: string): string {
     return iso;
   }
 }
-
-export type CompetitorDelta =
-  | { kind: 'teaser'; keyword: string }
-  | { kind: 'rival'; rivalName: string; gap: number; reviewVelocity: number | null }
-  | null;
 
 export interface WeeklyValueReportParams {
   businessName: string;
@@ -54,22 +54,14 @@ function renderRankingHtml(ranking: WeeklyValueReportParams['ranking']): string 
     : '';
 }
 
-function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
-  if (!competitorDelta) return '';
-  if (competitorDelta.kind === 'teaser') {
-    return `
-    <tr><td style="padding:12px 24px 0;">
-      <p style="margin:0;font-size:14px;color:#374151;">RepWorth is watching &lsquo;${escapeHtml(competitorDelta.keyword)}&rsquo; and will report Competitor Delta after our next check.</p>
-    </td></tr>`;
-  }
-
+function renderRivalLineHtml(line: NamedRivalLine): string {
   let velocityCopy = '';
-  if (competitorDelta.reviewVelocity !== null) {
-    if (competitorDelta.reviewVelocity > 0) {
-      const reviewLabel = competitorDelta.reviewVelocity === 1 ? 'review' : 'reviews';
-      velocityCopy = ` gained ${competitorDelta.reviewVelocity} ${reviewLabel} since our last check;`;
-    } else if (competitorDelta.reviewVelocity < 0) {
-      const lost = Math.abs(competitorDelta.reviewVelocity);
+  if (line.reviewVelocity !== null) {
+    if (line.reviewVelocity > 0) {
+      const reviewLabel = line.reviewVelocity === 1 ? 'review' : 'reviews';
+      velocityCopy = ` gained ${line.reviewVelocity} ${reviewLabel} since our last check;`;
+    } else if (line.reviewVelocity < 0) {
+      const lost = Math.abs(line.reviewVelocity);
       const reviewLabel = lost === 1 ? 'review' : 'reviews';
       velocityCopy = ` lost ${lost} ${reviewLabel} since our last check;`;
     } else {
@@ -77,10 +69,35 @@ function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
     }
   }
 
+  // The Auto-default rival is always disclosed as algorithmic; an owner's own
+  // pick is never presented as auto-selected (CONTEXT.md, Auto-default rival).
+  const prefix = line.source === 'auto_default' ? 'Auto-selected rival: ' : '';
+
   return `
     <tr><td style="padding:12px 24px 0;">
-      <p style="margin:0;font-size:14px;color:#374151;">Auto-selected rival: ${escapeHtml(competitorDelta.rivalName)}${velocityCopy} gap now ${competitorDelta.gap}</p>
+      <p style="margin:0;font-size:14px;color:#374151;">${prefix}${escapeHtml(line.rivalName)}${velocityCopy} gap now ${line.gap}</p>
     </td></tr>`;
+}
+
+function renderCompetitorDeltaHtml(competitorDelta: CompetitorDelta): string {
+  if (!competitorDelta) return '';
+
+  if (competitorDelta.kind === 'teaser') {
+    return `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">RepWorth is watching &lsquo;${escapeHtml(competitorDelta.keyword)}&rsquo; and will report Competitor Delta after our next check.</p>
+    </td></tr>`;
+  }
+
+  if (competitorDelta.kind === 'dropout') {
+    const note = `
+    <tr><td style="padding:12px 24px 0;">
+      <p style="margin:0;font-size:14px;color:#374151;">${escapeHtml(competitorDelta.droppedName)} dropped out of your local pack.</p>
+    </td></tr>`;
+    return competitorDelta.fallback ? note + renderRivalLineHtml(competitorDelta.fallback) : note;
+  }
+
+  return renderRivalLineHtml(competitorDelta.line);
 }
 
 function renderBriefHtml(intelligenceBrief: string | null): string {

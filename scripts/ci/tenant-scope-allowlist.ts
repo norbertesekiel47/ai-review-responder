@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 405;
+export const ALLOWLIST_BASELINE = 407;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -157,6 +157,14 @@ const SUSPENDED_POLICIES_SQL =
 
 const SUSPENSION_FLAG_EVIDENCE_SQL =
   "WITH ranked_flags AS ( SELECT verdict.id, verdict.account_id, verdict.business_id, verdict.review_id, verdict.response_id, ARRAY( SELECT jsonb_array_elements_text( CASE WHEN jsonb_typeof(verdict.reasons) = 'array' THEN verdict.reasons ELSE '[]'::jsonb END ) ) AS reason_categories, verdict.created_at, ROW_NUMBER() OVER ( PARTITION BY verdict.account_id ORDER BY verdict.created_at DESC, verdict.id DESC ) AS flag_rank FROM judge_verdicts verdict WHERE verdict.account_id = ANY(${accountIds}::uuid[]) AND verdict.verdict = 'flag' ) SELECT id, account_id, business_id, review_id, response_id, reason_categories, created_at FROM ranked_flags WHERE flag_rank <= 5 ORDER BY account_id, created_at DESC, id DESC";
+
+// #546 Competitor Delta lane. One statement on purpose: RankingTrackingWorker
+// replaces the pack wholesale and overwrites search_location on a same-day
+// re-run, so sequential reads can observe a pack that does not match the dates
+// just read (READ COMMITTED makes a wrapping transaction no help). Every leg is
+// bound to ${businessId}; two of the three predicates sit inside CTE bodies.
+const NAMED_RIVAL_LANE_SQL =
+  "WITH ctx AS ( SELECT b.tracked_keywords->>0 AS keyword, CASE WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL THEN b.google_place_lat::text || ',' || b.google_place_lng::text ELSE b.ranking_search_location END AS search_location, b.rival_place_id, b.rival_title_snapshot FROM businesses b WHERE b.id = ${businessId} ), dates AS ( SELECT rs.snapshot_date FROM ranking_snapshots rs, ctx WHERE rs.business_id = ${businessId} AND rs.keyword = ctx.keyword AND rs.search_location = ctx.search_location ORDER BY rs.snapshot_date DESC LIMIT 2 ) SELECT ctx.keyword, ctx.search_location, ctx.rival_place_id, ctx.rival_title_snapshot, d.snapshot_date::text AS window_date, cs.snapshot_date::text AS snapshot_date, cs.rank_position, cs.place_id, cs.title, cs.rating, cs.review_count, cs.is_self FROM ctx LEFT JOIN dates d ON true LEFT JOIN competitor_snapshots cs ON cs.business_id = ${businessId} AND cs.keyword = ctx.keyword AND cs.search_location IS NOT DISTINCT FROM ctx.search_location AND cs.snapshot_date = d.snapshot_date ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -2289,6 +2297,30 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', r.detected_at)::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND ${notDeletedFilter(sql, 'r.')} AND r.detected_at >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', r.detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
     reason: "Account-aggregate KPI; reviews accessed inside a LEFT JOIN subquery scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis. The notDeletedFilter fragment (A+ campaign 2d) sits entirely inside the stripped subquery.",
+  },
+  // --- Named rival / Competitor Delta lane (src/lib/competitors/named-rival.ts) ---
+  // Every leg of the single lane query IS bound to ${businessId}:
+  // `WHERE b.id = ${businessId}` in the ctx CTE, `rs.business_id = ${businessId}`
+  // in the dates CTE (further correlated to ctx.keyword / ctx.search_location),
+  // and `cs.business_id = ${businessId}` in the outer LEFT JOIN — which is why
+  // competitor_snapshots needs no entry. The first two are invisible to the
+  // scanner because it strips SELECT subqueries (CTE bodies included) before
+  // predicate analysis. Collapsing the lane into one statement is deliberate
+  // (torn-read fix, see NAMED_RIVAL_LANE_SQL above) and "latest two snapshot
+  // dates" needs a LIMIT, so the subquery cannot be flattened away.
+  {
+    file: "src/lib/competitors/named-rival.ts",
+    table: "businesses",
+    sqlSnippet: NAMED_RIVAL_LANE_SQL,
+    category: 'tenant-root-lookup',
+    reason: "Competitor Delta lane; businesses is read inside the ctx CTE scoped by b.id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. Today the only caller is the WeeklySummaryWorker composition root, which takes businessId from its durable outbox job payload (tenant context fixed upstream by the weekly-summary scheduler); the owner-scoped settings route that will also call it lands in #546 Task 4 and resolves the location under the session's account_id before passing the id.",
+  },
+  {
+    file: "src/lib/competitors/named-rival.ts",
+    table: "ranking_snapshots",
+    sqlSnippet: NAMED_RIVAL_LANE_SQL,
+    category: 'tenant-root-lookup',
+    reason: "Competitor Delta lane; ranking_snapshots is read inside the dates CTE scoped by rs.business_id = ${businessId} and correlated to the same location's ctx.keyword / ctx.search_location. Scanner strips SELECT subqueries before predicate analysis. Today the only caller is the WeeklySummaryWorker composition root, which takes businessId from its durable outbox job payload (tenant context fixed upstream by the weekly-summary scheduler); the owner-scoped settings route that will also call it lands in #546 Task 4 and resolves the location under the session's account_id before passing the id.",
   },
   {
     // force_drain connection lookup — businesses is joined only for account_id;
