@@ -31,6 +31,36 @@ measurements. The one-line justification "CRAP vs complexity" does not — it is
 "CC above vs below threshold". Recorded so the next reader inherits the accurate
 version.
 
+## Gate — re-classification trigger fired (orchestrator)
+
+`verify-gate.sh --review` reported `reclassify WARN`: actual diff **1662**
+changed lines vs `estimated_diff_size` **420** (~4×). Step 0 was re-run with the
+real numbers.
+
+| Component | Lines |
+|---|---|
+| Docs — plan/intake/deviations, rewritten across two adversarial-review REVISE rounds | +364 |
+| Production code — 7 files | +522 / −361 (**net +161**) |
+| Tests — 4 files | +411 / −4 |
+
+**Outcome: lane unchanged.** RISK stays `high` (worker/ terminalizers), SURFACE
+stays `mixed`, and the epic test still fails on every criterion — the edit
+surface is 16 explicit file globs (not "a few top-level directories"), the work
+sits in one risk domain with no schema/billing/auth-model change, it decomposed
+into 4 executed tickets (≤8), and no open investigation question survived
+grilling (the one discovery became #581, filed rather than left open).
+
+So the heaviest applicable lane was already in force from the start; what was
+wrong is the *estimate*, not the classification. Two things it failed to
+anticipate: tests alone came to +411 (the promised-test titles each needed real
+setup, and three were mutation-checked), and extracting from a 310-line function
+rewrites ~577 lines of `batch-builder.ts` even though its net growth is modest.
+Doc churn is an artifact of two REVISE rounds — legitimate, but not something a
+pre-grilling estimate would size.
+
+No surface amendment occurred in the widening direction; the surface was
+*narrowed* once, when former-T2/T3 were dropped on measurement.
+
 ## T5 — decompose the executor
 
 **Measured before/after** (`npx fallow health --complexity --format json`,
