@@ -460,6 +460,16 @@ by visit details). The roadmap sequences them cheapest-signal-first.
 
 ### 9.2 Now — Phase 2a scope (the "watch-mode" wayfinder map)
 
+> **DESTINATION REACHED 2026-07-26.** All map #528 tickets closed (#529–#544
+> plus #546). Both probes on `main` (competitor snapshots 084/085 + digest
+> line; Voice Report Card); contacts/visits ingestion (086/087), run-engine
+> executor (088), rival picker (089), and the Requests watch-mode surface all
+> shipped; `SOLICITATION_WATCH_ENABLED=true` live on staging (evidence:
+> `docs/runbooks/evidence/2026-07-26-solicitation-watch-mode-staging-flip.md`).
+> Production flag stays OFF until the production bring-up. Deferred debt:
+> #555 (send-mode gate), #565 (complexity bundle), #567/#568 (arch R1/R2),
+> #569, #572. Next effort: the send-mode map (§9.3).
+
 Tracked as wayfinder map **#528** on the issue tracker (execution-carrying,
 tickets #529–#544 plus #546, each implementation ticket sized to a single `/feature`
 run):
