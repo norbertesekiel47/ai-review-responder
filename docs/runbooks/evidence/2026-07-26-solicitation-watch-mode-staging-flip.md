@@ -265,11 +265,41 @@ halves of the gate were observed:
 `reviewed_at` (02:47:59) > `built_at` (02:44:47), satisfying migration 088's
 `solicitation_batches_reviewed_after_built` CHECK.
 
-**Idempotent / first-write-wins**, verified two ways:
+**Idempotent / first-write-wins — observed end-to-end** (D-2 closure pass,
+03:19–03:22 UTC). Vercel runtime logs for the staging deployment
+(`dpl_9Q446ZzczF9NHY4XfxDJP8q36yes`, `branch=staging`) record every ping the
+route actually served, with `rowsUpdated` straight from `markBatchReviewed()`:
 
-1. Second visit (full page reload of `/dashboard/requests`) → `reviewed_at`
-   **unchanged** at `02:47:59.495634+00`.
-2. The exact guard predicate of `markBatchReviewed()` evaluated read-only:
+| UTC | HTTP | `rowsUpdated` | Meaning |
+|---|---|---|---|
+| 02:43:16 | 204 | 0 | ping against the *prior* batch (already reviewed) |
+| **02:47:57** | **204** | **1** | **the first write** — tab became visible |
+| 02:55:43 | 204 | 0 | idempotent no-op |
+| 03:19:43 | 204 | 0 | idempotent no-op |
+| 03:20:40 | 204 | 0 | idempotent no-op |
+| 03:22:02 | 204 | 0 | idempotent no-op |
+
+```
+POST /api/dashboard/solicitation/batch/reviewed 204
+{"logger":"api/dashboard/solicitation/batch/reviewed","message":"batch_reviewed_ping",
+ "data":{"rowsUpdated":1,"businessId":"019f877f-2352-722c-94e6-7018319c5513"}}   ← 02:47:59
+
+POST /api/dashboard/solicitation/batch/reviewed 204
+{"logger":"api/dashboard/solicitation/batch/reviewed","message":"batch_reviewed_ping",
+ "data":{"rowsUpdated":0,"businessId":"019f877f-2352-722c-94e6-7018319c5513"}}   ← 03:22:03
+```
+
+`reviewed_at` after all six pings: **`2026-07-26 02:47:59.495634+00`** — never
+moved. Note also the gap 02:47:59 → 02:55:43: the batch screen was rendered
+throughout, and **no ping was issued while the tab was hidden**, which is the
+visibility gate holding under observation rather than by assumption.
+
+That `rowsUpdated` field is doing exactly the job its comment claims: it is the
+only thing distinguishing a legitimate idempotent no-op from the silent
+zero-row failure a missing `?scope=` would cause. Every ping here carried
+`?scope=019f877f-…-7018319c5513`.
+
+Corroborating read-only check of the same guard predicate:
 
 ```sql
 SELECT count(*) AS rows_a_second_ping_would_update
@@ -280,9 +310,6 @@ SELECT count(*) AS rows_a_second_ping_would_update
    AND built_at IS NOT NULL AND reviewed_at IS NULL;
 -- 0
 ```
-
-A second ping matches **0 rows** → returns 0 → the timestamp cannot move.
-See D-2 for the residual limit on this step.
 
 ### Step 6 — CLEANUP · ✅ PASS (02:53–02:58)
 
@@ -317,14 +344,24 @@ documents as the reason its funnel and ledger must come from one statement.
   exactly. Net effect was *beneficial*: the prior batch's 25 sends are the only
   reason `over_contacted` was observable at all, and this run therefore covered
   five of the six reason codes' render paths (four as zero-count groups).
-- **D-2 (02:48 UTC) — second-visit ping not observed end-to-end.** The window
-  returned to `hidden` before the reload's ping could fire, and an attempt to
-  invoke the route directly from the page was blocked by the operator's tool
-  policy. Idempotency is therefore proven by the guard predicate (0 matching
-  rows) plus an unchanged timestamp across a reload, rather than by an observed
-  second HTTP POST. The server contract is single-statement and fully covered by
-  `batch-view` integration tests; recorded here for completeness, not as a gap
-  that blocks the verdict.
+- **D-2 (02:48 UTC) — second-visit ping not initially observed end-to-end.
+  RESOLVED 03:23 UTC; see Step 5's table.** Originally recorded because the
+  window returned to `hidden` before the reload's ping could fire. Closed in a
+  follow-up pass: with the tab visible, four further pings were served,
+  all `204` with `rowsUpdated: 0`, and `reviewed_at` never moved. **No residual
+  gap — first-write-wins is now observed, not inferred.**
+
+- **D-3 (03:22 UTC) — Claude-in-Chrome `read_network_requests` misreported the
+  `204` pings as `503`; there was never a 503.** Chasing it cost several steps
+  and briefly produced a wrong conclusion. The application was correct
+  throughout: the Vercel runtime log shows `POST … 204` for the very same three
+  requests (03:19:43 / 03:20:40 / 03:22:02) the browser tool labelled `503`,
+  each with its `batch_reviewed_ping` line, and a 1:1 count match. Root cause
+  is the extension's handling of a **204 No Content** response, not the route —
+  independently corroborated by code reading: this handler can only emit
+  204/400/402/403/404/500, `withSameOrigin` adds only 403, and `withRateLimit`
+  (the single 503 site in `src/`) is **not** applied to this route. Promoted to
+  lab notes so the next browser-driven runbook does not re-chase it.
 
 ## Unproven paths
 
@@ -343,10 +380,17 @@ construction**, not by omission, and each is contract-tested:
 
 **PASS** — 2026-07-26 02:59 UTC.
 
+*(Verdict re-confirmed 2026-07-26 03:23 UTC after the D-2 closure pass; the
+additional pings were read-only no-ops and changed no state.)*
+
 - All 6 smoke steps PASS; the three "Remaining smoke" items at the top of this
   file are closed.
-- Deviations: 2 (D-1, D-2), both documented above, neither product-shaped.
-- Bugs filed: **none** — nothing behaved incorrectly at any step.
+- Deviations: 3 (D-1, D-2 **resolved**, D-3 tooling artifact), none
+  product-shaped.
+- Bugs filed: **none** — nothing in RepWorth behaved incorrectly at any step.
+  The one apparent defect (a `503` on the reviewed ping) was a browser-tooling
+  misreport of `204`, disproved by the Vercel runtime log and by code reading
+  before anything was filed. See D-3.
 - Teardown: **complete and verified by query**, not assumption (T-1, T-4 ticked;
   T-2/T-3 are deliberate audit records with no send-side effect).
 - Final staging state (02:59 UTC), stated in full rather than as "clean":
