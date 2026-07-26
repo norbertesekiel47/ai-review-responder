@@ -177,7 +177,7 @@ Tests: `tests_to_add` 7–9, in the `describe('requireSettingsOwner')` style use
 
 ## Follow-ups to file (not fixed here)
 
-- **fallow CRAP coverage blind spot** *(the real finding behind #565's ingest lane)*: `ci:fallow:coverage`
+- **fallow CRAP coverage blind spot** — **filed as #581** *(the real finding behind #565's ingest lane)*: `ci:fallow:coverage`
   scores CRAP from `vitest --coverage`, which excludes integration suites. Every integration-tested
   module reads as ~0% covered and accrues inflated CRAP, which is why `ingest.ts` carries four
   suppressions for functions that comfortably clear the complexity thresholds. Repo-wide, not lane-local.
