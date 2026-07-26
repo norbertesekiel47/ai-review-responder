@@ -1,0 +1,91 @@
+{
+  "classification": "high",
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Give the csv_ingest advisory-lock key, the contact_csv_uploads terminal write, the Solicitation batch gate re-check, and the settings-owner route preamble exactly one owner each, and decompose the fallow complexity hotspots in the contacts ingest lane and the Solicitation batch executor until no fallow complexity suppression remains — with zero change to observable behavior.",
+  "non_goals": [
+    "No behavior change of any kind: same statuses, same reports, same withhold reasons, same HTTP status codes, same log lines.",
+    "No schema change and no migration (head stays 089).",
+    "No new feature flag and no new env var.",
+    "No change to restraint-policy decisions, the Batch candidate window query semantics, or Ask evidence shape.",
+    "recordCompletedChildRuns is deliberately NOT decomposed (two set-based INSERTs each followed by a count assertion; splitting adds names without hiding complexity). Verdict logged on #565.",
+    "No change to the failed-hook outbox CAS choreography or crash-net bookkeeping — those stay in worker/jobs/*/failed-hook.ts.",
+    "Not touching worker/jobs/zernio/ingest-failed-hook.ts (the mirrored terminalizer) — a separate lane, separate table."
+  ],
+  "user_visible_behavior": [
+    "None. This is a behavior-preserving refactor; the acceptance test is that every existing unit + integration suite stays green unmodified except where a call signature moved."
+  ],
+  "invariants": [
+    "Invariant #15: src/lib/** and worker helpers receive their DB client explicitly — the extracted requireSettingsOwner takes (sql, request); route-helpers.ts must NOT import @/lib/db/server.",
+    "Invariant #2: the transactional outbox coupling is untouched — every terminal write stays in the SAME transaction as its outbox CAS.",
+    "Invariant #8: every extracted query keeps its account_id/business_id scoping predicates verbatim.",
+    "Invariant #12: entry points orchestrate, modules own failure behavior — the uploads route delegates the business-ownership check into the module rather than growing a second branch.",
+    "csv_ingest concurrency contract: the per-business advisory lock is the FIRST statement of every transaction that writes contact_csv_uploads, and every writer uses the SAME key.",
+    "PII contract: the ingest lane and the batch executor never log names, emails, phones, notes, or raw CSV text — counts and closed enums only.",
+    "Terminal-write contract after this change: every contact_csv_uploads terminal write carries the status='pending' predicate. The ingest path already holds the lock and has verified pending, so the predicate is a no-op there and its 0-row result is an impossible state."
+  ],
+  "edge_cases": [
+    "Ingest path terminal write matching 0 rows: impossible under the held lock — must throw with context, not silently continue (previously unrepresentable because the UPDATE was unguarded).",
+    "failed-hook and terminalizeUploadForInactiveSubscription terminal write matching 0 rows: legitimate no-op (lost race against a concurrent terminal write / completed job) — must stay silent, so the shared writer returns a boolean rather than throwing.",
+    "prepareBatch and constructBatch re-check the same gate (flag / subscription / offboarding) at two different times by design; sharing the check must NOT collapse them into one evaluation — construction's re-check is the load-bearing one.",
+    "The shared gate helper must preserve each caller's DIFFERENT failure posture: prepareBatch fails an activeParent only when one exists; constructBatch always fails preparation.parentRunId.",
+    "requireSettingsOwner rejects an ?accountId query parameter BEFORE resolving the owner — the order is the guard, not an optimization.",
+    "Extracting requireSettingsOwner must not change the auto-approval route's impersonation branch, which runs AFTER the shared preamble and only on PATCH.",
+    "fallow runs --gate new-only --base origin/main: moved code counts as new, so a decomposition that merely relocates a hotspot will still fail the gate."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/solicitation/ingest.ts parseIngestReportValue — the house comment style for a single-owner helper whose callers pick their own failure posture.",
+    "src/lib/auth/route-helpers.ts requireOwnerWithAccount / requireWritableOwner — the { ok: true, ... } | { ok: false, response } result shape and the describe(<fnName>) test style in src/lib/auth/__tests__/route-helpers.test.ts.",
+    "worker/jobs/csv-ingest/__tests__/index.test.ts:169 — the raw-SQL-text assertion style that pins the advisory-lock key.",
+    "src/lib/solicitation/batch-builder.ts closedGateReason — the existing pure gate-reason function the shared gate helper wraps.",
+    "src/lib/solicitation/uploads.ts createContactsCsvUpload — the existing { ok: false, error } result union the business-ownership check joins."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/ingest.ts",
+    "src/lib/solicitation/uploads.ts",
+    "src/lib/solicitation/batch-builder.ts",
+    "src/lib/solicitation/__tests__/ingest.test.ts",
+    "src/lib/solicitation/__tests__/ingest.integration.test.ts",
+    "src/lib/solicitation/__tests__/uploads.test.ts",
+    "src/lib/solicitation/__tests__/batch-builder.test.ts",
+    "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+    "src/app/api/dashboard/contacts/uploads/route.ts",
+    "src/app/api/settings/auto-approval/route.ts",
+    "src/app/api/settings/competitors/route.ts",
+    "src/lib/auth/route-helpers.ts",
+    "src/lib/auth/__tests__/route-helpers.test.ts",
+    "worker/jobs/csv-ingest/failed-hook.ts",
+    "worker/jobs/csv-ingest/__tests__/index.test.ts",
+    "worker/jobs/solicitation-batch/failed-hook.ts",
+    "worker/jobs/solicitation-batch/__tests__/index.test.ts",
+    "docs/superpowers/plans/refactor-565-complexity-bundle*",
+    "docs/reviews/refactor-565-complexity-bundle/**"
+  ],
+  "tests_to_add": [
+    "acquireCsvIngestLock is the single owner of the csv_ingest advisory-lock key",
+    "the csv-ingest failed hook takes the advisory lock through acquireCsvIngestLock",
+    "writeTerminalUploadState guards the terminal write with the pending predicate",
+    "writeTerminalUploadState returns false when no pending row transitioned",
+    "ingestContactsCsvUpload throws when its own terminal write finds no pending row",
+    "createContactsCsvUpload rejects a business that does not belong to the account",
+    "prepareBatch and constructBatch derive the closed-gate reason from one owner",
+    "requireSettingsOwner rejects an accountId query parameter with 400",
+    "requireSettingsOwner returns 403 when offboarding blocks the operational UI",
+    "requireSettingsOwner forwards the owner when the account is not offboarding"
+  ],
+  "verification_commands": [
+    "pnpm ci:fallow",
+    "pnpm test src/lib/solicitation/__tests__/ingest.integration.test.ts",
+    "pnpm test src/lib/solicitation/__tests__/batch-builder.integration.test.ts"
+  ],
+  "estimated_diff_size": "±600 lines across ~17 files; production lines near net-zero or negative (decomposition + de-duplication), growth is tests",
+  "dependencies_added": [],
+  "rollback_plan": "No schema change, no migration, no flag. Rollback is a straight revert of the squash-merge commit; nothing to un-apply on either Supabase project. The staging ride precedes the prod merge, so a defect surfaces before promotion.",
+  "observability": [
+    "The '[csv-ingest] csv ingest completed' log line keeps its exact field set (upload_id, contacts_created, contacts_merged, visits_added, duplicate_visits, rejected_total, solicitation_batches_created, build_solicitation_batch_jobs_enqueued, rejected_* histogram) — a missing or renamed field means the refactor changed the ingest report path.",
+    "The '[SolicitationBatchWorker.failed] solicitation batch build exhausted' line keeps status/batch_id/business_id/outbox_attempt/error_class/parent_terminalized — proof the failed-hook decomposition preserved the terminal bookkeeping.",
+    "Sentry tags worker:'csv_ingest', kind:'on_failed_handler_crash' still fire from the crash-net path.",
+    "Staging smoke: one CSV upload lands status='completed' with a non-null report and raw_csv NULL, and its Solicitation batch reaches built_at non-null with the same send/withhold counts the pre-refactor run produced."
+  ],
+  "open_questions": []
+}
