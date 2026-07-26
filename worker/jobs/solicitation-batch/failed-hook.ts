@@ -34,6 +34,77 @@ function logFailureSafely(
   }
 }
 
+interface TerminalTransitionOutcome {
+  ownsAttempt: boolean;
+  parentTerminalized: boolean;
+}
+
+/**
+ * The coupled terminal transition, committed or rolled back as one unit: the
+ * outbox ownership CAS plus the matching active parent's failure. Only the CAS
+ * winner may fail the parent; a stale hook writes nothing.
+ *
+ * Owning `sql.begin` here is part of the contract — the CAS must be the
+ * transaction's first statement, so no query or lock can be introduced above
+ * it. Throws on any write failure; the caller decides the recovery posture.
+ */
+async function commitTerminalTransition(
+  sql: Sql,
+  handle: {
+    batchId: string;
+    businessId: string;
+    outboxId: string;
+    attempt: number;
+  },
+  errorClass: string,
+): Promise<TerminalTransitionOutcome> {
+  const outcome: TerminalTransitionOutcome = {
+    ownsAttempt: false,
+    parentTerminalized: false,
+  };
+
+  await sql.begin(async (tx) => {
+    // Coupled terminal transition: ownership CAS FIRST. Do not add a query
+    // or lock above this statement.
+    outcome.ownsAttempt = await markOutboxFailed(
+      tx,
+      handle.outboxId,
+      `build_solicitation_batch_exhausted:${errorClass}`,
+      handle.attempt,
+    );
+    if (!outcome.ownsAttempt) return;
+
+    const [activeParent] = await tx<{ id: string }[]>`
+      SELECT parent.id
+      FROM solicitation_batches batch
+      JOIN agent_runs parent
+        ON parent.account_id = batch.account_id
+       AND parent.business_id = batch.business_id
+       AND parent.kind = 'solicitation_batch'
+       AND parent.subject_type = 'solicitation_batch'
+       AND parent.subject_id = batch.id::text
+       AND parent.status = 'running'
+      WHERE batch.id = ${handle.batchId}::uuid
+        AND batch.business_id = ${handle.businessId}::uuid
+        AND parent.business_id = ${handle.businessId}::uuid
+        AND batch.built_at IS NULL
+      FOR UPDATE OF batch, parent
+    `;
+    if (!activeParent) return;
+
+    await failSolicitationBatchRun(tx, {
+      runId: activeParent.id,
+      failure: {
+        code: 'build_failed',
+        errorClass,
+      },
+    });
+    outcome.parentTerminalized = true;
+  });
+
+  return outcome;
+}
+
 /**
  * Exhausted-attempt terminalizer for build_solicitation_batch.
  *
@@ -61,47 +132,18 @@ export async function handleSolicitationBatchFailed(
     return;
   }
 
-  let ownsAttempt = false;
-  let parentTerminalized = false;
+  let outcome: TerminalTransitionOutcome;
   try {
-    await sql.begin(async (tx) => {
-      // Coupled terminal transition: ownership CAS FIRST. Do not add a query
-      // or lock above this statement.
-      ownsAttempt = await markOutboxFailed(
-        tx,
+    outcome = await commitTerminalTransition(
+      sql,
+      {
+        batchId: job.data.batch_id,
+        businessId: job.data.business_id,
         outboxId,
-        `build_solicitation_batch_exhausted:${errorClass}`,
         attempt,
-      );
-      if (!ownsAttempt) return;
-
-      const [activeParent] = await tx<{ id: string }[]>`
-        SELECT parent.id
-        FROM solicitation_batches batch
-        JOIN agent_runs parent
-          ON parent.account_id = batch.account_id
-         AND parent.business_id = batch.business_id
-         AND parent.kind = 'solicitation_batch'
-         AND parent.subject_type = 'solicitation_batch'
-         AND parent.subject_id = batch.id::text
-         AND parent.status = 'running'
-        WHERE batch.id = ${job.data.batch_id}::uuid
-          AND batch.business_id = ${job.data.business_id}::uuid
-          AND parent.business_id = ${job.data.business_id}::uuid
-          AND batch.built_at IS NULL
-        FOR UPDATE OF batch, parent
-      `;
-      if (!activeParent) return;
-
-      await failSolicitationBatchRun(tx, {
-        runId: activeParent.id,
-        failure: {
-          code: 'build_failed',
-          errorClass,
-        },
-      });
-      parentTerminalized = true;
-    });
+      },
+      errorClass,
+    );
   } catch (handlerErr) {
     // A failed coupled transaction rolls both writes back. Leave the outbox
     // dispatched for watchdog recovery; never split the transition here.
@@ -116,11 +158,11 @@ export async function handleSolicitationBatchFailed(
   }
 
   logFailureSafely({
-    status: ownsAttempt ? 'terminalized' : 'stale',
+    status: outcome.ownsAttempt ? 'terminalized' : 'stale',
     batch_id: job.data.batch_id,
     business_id: job.data.business_id,
     outbox_attempt: attempt,
     error_class: errorClass,
-    parent_terminalized: parentTerminalized,
+    parent_terminalized: outcome.parentTerminalized,
   });
 }

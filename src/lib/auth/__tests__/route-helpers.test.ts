@@ -20,6 +20,11 @@ const { mockRequireRole } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
 }));
 
+const { mockGetOffboardingState, mockIsOperationalUIBlocked } = vi.hoisted(() => ({
+  mockGetOffboardingState: vi.fn(),
+  mockIsOperationalUIBlocked: vi.fn(),
+}));
+
 // ── Module mocks (hoisted before imports) ────────────────────────────────────
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -43,9 +48,22 @@ vi.mock('@/lib/db/auth', () => {
   };
 });
 
+vi.mock('@/lib/account-offboarding/gate', () => ({
+  getOffboardingState: mockGetOffboardingState,
+  isOperationalUIBlocked: mockIsOperationalUIBlocked,
+}));
+
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
 
-import { withRateLimit, withSameOrigin, withSession, requireRoleOr401, requireOwnerWithAccount } from '../route-helpers';
+import {
+  withRateLimit,
+  withSameOrigin,
+  withSession,
+  requireRoleOr401,
+  requireOwnerWithAccount,
+  requireSettingsOwner,
+} from '../route-helpers';
+import type postgres from 'postgres';
 import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -347,5 +365,74 @@ describe('requireOwnerWithAccount', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected failure');
     expect(result.response.status).toBe(401);
+  });
+});
+
+// ── requireSettingsOwner ────────────────────────────────────────────────────
+//
+// The /api/settings/* owner gate: ?accountId rejection → requireOwnerWithAccount
+// → operational-UI offboarding gate. The rejection ordering is asserted, not
+// assumed — resolving an owner first would half-honour a tenant-selection knob
+// these routes never accept.
+
+describe('requireSettingsOwner', () => {
+  const ownerUser = { id: 'u-1', name: 'Owner', email: 'o@x.com', role: 'owner', accountId: 'acct-1', locationId: 'loc-1' };
+  const fakeSql = {} as unknown as postgres.Sql;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOffboardingState.mockResolvedValue(null);
+    mockIsOperationalUIBlocked.mockReturnValue(false);
+  });
+
+  it('requireSettingsOwner rejects an accountId query parameter with 400', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser);
+
+    const result = await requireSettingsOwner(
+      fakeSql,
+      makeReq('https://app.example.com/api/settings/competitors?accountId=acct-2'),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(400);
+    expect(await result.response.json()).toEqual({ error: 'account_id_not_allowed' });
+    // Rejected BEFORE the owner is resolved — the order is the guard.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockGetOffboardingState).not.toHaveBeenCalled();
+  });
+
+  it('requireSettingsOwner returns 403 when offboarding blocks the operational UI', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser);
+    mockGetOffboardingState.mockResolvedValue({ mode: 'delete_data' });
+    mockIsOperationalUIBlocked.mockReturnValue(true);
+
+    const result = await requireSettingsOwner(fakeSql, makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetOffboardingState).toHaveBeenCalledWith('acct-1', fakeSql);
+  });
+
+  it('requireSettingsOwner forwards the owner when the account is not offboarding', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser);
+
+    const result = await requireSettingsOwner(fakeSql, makeReq());
+
+    expect(result).toEqual({ ok: true, user: ownerUser, accountId: 'acct-1' });
+  });
+
+  it('forwards the AuthError response (401) without touching the offboarding gate', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const result = await requireSettingsOwner(fakeSql, makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
+    expect(mockGetOffboardingState).not.toHaveBeenCalled();
   });
 });

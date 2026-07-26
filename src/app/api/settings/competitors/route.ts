@@ -7,8 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
-import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireSettingsOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import {
   RivalPickNotFoundError,
   RivalPickStaleError,
@@ -21,10 +20,6 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
-type OwnerWithAccountResult = Awaited<ReturnType<typeof requireOwnerWithAccount>>;
-type OwnerWithAccount = Extract<OwnerWithAccountResult, { ok: true }>;
-type SettingsOwnerResult = OwnerWithAccount | { ok: false; response: NextResponse };
-
 // `strictObject` is load-bearing: a client-supplied `title` must be a 400, not
 // a silently ignored field. The display name reaching a rendered email is
 // server-derived from the matched pack row, and nothing else may set it.
@@ -34,7 +29,7 @@ const RivalPickSchema = z.strictObject({
 });
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireSettingsOwner(request);
+  const owner = await requireSettingsOwner(sql, request);
   if (!owner.ok) return owner.response;
 
   // Validated before the branded cast: an unchecked value reaches a uuid
@@ -60,7 +55,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 async function putRivalPick(request: NextRequest): Promise<NextResponse> {
-  const owner = await requireSettingsOwner(request);
+  const owner = await requireSettingsOwner(sql, request);
   if (!owner.ok) return owner.response;
 
   let rawBody: unknown;
@@ -88,21 +83,6 @@ async function putRivalPick(request: NextRequest): Promise<NextResponse> {
     reportCaughtError('api/settings/competitors PUT', error, { accountId: owner.accountId });
     return jsonResponse({ error: 'internal_error' }, 500);
   }
-}
-
-async function requireSettingsOwner(request: NextRequest): Promise<SettingsOwnerResult> {
-  if (request.nextUrl.searchParams.has('accountId')) {
-    return { ok: false, response: jsonResponse({ error: 'account_id_not_allowed' }, 400) };
-  }
-  const owner = await requireOwnerWithAccount(request);
-  if (!owner.ok) return owner;
-
-  const offboardingState = await getOffboardingState(owner.accountId, sql);
-  if (isOperationalUIBlocked(offboardingState)) {
-    return { ok: false, response: jsonResponse({ error: 'account_offboarding_blocked' }, 403) };
-  }
-
-  return owner;
 }
 
 function rivalPickErrorResponse(error: unknown): NextResponse | null {

@@ -11,15 +11,21 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mockLogger } = await vi
 const mocks = vi.hoisted(() => ({
   ingestContactsCsvUpload: vi.fn(),
   terminalizeUploadForInactiveSubscription: vi.fn(),
+  acquireCsvIngestLock: vi.fn(),
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
   extractOutboxHandle: vi.fn(() => ({ outboxId: 'outbox-1', attempt: 3 })),
   captureException: vi.fn(),
 }));
 
-vi.mock('@/lib/solicitation/ingest', () => ({
+// Only the entry points the worker orchestrates are stubbed. The lock owner is
+// SPIED on the real implementation and `writeTerminalUploadState` stays real,
+// so the SQL assertions below still exercise the shared owners' actual queries.
+vi.mock('@/lib/solicitation/ingest', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/solicitation/ingest')>()),
   ingestContactsCsvUpload: mocks.ingestContactsCsvUpload,
   terminalizeUploadForInactiveSubscription: mocks.terminalizeUploadForInactiveSubscription,
+  acquireCsvIngestLock: mocks.acquireCsvIngestLock,
 }));
 vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: mocks.markOutboxCompleted,
@@ -31,6 +37,9 @@ vi.mock('@sentry/node', () => ({ captureException: mocks.captureException }));
 
 import { handleCsvIngest } from '../index';
 import { handleCsvIngestFailed } from '../failed-hook';
+
+const { acquireCsvIngestLock: realAcquireCsvIngestLock } =
+  await vi.importActual<typeof import('@/lib/solicitation/ingest')>('@/lib/solicitation/ingest');
 
 const makeJob = (
   overrides: Partial<Job<CsvIngestPayload>> = {},
@@ -77,6 +86,8 @@ beforeEach(() => {
   resetMockSql();
   mocks.extractOutboxHandle.mockReturnValue({ outboxId: 'outbox-1', attempt: 3 });
   mocks.markOutboxFailed.mockResolvedValue(true);
+  // Spy, not stub: the real lock statement must still hit the mock sql.
+  mocks.acquireCsvIngestLock.mockImplementation(realAcquireCsvIngestLock);
 });
 
 describe('handleCsvIngest', () => {
@@ -181,6 +192,21 @@ describe('handleCsvIngestFailed', () => {
     expect(update!.values).toContain('failed');
     expect(update!.values).toContain('pending');
     expect(update!.values).toContainEqual(expect.objectContaining({ error: 'ingest_failed' }));
+  });
+
+  it('the csv-ingest failed hook takes the advisory lock through acquireCsvIngestLock', async () => {
+    await failedRun(makeJob({ attemptsMade: 3, opts: { attempts: 3 } } as Partial<Job<CsvIngestPayload>>));
+
+    expect(mocks.acquireCsvIngestLock).toHaveBeenCalledTimes(1);
+    expect(mocks.acquireCsvIngestLock).toHaveBeenCalledWith(mockSql, 'business-1');
+    // Key VALUE pinned through the shared owner: it cannot silently change.
+    expect(sqlCalls[0]!.values).toEqual(['csv_ingest_business-1']);
+    // Statement order is the contract: lock FIRST, then the outbox CAS, then
+    // the coupled terminal write.
+    expect(mocks.acquireCsvIngestLock.mock.invocationCallOrder[0]!)
+      .toBeLessThan(mocks.markOutboxFailed.mock.invocationCallOrder[0]!);
+    expect(sqlCalls.findIndex((call) => call.text.includes('UPDATE contact_csv_uploads')))
+      .toBeGreaterThan(0);
   });
 
   it('skips the upload terminalization when a newer attempt owns the outbox row', async () => {
