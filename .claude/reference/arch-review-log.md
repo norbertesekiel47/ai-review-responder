@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0**
+**Merges since last architecture pass: 4** *(PR #570 competitor delta digest #539; PR #571 run-engine executor #543; PR #574 rival picker #546; PR #575 Requests watch-mode surface #544 — all 2026-07-25/26, map #528 completion wave)*
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
