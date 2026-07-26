@@ -31,7 +31,7 @@ export type CompetitorDelta =
   | null;
 
 /** The owner's stored Named rival pick, as persisted on `businesses` (089). */
-export interface StoredRivalPick {
+interface StoredRivalPick {
   placeId: string;
   titleSnapshot: string;
 }
@@ -115,15 +115,30 @@ function buildLineForRow(
   };
 }
 
+/**
+ * The latest pack's rows plus its countable self row — "countable" means an
+ * integer `review_count`, the precondition every gap computation shares.
+ */
+function latestPackWithSelf(
+  rows: NormalizedCompetitorSnapshotRow[],
+  currentDate: string,
+): {
+  currentRows: NormalizedCompetitorSnapshotRow[];
+  self: NormalizedCompetitorSnapshotRow | undefined;
+} {
+  const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
+  const self = currentRows.find(
+    (row) => row.is_self && Number.isInteger(row.review_count),
+  );
+  return { currentRows, self };
+}
+
 function selectAutoDefaultRival(
   rows: NormalizedCompetitorSnapshotRow[],
   currentDate: string,
   precedingDate: string | undefined,
 ): NamedRivalLine | null {
-  const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
-  const self = currentRows.find(
-    (row) => row.is_self && Number.isInteger(row.review_count),
-  );
+  const { currentRows, self } = latestPackWithSelf(rows, currentDate);
   if (!self || self.review_count === null) return null;
 
   const candidates = currentRows
@@ -163,7 +178,9 @@ function selectAutoDefaultRival(
 /**
  * Resolves the Named rival for one snapshot window: the owner's pick where it
  * is usable in the latest Competitor pack, otherwise the Auto-default rival —
- * with a one-off dropout note the first week a pick leaves the pack.
+ * with a dropout note while the latest two-snapshot window shows the pick
+ * leaving the pack (derived statelessly, so it repeats across every digest
+ * that reads the same window — see the #546 deviations doc).
  *
  * A pick is never auto-removed here; this function only decides what THIS
  * digest reports.
@@ -177,8 +194,7 @@ function selectNamedRival(
   const autoDefault = selectAutoDefaultRival(rows, currentDate, precedingDate);
   if (!pick) return autoDefault ? { kind: 'rival', line: autoDefault } : null;
 
-  const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
-  const self = currentRows.find((row) => row.is_self && Number.isInteger(row.review_count));
+  const { currentRows, self } = latestPackWithSelf(rows, currentDate);
 
   // The blank-title exclusion mirrors `selectAutoDefaultRival` and the picker's
   // option filter: 084 stores `title = ''` when SerpAPI omits a name, and an
@@ -630,6 +646,19 @@ async function storeRivalPick(
         WHERE cs2.business_id = b.id
           AND cs2.keyword = cs.keyword
           AND cs2.search_location IS NOT DISTINCT FROM cs.search_location
+      )
+      -- A (hypothetical) duplicate place_id in one pack must not make the
+      -- stored title arbitrary: pin one row deterministically.
+      AND cs.id = (
+        SELECT cs3.id
+        FROM competitor_snapshots cs3
+        WHERE cs3.business_id = cs.business_id
+          AND cs3.keyword = cs.keyword
+          AND cs3.search_location IS NOT DISTINCT FROM cs.search_location
+          AND cs3.snapshot_date = cs.snapshot_date
+          AND cs3.place_id = cs.place_id
+        ORDER BY cs3.rank_position ASC NULLS LAST, cs3.id ASC
+        LIMIT 1
       )
     RETURNING b.rival_picked_at
   `;
