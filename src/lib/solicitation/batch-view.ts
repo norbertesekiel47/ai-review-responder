@@ -259,6 +259,12 @@ export async function readLatestBatch(
     const batch = batches[0];
     if (!batch) return { state: 'no_batch', contactsOnFile };
     if (batch.built_at === null) {
+      // Deliberate divergence from 088's owner-SELECT RLS (which hides
+      // pending batches from the anon/authenticated roles): this server-side
+      // read runs over Postgres.js and MAY surface the pending id/created_at
+      // so the UI can show "building…". Ask-level detail stays gated on
+      // built_at (readBuiltBatch below is unreachable for pending batches),
+      // so no decision counts or evidence leak before the build completes.
       return {
         state: 'building',
         batchId: batch.id,

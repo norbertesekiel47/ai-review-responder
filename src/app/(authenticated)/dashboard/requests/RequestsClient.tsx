@@ -353,7 +353,11 @@ function useReviewedPing(batchId: string | null, scope: string): void {
       if (pinged.current === batchId) return;
       if (document.visibilityState !== 'visible') return;
       pinged.current = batchId;
-      void postReviewed(scope, batchId);
+      void postReviewed(scope, batchId).then((ok) => {
+        // A failed ping must not permanently claim the batch: clearing the
+        // ref lets the visibilitychange path retry on the next focus.
+        if (!ok && pinged.current === batchId) pinged.current = null;
+      });
     };
 
     send();
@@ -366,7 +370,7 @@ function useReviewedPing(batchId: string | null, scope: string): void {
 
 /** Failures are reported, never swallowed: "the owner never opened it" and "the
  *  write failed" must not look the same in the engagement numbers. */
-async function postReviewed(scope: string, batchId: string): Promise<void> {
+async function postReviewed(scope: string, batchId: string): Promise<boolean> {
   try {
     const response = await fetch(withSolicitationScope(REVIEWED_PATH, scope), {
       method: 'POST',
@@ -376,7 +380,9 @@ async function postReviewed(scope: string, batchId: string): Promise<void> {
     if (!response.ok) {
       console.error(`[requests] reviewed ping failed with ${response.status}`);
     }
+    return response.ok;
   } catch (error) {
     console.error('[requests] reviewed ping could not reach the server', error);
+    return false;
   }
 }
