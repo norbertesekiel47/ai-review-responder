@@ -61,7 +61,8 @@ export type PolicyRule =
   | 'server-db-client-import'
   | 'subscription-status-literal'
   | 'legacy-subscription-tier'
-  | 'inline-feature-flag';
+  | 'inline-feature-flag'
+  | 'railway-replicas';
 
 export interface PolicyFinding {
   file: string;
@@ -712,6 +713,39 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
 }
 
 /** Forbid crypto-js as a declared dependency. Pure — unit-tested. */
+// Replica declarations in Railway config-as-code (#567, arch review R1).
+//
+// Four boot-time guards and the in-process LLM circuit breaker are correct ONLY
+// while the worker is a single replica, and the scaling backlog's P2 pollers
+// become duplicate-processing bugs the moment a second one runs. Config-as-code
+// OVERRIDES the dashboard (docs.railway.com/config-as-code/reference), so a
+// replica count landing in this file is the one scale-out path a static check
+// can actually block. `numReplicas` is only reachable nested under
+// `deploy.multiRegionConfig.<region>`, so both spellings are banned; replicas
+// set in the Railway dashboard are invisible here and are instead surfaced at
+// boot by worker/config/replica-identity.ts.
+const RAILWAY_REPLICA_DECLARATION =
+  /^\s*(?:(?:"?numReplicas"?|"?multiRegionConfig"?)\s*[=:]|\[[^\]]*multiRegionConfig)/;
+
+export function auditRailwayConfig(file: string, text: string): PolicyFinding[] {
+  const findings: PolicyFinding[] = [];
+  text.split(/\r?\n/).forEach((raw, index) => {
+    if (isCommentLine(raw)) return;
+    if (!RAILWAY_REPLICA_DECLARATION.test(raw)) return;
+    findings.push({
+      file,
+      line: index + 1,
+      rule: 'railway-replicas',
+      detail:
+        'Railway replica config must not be declared — the worker is single-replica by ' +
+        'invariant (four boot guards + the in-process LLM circuit breaker depend on it). ' +
+        'Clear the P2 "multi-replica latent races" items in ' +
+        'docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md first.',
+    });
+  });
+  return findings;
+}
+
 export function auditPackageJson(pkg: {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -760,6 +794,11 @@ async function main(): Promise<void> {
 
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   findings.push(...auditPackageJson(pkg));
+
+  for (const railwayConfig of ['railway.toml', 'railway.json']) {
+    const text = await readFile(resolve(root, railwayConfig), 'utf8').catch(() => undefined);
+    if (text !== undefined) findings.push(...auditRailwayConfig(railwayConfig, text));
+  }
 
   if (findings.length > 0) {
     console.error('static-policy-audit: failed');

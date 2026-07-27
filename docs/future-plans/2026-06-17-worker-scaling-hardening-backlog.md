@@ -11,7 +11,14 @@
 
 Every item is real, file:line-cited, and was verified against the code. None of them bite a 10–50 business beta. Each lists the **trigger** — the scale or condition at which it starts to hurt — so you can sequence the work against actual growth instead of guessing.
 
-**Load-bearing context for the whole list:** `railway.toml` sets **no `numReplicas`**, so the worker runs as a **single replica** today. Several items below are *latent* — they only bite once you scale the worker horizontally (the natural response to load). Adding a second replica without first addressing the "multi-replica" items will cause duplicate processing. There is currently no guard preventing horizontal scaling, so treat "add a replica" as a change that requires this list to be cleared first.
+**Load-bearing context for the whole list:** `railway.toml` sets **no `numReplicas`**, so the worker runs as a **single replica** today. Several items below are *latent* — they only bite once you scale the worker horizontally (the natural response to load). Adding a second replica without first addressing the "multi-replica" items will cause duplicate processing, so treat "add a replica" as a change that requires this list to be cleared first.
+
+Two guards exist as of #567 (arch review R1), and it is worth knowing what each does **not** cover:
+
+- **`ci:static-policy` blocks replica config in `railway.toml`/`railway.json`** (`numReplicas`, `multiRegionConfig`, including the TOML table-header spelling). Config-as-code overrides the dashboard, so this is the one scale-out path a static check can actually block — but it is also the path nobody uses by default.
+- **The worker announces its replica identity at boot** (`worker/config/replica-identity.ts`): a `[boot] Worker listening` line and Sentry tags carrying `replica_id` + `deployment_id`. Railway injects a per-replica id but **no replica count**, so no process can assert it is alone; scaling up starts a new replica without redeploying the existing one, so **two distinct `replica_id`s under one `deployment_id` is the signal**.
+
+Neither guard *prevents* a dashboard-set replica — that remains detection, not enforcement. Active prevention (a Redis/Postgres singleton lease that refuses to boot as a second replica) is deliberately not built; it would risk crash-looping on a benign deploy overlap.
 
 The fix pattern for most of the poller items already exists in-repo: **`ZernioRecentReviewPoller`** (keyset cursor + per-cycle connection cap + bounded fan-out concurrency + per-cycle deadline). "Port the ZernioRecentReviewPoller shape" below means copy that structure.
 

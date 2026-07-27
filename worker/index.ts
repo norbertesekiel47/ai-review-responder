@@ -66,6 +66,7 @@ import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
+import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
 import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
@@ -596,6 +597,16 @@ async function main(): Promise<void> {
   app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
+
+  // Announce which replica this is (#567). Scaling up starts a NEW replica
+  // without redeploying the existing one, so this line is emitted exactly once
+  // per replica — two distinct replica_ids under one deployment_id means the
+  // single-replica invariant that four boot guards depend on has been broken.
+  // See worker/config/replica-identity.ts for why it cannot be asserted.
+  createWorkerLogger('[boot]').log(
+    'Worker listening',
+    { port: PORT, ...replicaIdentityFields(readReplicaIdentity()) },
+  );
 
   // --- Boot-readiness cure (#505) --------------------------------------------
   // Each DB-backed loop fires its first cycle inside start(); firing all ~24 at

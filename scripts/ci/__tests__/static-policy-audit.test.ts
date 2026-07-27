@@ -5,6 +5,7 @@ import {
   ALLOWED_NEXT_PUBLIC,
   SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
   scanLegacySubscriptionTiers,
+  auditRailwayConfig,
 } from '../static-policy-audit';
 
 describe('legacy subscription-tier AST audit', () => {
@@ -503,5 +504,41 @@ describe('scanFile — inline feature-flag ban (invariant #13, Stage-4)', () => 
     const nested = scanFile('src/foo/worker/config/startup-assert.ts', "if (process.env.FOO_ENABLED !== 'true') return;");
     expect(root.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
     expect(nested.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(1);
+  });
+});
+
+describe('auditRailwayConfig — single-replica invariant (#567, R1)', () => {
+  it('passes the real railway.toml shape (no replica declaration)', () => {
+    const toml = ['[deploy]', 'startCommand = "pnpm worker"', 'healthcheckPath = "/api/health"'].join('\n');
+    expect(auditRailwayConfig('railway.toml', toml)).toEqual([]);
+  });
+
+  it('flags numReplicas in TOML', () => {
+    const findings = auditRailwayConfig('railway.toml', 'numReplicas = 2\n');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('railway-replicas');
+    expect(findings[0]!.line).toBe(1);
+  });
+
+  it('flags numReplicas in JSON', () => {
+    expect(auditRailwayConfig('railway.json', '    "numReplicas": 2,\n')).toHaveLength(1);
+  });
+
+  it('flags a multiRegionConfig TOML table header, which carries no numReplicas of its own', () => {
+    const findings = auditRailwayConfig('railway.toml', '[deploy.multiRegionConfig.us-west2]\n');
+    expect(findings.map((finding) => finding.rule)).toEqual(['railway-replicas']);
+  });
+
+  it('flags an inline multiRegionConfig key', () => {
+    expect(auditRailwayConfig('railway.json', '  "multiRegionConfig": {}\n')).toHaveLength(1);
+  });
+
+  it('does not flag prose mentioning numReplicas in a TOML comment', () => {
+    expect(auditRailwayConfig('railway.toml', '# never set numReplicas = 2 here\n')).toEqual([]);
+  });
+
+  it('points the reader at the scale-out backlog', () => {
+    const [finding] = auditRailwayConfig('railway.toml', 'numReplicas = 2\n');
+    expect(finding!.detail).toContain('worker-scaling-hardening-backlog.md');
   });
 });
