@@ -5,6 +5,10 @@
 # replacement). Commands run in parallel, so wall-clock ≈ the slowest one and
 # all failures surface together.
 #
+# That mirroring is checked, not trusted: src/__tests__/ci-audit-wiring.test.ts
+# fails when a `ci:*` audit runs in ci.yml's lint job and not here, or when it
+# is declared in package.json and gates nothing anywhere (#590).
+#
 # Escape hatch for genuine WIP: `git push --no-verify` (CI still enforces).
 pre-push:
   parallel: true
@@ -49,6 +53,8 @@ pre-push:
       run: pnpm ci:outbox-topics
     outbox-status:
       run: pnpm ci:outbox-status
+    live-db-suites:
+      run: pnpm ci:live-db-suites
     feature-surface:
       run: pnpm ci:feature-surface
     agent-config:

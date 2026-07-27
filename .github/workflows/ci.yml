@@ -35,6 +35,10 @@ env:
   ENCRYPTION_KEY_VERSION: '1'
 
 jobs:
+  # The `ci:*` audit steps below are not the authoritative list — package.json
+  # is. src/__tests__/ci-audit-wiring.test.ts (run by the `test` job) fails when
+  # an audit is declared there and gates nothing, or runs here and not in
+  # lefthook.yml (#590).
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -75,6 +79,8 @@ jobs:
         run: pnpm ci:outbox-topics
       - name: Run outbox in-flight status vocabulary audit
         run: pnpm ci:outbox-status
+      - name: Run live-DB test convention audit
+        run: pnpm ci:live-db-suites
       - name: Run feature-surface audit (intake vs diff)
         run: pnpm ci:feature-surface
       - name: Run agent configuration audit
