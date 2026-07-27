@@ -7,7 +7,7 @@ merged. Written at `main` = `34715981` (before PR #594 lands).
 
 ## 1. What closed
 
-The five-issue debt sweep is **complete**. All merged to `main`, `staging`
+The five-issue debt sweep is **complete**, and the architecture review's owner decision (#587) is decided and shipped. All merged to `main`, `staging`
 fast-forwarded in lockstep.
 
 | Issue | PR | What landed |
@@ -17,6 +17,8 @@ fast-forwarded in lockstep.
 | #567 | #586 | Single-replica guard — `railway-replicas` CI rule + boot replica identity |
 | #568 | #588 | `job_outbox` in-flight status vocabulary + `ci:outbox-status` |
 | #572 | #589 | One owner for the primary tracked keyword; unread digest rating dropped |
+
+| #587 | #596 | Replica-cardinality alerting — pages when >1 worker replica is live |
 
 Also merged: #584 (lab-notes promotions, arch counter → 5).
 
@@ -39,15 +41,32 @@ that look like they run but exercise nothing.** Four instances now:
    rationale *between* the pragma and the function. Local runs reported clean.
 4. **`pnpm test:integration` hard-gates one suite only** — already in lab notes;
    an existing-but-unrun suite is how #520 shipped.
+5. **A `try/catch` that could not catch the failure it guarded** (#587, caught in
+   review before merge) — the replica check was wrapped in a log-and-swallow
+   `try/catch` and described as fail-safe, but sat OUTSIDE `withTimeout`. The
+   poller is single-flight, so a Redis command that *hangs* rather than throws
+   would have left `isPolling` true forever, killing the probe and its dead-man
+   switch. A `catch` only catches throws.
 
 **Operational rule for the next agent:** "the audit passed locally" is not
 evidence that a gate enforces it. Verify the wiring (`ci.yml`, `lefthook.yml`)
-separately from the behaviour, and verify a suppression is load-bearing by
-removing it and watching the finding reappear.
+separately from the behaviour, and verify a guard is load-bearing by BREAKING it
+and watching the failure appear — remove the suppression, restore the buggy
+constants, unwire the list. Every instance above was invisible to a green run and
+visible within seconds of a deliberate break.
+
+Instance 5 generalises the rule beyond CI: ask what failure mode the guard
+actually intercepts. A `catch` does not cover a hang; a timeout does not cover a
+wrong value; a test that never runs covers nothing.
 
 ---
 
 ## 3. Open issues, in the order I'd take them
+
+*(#587 is closed — the decision was alert-on-cardinality, shipped in #596. The
+reasoning is in that PR and in `replica-cardinality.ts`'s header: a boot-gating
+lease would have put Upstash, a documented SPOF, on the worker's startup path,
+and it is architecture you must remove once the P2 list clears.)*
 
 ### #591 — HIGH, and it is a defect in freshly merged code
 `worker/jobs/__tests__/{RankingTrackingWorker,WeeklySummaryWorker}.test.ts` each
@@ -71,13 +90,6 @@ Nothing forces `package.json`, `ci.yml`, and `lefthook.yml` to agree on the
 `ci:*` set. `verify-gate.sh:57-60` already derives it from `package.json` with
 `jq` — do the same as an audit (or generate the two lists). Fixing this also
 makes the CLAUDE.md sentence true rather than aspirational.
-
-### #587 — needs an OWNER DECISION before anyone builds
-Alert-on-cardinality (cheap; uses the existing `HealthAlertPoller`/Sentry path)
-vs. a boot-gating distributed lease (puts Upstash — already a documented SPOF —
-on the worker's boot critical path). Review confirmed the detect-not-enforce
-posture is correct: Railway exposes no replica count, so no process can assert
-it is alone. The residue #587 names is that **nothing acts on the signal**.
 
 ### #592 — LOW
 `scripts/ci/lib/sql-tag-scan.ts:17` scans `{sql, tx, db}` but not `exec`, which
@@ -108,6 +120,14 @@ malformed row fails the whole Requests view.
   UPDATE, and `RankingTrackingWorker`. SQL rather than TS because every reader
   needs it resolved *inside* its statement. `RankingTrackingWorker`'s JSONB parse
   was deleted, dropping CLAUDE.md's JSONB allowlist from 17 → 16 sites.
+- **`worker/background/pollers/health-alert/replica-cardinality.ts`** (#587) —
+  each replica registers in Redis under a TTL every `HealthAlertPoller` cycle;
+  the poller pages when >1 is live. `scale_out` (shared `deployment_id`) pages
+  immediately; `deploy_overlap_stuck` (different ids) waits out a grace window so
+  normal deploys do not page. **The TTL and the grace window are load-bearing on
+  each other** — `DEPLOY_OVERLAP_GRACE_CYCLES > TTL_INTERVAL_MULTIPLE + 1`,
+  asserted in tests, because the first cut got the ratio wrong and would have
+  paged on every clean deploy.
 - **`worker/config/replica-identity.ts`** + `railway-replicas` static-policy rule.
   The rule parses `railway.json` structurally and token-scans TOML; an earlier
   line-anchored regex let compact JSON, dotted TOML keys, and inline tables through.
@@ -127,11 +147,15 @@ malformed row fails the whole Requests view.
 - **`git checkout staging` fails** — `staging` lives in the worktree at
   `../RepWorth-worktrees/staging-ride`. Fast-forward with `git -C <worktree>`.
 - **Pushing `staging` auto-deploys** the full staging stack (Railway + Vercel).
+- **A poller's first cycle runs immediately.** `startHealthAlertPoller` polls once
+  before setting the interval, so a counter reaches cycle N at `(N-1) × interval`,
+  not `N × interval`. Getting this wrong is what made #587's first cut false-page.
+- **Best-effort work in a single-flight poller needs a timeout, not just a catch.**
+  `isPolling` never resets if the work hangs.
 
 ---
 
 ## 6. State
 
-`main` = `34715981`, `staging` fast-forwarded to match. Migrations head **089** —
-this sweep added none. All autonomy flags remain OFF in prod. Arch review counter
-resets to 0 when #594 lands.
+`main` = `92f000e9`, `staging` fast-forwarded to match. Migrations head **089** —
+this sweep added none. All autonomy flags remain OFF in prod. Arch review counter is at 0 (reset by #594).
