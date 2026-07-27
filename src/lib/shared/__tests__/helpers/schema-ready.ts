@@ -29,6 +29,11 @@ export interface SchemaRequirement {
   /** Index names that must exist in the `public` schema. */
   indexes?: readonly string[];
   /**
+   * Named table constraints that must exist — the only proof available for a
+   * migration that adds no relation, column or index (090 adds one CHECK).
+   */
+  constraints?: readonly { table: string; name: string }[];
+  /**
    * `table.column` pairs whose `information_schema` data_type must match —
    * for migrations that only WIDEN an existing column (085 → NUMERIC), where
    * presence alone proves nothing.
@@ -105,6 +110,37 @@ async function findMissingIndexes(
     .map((index) => ({ migration: requirement.migration, description: `index ${index}` }));
 }
 
+async function findMissingConstraints(
+  db: postgres.Sql,
+  requirement: SchemaRequirement,
+): Promise<MissingObject[]> {
+  const constraints = requirement.constraints ?? [];
+  if (constraints.length === 0) return [];
+
+  const missing: MissingObject[] = [];
+  for (const constraint of constraints) {
+    // `convalidated` matters: a constraint added NOT VALID and never validated
+    // constrains new writes but proves nothing about the rows already there.
+    const [found] = await db<{ convalidated: boolean }[]>`
+      SELECT convalidated FROM pg_constraint
+      WHERE conrelid = to_regclass(${`public.${constraint.table}`})
+        AND conname = ${constraint.name}
+    `;
+    if (found === undefined) {
+      missing.push({
+        migration: requirement.migration,
+        description: `constraint ${constraint.table}.${constraint.name}`,
+      });
+    } else if (!found.convalidated) {
+      missing.push({
+        migration: requirement.migration,
+        description: `constraint ${constraint.table}.${constraint.name} exists but is NOT VALID`,
+      });
+    }
+  }
+  return missing;
+}
+
 async function findMismatchedColumnTypes(
   db: postgres.Sql,
   requirement: SchemaRequirement,
@@ -171,6 +207,14 @@ export const MIGRATION_088_SOLICITATION_BATCH_EXECUTOR: SchemaRequirement = {
   columns: ['agent_runs.parent_run_id'],
 };
 
+export const MIGRATION_090_SOLICITATION_ASK_EVIDENCE: SchemaRequirement = {
+  migration: '090_solicitation_ask_evidence_check',
+  // Constraint-only migration — no relation, column or index to point at.
+  constraints: [
+    { table: 'solicitation_asks', name: 'solicitation_asks_evidence_matches_columns' },
+  ],
+};
+
 export const MIGRATION_089_COMPETITOR_RIVAL_PICK: SchemaRequirement = {
   migration: '089_competitor_rival_pick',
   columns: [
@@ -198,6 +242,7 @@ export async function assertSchemaReady(
       ...(await findMissingTables(db, requirement)),
       ...(await findMissingColumns(db, requirement)),
       ...(await findMissingIndexes(db, requirement)),
+      ...(await findMissingConstraints(db, requirement)),
       ...(await findMismatchedColumnTypes(db, requirement)),
     );
   }

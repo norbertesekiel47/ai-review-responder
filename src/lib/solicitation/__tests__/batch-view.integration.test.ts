@@ -336,24 +336,37 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
         FROM solicitation_contacts c
         WHERE c.business_id = ${businessId}::uuid
           AND c.created_by_upload_id = ${uploadId}::uuid
+      ), decided AS (
+        -- Decision and reason resolved ONCE, then used for both the columns
+        -- and the evidence object. They were previously spelled twice and the
+        -- evidence copy omitted the reason key entirely, so this fixture seeded
+        -- rows batch-builder.ts could never produce; migration 090's
+        -- solicitation_asks_evidence_matches_columns now rejects them (#593).
+        SELECT n.id, n.rn,
+               CASE WHEN n.rn % 10 = 0 THEN 'send' ELSE 'withhold' END AS decision,
+               CASE WHEN n.rn % 10 = 0 THEN NULL ELSE
+                 (ARRAY['no_consent','already_reviewed','stale_visit',
+                        'over_contacted','velocity_banked'])[(n.rn % 5) + 1] END AS reason
+        FROM numbered n
       )
       INSERT INTO solicitation_asks
         (id, account_id, business_id, batch_id, contact_id, status, withheld_reason,
          evidence, decided_at)
       SELECT gen_random_uuid(), ${tenant!.accountId}::uuid, ${businessId}::uuid,
-             ${batchId}::uuid, n.id,
-             CASE WHEN n.rn % 10 = 0 THEN 'send' ELSE 'withhold' END,
-             CASE WHEN n.rn % 10 = 0 THEN NULL ELSE
-               (ARRAY['no_consent','already_reviewed','stale_visit',
-                      'over_contacted','velocity_banked'])[(n.rn % 5) + 1] END,
-             jsonb_build_object(
-               'contact_id', n.id,
+             ${batchId}::uuid, d.id,
+             d.decision,
+             d.reason,
+             -- strip_nulls so a send carries no reason key at all, matching
+             -- the SendDecision shape rather than a null-valued key.
+             jsonb_strip_nulls(jsonb_build_object(
+               'contact_id', d.id,
                'policy_version', ${RESTRAINT_POLICY_VERSION}::text,
                'decided_at', '2026-07-14T10:05:00Z',
-               'decision', CASE WHEN n.rn % 10 = 0 THEN 'send' ELSE 'withhold' END
-             ),
+               'decision', d.decision,
+               'reason', d.reason
+             )),
              '2026-07-14T10:05:00Z'::timestamptz
-      FROM numbered n
+      FROM decided d
     `;
     await sql()`ANALYZE solicitation_asks`;
 

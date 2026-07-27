@@ -87,9 +87,15 @@ interface AskAggregateRow {
 
 /**
  * Postgres.js behind PgBouncer can hand back JSONB as a string (CLAUDE.md
- * allowlist). The discriminant is validated because a decision without one
- * cannot be rendered; the rest of the shape is owned by batch-builder.ts,
- * which is the only writer of this column.
+ * allowlist). The rest of the shape is owned by batch-builder.ts, the only
+ * writer of this column.
+ *
+ * The discriminant is now enforced at WRITE time too — migration 090's
+ * `solicitation_asks_evidence_matches_columns` (#593) — so these throws should
+ * be unreachable for stored rows. They stay because this is still the parse
+ * boundary: the CHECK cannot vouch for what `JSON.parse` returns, and a throw
+ * that fires here means the constraint was dropped or bypassed, which is worth
+ * a loud failure rather than a rendered blank.
  */
 function parseEvidence(value: unknown, askId: string): AskDecision {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
