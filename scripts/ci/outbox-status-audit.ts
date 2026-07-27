@@ -261,34 +261,47 @@ export function scanSource(file: string, text: string): OutboxStatusFinding[] {
   return findings;
 }
 
+/** Read each file and collect what `scan` finds in it. */
+async function collectFindings(
+  root: string,
+  files: readonly string[],
+  scan: (file: string, text: string) => OutboxStatusFinding[],
+): Promise<OutboxStatusFinding[]> {
+  const findings: OutboxStatusFinding[] = [];
+  for (const file of files) {
+    findings.push(...scan(file, await readFile(resolve(root, file), 'utf8')));
+  }
+  return findings;
+}
+
+function report(findings: readonly OutboxStatusFinding[], scanned: string): void {
+  if (findings.length === 0) {
+    console.log(`outbox-status-audit: passed (${scanned})`);
+    return;
+  }
+  console.error('outbox-status-audit: failed');
+  for (const finding of findings) {
+    console.error(`${finding.file}:${finding.line} [${finding.rule}] ${finding.detail}`);
+  }
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
   const root = process.cwd();
-  const findings: OutboxStatusFinding[] = [];
-
   const tsFiles = await walk(root, { scanDirs: TS_SCAN_DIRS });
-  for (const file of tsFiles) {
-    findings.push(...scanSource(file, await readFile(resolve(root, file), 'utf8')));
-  }
-
   const migrations = await walk(root, {
     scanDirs: [MIGRATIONS_DIR],
     scanExt: /\.sql$/,
     skipFile: /a^/,
   });
-  for (const file of migrations) {
-    findings.push(...scanMigration(file, await readFile(resolve(root, file), 'utf8')));
-  }
 
-  if (findings.length > 0) {
-    console.error('outbox-status-audit: failed');
-    for (const finding of findings) {
-      console.error(`${finding.file}:${finding.line} [${finding.rule}] ${finding.detail}`);
-    }
-    process.exit(1);
-  }
-  console.log(
-    `outbox-status-audit: passed (${tsFiles.length} TS + ${migrations.length} migration files scanned; ` +
-      `${MIGRATION_ALLOWLIST.size} migrations allowlisted)`,
+  report(
+    [
+      ...(await collectFindings(root, tsFiles, scanSource)),
+      ...(await collectFindings(root, migrations, scanMigration)),
+    ],
+    `${tsFiles.length} TS + ${migrations.length} migration files scanned; ` +
+      `${MIGRATION_ALLOWLIST.size} migrations allowlisted`,
   );
 }
 
