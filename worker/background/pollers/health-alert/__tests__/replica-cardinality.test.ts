@@ -4,6 +4,7 @@ import {
   evaluateReplicaCardinality,
   nextCrossDeploymentCycles,
   resetReplicaCardinalityState,
+  REPLICA_TIMING,
   type LiveReplica,
 } from '../replica-cardinality';
 import type { Redis } from 'ioredis';
@@ -14,7 +15,8 @@ const replica = (replicaId: string, deploymentId: string | undefined): LiveRepli
   deploymentId,
 });
 
-const GRACE = 2;
+const GRACE = REPLICA_TIMING.deployOverlapGraceCycles;
+const POLL_INTERVAL_MS = 300_000;
 
 describe('evaluateReplicaCardinality — the invariant holds', () => {
   it.each([
@@ -149,6 +151,7 @@ describe('nextCrossDeploymentCycles', () => {
 describe('checkReplicaCardinality — registry round trip', () => {
   interface FakeRedis {
     store: Map<string, string>;
+    ttls: Map<string, number>;
     set: (key: string, value: string, mode: string, ttl: number) => Promise<'OK'>;
     scan: (cursor: string, ...args: unknown[]) => Promise<[string, string[]]>;
     mget: (...keys: string[]) => Promise<(string | null)[]>;
@@ -156,10 +159,13 @@ describe('checkReplicaCardinality — registry round trip', () => {
 
   const fakeRedis = (seed: Record<string, string> = {}): FakeRedis => {
     const store = new Map(Object.entries(seed));
+    const ttls = new Map<string, number>();
     return {
       store,
-      set: async (key, value) => {
+      ttls,
+      set: async (key, value, _mode, ttl) => {
         store.set(key, value);
+        ttls.set(key, ttl);
         return 'OK';
       },
       scan: async (_cursor, _match, pattern) => {
@@ -182,7 +188,7 @@ describe('checkReplicaCardinality — registry round trip', () => {
   // The fake implements only the three commands this module uses; cast through
   // unknown rather than `any` so the narrowing stays explicit (repworth.md).
   const run = (redis: FakeRedis, id = identity) =>
-    checkReplicaCardinality(redis as unknown as Redis, id, { ttlSeconds: 900, graceCycles: GRACE });
+    checkReplicaCardinality(redis as unknown as Redis, id, POLL_INTERVAL_MS);
 
   it('registers this replica under a scoped key with a TTL', async () => {
     const redis = fakeRedis();
@@ -192,6 +198,8 @@ describe('checkReplicaCardinality — registry round trip', () => {
 
     expect([...redis.store.keys()]).toEqual(['repworth:replica:worker:production:r1']);
     expect(redis.store.get('repworth:replica:worker:production:r1')).toBe('d1');
+    expect(redis.ttls.get('repworth:replica:worker:production:r1'))
+      .toBe((POLL_INTERVAL_MS / 1000) * REPLICA_TIMING.ttlIntervalMultiple);
   });
 
   it('returns null when this replica is the only one registered', async () => {
@@ -212,8 +220,10 @@ describe('checkReplicaCardinality — registry round trip', () => {
     const redis = fakeRedis({ 'repworth:replica:worker:production:r2': 'd2' });
     resetReplicaCardinalityState();
 
-    expect(await run(redis)).toBeNull(); // cycle 1
-    const finding = await run(redis); // cycle 2 — grace reached
+    for (let cycle = 1; cycle < GRACE; cycle += 1) {
+      expect(await run(redis)).toBeNull();
+    }
+    const finding = await run(redis); // grace reached
     expect(finding!.detail).toMatchObject({ reason: 'deploy_overlap_stuck' });
   });
 
@@ -243,5 +253,28 @@ describe('checkReplicaCardinality — registry round trip', () => {
     resetReplicaCardinalityState();
 
     await expect(run(redis)).rejects.toThrow('redis down');
+  });
+});
+
+describe('replica timing invariant', () => {
+  // The first cut of this feature shipped ttlMultiple=3 / grace=2 and would have
+  // paged on EVERY clean deploy: a dead replica's key outlives it by up to
+  // `ttlMultiple` intervals, while the new replica — whose first cycle runs
+  // immediately — reaches cycle N at (N-1) intervals. Encoded here so the two
+  // constants can never drift back into a false-paging pair.
+  it('alerts only after a dead replica key can no longer be present', () => {
+    const { ttlIntervalMultiple, deployOverlapGraceCycles } = REPLICA_TIMING;
+    expect(deployOverlapGraceCycles).toBeGreaterThan(ttlIntervalMultiple + 1);
+  });
+
+  it('keeps the TTL longer than one interval so a late cycle cannot deregister a live replica', () => {
+    expect(REPLICA_TIMING.ttlIntervalMultiple).toBeGreaterThan(1);
+  });
+
+  it('fires the overlap alert strictly after the stale key expires, at the default interval', () => {
+    const intervalS = POLL_INTERVAL_MS / 1000;
+    const staleKeyGoneBy = REPLICA_TIMING.ttlIntervalMultiple * intervalS;
+    const alertsAt = (REPLICA_TIMING.deployOverlapGraceCycles - 1) * intervalS;
+    expect(alertsAt).toBeGreaterThan(staleKeyGoneBy);
   });
 });

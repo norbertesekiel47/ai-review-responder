@@ -23,13 +23,54 @@ import type { HealthFinding } from './checks';
 
 const KEY_PREFIX = 'repworth:replica';
 
+/**
+ * TTL as a multiple of the poll interval. Must exceed 1 so a single late or
+ * skipped cycle does not deregister a LIVE replica (a false negative — the
+ * invariant would go unpoliced).
+ */
+const TTL_INTERVAL_MULTIPLE = 2;
+
+/**
+ * Cycles a cross-deployment overlap must persist before it pages.
+ *
+ * Bound by TTL, not by taste. A replica that dies leaves its key behind for up
+ * to `TTL_INTERVAL_MULTIPLE` intervals; the new replica starts counting at boot
+ * and its first cycle runs immediately, so it reaches cycle N at
+ * `(N - 1) × interval`. Paging before the dead replica's key expires would
+ * false-page on every clean deploy, which is what the first cut of this did.
+ * Hence the invariant, asserted in the unit tests:
+ *
+ *     DEPLOY_OVERLAP_GRACE_CYCLES > TTL_INTERVAL_MULTIPLE + 1
+ *
+ * At the 5-minute default that is: stale key gone by t≤600s, alert at t=900s.
+ * There is deliberately no deregistration-on-shutdown path — it would be a
+ * Redis call on the shutdown critical path that a SIGKILL or OOM skips anyway,
+ * so the timing above has to be correct with or without it.
+ */
+const DEPLOY_OVERLAP_GRACE_CYCLES = 4;
+
+/**
+ * Iteration cap on the registry SCAN. Redis applies MATCH *after* scanning, so
+ * on a shared Upstash instance (cache + rate-limit + cost-reserve + …) a full
+ * walk is not free. A handful of replica keys needs a handful of iterations;
+ * anything beyond this is a pathological keyspace, and stopping early degrades
+ * to "counted fewer replicas" rather than hanging the health probe.
+ */
+const SCAN_MAX_ITERATIONS = 20;
+
+/** Exported for the invariant test only — see DEPLOY_OVERLAP_GRACE_CYCLES. */
+export const REPLICA_TIMING = {
+  ttlIntervalMultiple: TTL_INTERVAL_MULTIPLE,
+  deployOverlapGraceCycles: DEPLOY_OVERLAP_GRACE_CYCLES,
+} as const;
+
 /** One replica seen alive in the registry within its TTL. */
 export interface LiveReplica {
   replicaId: string;
   deploymentId: string | undefined;
 }
 
-/** Registry scope — replicas of different services/environments never mix. Module-private: `checkReplicaCardinality` is the only entry point. */
+/** Registry scope — replicas of different services/environments never mix. */
 function replicaKeyPrefix(identity: ReplicaIdentity): string {
   const service = identity.serviceName ?? 'worker';
   const environment = identity.environmentName ?? 'unknown';
@@ -37,27 +78,19 @@ function replicaKeyPrefix(identity: ReplicaIdentity): string {
 }
 
 /**
- * Refresh this replica's registration. Called once per poller cycle with a TTL
- * comfortably longer than the interval, so a replica that dies disappears on its
- * own without any deregistration path to get wrong.
- *
- * A local run (no Railway variables) registers nothing — there is no invariant
- * to police off-platform.
+ * Refresh this replica's registration. A replica that dies disappears when its
+ * TTL lapses — there is no deregistration path to get wrong.
  */
 async function heartbeatReplica(
   redis: Redis,
   identity: ReplicaIdentity,
   ttlSeconds: number,
 ): Promise<void> {
-  if (!identity.onRailway || !identity.replicaId) return;
   const key = `${replicaKeyPrefix(identity)}:${identity.replicaId}`;
   await redis.set(key, identity.deploymentId ?? '', 'EX', ttlSeconds);
 }
 
-/**
- * Every replica currently registered for this identity's scope. SCAN rather than
- * KEYS so the read never blocks the shared cache instance.
- */
+/** Every replica currently registered for this identity's scope. */
 async function readLiveReplicas(
   redis: Redis,
   identity: ReplicaIdentity,
@@ -65,11 +98,13 @@ async function readLiveReplicas(
   const prefix = replicaKeyPrefix(identity);
   const keys: string[] = [];
   let cursor = '0';
+  let iterations = 0;
   do {
     const [next, batch] = await redis.scan(cursor, 'MATCH', `${prefix}:*`, 'COUNT', 100);
     cursor = next;
     keys.push(...batch);
-  } while (cursor !== '0');
+    iterations += 1;
+  } while (cursor !== '0' && iterations < SCAN_MAX_ITERATIONS);
 
   if (keys.length === 0) return [];
   const values = await redis.mget(...keys);
@@ -79,7 +114,7 @@ async function readLiveReplicas(
       deploymentId: values[index] ? values[index]! : undefined,
       raw: values[index],
     }))
-    // A key that expired between SCAN and MGET returns null — it is no longer live.
+    // A key that expired between SCAN and MGET returns null — no longer live.
     .filter((entry) => entry.raw !== null)
     .map(({ replicaId, deploymentId }) => ({ replicaId, deploymentId }))
     .sort((left, right) => left.replicaId.localeCompare(right.replicaId));
@@ -110,105 +145,98 @@ export function nextCrossDeploymentCycles(
   return current + 1;
 }
 
-/**
- * Cycles a cross-deployment overlap must persist before it pages. Two cycles at
- * the default 5-minute interval is ~10 minutes — longer than any healthy deploy
- * drain, short enough that a stuck one is caught the same shift. Not tunable by
- * env: a knob nobody turns is a knob that rots.
- */
-const DEPLOY_OVERLAP_GRACE_CYCLES = 2;
-
-/** TTL multiple of the poll interval, so one missed cycle does not deregister a live replica. */
-export const REPLICA_TTL_INTERVAL_MULTIPLE = 3;
-
-let crossDeploymentCycles = 0;
+let observedOverlapCycles = 0;
 
 /** Test seam — the counter is module state so the poller stays stateless. */
 export function resetReplicaCardinalityState(): void {
-  crossDeploymentCycles = 0;
+  observedOverlapCycles = 0;
 }
 
 /**
- * One cycle: refresh this replica's registration, read the live set, and decide.
+ * One cycle: refresh this replica's registration, read the live set, decide.
+ *
+ * Takes the poll interval rather than a TTL so the module owns its own timing
+ * policy — the TTL and the grace window are load-bearing on each other (see
+ * DEPLOY_OVERLAP_GRACE_CYCLES) and must not be settable independently.
  *
  * Returns null off-platform (no Railway identity → no invariant to police). The
- * CALLER is responsible for swallowing failures: a Redis outage must degrade to
- * "no replica alerting", never to a failed health cycle — that fail-safe
- * property is the reason this is a registry and not a boot-gating lease.
+ * CALLER owns both the timeout and the failure swallow: a Redis outage must
+ * degrade to "no replica alerting", never to a failed health cycle — that
+ * fail-safe property is the reason this is a registry and not a lease.
  */
 export async function checkReplicaCardinality(
   redis: Redis,
   identity: ReplicaIdentity,
-  options: { ttlSeconds: number; graceCycles?: number },
+  pollIntervalMs: number,
 ): Promise<HealthFinding | null> {
   if (!identity.onRailway || !identity.replicaId) return null;
-  await heartbeatReplica(redis, identity, options.ttlSeconds);
+  const ttlSeconds = Math.ceil((pollIntervalMs / 1000) * TTL_INTERVAL_MULTIPLE);
+  await heartbeatReplica(redis, identity, ttlSeconds);
   const replicas = await readLiveReplicas(redis, identity);
-  crossDeploymentCycles = nextCrossDeploymentCycles(replicas, crossDeploymentCycles);
-  return evaluateReplicaCardinality(
-    replicas,
-    crossDeploymentCycles,
-    options.graceCycles ?? DEPLOY_OVERLAP_GRACE_CYCLES,
-  );
+  observedOverlapCycles = nextCrossDeploymentCycles(replicas, observedOverlapCycles);
+  return evaluateReplicaCardinality(replicas, observedOverlapCycles);
+}
+
+function replicaFinding(
+  replicas: LiveReplica[],
+  reason: 'scale_out' | 'deploy_overlap_stuck',
+  title: string,
+  remediation: string,
+  extra: Record<string, unknown> = {},
+): HealthFinding {
+  return {
+    key: 'replica_cardinality',
+    level: 'error',
+    title,
+    detail: {
+      reason,
+      replica_count: replicas.length,
+      replica_ids: replicas.map(({ replicaId }) => replicaId),
+      deployment_ids: [...new Set(replicas.map(({ deploymentId }) => deploymentId ?? '(none)'))],
+      remediation,
+      ...extra,
+    },
+  };
 }
 
 /**
- * Decides whether the live set warrants paging. Pure — the poller owns the
- * Redis read and the cycle counter.
+ * Decides whether the live set warrants paging. Pure — the caller owns the Redis
+ * read and the cycle counter.
  *
- * Two distinct conditions, deliberately separated because they need different
- * urgency:
+ * Two conditions, deliberately separated because they need different urgency:
  *  - **scale_out** — replicas sharing a deployment id. Railway starts a new
  *    replica without redeploying the existing one, so this is the documented
  *    dashboard/CLI scale-out signal. It will not resolve itself: page now.
  *  - **deploy_overlap_stuck** — replicas on different deployment ids, still
- *    overlapping after `graceCycles`. Every release produces this shape briefly;
- *    one that outlives the grace window is a deploy that has not drained, and
- *    two replicas really are consuming jobs.
+ *    overlapping after the grace window. Every release produces this shape
+ *    briefly; one that outlives the window is a deploy that has not drained.
  */
 export function evaluateReplicaCardinality(
   replicas: LiveReplica[],
-  crossDeploymentCycles: number,
-  graceCycles: number,
+  overlapCycles: number,
+  graceCycles: number = DEPLOY_OVERLAP_GRACE_CYCLES,
 ): HealthFinding | null {
   if (replicas.length < 2) return null;
 
-  const replicaIds = replicas.map(({ replicaId }) => replicaId);
-  const deploymentIds = [...new Set(replicas.map(({ deploymentId }) => deploymentId ?? '(none)'))];
-
   if (hasSharedDeployment(replicas)) {
-    return {
-      key: 'replica_cardinality',
-      level: 'error',
-      title: `${replicas.length} worker replicas are live under one deployment`,
-      detail: {
-        reason: 'scale_out',
-        replica_count: replicas.length,
-        replica_ids: replicaIds,
-        deployment_ids: deploymentIds,
-        remediation:
-          'Scale the Railway worker service back to 1. Four boot guards and the ' +
-          'in-process LLM circuit breaker assume a single replica, and the P2 ' +
-          'pollers duplicate-process with two.',
-      },
-    };
+    return replicaFinding(
+      replicas,
+      'scale_out',
+      `${replicas.length} worker replicas are live under one deployment`,
+      'Scale the Railway worker service back to 1. Four boot guards and the '
+        + 'in-process LLM circuit breaker assume a single replica, and the P2 '
+        + 'pollers duplicate-process with two.',
+    );
   }
 
-  if (crossDeploymentCycles < graceCycles) return null;
+  if (overlapCycles < graceCycles) return null;
 
-  return {
-    key: 'replica_cardinality',
-    level: 'error',
-    title: `${replicas.length} worker replicas still overlapping across deployments`,
-    detail: {
-      reason: 'deploy_overlap_stuck',
-      replica_count: replicas.length,
-      replica_ids: replicaIds,
-      deployment_ids: deploymentIds,
-      consecutive_cycles: crossDeploymentCycles,
-      remediation:
-        'A zero-downtime deploy has not drained. Confirm the old deployment is ' +
-        'terminating; both replicas are consuming jobs until it does.',
-    },
-  };
+  return replicaFinding(
+    replicas,
+    'deploy_overlap_stuck',
+    `${replicas.length} worker replicas still overlapping across deployments`,
+    'A zero-downtime deploy has not drained. Confirm the old deployment is '
+      + 'terminating; both replicas are consuming jobs until it does.',
+    { consecutive_cycles: overlapCycles },
+  );
 }
