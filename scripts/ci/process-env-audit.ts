@@ -28,6 +28,15 @@ const SCAN_DIRS = ['src/lib', 'src/app', 'src/components', 'worker'] as const;
  *   - MOCK_EXTERNAL_APIS — local mock-mode switch
  *   - VERCEL_*          — platform-injected deploy indicators (VERCEL_ENV,
  *                          VERCEL_TARGET_ENV, VERCEL_URL, …)
+ *   - RAILWAY_*         — the Railway sibling of VERCEL_*: system variables the
+ *                          platform injects into the worker's deployment
+ *                          (RAILWAY_REPLICA_ID, RAILWAY_DEPLOYMENT_ID,
+ *                          RAILWAY_REPLICA_REGION, …). They identify WHICH
+ *                          replica/deployment is running, are absent locally and
+ *                          in CI, and are never set by us — so there is nothing
+ *                          for the config schema to validate or default, and a
+ *                          required-field accessor would fail every local boot.
+ *                          Read directly in worker/config/replica-identity.ts.
  *
  * MOCK_ZERNIO_LOCATION_COUNT is also exempt (EXACT-NAME, not a broad MOCK_*
  * prefix — that would be too wide). It is a MOCK-mode fixture knob: read only
@@ -57,6 +66,7 @@ function isExemptIndicatorName(name: string): boolean {
     name === 'MOCK_EXTERNAL_APIS' ||
     name === 'MOCK_ZERNIO_LOCATION_COUNT' ||
     name.startsWith('VERCEL_') ||
+    name.startsWith('RAILWAY_') ||
     name.startsWith('NEXT_PUBLIC_')
   );
 }

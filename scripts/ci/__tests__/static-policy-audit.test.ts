@@ -5,6 +5,7 @@ import {
   ALLOWED_NEXT_PUBLIC,
   SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
   scanLegacySubscriptionTiers,
+  auditRailwayConfig,
 } from '../static-policy-audit';
 
 describe('legacy subscription-tier AST audit', () => {
@@ -503,5 +504,79 @@ describe('scanFile — inline feature-flag ban (invariant #13, Stage-4)', () => 
     const nested = scanFile('src/foo/worker/config/startup-assert.ts', "if (process.env.FOO_ENABLED !== 'true') return;");
     expect(root.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(0);
     expect(nested.filter((f) => f.rule === 'inline-feature-flag')).toHaveLength(1);
+  });
+});
+
+describe('auditRailwayConfig — single-replica invariant (#567, R1)', () => {
+  it('passes the real railway.toml shape (no replica declaration)', () => {
+    const toml = ['[deploy]', 'startCommand = "pnpm worker"', 'healthcheckPath = "/api/health"'].join('\n');
+    expect(auditRailwayConfig('railway.toml', toml)).toEqual([]);
+  });
+
+  it('flags numReplicas in TOML', () => {
+    const findings = auditRailwayConfig('railway.toml', 'numReplicas = 2\n');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('railway-replicas');
+    expect(findings[0]!.line).toBe(1);
+  });
+
+  it('flags numReplicas in JSON', () => {
+    expect(auditRailwayConfig('railway.json', '    "numReplicas": 2,\n')).toHaveLength(1);
+  });
+
+  it('flags a multiRegionConfig TOML table header, which carries no numReplicas of its own', () => {
+    const findings = auditRailwayConfig('railway.toml', '[deploy.multiRegionConfig.us-west2]\n');
+    expect(findings.map((finding) => finding.rule)).toEqual(['railway-replicas']);
+  });
+
+  it('flags an inline multiRegionConfig key', () => {
+    expect(auditRailwayConfig('railway.json', '  "multiRegionConfig": {}\n')).toHaveLength(1);
+  });
+
+  it('does not flag prose mentioning numReplicas in a TOML comment', () => {
+    expect(auditRailwayConfig('railway.toml', '# never set numReplicas = 2 here\n')).toEqual([]);
+  });
+
+  it('points the reader at the scale-out backlog', () => {
+    const [finding] = auditRailwayConfig('railway.toml', 'numReplicas = 2\n');
+    expect(finding!.detail).toContain('worker-scaling-hardening-backlog.md');
+  });
+
+  // Each of these is a valid Railway config-as-code spelling that the original
+  // line-anchored rule let through: anchoring on the key meant any line opening
+  // with `{` or a parent segment never matched. Codex adversarial review, #586.
+  it.each([
+    ['compact single-line JSON', 'railway.json', '{"deploy":{"multiRegionConfig":{"us-west2":{"numReplicas":2}}}}'],
+    ['dotted TOML key path', 'railway.toml', 'deploy.multiRegionConfig.us-west2.numReplicas = 2\n'],
+    ['TOML inline table on deploy', 'railway.toml', 'deploy = { multiRegionConfig = { "us-west2" = { numReplicas = 2 } } }\n'],
+    ['quoted TOML key', 'railway.toml', '"numReplicas" = 2\n'],
+    ['deeply nested pretty JSON', 'railway.json', '{\n  "deploy": {\n    "multiRegionConfig": {\n      "us-west2": { "numReplicas": 2 }\n    }\n  }\n}'],
+  ])('flags %s', (_label, file, text) => {
+    const findings = auditRailwayConfig(file, text);
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.every((finding) => finding.rule === 'railway-replicas')).toBe(true);
+  });
+
+  it('does not flag a JSON string value that merely mentions a banned key', () => {
+    const json = '{"deploy":{"startCommand":"pnpm worker --note numReplicas"}}';
+    expect(auditRailwayConfig('railway.json', json)).toEqual([]);
+  });
+
+  it('does not flag a trailing TOML comment after a real setting', () => {
+    const toml = 'startCommand = "pnpm worker" # never set numReplicas = 2\n';
+    expect(auditRailwayConfig('railway.toml', toml)).toEqual([]);
+  });
+
+  it('does not truncate at a # inside a quoted TOML value', () => {
+    const toml = 'startCommand = "pnpm worker --tag #1"\nnumReplicas = 2\n';
+    const findings = auditRailwayConfig('railway.toml', toml);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.line).toBe(2);
+  });
+
+  it('still passes the committed railway.toml', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const text = await readFile('railway.toml', 'utf8');
+    expect(auditRailwayConfig('railway.toml', text)).toEqual([]);
   });
 });
