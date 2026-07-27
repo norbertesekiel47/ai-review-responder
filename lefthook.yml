@@ -47,6 +47,8 @@ pre-push:
       run: pnpm ci:reviews-status
     outbox-topics:
       run: pnpm ci:outbox-topics
+    outbox-status:
+      run: pnpm ci:outbox-status
     feature-surface:
       run: pnpm ci:feature-surface
     agent-config:

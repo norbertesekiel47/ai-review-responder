@@ -73,6 +73,8 @@ jobs:
         run: pnpm ci:reviews-status
       - name: Run outbox topics audit
         run: pnpm ci:outbox-topics
+      - name: Run outbox in-flight status vocabulary audit
+        run: pnpm ci:outbox-status
       - name: Run feature-surface audit (intake vs diff)
         run: pnpm ci:feature-surface
       - name: Run agent configuration audit
