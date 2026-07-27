@@ -1003,10 +1003,16 @@ Revisit triggers:
   gained a `constraints` requirement kind, since a constraint-only migration has
   nothing else to point at.
 
-  **Applied to the local test DB only.** Staging first, then prod, in lockstep
-  at promotion — verify by schema introspection (`pg_constraint.conname =
-  'solicitation_asks_evidence_matches_columns'` with `convalidated = true`),
-  never the migration ledger.
+  **Applied to staging Supabase (`kubdiqdhqbhwmqfditeg`) 2026-07-27.** Preflight
+  first: 80 `solicitation_asks` rows, **0** violating, constraint absent — so
+  VALIDATE had nothing to reject. Verified by schema introspection, not the
+  migration ledger: one `pg_constraint` row named
+  `solicitation_asks_evidence_matches_columns` with `convalidated = true`, and
+  its `pg_get_constraintdef` reads `NOT ((evidence ->> 'decision') IS DISTINCT
+  FROM status)` — Postgres's rendering of `IS NOT DISTINCT FROM`, which is what
+  distinguishes the shipped constraint from the `=` draft that would have let
+  the #593 row through. **Not yet applied to prod** — apply at promotion, in
+  lockstep, running the same preflight against prod first.
 
 - **089** — Owner-picked Named rival for the Competitor Delta line (#546, map
   #528; semantics locked in #532 item 2). Adds three nullable columns to
