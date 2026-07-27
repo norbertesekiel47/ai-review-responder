@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **089** — next migration is **090**
+Current head: **090** — next migration is **091**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -966,6 +966,47 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **090** — `solicitation_asks.evidence` decision discriminant enforced at WRITE
+  time (#593, from the 2026-07-27 architecture review). 088 created
+  `evidence JSONB NOT NULL` with no CHECK; the discriminant was enforced only by
+  a throw in `src/lib/solicitation/batch-view.ts`'s `parseEvidence`, at read
+  time — and that read builds the whole Requests view from ONE statement, so a
+  single malformed row failed the view for the entire account rather than its
+  own line.
+
+  The constraint pins the JSONB to its neighbouring columns rather than merely
+  asserting a discriminant exists: `batch-builder.ts` stores the whole decision
+  object as `evidence` and DERIVES `status` (= `decision.decision`) and
+  `withheld_reason` (= `decision.reason` on a withhold, else NULL) from it, so
+  the three are views of one fact with one writer. 088's
+  `solicitation_asks_status_reason_consistency` already constrains the column
+  pair; 090 ties the JSONB to that same pair, which makes the discriminant check
+  fall out.
+
+  **Both comparisons are `IS NOT DISTINCT FROM`, and that is load-bearing.** A
+  CHECK rejects only FALSE and PASSES on NULL, so `evidence->>'decision' =
+  status` yields NULL for an evidence object with no `decision` key — the exact
+  #593 row would still have been accepted. The first draft had that hole;
+  `migration-090-solicitation-ask-evidence.integration.test.ts` caught it before
+  the migration was applied anywhere. Proven three ways against the local test
+  DB: shipped form REJECTS the row, the `=` draft ACCEPTS it, no constraint
+  ACCEPTS it.
+
+  Split `ADD CONSTRAINT … NOT VALID` (brief ACCESS EXCLUSIVE, no scan) +
+  `VALIDATE CONSTRAINT` (SHARE UPDATE EXCLUSIVE, does not block reads or
+  writes), under `lock_timeout = '5s'`, so a populated table never blocks the
+  solicitation lane mid-build. The header carries the preflight count to run on
+  each environment before applying — a non-zero result is a real malformed row
+  to fix, never a reason to weaken the constraint. No new table, column or
+  index, so **no RLS change and no retention change**; the schema-ready harness
+  gained a `constraints` requirement kind, since a constraint-only migration has
+  nothing else to point at.
+
+  **Applied to the local test DB only.** Staging first, then prod, in lockstep
+  at promotion — verify by schema introspection (`pg_constraint.conname =
+  'solicitation_asks_evidence_matches_columns'` with `convalidated = true`),
+  never the migration ledger.
 
 - **089** — Owner-picked Named rival for the Competitor Delta line (#546, map
   #528; semantics locked in #532 item 2). Adds three nullable columns to
