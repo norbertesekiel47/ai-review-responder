@@ -15,7 +15,16 @@ const {
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
+  // A SQL-fragment builder (primaryTrackedKeywordSql) calls `sql` to COMPOSE an
+  // expression that is then interpolated into a real query — it never runs one.
+  // Without this branch it would shift a queued result and every later read
+  // would receive the wrong row. Duplicated in WeeklySummaryWorker.test.ts:
+  // vi.hoisted factories run before imports, so a shared helper is not reachable.
+  const isFragmentBuild = (s: TemplateStringsArray): boolean =>
+    (s[0] ?? '').includes('jsonb_array_elements');
+
+  const mockSql: any = vi.fn((s: TemplateStringsArray, ..._v: unknown[]) => {
+    if (isFragmentBuild(s)) return { __fragment: 'primary_tracked_keyword' };
     const result = sqlReturnQueue.shift() ?? [];
     return Promise.resolve(result);
   });
@@ -76,7 +85,7 @@ function makeJob(overrides: Partial<TrackRankingPayload> = {}): Job<TrackRanking
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'biz-rank-1',
-    tracked_keywords: ['pizza near me'],
+    primary_keyword: 'pizza near me',
     google_place_id: 'ChIJ_test_place',
     google_place_lat: 34.0522,
     google_place_lng: -118.2437,
@@ -165,8 +174,14 @@ describe('RankingTrackingWorker', () => {
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
-  it('marks outbox completed when tracked_keywords is empty', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: [] })]);
+  // #572: keyword selection moved from a JS parse of tracked_keywords into
+  // primaryTrackedKeywordSql, so the worker's contract is now a resolved
+  // `primary_keyword` that is either a usable string or NULL. The selection
+  // SEMANTICS (blank/non-string skipping, non-array and malformed handling)
+  // belong to the SQL and are covered in named-rival.integration.test.ts; what
+  // remains here is how the worker reacts to each side of that contract.
+  it('marks outbox completed when no usable tracked keyword resolves', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ primary_keyword: null })]);
 
     await handleTrackRanking(makeJob());
 
@@ -174,34 +189,13 @@ describe('RankingTrackingWorker', () => {
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
-  it('handles tracked_keywords as JSONB string (PgBouncer guard)', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: '["tacos near me"]' })]);
-    mockGetJson.mockResolvedValue({
-      local_results: [{ place_id: 'ChIJ_test_place', title: 'Test', position: 1 }],
-    });
-
-    await handleTrackRanking(makeJob());
-
-    expect(mockGetJson).toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
-  });
-
-  it('filters out empty strings from tracked_keywords', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: ['', '  ', 'valid keyword'] })]);
+  it('searches on the resolved primary keyword', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ primary_keyword: 'valid keyword' })]);
     mockGetJson.mockResolvedValue({ local_results: [] });
 
     await handleTrackRanking(makeJob());
 
     expect(mockGetJson).toHaveBeenCalledWith(expect.objectContaining({ q: 'valid keyword' }));
-  });
-
-  it('handles malformed tracked_keywords JSON gracefully', async () => {
-    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: '{not-valid-json' })]);
-
-    await handleTrackRanking(makeJob());
-
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-rank-1', undefined);
-    expect(mockGetJson).not.toHaveBeenCalled();
   });
 
   it('marks outbox completed when REDIS_CACHE_URL is missing (strict fail-closed)', async () => {
@@ -349,10 +343,11 @@ describe('RankingTrackingWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
 
-  it('limits to 1 keyword despite multiple tracked', async () => {
-    sqlReturnQueue.push([mockBusinessRow({
-      tracked_keywords: ['pizza near me', 'best pizza LA', 'italian restaurant'],
-    })]);
+  // The "one keyword per business" cap now lives in primaryTrackedKeywordSql's
+  // LIMIT 1 rather than a JS slice, so what this asserts at the unit level is
+  // that the worker issues exactly ONE search for the keyword it was handed.
+  it('issues exactly one search for the resolved keyword', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ primary_keyword: 'pizza near me' })]);
     mockGetJson.mockResolvedValue({ local_results: [] });
 
     await handleTrackRanking(makeJob());
@@ -543,6 +538,12 @@ describe('RankingTrackingWorker', () => {
       const originalImpl = mockSql.getMockImplementation();
       try {
         mockSql.mockImplementation((s: TemplateStringsArray, ..._v: unknown[]) => {
+          // Same fragment carve-out as the hoisted default: composing an
+          // expression must not shift a queued result, or the business read
+          // below receives the wrong row and never reaches the INSERT.
+          if ((s[0] ?? '').includes('jsonb_array_elements')) {
+            return { __fragment: 'primary_tracked_keyword' };
+          }
           if ((s?.join?.('') ?? '').includes('INSERT INTO competitor_snapshots')) {
             return Promise.reject(new Error('pack insert exploded'));
           }

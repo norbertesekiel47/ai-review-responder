@@ -27,9 +27,23 @@ const {
   const spineTxStates: { operation: string; inTransaction: boolean; tx: unknown }[] = [];
   let inTransaction = false;
 
+  // See the identical branch in RankingTrackingWorker.test.ts: a SQL-fragment
+  // builder composes an expression rather than running a query, so it must not
+  // shift a queued result (nor be recorded as a call). vi.hoisted runs before
+  // imports, so this cannot be shared.
+  const isFragmentBuild = (s: TemplateStringsArray): boolean =>
+    (s[0] ?? '').includes('jsonb_array_elements');
+
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (isFragmentBuild(strings)) return { __fragment: 'primary_tracked_keyword' };
     const text = strings.join('?');
-    sqlCalls.push({ text, values, inTransaction });
+    // An interpolated fragment is SQL composition, not a bind parameter — real
+    // postgres.js splices it into the statement rather than passing a value.
+    // Recording it would make every `values` assertion depend on it.
+    const boundValues = values.filter(
+      (value) => !(typeof value === 'object' && value !== null && '__fragment' in value),
+    );
+    sqlCalls.push({ text, values: boundValues, inTransaction });
     if (text.includes('SET sent_at = NOW()')) transactionEvents.push('sent_at_flip');
     const result = sqlReturnQueue.shift() ?? [];
     return Promise.resolve(result);
@@ -492,7 +506,12 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(laneQueries).toHaveLength(1);
     const laneQuery = laneQueries[0]!;
     expect(laneQuery.values).toEqual(['biz-1', 'biz-1', 'biz-1']);
-    expect(laneQuery.text).toContain('tracked_keywords->>0');
+    // #572: the primary keyword is no longer hardcoded as `tracked_keywords->>0`
+    // here — it comes from primaryTrackedKeywordSql, the one owner shared with
+    // RankingTrackingWorker and the rival picker. It interpolates as a composed
+    // fragment, so the recorded text shows a placeholder rather than the
+    // expression; what this asserts is that no second spelling crept back in.
+    expect(laneQuery.text).not.toContain('tracked_keywords');
     expect(laneQuery.text).toContain('FROM ranking_snapshots');
     // Keyword + search_location are correlated inside SQL rather than round-tripped
     // as parameters — that correlation is now the query's contract.

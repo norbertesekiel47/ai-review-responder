@@ -164,7 +164,7 @@ const SUSPENSION_FLAG_EVIDENCE_SQL =
 // just read (READ COMMITTED makes a wrapping transaction no help). Every leg is
 // bound to ${businessId}; two of the three predicates sit inside CTE bodies.
 const NAMED_RIVAL_LANE_SQL =
-  "WITH ctx AS ( SELECT b.tracked_keywords->>0 AS keyword, CASE WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL THEN b.google_place_lat::text || ',' || b.google_place_lng::text ELSE b.ranking_search_location END AS search_location, b.rival_place_id, b.rival_title_snapshot FROM businesses b WHERE b.id = ${businessId} ), dates AS ( SELECT rs.snapshot_date FROM ranking_snapshots rs, ctx WHERE rs.business_id = ${businessId} AND rs.keyword = ctx.keyword AND rs.search_location = ctx.search_location ORDER BY rs.snapshot_date DESC LIMIT 2 ) SELECT ctx.keyword, ctx.search_location, ctx.rival_place_id, ctx.rival_title_snapshot, d.snapshot_date::text AS window_date, cs.snapshot_date::text AS snapshot_date, cs.rank_position, cs.place_id, cs.title, cs.rating, cs.review_count, cs.is_self FROM ctx LEFT JOIN dates d ON true LEFT JOIN competitor_snapshots cs ON cs.business_id = ${businessId} AND cs.keyword = ctx.keyword AND cs.search_location IS NOT DISTINCT FROM ctx.search_location AND cs.snapshot_date = d.snapshot_date ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST";
+  "WITH ctx AS ( SELECT ${primaryTrackedKeywordSql(db)} AS keyword, CASE WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL THEN b.google_place_lat::text || ',' || b.google_place_lng::text ELSE b.ranking_search_location END AS search_location, b.rival_place_id, b.rival_title_snapshot FROM businesses b WHERE b.id = ${businessId} ), dates AS ( SELECT rs.snapshot_date FROM ranking_snapshots rs, ctx WHERE rs.business_id = ${businessId} AND rs.keyword = ctx.keyword AND rs.search_location = ctx.search_location ORDER BY rs.snapshot_date DESC LIMIT 2 ) SELECT ctx.keyword, ctx.search_location, ctx.rival_place_id, ctx.rival_title_snapshot, d.snapshot_date::text AS window_date, cs.snapshot_date::text AS snapshot_date, cs.rank_position, cs.place_id, cs.title, cs.review_count, cs.is_self FROM ctx LEFT JOIN dates d ON true LEFT JOIN competitor_snapshots cs ON cs.business_id = ${businessId} AND cs.keyword = ctx.keyword AND cs.search_location IS NOT DISTINCT FROM ctx.search_location AND cs.snapshot_date = d.snapshot_date ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -815,7 +815,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/RankingTrackingWorker.ts",
     table: "businesses",
-    sqlSnippet: "SELECT id, tracked_keywords, google_place_id, google_place_lat, google_place_lng, ranking_search_location FROM businesses WHERE id = ${businessId}",
+    sqlSnippet: "SELECT b.id, ${primaryTrackedKeywordSql(sql)} AS primary_keyword, b.google_place_id, b.google_place_lat, b.google_place_lng, b.ranking_search_location FROM businesses b WHERE b.id = ${businessId}",
     category: 'background-global-scan',
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },

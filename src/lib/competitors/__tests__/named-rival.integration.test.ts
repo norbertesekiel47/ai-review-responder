@@ -91,7 +91,11 @@ const outsiderEmail = `rival-outsider-${outsider.accountId}@test.local`;
 const location = asLocationId(randomUUID());
 const notConfiguredLocation = asLocationId(randomUUID());
 const awaitingPackLocation = asLocationId(randomUUID());
-const allLocations = [location, notConfiguredLocation, awaitingPackLocation];
+// #572: leading blank keyword — the tracker skipped it, the readers did not.
+const blankLeadingKeywordLocation = asLocationId(randomUUID());
+const allLocations = [
+  location, notConfiguredLocation, awaitingPackLocation, blankLeadingKeywordLocation,
+];
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('rival-picker integration database was not initialized');
@@ -271,6 +275,10 @@ describeWithDb('rival picker — live picker view + atomic pick write', { timeou
       keywords: [KEYWORD],
       searchLocation: SEARCH_LOCATION,
     });
+    await insertLocation(blankLeadingKeywordLocation, tenant.accountId, ownerEmail, {
+      keywords: ['', KEYWORD],
+      searchLocation: SEARCH_LOCATION,
+    });
   });
 
   afterAll(async () => {
@@ -349,6 +357,24 @@ describeWithDb('rival picker — live picker view + atomic pick write', { timeou
     });
 
     expect(view).toEqual({ state: 'not_configured', businessId: notConfiguredLocation });
+  });
+
+  // #572 regression. `tracked_keywords->>0` returned '' here while
+  // RankingTrackingWorker filtered blanks before slicing and snapshotted
+  // 'coffee shop' — so the reader's join matched nothing and the location
+  // looked unconfigured despite being tracked live. Both now resolve the
+  // keyword through primaryTrackedKeywordSql.
+  it('skips a blank leading keyword and resolves the first usable one', async () => {
+    const view = await loadRivalPickerView(sql(), {
+      accountId: tenant.accountId,
+      businessId: blankLeadingKeywordLocation,
+    });
+
+    expect(view).toEqual({
+      state: 'awaiting_pack',
+      businessId: blankLeadingKeywordLocation,
+      keyword: KEYWORD,
+    });
   });
 
   it('shows the teaser state for a configured location with no persisted pack yet', async () => {
