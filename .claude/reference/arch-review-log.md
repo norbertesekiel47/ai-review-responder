@@ -6,7 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** *(PR #570 competitor delta digest #539; PR #571 run-engine executor #543; PR #574 rival picker #546; PR #575 Requests watch-mode surface #544 — all 2026-07-25/26, map #528 completion wave)*
+**Merges since last architecture pass: 5 — ≥ 5 THRESHOLD MET, an architecture review is DUE** *(PR #570 competitor delta digest #539; PR #571 run-engine executor #543; PR #574 rival picker #546; PR #575 Requests watch-mode surface #544 — all 2026-07-25/26, map #528 completion wave; PR #583 refactor #565 single-owner extractions + executor decomposition, closes #569, 2026-07-26)*
+
+Scope the next pass should cover, given what the counter accumulated: the completed map-#528 wave (run-engine executor, rival picker, Requests watch-mode surface, competitor delta digest) plus the state of the 2026-07-24 findings — S1/S2 closed by #565, S3/S4 shipped as built, **R1 open (#567)**, **R2 open and still a decision (#568)** — and two measurement-integrity items filed out of #565: **#581** (fallow CRAP inflated repo-wide by the coverage input) and **#582** (csv_ingest lock contract closed by comment, not enforcement). #573 (local-only live-DB gate deadlock) is a test-infrastructure item, not architecture.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
