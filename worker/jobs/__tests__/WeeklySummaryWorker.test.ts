@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import type { Sql } from 'postgres';
 import type { WeeklySummaryPayload } from '../../../src/lib/shared/worker-types';
 
 // ── Hoisted mock state ───────────────────────────────────────────────
 const {
   sqlReturnQueue,
   sqlCalls,
-  transactionEvents,
-  spineTxStates,
+  resetMockSql,
+  sideEffects,
   mockSql,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
@@ -20,64 +21,43 @@ const {
   mockRecordOutcome,
   mockCompleteRun,
   mockLogger,
-} = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-  const sqlCalls: { text: string; values: unknown[]; inTransaction: boolean }[] = [];
-  const transactionEvents: string[] = [];
-  const spineTxStates: { operation: string; inTransaction: boolean; tx: unknown }[] = [];
-  let inTransaction = false;
+} = await vi.hoisted(async () => {
+  const helpers = await import('../../__tests__/helpers/mock-sql');
+  const harness = helpers.createMockSql();
+  const { sqlCalls, isInTransaction } = harness;
 
-  // See the identical branch in RankingTrackingWorker.test.ts: a SQL-fragment
-  // builder composes an expression rather than running a query, so it must not
-  // shift a queued result (nor be recorded as a call). vi.hoisted runs before
-  // imports, so this cannot be shared.
-  const isFragmentBuild = (s: TemplateStringsArray): boolean =>
-    (s[0] ?? '').includes('jsonb_array_elements');
-
-  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    if (isFragmentBuild(strings)) return { __fragment: 'primary_tracked_keyword' };
-    const text = strings.join('?');
-    // An interpolated fragment is SQL composition, not a bind parameter — real
-    // postgres.js splices it into the statement rather than passing a value.
-    // Recording it would make every `values` assertion depend on it.
-    const boundValues = values.filter(
-      (value) => !(typeof value === 'object' && value !== null && '__fragment' in value),
-    );
-    sqlCalls.push({ text, values: boundValues, inTransaction });
-    if (text.includes('SET sent_at = NOW()')) transactionEvents.push('sent_at_flip');
-    const result = sqlReturnQueue.shift() ?? [];
-    return Promise.resolve(result);
-  });
-
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => {
-    inTransaction = true;
-    try {
-      return await cb(mockSql);
-    } finally {
-      inTransaction = false;
-    }
-  });
+  // Non-SQL side effects in execution order. `queriesSoFar` is the shared clock
+  // that orders them against the harness's own log: a side effect with
+  // `queriesSoFar > i` ran after `sqlCalls[i]` was awaited.
+  const sideEffects: {
+    name: string;
+    queriesSoFar: number;
+    inTransaction: boolean;
+    tx?: unknown;
+  }[] = [];
+  const record = (name: string, tx?: unknown) =>
+    sideEffects.push({
+      name,
+      queriesSoFar: sqlCalls.length,
+      inTransaction: isInTransaction(),
+      tx,
+    });
 
   const spineMock = (operation: string) => vi.fn(async (tx: unknown) => {
-    transactionEvents.push(operation);
-    spineTxStates.push({ operation, inTransaction, tx });
+    record(operation, tx);
   });
   const mockStartOrGetActiveRun = vi.fn(async (tx: unknown) => {
-    transactionEvents.push('start_run');
-    spineTxStates.push({ operation: 'start_run', inTransaction, tx });
+    record('start_run', tx);
     return { runId: 'run-weekly-1', created: true };
   });
 
   return {
-    sqlReturnQueue,
-    sqlCalls,
-    transactionEvents,
-    spineTxStates,
-    mockSql,
+    ...harness,
+    sideEffects,
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockSendInternalEmail: vi.fn(async (_input: Record<string, unknown>) => {
-      transactionEvents.push('send_email');
+      record('send_email');
       return { messageId: 'msg-ws-1' };
     }),
     mockBuildWeeklyValueReportHtml: vi.fn((_params: Record<string, unknown>) => '<html>value-report</html>'),
@@ -128,6 +108,37 @@ vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 import { handleWeeklySummary } from '../WeeklySummaryWorker';
 import { makeSummaryReportBusiness } from './summary-report-fixtures';
 import type { SummaryReportBusiness } from '../summary-report-helpers';
+// Real module, deliberately unmocked: the lane query's use of the ONE owner is
+// asserted against the expression that owner actually produces.
+import { primaryTrackedKeywordSql } from '../../../src/lib/shared/primary-tracked-keyword-sql';
+
+const SENT_AT_FLIP = 'SET sent_at = NOW()';
+
+/**
+ * The keyword expression the single owner emits, composed on the mock so it can
+ * be compared against the lane query's flattened text. The cast crosses the
+ * mock/postgres.js seam: the builder is typed for a real `Sql`, and the mock's
+ * fragments expose `text` where a real `PendingQuery` does not.
+ */
+function primaryKeywordExpression(): string {
+  const fragment = primaryTrackedKeywordSql(mockSql as unknown as Sql);
+  return (fragment as unknown as { text: string }).text;
+}
+
+/**
+ * The guarded `sent_at` flip interleaved into the non-SQL side-effect log.
+ * The flip is the state change every other side effect must follow; it lands in
+ * the harness's query log while the rest land in `sideEffects`, and
+ * `queriesSoFar` is what orders the two against each other.
+ */
+function timeline(): string[] {
+  const names = sideEffects.map(({ name }) => name);
+  const flipIndex = sqlCalls.findIndex(({ text }) => text.includes(SENT_AT_FLIP));
+  if (flipIndex === -1) return names;
+  const firstAfterFlip = sideEffects.findIndex(({ queriesSoFar }) => queriesSoFar > flipIndex);
+  const insertAt = firstAfterFlip === -1 ? names.length : firstAfterFlip;
+  return [...names.slice(0, insertAt), 'sent_at_flip', ...names.slice(insertAt)];
+}
 
 function makeJob(overrides: Partial<WeeklySummaryPayload> = {}): Job<WeeklySummaryPayload> {
   return {
@@ -277,10 +288,8 @@ function pushHappyPathSqlQueue(opts: {
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
-    sqlCalls.length = 0;
-    transactionEvents.length = 0;
-    spineTxStates.length = 0;
+    resetMockSql();
+    sideEffects.length = 0;
     process.env.RESEND_FROM_EMAIL = 'RepWorth <test@test.com>';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
   });
@@ -508,10 +517,11 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(laneQuery.values).toEqual(['biz-1', 'biz-1', 'biz-1']);
     // #572: the primary keyword is no longer hardcoded as `tracked_keywords->>0`
     // here — it comes from primaryTrackedKeywordSql, the one owner shared with
-    // RankingTrackingWorker and the rival picker. It interpolates as a composed
-    // fragment, so the recorded text shows a placeholder rather than the
-    // expression; what this asserts is that no second spelling crept back in.
-    expect(laneQuery.text).not.toContain('tracked_keywords');
+    // RankingTrackingWorker and the rival picker. The mock flattens the composed
+    // fragment into the parent text, so this compares against what that owner
+    // actually emits: byte-for-byte its expression, and no second spelling.
+    expect(laneQuery.text).toContain(primaryKeywordExpression());
+    expect(laneQuery.text).not.toContain('tracked_keywords->>');
     expect(laneQuery.text).toContain('FROM ranking_snapshots');
     // Keyword + search_location are correlated inside SQL rather than round-tripped
     // as parameters — that correlation is now the query's contract.
@@ -748,7 +758,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     await handleWeeklySummary(makeJob({ correlation_id: 'corr-weekly-1' }));
 
     expect(mockSql.begin).toHaveBeenCalledOnce();
-    const sentFlip = sqlCalls.find(({ text }) => text.includes('SET sent_at = NOW()'));
+    const sentFlip = sqlCalls.find(({ text }) => text.includes(SENT_AT_FLIP));
     expect(sentFlip).toBeDefined();
     expect(sentFlip!.inTransaction).toBe(true);
     expect(sentFlip!.text).toContain('AND sent_at IS NULL');
@@ -778,13 +788,14 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       attributedAgent: 'insights',
     });
     expect(mockCompleteRun).toHaveBeenCalledWith(mockSql, 'run-weekly-1', 'completed');
-    expect(spineTxStates).toEqual([
-      { operation: 'start_run', inTransaction: true, tx: mockSql },
-      { operation: 'record_step', inTransaction: true, tx: mockSql },
-      { operation: 'record_outcome', inTransaction: true, tx: mockSql },
-      { operation: 'complete_run', inTransaction: true, tx: mockSql },
+    const spineWrites = sideEffects.filter(({ name }) => name !== 'send_email');
+    expect(spineWrites.map(({ name, inTransaction, tx }) => ({ name, inTransaction, tx }))).toEqual([
+      { name: 'start_run', inTransaction: true, tx: mockSql },
+      { name: 'record_step', inTransaction: true, tx: mockSql },
+      { name: 'record_outcome', inTransaction: true, tx: mockSql },
+      { name: 'complete_run', inTransaction: true, tx: mockSql },
     ]);
-    expect(transactionEvents).toEqual([
+    expect(timeline()).toEqual([
       'sent_at_flip',
       'start_run',
       'record_step',
@@ -802,7 +813,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     await handleWeeklySummary(makeJob());
 
-    expect(transactionEvents).toEqual(['sent_at_flip']);
+    expect(timeline()).toEqual(['sent_at_flip']);
     expect(mockStartOrGetActiveRun).not.toHaveBeenCalled();
     expect(mockRecordStep).not.toHaveBeenCalled();
     expect(mockRecordOutcome).not.toHaveBeenCalled();

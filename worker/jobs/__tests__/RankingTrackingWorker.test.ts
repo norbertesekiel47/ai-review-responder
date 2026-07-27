@@ -5,6 +5,7 @@ import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 // ── Hoisted mock state ───────────────────────────────────────────────
 const {
   sqlReturnQueue,
+  resetMockSql,
   mockSql,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
@@ -12,28 +13,10 @@ const {
   mockGetJson,
   mockIsMockMode,
   mockGetLocationContext,
-} = vi.hoisted(() => {
-  const sqlReturnQueue: unknown[] = [];
-
-  // A SQL-fragment builder (primaryTrackedKeywordSql) calls `sql` to COMPOSE an
-  // expression that is then interpolated into a real query — it never runs one.
-  // Without this branch it would shift a queued result and every later read
-  // would receive the wrong row. Duplicated in WeeklySummaryWorker.test.ts:
-  // vi.hoisted factories run before imports, so a shared helper is not reachable.
-  const isFragmentBuild = (s: TemplateStringsArray): boolean =>
-    (s[0] ?? '').includes('jsonb_array_elements');
-
-  const mockSql: any = vi.fn((s: TemplateStringsArray, ..._v: unknown[]) => {
-    if (isFragmentBuild(s)) return { __fragment: 'primary_tracked_keyword' };
-    const result = sqlReturnQueue.shift() ?? [];
-    return Promise.resolve(result);
-  });
-
-  mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockSql));
-
+} = await vi.hoisted(async () => {
+  const helpers = await import('../../__tests__/helpers/mock-sql');
   return {
-    sqlReturnQueue,
-    mockSql,
+    ...helpers.createMockSql(),
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockCheckRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 99 }),
@@ -121,7 +104,7 @@ function mockLocationContext(overrides: Record<string, string> = {}) {
 describe('RankingTrackingWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueue.length = 0;
+    resetMockSql();
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 99 });
     mockGetJson.mockResolvedValue({ local_results: [] });
     mockIsMockMode.mockReturnValue(false);
@@ -533,28 +516,28 @@ describe('RankingTrackingWorker', () => {
       });
       // Throw from the competitor INSERT executed inside sql.begin's callback —
       // exercises the real code path (begin's default impl runs cb(mockSql)).
+      // The override DELEGATES to the harness and only replaces the awaited
+      // result of the one statement, so fragment composition, the return queue
+      // and the call log all keep behaving exactly as everywhere else.
       // try/finally: vi.clearAllMocks() does NOT reset implementations, so a
       // failed assertion must not leak the poisoned impl into later tests.
-      const originalImpl = mockSql.getMockImplementation();
+      const originalImpl = mockSql.getMockImplementation()!;
       try {
-        mockSql.mockImplementation((s: TemplateStringsArray, ..._v: unknown[]) => {
-          // Same fragment carve-out as the hoisted default: composing an
-          // expression must not shift a queued result, or the business read
-          // below receives the wrong row and never reaches the INSERT.
-          if ((s[0] ?? '').includes('jsonb_array_elements')) {
-            return { __fragment: 'primary_tracked_keyword' };
-          }
-          if ((s?.join?.('') ?? '').includes('INSERT INTO competitor_snapshots')) {
-            return Promise.reject(new Error('pack insert exploded'));
-          }
-          return Promise.resolve(sqlReturnQueue.shift() ?? []);
+        mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+          const query = originalImpl(strings, ...values);
+          if (!query.text.includes('INSERT INTO competitor_snapshots')) return query;
+          return {
+            ...query,
+            then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+              Promise.reject(new Error('pack insert exploded')).then(resolve, reject),
+          };
         });
 
         await expect(handleTrackRanking(makeJob())).rejects.toThrow('pack insert exploded');
         expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
         expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
       } finally {
-        mockSql.mockImplementation(originalImpl!);
+        mockSql.mockImplementation(originalImpl);
       }
     });
 

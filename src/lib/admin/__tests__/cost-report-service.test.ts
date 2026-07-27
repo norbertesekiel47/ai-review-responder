@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { asAccountId } from '@/lib/shared/ids';
 import type { RecordedSqlCall } from '../../../../worker/__tests__/helpers/mock-sql';
+
+/** The pinned half of a recorded call: what a query says, not when it ran. */
+type PinnedSqlCall = Pick<RecordedSqlCall, 'text' | 'values'>;
 import { parseCostQuery } from '../cost-report-service';
 
 // ── getCostReport SQL characterization (A+ campaign PR 2b, T2) ────────
@@ -21,7 +24,7 @@ import { parseCostQuery } from '../cost-report-service';
 // pre-refactor) against `createMockSql`, not hand-transcribed — see the
 // task's capture script. `?` stands in for a bound value (mock convention).
 
-const NOACCT_NOROLLUP: RecordedSqlCall[] = [
+const NOACCT_NOROLLUP: PinnedSqlCall[] = [
   {
     text: `
           SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
@@ -80,7 +83,7 @@ const NOACCT_NOROLLUP: RecordedSqlCall[] = [
   },
 ];
 
-const ACCT_NOROLLUP: RecordedSqlCall[] = [
+const ACCT_NOROLLUP: PinnedSqlCall[] = [
   {
     text: `
           SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
@@ -144,7 +147,7 @@ const ACCT_NOROLLUP: RecordedSqlCall[] = [
   },
 ];
 
-const NOACCT_ROLLUP: RecordedSqlCall[] = [
+const NOACCT_ROLLUP: PinnedSqlCall[] = [
   {
     text: `
           SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
@@ -256,7 +259,7 @@ const NOACCT_ROLLUP: RecordedSqlCall[] = [
   },
 ];
 
-const ACCT_ROLLUP: RecordedSqlCall[] = [
+const ACCT_ROLLUP: PinnedSqlCall[] = [
   {
     text: `
           SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
@@ -377,7 +380,7 @@ const ACCT_ROLLUP: RecordedSqlCall[] = [
   },
 ];
 
-function expectPinnedCalls(actual: RecordedSqlCall[], expected: RecordedSqlCall[]): void {
+function expectPinnedCalls(actual: RecordedSqlCall[], expected: PinnedSqlCall[]): void {
   expect(actual).toHaveLength(expected.length);
   expected.forEach((exp, i) => {
     expect(actual[i]!.text).toBe(exp.text);
