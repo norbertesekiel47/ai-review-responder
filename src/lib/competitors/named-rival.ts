@@ -448,12 +448,12 @@ function isPickableOption(row: PackOptionRow): row is PackOptionRow & { place_id
  *
  * @throws RivalPickNotFoundError when `businessId` is not a location of `accountId`.
  */
-// fallow-ignore-next-line complexity
 // CRAP only (cyclomatic 5, cognitive 4 — both under threshold), inflated by
 // `0% tested`: this function's coverage lives in named-rival.integration.test.ts,
 // which `vitest run --coverage` excludes. Phantom debt per #581; decomposition
 // cannot clear a coverage-driven score. Surfaced by #572 only because the file
 // became a changed file.
+// fallow-ignore-next-line complexity
 export async function loadRivalPickerView(
   db: Sql,
   { accountId, businessId }: RivalPickerScope,
@@ -515,8 +515,8 @@ export async function loadRivalPickerView(
   return { state: 'ready', businessId, keyword, options, pick: toPickedRival(context, options) };
 }
 
-// fallow-ignore-next-line complexity
 // Same #581 phantom CRAP as loadRivalPickerView above: integration-only coverage.
+// fallow-ignore-next-line complexity
 function toPickedRival(
   context: RivalPickerContextRow,
   options: RivalOption[],
@@ -553,8 +553,8 @@ export async function setNamedRivalPick(
 ): Promise<RivalPickerView> {
   const { accountId, businessId, placeId, userId } = input;
 
-  // fallow-ignore-next-line complexity
   // Same #581 phantom CRAP: integration-only coverage.
+  // fallow-ignore-next-line complexity
   await db.begin(async (tx) => {
     const decidedAt = placeId === null
       ? await clearRivalPick(tx, input)
