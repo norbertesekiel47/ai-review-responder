@@ -9,12 +9,12 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
-  acquireFeature543DatabaseLock,
-  assertFeature543LocalTestDatabaseUrl,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  resolveFeature543TestDatabaseUrl,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
@@ -24,10 +24,10 @@ import {
   type IngestReport,
 } from '../ingest';
 
-const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
+const testDatabaseUrl = resolveTestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
 const businessId = randomUUID();
 
@@ -75,8 +75,8 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
   timeout: 30_000,
 }, () => {
   beforeAll(async () => {
-    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'CSV Ingest Integration Owner',
@@ -93,7 +93,7 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
         'active'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await sql()`

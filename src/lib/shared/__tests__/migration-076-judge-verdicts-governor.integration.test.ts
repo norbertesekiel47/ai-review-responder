@@ -4,6 +4,12 @@ import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 
 // Live-DB shape suite for migration 076 (WS6 judge + governor, spec
 // 2026-07-13-ws6-judge-governor-design.md §2.3). The suite applies the
@@ -17,6 +23,7 @@ const migrationPath = resolve(
 );
 
 let db: postgresType.Sql | undefined;
+let liveDbLock: LiveDbLock | undefined;
 
 // Local-host refusal guard: any localhost/127.0.0.1 Postgres is accepted (the
 // dev container on 5499 AND the CI service container on 5432), everything
@@ -147,15 +154,23 @@ describe('migration 076 checked-in SQL safety', () => {
 
 describeWithDb('migration 076 judge verdicts + governor — shape', { timeout: 30_000 }, () => {
   beforeAll(async () => {
+    // Enrolled in the cross-process live-DB lock: this suite applies real DDL
+    // (ACCESS EXCLUSIVE), which deadlocks against a sibling suite's row locks
+    // when the two run in concurrent vitest processes (#573).
+    liveDbLock = await acquireLiveDbLock(assertLocalTestDatabaseUrl(testDatabaseUrl));
     db = afterLocalMigrationDatabaseGuard(testDatabaseUrl!, (safeDatabaseUrl) =>
       postgres(safeDatabaseUrl, { max: 1, prepare: false }),
     );
     await sql().unsafe(readMigration076Sql());
-  });
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
-    if (!db) return;
-    await db.end({ timeout: 5 });
+    try {
+      if (db) await db.end({ timeout: 5 });
+    } finally {
+      await liveDbLock?.release();
+      liveDbLock = undefined;
+    }
   });
 
   it('creates judge_verdicts with the exact column contract', async () => {

@@ -14,13 +14,16 @@ docker run -d --name repworth-e2e-db \
 until PGPASSWORD=test psql -h localhost -p 5433 -U test -d test -c 'SELECT 1' >/dev/null 2>&1; do sleep 1; done
 
 # Supabase prerequisites (roles, auth.uid(), uuidv7 stub) + every migration
-PGPASSWORD=test psql -h localhost -p 5433 -U test -d test -v ON_ERROR_STOP=1 -f scripts/ci/test-db-bootstrap.sql
-for f in $(ls supabase/migrations/*.sql | sort); do
-  PGPASSWORD=test psql -h localhost -p 5433 -U test -d test -v ON_ERROR_STOP=1 -q -f "$f"
-done
+TEST_DATABASE_POOL_URL=postgres://test:test@localhost:5433/test pnpm test:db:setup
 ```
 
 (CI does the same via the shared composite action `.github/actions/test-db`.)
+
+`pnpm test:db:setup` (`scripts/test-db-setup.sh`) is the single owner of "the
+test DB is at head" — it drops and recreates schema `public`, then applies the
+bootstrap and every migration in order. Re-run it whenever a migration lands:
+live-DB suites **assert** their schema rather than applying migrations (#573),
+so a behind-head database now fails loudly instead of silently self-healing.
 
 ## 2. Run the hermetic suite
 

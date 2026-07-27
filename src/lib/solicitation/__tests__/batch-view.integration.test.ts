@@ -16,10 +16,10 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
-  acquireFeature543DatabaseLock,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { RESTRAINT_POLICY_VERSION } from '../restraint-policy';
 import { EVIDENCE_ROWS_PER_REASON, markBatchReviewed, readLatestBatch } from '../batch-view';
@@ -33,7 +33,7 @@ let otherTenant: TenantSeed | undefined;
 // test database. Without it this suite and batch-builder's seed and truncate
 // overlapping solicitation_* tables concurrently and Postgres reports
 // `deadlock detected` in whichever one loses.
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 const businessId = randomUUID();
 
 /** The candidate-window bound the batch builder evaluates in one pass. */
@@ -150,7 +150,7 @@ async function reviewedAt(batchId: string): Promise<string | null> {
 describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, () => {
   beforeAll(async () => {
     const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 2, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'Batch View Integration Owner',
@@ -167,7 +167,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
         ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
@@ -194,7 +194,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
         featureDatabaseLock = undefined;
       }
     }
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   it('returns the most recent batch when a location has several', async () => {
     await seedBatch({ createdAt: '2026-07-01T10:00:00Z', builtAt: '2026-07-01T10:05:00Z' });

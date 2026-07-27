@@ -12,14 +12,18 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_072_REVIEW_TRIAGE,
+  MIGRATION_073_REVIEW_ESCALATIONS,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { TRIAGE_SOURCE } from '@/lib/reviews/triage-schema';
 import { persistTriage, type TriageClassification } from '@/lib/reviews/triage';
 import { startOrGetActiveRun } from '@/lib/agents/run-spine';
@@ -88,13 +92,11 @@ async function noticeOutboxRows(): Promise<{ aggregate_id: string; status: strin
 describeWithDb('raiseEscalation via persistTriage against live Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    for (const migration of [
-      '071_agent_run_spine.sql',
-      '072_review_triage.sql',
-      '073_review_escalations.sql',
-    ]) {
-      await db.unsafe(readFileSync(resolve(process.cwd(), 'supabase/migrations', migration), 'utf-8'));
-    }
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_072_REVIEW_TRIAGE,
+      MIGRATION_073_REVIEW_ESCALATIONS,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Escalation Raise Owner',
       accountDisplayName: 'Escalation Raise Account',
