@@ -13,6 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import type { LocationId } from '@/lib/shared/ids';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { primaryTrackedKeywordSql } from '@/lib/shared/primary-tracked-keyword-sql';
 
 // The FINAL shape lands here in #546 Task 2, even though `source` is always
 // 'auto_default' and `dropout` is unreachable until Task 3. Introducing an
@@ -36,18 +37,19 @@ interface StoredRivalPick {
   titleSnapshot: string;
 }
 
+/**
+ * A pack row as the Competitor Delta consumes it. `rating` is deliberately
+ * absent: v1 delta semantics are review-count-only (see `packLine` below), so
+ * selecting and parsing the column bought nothing. The rival PICKER does render
+ * a rating and keeps its own plumbing (#572).
+ */
 interface CompetitorSnapshotRow {
   snapshot_date: string;
   rank_position: number | null;
   place_id: string | null;
   title: string;
-  rating: string | null;
   review_count: number | null;
   is_self: boolean;
-}
-
-interface NormalizedCompetitorSnapshotRow extends Omit<CompetitorSnapshotRow, 'rating'> {
-  rating: number | null;
 }
 
 // One row per (competitor-lane context × snapshot date × pack entry). The two
@@ -64,7 +66,6 @@ interface NamedRivalContextRow {
   rank_position: number | null;
   place_id: string | null;
   title: string | null;
-  rating: string | null;
   review_count: number | null;
   is_self: boolean | null;
 }
@@ -91,9 +92,9 @@ function parseCompetitorRating(rating: string | null): number | null {
  * uncountable there means "no velocity", not zero.
  */
 function buildLineForRow(
-  row: NormalizedCompetitorSnapshotRow,
+  row: CompetitorSnapshotRow,
   selfReviewCount: number,
-  rows: NormalizedCompetitorSnapshotRow[],
+  rows: CompetitorSnapshotRow[],
   precedingDate: string | undefined,
   source: NamedRivalLine['source'],
 ): NamedRivalLine {
@@ -120,11 +121,11 @@ function buildLineForRow(
  * integer `review_count`, the precondition every gap computation shares.
  */
 function latestPackWithSelf(
-  rows: NormalizedCompetitorSnapshotRow[],
+  rows: CompetitorSnapshotRow[],
   currentDate: string,
 ): {
-  currentRows: NormalizedCompetitorSnapshotRow[];
-  self: NormalizedCompetitorSnapshotRow | undefined;
+  currentRows: CompetitorSnapshotRow[];
+  self: CompetitorSnapshotRow | undefined;
 } {
   const currentRows = rows.filter((row) => row.snapshot_date === currentDate);
   const self = currentRows.find(
@@ -134,7 +135,7 @@ function latestPackWithSelf(
 }
 
 function selectAutoDefaultRival(
-  rows: NormalizedCompetitorSnapshotRow[],
+  rows: CompetitorSnapshotRow[],
   currentDate: string,
   precedingDate: string | undefined,
 ): NamedRivalLine | null {
@@ -186,7 +187,7 @@ function selectAutoDefaultRival(
  * digest reports.
  */
 function selectNamedRival(
-  rows: NormalizedCompetitorSnapshotRow[],
+  rows: CompetitorSnapshotRow[],
   currentDate: string,
   precedingDate: string | undefined,
   pick: StoredRivalPick | null,
@@ -259,7 +260,7 @@ function isPackJoinRow(row: NamedRivalContextRow): row is PackJoinRow {
  */
 function toObservationWindow(rows: NamedRivalContextRow[]): {
   snapshotDates: string[];
-  packRows: NormalizedCompetitorSnapshotRow[];
+  packRows: CompetitorSnapshotRow[];
 } {
   const snapshotDates: string[] = [];
   for (const row of rows) {
@@ -272,7 +273,6 @@ function toObservationWindow(rows: NamedRivalContextRow[]): {
     rank_position: row.rank_position,
     place_id: row.place_id,
     title: row.title,
-    rating: parseCompetitorRating(row.rating),
     review_count: row.review_count,
     is_self: row.is_self,
   }));
@@ -300,7 +300,7 @@ export async function resolveNamedRival(
   const rows = await db<NamedRivalContextRow[]>`
     WITH ctx AS (
       SELECT
-        b.tracked_keywords->>0 AS keyword,
+        ${primaryTrackedKeywordSql(db)} AS keyword,
         CASE
           WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL
             THEN b.google_place_lat::text || ',' || b.google_place_lng::text
@@ -327,7 +327,7 @@ export async function resolveNamedRival(
       ctx.rival_title_snapshot,
       d.snapshot_date::text AS window_date,
       cs.snapshot_date::text AS snapshot_date,
-      cs.rank_position, cs.place_id, cs.title, cs.rating, cs.review_count, cs.is_self
+      cs.rank_position, cs.place_id, cs.title, cs.review_count, cs.is_self
     FROM ctx
     LEFT JOIN dates d ON true
     LEFT JOIN competitor_snapshots cs
@@ -448,13 +448,19 @@ function isPickableOption(row: PackOptionRow): row is PackOptionRow & { place_id
  *
  * @throws RivalPickNotFoundError when `businessId` is not a location of `accountId`.
  */
+// CRAP only (cyclomatic 5, cognitive 4 — both under threshold), inflated by
+// `0% tested`: this function's coverage lives in named-rival.integration.test.ts,
+// which `vitest run --coverage` excludes. Phantom debt per #581; decomposition
+// cannot clear a coverage-driven score. Surfaced by #572 only because the file
+// became a changed file.
+// fallow-ignore-next-line complexity
 export async function loadRivalPickerView(
   db: Sql,
   { accountId, businessId }: RivalPickerScope,
 ): Promise<RivalPickerView> {
   const [context] = await db<RivalPickerContextRow[]>`
     SELECT
-      b.tracked_keywords->>0 AS keyword,
+      ${primaryTrackedKeywordSql(db)} AS keyword,
       CASE
         WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL
           THEN b.google_place_lat::text || ',' || b.google_place_lng::text
@@ -509,6 +515,8 @@ export async function loadRivalPickerView(
   return { state: 'ready', businessId, keyword, options, pick: toPickedRival(context, options) };
 }
 
+// Same #581 phantom CRAP as loadRivalPickerView above: integration-only coverage.
+// fallow-ignore-next-line complexity
 function toPickedRival(
   context: RivalPickerContextRow,
   options: RivalOption[],
@@ -545,6 +553,8 @@ export async function setNamedRivalPick(
 ): Promise<RivalPickerView> {
   const { accountId, businessId, placeId, userId } = input;
 
+  // Same #581 phantom CRAP: integration-only coverage.
+  // fallow-ignore-next-line complexity
   await db.begin(async (tx) => {
     const decidedAt = placeId === null
       ? await clearRivalPick(tx, input)
@@ -615,7 +625,7 @@ async function storeRivalPick(
       -- Keyword and search location are derived from the businesses row INSIDE
       -- the statement, never passed in: a value resolved by an earlier read is
       -- a value that can have changed by now.
-      AND cs.keyword = b.tracked_keywords->>0
+      AND cs.keyword = ${primaryTrackedKeywordSql(tx)}
       AND cs.search_location IS NOT DISTINCT FROM (
         CASE
           WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL

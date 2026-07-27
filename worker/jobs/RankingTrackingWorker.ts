@@ -12,6 +12,7 @@ import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import { getLocationContext } from '../../src/lib/db/account-guard';
+import { primaryTrackedKeywordSql } from '../../src/lib/shared/primary-tracked-keyword-sql';
 
 type RankingLogger = ReturnType<typeof createWorkerLogger>;
 
@@ -40,25 +41,6 @@ interface CompetitorPackEntry {
 interface LocalPackResult {
   rankPosition: number | null;
   pack: CompetitorPackEntry[];
-}
-
-// Parse the JSONB tracked_keywords column into a clean string[]. Malformed
-// JSON (or a non-array shape) collapses to an empty list rather than throwing,
-// matching the worker's "treat as no keywords" behavior.
-function parseTrackedKeywords(
-  raw: unknown,
-  businessId: LocationId,
-  logger: RankingLogger,
-): string[] {
-  try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    return Array.isArray(parsed)
-      ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-      : [];
-  } catch {
-    logger.warn(`Business ${businessId}: malformed tracked_keywords, treating as empty`);
-    return [];
-  }
 }
 
 // Synthesize a Competitor pack for mock mode: 10 entries with the is_self row
@@ -185,15 +167,15 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
 
   const [business] = await sql<{
     id: string;
-    tracked_keywords: unknown;
+    primary_keyword: string | null;
     google_place_id: string | null;
     google_place_lat: number | null;
     google_place_lng: number | null;
     ranking_search_location: string | null;
   }[]>`
-    SELECT id, tracked_keywords,
-           google_place_id, google_place_lat, google_place_lng, ranking_search_location
-    FROM businesses WHERE id = ${businessId}
+    SELECT b.id, ${primaryTrackedKeywordSql(sql)} AS primary_keyword,
+           b.google_place_id, b.google_place_lat, b.google_place_lng, b.ranking_search_location
+    FROM businesses b WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -218,17 +200,18 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     return;
   }
 
-  // ── Step 3: Parse tracked_keywords (JSONB guard + shape validation) ─
-  const rawKeywords = parseTrackedKeywords(business.tracked_keywords, businessId, logger);
-
-  if (rawKeywords.length === 0) {
+  // ── Step 3: Primary tracked keyword ───────────────────────────────
+  // Resolved in SQL by primaryTrackedKeywordSql — the single owner shared with
+  // the Competitor Delta digest and the rival picker (#572). A NULL means no
+  // usable keyword: NULL, non-array, empty, or all-blank tracked_keywords.
+  if (business.primary_keyword === null) {
     logger.log(`Business ${businessId} has no tracked keywords`);
     await markOutboxCompleted(sql, outboxId, outboxAttempt);
     return;
   }
 
   // Sprint 5B initial rollout: limit to 1 keyword per business
-  const keywords = rawKeywords.slice(0, 1);
+  const keywords = [business.primary_keyword];
 
   // ── Step 4: Location check ────────────────────────────────────────
   const hasCoords = business.google_place_lat != null && business.google_place_lng != null;

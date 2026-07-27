@@ -10,7 +10,6 @@ function packRow(overrides: Partial<Parameters<typeof selectAutoDefaultRival>[0]
     rank_position: 1,
     place_id: 'ChIJ_rival_a',
     title: 'Joe’s Bakery',
-    rating: 4.7,
     review_count: 400,
     is_self: false,
     ...overrides,
@@ -18,10 +17,10 @@ function packRow(overrides: Partial<Parameters<typeof selectAutoDefaultRival>[0]
 }
 
 describe('selectAutoDefaultRival', () => {
-  it('computes the gap from review counts only, ignoring rating and rank', () => {
+  it('computes the gap from review counts only, ignoring rank', () => {
     const rows = [
-      packRow({ place_id: 'ChIJ_self', is_self: true, review_count: 100, rating: 5.0, rank_position: 9 }),
-      packRow({ place_id: 'ChIJ_rival_a', review_count: 127, rating: 2.1, rank_position: 20 }),
+      packRow({ place_id: 'ChIJ_self', is_self: true, review_count: 100, rank_position: 9 }),
+      packRow({ place_id: 'ChIJ_rival_a', review_count: 127, rank_position: 20 }),
     ];
 
     const result = selectAutoDefaultRival(rows, '2026-07-20', undefined);
