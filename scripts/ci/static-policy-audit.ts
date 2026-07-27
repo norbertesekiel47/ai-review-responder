@@ -712,7 +712,6 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
   return findings;
 }
 
-/** Forbid crypto-js as a declared dependency. Pure — unit-tested. */
 // Replica declarations in Railway config-as-code (#567, arch review R1).
 //
 // Four boot-time guards and the in-process LLM circuit breaker are correct ONLY
@@ -724,28 +723,103 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
 // `deploy.multiRegionConfig.<region>`, so both spellings are banned; replicas
 // set in the Railway dashboard are invisible here and are instead surfaced at
 // boot by worker/config/replica-identity.ts.
-const RAILWAY_REPLICA_DECLARATION =
-  /^\s*(?:(?:"?numReplicas"?|"?multiRegionConfig"?)\s*[=:]|\[[^\]]*multiRegionConfig)/;
+const RAILWAY_REPLICA_KEYS: ReadonlySet<string> = new Set(['numReplicas', 'multiRegionConfig']);
+
+// Matches a banned name used as a KEY, wherever it sits on the line — bare or
+// quoted, then `=`/`:` (assignment), `.` (dotted path), or `]`/`}` (table
+// header / inline table close). Deliberately NOT line-anchored: anchoring on
+// the key made compact JSON, dotted TOML keys, and inline tables slip past
+// while still reading as "replicas are banned".
+const RAILWAY_REPLICA_KEY_TOKEN =
+  /(?:^|[\s.,{[])["']?(?:numReplicas|multiRegionConfig)["']?\s*(?=[=:.\]}])/;
+
+const RAILWAY_REPLICA_DETAIL =
+  'Railway replica config must not be declared — the worker is single-replica by ' +
+  'invariant (four boot guards + the in-process LLM circuit breaker depend on it). ' +
+  'Clear the P2 "multi-replica latent races" items in ' +
+  'docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md first.';
+
+/**
+ * Drop a TOML `#` comment, honouring quoted strings so a `#` inside a value
+ * does not truncate the line. The old rule only ignored comments as a side
+ * effect of its line anchor; matching keys mid-line makes this explicit.
+ */
+function stripTomlComment(line: string): string {
+  let inBasic = false;
+  let inLiteral = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (inBasic) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inBasic = false;
+      continue;
+    }
+    if (inLiteral) {
+      if (ch === "'") inLiteral = false;
+      continue;
+    }
+    if (ch === '"') inBasic = true;
+    else if (ch === "'") inLiteral = true;
+    else if (ch === '#') return line.slice(0, i);
+  }
+  return line;
+}
+
+/** Collect every banned key name appearing at any depth of a parsed JSON value. */
+function collectBannedReplicaKeys(value: unknown, hits: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectBannedReplicaKeys(item, hits);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (RAILWAY_REPLICA_KEYS.has(key)) hits.add(key);
+    collectBannedReplicaKeys(child, hits);
+  }
+}
+
+/** 1-indexed line where `key` first appears, so a structural hit still points somewhere. */
+function firstLineContaining(text: string, key: string): number {
+  const index = text.split(/\r?\n/).findIndex((line) => line.includes(key));
+  return index >= 0 ? index + 1 : 1;
+}
 
 export function auditRailwayConfig(file: string, text: string): PolicyFinding[] {
   const findings: PolicyFinding[] = [];
+  const flag = (line: number): void => {
+    findings.push({ file, line, rule: 'railway-replicas', detail: RAILWAY_REPLICA_DETAIL });
+  };
+
+  // railway.json parses exactly, so walk the tree rather than pattern-match it:
+  // nesting and formatting (compact or pretty) then cannot hide a declaration,
+  // and a banned name inside a string VALUE cannot false-fire.
+  if (file.endsWith('.json')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = undefined; // malformed: fall through rather than pass silently
+    }
+    if (parsed !== undefined) {
+      const hits = new Set<string>();
+      collectBannedReplicaKeys(parsed, hits);
+      for (const key of [...hits].sort()) flag(firstLineContaining(text, key));
+      return findings.sort((a, b) => a.line - b.line);
+    }
+  }
+
+  // TOML (and unparseable JSON) — token scan. A banned name inside a TOML string
+  // value can false-fire; that asymmetry is deliberate. A false positive is loud
+  // and one rename away, a false negative silently breaks the invariant.
   text.split(/\r?\n/).forEach((raw, index) => {
-    if (isCommentLine(raw)) return;
-    if (!RAILWAY_REPLICA_DECLARATION.test(raw)) return;
-    findings.push({
-      file,
-      line: index + 1,
-      rule: 'railway-replicas',
-      detail:
-        'Railway replica config must not be declared — the worker is single-replica by ' +
-        'invariant (four boot guards + the in-process LLM circuit breaker depend on it). ' +
-        'Clear the P2 "multi-replica latent races" items in ' +
-        'docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md first.',
-    });
+    const line = file.endsWith('.toml') ? stripTomlComment(raw) : raw;
+    if (isCommentLine(line)) return;
+    if (RAILWAY_REPLICA_KEY_TOKEN.test(line)) flag(index + 1);
   });
   return findings;
 }
 
+/** Forbid crypto-js as a declared dependency. Pure — unit-tested. */
 export function auditPackageJson(pkg: {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
