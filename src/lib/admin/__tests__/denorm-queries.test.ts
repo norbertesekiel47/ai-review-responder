@@ -14,7 +14,7 @@ import type { Sql } from 'postgres';
 // mirrors real Postgres.js: nested fragments are lazy thenables that only
 // record + consume the queue when AWAITED.
 
-const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlReturnQueue, sqlCalls, isInTransaction, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
@@ -27,7 +27,7 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
   ..._args: unknown[]
 ) => {
   const result = sqlReturnQueue.shift() ?? [];
-  sqlCalls.push({ text: '[sql.unsafe]', values: [] });
+  sqlCalls.push({ text: '[sql.unsafe]', values: [], inTransaction: isInTransaction() });
   return Promise.resolve(result);
 };
 

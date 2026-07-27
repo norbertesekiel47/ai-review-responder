@@ -21,6 +21,8 @@ export interface RecordedSqlCall {
   text: string;
   /** Bound values in placeholder order (nested-fragment values inlined). */
   values: unknown[];
+  /** True when the query was awaited inside a `sql.begin(...)` callback. */
+  inTransaction: boolean;
 }
 
 interface MockQueryFragment {
@@ -61,8 +63,15 @@ export interface MockSqlHarness {
    * to simulate a query failure. An empty queue yields `[] & { count: 0 }`.
    */
   sqlReturnQueue: unknown[];
-  /** Awaited queries in execution order, as `{ text, values }`. */
+  /** Awaited queries in execution order, as `{ text, values, inTransaction }`. */
   sqlCalls: RecordedSqlCall[];
+  /**
+   * True while a `sql.begin(...)` callback is in flight. `sqlCalls` already
+   * carries this per query; call it from a mocked collaborator (a run-spine
+   * writer, an audit-log writer) to assert that collaborator ran inside the
+   * SAME transaction as the state change — invariant #2's actual claim.
+   */
+  isInTransaction: () => boolean;
   /** Clears `sqlReturnQueue` + `sqlCalls` (call in `beforeEach`). */
   resetMockSql: () => void;
 }
@@ -90,11 +99,15 @@ export function mkTaggedResult<T>(rows: T[]): T[] & { count: number } {
  * `sql.begin(cb)` and `sql.begin(options, cb)` invoke `cb` with the same mock,
  * so transactional code paths share the one queue and call log. The options
  * argument remains visible in `mockSql.begin.mock.calls` for isolation-mode
- * assertions.
+ * assertions, and every call awaited while `cb` is in flight records
+ * `inTransaction: true` — which is what distinguishes "written in the same
+ * transaction as the state change" from "written next to it".
  */
 export function createMockSql(): MockSqlHarness {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: RecordedSqlCall[] = [];
+  let openTransactions = 0;
+  const isInTransaction = () => openTransactions > 0;
 
   const isFragment = (value: unknown): value is MockQueryFragment =>
     Boolean(value && typeof value === 'object' && (value as MockQueryFragment).__mockSqlFragment);
@@ -118,7 +131,7 @@ export function createMockSql(): MockSqlHarness {
       text,
       values: flatValues,
       then(resolve, reject) {
-        sqlCalls.push({ text, values: flatValues });
+        sqlCalls.push({ text, values: flatValues, inTransaction: isInTransaction() });
         const queued = sqlReturnQueue.shift();
         const result = queued !== undefined ? queued : mkTaggedResult([]);
         return Promise.resolve(result).then(resolve, reject);
@@ -135,7 +148,12 @@ export function createMockSql(): MockSqlHarness {
       ? optionsOrCallback
       : callback;
     if (!transactionCallback) throw new Error('mock sql.begin requires a callback');
-    return transactionCallback(mockSql);
+    openTransactions++;
+    try {
+      return await transactionCallback(mockSql);
+    } finally {
+      openTransactions--;
+    }
   });
   mockSql.json = vi.fn((value: unknown) => value);
 
@@ -143,6 +161,7 @@ export function createMockSql(): MockSqlHarness {
     mockSql,
     sqlReturnQueue,
     sqlCalls,
+    isInTransaction,
     resetMockSql: () => {
       sqlReturnQueue.length = 0;
       sqlCalls.length = 0;
