@@ -6,7 +6,9 @@ import {
   SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST,
   scanLegacySubscriptionTiers,
   auditRailwayConfig,
+  scanSqlExecutorTagNames,
 } from '../static-policy-audit';
+import { SQL_TAG_NAMES } from '../lib/sql-tag-scan';
 
 describe('legacy subscription-tier AST audit', () => {
   it.each([
@@ -578,5 +580,75 @@ describe('auditRailwayConfig — single-replica invariant (#567, R1)', () => {
     const { readFile } = await import('node:fs/promises');
     const text = await readFile('railway.toml', 'utf8');
     expect(auditRailwayConfig('railway.toml', text)).toEqual([]);
+  });
+});
+
+describe('scanSqlExecutorTagNames — SQL invisible to the vocabulary audits (#592)', () => {
+  const builder = (param: string) => `
+    import type { Sql, TransactionSql } from 'postgres';
+    type SqlExecutor = Sql | TransactionSql;
+    export function primaryTrackedKeywordSql(${param}: SqlExecutor) {
+      return ${param}\`SELECT 1 FROM job_outbox WHERE status IN ('pending')\`;
+    }
+  `;
+
+  it.each([...SQL_TAG_NAMES])('accepts the recognised tag name %s', (name) => {
+    expect(scanSqlExecutorTagNames('src/lib/shared/x.ts', builder(name))).toEqual([]);
+  });
+
+  it('flags an executor parameter that tags SQL under an unscanned name', () => {
+    const findings = scanSqlExecutorTagNames('src/lib/shared/x.ts', builder('runner'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('sql-executor-tag-name');
+    expect(findings[0]!.detail).toContain('runner');
+  });
+
+  it.each(['Sql', 'TransactionSql', 'SqlExecutor', 'Sql | TransactionSql'])(
+    'recognises the executor type %s',
+    (type) => {
+      const src = `
+        export async function load(runner: ${type}) {
+          return runner\`SELECT 1\`;
+        }
+      `;
+      expect(scanSqlExecutorTagNames('worker/jobs/x.ts', src)).toHaveLength(1);
+    },
+  );
+
+  it('ignores an executor that is only passed along, never used as a tag', () => {
+    const src = `
+      import type { Sql } from 'postgres';
+      export async function archive(client: Sql, id: string) {
+        return purge(client, id);
+      }
+    `;
+    expect(scanSqlExecutorTagNames('src/lib/x.ts', src)).toEqual([]);
+  });
+
+  it('ignores a non-executor parameter that happens to tag a template', () => {
+    const src = `
+      export function label(html: TemplateRenderer) {
+        return html\`<p>hi</p>\`;
+      }
+    `;
+    expect(scanSqlExecutorTagNames('src/lib/x.ts', src)).toEqual([]);
+  });
+
+  it('scopes to src/ and worker/ — the dirs the four audits actually scan', () => {
+    // scripts/health-bundle-differential.ts names its executor `observer` and
+    // queries pg_stat_activity; no vocabulary audit reaches scripts/.
+    expect(scanSqlExecutorTagNames('scripts/health-bundle-differential.ts', builder('observer')))
+      .toEqual([]);
+  });
+
+  it('flags a method and an arrow function, not just a declaration', () => {
+    const src = `
+      import type { Sql } from 'postgres';
+      export const read = (runner: Sql) => runner\`SELECT 1\`;
+      class Store {
+        write(runner: Sql) { return runner\`SELECT 2\`; }
+      }
+    `;
+    expect(scanSqlExecutorTagNames('src/lib/x.ts', src)).toHaveLength(2);
   });
 });

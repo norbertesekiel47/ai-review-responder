@@ -1,25 +1,47 @@
 // scripts/ci/lib/sql-tag-scan.ts
 //
-// Shared SQL-tagged-template scanning primitives for the reviews-status,
-// outbox-topics, and response-status guards (scripts/ci/reviews-status-audit.ts,
-// scripts/ci/outbox-topics-audit.ts, scripts/ci/response-status-audit.ts). All
-// three walk the AST for tagged templates whose tag identifier is `sql`,
-// `tx`, or `db` — the Postgres.js client, a `sql.begin(tx => …)` transaction
-// scope, and the `db`-named SqlExecutor parameter convention
-// (`type SqlExecutor = typeof sql | postgres.TransactionSql`, used by helpers
-// that accept either the top-level client or a transaction handle, e.g.
-// worker/jobs/zernio/zernio-ingest-shared.ts) — then honor a per-line ignore
-// pragma.
+// Shared SQL-tagged-template scanning primitives for the four SQL vocabulary
+// guards — scripts/ci/{reviews-status,outbox-topics,outbox-status,
+// response-status}-audit.ts. All four walk the AST for tagged templates whose
+// tag identifier is in SQL_TAG_NAMES, then honor a per-line ignore pragma.
+//
+// SQL_TAG_NAMES is a PRECONDITION, not a preference: a SQL template tagged with
+// a name outside it is invisible to every one of those audits, and invisible
+// silently — the scan simply finds nothing and reports success. `exec` was
+// missing for exactly that reason (#592); by the time it was noticed, 12 call
+// sites across `outbox.ts`, the offboarding purge/verification/reactivate
+// modules and the two fragment builders were unscanned. No live violation had
+// slipped through, but nothing would have caught one.
+//
+// So the set is kept honest from the other side too:
+// static-policy-audit.ts's `sql-executor-tag-name` rule fails when a
+// SqlExecutor-typed parameter in src/ or worker/ is used as a template tag
+// under a name this set does not contain. Adding a spelling here is a
+// deliberate edit; introducing one without adding it fails CI.
 import ts from 'typescript';
 
-/** Tags whose template bodies are SQL in this codebase. Not exported — only
- * isSqlTaggedTemplate (below) needs it; both audits consume the helper, not
- * the raw set. */
-const SQL_TAG_NAMES = new Set(['sql', 'tx', 'db']);
+/**
+ * Tags whose template bodies are SQL in this codebase:
+ *
+ *  - `sql`  — the Postgres.js client.
+ *  - `tx`   — a `sql.begin(tx => …)` transaction scope.
+ *  - `db`   — the SqlExecutor parameter convention for helpers taking either
+ *             (`type SqlExecutor = typeof sql | postgres.TransactionSql`, e.g.
+ *             worker/jobs/zernio/zernio-ingest-shared.ts).
+ *  - `exec` — the same convention under its other spelling, used by the
+ *             fragment builders (`primaryTrackedKeywordSql`,
+ *             `publisherSubscriptionEligibleSql`) and by `src/lib/shared/
+ *             outbox.ts`, which composes `job_outbox` predicates — the very
+ *             table `ci:outbox-status` and `ci:outbox-topics` exist to guard.
+ *
+ * Exported so static-policy's `sql-executor-tag-name` rule checks against the
+ * same set these audits scan by, rather than a second copy of it.
+ */
+export const SQL_TAG_NAMES: ReadonlySet<string> = new Set(['sql', 'tx', 'db', 'exec']);
 
 /**
  * True when `node`'s tag is one of SQL_TAG_NAMES — either the bare identifier
- * (`sql`, `tx`, `db`) or a property access rooted in one of them (e.g.
+ * (`sql`, `tx`, `db`, `exec`) or a property access rooted in one of them (e.g.
  * `sql.unsafe`, keyed on the root identifier).
  */
 export function isSqlTaggedTemplate(node: ts.TaggedTemplateExpression): boolean {
