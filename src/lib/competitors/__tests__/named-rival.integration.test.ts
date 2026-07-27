@@ -12,10 +12,13 @@ import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { cleanupTenantAccount, seedTenantAccount } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_085_COMPETITOR_RATING_NUMERIC,
+  MIGRATION_089_COMPETITOR_RIVAL_PICK,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
@@ -101,52 +104,22 @@ function worker(): postgresType.Sql {
   return workerDb;
 }
 
-// Advisory-lock key serializing the DDL apply below across parallel vitest
-// files — 089 re-adds an analytics_events CHECK under ACCESS EXCLUSIVE, and
-// racing that against a sibling DB suite deadlocks (same reasoning as the
-// shared 074 helper).
-const MIGRATION_APPLY_LOCK_KEY = 'repworth_migration_546_rival_pick_apply';
-
-function readMigration(file: string): string {
-  return readFileSync(resolve(process.cwd(), 'supabase/migrations', file), 'utf-8');
-}
-
 /**
- * Applies the two migrations this suite depends on when they are missing.
+ * The two migrations this suite depends on: 089 adds the three `businesses`
+ * pick columns; 085 widens `competitor_snapshots.rating` to NUMERIC(2,1),
+ * which is what makes Postgres.js hand the column back as a string for
+ * `parseCompetitorRating` to parse.
  *
- * 089 adds the three `businesses` pick columns and extends the
- * analytics_events CHECK; 085 widens `competitor_snapshots.rating` to
- * NUMERIC(2,1), which is what makes Postgres.js hand the column back as a
- * string for `parseCompetitorRating` to parse. Both are probed first: an
- * unconditional re-apply takes locks that contend with parallel suites.
+ * This used to probe-and-apply them under a bespoke advisory lock, because an
+ * unconditional re-apply's ACCESS EXCLUSIVE locks deadlocked against sibling
+ * suites. #573 removed run-time DDL from live-DB suites entirely — the schema
+ * is provisioned once by `pnpm test:db:setup` — so the lock is gone with it.
  */
-async function applyRivalPickMigrationsIfMissing(target: postgresType.Sql): Promise<void> {
-  await target`SELECT pg_advisory_lock(hashtext(${MIGRATION_APPLY_LOCK_KEY}))`;
-  try {
-    const [ratingColumn] = await target<{ data_type: string }[]>`
-      SELECT data_type FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'competitor_snapshots'
-        AND column_name = 'rating'
-    `;
-    if (ratingColumn && ratingColumn.data_type !== 'numeric') {
-      await target.unsafe(readMigration('085_competitor_rating_numeric.sql'));
-    }
-
-    const [pickColumn] = await target<{ applied: boolean }[]>`
-      SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'businesses'
-          AND column_name = 'rival_picked_at'
-      ) AS applied
-    `;
-    if (!pickColumn?.applied) {
-      await target.unsafe(readMigration('089_competitor_rival_pick.sql'));
-    }
-  } finally {
-    await target`SELECT pg_advisory_unlock(hashtext(${MIGRATION_APPLY_LOCK_KEY}))`;
-  }
+async function assertRivalPickSchema(target: postgresType.Sql): Promise<void> {
+  await assertSchemaReady(target, [
+    MIGRATION_085_COMPETITOR_RATING_NUMERIC,
+    MIGRATION_089_COMPETITOR_RIVAL_PICK,
+  ]);
 }
 
 async function insertLocation(
@@ -269,7 +242,7 @@ describeWithDb('rival picker — live picker view + atomic pick write', { timeou
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
     workerDb = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    await applyRivalPickMigrationsIfMissing(sql());
+    await assertRivalPickSchema(sql());
 
     await seedTenantAccount(sql(), {
       userId: tenant.userId,

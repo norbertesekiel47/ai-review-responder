@@ -5,6 +5,12 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 
 // Migration 078 is the contract step after 077 and the strict-code smoke. This
 // suite keeps every fixture and schema mutation inside one rollback-only
@@ -23,6 +29,7 @@ const migration078Path = resolve(
 
 let db: postgresType.Sql | undefined;
 let transactionOpen = false;
+let liveDbLock: LiveDbLock | undefined;
 
 const fixturePrefix = `ws8-078-${randomUUID()}`;
 const fixtures = {
@@ -303,6 +310,11 @@ describeWithDb(
   { timeout: 60_000 },
   () => {
     beforeAll(async () => {
+      // Enrolled in the cross-process live-DB lock: this suite applies real DDL
+      // (ACCESS EXCLUSIVE) inside its transaction, which deadlocks against a
+      // sibling suite's row locks when the two run in concurrent vitest
+      // processes (#573).
+      liveDbLock = await acquireLiveDbLock(assertLocalTestDatabaseUrl(testDatabaseUrl));
       db = afterLocalMigrationDatabaseGuard(testDatabaseUrl!, (safeDatabaseUrl) =>
         postgres(safeDatabaseUrl, { max: 1, prepare: false }),
       );
@@ -364,16 +376,21 @@ describeWithDb(
           ADD CONSTRAINT accounts_subscription_tier_check
           CHECK (id IS NOT NULL);
       `);
-    });
+    }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
-      if (!db) return;
-      if (transactionOpen) {
-        await db.unsafe('ROLLBACK');
-        transactionOpen = false;
+      try {
+        if (!db) return;
+        if (transactionOpen) {
+          await db.unsafe('ROLLBACK');
+          transactionOpen = false;
+        }
+        await db.end({ timeout: 5 });
+        db = undefined;
+      } finally {
+        await liveDbLock?.release();
+        liveDbLock = undefined;
       }
-      await db.end({ timeout: 5 });
-      db = undefined;
     });
 
     it('aborts before every constraint change for NULL, every removed tier, and an unknown tier in either table', async () => {

@@ -4,31 +4,31 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
-  acquireFeature543DatabaseLockForTest,
-  assertFeature543LocalTestDatabaseUrl,
-  feature543DatabaseLockSessionNameForTest,
-  resolveFeature543TestDatabaseUrl,
-} from './helpers/feature-543-database-lock';
+  acquireLiveDbLockForTest,
+  assertLocalTestDatabaseUrl,
+  liveDbLockSessionNameForTest,
+  resolveTestDatabaseUrl,
+} from './helpers/live-db-lock';
 
-const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
+const testDatabaseUrl = resolveTestDatabaseUrl();
 let observer: postgresType.Sql | undefined;
 
 describeWithDb(
-  'feature 543 database lock against live local Postgres',
+  'live-DB lock against live local Postgres',
   { enabled: Boolean(testDatabaseUrl), timeout: 10_000 },
   () => {
     afterAll(async () => {
       if (observer) await observer.end({ timeout: 5 });
     });
 
-    it('feature 543 database lock times out in Postgres and releases its session', async () => {
-      const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
+    it('live-DB lock times out in Postgres and releases its session', async () => {
+      const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       const lockKey = `repworth_feature_543_lock_test_${randomUUID()}`;
       const acquisitionTimeoutMs = 500;
-      const applicationName = feature543DatabaseLockSessionNameForTest(lockKey);
+      const applicationName = liveDbLockSessionNameForTest(lockKey);
       observer = postgres(databaseUrl, { max: 1, prepare: false });
 
-      const holder = await acquireFeature543DatabaseLockForTest(databaseUrl, {
+      const holder = await acquireLiveDbLockForTest(databaseUrl, {
         lockKey,
         acquisitionTimeoutMs,
       });
@@ -37,7 +37,7 @@ describeWithDb(
         const startedAt = Date.now();
         let timeoutError: unknown;
         try {
-          await acquireFeature543DatabaseLockForTest(databaseUrl, {
+          await acquireLiveDbLockForTest(databaseUrl, {
             lockKey,
             acquisitionTimeoutMs,
           });
@@ -58,7 +58,7 @@ describeWithDb(
         await holder.release();
       }
 
-      const successor = await acquireFeature543DatabaseLockForTest(databaseUrl, {
+      const successor = await acquireLiveDbLockForTest(databaseUrl, {
         lockKey,
         acquisitionTimeoutMs,
       });

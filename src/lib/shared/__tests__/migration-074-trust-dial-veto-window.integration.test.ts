@@ -269,35 +269,46 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   });
 
   it('applying the migration a second time is a clean no-op', async () => {
-    // The advisory lock serializes this DDL re-apply against parallel DB
-    // suites — unserialized, its ACCESS EXCLUSIVE index rebuilds produced
-    // nondeterministic 40P01 deadlocks in full-suite runs.
+    // The re-apply runs inside a transaction that is ALWAYS rolled back, and
+    // the end-state assertions run inside it so they still observe the
+    // twice-applied schema. Committing it would leave the shared test DB
+    // BELOW head: 074 re-adds `agent_outcomes_outcome_kind_check` without
+    // `solicitation_batch_built`, which migration 088 later widened — so a
+    // committed re-apply silently reverts 088 for every suite that follows
+    // (#573; it was masked while batch-builder re-applied 088 on every run).
+    // The advisory lock still serializes the ACCESS EXCLUSIVE index rebuilds
+    // against parallel DB suites.
     await withMigration074ApplyLock(sql(), async () => {
-      await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
+      await sql().unsafe('BEGIN');
+      try {
+        await expect(sql().unsafe(readMigration074Sql())).resolves.not.toThrow();
+
+        // End state is identical: each rebuilt/new index exists exactly once,
+        // on its expected table in the public schema.
+        const [count] = await sql()<{ count: string }[]>`
+          SELECT count(*)::text AS count FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND (tablename, indexname) IN (
+              ('auto_approval_policies', 'auto_approval_policies_one_account_default'),
+              ('auto_approval_policies', 'auto_approval_policies_one_location_override'),
+              ('job_outbox', 'idx_jo_pending_post_notice_inflight'),
+              ('notification_deliveries', 'notification_deliveries_pending_post_notice_claim')
+            )
+        `;
+        expect(count?.count).toBe('4');
+
+        // The responses-side cap index was superseded by the audit-row count
+        // (spec §6): the migration's guarded DROP must have removed it.
+        const [supersededCapIndex] = await sql()<{ count: string }[]>`
+          SELECT count(*)::text AS count FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND tablename = 'responses'
+            AND indexname = 'idx_responses_auto_policy_daily_cap'
+        `;
+        expect(supersededCapIndex?.count).toBe('0');
+      } finally {
+        await sql().unsafe('ROLLBACK');
+      }
     });
-
-    // End state is identical: each rebuilt/new index exists exactly once, on
-    // its expected table in the public schema.
-    const [count] = await sql()<{ count: string }[]>`
-      SELECT count(*)::text AS count FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND (tablename, indexname) IN (
-          ('auto_approval_policies', 'auto_approval_policies_one_account_default'),
-          ('auto_approval_policies', 'auto_approval_policies_one_location_override'),
-          ('job_outbox', 'idx_jo_pending_post_notice_inflight'),
-          ('notification_deliveries', 'notification_deliveries_pending_post_notice_claim')
-        )
-    `;
-    expect(count?.count).toBe('4');
-
-    // The responses-side cap index was superseded by the audit-row count
-    // (spec §6): the migration's guarded DROP must have removed it.
-    const [supersededCapIndex] = await sql()<{ count: string }[]>`
-      SELECT count(*)::text AS count FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename = 'responses'
-        AND indexname = 'idx_responses_auto_policy_daily_cap'
-    `;
-    expect(supersededCapIndex?.count).toBe('0');
   });
 });

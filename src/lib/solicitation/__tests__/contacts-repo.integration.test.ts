@@ -9,10 +9,10 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
-  acquireFeature543DatabaseLock,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { deleteContact, listContacts } from '../contacts-repo';
 
@@ -23,7 +23,7 @@ let tenant: TenantSeed | undefined;
 let otherTenant: TenantSeed | undefined;
 // Serialises against the sibling solicitation live-DB suites, which write the
 // same `solicitation_*` tables. Without it they deadlock one another.
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 const businessId = randomUUID();
 const uploadId = randomUUID();
 
@@ -89,7 +89,7 @@ async function contactExists(contactId: string): Promise<boolean> {
 describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
     tenant = await seedTenantAccount(db, {
       userName: 'Contacts Repo Integration Owner',
@@ -119,7 +119,7 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
          'customers.csv', 1, ${'0'.repeat(64)}, 'x', 'pending',
          ${tenant.userId}::uuid, NOW(), ${CONSENT_ATTESTATION_VERSION})
     `;
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
@@ -145,7 +145,7 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
         featureDatabaseLock = undefined;
       }
     }
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   it('hard delete removes the contact and cascades its visits', async () => {
     const targetId = await seedContact({

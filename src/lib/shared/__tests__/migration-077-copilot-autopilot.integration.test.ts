@@ -5,6 +5,12 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import { resolveTierSnapshot } from '@/lib/accounts/tier-config';
 
 // Migration 077 is a one-time normalization whose first-apply marker is the
@@ -23,6 +29,7 @@ const migrationPath = resolve(
 
 let db: postgresType.Sql | undefined;
 let transactionOpen = false;
+let liveDbLock: LiveDbLock | undefined;
 let outboxCountBeforeFirstApply = '';
 let outboxCountAfterFirstApply = '';
 
@@ -351,6 +358,11 @@ describeWithDb(
   { timeout: 60_000 },
   () => {
     beforeAll(async () => {
+      // Enrolled in the cross-process live-DB lock: this suite applies real DDL
+      // (ACCESS EXCLUSIVE) inside its transaction, which deadlocks against a
+      // sibling suite's row locks when the two run in concurrent vitest
+      // processes (#573).
+      liveDbLock = await acquireLiveDbLock(assertLocalTestDatabaseUrl(testDatabaseUrl));
       db = afterLocalMigrationDatabaseGuard(testDatabaseUrl!, (safeDatabaseUrl) =>
         postgres(safeDatabaseUrl, { max: 1, prepare: false }),
       );
@@ -460,16 +472,21 @@ describeWithDb(
         SELECT count(*)::text AS count FROM job_outbox
       `;
       outboxCountAfterFirstApply = outboxAfter!.count;
-    });
+    }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
-      if (!db) return;
-      if (transactionOpen) {
-        await db.unsafe('ROLLBACK');
-        transactionOpen = false;
+      try {
+        if (!db) return;
+        if (transactionOpen) {
+          await db.unsafe('ROLLBACK');
+          transactionOpen = false;
+        }
+        await db.end({ timeout: 5 });
+        db = undefined;
+      } finally {
+        await liveDbLock?.release();
+        liveDbLock = undefined;
       }
-      await db.end({ timeout: 5 });
-      db = undefined;
     });
 
     it('unconditionally normalizes every legacy/null/new-shaped account to the complete Copilot/list snapshot', async () => {

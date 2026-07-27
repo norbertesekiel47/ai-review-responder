@@ -12,14 +12,16 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { startOrGetActiveRun } from '@/lib/agents/run-spine';
 import { approveBySession } from '../session-mode';
 import { anchorReviewLockOrder, recordOwnerDecisionOutcome } from '../outcomes';
@@ -42,9 +44,7 @@ function sql(): postgresType.Sql {
 describeWithDb('owner-decision outcomes against live Postgres (WS4 §2.8)', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 2, prepare: false });
-    await db.unsafe(
-      readFileSync(resolve(process.cwd(), 'supabase/migrations', '071_agent_run_spine.sql'), 'utf-8'),
-    );
+    await assertSchemaReady(db, [MIGRATION_071_RUN_SPINE]);
     tenant = await seedTenantAccount(db, {
       userName: 'Outcome Instrumentation Owner',
       accountDisplayName: 'Outcome Instrumentation Account',

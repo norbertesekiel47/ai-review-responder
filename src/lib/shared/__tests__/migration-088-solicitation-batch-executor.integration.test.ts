@@ -6,25 +6,25 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
-  acquireFeature543DatabaseLock,
-  assertFeature543LocalTestDatabaseUrl,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  resolveFeature543TestDatabaseUrl,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
 } from '@/lib/shared/__tests__/live-db-tenant';
 
-const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
+const testDatabaseUrl = resolveTestDatabaseUrl();
 const migrationPath = resolve(
   process.cwd(),
   'supabase/migrations/088_solicitation_batch_executor.sql',
 );
 
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 
 function normalizeSql(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -109,10 +109,10 @@ describe('migration 088 checked-in SQL contract', () => {
 
   it('refuses to connect migration tests to a remote Postgres host', () => {
     expect(() =>
-      assertFeature543LocalTestDatabaseUrl(
+      assertLocalTestDatabaseUrl(
         'postgresql://test:test@db.example.supabase.co:5432/postgres',
       ),
-    ).toThrow('feature 543 integration requires a local (localhost) test database');
+    ).toThrow('live-DB integration requires a local (localhost) test database');
   });
 });
 
@@ -121,15 +121,15 @@ describeWithDb(
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, {
       max: 1,
       prepare: false,
     });
     await db.unsafe(readMigration088Sql());
     await db.unsafe(readMigration088Sql());
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     try {

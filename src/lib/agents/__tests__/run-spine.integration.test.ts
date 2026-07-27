@@ -2,21 +2,24 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
-  acquireFeature543DatabaseLock,
-  assertFeature543LocalTestDatabaseUrl,
-  FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS,
-  resolveFeature543TestDatabaseUrl,
-  type Feature543DatabaseLock,
-} from '@/lib/shared/__tests__/helpers/feature-543-database-lock';
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   completeRun,
   recordCompletedChildRuns,
@@ -38,11 +41,11 @@ import { commitWeeklyInsightsDigest } from '../../../../worker/jobs/WeeklySummar
 // migration 071 is born on this branch, so no shared test DB can have it yet;
 // beforeAll applies the (fully idempotent) migration file, which becomes a
 // no-op everywhere once 071 ships.
-const testDatabaseUrl = resolveFeature543TestDatabaseUrl();
+const testDatabaseUrl = resolveTestDatabaseUrl();
 
 // max: 2 — the concurrency tests intentionally run two transactions at once.
 let db: postgresType.Sql | undefined;
-let featureDatabaseLock: Feature543DatabaseLock | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
 const solicitationBusinessId = randomUUID();
 
@@ -76,18 +79,13 @@ describeWithDb(
   { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
   () => {
   beforeAll(async () => {
-    const databaseUrl = assertFeature543LocalTestDatabaseUrl(testDatabaseUrl);
-    featureDatabaseLock = await acquireFeature543DatabaseLock(databaseUrl);
+    const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+    featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 2, prepare: false });
-    await db.unsafe(
-      readFileSync(resolve(process.cwd(), 'supabase/migrations/071_agent_run_spine.sql'), 'utf-8'),
-    );
-    await db.unsafe(
-      readFileSync(
-        resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
-        'utf-8',
-      ),
-    );
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Run Spine Owner',
       accountDisplayName: 'Run Spine Account',
@@ -104,7 +102,7 @@ describeWithDb(
         'active'
       )
     `;
-  }, FEATURE_543_DATABASE_LOCK_HOOK_TIMEOUT_MS);
+  }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     try {

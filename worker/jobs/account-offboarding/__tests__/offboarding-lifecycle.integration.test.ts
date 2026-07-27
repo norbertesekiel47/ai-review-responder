@@ -25,8 +25,6 @@
 
 import { it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 // ── Point the production `sql` singleton at the test DB BEFORE app imports ───
 // Mirrors integration-edit-existing-reply.test.ts: `src/lib/db/server.ts`
@@ -94,6 +92,10 @@ import {
   seedOwnerOffboardingAccount,
 } from '../../../../e2e/seed';
 import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
+import {
+  assertSchemaReady,
+  MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+} from '../../../../src/lib/shared/__tests__/helpers/schema-ready';
 
 // The hoisted block above already parsed .env.local and set DATABASE_POOL_URL,
 // so `RUN` is the authoritative gate — passed to describeWithDb as `enabled`.
@@ -107,14 +109,13 @@ beforeAll(async () => {
     (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') ||
     (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1')
   ) {
-    throw new Error('offboarding migration 088 setup requires a local test database');
+    throw new Error('offboarding integration setup requires a local test database');
   }
-  await getE2eSql().unsafe(
-    readFileSync(
-      resolve(process.cwd(), 'supabase/migrations/088_solicitation_batch_executor.sql'),
-      'utf8',
-    ),
-  );
+  // This suite used to re-apply 088 here. That DDL took ACCESS EXCLUSIVE locks
+  // on agent_runs / solicitation_* and deadlocked (40P01) against sibling
+  // live-DB suites running in a CONCURRENT vitest process — #573. The schema is
+  // provisioned once by `pnpm test:db:setup`; assert it instead.
+  await assertSchemaReady(getE2eSql(), [MIGRATION_088_SOLICITATION_BATCH_EXECUTOR]);
 });
 
 afterAll(async () => {
