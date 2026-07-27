@@ -11,8 +11,11 @@ import { createDedicatedPostgresClient } from '../../../src/lib/db/server';
 import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
 import { TimeoutError, withTimeout } from '../../../src/lib/shared/with-timeout';
 import { notePollerActivity, maybeLogPollerHeartbeat } from '../poller-heartbeat';
-import { runHealthChecks } from './health-alert/checks';
+import { runHealthChecks, type HealthFinding } from './health-alert/checks';
 import { getHealthSql, recycleHealthSql } from './health-alert/health-db';
+import { checkReplicaCardinality } from './health-alert/replica-cardinality';
+import { readReplicaIdentity } from '../../config/replica-identity';
+import { getCacheRedis } from '../../../src/lib/db/redis-cache';
 import { emitHealthFindings, recordProbeCheckIn } from './health-alert/emit';
 
 const LOG_PREFIX = '[HealthAlertPoller]';
@@ -43,6 +46,11 @@ function buildHealthClient(): ReturnType<typeof createDedicatedPostgresClient> {
 // check-in + resets isPolling), so the next tick runs.
 const HEALTH_CHECK_TIMEOUT_MS = 30_000;
 
+// Tighter than the DB checks: the replica registry is one SET + one SCAN + one
+// MGET against Upstash, whose own commandTimeout is 3s. Best-effort work must
+// not extend the cycle.
+const REPLICA_CHECK_TIMEOUT_MS = 10_000;
+
 // Read at runtime (NOT module top level — convention #4: never call
 // getWorkerConfig() at import). Worker env is immutable after boot, so this
 // returns the same value the old once-at-import const did; default preserved.
@@ -63,11 +71,33 @@ export async function pollHealthAlerts(): Promise<void> {
     // singleton — a wedged health-check connection must not starve the ~20 other
     // loops. getHealthSql() lazily builds it and returns the fresh client after a
     // recycle.
-    const findings = await withTimeout(
+    const findings: HealthFinding[] = await withTimeout(
       runHealthChecks(getHealthSql(buildHealthClient)),
       HEALTH_CHECK_TIMEOUT_MS,
       'health-alert-checks',
     );
+    // Replica cardinality (#587) rides this cycle but is NOT part of the DB
+    // check set, and gets its own try/catch on purpose. It reads Redis, and a
+    // cache outage must degrade to "no replica alerting" — never to a failed
+    // health cycle that also drops the seven Postgres findings and files an
+    // 'error' check-in. That fail-safe property is why this is a registry
+    // rather than a boot-gating lease (see replica-cardinality.ts).
+    try {
+      // withTimeout is NOT optional here. This poller is single-flight
+      // (`if (isPolling) return`), so a Redis command that hangs rather than
+      // throws would leave isPolling true forever — the probe stops checking in
+      // AND stops detecting failures, taking the dead-man switch with it. The
+      // try/catch below only catches throws; it cannot catch a hang.
+      const replicaFinding = await withTimeout(
+        checkReplicaCardinality(getCacheRedis(), readReplicaIdentity(), pollIntervalMs),
+        REPLICA_CHECK_TIMEOUT_MS,
+        'replica-cardinality',
+      );
+      if (replicaFinding) findings.push(replicaFinding);
+    } catch (err) {
+      logger.warn('Replica cardinality check skipped', { error: toError(err).message });
+    }
+
     if (findings.length > 0) {
       emitHealthFindings(findings);
       notePollerActivity(LOG_PREFIX);
