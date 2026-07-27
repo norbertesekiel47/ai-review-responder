@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { normalize, walk } from './lib/ratchet-harness';
+import { SQL_TAG_NAMES } from './lib/sql-tag-scan';
 
 /**
  * Enforces CLAUDE.md architecture invariants that are otherwise pure
@@ -20,6 +21,9 @@ import { normalize, walk } from './lib/ratchet-harness';
  *         The runtime `server-only` tripwire cannot guard this module — the
  *         Railway worker imports it under tsx and would crash on boot — so this
  *         build-time check stands in (deep-scan §4.3).
+ *    §  — A SqlExecutor-typed parameter that tags SQL templates must be named
+ *         something scripts/ci/lib/sql-tag-scan.ts recognises, or the four SQL
+ *         vocabulary audits silently scan nothing (#592).
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -62,7 +66,8 @@ export type PolicyRule =
   | 'subscription-status-literal'
   | 'legacy-subscription-tier'
   | 'inline-feature-flag'
-  | 'railway-replicas';
+  | 'railway-replicas'
+  | 'sql-executor-tag-name';
 
 export interface PolicyFinding {
   file: string;
@@ -607,9 +612,99 @@ export function scanLegacySubscriptionTiers(file: string, text: string): PolicyF
   return findings;
 }
 
+// ── SQL-executor tag naming (#592) ──────────────────────────────────────
+//
+// The four SQL vocabulary audits (reviews-status, outbox-topics, outbox-status,
+// response-status) find SQL by tag NAME, via sql-tag-scan's SQL_TAG_NAMES. A
+// template tagged with any other name is invisible to all four — and invisible
+// silently, because a scan that matches nothing reports success. `exec` was
+// missing from that set for months across 12 call sites, `src/lib/shared/
+// outbox.ts` among them.
+//
+// This rule closes the loop from the other side: a SqlExecutor-typed parameter
+// used as a template tag must be named something the scanners recognise. It is
+// deliberately narrow — a parameter merely PASSED along (`archive(client, id)`)
+// carries no SQL text and is not the scanners' business; only a parameter that
+// is actually a tag hides SQL.
+//
+// Scoped to src/ + worker/ because that is what those four audits scan.
+// `scripts/` is outside their reach (e.g. health-bundle-differential.ts's
+// `observer`, which queries pg_stat_activity, not a domain table).
+
+/** Type annotations that make a parameter a Postgres.js executor. */
+const SQL_EXECUTOR_TYPE = /\b(?:Sql|TransactionSql|SqlExecutor)\b/;
+
+/** Identifier at the root of a tagged template's tag, if it has one. */
+function taggedTemplateRootName(node: ts.TaggedTemplateExpression): string | undefined {
+  if (ts.isIdentifier(node.tag)) return node.tag.text;
+  if (ts.isPropertyAccessExpression(node.tag) && ts.isIdentifier(node.tag.expression)) {
+    return node.tag.expression.text;
+  }
+  return undefined;
+}
+
+/** Every identifier used as a template tag anywhere inside `node`'s body. */
+function tagNamesUsedIn(node: ts.Node): Set<string> {
+  const names = new Set<string>();
+  const collect = (inner: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(inner)) {
+      const root = taggedTemplateRootName(inner);
+      if (root !== undefined) names.add(root);
+    }
+    ts.forEachChild(inner, collect);
+  };
+  ts.forEachChild(node, collect);
+  return names;
+}
+
+/**
+ * Flag SqlExecutor-typed parameters that tag SQL templates under a name the
+ * vocabulary audits do not scan. Pure — unit-tested.
+ */
+export function scanSqlExecutorTagNames(file: string, text: string): PolicyFinding[] {
+  if (!/^(?:src|worker)[/\\]/.test(file)) return [];
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const findings: PolicyFinding[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node) && node.parameters.length > 0) {
+      const executorParams = node.parameters.filter(
+        (parameter) =>
+          parameter.type !== undefined &&
+          ts.isIdentifier(parameter.name) &&
+          SQL_EXECUTOR_TYPE.test(parameter.type.getText(source)),
+      );
+      if (executorParams.length > 0) {
+        const tagged = tagNamesUsedIn(node);
+        for (const parameter of executorParams) {
+          const name = (parameter.name as ts.Identifier).text;
+          if (!tagged.has(name) || SQL_TAG_NAMES.has(name)) continue;
+          findings.push({
+            file,
+            line: source.getLineAndCharacterOfPosition(parameter.getStart(source)).line + 1,
+            rule: 'sql-executor-tag-name',
+            detail:
+              `\`${name}\` tags SQL templates but is not in SQL_TAG_NAMES, so ` +
+              'the reviews-status, outbox-topics, outbox-status and ' +
+              'response-status audits cannot see them (#592). Rename it to ' +
+              `one of ${[...SQL_TAG_NAMES].sort().join(', ')}, or add the ` +
+              'spelling to scripts/ci/lib/sql-tag-scan.ts.',
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
-  const findings: PolicyFinding[] = [...scanLegacySubscriptionTiers(file, text)];
+  const findings: PolicyFinding[] = [
+    ...scanLegacySubscriptionTiers(file, text),
+    ...scanSqlExecutorTagNames(file, text),
+  ];
   const lines = text.split('\n');
   const isClientComponent = isClientComponentFile(text);
   // The subscription-status enum rule targets application code only. `scripts/`
