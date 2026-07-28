@@ -7,10 +7,14 @@ import type { FastifyServerOptions } from 'fastify';
  * Stripe/Zernio webhooks. Values are owner-selected (prod-hardening spec):
  * 30s request / 60s keep-alive / 10s connect, 5 MB body (headroom for batch
  * Zernio payloads; webhooks are otherwise small).
+ *
+ * `productionConfigRequired` is the already-made decision, not an env string:
+ * the caller resolves the deployment lane (`requiresProductionConfig()`) and
+ * passes the answer in, so this module stays free of `process.env`.
  */
-export function buildFastifyOptions(nodeEnv: string | undefined): FastifyServerOptions {
+export function buildFastifyOptions(productionConfigRequired: boolean): FastifyServerOptions {
   return {
-    logger: { level: nodeEnv === 'production' ? 'warn' : 'info' },
+    logger: { level: productionConfigRequired ? 'warn' : 'info' },
     requestTimeout: 30_000,
     keepAliveTimeout: 60_000,
     connectionTimeout: 10_000,

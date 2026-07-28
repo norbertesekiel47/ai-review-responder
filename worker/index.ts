@@ -67,7 +67,7 @@ import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
-import { deploymentLaneFields } from '../src/lib/config/deployment-lane';
+import { deploymentLaneFields, requiresProductionConfig } from '../src/lib/config/deployment-lane';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
 import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
@@ -174,7 +174,7 @@ function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
 // ---------------------------------------------------------------------------
-export const app = Fastify(buildFastifyOptions(process.env.NODE_ENV));
+export const app = Fastify(buildFastifyOptions(requiresProductionConfig()));
 
 // ---------------------------------------------------------------------------
 // BullMQ workers — only create Workers for implemented handlers.
