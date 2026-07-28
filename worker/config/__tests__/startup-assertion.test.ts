@@ -41,9 +41,31 @@ function setEnv(key: string, value: string): void {
   process.env[key] = value;
 }
 
+/**
+ * String-keyed so it resolves through ProcessEnv's index signature. A literal
+ * `delete process.env.NODE_ENV` does not compile — Next.js types NODE_ENV as a
+ * read-only property.
+ */
+function deleteEnv(key: string): void {
+  delete process.env[key];
+}
+
+/**
+ * The exact configuration that made every production-only boot gate inert
+ * (#611): the production Railway lane sets RAILWAY_ENVIRONMENT_NAME and leaves
+ * NODE_ENV UNSET. Setting NODE_ENV='production' instead would prove nothing.
+ *
+ * Every KEYS list in this file carries 'RAILWAY_ENVIRONMENT_NAME' so a developer
+ * shell that exports it cannot silently flip a verdict here.
+ */
+function enterProductionRailwayLane(): void {
+  deleteEnv('NODE_ENV');
+  setEnv('RAILWAY_ENVIRONMENT_NAME', 'production');
+}
+
 describe('assertProductionMockModeEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS'];
+  const KEYS = ['NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME', 'MOCK_EXTERNAL_APIS'];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -69,11 +91,20 @@ describe('assertProductionMockModeEnv', () => {
     process.env.MOCK_EXTERNAL_APIS = 'false';
     expect(() => assertProductionMockModeEnv()).not.toThrow();
   });
+
+  it('assertProductionMockModeEnv() rejects MOCK_EXTERNAL_APIS=true on the production Railway lane when NODE_ENV is unset', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertProductionMockModeEnv()).toThrow(
+      /RAILWAY_ENVIRONMENT_NAME=production.*MOCK_EXTERNAL_APIS=true/,
+    );
+  });
 });
 
 describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
+    'RAILWAY_ENVIRONMENT_NAME',
     'ACCOUNT_OFFBOARDING_ENABLED',
     'AUTOPILOT_PURCHASABLE',
     'AUTO_APPROVAL_ENABLED',
@@ -139,7 +170,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
 
 describe('assertStripeWorkerEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...STRIPE_WORKER_REQUIRED];
+  const KEYS = ['NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME', 'MOCK_EXTERNAL_APIS', ...STRIPE_WORKER_REQUIRED];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -187,11 +218,17 @@ describe('assertStripeWorkerEnv', () => {
       process.env.STRIPE_PRICE_COPILOT_LIST;
     expect(() => assertStripeWorkerEnv()).toThrow(/must be unique/);
   });
+
+  it('assertStripeWorkerEnv() does not honour the mock-mode skip on a deployed lane', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertStripeWorkerEnv()).toThrow(/STRIPE_SECRET_KEY/);
+  });
 });
 
 describe('assertAdminNotificationEmail', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'ADMIN_NOTIFICATION_EMAIL'];
+  const KEYS = ['NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME', 'MOCK_EXTERNAL_APIS', 'ADMIN_NOTIFICATION_EMAIL'];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -230,11 +267,17 @@ describe('assertAdminNotificationEmail', () => {
     process.env.MOCK_EXTERNAL_APIS = 'true';
     expect(() => assertAdminNotificationEmail()).not.toThrow();
   });
+
+  it('assertAdminNotificationEmail() requires ADMIN_NOTIFICATION_EMAIL on the production Railway lane when NODE_ENV is unset', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertAdminNotificationEmail()).toThrow(/ADMIN_NOTIFICATION_EMAIL/);
+  });
 });
 
 describe('assertAlertSinkEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'SENTRY_DSN'];
+  const KEYS = ['NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME', 'MOCK_EXTERNAL_APIS', 'SENTRY_DSN'];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -273,11 +316,32 @@ describe('assertAlertSinkEnv', () => {
     process.env.MOCK_EXTERNAL_APIS = 'true';
     expect(() => assertAlertSinkEnv()).not.toThrow();
   });
+
+  it('assertAlertSinkEnv() requires SENTRY_DSN on the production Railway lane when NODE_ENV is unset', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertAlertSinkEnv()).toThrow(/SENTRY_DSN/);
+  });
+
+  // The failure proof for #611 must survive the very outage it describes: when
+  // SENTRY_DSN is what is missing, nothing Sentry-routed can explain the crash,
+  // so the lane and its source have to be in the thrown message itself.
+  it('assertAlertSinkEnv() names the resolved lane and its source in the failure message', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertAlertSinkEnv()).toThrow(/RAILWAY_ENVIRONMENT_NAME=production/);
+  });
 });
 
 describe('warnMissingProductionEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'LIST_UNSUBSCRIBE_EMAIL', 'SENTRY_DSN'];
+  const KEYS = [
+    'NODE_ENV',
+    'RAILWAY_ENVIRONMENT_NAME',
+    'MOCK_EXTERNAL_APIS',
+    'LIST_UNSUBSCRIBE_EMAIL',
+    'SENTRY_DSN',
+  ];
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -324,7 +388,7 @@ describe('warnMissingProductionEnv', () => {
 
 describe('assertCoreInfraEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...CORE_INFRA_REQUIRED];
+  const KEYS = ['NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME', 'MOCK_EXTERNAL_APIS', ...CORE_INFRA_REQUIRED];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -355,12 +419,19 @@ describe('assertCoreInfraEnv', () => {
     for (const k of CORE_INFRA_REQUIRED) process.env[k] = 'x';
     expect(() => assertCoreInfraEnv()).not.toThrow();
   });
+
+  it('assertCoreInfraEnv() does not honour the mock-mode skip on a deployed lane', () => {
+    enterProductionRailwayLane();
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertCoreInfraEnv()).toThrow(/DATABASE_POOL_URL/);
+  });
 });
 
 describe('assertWorkerStartupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
     'NODE_ENV',
+    'RAILWAY_ENVIRONMENT_NAME',
     'MOCK_EXTERNAL_APIS',
     'ADMIN_NOTIFICATION_EMAIL',
     'SENTRY_DSN',
@@ -535,7 +606,7 @@ import { assertChannelsWhatsAppEnv } from '../startup-assert';
 describe('assertChannelsWhatsAppEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
-    'CHANNELS_WHATSAPP_ENABLED', 'MOCK_EXTERNAL_APIS',
+    'CHANNELS_WHATSAPP_ENABLED', 'MOCK_EXTERNAL_APIS', 'RAILWAY_ENVIRONMENT_NAME',
     'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER',
     'WHATSAPP_APPROVAL_TEMPLATE_SID', 'WHATSAPP_APPROVAL_URL_BASE',
     'WORKER_PUBLIC_URL', 'NEXT_PUBLIC_APP_URL',
@@ -642,8 +713,11 @@ import { assertZernioPublishingEnv } from '../startup-assert';
 
 describe('assertZernioPublishingEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
+  // NODE_ENV joins the save/restore list because the deployed-lane test below
+  // deletes it; without it the deletion would leak into every later describe.
   const KEYS = [
     'ZERNIO_PUBLISHING_ENABLED', 'MOCK_EXTERNAL_APIS',
+    'NODE_ENV', 'RAILWAY_ENVIRONMENT_NAME',
     'ZERNIO_API_KEY', 'ZERNIO_WEBHOOK_SECRET',
     'WORKER_PUBLIC_URL', 'NEXT_PUBLIC_APP_URL',
   ];
@@ -665,6 +739,19 @@ describe('assertZernioPublishingEnv', () => {
     process.env.WORKER_PUBLIC_URL = 'https://worker.example.com/';
     expect(() => assertZernioPublishingEnv()).toThrow(/WORKER_PUBLIC_URL/);
   });
+
+  // Reaches the private assertWorkerPublicUrlFormat helper through its exported
+  // entry point; assertChannelsWhatsAppEnv is the helper's other caller and
+  // tightens identically.
+  it('assertZernioPublishingEnv() rejects an http WORKER_PUBLIC_URL on the production Railway lane when NODE_ENV is unset', () => {
+    enterProductionRailwayLane();
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    process.env.ZERNIO_API_KEY = 'api-key';
+    process.env.ZERNIO_WEBHOOK_SECRET = 'webhook-secret';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    process.env.WORKER_PUBLIC_URL = 'http://worker.example.com';
+    expect(() => assertZernioPublishingEnv()).toThrow(/WORKER_PUBLIC_URL/);
+  });
 });
 
 // ── assertSelfServeSignupEnv ──────────────────────────────────────────────
@@ -675,6 +762,7 @@ describe('assertSelfServeSignupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = [
     'SELF_SERVE_SIGNUP_ENABLED',
+    'RAILWAY_ENVIRONMENT_NAME',
     'REDIS_CACHE_URL',
     'NEXT_PUBLIC_APP_URL',
     ...SELF_SERVE_PRICE_VARS,
@@ -811,6 +899,7 @@ describe('assertAccountOffboardingEnv', () => {
   const KEYS = [
     'ACCOUNT_OFFBOARDING_ENABLED',
     'MOCK_EXTERNAL_APIS',
+    'RAILWAY_ENVIRONMENT_NAME',
     'SESSION_COOKIE_SECRET',
     'NEXT_PUBLIC_APP_URL',
   ];
