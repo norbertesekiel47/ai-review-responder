@@ -143,10 +143,20 @@ run_sync() {
 # grep, not rg: rg lives only in the interactive shell here — child bash
 # processes don't have it, and a swallowed `command not found` reads as
 # "every title missing".
+#
+# Search `scripts` too, not just src/worker: the CI audits under scripts/ci/
+# carry their own suites (scripts/ci/__tests__/*.test.ts), and an intake may
+# legitimately promise titles there. Omitting it reported every such title as
+# missing while the tests existed and passed — a false RED that is
+# indistinguishable from a genuinely unwritten test (#611 feature, 2026-07-28).
+#
+# Matching is fixed-string against the file, so a promised title must appear
+# UNESCAPED in source: write a title containing an apostrophe with double
+# quotes, or the `\'` will not match the locked text.
 MISSING_TITLES=""
 while IFS= read -r TITLE; do
   [ -n "$TITLE" ] || continue
-  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker 2>/dev/null && continue
+  grep -rqF "$TITLE" --include='*.test.ts' --include='*.test.tsx' src worker scripts 2>/dev/null && continue
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)

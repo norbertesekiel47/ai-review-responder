@@ -126,6 +126,58 @@ Because sibling tickets were committing concurrently by then, this landed as a
 **new commit rather than an amend** — amending `732da539` would have rewritten
 history underneath T2/T3/T5.
 
+## Step 5 — gate
+
+### D17 — SURFACE AMENDMENT #2 (of 2): `scripts/verify-gate.sh`
+
+The first gate run came back **RED on `promised-tests`**, listing 10 of the 38
+locked titles as missing. Neither cause was a missing test:
+
+1. **Eight T4 titles** live in `scripts/ci/__tests__/static-policy-audit.test.ts`.
+   The gate's matcher (`verify-gate.sh:149`) grepped only `src worker`, so it
+   never looked there — while the intake's own `allowed_edit_surface` explicitly
+   sanctions that path. The intake and the gate disagreed. All eight tests
+   existed, all 136 tests in that suite passed, and `pnpm ci:static-policy` was
+   green across 1038 files.
+2. **Two T1 safety-property titles** contain an apostrophe. Written
+   single-quoted, it had to be escaped (`that site\'s`), and the gate matches
+   with a **fixed-string** grep — so the locked title never matched, though the
+   runtime name was correct and both tests passed.
+
+Cause 2 was fixed in-surface (`56332bd2`): both titles switched to double quotes
+so the apostrophe stays unescaped. No behaviour change.
+
+Cause 1 required editing `scripts/verify-gate.sh`, which was **not** in the
+allowed surface — surface amendment **#2 of 2**, which the handoff designates as
+step 5's abort trigger. Escalated to the human rather than taken unilaterally;
+**approved**, on the grounds that the gate was objectively wrong and the fix is
+one word that benefits every future feature. The grep now searches
+`src worker scripts`, and the rationale plus the unescaped-apostrophe
+requirement are recorded in the script's own comment so the next author does not
+rediscover either the hard way.
+
+**The amendment budget is now exhausted. Any further surface change must abort
+to a step 0 re-plan.**
+
+### D18 — reclassify WARN accepted, not re-planned
+
+The gate WARNed that the actual diff (2172 changed lines) exceeds 2× the
+intake's `estimated_diff_size` (545), which is feature.md's re-classification
+trigger. Escalated with the breakdown; **approved to proceed**.
+
+| slice | changed lines |
+|---|---|
+| code (`src/`, `worker/`, `scripts/`) | **1030** — 1.9×, *under* the trigger |
+| docs (ADR, runbooks, glossary, env-vars, `.env.example`) | ~287 |
+| planning artefacts (intake, plan, handoff, this file) | **855** |
+
+The overrun is accounting, not scope creep: the estimate covered the code and
+the listed doc edits but never counted the planning artefacts the workflow
+itself mandates, and the code slice is under the trigger on its own. The
+migrated site count is exactly the 12 the plan specified — no unplanned feature
+work landed. The code overrun above estimate is tests being more thorough than
+projected (T1's suite alone is ~270 lines).
+
 ## T2 (`52997537`)
 
 ### D14 — the ticket set up a contradiction; the implementer dissolved it

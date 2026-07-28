@@ -85,6 +85,7 @@
     "scripts/ci/static-policy-audit.ts",
     "scripts/ci/process-env-baseline.ts",
     "scripts/ci/__tests__/static-policy-audit.test.ts",
+    "scripts/verify-gate.sh",
     ".env.example",
     "CONTEXT.md",
     ".claude/reference/env-vars.md",
