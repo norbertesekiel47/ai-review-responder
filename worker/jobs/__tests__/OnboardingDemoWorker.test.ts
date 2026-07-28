@@ -84,9 +84,8 @@ vi.mock('../onboarding-demo/terminal', () => ({
  * `delete process.env.NODE_ENV` is a type error. A dynamic key routes through
  * ProcessEnv's index signature — same runtime effect.
  */
-function setEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
+function unsetEnvVar(name: string): void {
+  delete process.env[name];
 }
 
 function makeJob(): Job<OnboardingDemoJobPayload> {
@@ -137,7 +136,7 @@ describe('OnboardingDemoWorker', () => {
     // `NODE_ENV === 'production'` check never fired there and a mocked provider
     // could have served a real customer's demo.
     process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
-    setEnvVar('NODE_ENV', undefined);
+    unsetEnvVar('NODE_ENV');
     mockIsMockMode.mockReturnValue(true);
 
     const { handleOnboardingDemo } = await importWorker();

@@ -8,12 +8,11 @@ vi.mock('../dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
 
 /**
  * @types/node declares NODE_ENV as a required, read-only property, so a literal
- * `delete process.env.NODE_ENV` / `process.env.NODE_ENV = x` is a type error. A
- * dynamic key routes through ProcessEnv's index signature — same runtime effect.
+ * `delete process.env.NODE_ENV` is a type error. A dynamic key routes through
+ * ProcessEnv's index signature — same runtime effect.
  */
-function setEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
+function unsetEnvVar(name: string): void {
+  delete process.env[name];
 }
 
 const CORE = {
@@ -52,7 +51,7 @@ describe('config/worker', () => {
     // `NODE_ENV !== 'production'` skip silently disarmed this boot gate there.
     process.env = { NODE_ENV: 'test', MOCK_EXTERNAL_APIS: 'true' } as NodeJS.ProcessEnv;
     process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
-    setEnvVar('NODE_ENV', undefined);
+    unsetEnvVar('NODE_ENV');
     const { assertWorkerConfig } = await import('../worker');
     expect(() => assertWorkerConfig()).toThrow(/DATABASE_POOL_URL/);
   });

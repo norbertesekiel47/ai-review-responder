@@ -351,10 +351,21 @@ signature — the same mechanism as the existing loop, just named. No `any`, no
 double cast. Also discovered: `NODE_ENV` is typed **required** as well as
 read-only, so a `{...} as NodeJS.ProcessEnv` object literal fails `TS2352` too.
 
-Residual: three near-identical `setEnvVar` helpers now exist. Deduplicating them
-would need a new shared `__tests__/helpers/` file outside T3's edit surface, so
-it was left. Worth folding together if a fourth suite needs it — noted, not a
-defect.
+Residual: three near-identical `setEnvVar` helpers existed after T3.
+Deduplicating them would need a new shared `__tests__/helpers/` file outside
+T3's edit surface, so it was left. Worth folding together if a fourth suite
+needs it — noted, not a defect.
+
+**Partly resolved at merge time (D22).** GitHub's Copilot reviewer — a configured
+ruleset on this repo — flagged that two of the three guards were *always true*:
+in `src/lib/config/__tests__/worker.test.ts` and
+`worker/jobs/__tests__/OnboardingDemoWorker.test.ts`, `setEnvVar` was called
+exactly once each, always with `undefined`, so the `else` branch was dead code —
+the speculative generality repworth.md bans. Both were narrowed to
+`unsetEnvVar(name)`. The finding was verified before acting, and Copilot's
+targeting was precise: `src/lib/shared/__tests__/logger.test.ts` genuinely uses
+both branches (`undefined` and `'development'`) and was correctly left alone. Two
+helpers remain, now non-identical and each minimal.
 
 ### D10 — `--no-verify` on T3's commit was a verified no-op
 
