@@ -239,8 +239,12 @@ describe('requiresProductionConfig', () => {
 // Railway lane (NODE_ENV unset) is exactly the case #611 reports as inert, so a
 // migration that changed nothing would satisfy the property while fixing
 // nothing — the assertion is what makes each test able to fail.
+// These two titles are double-quoted so their apostrophe stays UNESCAPED. The
+// promised-test gate matches each locked title with a fixed-string grep against
+// the file, so a `\'` here reads as a missing test even though the runtime name
+// is correct.
 describe('migration safety property', () => {
-  it('for every enforcement site the set of environments where the gate applies only grows, checked per site against that site\'s original expression', () => {
+  it("for every enforcement site the set of environments where the gate applies only grows, checked per site against that site's original expression", () => {
     let grewSomewhere = false;
     for (const site of ENFORCEMENT_SITES) {
       for (const { label, env } of ENVIRONMENT_MATRIX) {
@@ -253,7 +257,7 @@ describe('migration safety property', () => {
     expect(grewSomewhere).toBe(true);
   });
 
-  it('for every skip site the set of environments where enforcement is skipped only shrinks, checked per site against that site\'s original expression', () => {
+  it("for every skip site the set of environments where enforcement is skipped only shrinks, checked per site against that site's original expression", () => {
     let shrankSomewhere = false;
     for (const site of SKIP_SITES) {
       for (const { label, env } of ENVIRONMENT_MATRIX) {
