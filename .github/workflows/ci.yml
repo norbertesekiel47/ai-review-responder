@@ -79,6 +79,8 @@ jobs:
         run: pnpm ci:outbox-topics
       - name: Run outbox in-flight status vocabulary audit
         run: pnpm ci:outbox-status
+      - name: Run outbox helper-ownership seam audit
+        run: pnpm ci:outbox-seam
       - name: Run live-DB test convention audit
         run: pnpm ci:live-db-suites
       - name: Run feature-surface audit (intake vs diff)

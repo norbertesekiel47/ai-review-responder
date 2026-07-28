@@ -1,7 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
-import { QUEUE_NAMES } from '@/lib/shared/queue-names';
-import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   SubscriptionTier,
@@ -365,25 +364,7 @@ async function runAdminTx(
       // webhook-driven via Zernio. The Zernio connect flow handles backfill
       // when the owner links their GBP account.
     } else if (googleMapsUrl) {
-      const payload: ValidatePlaceIdPayload = {
-        business_id: businessId,
-        google_maps_url: googleMapsUrl,
-        correlation_id: correlationId,
-      };
-      // Deliberately NOT enqueueValidatePlaceId (job-outbox-helpers): this runs at
-      // business creation where no prior validate_place_id row can exist, so the
-      // helper's in-flight dedup guard would be dead weight here.
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          ${QUEUE_NAMES.VALIDATE_PLACE_ID},
-          'business',
-          ${businessId},
-          ${tx.json(payload as never)},
-          'pending'
-        )
-      `;
+      await enqueueValidatePlaceId(tx, { businessId, googleMapsUrl, correlationId });
     }
   });
 }

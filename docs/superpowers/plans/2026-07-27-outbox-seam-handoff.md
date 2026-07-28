@@ -56,7 +56,12 @@ own INSERT. Two questions got conflated.
 
 The owner was then grilled on the real decision. §3.2 is their answer.
 
-### 3.1 Measured ground truth (do not re-derive; re-verify if the tree moved)
+### 3.1 Measured ground truth
+
+> **CORRECTED 2026-07-27 (later) — the table below was wrong; see §3.4.** The
+> implementing session re-measured with the AST classifier it built. The tree
+> had not moved; the original numbers were mis-derived. Read §3.4, not this
+> table.
 
 14 typed helpers in `src/lib/shared/job-outbox-helpers.ts`, covering 14 of the
 32 `QUEUE_NAMES` topics. 28 production files write raw `INSERT INTO job_outbox`
@@ -83,6 +88,51 @@ Fan-out files (9): `worker/ingress/stripe/shared.ts`,
 `worker/jobs/zernio/zernio-ingest-shared.ts`,
 `worker/jobs/zernio/ingest-failed-hook.ts`, `src/lib/reviews/process-review.ts`,
 `worker/jobs/publisher/review-lookup.ts`, `worker/jobs/publisher/failed-hook.ts`.
+
+### 3.4 What the AST classifier actually measured (supersedes §3.1)
+
+Built and run as `ci:outbox-seam`. 28 production files, **38** `INSERT INTO
+job_outbox` statements (§3.1 counted files, not statements):
+
+| Category | Statements | Status |
+|---|---|---|
+| set-based `INSERT … SELECT … FROM` fan-out | 6 (in 5 files) | sanctioned |
+| single-row, topic has **no** helper | 29 | sanctioned |
+| single-row, topic **has** a helper | **3** | **violation** |
+
+Two corrections, both in the direction §3.3 warned about:
+
+- **Fan-out is 5 files, not 9.** §3.1 counted "contains `SELECT`" as fan-out.
+  Four of its nine — `worker/ingress/stripe/shared.ts`,
+  `NotificationFailoverPoller.ts`, `EngagementMonitorPoller.ts`,
+  `src/app/api/auth/signup-status/route.ts` — are `INSERT … SELECT … WHERE NOT
+  EXISTS` with **no FROM clause**, which insert at most one row. So is
+  `enqueueValidatePlaceId`, a typed helper. Fan-out requires a row-producing
+  top-level `FROM`.
+- **3 violations, not 1.** `NotificationFailoverPoller.ts:261` and `:401` both
+  write `SEND_NOTIFICATION`, which `enqueueSendNotification` owns. §3.1 missed
+  them by classifying the whole file as fan-out.
+
+Also: `NOTIFY_ADMIN` has **6** raw sites, not 5 — §3.1's list omitted
+`worker/jobs/publisher/publisher-error-handlers.ts:303`. And 18 of the 32
+QUEUE_NAMES topics have no helper (17 of those 18 have a raw site;
+`SEND_OWNER_EMAIL` has none, its writers using the legacy
+`notify_owner_*` literal aliases instead).
+
+How the three were resolved:
+
+- `create-business.ts:377` → calls `enqueueValidatePlaceId`. Its "the helper's
+  dedup guard would be dead weight here" comment was a real argument for a
+  negligible cost, and §3.2 decision 2 had already overruled it.
+- `NotificationFailoverPoller.ts:261` → calls `enqueueSendNotification`, whose
+  input widened by one optional `failover` field. Not speculative generality:
+  `SendNotificationPayload` has always declared that field, so the helper was
+  narrower than the payload it emits, and that gap is *why* the poller
+  hand-wrote its own INSERT.
+- `NotificationFailoverPoller.ts:401` → the one `outbox-seam-ignore`. It runs
+  outside any transaction (no state change to be atomic with), so it cannot
+  take a helper's `TransactionSql` at all, and it needs an in-flight dedup
+  guard `enqueueSendNotification` deliberately does not carry.
 
 ### 3.2 Decisions (owner-confirmed — implement, do not relitigate)
 

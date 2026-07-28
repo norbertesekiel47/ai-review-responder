@@ -53,6 +53,8 @@ pre-push:
       run: pnpm ci:outbox-topics
     outbox-status:
       run: pnpm ci:outbox-status
+    outbox-seam:
+      run: pnpm ci:outbox-seam
     live-db-suites:
       run: pnpm ci:live-db-suites
     feature-surface:
