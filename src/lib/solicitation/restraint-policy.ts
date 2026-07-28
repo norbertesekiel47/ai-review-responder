@@ -12,6 +12,9 @@
  * Precondition (spec §1 boundary rule): callers pass only valid candidates —
  * ingest hygiene (malformed handles, unparseable/future dates) is #535
  * upload-time rejection, so dates here are trusted `YYYY-MM-DD`/ISO strings.
+ * That precondition is now ENFORCED, not merely documented: a date this module
+ * cannot trust throws `RestraintPolicyDateError` rather than degrading to a
+ * decision. See utcDayNumber — the previous NaN path decided `send`.
  *
  * v-watch footnote: `no_consent` (like `suppressed`) cannot fire in v-watch —
  * the #535 consent attestation is blocking, so every uploaded candidate is
@@ -19,8 +22,15 @@
  * is stable when send-mode lands.
  */
 
-/** Bump when the constants table or gate logic changes (prompt-policy.ts pattern). */
-export const RESTRAINT_POLICY_VERSION = 'restraint_v_watch_2026-07-23.1';
+/**
+ * Bump when the constants table or gate logic changes (prompt-policy.ts pattern).
+ * The date names the locked spec, which is unchanged; the serial names the
+ * ruleset. `.2` (#555): the vertical keyword table gained whole-word matching
+ * plus `barre`/`kitchen`, and unparseable dates now throw instead of resolving
+ * to `send` — so a decision made under `.1` is not reproducible under `.2`, and
+ * stored evidence must stay attributable to the ruleset that produced it.
+ */
+export const RESTRAINT_POLICY_VERSION = 'restraint_v_watch_2026-07-23.2';
 
 /** Closed withhold-reason enum, listed in precedence order (spec §2). */
 export const WITHHOLD_REASONS = [
@@ -153,26 +163,62 @@ export interface VerticalResolution {
 
 /**
  * Ordered specific-first; within a vertical, keywords are checked in listed
- * order and the first left-word-boundary match wins (stems like "plumb" match
- * "plumbing"; "car" cannot match "carpet"). `retail` is last: its keywords are
- * the most generic.
+ * order and the first match wins. Most keywords are left-word-boundary stems
+ * ("plumb" matches "plumbing"; "car" cannot match "carpet"); the short generic
+ * ones in WHOLE_WORD_KEYWORDS below need a right boundary too. `retail` is
+ * last: its keywords are the most generic.
  */
 const VERTICAL_KEYWORDS: ReadonlyArray<readonly [Vertical, ReadonlyArray<string>]> = [
   ['medical_dental', ['dental', 'dentist', 'orthodont', 'medical', 'clinic', 'doctor', 'physician', 'pediatric', 'chiropract', 'optometr', 'veterinar', 'urgent care', 'dermatolog']],
   ['automotive', ['auto', 'car wash', 'car repair', 'tire', 'mechanic', 'oil change', 'body shop', 'collision', 'dealership', 'smog']],
   ['home_services', ['plumb', 'roof', 'hvac', 'electric', 'landscap', 'contractor', 'pest', 'cleaning', 'painting', 'remodel', 'handyman', 'mover', 'moving', 'locksmith', 'garage door']],
   ['personal_care', ['salon', 'spa', 'barber', 'nail', 'lash', 'brow', 'beauty', 'hair', 'massage', 'tattoo', 'waxing', 'tanning']],
-  ['fitness', ['gym', 'fitness', 'yoga', 'pilates', 'crossfit', 'martial arts', 'dance studio', 'personal train', 'boxing']],
-  ['food_and_drink', ['restaurant', 'cafe', 'coffee', 'bakery', 'bar', 'pizza', 'food', 'diner', 'bistro', 'grill', 'pub', 'brewery', 'deli', 'taco', 'sushi', 'bbq', 'juice', 'ice cream', 'catering']],
+  ['fitness', ['gym', 'fitness', 'yoga', 'pilates', 'crossfit', 'barre', 'martial arts', 'dance studio', 'personal train', 'boxing']],
+  ['food_and_drink', ['restaurant', 'cafe', 'coffee', 'bakery', 'bar', 'pizza', 'food', 'diner', 'bistro', 'grill', 'kitchen', 'pub', 'brewery', 'deli', 'taco', 'sushi', 'bbq', 'juice', 'ice cream', 'catering']],
   ['retail', ['shop', 'store', 'boutique', 'retail', 'market', 'florist', 'jewel', 'bookstore', 'clothing', 'furniture', 'pet supply']],
 ];
 
-/** Left-word-boundary matchers, compiled once at module load (not per candidate). */
+/**
+ * Keywords matched as WHOLE words (plus an optional plural `s`) instead of as
+ * stems. Every entry is a short generic word whose stem match reaches into
+ * unrelated vocabulary and silently mis-verticals a business — which changes
+ * its freshness window, so a stem collision is a wrong send/withhold decision,
+ * not a cosmetic mislabel:
+ *
+ *   bar    → "barre" (fitness, 21d) and "bargain"   pest → "pesto"
+ *   spa    → "space", "sparkle"                     brow → "brown"
+ *   pub    → "public"                               deli → "delivery"
+ *   market → "marketing"
+ *
+ * Everything else stays a stem so "plumb" still matches "plumbing". Ordering
+ * does the rest of the work: "barber" is checked under personal_care before
+ * food_and_drink is reached, and "remodel" under home_services before
+ * "kitchen" under food_and_drink.
+ */
+const WHOLE_WORD_KEYWORDS: ReadonlySet<string> = new Set([
+  'bar',
+  'brow',
+  'deli',
+  'market',
+  'pest',
+  'pub',
+  'spa',
+]);
+
+/** Keyword matchers, compiled once at module load (not per candidate). */
 const VERTICAL_KEYWORD_MATCHERS: ReadonlyArray<
   readonly [Vertical, ReadonlyArray<{ keyword: string; pattern: RegExp }>]
 > = VERTICAL_KEYWORDS.map(
   ([vertical, keywords]) =>
-    [vertical, keywords.map((keyword) => ({ keyword, pattern: new RegExp(`\\b${keyword}`) }))] as const,
+    [
+      vertical,
+      keywords.map((keyword) => ({
+        keyword,
+        pattern: WHOLE_WORD_KEYWORDS.has(keyword)
+          ? new RegExp(`\\b${keyword}s?\\b`)
+          : new RegExp(`\\b${keyword}`),
+      })),
+    ] as const,
 );
 
 /** Resolve the owner-typed category text to a Vertical; `other` when unmapped. */
@@ -196,20 +242,81 @@ export function resolveVertical(businessCategory: string | null): VerticalResolu
 
 const DAY_MS = 86_400_000;
 
+/** Plain calendar date, the shape a `date` column yields via `::text`. */
+const PLAIN_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 /**
- * UTC day number of a plain YYYY-MM-DD date, or — for ISO timestamps (any
- * offset, `Z` or `±hh:mm`) — of the parsed instant's UTC date. Timestamps are
- * parsed, never lexically sliced: slicing the date part of an offset timestamp
- * mis-dates instants that cross midnight UTC.
+ * ISO 8601 date-time carrying an EXPLICIT UTC offset — `Z` or `±hh:mm`.
+ * Offset-less forms (`2026-07-23T12:00:00`) are rejected on purpose: ECMAScript
+ * parses those in the HOST's local zone, so the identical input would decide
+ * differently on a developer laptop and on the Railway worker. A restraint
+ * policy whose output depends on where it runs is not deterministic, and
+ * "pure module, identical inputs produce identical decisions" is this module's
+ * headline contract.
  */
-function utcDayNumber(value: string): number {
-  if (value.length > 10) {
-    return Math.floor(Date.parse(value) / DAY_MS);
+const OFFSET_DATE_TIME =
+  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}(?::?\d{2})?)$/;
+
+/**
+ * `Z` | `+00` | `+0530` | `+05:30` → the `±hh:mm` form ECMAScript defines.
+ * Postgres renders `timestamptz` as `2026-07-27 06:49:35.109+00` — a SPACE
+ * separator and a TWO-digit offset — and that is what `prior_batch.decided_at`
+ * actually arrives as, having been read back out of a stored ask. Both forms
+ * are outside the ISO grammar `Date.parse` is required to support, so they fall
+ * to each engine's legacy parser. Canonicalizing first is what keeps parsing
+ * spec-defined instead of V8-defined.
+ */
+function normalizeUtcOffset(offset: string): string {
+  if (offset === 'Z') return 'Z';
+  const digits = offset.slice(1).replace(':', '');
+  return `${offset[0]}${digits.slice(0, 2)}:${digits.slice(2) || '00'}`;
+}
+
+/**
+ * A date reached the policy that it cannot trust. Callers guarantee valid dates
+ * (#535 rejects malformed ones at upload time), so this is a contract
+ * violation, not an expected domain failure — it names the offending field so
+ * the fix is obvious rather than requiring a bisect.
+ */
+export class RestraintPolicyDateError extends Error {
+  constructor(field: string, value: string) {
+    super(
+      `restraint-policy: ${field} is not a trusted date — expected YYYY-MM-DD, or an ISO ` +
+        `timestamp with an explicit UTC offset, got ${JSON.stringify(value)}`,
+    );
+    this.name = 'RestraintPolicyDateError';
   }
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-  const day = Number(value.slice(8, 10));
-  return Date.UTC(year, month - 1, day) / DAY_MS;
+}
+
+/**
+ * UTC day number of a plain YYYY-MM-DD date, or — for ISO timestamps with an
+ * explicit offset — of the parsed instant's UTC date. Timestamps are parsed,
+ * never lexically sliced: slicing the date part of an offset timestamp
+ * mis-dates instants that cross midnight UTC.
+ *
+ * FAIL-CLOSED. Anything unparseable throws rather than yielding NaN. NaN
+ * propagates into `today - NaN`, and every subsequent comparison against NaN is
+ * false — so `stale_visit` and `over_contacted` would both silently pass and
+ * the policy would decide **send**. The one component whose entire purpose is
+ * restraint must not fail in the direction of contacting people.
+ */
+function utcDayNumber(value: string, field: string): number {
+  const plain = PLAIN_DATE.exec(value);
+  if (plain) {
+    const milliseconds = Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]));
+    // Date.UTC ROLLS OVER: 2026-02-30 becomes March 2 rather than failing, so a
+    // syntactically valid but non-existent date would silently become a real
+    // one. Round-tripping is what catches that.
+    if (new Date(milliseconds).toISOString().startsWith(value)) return milliseconds / DAY_MS;
+    throw new RestraintPolicyDateError(field, value);
+  }
+
+  const stamp = OFFSET_DATE_TIME.exec(value);
+  if (stamp) {
+    const milliseconds = Date.parse(`${stamp[1]}T${stamp[2]}${normalizeUtcOffset(stamp[3]!)}`);
+    if (!Number.isNaN(milliseconds)) return Math.floor(milliseconds / DAY_MS);
+  }
+  throw new RestraintPolicyDateError(field, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +360,8 @@ export function evaluateAsk(candidate: AskCandidate, context: BatchContext): Per
     };
   }
 
-  const today = utcDayNumber(context.decidedAt);
-  const daysSinceVisit = today - utcDayNumber(candidate.lastVisitDate);
+  const today = utcDayNumber(context.decidedAt, 'decided_at');
+  const daysSinceVisit = today - utcDayNumber(candidate.lastVisitDate, 'last_visit_date');
   const { vertical, matchedKeyword } = resolveVertical(context.businessCategory);
   const windowDays = FRESHNESS_WINDOW_DAYS[vertical];
   if (daysSinceVisit > windowDays) {
@@ -270,7 +377,10 @@ export function evaluateAsk(candidate: AskCandidate, context: BatchContext): Per
     };
   }
 
-  if (candidate.priorBatch !== null && today - utcDayNumber(candidate.priorBatch.decidedAt) < MIN_GAP_DAYS) {
+  if (
+    candidate.priorBatch !== null &&
+    today - utcDayNumber(candidate.priorBatch.decidedAt, 'prior_batch.decided_at') < MIN_GAP_DAYS
+  ) {
     return {
       ...envelope,
       decision: 'withhold',

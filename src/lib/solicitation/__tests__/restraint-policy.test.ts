@@ -8,6 +8,7 @@ import {
   MIN_GAP_DAYS,
   RESTRAINT_POLICY_VERSION,
   resolveVertical,
+  RestraintPolicyDateError,
   VERTICALS,
   WITHHOLD_REASONS,
   type AskCandidate,
@@ -428,5 +429,177 @@ describe('restraint policy invariants', () => {
         expect(serialized).not.toMatch(/"(name|email|phone|rating|stars?|sentiment)"/i);
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #555 item 1 — date handling must fail CLOSED.
+//
+// The pre-fix utcDayNumber returned NaN for anything unparseable. NaN makes
+// every comparison false, so stale_visit and over_contacted both passed and the
+// policy decided `send`: the one component whose whole job is restraint failed
+// in the direction of contacting people. It also parsed offset-less datetimes
+// in the HOST's local zone, making decisions machine-dependent.
+// ---------------------------------------------------------------------------
+
+describe('date handling is fail-closed (#555)', () => {
+  it('rejects an offset-less datetime, which JS would parse in the host local zone', () => {
+    expect(() => evaluateAsk(eligibleCandidate(), { ...context, decidedAt: '2026-07-23T12:00:00' }))
+      .toThrow(RestraintPolicyDateError);
+  });
+
+  it('throws on an unparseable last_visit_date instead of deciding send', () => {
+    expect(() => evaluateAsk(eligibleCandidate({ lastVisitDate: 'not-a-real-date' }), context))
+      .toThrow(RestraintPolicyDateError);
+  });
+
+  it('throws on an unparseable prior_batch.decided_at instead of skipping over_contacted', () => {
+    const candidate = eligibleCandidate({ priorBatch: { batchId: 'b1', decidedAt: 'sometime last week' } });
+    expect(() => evaluateAsk(candidate, context)).toThrow(RestraintPolicyDateError);
+  });
+
+  it('throws on a well-formed but non-existent date rather than rolling it over', () => {
+    // Date.UTC(2026, 1, 30) silently yields March 2 — a real date, wrong answer.
+    expect(() => evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-02-30' }), context))
+      .toThrow(RestraintPolicyDateError);
+  });
+
+  it('names the offending field so the failure is actionable', () => {
+    expect(() => evaluateAsk(eligibleCandidate({ lastVisitDate: 'nope' }), context))
+      .toThrow(/last_visit_date/);
+  });
+
+  it.each([
+    ['plain date', '2026-07-23'],
+    ['UTC Z', '2026-07-23T12:00:00.000Z'],
+    ['positive offset', '2026-07-23T12:00:00+05:30'],
+    ['negative offset', '2026-07-23T12:00:00-08:00'],
+    ['offset without colon', '2026-07-23T12:00:00+0530'],
+    // What Postgres actually hands back for a timestamptz read out of a stored
+    // ask: space separator, two-digit offset. Caught by the live-DB suite.
+    ['postgres timestamptz text', '2026-07-23 12:00:00.109+00'],
+    ['postgres timestamptz, no fraction', '2026-07-23 12:00:00+00'],
+    ['two-digit non-UTC offset', '2026-07-23 12:00:00-08'],
+  ] as const)('still accepts a trusted %s', (_label, decidedAt) => {
+    expect(evaluateAsk(eligibleCandidate(), { ...context, decidedAt }).decision).toBe('send');
+  });
+
+  it('is host-timezone independent: the same inputs decide identically under any TZ', () => {
+    // The offset-less path was the only TZ-sensitive one; with it rejected, the
+    // accepted forms must be pure. Asserting the property directly is cheaper
+    // and more honest than re-running the suite under a second TZ.
+    const decisions = ['2026-07-23', '2026-07-23T00:30:00+05:30', '2026-07-23T23:30:00-08:00'].map(
+      (decidedAt) => evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-07-20' }), { ...context, decidedAt }),
+    );
+    expect(new Set(decisions.map((d) => d.decision))).toEqual(new Set(['send']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #555 item 2 — vertical stem collisions. A wrong vertical is a wrong freshness
+// window, so these are wrong send/withhold decisions, not cosmetic mislabels.
+// ---------------------------------------------------------------------------
+
+describe('resolveVertical — stem collisions (#555)', () => {
+  it('maps a barre studio to fitness (21d), not food_and_drink via the "bar" stem', () => {
+    expect(resolveVertical('Barre Studio')).toEqual({ vertical: 'fitness', matchedKeyword: 'barre' });
+    expect(FRESHNESS_WINDOW_DAYS[resolveVertical('Barre Studio').vertical]).toBe(21);
+  });
+
+  it('maps a pesto kitchen to food_and_drink (14d), not home_services via the "pest" stem', () => {
+    expect(resolveVertical('Pesto Kitchen').vertical).toBe('food_and_drink');
+    expect(FRESHNESS_WINDOW_DAYS[resolveVertical('Pesto Kitchen').vertical]).toBe(14);
+  });
+
+  it.each([
+    ['Sparkle Space Storage', 'spa'],
+    ['Brown Sugar Diner', 'brow'],
+    ['Public Storage Depot', 'pub'],
+    ['Delivery Logistics Inc', 'deli'],
+    ['Marketing Agency', 'market'],
+    ['Bargain Barn', 'bar'],
+  ] as const)('%s no longer matches the "%s" stem', (category, keyword) => {
+    expect(resolveVertical(category).matchedKeyword).not.toBe(keyword);
+  });
+
+  it.each([
+    ['Corner Sports Bar', 'food_and_drink', 'bar'],
+    ['Wine Bars of Napa', 'food_and_drink', 'bar'],
+    ['Reliable Pest Control', 'home_services', 'pest'],
+    ['Serenity Day Spa', 'personal_care', 'spa'],
+    ['Arched Brow Studio', 'personal_care', 'brow'],
+    ['The Corner Pub', 'food_and_drink', 'pub'],
+    ['Katz Deli', 'food_and_drink', 'deli'],
+    ['Farmers Market', 'retail', 'market'],
+    ['Fadeaway Barber Shop', 'personal_care', 'barber'],
+    ['Kitchen Remodel Pros', 'home_services', 'remodel'],
+  ] as const)('%s still resolves to %s via "%s"', (category, vertical, keyword) => {
+    expect(resolveVertical(category)).toEqual({ vertical, matchedKeyword: keyword });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #555 item 3 — the three gaps the post-merge review of #551 named.
+// ---------------------------------------------------------------------------
+
+describe('gaps closed (#555 item 3)', () => {
+  it('asserts velocity_banked.ordering_basis exactly, not just its presence', () => {
+    // home_services (45d) so every generated visit stays inside the window and
+    // the ONLY withhold is the velocity gate.
+    const roomyContext = { ...context, businessCategory: 'Reliable Pest Control' };
+    const daysBeforeDecision = (days: number): string =>
+      new Date(Date.UTC(2026, 6, 23) - days * 86_400_000).toISOString().slice(0, 10);
+
+    const candidates = Array.from({ length: BATCH_CAP + 1 }, (_unused, index) =>
+      eligibleCandidate({
+        contactId: `01980000-0000-7000-8000-${String(index).padStart(12, '0')}`,
+        // index 0 is the OLDEST visit, so it is the one banked.
+        lastVisitDate: daysBeforeDecision(BATCH_CAP - index),
+      }),
+    );
+    const banked = evaluateBatch(candidates, roomyContext).filter(
+      (decision) => decision.decision === 'withhold' && decision.reason === 'velocity_banked',
+    );
+
+    expect(banked).toHaveLength(1);
+    expect(banked[0]).toMatchObject({
+      reason: 'velocity_banked',
+      batch_cap: BATCH_CAP,
+      eligible_count: BATCH_CAP + 1,
+      ordering_basis: {
+        last_visit_date: daysBeforeDecision(BATCH_CAP),
+        contact_id: '01980000-0000-7000-8000-000000000000',
+      },
+    });
+    expect(Object.keys((banked[0] as { ordering_basis: object }).ordering_basis).sort())
+      .toEqual(['contact_id', 'last_visit_date']);
+  });
+
+  // The runtime property test above can only inspect values that exist; it
+  // cannot notice a rating field being ADDED to the input type later. This
+  // fails `pnpm typecheck` if one ever is (ADR 0012).
+  it('is sentiment-blind at the TYPE level, not only in serialized output', () => {
+    type SentimentBearingKey =
+      | 'rating' | 'starRating' | 'star_rating' | 'stars'
+      | 'sentiment' | 'sentimentLabel' | 'sentiment_label' | 'sentimentScore'
+      | 'reviewText' | 'review_text' | 'reviewContent' | 'comment';
+    type AssertSentimentBlind<T> = Extract<keyof T, SentimentBearingKey> extends never ? true : never;
+
+    const candidateIsBlind: AssertSentimentBlind<AskCandidate> = true;
+    const matchedReviewIsBlind: AssertSentimentBlind<NonNullable<AskCandidate['matchedReview']>> = true;
+    const contextIsBlind: AssertSentimentBlind<BatchContext> = true;
+
+    expect([candidateIsBlind, matchedReviewIsBlind, contextIsBlind]).toEqual([true, true, true]);
+  });
+
+  it('sends when the last visit is today (days_since_visit 0, the lower boundary)', () => {
+    const decision = evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-07-23' }), context);
+    expect(decision.decision).toBe('send');
+  });
+
+  it('sends when the last visit is exactly the freshness window away (upper boundary)', () => {
+    // 'Coffee shop' → food_and_drink, 14d. 2026-07-09 is exactly 14 days before.
+    const decision = evaluateAsk(eligibleCandidate({ lastVisitDate: '2026-07-09' }), context);
+    expect(decision.decision).toBe('send');
   });
 });

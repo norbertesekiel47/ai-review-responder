@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import { VERTICALS, WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
+import { RESTRAINT_POLICY_VERSION, VERTICALS, WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
 import { BatchReport } from '../BatchReport';
 
@@ -36,7 +36,7 @@ function askRow(index: number, evidence: AskRow['evidence']): AskRow {
 function envelope(index: number) {
   return {
     contact_id: `contact-${index}`,
-    policy_version: 'restraint_v_watch_2026-07-23.1',
+    policy_version: RESTRAINT_POLICY_VERSION,
     decided_at: '2026-07-22T10:00:00Z',
   } as const;
 }
