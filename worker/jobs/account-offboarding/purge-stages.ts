@@ -8,6 +8,7 @@ import {
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
+import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
 import {
   deleteByBusiness,
   impersonationSessionScrubScopeRecord,
@@ -233,6 +234,38 @@ export async function runDependentReferencePurgeStage(sql: postgres.Sql, row: Ac
 
 export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
+    // Serialize against in-flight contacts-CSV ingestion (#582) BEFORE any
+    // delete, mirroring the ingest transaction's own lock-first discipline.
+    //
+    // src/lib/solicitation/ingest.ts documents a per-business contract: every
+    // writer of `contact_csv_uploads` opens by taking the csv_ingest advisory
+    // lock. Three writers honoured it; this stage — which hard-DELETEs those
+    // rows by account_id — did not, so the contract was true of three of its
+    // four writers while reading, from inside ingest.ts, as though it held
+    // universally. The purge could commit between an ingest's `status='pending'`
+    // read and its terminal write, leaving the job to report success for an
+    // upload whose row no longer existed.
+    //
+    // The lock is per-BUSINESS and this stage is per-ACCOUNT, so it takes one
+    // per business under the account. Via acquireCsvIngestLock rather than a
+    // hand-spelled `hashtext('csv_ingest_' || id)` on purpose: two derivations
+    // of one key is how a lock silently stops contending while still looking
+    // taken. `businesses` (not DISTINCT business_id from the uploads table) is
+    // the source so a business with no upload row yet is still covered, and so
+    // this does not itself become the pre-lock peek ingest.ts warns about.
+    //
+    // Waiting here is the intended behaviour: an ingest holds its lock across a
+    // <=5,000-row transaction, so the purge blocks for at most that long.
+    const businesses = await tx<{ id: string }[]>`
+      SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid ORDER BY id
+    `;
+    // Sequential by necessity — one transaction connection — and ordered by id
+    // so two purges touching a shared business can never deadlock.
+    // react-doctor-disable-next-line react-doctor/async-parallel
+    for (const business of businesses) {
+      await acquireCsvIngestLock(tx, business.id);
+    }
+
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
     // serially on a single connection and cannot be parallelized.
     // react-doctor-disable-next-line react-doctor/async-parallel

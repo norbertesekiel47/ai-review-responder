@@ -4,10 +4,15 @@
  *
  * Concurrency contract: ALL DB work happens inside ONE transaction that opens
  * by taking the per-business csv_ingest advisory lock — `acquireCsvIngestLock`
- * below owns that lock's mechanics. The lock serializes concurrent ingests AND
- * the failed-hook terminalizer (worker/jobs/csv-ingest/failed-hook.ts takes the
- * SAME lock), so read-then-write matching cannot double-create a contact and
- * terminalization cannot race an in-flight retry. Plain FOR UPDATE cannot
+ * below owns that lock's mechanics, and EVERY writer of `contact_csv_uploads`
+ * holds it. Four writers today: this ingest transaction, the failed-hook
+ * terminalizer (worker/jobs/csv-ingest/failed-hook.ts),
+ * `terminalizeUploadForInactiveSubscription`, and — since #582 — the offboarding
+ * content purge (worker/jobs/account-offboarding/purge-stages.ts), which takes
+ * it per business under the account before hard-DELETEing these rows. So
+ * read-then-write matching cannot double-create a contact, terminalization
+ * cannot race an in-flight retry, and a purge cannot delete a row out from
+ * under a running ingest. Plain FOR UPDATE cannot
  * cover not-yet-existing contact rows; the PgBouncer FOR-UPDATE gotcha does
  * not apply because the lock is xact-scoped INSIDE sql.begin. Holding the
  * lock across the whole ≤5,000-row transaction is the intended semantics:
@@ -399,13 +404,19 @@ export interface TerminalUploadWrite {
  *
  * Matching 0 rows is a tolerated, silent no-op on every path — deliberately NOT
  * asserted. Only advisory-lock holders change `status`, so for a row that still
- * exists the predicate cannot change the outcome; but the row may be GONE:
- * `worker/jobs/account-offboarding/purge-stages.ts` hard-DELETEs
- * `contact_csv_uploads` by `account_id` WITHOUT taking the lock, so an
- * offboarding purge can commit between an ingest's pending read and this write.
- * That race completes the ingest job normally today. Turning it into an assert
- * would convert it into a throw → BullMQ retries → exhaustion → failed-hook
- * noise, so this function returns void and no caller inspects a row count.
+ * exists the predicate cannot change the outcome.
+ *
+ * The row could also be GONE: `worker/jobs/account-offboarding/purge-stages.ts`
+ * hard-DELETEs `contact_csv_uploads` by `account_id`. As of #582 that stage
+ * takes this same lock for every business under the account, so it can no
+ * longer commit between an ingest's pending read and this write — a purge now
+ * waits for the in-flight ingest instead of racing it.
+ *
+ * Do NOT turn that into an assert on the strength of the closed race. This
+ * function returning void is load-bearing: an assert converts any future 0-row
+ * path into throw → BullMQ retries → exhaustion → failed-hook noise, and the
+ * caller has nothing useful to do with the distinction. An earlier draft of
+ * #565 specified exactly that assert and was caught in review.
  */
 export async function writeTerminalUploadState(
   tx: TransactionSql,
