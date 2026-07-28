@@ -65,4 +65,41 @@ describe('live-db-suites-audit', () => {
   it('does not treat the describe-with-db helper test as a live-DB suite', () => {
     expect(auditLiveDbSuite('src/__tests__/helpers/describe-with-db.test.ts', LIVE_DB)).toEqual([]);
   });
+
+  // #573's audit recognised ONLY the literal env-var name, so five suites that
+  // reach the DB purely through the shared helpers — batch-builder (the suite
+  // whose deadlock IS #573) and migration-088 among them — were skipped before
+  // any rule ran. Each helper import is now its own entry point.
+  describe('detects a live-DB suite however it reaches the database', () => {
+    const VIA_HELPERS = [
+      ['live-db-lock', "import { resolveTestDatabaseUrl } from './helpers/live-db-lock';"],
+      ['describe-with-db', "import { describeWithDb } from '@/__tests__/helpers/describe-with-db';"],
+      ['schema-ready', "import { assertSchemaReady } from '@/lib/shared/__tests__/helpers/schema-ready';"],
+      ['the env var by name', LIVE_DB],
+    ] as const;
+
+    it.each(VIA_HELPERS)('flags a misnamed suite that reaches the DB via %s', (_label, source) => {
+      const findings = auditLiveDbSuite('src/lib/x/__tests__/x.test.ts', source);
+      expect(findings.map((finding) => finding.rule)).toEqual(['naming']);
+    });
+
+    it.each(VIA_HELPERS)('flags run-time DDL in a suite that reaches the DB via %s', (_label, source) => {
+      const findings = auditLiveDbSuite(
+        'src/lib/x/__tests__/x.integration.test.ts',
+        source + APPLIES_DDL,
+      );
+      expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+    });
+
+    it('reaches the unlocked-ddl rule for an allowlisted suite using only helpers', () => {
+      // This is the check that was unreachable: migration-088 is allowlisted as a
+      // migration-shape suite precisely so its lock enrolment gets verified, and
+      // it names no env var, so the audit returned early every time.
+      const findings = auditLiveDbSuite(
+        'src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts',
+        "import { describeWithDb } from '@/__tests__/helpers/describe-with-db';" + APPLIES_DDL,
+      );
+      expect(findings.map((finding) => finding.rule)).toEqual(['unlocked-ddl']);
+    });
+  });
 });

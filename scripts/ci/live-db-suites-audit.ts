@@ -1,7 +1,22 @@
 // Guards the two live-DB test conventions that #573 was caused by breaking.
 //
-// A "live-DB suite" is any test file that reads TEST_DATABASE_POOL_URL, i.e.
-// one that talks to the shared local Postgres.
+// A "live-DB suite" is any test file that reaches the shared local Postgres —
+// whether it names TEST_DATABASE_POOL_URL itself or, far more commonly now,
+// gets there through the shared helpers (`resolveTestDatabaseUrl`,
+// `describeWithDb`, `acquireLiveDbLock`).
+//
+// The first cut recognised ONLY the literal `TEST_DATABASE_POOL_URL`, and bailed
+// on anything else before running a single rule. Five suites read the DB purely
+// through the helpers and were therefore invisible — including
+// `batch-builder.integration.test.ts`, the suite whose deadlock IS #573, and
+// `migration-088-…`, which sits in MIGRATION_SHAPE_SUITES below expressly so its
+// lock enrolment gets checked. That check could never run.
+//
+// Detection is therefore keyed on the helper IMPORT SPECIFIERS as well as the
+// literal. A specifier is the stable seam: reaching this database without
+// importing one of these modules or naming the variable is not a thing a suite
+// can do. (Same defect shape as #592, where the SQL vocabulary audits keyed on
+// a tag-name list that the codebase's own `exec` convention had outgrown.)
 //
 // R1 — NAMING. A live-DB suite must be named `*.integration.test.ts`. That glob
 //      is what puts it in vitest's serialized `integration` project; a suite
@@ -62,7 +77,23 @@ const OWN_APPLY_LOCK = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
 ]);
 
-const LIVE_DB_MARKER = 'TEST_DATABASE_POOL_URL';
+/**
+ * Every way a suite can reach the shared local Postgres: the env var by name,
+ * or an import of one of the three helper modules that resolve/gate/lock it.
+ * Import specifiers rather than function names — a rename inside a helper does
+ * not silently shrink this audit's scope, and a new helper export is covered
+ * the moment its module is imported.
+ *
+ * Adding a fourth route to the database means adding it here. `ci:live-db-suites`
+ * enforces conventions on the suites it can SEE, so this set is the audit's real
+ * blast radius (#573 shipped it seeing 49 of 54 suites).
+ */
+const LIVE_DB_MARKERS = [
+  'TEST_DATABASE_POOL_URL',
+  'helpers/live-db-lock',
+  'helpers/describe-with-db',
+  'helpers/schema-ready',
+] as const;
 const MIGRATION_DIR_MARKER = 'supabase/migrations';
 const RAW_SQL_MARKER = '.unsafe(';
 const SHARED_LOCK_MARKER = 'acquireLiveDbLock';
@@ -70,7 +101,7 @@ const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
 
 export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding[] {
   if (NOT_LIVE_DB.has(file)) return [];
-  if (!text.includes(LIVE_DB_MARKER)) return [];
+  if (!LIVE_DB_MARKERS.some((marker) => text.includes(marker))) return [];
 
   const findings: LiveDbSuiteFinding[] = [];
 
