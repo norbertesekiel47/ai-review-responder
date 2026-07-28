@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { WITHHOLD_REASONS } from '../restraint-policy';
+import { RESTRAINT_POLICY_VERSION, WITHHOLD_REASONS } from '../restraint-policy';
 import {
   CONTACT_NAME_MAX,
   EVIDENCE_ROWS_PER_REASON,
@@ -71,7 +71,7 @@ function withholdRow(overrides: {
     decidedAt: overrides.decidedAt ?? '2026-07-20 10:00:00+00',
     evidence: overrides.evidence ?? {
       contact_id: `c-${overrides.askId}`,
-      policy_version: 'restraint_v_watch_2026-07-23.1',
+      policy_version: RESTRAINT_POLICY_VERSION,
       decided_at: '2026-07-20T10:00:00Z',
       decision: 'withhold',
       reason: overrides.reason,
@@ -213,7 +213,7 @@ describe('readLatestBatch', () => {
   it('parses evidence that PgBouncer returned as a JSON string', async () => {
     const evidence = {
       contact_id: 'c-1',
-      policy_version: 'restraint_v_watch_2026-07-23.1',
+      policy_version: RESTRAINT_POLICY_VERSION,
       decided_at: '2026-07-20T10:00:00Z',
       decision: 'withhold',
       reason: 'already_reviewed',
