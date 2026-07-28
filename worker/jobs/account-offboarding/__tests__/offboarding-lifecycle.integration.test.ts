@@ -84,6 +84,8 @@ import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/kee
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
+import { runContentPurgeStage, type AccountOffboardingPurgeRow } from '../purge-stages';
+import { acquireCsvIngestLock } from '../../../../src/lib/solicitation/ingest';
 import { supabaseServerBounded } from '../../../../src/lib/db/server';
 import {
   cleanupOwnerOffboardingSeed,
@@ -642,6 +644,69 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       });
       expect(parsePayload(purgedEvent?.properties)).toEqual({});
     } finally {
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // #582: the csv_ingest advisory-lock contract used to be honoured by three of
+  // its four contact_csv_uploads writers. This stage was the fourth. Two live
+  // connections are the only way to show the lock actually contends — a mocked
+  // sql can assert the statement was ISSUED, never that anything blocked on it.
+  it('content purge waits for an in-flight contacts-CSV ingest rather than deleting its upload row (#582)', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const sql = getE2eSql();
+    const uploadId = randomUUID();
+    let releaseIngest: (() => void) | undefined;
+
+    try {
+      await sql`
+        INSERT INTO contact_csv_uploads (
+          id, account_id, business_id, filename, byte_size, content_sha256,
+          raw_csv, status, attested_by_user_id, attested_at, attestation_version
+        ) VALUES (
+          ${uploadId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+          'lock-fixture.csv', 42, ${'b'.repeat(64)}, 'name,email', 'pending',
+          ${seed.userId}::uuid, NOW(), 'v1'
+        )
+      `;
+
+      // Stand in for an ingest transaction: hold the lock, then park.
+      let signalLockHeld: (() => void) | undefined;
+      const lockHeld = new Promise<void>((resolve) => { signalLockHeld = resolve; });
+      const ingestMayFinish = new Promise<void>((resolve) => { releaseIngest = resolve; });
+      const ingest = sql.begin(async (tx) => {
+        await acquireCsvIngestLock(tx, seed.businessId);
+        signalLockHeld?.();
+        await ingestMayFinish;
+      });
+      await lockHeld;
+
+      const purgeRow = { account_id: seed.accountId } as AccountOffboardingPurgeRow;
+      const purge = runContentPurgeStage(sql, purgeRow);
+      const settled = Symbol('settled');
+      const outcome = await Promise.race([
+        purge.then(() => settled),
+        new Promise((resolve) => setTimeout(() => resolve('blocked'), 750)),
+      ]);
+      expect(outcome).toBe('blocked');
+
+      // Still blocked means still present — the exact row the race used to eat.
+      const [duringIngest] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
+      `;
+      expect(Number(duringIngest?.count ?? 0)).toBe(1);
+
+      releaseIngest?.();
+      releaseIngest = undefined;
+      await ingest;
+      await purge;
+
+      const [afterIngest] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
+      `;
+      expect(Number(afterIngest?.count ?? 0)).toBe(0);
+    } finally {
+      releaseIngest?.();
       await cleanupOwnerOffboardingSeed(seed);
     }
   });
