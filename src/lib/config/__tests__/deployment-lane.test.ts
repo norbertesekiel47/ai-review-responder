@@ -154,6 +154,12 @@ describe('deploymentLane', () => {
   it('deploymentLane() falls back to NODE_ENV when no Railway variable is present', () => {
     expect(deploymentLane({ NODE_ENV: 'production' })).toBe('production');
     expect(deploymentLane({ NODE_ENV: 'test' })).toBe('test');
+
+    // Through the zero-argument form too, so the default reader's NODE_ENV name
+    // is pinned the way title 1 pins its RAILWAY_ENVIRONMENT_NAME name.
+    vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', undefined);
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(deploymentLane()).toBe('production');
   });
 
   it('deploymentLane() returns development when neither RAILWAY_ENVIRONMENT_NAME nor NODE_ENV is set', () => {
