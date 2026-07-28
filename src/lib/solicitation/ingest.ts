@@ -123,10 +123,7 @@ export async function ingestContactsCsvUpload(
   // Computed ONCE per ingest so every row is validated against the same day.
   const todayUtc = new Date().toISOString().slice(0, 10);
 
-  // One-pass locked ingest transaction; integration-tested by
-  // ingest.integration.test.ts. fallow CI coverage omits integration suites, so
-  // the apparent 0% coverage inflates CRAP — the cyclomatic count itself is low.
-  // fallow-ignore-next-line complexity
+  // One-pass locked ingest transaction.
   return sql.begin(async (tx) => {
     // Lock FIRST, before any status read — a pre-lock peek could see a stale
     // 'pending' that a concurrent run terminalizes before we acquire the lock.
@@ -206,10 +203,6 @@ export async function ingestContactsCsvUpload(
 }
 
 /** Match + upsert every candidate row. Runs inside the caller's locked tx. */
-// Pre-existing #541 function, unchanged by #543 — swept into the new-only gate
-// by this file's mechanical touch. Integration-tested (ingest.integration.test.ts);
-// fallow CI coverage omits integration, so CRAP is inflated by apparent 0% cov.
-// fallow-ignore-next-line complexity
 async function upsertCandidates(
   tx: TransactionSql,
   businessId: string,
@@ -278,10 +271,6 @@ async function createContact(
 /** Applies an update decision. Report semantics (§1.2, PR #564 review):
  *  `merged` = a HANDLE was merged into the matched contact; a name-only
  *  refresh updates the row but is deliberately NOT counted as a merge. */
-// Pre-existing #541 function, unchanged by #543 — swept into the new-only gate
-// by this file's mechanical touch. Integration-tested (ingest.integration.test.ts);
-// fallow CI coverage omits integration, so CRAP is inflated by apparent 0% cov.
-// fallow-ignore-next-line complexity
 async function updateMatchedContact(
   tx: TransactionSql,
   businessId: string,
@@ -433,9 +422,7 @@ export async function writeTerminalUploadState(
 
 /** Writes the terminal report AND clears raw_csv in the surrounding tx (§3). */
 // #543 adds the completed-ingest batch trigger here; complexity is inherent
-// one-pass terminalization orchestration, integration-tested. fallow CI coverage
-// omits integration, so the apparent 0% coverage inflates CRAP.
-// fallow-ignore-next-line complexity
+// one-pass terminalization orchestration.
 async function terminalizeUpload(
   tx: TransactionSql,
   uploadId: string,

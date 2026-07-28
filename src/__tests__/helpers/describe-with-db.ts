@@ -45,7 +45,15 @@ export function describeWithDb(
     throw new Error('describeWithDb: a factory function is required');
   }
 
-  const enabled = options?.enabled ?? Boolean(process.env.TEST_DATABASE_POOL_URL);
+  // REPWORTH_DISABLE_LIVE_DB_SUITES is owned by live-db-lock.ts (see
+  // `liveDbSuitesDisabled`); spelled again rather than imported so this helper
+  // does not drag `postgres` into every suite that uses it. Honouring it here
+  // AS WELL means the kill switch holds even for a caller that computes its own
+  // `enabled` from the .env.local fallback — a process told to keep live-DB
+  // suites asleep keeps them asleep whichever gate a suite uses (#563).
+  const disabled = process.env.REPWORTH_DISABLE_LIVE_DB_SUITES === '1';
+  const enabled =
+    !disabled && (options?.enabled ?? Boolean(process.env.TEST_DATABASE_POOL_URL));
 
   if (!enabled && !warned) {
     warned = true;
