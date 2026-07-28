@@ -5,6 +5,7 @@ import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
 import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
+import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { createGuardedPoll } from '../guarded-poll';
 import {
   OUTBOX_COMPLETION_REASON,
@@ -251,16 +252,12 @@ async function processOwnerUnreachable(
         `;
         if (!state?.unreachable) return false;
         if (!state.in_flight) {
-          const payload: SendNotificationPayload = {
-            response_id: row.response_id,
-            business_id: row.business_id,
+          await enqueueSendNotification(tx, {
+            responseId: row.response_id,
+            businessId: row.business_id,
+            correlationId,
             failover: { reason: 'owner_unreachable_retry' },
-            correlation_id: correlationId,
-          };
-          await tx`
-            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-            VALUES (${uuidv7()}, ${QUEUE_NAMES.SEND_NOTIFICATION}, 'response', ${row.response_id}, ${tx.json(payload as never)}, 'pending')
-          `;
+          });
         }
         return true;
       });
@@ -396,8 +393,15 @@ export async function runFailoverPollerOnce(): Promise<void> {
         failover: { reason: 'all_deliveries_failed' },
         correlation_id: await recoverFailoverCorrelationId(row.response_id),
       };
+      // Not enqueueSendNotification: this arm runs OUTSIDE a transaction (there
+      // is no accompanying state change to be atomic with), so it cannot take
+      // the helper's TransactionSql, and it needs the WHERE NOT EXISTS in-flight
+      // guard the helper deliberately does not carry — enqueueSendNotification
+      // is a plain INSERT because its callers each gate on a state transition
+      // first, and this poller has no such transition to gate on.
       try {
         await sql`
+          -- outbox-seam-ignore: no surrounding tx to pass the helper, plus an in-flight dedup guard enqueueSendNotification does not model
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           SELECT
             ${uuidv7()},

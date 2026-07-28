@@ -70,6 +70,11 @@ export interface EnqueueSendNotificationInput {
   responseId: string;
   businessId: string;
   correlationId?: string;
+  /** NotificationFailoverPoller's re-queue marker. The wire payload has always
+   *  carried this field; the helper simply could not express it, which is why
+   *  the poller hand-wrote its own INSERT. Omitted by every first-delivery
+   *  caller. */
+  failover?: SendNotificationPayload['failover'];
 }
 
 export interface EnqueueAutoPostNoticeInput {
@@ -517,6 +522,9 @@ export async function enqueueSendNotification(
   };
   if (input.correlationId !== undefined) {
     payload.correlation_id = input.correlationId;
+  }
+  if (input.failover !== undefined) {
+    payload.failover = input.failover;
   }
 
   await tx`
