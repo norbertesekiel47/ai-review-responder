@@ -48,10 +48,25 @@ launch() {
 
 launch lint      pnpm lint
 launch typecheck pnpm typecheck
+
+# The full-suite row runs with live-DB suites forced ASLEEP (#563 item 1).
+# With the test DB reachable, `pnpm test` wakes every *.integration.test.ts in
+# the repo; the ones that set the `src/lib/db/server` singleton at import time
+# then break inside a full run, because another file already initialized that
+# singleton against a different URL (ECONNREFUSED :5432 — the #520 class).
+# They pass when invoked directly, which is what the dedicated `integration-*`
+# rows below are for.
+#
+# BOTH switches are required. `env -u TEST_DATABASE_POOL_URL` alone is NOT
+# enough: `resolveTestDatabaseUrl()` falls back to reading .env.local off disk,
+# so the suites gating on it wake up regardless of the environment.
+run_full_suite() {
+  env -u TEST_DATABASE_POOL_URL REPWORTH_DISABLE_LIVE_DB_SUITES=1 "$@"
+}
 if [ "$REVIEW_MODE" = true ]; then
-  launch test pnpm test:coverage
+  launch test run_full_suite pnpm test:coverage
 else
-  launch test pnpm test
+  launch test run_full_suite pnpm test
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
@@ -81,12 +96,24 @@ CHANGED_INTEGRATION=$(
   } 2>/dev/null | sort -u | grep -E '\.integration\.test\.ts$' || true
 )
 INTEGRATION_SKIPPED=0
+# Per-row coverage output. Each integration row is its own vitest process
+# writing a COMPLETE coverage-final.json, so a shared directory would let the
+# last row overwrite every other one (#563 item 2). One directory per row, then
+# merged into the base report before diff-coverage reads it.
+INTEGRATION_COV_DIR=".feature/coverage"
+rm -rf "$INTEGRATION_COV_DIR"
 if [ -n "$CHANGED_INTEGRATION" ]; then
   if [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
     while IFS= read -r FILE; do
       [ -f "$FILE" ] || continue
       SAFE=$(echo "$FILE" | tr -c 'a-zA-Z0-9' '-' | cut -c1-40)
-      launch "integration-${SAFE}" pnpm vitest run "$FILE"
+      if [ "$REVIEW_MODE" = true ]; then
+        launch "integration-${SAFE}" pnpm vitest run "$FILE" \
+          --coverage --coverage.reportOnFailure \
+          --coverage.reportsDirectory="${INTEGRATION_COV_DIR}/${SAFE}"
+      else
+        launch "integration-${SAFE}" pnpm vitest run "$FILE"
+      fi
     done <<< "$CHANGED_INTEGRATION"
   else
     INTEGRATION_SKIPPED=$(printf '%s\n' "$CHANGED_INTEGRATION" | grep -c .)
@@ -141,7 +168,15 @@ if [ -n "$EST" ] && [ "$EST" -gt 0 ] && [ -n "$BASE" ]; then
 fi
 
 # --- diff-coverage (review mode only; consumes the test row's coverage) ---
+# The test row above ran with live-DB suites asleep, so changed lines that only
+# a live-DB suite executes are absent from its report. Fold each integration
+# row's coverage in first, or DB-orchestration modules read ~0% on changed lines
+# despite their suites passing (#563 item 2).
 if [ "$REVIEW_MODE" = true ]; then
+  if [ -d "$INTEGRATION_COV_DIR" ]; then
+    run_sync merge-coverage \
+      pnpm tsx scripts/merge-coverage.ts coverage/coverage-final.json "$INTEGRATION_COV_DIR"
+  fi
   run_sync diff-coverage pnpm feature:diff-coverage
 fi
 

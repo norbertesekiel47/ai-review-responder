@@ -35,7 +35,25 @@ interface LiveDbLockTestOptions {
   acquisitionTimeoutMs: number;
 }
 
+/**
+ * Set to '1' to force every live-DB suite to skip, whatever `.env.local` says.
+ *
+ * `env -u TEST_DATABASE_POOL_URL` alone does NOT disable these suites: the
+ * `.env.local` fallback below re-supplies the URL from disk, so the six suites
+ * that gate on `resolveTestDatabaseUrl()` wake up anyway. A full-suite run that
+ * wakes them is the #563 failure — whichever file initializes the
+ * `src/lib/db/server` singleton first wins, and the rest get ECONNREFUSED.
+ * The full-suite row of scripts/verify-gate.sh needs a way to guarantee they
+ * stay asleep; this is it.
+ */
+const DISABLE_LIVE_DB_ENV = 'REPWORTH_DISABLE_LIVE_DB_SUITES';
+
+export function liveDbSuitesDisabled(): boolean {
+  return process.env[DISABLE_LIVE_DB_ENV] === '1';
+}
+
 export function resolveTestDatabaseUrl(): string | undefined {
+  if (liveDbSuitesDisabled()) return undefined;
   if (process.env.TEST_DATABASE_POOL_URL) return process.env.TEST_DATABASE_POOL_URL;
 
   try {

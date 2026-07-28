@@ -59,6 +59,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'lcov', 'html'],
+      // Write the report even when the run has failures. Vitest defaults this
+      // to false, so one red test left `coverage/` absent entirely and every
+      // downstream consumer died with "failed to read coverage file" — naming a
+      // missing file instead of the test that actually broke (#581).
+      reportOnFailure: true,
       // `include` makes the report cover every matching file (untested ones
       // show 0%), giving fallow a real repo-wide untested-risk signal.
       include: ['src/**/*.{ts,tsx}', 'worker/**/*.{ts,tsx}', 'scripts/**/*.ts'],
