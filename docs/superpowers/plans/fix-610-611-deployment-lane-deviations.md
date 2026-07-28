@@ -232,6 +232,56 @@ on two smaller but genuine grounds that the review did not state:
 Recorded because the reasoning matters more than the diff: the change is right,
 the argument originally given for it was not.
 
+## Step 7 — ship
+
+### D21 — `fallow` CI left RED deliberately; tracked as #616
+
+PR #615's `fallow` check fails on two functions above the complexity threshold:
+`src/lib/shared/logger.ts` `emit` (20 cyclomatic / 24 cognitive / 53 lines) and
+`worker/jobs/OnboardingDemoWorker.ts` `handleOnboardingDemo` (19 / 25 / 144
+lines, CRAP 50.7).
+
+**Neither was introduced by this change**, verified against the diff:
+
+- `emit` **is not in the diff at all** — the change is inside `serializeError`;
+  `emit` only shifted down 3 lines and its body is byte-identical to `main`.
+- `handleOnboardingDemo` got one predicate swap of **identical branch count**
+  (`isMockMode() && process.env.NODE_ENV === 'production'` →
+  `isMockMode() && requiresProductionConfig()`) plus a comment.
+
+They surfaced because fallow audits *changed files*: touching each file in a
+different place pulled its pre-existing findings into scope for the first time.
+`.fallowrc.jsonc` already documents two prior instances of exactly this pattern
+(the Stripe test-seam exports and `feedback-hmac.ts`).
+
+Three options were weighed and the human chose the third:
+
+1. **Refactor inside this PR** — rejected as scope creep: unrelated work in the
+   hottest logging path, inside an already-reviewed and gated PR.
+2. **Acknowledge in `.fallowrc.jsonc`** — rejected. It would have worked and has
+   precedent, but `health.ignore` accepts **path globs only**, with no
+   function-level granularity, so it would permanently blind health analysis
+   across the whole of `logger.ts` — a shared primitive every log call reaches —
+   to suppress a finding this PR did not introduce. The existing acknowledgements
+   are route handlers and orchestration, a softer target than a core primitive.
+   It would also have cost surface amendment **#3**, past the budget of 2.
+3. **Leave red, file the debt** — chosen. `fallow` is advisory and explicitly
+   **not a required status check** (`.github/workflows/fallow.yml:6`); every
+   required check passes and PR #615 is MERGEABLE. Filed as **#616**, and
+   explained in a PR comment so a reviewer is not misled by the red mark.
+
+Note the attempt at option 2 was also independently blocked by the harness
+permission classifier — it correctly refused an edit to the intake's
+`allowed_edit_surface`, i.e. to the file governing what may be edited, in order
+to grant access to a further file. Nothing landed; the surface is unchanged and
+amendment #3 was never spent.
+
+**Signal-quality data point for the repo:** that workflow says it fails "ONLY on
+findings this PR introduces" and should be promoted to required "once the signal
+is trusted". Here `--gate new-only` classified two *inherited* findings as new
+because the file changed, while correctly excluding one other inherited finding.
+Recorded in #616 for whoever makes the promotion call.
+
 ## T2 (`52997537`)
 
 ### D14 — the ticket set up a contradiction; the implementer dissolved it
