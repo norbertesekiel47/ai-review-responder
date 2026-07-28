@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { OnboardingDemoJobPayload } from '../OnboardingDemoWorker';
 
@@ -79,6 +79,15 @@ vi.mock('../onboarding-demo/terminal', () => ({
   failOnboardingDemoTerminal: mockFailOnboardingDemoTerminal,
 }));
 
+/**
+ * @types/node declares NODE_ENV as a required, read-only property, so a literal
+ * `delete process.env.NODE_ENV` is a type error. A dynamic key routes through
+ * ProcessEnv's index signature — same runtime effect.
+ */
+function unsetEnvVar(name: string): void {
+  delete process.env[name];
+}
+
 function makeJob(): Job<OnboardingDemoJobPayload> {
   return {
     id: 'outbox-demo-1',
@@ -97,9 +106,15 @@ async function importWorker() {
 }
 
 describe('OnboardingDemoWorker', () => {
+  // The mock-leak guard reads the deployment lane; snapshot the whole env so
+  // NODE_ENV / RAILWAY_ENVIRONMENT_NAME edits cannot leak between tests or in
+  // from the ambient shell.
+  const originalEnv = process.env;
+
   beforeEach(() => {
     sqlReturnQueue.length = 0;
     vi.clearAllMocks();
+    process.env = { ...originalEnv };
     process.env.MOCK_EXTERNAL_APIS = 'true';
     mockIsMockMode.mockReturnValue(false);
     mockReleaseOnboardingDemoReservation.mockResolvedValue(undefined);
@@ -107,9 +122,27 @@ describe('OnboardingDemoWorker', () => {
     mockCheckCostThreshold.mockResolvedValue({ crossed: [] });
   });
 
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
   it('exists and can be imported', { timeout: 15_000 }, async () => {
     const { handleOnboardingDemo } = await importWorker();
     expect(handleOnboardingDemo).toBeTypeOf('function');
+  });
+
+  it('the onboarding demo mock-leak guard throws on the production Railway lane when NODE_ENV is unset', async () => {
+    // Production Railway leaves NODE_ENV unset, so the old
+    // `NODE_ENV === 'production'` check never fired there and a mocked provider
+    // could have served a real customer's demo.
+    process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+    unsetEnvVar('NODE_ENV');
+    mockIsMockMode.mockReturnValue(true);
+
+    const { handleOnboardingDemo } = await importWorker();
+
+    await expect(handleOnboardingDemo(makeJob())).rejects.toThrow(/MOCK_EXTERNAL_APIS/);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('releases reservation when subscription-state failure recording throws', async () => {

@@ -1,0 +1,170 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Give the worker one authoritative owner for the deployment lane — src/lib/config/deployment-lane.ts, resolving RAILWAY_ENVIRONMENT_NAME with precedence over NODE_ENV — so Sentry tags staging events 'staging' (#610) and the production-only boot gates stop being inert on the production Railway worker, where NODE_ENV is unset (#611).",
+
+  "non_goals": [
+    "Populating any production Railway environment variable. Prod worker env stays owned by the WS8 cutover runbook; this PR performs no Railway writes in any environment.",
+    "Deploying the production worker. It has never been deployed and still cannot boot (REDIS_QUEUE_URL, STRIPE_WEBHOOK_SECRET, ADMIN_NOTIFICATION_EMAIL, SENTRY_DSN all absent).",
+    "Touching the Next.js / Vercel lane. isPreviewEnvironment() stays in src/lib/config/flags.ts, src/instrumentation.ts keeps no Sentry `environment`, and VERCEL_TARGET_ENV callers are unchanged.",
+    "Touching worker/background/pollers/AccountOffboardingPurgePoller.ts AT ALL. Its refusal predicate carries a VERCEL_ENV term that requiresProductionConfig() does not model, so any swap would be non-monotonic on a destructive path — and an existing test pins that exact case (AccountOffboardingPurgePoller.test.ts:459-462). The file is left byte-for-byte unchanged and carries the one T4 exemption, removable by #614.",
+    "Adding an exact-production predicate. isProductionLane() is deliberately NOT built: with the purge override out of scope it would have zero callers, and Sentry needs the lane NAME rather than a boolean.",
+    "Migrating the src/** sites that branch on NODE_ENV for genuine dev-vs-prod runtime behaviour (approval/zernio cookies, destructive-auth, impersonation, contact-notify, analytics enqueue).",
+    "Any behaviour change to feature flags, the outbox, billing, approval, escalation, or offboarding/purge paths."
+  ],
+
+  "user_visible_behavior": [
+    "Operator-visible only — no customer-facing change.",
+    "Sentry events and cron check-ins from the staging worker are tagged environment: 'staging' instead of 'production'.",
+    "The [boot] 'Worker listening' log gains two fields: deployment_lane and lane_source. Visible on staging and production.",
+    "Every production-lane assert's error message names the resolved lane and the variable it came from. Visible on staging and production.",
+    "On the production Railway lane (NODE_ENV unset), assertAlertSinkEnv / assertAdminNotificationEmail / assertProductionMockModeEnv / the WORKER_PUBLIC_URL https check / warnMissingProductionEnv now actually run — a correct, deliberate boot failure on an unconfigured environment.",
+    "mockSkip() no longer honours MOCK_EXTERNAL_APIS=true on any deployed lane, so the core-infra and Stripe asserts can no longer be skipped there.",
+    "The production worker stops including error_stack in structured logs (src/lib/shared/logger.ts:32 currently leaks stacks there because NODE_ENV is unset).",
+    "The production worker's Fastify ingress logs at 'warn' rather than 'info'.",
+    "A statically identifiable raw NODE_ENV read in executable position under worker/ fails ci:static-policy. Dynamic-key access (process.env[someVariable]) and whole-object aliasing (const env = process.env) are NOT detectable without symbol resolution the audit does not have, and are a documented residual gap rather than a covered case. The rule must not fire on the legitimate dynamic-key reads at startup-assert.ts:45,49,238, which iterate required-variable lists.",
+    "On STAGING, the only changes are the three observability ones above (Sentry tag, boot-log fields, richer assert messages). No gate, log level, stack suppression, or purge-window decision changes on staging."
+  ],
+
+  "invariants": [
+    "The lane NAME resolves by precedence, never by ||: RAILWAY_ENVIRONMENT_NAME wins whenever present. Staging sets both RAILWAY_ENVIRONMENT_NAME=staging and NODE_ENV=production, so a || re-creates #610.",
+    "requiresProductionConfig() is the UNION (Railway var present || NODE_ENV === 'production').",
+    "SAFETY PROPERTY, stated over EFFECTS not over the literal `if` expressions. Writing it as 'old predicate implies new predicate' is unsound: seven sites are negative predicates (`if (!P) return`), and `!P => !Q` is false exactly when P=false and R=true — the live production case. The correct contract has two halves: (a) ENFORCEMENT sites — the set of environments where the gate/restriction APPLIES only grows (old-applies => new-applies); (b) SKIP/PERMISSION sites — the set of environments where enforcement is SKIPPED only shrinks (new-skips => old-skips). Both reduce to P subset of Q, which holds by construction since Q = P || R.",
+    "Sentry's `environment` is a VALUE mapping, not a predicate, and is verified by a lane-value test rather than by the safety property above.",
+    "Checked per site against that site's own old expression, never against a single NODE_ENV === 'production' stand-in. The purge poller is excluded from the migration precisely because its old expression includes a VERCEL_ENV term that Q does not model, so neither half holds for it.",
+    "No site gains a permission it lacks today; the migrated sites only ever restrict more.",
+    "On a deployed Vercel build (production or preview) NODE_ENV is 'production' and no RAILWAY_* variable exists, so requiresProductionConfig() returns exactly what NODE_ENV === 'production' returned. This matters for exactly one Next-reachable migrated module: src/lib/shared/logger.ts.",
+    "Dependency direction stays one-way: worker/ imports from src/lib/, never the reverse (invariant #1, ESLint-enforced). The owner therefore lives in src/lib/config/.",
+    "After this change the only raw NODE_ENV read under worker/ is in AccountOffboardingPurgePoller.ts, which is CI-exempted by name with #614 recorded as the removal trigger.",
+    "No Railway environment is mutated by this change.",
+    "Invariant #13 holds: no NEXT_PUBLIC_* companion is introduced for the lane."
+  ],
+
+  "edge_cases": [
+    "Staging sets NODE_ENV=production AND RAILWAY_ENVIRONMENT_NAME=staging — precedence must yield 'staging'.",
+    "Production sets RAILWAY_ENVIRONMENT_NAME=production and NO NODE_ENV — the case that makes every gate inert today.",
+    "Local run with neither variable set — lane is 'development'.",
+    "Local run with NODE_ENV=production and no Railway variable — must keep firing the gates it fires today and must report lane 'production'.",
+    "VERCEL_ENV=production with NODE_ENV!=='production' and no Railway variable — requiresProductionConfig() is FALSE here, which is why the purge poller (whose old predicate is true in this case) must not be migrated to it.",
+    "Vitest run with NODE_ENV=test — requiresProductionConfig() false, gates quiet, existing 954-line startup-assertion suite unaffected in its default posture.",
+    "Existing suites must sanitize RAILWAY_ENVIRONMENT_NAME in their save/restore KEYS lists, or a developer shell with the variable set silently changes their verdicts.",
+    "`next dev` sets NODE_ENV='development'. A developer who also exports RAILWAY_ENVIRONMENT_NAME locally flips requiresProductionConfig() true and would lose local error_stack output — documented in the ADR as an accepted, opt-in local-only effect.",
+    "Blank/whitespace RAILWAY_ENVIRONMENT_NAME — treated as absent by BOTH deploymentLane() and requiresProductionConfig(); each has its own test.",
+    "A future Railway environment with an unrecognised name (e.g. an ephemeral PR env) — deploymentLane() passes the raw name through to Sentry, requiresProductionConfig() is true.",
+    "buildFastifyOptions' parameter narrows from string to boolean, so all three existing call sites in its test file (fastify-options.test.ts:7,16,23) are type errors until rewritten in the SAME commit.",
+    "OnboardingDemoWorker's mock-leak guard is migrated but its existing suite mocks isMockMode() false and never reaches the guard — it needs a new test that does.",
+    "src/lib/shared/logger.ts keeps its process-env-baseline entry: serviceName() still reads LOG_SERVICE (logger.ts:23), so migrating the NODE_ENV read alone does not make the entry prunable.",
+    "Sentry cron cutover: on deploy, health-alert-poller's stale 'production' environment goes silent and fires one missed check-in before it is deleted."
+  ],
+
+  "existing_patterns_to_follow": [
+    "worker/config/replica-identity.ts — the precedent for reading RAILWAY_* system vars: a named per-variable read (so ci:process-env treats it as a platform indicator), trimmedOrUndefined() normalisation, an injectable `env` parameter with a platform default, and a *Fields() helper returning only defined keys for logging. deploymentLaneFields() mirrors replicaIdentityFields() exactly.",
+    "src/lib/config/flags.ts — the sibling lane reader (isPreviewEnvironment, VERCEL_TARGET_ENV) and the house style for a small, un-memoized, runtime-agnostic env primitive under src/lib/config/.",
+    "scripts/ci/static-policy-audit.ts — the file ALREADY imports typescript and builds ASTs (ts.createSourceFile / ts.forEachChild at :480, :526, :536, :609, :654, :666, :696). The new rule uses that existing AST mechanism, not a bare regex.",
+    "worker/config/fastify-options.ts — already takes its env input as a parameter rather than reading process.env; keep that injectable shape and change only the parameter's type.",
+    "worker/index.ts:605-608 — the existing [boot] log call that already spreads replicaIdentityFields(); deploymentLaneFields() is spread alongside it rather than adding a second log line.",
+    "worker/config/__tests__/startup-assertion.test.ts — the setEnv/KEYS save-and-restore harness that every new gate test extends."
+  ],
+
+  "allowed_edit_surface": [
+    "src/lib/config/deployment-lane.ts",
+    "src/lib/config/__tests__/deployment-lane.test.ts",
+    "src/lib/config/worker.ts",
+    "src/lib/config/__tests__/worker.test.ts",
+    "src/lib/shared/logger.ts",
+    "src/lib/shared/__tests__/logger.test.ts",
+    "worker/sentry.ts",
+    "worker/index.ts",
+    "worker/config/startup-assert.ts",
+    "worker/config/fastify-options.ts",
+    "worker/config/__tests__/startup-assertion.test.ts",
+    "worker/config/__tests__/fastify-options.test.ts",
+    "worker/jobs/OnboardingDemoWorker.ts",
+    "worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+    "scripts/ci/static-policy-audit.ts",
+    "scripts/ci/process-env-baseline.ts",
+    "scripts/ci/__tests__/static-policy-audit.test.ts",
+    "scripts/verify-gate.sh",
+    ".env.example",
+    "CONTEXT.md",
+    ".claude/reference/env-vars.md",
+    "docs/runbooks/beta-launch-alerting.md",
+    "docs/runbooks/deployment-guide.md",
+    "docs/adr/**",
+    "docs/reviews/**",
+    "docs/superpowers/plans/**",
+    ".feature/**"
+  ],
+
+  "tests_to_add": [
+    "deploymentLane() prefers RAILWAY_ENVIRONMENT_NAME over NODE_ENV so staging is never reported as production",
+    "deploymentLane() falls back to NODE_ENV when no Railway variable is present",
+    "deploymentLane() returns development when neither RAILWAY_ENVIRONMENT_NAME nor NODE_ENV is set",
+    "deploymentLane() treats a blank RAILWAY_ENVIRONMENT_NAME as absent and falls through to NODE_ENV",
+    "deploymentLane() passes an unrecognised Railway environment name through unchanged",
+    "requiresProductionConfig() is true on the production Railway lane when NODE_ENV is unset",
+    "requiresProductionConfig() is true on staging so staging keeps the enforcement it has today",
+    "requiresProductionConfig() is true for a local NODE_ENV=production run with no Railway variable",
+    "requiresProductionConfig() is true on a deployed Vercel build where NODE_ENV is production and no Railway variable exists",
+    "requiresProductionConfig() is false for a local run with NODE_ENV=test and no Railway variable",
+    "requiresProductionConfig() treats a blank RAILWAY_ENVIRONMENT_NAME as absent",
+    "requiresProductionConfig() is false when only VERCEL_ENV is production, which is why the purge poller is not migrated to it",
+    "for every enforcement site the set of environments where the gate applies only grows, checked per site against that site's original expression",
+    "for every skip site the set of environments where enforcement is skipped only shrinks, checked per site against that site's original expression",
+    "deploymentLane maps each environment to the lane name Sentry should report, verified as a value mapping rather than as a predicate",
+    "deploymentLaneFields() reports the resolved lane and names RAILWAY_ENVIRONMENT_NAME as the source when the Railway variable wins",
+    "deploymentLaneFields() names NODE_ENV as the source when no Railway variable is present",
+    "assertAlertSinkEnv() requires SENTRY_DSN on the production Railway lane when NODE_ENV is unset",
+    "assertAdminNotificationEmail() requires ADMIN_NOTIFICATION_EMAIL on the production Railway lane when NODE_ENV is unset",
+    "assertProductionMockModeEnv() rejects MOCK_EXTERNAL_APIS=true on the production Railway lane when NODE_ENV is unset",
+    "assertCoreInfraEnv() does not honour the mock-mode skip on a deployed lane",
+    "assertStripeWorkerEnv() does not honour the mock-mode skip on a deployed lane",
+    "assertZernioPublishingEnv() rejects an http WORKER_PUBLIC_URL on the production Railway lane when NODE_ENV is unset",
+    "assertAlertSinkEnv() names the resolved lane and its source in the failure message",
+    "assertWorkerConfig() does not honour the mock-mode skip on a deployed lane",
+    "serializeError omits error_stack on the production Railway lane when NODE_ENV is unset",
+    "serializeError still includes error_stack on a local development lane",
+    "buildFastifyOptions selects the warn log level when production config is required",
+    "buildFastifyOptions keeps the warn log level on staging",
+    "the onboarding demo mock-leak guard throws on the production Railway lane when NODE_ENV is unset",
+    "static-policy flags a NODE_ENV === 'production' comparison added under worker/",
+    "static-policy flags a NODE_ENV !== 'production' comparison added under worker/",
+    "static-policy flags a raw NODE_ENV read assigned to a local under worker/",
+    "static-policy flags a raw NODE_ENV read exported from one worker file for use in another",
+    "static-policy flags bracket and template-literal access to NODE_ENV under worker/",
+    "static-policy does not flag the dynamic required-variable-list reads in startup-assert",
+    "static-policy does not flag the NODE_ENV mention inside a comment or an error-message string under worker/",
+    "static-policy exempts AccountOffboardingPurgePoller.ts by name and records #614 as the removal trigger"
+  ],
+
+  "verification_commands": [
+    "pnpm test src/lib/config/__tests__/deployment-lane.test.ts",
+    "pnpm test worker/config/__tests__/startup-assertion.test.ts",
+    "pnpm test worker/config/__tests__/fastify-options.test.ts",
+    "pnpm test src/lib/shared/__tests__/logger.test.ts",
+    "pnpm test src/lib/config/__tests__/worker.test.ts",
+    "pnpm test worker/jobs/__tests__/OnboardingDemoWorker.test.ts",
+    "pnpm test worker/background/pollers/__tests__/AccountOffboardingPurgePoller.test.ts",
+    "pnpm test scripts/ci/__tests__/static-policy-audit.test.ts",
+    "pnpm ci:static-policy",
+    "pnpm ci:process-env"
+  ],
+
+  "estimated_diff_size": "+510 / -35 (~545 changed lines) across 22 files (24 counting the plan and intake artefacts themselves): T1 4, T2 2, T3 8, T4 2, T5 6. Revised four times: ±250 at step 0, +460/-30 after grilling, +560/-40 after adversarial round 1, +520/-40 after round 2 removed the purge-override change, and narrowed again here after round 3 removed the purge poller from the migration entirely. Surface amendment count: 1 (logger.ts + fastify-options.ts in round 1). Rounds 2 and 3 both REMOVED scope, so neither is an amendment.",
+
+  "dependencies_added": [],
+
+  "rollback_plan": "No schema, no migration, no flag, no Railway write, and no change to any destructive path — revert the commit. The only external side effect is the Sentry cron-monitor environment cutover: reverting re-tags staging check-ins as 'production', which the pre-existing monitor environment still accepts, so the monitor self-heals. If the staging worker fails to boot after deploy, the [startup] error names the resolved lane and its source; redeploy the previous Railway deployment per docs/runbooks/rollback.md.",
+
+  "observability": [
+    "[boot] 'Worker listening' log carries deployment_lane and lane_source — the success proof, read from Railway deploy logs.",
+    "Every production-lane assert failure names the resolved lane and the variable it came from — the failure proof, available even when SENTRY_DSN is the thing missing.",
+    "Sentry events from the staging worker carry environment: 'staging' — the independent third proof, and the direct fix for #610.",
+    "The health-alert-poller cron monitor grows a 'staging' environment receiving check-ins; the stale 'production' environment is deleted as a runbook step after the deploy is verified.",
+    "Staging Fastify ingress log level, error_stack suppression and purge-window refusal stay exactly as they are today — a change in ANY of the three on staging is the signal that requiresProductionConfig() was implemented as something narrower than the union, or that the purge poller was migrated when it should not have been.",
+    "Regression signal: ci:static-policy fails if a raw NODE_ENV read reappears in executable position under worker/."
+  ],
+
+  "open_questions": []
+}

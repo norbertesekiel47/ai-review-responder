@@ -7,6 +7,7 @@
 // (no more) so no env that boots today newly fails.
 import { z } from 'zod';
 import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
+import { requiresProductionConfig } from './deployment-lane';
 import { ensureWorkerDotenvLoaded } from './dotenv-load';
 import { optionalVar, rawOptionalVar, requirePresent, requirePresentIn, requiredVar } from './schema-helpers';
 import {
@@ -245,9 +246,11 @@ export function resetWorkerConfigForTests(): void {
   memo = undefined;
 }
 
-// Same carve-out as assertCoreInfraEnv: a no-op only in non-prod MOCK mode.
+// Same carve-out as assertCoreInfraEnv: a no-op only in MOCK mode on a lane that
+// does not require production config. NODE_ENV cannot answer that — production
+// Railway leaves it unset (#611) — so the lane predicate owns the question.
 function mockSkip(): boolean {
-  return process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true';
+  return !requiresProductionConfig() && process.env.MOCK_EXTERNAL_APIS === 'true';
 }
 
 /** Worker core-infra boot assert. Mirrors CORE_INFRA_REQUIRED_ENV. */

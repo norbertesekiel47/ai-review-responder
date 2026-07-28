@@ -67,6 +67,7 @@ import { enforceIngressRateLimit } from './ingress/rate-limit';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
+import { deploymentLaneFields, requiresProductionConfig } from '../src/lib/config/deployment-lane';
 import { selfServeSignupEnabled } from '../src/lib/auth/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '../src/lib/notifications/channels/flags';
 import { notificationFailoverDisabled } from '../src/lib/notifications/flags';
@@ -173,7 +174,7 @@ function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
 // ---------------------------------------------------------------------------
-export const app = Fastify(buildFastifyOptions(process.env.NODE_ENV));
+export const app = Fastify(buildFastifyOptions(requiresProductionConfig()));
 
 // ---------------------------------------------------------------------------
 // BullMQ workers — only create Workers for implemented handlers.
@@ -603,9 +604,17 @@ async function main(): Promise<void> {
   // per replica — two distinct replica_ids under one deployment_id means the
   // single-replica invariant that four boot guards depend on has been broken.
   // See worker/config/replica-identity.ts for why it cannot be asserted.
+  //
+  // The lane fields ride along (#610): `deployment_lane` + `lane_source` are the
+  // boot-time proof of which lane the process resolved and which variable said
+  // so — infrastructure metadata, never customer data.
   createWorkerLogger('[boot]').log(
     'Worker listening',
-    { port: PORT, ...replicaIdentityFields(readReplicaIdentity()) },
+    {
+      port: PORT,
+      ...deploymentLaneFields(),
+      ...replicaIdentityFields(readReplicaIdentity()),
+    },
   );
 
   // --- Boot-readiness cure (#505) --------------------------------------------

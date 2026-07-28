@@ -10,6 +10,10 @@ import {
   STRIPE_PRICE_ENV_VARS,
 } from '../../src/lib/payments/price-tier-map';
 import { assertTierDailyCostLimitsConfigured } from '../../src/lib/costs/tier-cost-limits';
+import {
+  deploymentLaneFields,
+  requiresProductionConfig,
+} from '../../src/lib/config/deployment-lane';
 
 const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_SECRET_KEY',
@@ -52,9 +56,27 @@ function invalidOptionalBooleanEnv(required: readonly string[]): string[] {
   });
 }
 
+/**
+ * The lane a boot gate fired on, rendered as `<VARIABLE>=<lane>` — e.g.
+ * `RAILWAY_ENVIRONMENT_NAME=production` or `NODE_ENV=production`. Every gate
+ * below is now keyed off the deployment lane rather than NODE_ENV alone, so a
+ * boot failure has to carry the lane AND the variable it was read from;
+ * otherwise "why did this fire?" is unanswerable from the crash log.
+ *
+ * It is embedded in the THROWN message rather than logged or tagged on Sentry
+ * deliberately: the gate that most needs the proof (assertAlertSinkEnv) fires
+ * precisely when SENTRY_DSN is the missing thing, so any Sentry-routed
+ * explanation would be inert exactly when it is needed.
+ */
+function laneProof(): string {
+  const { deployment_lane: lane, lane_source: source } = deploymentLaneFields();
+  if (!source) return `deployment lane ${lane} (neither RAILWAY_ENVIRONMENT_NAME nor NODE_ENV set)`;
+  return `${source}=${lane}`;
+}
+
 export function assertProductionMockModeEnv(): void {
-  if (process.env.NODE_ENV === 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') {
-    throw new Error('[startup] NODE_ENV=production cannot run with MOCK_EXTERNAL_APIS=true');
+  if (requiresProductionConfig() && process.env.MOCK_EXTERNAL_APIS === 'true') {
+    throw new Error(`[startup] ${laneProof()} cannot run with MOCK_EXTERNAL_APIS=true`);
   }
 }
 
@@ -68,11 +90,11 @@ export function assertServerOnlyFeatureOptionalBooleansEnv(): void {
 }
 
 export function assertStripeWorkerEnv(): void {
-  if (process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  if (!requiresProductionConfig() && process.env.MOCK_EXTERNAL_APIS === 'true') return;
 
   const missing = missingEnvVars(STRIPE_WORKER_REQUIRED_ENV);
   if (missing.length > 0) {
-    throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
+    throw new Error(`[startup] Worker requires ${missing.join(', ')} (${laneProof()})`);
   }
   assertStripePriceIdsUnique();
 }
@@ -80,15 +102,16 @@ export function assertStripeWorkerEnv(): void {
 /**
  * Fail fast at boot when a core-infrastructure connection string is missing,
  * rather than crash-looping on the first DB/Redis op. Gated identically to
- * assertStripeWorkerEnv: a no-op only in non-production MOCK_EXTERNAL_APIS mode
- * (local dev / unit tests), enforced everywhere else.
+ * assertStripeWorkerEnv: a no-op only in undeployed MOCK_EXTERNAL_APIS mode
+ * (local dev / unit tests), enforced everywhere else — the mock-mode skip is
+ * unavailable on any deployed lane, including one that leaves NODE_ENV unset.
  */
 export function assertCoreInfraEnv(): void {
-  if (process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  if (!requiresProductionConfig() && process.env.MOCK_EXTERNAL_APIS === 'true') return;
 
   const missing = missingEnvVars(CORE_INFRA_REQUIRED_ENV);
   if (missing.length > 0) {
-    throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
+    throw new Error(`[startup] Worker requires ${missing.join(', ')} (${laneProof()})`);
   }
 }
 
@@ -178,19 +201,19 @@ export function assertSummedLlmWorkerSlots(
  * and continues, and EngagementAlertWorker logs an error and fails the outbox —
  * unacceptable in production. Fail fast at boot instead.
  *
- * Production-only guard: fires only when NODE_ENV=production and MOCK_EXTERNAL_APIS
- * is not 'true', so dev / CI / tests are unaffected. (Intentionally narrower than
- * assertStripeWorkerEnv, which also fires in non-production non-mock environments —
- * admin alerts only matter in production.) The per-site runtime guards remain as
- * defense-in-depth.
+ * Deployed-lane guard: fires on any deployed lane (or NODE_ENV=production) when
+ * MOCK_EXTERNAL_APIS is not 'true', so dev / CI / tests are unaffected.
+ * (Intentionally narrower than assertStripeWorkerEnv, which also fires on
+ * undeployed non-mock environments — admin alerts only matter once deployed.)
+ * The per-site runtime guards remain as defense-in-depth.
  */
 export function assertAdminNotificationEmail(): void {
-  if (process.env.NODE_ENV !== 'production') return;
+  if (!requiresProductionConfig()) return;
   if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
   const value = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!value || value.trim().length === 0) {
     throw new Error(
-      '[startup] Worker requires ADMIN_NOTIFICATION_EMAIL in production (admin/failover/engagement alerts route here)',
+      `[startup] Worker requires ADMIN_NOTIFICATION_EMAIL (${laneProof()}) — admin/failover/engagement alerts route here`,
     );
   }
 }
@@ -201,16 +224,20 @@ export function assertAdminNotificationEmail(): void {
  * Sentry Cron-monitor heartbeat all route through Sentry → Slack/PagerDuty. Email
  * alerts share the Resend provider with the product, so a Resend outage would
  * blind both product and alerting; Sentry must be present so paging cannot be
- * silently inert in production. Production-only (and non-mock), mirroring
+ * silently inert in production. Deployed-lane-only (and non-mock), mirroring
  * assertAdminNotificationEmail. (Beta-launch gate, plan A1.)
+ *
+ * This gate is the reason the lane, not NODE_ENV, decides: production leaves
+ * NODE_ENV unset, so keying off NODE_ENV made the one guard whose whole purpose
+ * is "paging cannot be silently inert" itself silently inert (#611).
  */
 export function assertAlertSinkEnv(): void {
-  if (process.env.NODE_ENV !== 'production') return;
+  if (!requiresProductionConfig()) return;
   if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
   const value = process.env.SENTRY_DSN;
   if (!value || value.trim().length === 0) {
     throw new Error(
-      '[startup] Worker requires SENTRY_DSN in production (mandatory non-email alert sink for P0/P1 paging)',
+      `[startup] Worker requires SENTRY_DSN (${laneProof()}) — mandatory non-email alert sink for P0/P1 paging`,
     );
   }
 }
@@ -223,10 +250,10 @@ export function assertAlertSinkEnv(): void {
  *
  * (SENTRY_DSN moved to assertAlertSinkEnv — it is now a hard production gate.)
  *
- * Only warns in production (and non-mock) so dev / CI / tests stay quiet.
+ * Only warns on a deployed lane (and non-mock) so dev / CI / tests stay quiet.
  */
 export function warnMissingProductionEnv(): void {
-  if (process.env.NODE_ENV !== 'production') return;
+  if (!requiresProductionConfig()) return;
   if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
   const checks: Array<{ key: string; message: string }> = [
     {
@@ -238,7 +265,7 @@ export function warnMissingProductionEnv(): void {
   for (const { key, message } of checks) {
     const value = process.env[key];
     if (!value || value.trim().length === 0) {
-      console.warn(`[startup] ${key} is unset — ${message}`);
+      console.warn(`[startup] ${key} is unset (${laneProof()}) — ${message}`);
     }
   }
 }
@@ -278,10 +305,13 @@ export function assertSelfServeSignupEnv(): void {
 
 /**
  * Validates the format of WORKER_PUBLIC_URL when it is set. Presence is enforced
- * by the caller's required-list check; this only checks format. In production,
- * requires https. In non-production, http or https are both accepted (e.g.
+ * by the caller's required-list check; this only checks format. On a deployed
+ * lane, requires https. Undeployed, http or https are both accepted (e.g.
  * http://localhost:3001). In all cases the value must be an origin-only URL —
  * no path, query string, fragment, trailing slash, or userinfo. (F-13/P3)
+ *
+ * Private helper reached from BOTH assertChannelsWhatsAppEnv and
+ * assertZernioPublishingEnv, so the https requirement tightens on both.
  */
 function assertWorkerPublicUrlFormat(): void {
   const raw = process.env.WORKER_PUBLIC_URL;
@@ -292,13 +322,13 @@ function assertWorkerPublicUrlFormat(): void {
   } catch {
     throw new Error(`WORKER_PUBLIC_URL must be a valid origin URL (got: ${raw})`);
   }
-  const isProd = process.env.NODE_ENV === 'production';
-  const protocolOk = isProd ? url.protocol === 'https:' : url.protocol === 'https:' || url.protocol === 'http:';
+  const httpsRequired = requiresProductionConfig();
+  const protocolOk = httpsRequired ? url.protocol === 'https:' : url.protocol === 'https:' || url.protocol === 'http:';
   // raw === url.origin rejects path/query/fragment/trailing-slash/userinfo in one shot.
   if (!protocolOk || raw !== url.origin) {
     throw new Error(
-      `WORKER_PUBLIC_URL must be an origin-only URL (${isProd ? 'https://<host>' : 'http(s)://<host>'}, ` +
-        `no path/query/fragment/trailing slash; got: ${raw})`,
+      `WORKER_PUBLIC_URL must be an origin-only URL (${httpsRequired ? 'https://<host>' : 'http(s)://<host>'}, ` +
+        `no path/query/fragment/trailing slash; got: ${raw}) (${laneProof()})`,
     );
   }
 }

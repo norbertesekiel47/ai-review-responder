@@ -8,6 +8,7 @@ import {
   finalizeOnboardingDemoCost,
   checkCostThreshold,
 } from '../../src/lib/costs/onboarding-demo-cost-guard';
+import { deploymentLane, requiresProductionConfig } from '../../src/lib/config/deployment-lane';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import * as Sentry from '@sentry/node';
@@ -51,9 +52,12 @@ export async function handleOnboardingDemo(
     });
   };
 
-  // Tier-2: Mock leak guard
-  if (isMockMode() && process.env.NODE_ENV === 'production') {
-    throw new Error('MOCK_EXTERNAL_APIS must not be true in production');
+  // Tier-2: Mock leak guard. Fires on ANY lane that requires production config —
+  // NODE_ENV is unset on the production Railway lane, so asking it left the guard
+  // inert exactly where it mattered most (#611). The lane is named because the
+  // guard can now trip on staging too, and the operator needs to know which.
+  if (isMockMode() && requiresProductionConfig()) {
+    throw new Error(`MOCK_EXTERNAL_APIS must not be true on deployment lane "${deploymentLane()}"`);
   }
 
   // Subscription guard (inverted): if user paid between /start and now,

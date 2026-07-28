@@ -32,7 +32,27 @@ is the canonical env-var list (overrides any inline list here).
   "two Upstash instances" and is the fix for the egress bill. Why, plus the IPv6
   `family: 0` code prerequisite: **§1.4**.
 
-## Current cloud state (verified 2026-05-29)
+## Current cloud state (verified 2026-07-28)
+
+**Staging is the only environment that actually runs.** Everything below from
+2026-05-29 describes the pre-staging world and is kept for the reasoning, not as
+current fact.
+
+| | Staging | Production |
+|---|---|---|
+| Railway worker | `repworth-worker` **Online**, `repworth-worker-staging.up.railway.app` | `repworth-worker` **Offline** — never successfully deployed |
+| Railway Redis (queue) | `redis` **Online** (private net, `?family=0`) | **none provisioned** |
+| Worker env vars | full set | 35 vars, **missing** `SENTRY_DSN`, `ADMIN_NOTIFICATION_EMAIL`, `REDIS_QUEUE_URL`, `STRIPE_WEBHOOK_SECRET` |
+| `NODE_ENV` | `production` (yes, really — see ADR 0013) | **unset** |
+| `RAILWAY_ENVIRONMENT_NAME` | `staging` | `production` |
+| Sentry project | `repworth-staging` | **none** — only one project exists org-wide |
+| Sentry cron monitor | `health-alert-poller`, environment `staging`, ok | n/a |
+
+**Consequence:** production is still a from-scratch stand-up, and it is a
+*provisioning* job before it is a configuration job — see the dependency table in
+§5.2 before touching variables. Prove everything on staging first, then clone.
+
+## Historical cloud state (verified 2026-05-29)
 
 - **Vercel — live.** Project `rep-worth` serves `https://repworth.net` (custom
   domain, Node 24). **Preview deployments already fire automatically** on every
@@ -485,6 +505,40 @@ MOCK_EXTERNAL_APIS=false
 
 Paste the entire block. Adjust values to match what you provisioned in §1.
 
+> **Read before attempting a production worker deploy (state as of 2026-07-28).**
+> The Railway **`production`** environment is missing four of the variables below:
+> **`SENTRY_DSN`**, **`ADMIN_NOTIFICATION_EMAIL`**, **`REDIS_QUEUE_URL`** and
+> **`STRIPE_WEBHOOK_SECRET`**. The production worker has never been successfully
+> deployed, so nothing has been exercised against that variable set. These are
+> **required and currently absent** — set them before the first prod deploy.
+>
+> Two of them are hard boot gates that will now actually fire. Until the
+> #610/#611 deployment-lane fix, the boot gates keyed off `NODE_ENV`, which
+> production Railway leaves **unset** — so `assertAlertSinkEnv` (`SENTRY_DSN`)
+> and `assertAdminNotificationEmail` (`ADMIN_NOTIFICATION_EMAIL`) returned early
+> and were inert in production. They now key off the deployment lane
+> (`RAILWAY_ENVIRONMENT_NAME`, ADR 0013) and will refuse to start a production
+> worker without those two values. That is the gates working, not a new defect —
+> but it means a prod deploy attempted with today's variable set fails at boot.
+>
+> `RAILWAY_ENVIRONMENT_NAME` itself needs no action: Railway injects it.
+>
+> **Two of the four cannot simply be "set" — the thing they point at does not
+> exist yet** (verified against Railway and Sentry, 2026-07-28). Treating this as
+> a four-variable config task will fail. The real dependency order:
+>
+> | # | Provision first | Then it yields | Who |
+> |---|---|---|---|
+> | 1 | A **production Sentry project**. Only `repworth-staging` exists today, so there is no correct DSN to paste — pointing prod at the staging project files production errors under a project named "staging". | `SENTRY_DSN` | you (team/alert routing is a judgement call) |
+> | 2 | A **Redis service in the Railway `production` environment**. That env currently contains **only** `repworth-worker` (Offline) and **no database at all**; staging has `redis`. `REDIS_QUEUE_URL` is a Railway *reference* (`${{redis.…}}`), so with no `redis` service the reference cannot resolve. Delete its TCP proxy (private-net only) and keep **`?family=0`** — the Railway private network is IPv6-only and ioredis silently fails to connect without it. | `REDIS_QUEUE_URL` | provisioning step, incurs cost |
+> | 3 | A **production Stripe webhook endpoint** pointed at the prod worker's `/ingress/stripe`. The signing secret is shown once, at creation. **Do not copy staging's** — a wrong secret fails signature verification silently. Keep the endpoint's API version in lockstep with the pinned `apiVersion` in `stripe-client.ts`. | `STRIPE_WEBHOOK_SECRET` | you (Stripe dashboard) |
+> | 4 | A decision about who receives production alerts. | `ADMIN_NOTIFICATION_EMAIL` | you |
+>
+> Only after 1–4 does setting the variables and deploying make sense. The boot
+> gates then either pass or fail loudly naming the missing variable **and its
+> resolved lane** — which is the whole point of #611. Before this change a prod
+> worker could start half-configured with paging silently inert.
+
 **Database + Redis:** (split per §1.4 — queue on Railway private net, cache on Upstash)
 ```
 DATABASE_URL=...
@@ -568,10 +622,15 @@ RANKING_TRACKING_ENABLED=false
 MOCK_EXTERNAL_APIS=false
 ```
 
-**Observability (optional):**
+**Observability — REQUIRED on any deployed lane (staging + production):**
 ```
 SENTRY_DSN=...
 ```
+> Not optional. `assertAlertSinkEnv` (`worker/config/startup-assert.ts`) is a hard
+> boot gate on every deployed Railway lane — Sentry is the mandatory **non-email**
+> P0/P1 paging sink (ADR 0005; wiring in `docs/runbooks/beta-launch-alerting.md`
+> §1). **Currently absent in Railway `production`** — see the callout at the top
+> of §5.2.
 
 ### 5.3 First deploy
 
@@ -1034,8 +1093,16 @@ they ever match across environments.** Staging column → Vercel `staging` + Rai
 | `ZERNIO_PROFILE_ID_PREFIX` | `repworth-staging-` | `repworth-prod-` (default) |
 | `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET` | fresh staging values | distinct prod values |
 | `GLOBAL_DAILY_COST_LIMIT_CENTS` | low (e.g. `200`) | real ceiling |
-| `SENTRY_*` environment tag | `staging` | `production` |
+| Sentry `environment` tag *(derived — see note)* | `staging` | `production` |
 | `WHATSAPP_APPROVAL_URL_BASE` *(only if WhatsApp ever on)* | `https://staging.repworth.net/approve/` | `https://repworth.net/approve/` |
+
+> The Sentry `environment` tag is **not an env var — do not set one.**
+> `worker/sentry.ts` derives it from the deployment lane via `deploymentLane()`
+> (`src/lib/config/deployment-lane.ts`), which reads Railway's injected
+> `RAILWAY_ENVIRONMENT_NAME`. It used to be derived from `NODE_ENV` — which is
+> `production` on staging — so every staging event was tagged `production`.
+> That is #610; see ADR 0013. The row stays in this matrix because the *values*
+> must still differ, and a matching pair is the symptom of the bug returning.
 
 > `WHATSAPP_APPROVAL_URL_BASE` has a boot-time assertion that it equals
 > `NEXT_PUBLIC_APP_URL + '/approve/'`. If you ever enable WhatsApp, a mismatched
@@ -1050,6 +1117,10 @@ swapping in **live** credentials and the prod column of §II.3:
       behind on (compare its head to `054`), in numeric order.
 - [ ] Railway `production` env: deploy the worker, set the prod variable set,
       attach `worker.repworth.net` (or keep the Railway subdomain).
+      **First set the four variables the prod environment is missing today —
+      `SENTRY_DSN`, `ADMIN_NOTIFICATION_EMAIL`, `REDIS_QUEUE_URL`,
+      `STRIPE_WEBHOOK_SECRET` (§5.2 callout).** The first two are hard boot
+      gates; a deploy without them fails at startup.
 - [ ] Vercel Production: set `WORKER_PUBLIC_URL` to the prod worker; flip live keys.
 - [ ] Re-point the **live** Stripe/Resend/Zernio webhooks at the **prod** worker
       (Part I §6). These are separate dashboard endpoints from the staging ones —

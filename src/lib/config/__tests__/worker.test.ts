@@ -6,6 +6,15 @@ import { STRIPE_PRICE_ENV_VARS } from '@/lib/payments/price-tier-map';
 // clears. Stub the loader to a no-op so the assert logic is tested in isolation.
 vi.mock('../dotenv-load', () => ({ ensureWorkerDotenvLoaded: () => {} }));
 
+/**
+ * @types/node declares NODE_ENV as a required, read-only property, so a literal
+ * `delete process.env.NODE_ENV` is a type error. A dynamic key routes through
+ * ProcessEnv's index signature — same runtime effect.
+ */
+function unsetEnvVar(name: string): void {
+  delete process.env[name];
+}
+
 const CORE = {
   DATABASE_POOL_URL: 'postgres://t:t@localhost:5432/t',
   SUPABASE_URL: 'http://localhost:54321',
@@ -35,6 +44,16 @@ describe('config/worker', () => {
     process.env = { NODE_ENV: 'test', MOCK_EXTERNAL_APIS: 'true' } as NodeJS.ProcessEnv;
     const { assertWorkerConfig } = await import('../worker');
     expect(() => assertWorkerConfig()).not.toThrow();
+  });
+
+  it('assertWorkerConfig() does not honour the mock-mode skip on a deployed lane', async () => {
+    // The production Railway lane leaves NODE_ENV unset, so the old
+    // `NODE_ENV !== 'production'` skip silently disarmed this boot gate there.
+    process.env = { NODE_ENV: 'test', MOCK_EXTERNAL_APIS: 'true' } as NodeJS.ProcessEnv;
+    process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+    unsetEnvVar('NODE_ENV');
+    const { assertWorkerConfig } = await import('../worker');
+    expect(() => assertWorkerConfig()).toThrow(/DATABASE_POOL_URL/);
   });
 
   it('getWorkerStripeConfig throws when a Stripe price var is missing', async () => {

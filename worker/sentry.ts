@@ -1,11 +1,14 @@
 import * as Sentry from '@sentry/node';
 import { scrubSentryEvent } from '../src/lib/shared/sentry-scrub';
+import { deploymentLane } from '../src/lib/config/deployment-lane';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   tracesSampleRate: 0.1,
-  environment: process.env.NODE_ENV ?? 'development',
+  // NOT NODE_ENV: staging runs with NODE_ENV=production, so asking it tagged
+  // every staging event and cron check-in as production (#610).
+  environment: deploymentLane(),
   beforeSend(event) {
     return scrubSentryEvent(event, { scrubRequestData: true });
   },

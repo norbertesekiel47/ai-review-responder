@@ -21,9 +21,18 @@ the first paying customer until every box here is checked.**
 
 ## 1. Non-email paging route (mandatory)
 
-`SENTRY_DSN` is now a hard production boot gate (`assertAlertSinkEnv`) — the
-worker will refuse to start without it. Alerts must reach a **non-email** channel
-because admin email shares the Resend provider with the product.
+`SENTRY_DSN` is a hard boot gate (`assertAlertSinkEnv`) — the worker will refuse
+to start without it. Alerts must reach a **non-email** channel because admin
+email shares the Resend provider with the product.
+
+> **The gate keys off the deployment lane, not `NODE_ENV` (#611).** It fires on
+> any deployed Railway lane (`RAILWAY_ENVIRONMENT_NAME` present) **or** any
+> `NODE_ENV=production` run — `requiresProductionConfig()` in
+> `src/lib/config/deployment-lane.ts`. This is an operational correction, not a
+> restatement: production Railway leaves `NODE_ENV` **unset**, so while the gate
+> keyed off `NODE_ENV` it returned early and was **inert in production** — the
+> one environment whose paging it exists to protect. The same correction applies
+> to `assertAdminNotificationEmail` (§3). Reasoning: ADR 0013.
 
 - [ ] **`SENTRY_DSN` set** in the Railway worker env.
 - [ ] **Install the Sentry → Discord integration** — Sentry → Settings →
@@ -130,6 +139,48 @@ treatment runs of `scripts/wedge-repro.ts`, zero wedge) and ideally OP3
   Discord channel webhook URL: Discord → channel → Edit → Integrations → Webhooks
   → New Webhook → Copy URL). Railway's own healthcheck only hits the
   dependency-light `/api/health`.
+
+## 2a. Post-deploy — clean up the cron monitor's stale `production` environment (#610)
+
+**Run this once, after the #610/#611 deployment-lane change reaches an
+environment.** Until that change, `worker/sentry.ts` derived Sentry's
+`environment` from `NODE_ENV`, and staging runs with `NODE_ENV=production` — so
+every staging `health-alert-poller` check-in was filed under a **`production`
+environment that no production process ever wrote**. After the change the poller
+reports its real lane.
+
+- [ ] **Wait for the first correct check-in.** Sentry → Crons →
+  `health-alert-poller` — a new `staging` environment appears on the monitor
+  within one poll interval (default 5 min, `HEALTH_ALERT_POLL_INTERVAL_MS`).
+- [ ] **Delete the stale `production` environment** on that monitor in the Sentry
+  UI. It cannot be removed from code; it is monitor state, not an env var. Leaving
+  it in place means the monitor keeps a `production` environment that will never
+  check in again and will therefore page forever on missed check-ins.
+- [ ] **Expect a CONTINUOUS stream of missed check-ins until you delete it — not
+  one.** An earlier draft of this runbook said "exactly one transient missed
+  check-in"; that was wrong, and the live deploy on 2026-07-28 disproved it. The
+  stale `production` environment does not decay: nothing will *ever* check in
+  under that label again, so the monitor records a fresh **missed** check-in every
+  poll interval, indefinitely. Measured on the staging deploy: the `production`
+  environment flipped to `error` and logged **8 missed check-ins in the first
+  hour**, still climbing, while `staging` sat at `ok` throughout.
+
+  So the missed check-ins are an artifact of the relabelling and **not** a
+  worker-death signal — but they will keep firing until the environment is
+  deleted, and they will drown a real dead-man-switch alert while they do. Delete
+  promptly rather than waiting it out. If missed check-ins continue on the
+  **`staging`** environment after the deletion, that IS real: work §2's
+  dead-man-switch path.
+
+> **Production needs no cleanup — as of 2026-07-28 there is nothing there to
+> clean.** This monitor lives in the `repworth-staging` Sentry project, which is
+> the only project in the org; there is no production Sentry project, and the
+> production worker has never successfully deployed. The stale `production`
+> *environment* on this monitor was written entirely by the **staging** worker
+> mislabelling itself (#610) — no production process ever wrote it. When
+> production is genuinely stood up (see `deployment-guide.md` §5.2, which is a
+> provisioning job before it is a config job), it gets its own project and its own
+> monitor, and this step does not repeat. Confirm rather than assume.
 
 ## 3. Monitored admin inbox
 

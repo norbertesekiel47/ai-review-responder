@@ -1,4 +1,5 @@
 import { sanitizeAnalyticsProperties } from '../analytics/events';
+import { requiresProductionConfig } from '../config/deployment-lane';
 import { getLogContext } from './log-context';
 
 export interface WorkerLogger {
@@ -34,8 +35,10 @@ function serializeError(err: Error): Record<string, unknown> {
     error_name: err.name,
     error_message: err.message,
   };
-  // Stacks only in non-production: they can be large and occasionally echo input.
-  if (process.env.NODE_ENV !== 'production' && err.stack) {
+  // Stacks only on lanes that do not require production config: they can be
+  // large and occasionally echo input. NODE_ENV alone leaked them on the
+  // production Railway lane, which leaves it unset (#611).
+  if (!requiresProductionConfig() && err.stack) {
     out.error_stack = err.stack;
   }
   return out;

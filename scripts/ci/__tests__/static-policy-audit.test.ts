@@ -7,6 +7,7 @@ import {
   scanLegacySubscriptionTiers,
   auditRailwayConfig,
   scanSqlExecutorTagNames,
+  scanWorkerNodeEnvReads,
 } from '../static-policy-audit';
 import { SQL_TAG_NAMES } from '../lib/sql-tag-scan';
 
@@ -650,5 +651,134 @@ describe('scanSqlExecutorTagNames — SQL invisible to the vocabulary audits (#5
       }
     `;
     expect(scanSqlExecutorTagNames('src/lib/x.ts', src)).toHaveLength(2);
+  });
+});
+
+describe('scanWorkerNodeEnvReads — the deployment lane owns the lane question (#611)', () => {
+  it("static-policy flags a NODE_ENV === 'production' comparison added under worker/", () => {
+    const findings = scanWorkerNodeEnvReads(
+      'worker/jobs/ExampleWorker.ts',
+      "if (process.env.NODE_ENV === 'production') { return; }",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('worker-node-env-read');
+    expect(findings[0]!.line).toBe(1);
+    expect(findings[0]!.detail).toContain('requiresProductionConfig');
+  });
+
+  it("static-policy flags a NODE_ENV !== 'production' comparison added under worker/", () => {
+    const findings = scanWorkerNodeEnvReads(
+      'worker/ingress/shared.ts',
+      "if (process.env.NODE_ENV !== 'production') { allowDevProxy(); }",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('worker-node-env-read');
+  });
+
+  it('static-policy flags a raw NODE_ENV read assigned to a local under worker/', () => {
+    const bindingForms = [
+      'const mode = process.env.NODE_ENV;',
+      'const { NODE_ENV } = process.env;',
+      'const { NODE_ENV: mode } = process.env;',
+      "const { ['NODE_ENV']: mode } = process.env;",
+    ];
+    for (const src of bindingForms) {
+      const findings = scanWorkerNodeEnvReads('worker/background/schedulers/Example.ts', src);
+      expect(findings, src).toHaveLength(1);
+      expect(findings[0]!.rule).toBe('worker-node-env-read');
+    }
+  });
+
+  it('static-policy flags a raw NODE_ENV read exported from one worker file for use in another', () => {
+    // The read is banned rather than the comparison precisely because the audit
+    // has no symbol resolution: the comparison below lives in a different file.
+    const producer = scanWorkerNodeEnvReads(
+      'worker/config/runtime-mode.ts',
+      'export const runtimeMode = process.env.NODE_ENV;',
+    );
+    expect(producer).toHaveLength(1);
+    expect(producer[0]!.rule).toBe('worker-node-env-read');
+
+    const consumer = scanWorkerNodeEnvReads(
+      'worker/jobs/ExampleWorker.ts',
+      [
+        "import { runtimeMode } from '../config/runtime-mode';",
+        "if (runtimeMode === 'production') { return; }",
+      ].join('\n'),
+    );
+    expect(consumer).toEqual([]);
+  });
+
+  it('static-policy flags bracket and template-literal access to NODE_ENV under worker/', () => {
+    const src = [
+      "const a = process.env['NODE_ENV'];",
+      'const b = process.env["NODE_ENV"];',
+      'const c = process.env[`NODE_ENV`];',
+      "const d = process['env'].NODE_ENV;",
+    ].join('\n');
+    const findings = scanWorkerNodeEnvReads('worker/jobs/ExampleWorker.ts', src);
+    expect(findings.map((f) => f.line)).toEqual([1, 2, 3, 4]);
+    expect(findings.every((f) => f.rule === 'worker-node-env-read')).toBe(true);
+  });
+
+  it('static-policy does not flag the dynamic required-variable-list reads in startup-assert', async () => {
+    // The real shape from worker/config/startup-assert.ts: a name list filtered
+    // with a variable key. Banning every dynamic process.env[…] would break it.
+    const src = [
+      'function missingEnvVars(required: string[]): string[] {',
+      '  return required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);',
+      '}',
+      'function invalidOptionalBooleanEnv(required: readonly string[]): string[] {',
+      '  return required.filter((key) => {',
+      '    const value = process.env[key];',
+      "    return value !== undefined && value !== 'true' && value !== 'false';",
+      '  });',
+      '}',
+    ].join('\n');
+    expect(scanWorkerNodeEnvReads('worker/config/startup-assert.ts', src)).toEqual([]);
+
+    const { readFile } = await import('node:fs/promises');
+    const committed = await readFile('worker/config/startup-assert.ts', 'utf8');
+    expect(scanWorkerNodeEnvReads('worker/config/startup-assert.ts', committed)).toEqual([]);
+  });
+
+  it('static-policy does not flag the NODE_ENV mention inside a comment or an error-message string under worker/', () => {
+    const src = [
+      '// NOT NODE_ENV: staging runs with NODE_ENV=production, so asking it is wrong.',
+      '/** Fires on any deployed lane, including one that leaves NODE_ENV unset. */',
+      'export function laneProof(lane: string): string {',
+      "  const detail = 'NODE_ENV=production';",
+      '  throw new Error(`[startup] ${detail} ${lane}: neither RAILWAY_ENVIRONMENT_NAME nor NODE_ENV set`);',
+      '}',
+    ].join('\n');
+    expect(scanWorkerNodeEnvReads('worker/sentry.ts', src)).toEqual([]);
+  });
+
+  it('static-policy exempts AccountOffboardingPurgePoller.ts by name and records #614 as the removal trigger', async () => {
+    const purgeGuard =
+      "if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') { return null; }";
+    expect(
+      scanWorkerNodeEnvReads(
+        'worker/background/pollers/AccountOffboardingPurgePoller.ts',
+        purgeGuard,
+      ),
+    ).toEqual([]);
+    // The exemption is by exact path — a sibling poller gets no pass.
+    expect(
+      scanWorkerNodeEnvReads('worker/background/pollers/OutboxPoller.ts', purgeGuard),
+    ).toHaveLength(1);
+
+    // …and the removal trigger is recorded next to the exemption itself, so the
+    // entry cannot outlive #614 without someone deleting the reason too.
+    const { readFile } = await import('node:fs/promises');
+    const auditLines = (await readFile('scripts/ci/static-policy-audit.ts', 'utf8')).split('\n');
+    const exemptionIndex = auditLines.findIndex((line) =>
+      line.includes('AccountOffboardingPurgePoller.ts'),
+    );
+    expect(exemptionIndex).toBeGreaterThanOrEqual(0);
+    const nearby = auditLines
+      .slice(Math.max(0, exemptionIndex - 15), exemptionIndex + 2)
+      .join('\n');
+    expect(nearby).toContain('#614');
   });
 });
