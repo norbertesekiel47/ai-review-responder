@@ -1011,8 +1011,16 @@ Revisit triggers:
   its `pg_get_constraintdef` reads `NOT ((evidence ->> 'decision') IS DISTINCT
   FROM status)` — Postgres's rendering of `IS NOT DISTINCT FROM`, which is what
   distinguishes the shipped constraint from the `=` draft that would have let
-  the #593 row through. **Not yet applied to prod** — apply at promotion, in
-  lockstep, running the same preflight against prod first.
+  the #593 row through.
+
+  **Applied to production Supabase (`udeyaqnvpojbwgoaxwdg`) 2026-07-27**, same
+  day, closing the lockstep. Preflight first: `to_regclass` confirmed 088's
+  `solicitation_asks` present (090 is meaningless without it), **0** rows, **0**
+  violating, constraint absent — an empty table, so VALIDATE was instant and the
+  ACCESS EXCLUSIVE window nil. Verified the same way as staging, and the
+  definition came back byte-identical to it, `convalidated = true`, carrying the
+  `IS DISTINCT FROM` spelling that separates the shipped constraint from the `=`
+  draft. **Both projects now in lockstep at 090.**
 
 - **089** — Owner-picked Named rival for the Competitor Delta line (#546, map
   #528; semantics locked in #532 item 2). Adds three nullable columns to
