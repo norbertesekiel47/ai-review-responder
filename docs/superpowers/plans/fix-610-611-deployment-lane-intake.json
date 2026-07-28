@@ -1,0 +1,129 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Give the worker one authoritative owner for the deployment lane — src/lib/config/deployment-lane.ts, resolving RAILWAY_ENVIRONMENT_NAME with precedence over NODE_ENV — so Sentry tags staging events 'staging' (#610) and the production-only boot gates stop being inert on the production Railway worker, where NODE_ENV is unset (#611).",
+
+  "non_goals": [
+    "Populating any production Railway environment variable. Prod worker env stays owned by the WS8 cutover runbook; this PR performs no Railway writes in any environment.",
+    "Deploying the production worker. It has never been deployed and still cannot boot (REDIS_QUEUE_URL, STRIPE_WEBHOOK_SECRET, ADMIN_NOTIFICATION_EMAIL, SENTRY_DSN all absent).",
+    "Touching the Next.js / Vercel lane. isPreviewEnvironment() stays in src/lib/config/flags.ts, src/instrumentation.ts keeps no Sentry `environment`, and VERCEL_TARGET_ENV callers are unchanged.",
+    "Changing worker/index.ts:176's Fastify log-level NODE_ENV read — that is a build-verbosity knob, not a lane check, and gets a named exemption in the new CI rule.",
+    "Splitting HEALTH_ALERT_MONITOR_SLUG per environment. One slug with per-environment Sentry monitor state is the intended end state.",
+    "Any behaviour change to feature flags, the outbox, billing, approval, or escalation paths."
+  ],
+
+  "user_visible_behavior": [
+    "Operator-visible only — no customer-facing change.",
+    "Sentry events and cron check-ins from the staging worker are tagged environment: 'staging' instead of 'production'.",
+    "The [boot] 'Worker listening' log gains two fields: deployment_lane and lane_source.",
+    "Every production-lane assert's error message names the resolved lane and the variable it came from.",
+    "On the production Railway lane (NODE_ENV unset), assertAlertSinkEnv / assertAdminNotificationEmail / assertProductionMockModeEnv / the WORKER_PUBLIC_URL https check / warnMissingProductionEnv now actually run — a correct, deliberate boot failure on an unconfigured environment.",
+    "mockSkip() no longer honours MOCK_EXTERNAL_APIS=true on any deployed lane, so the core-infra and Stripe asserts can no longer be skipped there.",
+    "A new process.env.NODE_ENV === 'production' comparison added under worker/ fails ci:static-policy."
+  ],
+
+  "invariants": [
+    "The lane NAME resolves by precedence, never by ||: RAILWAY_ENVIRONMENT_NAME wins whenever present. Staging sets both RAILWAY_ENVIRONMENT_NAME=staging and NODE_ENV=production, so a || re-creates #610.",
+    "requiresProductionConfig() is the UNION (Railway var present || NODE_ENV === 'production') and is therefore strictly additive: no environment loses a gate it fires today.",
+    "isProductionLane() is false on staging, so AccountOffboardingPurgePoller's purge-window override keeps working for the documented staging dry-run.",
+    "Dependency direction stays one-way: worker/ imports from src/lib/, never the reverse (invariant #1, ESLint-enforced). The owner therefore lives in src/lib/config/.",
+    "The owner is the only place under worker/ that compares NODE_ENV to 'production', apart from worker/index.ts's Fastify log level. CI-enforced.",
+    "No Railway environment is mutated by this change.",
+    "Invariant #13 holds: no NEXT_PUBLIC_* companion is introduced for the lane."
+  ],
+
+  "edge_cases": [
+    "Staging sets NODE_ENV=production AND RAILWAY_ENVIRONMENT_NAME=staging — precedence must yield 'staging'.",
+    "Production sets RAILWAY_ENVIRONMENT_NAME=production and NO NODE_ENV — the case that makes every gate inert today.",
+    "Local run with neither variable set — lane is 'development'.",
+    "Local run with NODE_ENV=production and no Railway variable — must keep firing the gates it fires today (requiresProductionConfig() true) and must report lane 'production'.",
+    "Vitest run with NODE_ENV=test — requiresProductionConfig() false, gates quiet, existing 954-line startup-assertion suite unaffected in its default posture.",
+    "Blank/whitespace RAILWAY_ENVIRONMENT_NAME — treated as absent and falls through to NODE_ENV (matches trimmedOrUndefined in replica-identity.ts).",
+    "A future Railway environment with an unrecognised name (e.g. an ephemeral PR env) — deploymentLane() passes the raw name through to Sentry, isProductionLane() is false, requiresProductionConfig() is true.",
+    "Sentry cron cutover: on deploy, health-alert-poller's stale 'production' environment goes silent and fires one missed check-in before it is deleted."
+  ],
+
+  "existing_patterns_to_follow": [
+    "worker/config/replica-identity.ts — the precedent for reading RAILWAY_* system vars: a named per-variable read (so ci:process-env treats it as a platform indicator), trimmedOrUndefined() normalisation, and a *Fields() helper returning only defined keys for logging. deploymentLaneFields() mirrors replicaIdentityFields() exactly.",
+    "src/lib/config/flags.ts — the sibling lane reader (isPreviewEnvironment, VERCEL_TARGET_ENV) and the house style for a small, un-memoized, runtime-agnostic env primitive under src/lib/config/.",
+    "scripts/ci/static-policy-audit.ts INLINE_FLAG_ACCESS — the precedent for a 'use the sanctioned reader, not the raw env access' rule with a path allowlist.",
+    "worker/index.ts:605-608 — the existing [boot] log call that already spreads replicaIdentityFields(); deploymentLaneFields() is spread alongside it rather than adding a second log line.",
+    "worker/config/__tests__/startup-assertion.test.ts — the setEnv/KEYS save-and-restore harness that every new gate test extends."
+  ],
+
+  "allowed_edit_surface": [
+    "src/lib/config/deployment-lane.ts",
+    "src/lib/config/__tests__/deployment-lane.test.ts",
+    "src/lib/config/worker.ts",
+    "worker/sentry.ts",
+    "worker/index.ts",
+    "worker/config/startup-assert.ts",
+    "worker/config/__tests__/startup-assertion.test.ts",
+    "worker/jobs/OnboardingDemoWorker.ts",
+    "worker/background/pollers/AccountOffboardingPurgePoller.ts",
+    "worker/background/pollers/__tests__/AccountOffboardingPurgePoller.test.ts",
+    "scripts/ci/static-policy-audit.ts",
+    "scripts/ci/__tests__/static-policy-audit.test.ts",
+    "CONTEXT.md",
+    ".claude/reference/env-vars.md",
+    "docs/runbooks/beta-launch-alerting.md",
+    "docs/runbooks/deployment-guide.md",
+    "docs/adr/**",
+    "docs/reviews/**",
+    "docs/superpowers/plans/**",
+    ".feature/**"
+  ],
+
+  "tests_to_add": [
+    "deploymentLane() prefers RAILWAY_ENVIRONMENT_NAME over NODE_ENV so staging is never reported as production",
+    "deploymentLane() falls back to NODE_ENV when no Railway variable is present",
+    "deploymentLane() returns development when neither RAILWAY_ENVIRONMENT_NAME nor NODE_ENV is set",
+    "deploymentLane() treats a blank RAILWAY_ENVIRONMENT_NAME as absent and falls through to NODE_ENV",
+    "deploymentLane() passes an unrecognised Railway environment name through unchanged",
+    "isProductionLane() is false on staging even though staging sets NODE_ENV=production",
+    "isProductionLane() is true on the production Railway lane when NODE_ENV is unset",
+    "requiresProductionConfig() is true on the production Railway lane when NODE_ENV is unset",
+    "requiresProductionConfig() is true on staging so staging keeps the enforcement it has today",
+    "requiresProductionConfig() is true for a local NODE_ENV=production run with no Railway variable",
+    "requiresProductionConfig() is false for a local run with NODE_ENV=test and no Railway variable",
+    "deploymentLaneFields() reports the resolved lane and names RAILWAY_ENVIRONMENT_NAME as the source when the Railway variable wins",
+    "deploymentLaneFields() names NODE_ENV as the source when no Railway variable is present",
+    "assertAlertSinkEnv() requires SENTRY_DSN on the production Railway lane when NODE_ENV is unset",
+    "assertAdminNotificationEmail() requires ADMIN_NOTIFICATION_EMAIL on the production Railway lane when NODE_ENV is unset",
+    "assertProductionMockModeEnv() rejects MOCK_EXTERNAL_APIS=true on the production Railway lane when NODE_ENV is unset",
+    "assertCoreInfraEnv() does not honour the mock-mode skip on a deployed lane",
+    "assertStripeWorkerEnv() does not honour the mock-mode skip on a deployed lane",
+    "assertZernioPublishingEnv() rejects an http WORKER_PUBLIC_URL on the production Railway lane when NODE_ENV is unset",
+    "assertAlertSinkEnv() names the resolved lane and its source in the failure message",
+    "getAccountOffboardingPurgeWindowOverrideMs() still honours the override on the staging lane so staging dry-runs keep working",
+    "getAccountOffboardingPurgeWindowOverrideMs() returns null on the production Railway lane when NODE_ENV is unset",
+    "static-policy flags a NODE_ENV === 'production' comparison added under worker/",
+    "static-policy allows the Fastify log-level NODE_ENV read in worker/index.ts"
+  ],
+
+  "verification_commands": [
+    "pnpm test src/lib/config/__tests__/deployment-lane.test.ts",
+    "pnpm test worker/config/__tests__/startup-assertion.test.ts",
+    "pnpm test worker/background/pollers/__tests__/AccountOffboardingPurgePoller.test.ts",
+    "pnpm test scripts/ci/__tests__/static-policy-audit.test.ts",
+    "pnpm ci:static-policy",
+    "pnpm ci:process-env"
+  ],
+
+  "estimated_diff_size": "+460 / -30 (~490 changed lines) across 16 files; revised up from the step-0 estimate of ±250 after grilling added the CI rule, the boot-log/error-message observability, and the two extra call sites",
+
+  "dependencies_added": [],
+
+  "rollback_plan": "No schema, no migration, no flag, no Railway write — revert the commit. The only external side effect is the Sentry cron-monitor environment cutover: reverting re-tags staging check-ins as 'production', which the pre-existing monitor environment still accepts, so the monitor self-heals. If the staging worker fails to boot after deploy, the [startup] error names the resolved lane and its source; redeploy the previous Railway deployment per docs/runbooks/rollback.md.",
+
+  "observability": [
+    "[boot] 'Worker listening' log carries deployment_lane and lane_source — the success proof, read from Railway deploy logs.",
+    "Every production-lane assert failure names the resolved lane and the variable it came from — the failure proof, available even when SENTRY_DSN is the thing missing.",
+    "Sentry events from the staging worker carry environment: 'staging' — the independent third proof, and the direct fix for #610.",
+    "The health-alert-poller cron monitor grows a 'staging' environment receiving check-ins; the stale 'production' environment is deleted as a runbook step after the deploy is verified.",
+    "Regression signal: ci:static-policy fails if a hand-spelled NODE_ENV lane check reappears under worker/."
+  ],
+
+  "open_questions": []
+}
