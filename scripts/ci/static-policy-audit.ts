@@ -24,6 +24,9 @@ import { SQL_TAG_NAMES } from './lib/sql-tag-scan';
  *    §  — A SqlExecutor-typed parameter that tags SQL templates must be named
  *         something scripts/ci/lib/sql-tag-scan.ts recognises, or the four SQL
  *         vocabulary audits silently scan nothing (#592).
+ *    §  — Worker code must not read NODE_ENV to decide which deployment lane it
+ *         is on; the lane owner is src/lib/config/deployment-lane.ts (#611,
+ *         ADR 0013). See scanWorkerNodeEnvReads for the exact scope.
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -67,7 +70,8 @@ export type PolicyRule =
   | 'legacy-subscription-tier'
   | 'inline-feature-flag'
   | 'railway-replicas'
-  | 'sql-executor-tag-name';
+  | 'sql-executor-tag-name'
+  | 'worker-node-env-read';
 
 export interface PolicyFinding {
   file: string;
@@ -699,11 +703,144 @@ export function scanSqlExecutorTagNames(file: string, text: string): PolicyFindi
   return findings;
 }
 
+const NODE_ENV = 'NODE_ENV';
+
+// The one sanctioned exemption to the rule below. This poller's read is a
+// production-only guard on a destructive purge-window override; migrating it to
+// the deployment-lane owner is tracked by #614. Delete this entry — and the read
+// it protects — when #614 lands; nothing else may be added here.
+const NODE_ENV_READ_EXEMPT_FILES: ReadonlySet<string> = new Set([
+  'worker/background/pollers/AccountOffboardingPurgePoller.ts',
+]);
+
+const NODE_ENV_READ_DETAIL =
+  'worker code must not ask NODE_ENV which deployment lane it is on (#611, ADR ' +
+  '0013): production Railway leaves it unset and staging sets it to production, ' +
+  'so the answer is wrong on at least one lane. Use requiresProductionConfig() / ' +
+  'deploymentLane() from src/lib/config/deployment-lane.ts.';
+
+/** `process.env` — dot form, or the `process['env']` bracket spelling. */
+function isProcessEnvExpression(node: ts.Node): boolean {
+  if (ts.isPropertyAccessExpression(node)) {
+    return ts.isIdentifier(node.expression)
+      && node.expression.text === 'process'
+      && node.name.text === 'env';
+  }
+  if (ts.isElementAccessExpression(node)) {
+    return ts.isIdentifier(node.expression)
+      && node.expression.text === 'process'
+      && ts.isStringLiteralLike(node.argumentExpression)
+      && node.argumentExpression.text === 'env';
+  }
+  return false;
+}
+
+/** The expression an object binding pattern destructures, if it has one. */
+function bindingPatternInitializer(node: ts.ObjectBindingPattern): ts.Expression | undefined {
+  const parent = node.parent;
+  if (ts.isVariableDeclaration(parent) || ts.isParameter(parent) || ts.isBindingElement(parent)) {
+    return parent.initializer;
+  }
+  return undefined;
+}
+
+/** The SOURCE property a binding element reads — `propertyName` when renamed. */
+function bindingElementKey(element: ts.BindingElement): string | undefined {
+  const key = element.propertyName ?? element.name;
+  if (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) return key.text;
+  if (ts.isComputedPropertyName(key) && ts.isStringLiteralLike(key.expression)) {
+    return key.expression.text;
+  }
+  return undefined;
+}
+
+/**
+ * Ban the statically identifiable READ of NODE_ENV under `worker/` (#611).
+ *
+ * Banning the read rather than enumerating `=== 'production'` comparison shapes
+ * is both simpler and strictly stronger: this audit scans each file
+ * independently with no symbol resolution, so
+ * `export const runtimeMode = process.env.NODE_ENV` in one worker file plus
+ * `if (runtimeMode === 'production')` in another would evade any
+ * comparison-shaped rule. If the read cannot exist, neither can the export.
+ *
+ * AST rather than a line scan is what makes the no-false-positive requirement
+ * satisfiable: comments are trivia and never become nodes, and a bare string is
+ * not a `process.env` member-access subtree — so a NODE_ENV mention in prose or
+ * an error message is excluded structurally, not by pattern-matching.
+ *
+ * Scope of the guarantee, stated honestly. "Statically identifiable" covers
+ * property access, bracket access with a string literal, template-literal
+ * access, and destructuring (including renamed and computed-string keys). It
+ * does NOT cover a dynamic key (`const k = 'NODE_ENV'; process.env[k]`) or a
+ * whole-object alias (`const env = process.env; env.NODE_ENV`) — neither is
+ * decidable without symbol resolution this audit does not have. Rejecting ALL
+ * dynamic `process.env[…]` access is not an option: worker/config/startup-assert.ts
+ * legitimately iterates required-variable NAME LISTS that way, so a bracket read
+ * is flagged only when its key is a literal resolving to NODE_ENV.
+ *
+ * `src/**` is deliberately out of scope: cookies, the logger, impersonation and
+ * destructive-auth branch on NODE_ENV for genuine dev-vs-prod runtime behaviour
+ * and would each need a judgement-call allowlist entry. ADR 0013 records that as
+ * a decision, not an oversight.
+ */
+export function scanWorkerNodeEnvReads(file: string, text: string): PolicyFinding[] {
+  const normalized = normalize(file);
+  if (!/^worker[/\\]/.test(normalized)) return [];
+  if (NODE_ENV_READ_EXEMPT_FILES.has(normalized)) return [];
+
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const findings: PolicyFinding[] = [];
+  const flag = (position: number, form: string): void => {
+    findings.push({
+      file,
+      line: lineOf(source, position),
+      rule: 'worker-node-env-read',
+      detail: `${form} — ${NODE_ENV_READ_DETAIL}`,
+    });
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node)
+      && node.name.text === NODE_ENV
+      && isProcessEnvExpression(node.expression)
+    ) {
+      flag(node.name.getStart(source), 'process.env.NODE_ENV');
+    } else if (
+      ts.isElementAccessExpression(node)
+      && isProcessEnvExpression(node.expression)
+      && ts.isStringLiteralLike(node.argumentExpression)
+      && node.argumentExpression.text === NODE_ENV
+    ) {
+      flag(node.argumentExpression.getStart(source), 'bracket read of NODE_ENV on process.env');
+    } else if (ts.isObjectBindingPattern(node)) {
+      const initializer = bindingPatternInitializer(node);
+      if (initializer !== undefined && isProcessEnvExpression(initializer)) {
+        for (const element of node.elements) {
+          if (bindingElementKey(element) !== NODE_ENV) continue;
+          flag(element.getStart(source), 'NODE_ENV destructured off process.env');
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
   const findings: PolicyFinding[] = [
     ...scanLegacySubscriptionTiers(file, text),
     ...scanSqlExecutorTagNames(file, text),
+    ...scanWorkerNodeEnvReads(file, text),
   ];
   const lines = text.split('\n');
   const isClientComponent = isClientComponentFile(text);
