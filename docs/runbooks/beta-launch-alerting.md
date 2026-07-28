@@ -156,16 +156,31 @@ reports its real lane.
   UI. It cannot be removed from code; it is monitor state, not an env var. Leaving
   it in place means the monitor keeps a `production` environment that will never
   check in again and will therefore page forever on missed check-ins.
-- [ ] **Expect exactly one transient missed check-in** in the gap between the last
-  `production`-labelled check-in and the deletion. It is an artifact of the
-  relabelling, **not a real alert** — do not treat it as a worker-death signal.
-  If missed check-ins continue after the deletion, that IS real: work §2's
+- [ ] **Expect a CONTINUOUS stream of missed check-ins until you delete it — not
+  one.** An earlier draft of this runbook said "exactly one transient missed
+  check-in"; that was wrong, and the live deploy on 2026-07-28 disproved it. The
+  stale `production` environment does not decay: nothing will *ever* check in
+  under that label again, so the monitor records a fresh **missed** check-in every
+  poll interval, indefinitely. Measured on the staging deploy: the `production`
+  environment flipped to `error` and logged **8 missed check-ins in the first
+  hour**, still climbing, while `staging` sat at `ok` throughout.
+
+  So the missed check-ins are an artifact of the relabelling and **not** a
+  worker-death signal — but they will keep firing until the environment is
+  deleted, and they will drown a real dead-man-switch alert while they do. Delete
+  promptly rather than waiting it out. If missed check-ins continue on the
+  **`staging`** environment after the deletion, that IS real: work §2's
   dead-man-switch path.
 
-> Do the same on production when the change is promoted. Production's monitor
-> environment was never *written* from production (the worker had no successful
-> deploy), so there may be nothing stale to delete there — confirm rather than
-> assume.
+> **Production needs no cleanup — as of 2026-07-28 there is nothing there to
+> clean.** This monitor lives in the `repworth-staging` Sentry project, which is
+> the only project in the org; there is no production Sentry project, and the
+> production worker has never successfully deployed. The stale `production`
+> *environment* on this monitor was written entirely by the **staging** worker
+> mislabelling itself (#610) — no production process ever wrote it. When
+> production is genuinely stood up (see `deployment-guide.md` §5.2, which is a
+> provisioning job before it is a config job), it gets its own project and its own
+> monitor, and this step does not repeat. Confirm rather than assume.
 
 ## 3. Monitored admin inbox
 

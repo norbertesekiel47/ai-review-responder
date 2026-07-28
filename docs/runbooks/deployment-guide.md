@@ -32,7 +32,27 @@ is the canonical env-var list (overrides any inline list here).
   "two Upstash instances" and is the fix for the egress bill. Why, plus the IPv6
   `family: 0` code prerequisite: **§1.4**.
 
-## Current cloud state (verified 2026-05-29)
+## Current cloud state (verified 2026-07-28)
+
+**Staging is the only environment that actually runs.** Everything below from
+2026-05-29 describes the pre-staging world and is kept for the reasoning, not as
+current fact.
+
+| | Staging | Production |
+|---|---|---|
+| Railway worker | `repworth-worker` **Online**, `repworth-worker-staging.up.railway.app` | `repworth-worker` **Offline** — never successfully deployed |
+| Railway Redis (queue) | `redis` **Online** (private net, `?family=0`) | **none provisioned** |
+| Worker env vars | full set | 35 vars, **missing** `SENTRY_DSN`, `ADMIN_NOTIFICATION_EMAIL`, `REDIS_QUEUE_URL`, `STRIPE_WEBHOOK_SECRET` |
+| `NODE_ENV` | `production` (yes, really — see ADR 0013) | **unset** |
+| `RAILWAY_ENVIRONMENT_NAME` | `staging` | `production` |
+| Sentry project | `repworth-staging` | **none** — only one project exists org-wide |
+| Sentry cron monitor | `health-alert-poller`, environment `staging`, ok | n/a |
+
+**Consequence:** production is still a from-scratch stand-up, and it is a
+*provisioning* job before it is a configuration job — see the dependency table in
+§5.2 before touching variables. Prove everything on staging first, then clone.
+
+## Historical cloud state (verified 2026-05-29)
 
 - **Vercel — live.** Project `rep-worth` serves `https://repworth.net` (custom
   domain, Node 24). **Preview deployments already fire automatically** on every
@@ -502,6 +522,22 @@ Paste the entire block. Adjust values to match what you provisioned in §1.
 > but it means a prod deploy attempted with today's variable set fails at boot.
 >
 > `RAILWAY_ENVIRONMENT_NAME` itself needs no action: Railway injects it.
+>
+> **Two of the four cannot simply be "set" — the thing they point at does not
+> exist yet** (verified against Railway and Sentry, 2026-07-28). Treating this as
+> a four-variable config task will fail. The real dependency order:
+>
+> | # | Provision first | Then it yields | Who |
+> |---|---|---|---|
+> | 1 | A **production Sentry project**. Only `repworth-staging` exists today, so there is no correct DSN to paste — pointing prod at the staging project files production errors under a project named "staging". | `SENTRY_DSN` | you (team/alert routing is a judgement call) |
+> | 2 | A **Redis service in the Railway `production` environment**. That env currently contains **only** `repworth-worker` (Offline) and **no database at all**; staging has `redis`. `REDIS_QUEUE_URL` is a Railway *reference* (`${{redis.…}}`), so with no `redis` service the reference cannot resolve. Delete its TCP proxy (private-net only) and keep **`?family=0`** — the Railway private network is IPv6-only and ioredis silently fails to connect without it. | `REDIS_QUEUE_URL` | provisioning step, incurs cost |
+> | 3 | A **production Stripe webhook endpoint** pointed at the prod worker's `/ingress/stripe`. The signing secret is shown once, at creation. **Do not copy staging's** — a wrong secret fails signature verification silently. Keep the endpoint's API version in lockstep with the pinned `apiVersion` in `stripe-client.ts`. | `STRIPE_WEBHOOK_SECRET` | you (Stripe dashboard) |
+> | 4 | A decision about who receives production alerts. | `ADMIN_NOTIFICATION_EMAIL` | you |
+>
+> Only after 1–4 does setting the variables and deploying make sense. The boot
+> gates then either pass or fail loudly naming the missing variable **and its
+> resolved lane** — which is the whole point of #611. Before this change a prod
+> worker could start half-configured with paging silently inert.
 
 **Database + Redis:** (split per §1.4 — queue on Railway private net, cache on Upstash)
 ```
