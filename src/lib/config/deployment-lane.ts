@@ -29,6 +29,10 @@
 // one-way (worker/ imports src/lib/, never the reverse — invariant #1). It is
 // its own file rather than part of flags.ts, which owns boolean *_ENABLED
 // feature flags; a deployment lane is not a feature flag.
+//
+// Full rationale, the rejected alternatives, and the per-site safety property
+// this migration had to satisfy: docs/adr/0013-deployment-lane-resolution.md.
+// The ADR is the owner of that reasoning — keep it there, not here.
 
 /**
  * Just the two variables this module reads. Narrower than `NodeJS.ProcessEnv`
@@ -55,7 +59,19 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
 }
 
 /** Which variable the lane was read from. Undefined when neither was set. */
-type LaneSource = 'RAILWAY_ENVIRONMENT_NAME' | 'NODE_ENV';
+export type LaneSource = 'RAILWAY_ENVIRONMENT_NAME' | 'NODE_ENV';
+
+/**
+ * The log/tag shape `deploymentLaneFields()` returns. Declared rather than
+ * widened to `Record<string, string>` so `lane_source`'s absence survives into
+ * the type: callers that branch on it (`startup-assert.ts`'s `laneProof`) get a
+ * compiler-checked `undefined` case, and a key rename breaks the build instead
+ * of silently producing a proof line that names no source.
+ */
+export interface DeploymentLaneFields {
+  deployment_lane: string;
+  lane_source?: LaneSource;
+}
 
 /**
  * The one place the precedence rule is stated. Both `deploymentLane` and
@@ -105,9 +121,9 @@ export function requiresProductionConfig(
  */
 export function deploymentLaneFields(
   env: DeploymentLaneEnv = platformLaneEnv(),
-): Record<string, string> {
+): DeploymentLaneFields {
   const { lane, source } = resolveLane(env);
-  const fields: Record<string, string> = { deployment_lane: lane };
+  const fields: DeploymentLaneFields = { deployment_lane: lane };
   if (source) fields.lane_source = source;
   return fields;
 }

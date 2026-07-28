@@ -178,6 +178,60 @@ migrated site count is exactly the 12 the plan specified — no unplanned featur
 work landed. The code overrun above estimate is tests being more thorough than
 projected (T1's suite alone is ~270 lines).
 
+### D19 — step 6 dual review: Spec clean, Standards clean of hard violations
+
+Standards axis: **0 hard violations**, 4 judgement calls. It independently
+confirmed invariants #1, #13 and #15 hold, and that `src/lib/shared/logger.ts`
+is reached only by server route handlers — so the `process.env` read it gained
+never enters a client bundle.
+
+Spec axis: **0 findings**. Independently confirmed the purge poller is
+byte-for-byte unchanged, all 12 mapped sites migrated, precedence and union not
+collapsed, and every production-lane test uses the real #611 configuration
+(`NODE_ENV` deleted, `RAILWAY_ENVIRONMENT_NAME='production'`) rather than
+`NODE_ENV='production'`, which would have passed against the old code.
+
+Of the 4 judgement calls, two were accepted and two declined:
+
+- **Accepted:** the module header restated ADR 0013's reasoning without citing
+  it — the one touched artefact that did not trace back. Header now points at
+  the ADR and says the ADR owns that reasoning.
+- **Accepted, but see D20:** `deploymentLaneFields()`'s return type narrowed
+  from `Record<string, string>` to a declared `DeploymentLaneFields`.
+- **Declined:** the boot log carrying the same Railway value under both
+  `railway_environment` (from the pre-existing `replicaIdentityFields`) and
+  `deployment_lane`. The two are semantically different — raw variable versus
+  resolved lane — and `replica-identity.ts` is outside this change's scope.
+- **Declined:** renaming `buildFastifyOptions`' `productionConfigRequired`
+  parameter to `quietLogging`. The plan asked for the parameter to name "the
+  decision it now carries", which is exactly `productionConfigRequired`;
+  `quietLogging` would leak Fastify's local concern into the caller's
+  vocabulary.
+
+### D20 — a review finding was accepted on a rationale that turned out to be false
+
+The Standards axis argued the `Record<string, string>` return type made
+`laneProof`'s `!source` branch **invisible to the compiler**, because `source`
+would type as plain `string`.
+
+**That was wrong, and it was verified after the fact rather than taken on
+trust.** This repo sets `noUncheckedIndexedAccess: true` (`tsconfig.json:8`), so
+destructuring a `Record<string, string>` already yields `string | undefined`. A
+probe compiling `const s: string = oldSource` under the project's own flags
+errors with `TS2322` — proving the branch was always compiler-visible. There was
+no type hole.
+
+The narrowing to a declared `DeploymentLaneFields` interface was **kept anyway**,
+on two smaller but genuine grounds that the review did not state:
+
+1. `lane_source` is now typed as the `LaneSource` union rather than bare
+   `string`, so an invalid source value fails to compile.
+2. A key rename now breaks the build; under `Record<string, string>` a renamed
+   `deployment_lane` would have silently produced `undefined`.
+
+Recorded because the reasoning matters more than the diff: the change is right,
+the argument originally given for it was not.
+
 ## T2 (`52997537`)
 
 ### D14 — the ticket set up a contradiction; the implementer dissolved it
