@@ -3,8 +3,10 @@
  *
  * Preparation establishes exact outbox ownership and an attributable parent
  * run. Construction then completion-CASes that same attempt before taking the
- * batch and per-Business locks, evaluates one bounded accumulated-pool window,
- * and commits every authoritative ask plus its run graph as one unit.
+ * per-Business advisory lock and, under it, the batch row lock — that order is
+ * a global contract, documented on `acquireSolicitationBatchLock` — evaluates
+ * one bounded accumulated-pool window, and commits every authoritative ask
+ * plus its run graph as one unit.
  *
  * No contact PII is copied into evidence, run JSONB, results, or logs.
  */
@@ -165,6 +167,34 @@ async function evaluateBatchGate(
     account.subscription_status,
     isProcessingBlocked(offboardingState),
   );
+}
+
+/**
+ * THE owner of the `solicitation_batch_<businessId>` advisory key: its
+ * derivation, its `pg_advisory_xact_lock(hashtext(…))` wrapping, and its place
+ * in the lock order below. Deliberately a different namespace from
+ * `csv_ingest_<businessId>` (src/lib/solicitation/ingest.ts) — a second
+ * derivation of either key is how a lock silently stops contending while still
+ * looking taken (#582).
+ *
+ * GLOBAL LOCK ORDER — this advisory lock FIRST, then row locks. Both holders
+ * obey it: batch construction takes it before the `solicitation_batches` row
+ * lock, and the offboarding content purge takes it (per business, ordered by
+ * id) before the deletes that row-lock those same batches. Taking the batch
+ * row lock first and this key second is an ABBA deadlock against the purge.
+ *
+ * TRANSACTION-SCOPED: `pg_advisory_xact_lock` releases at COMMIT/ROLLBACK, so
+ * it protects only work inside `tx`. It CANNOT span a provider call — a send
+ * worker that renders in one transaction, calls the provider, and records the
+ * result in another holds nothing across that call, so this lock does not
+ * close the dispatch-versus-purge race. That needs a durable claim (#630);
+ * see docs/adr/0014-send-mode-spine-lifecycle.md.
+ */
+export async function acquireSolicitationBatchLock(
+  tx: TransactionSql,
+  businessId: string,
+): Promise<void> {
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`solicitation_batch_${businessId}`}))`;
 }
 
 async function deleteUnbuiltBatch(
@@ -586,6 +616,13 @@ async function constructBatch(
     const ownsAttempt = await completeOwnedAttempt(tx, input);
     if (!ownsAttempt) return { status: 'stale' };
 
+    // Advisory BEFORE the batch row lock, never after: the offboarding content
+    // purge holds this same key and then row-locks these batches, so the
+    // reverse order here would be an ABBA deadlock against it. The CAS above
+    // stays the first statement — it takes a job_outbox row lock no purge
+    // stage holds this key across.
+    await acquireSolicitationBatchLock(tx, preparation.businessId);
+
     const [batch] = await tx<ConstructionBatchRow[]>`
       SELECT
         sb.id,
@@ -600,13 +637,6 @@ async function constructBatch(
     `;
     if (!batch) return { status: 'missing' };
     if (batch.built_at !== null) return { status: 'already_built' };
-
-    // This namespace is intentionally distinct from csv_ingest_<business>.
-    await tx`
-      SELECT pg_advisory_xact_lock(
-        hashtext(${`solicitation_batch_${batch.business_id}`})
-      )
-    `;
 
     const accountId = batch.account_id;
     const businessId = batch.business_id;

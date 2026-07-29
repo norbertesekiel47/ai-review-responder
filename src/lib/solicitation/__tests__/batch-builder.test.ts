@@ -1,4 +1,6 @@
-import type { Sql } from 'postgres';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import type { Sql, TransactionSql } from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_DATA_ROWS } from '../contacts-csv';
 
@@ -44,7 +46,10 @@ vi.mock('@/lib/account-offboarding/gate', () => ({
   isProcessingBlocked: mocks.isProcessingBlocked,
 }));
 
-import { buildSolicitationBatch } from '../batch-builder';
+import {
+  acquireSolicitationBatchLock,
+  buildSolicitationBatch,
+} from '../batch-builder';
 
 beforeEach(() => {
   resetMockSql();
@@ -135,13 +140,14 @@ describe('solicitation batch candidate loader', () => {
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
       mkTaggedResult([]),
+      // Construction: the advisory lock is issued BEFORE the batch row lock.
+      mkTaggedResult([]),
       mkTaggedResult([{
         id: 'batch-1',
         account_id: 'account-1',
         business_id: 'business-1',
         built_at: null,
       }]),
-      mkTaggedResult([]),
       mkTaggedResult([{ subscription_status: 'active' }]),
       mkTaggedResult([{ id: 'batch-1' }]),
     );
@@ -288,13 +294,14 @@ describe('solicitation batch candidate loader', () => {
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
       mkTaggedResult([]),
+      // Construction: the advisory lock is issued BEFORE the batch row lock.
+      mkTaggedResult([]),
       mkTaggedResult([{
         id: 'batch-1',
         account_id: 'account-1',
         business_id: 'business-1',
         built_at: null,
       }]),
-      mkTaggedResult([]),
       mkTaggedResult([{ subscription_status: 'cancelled' }]),
       mkTaggedResult([{ id: 'batch-1' }]),
     );
@@ -396,6 +403,8 @@ describe('solicitation batch candidate loader', () => {
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
       mkTaggedResult([]),
+      // Construction: the advisory lock is issued BEFORE the batch row lock.
+      mkTaggedResult([]),
       mkTaggedResult([{
         id: 'batch-1',
         account_id: 'account-1',
@@ -403,7 +412,6 @@ describe('solicitation batch candidate loader', () => {
         built_at: null,
         category: 'automotive',
       }]),
-      mkTaggedResult([]),
       mkTaggedResult([{ subscription_status: 'active' }]),
       mkTaggedResult([{ category: 'automotive' }]),
       mkTaggedResult([{
@@ -525,5 +533,113 @@ describe('solicitation batch candidate loader', () => {
         },
       },
     );
+  });
+});
+
+// The solicitation_batch lane's source roots. The advisory-lock KEY may be
+// built in exactly one file; every other holder goes through
+// acquireSolicitationBatchLock, which also owns the hashtext wrapping and the
+// advisory-before-row-locks rule. Mirrors the csv_ingest guard in
+// ingest.test.ts — #582's lesson is that two derivations is how a lock
+// silently stops contending while still looking taken.
+const LOCK_LANE_ROOTS = ['src/lib', 'worker'];
+// Only a reconstruction of the key counts: the prefix either terminates a
+// string literal (`'solicitation_batch_' || business_id`) or is followed by an
+// interpolation. Prose (`solicitation_batch_<business>`) is deliberately out.
+const BATCH_LOCK_KEY_CONSTRUCTION = /solicitation_batch_(\$\{|['"`])/;
+
+function* walkLockLaneSources(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__') continue;
+      yield* walkLockLaneSources(join(dir, entry.name));
+    } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+      yield join(dir, entry.name);
+    }
+  }
+}
+
+function filesBuildingTheBatchLockKey(): string[] {
+  const files: string[] = [];
+  for (const root of LOCK_LANE_ROOTS) {
+    for (const filePath of walkLockLaneSources(join(process.cwd(), root))) {
+      if (BATCH_LOCK_KEY_CONSTRUCTION.test(readFileSync(filePath, 'utf-8'))) {
+        files.push(relative(process.cwd(), filePath).split('\\').join('/'));
+      }
+    }
+  }
+  return files.sort();
+}
+
+describe('solicitation_batch advisory lock', () => {
+  it('acquireSolicitationBatchLock is the single owner of the solicitation_batch advisory-lock key', async () => {
+    await acquireSolicitationBatchLock(
+      mockSql as unknown as TransactionSql,
+      'business-1',
+    );
+
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]!.text).toContain('pg_advisory_xact_lock');
+    expect(sqlCalls[0]!.text).toContain('hashtext');
+    // Key VALUE pinned: changing it would silently stop serializing against
+    // the offboarding purge, which takes the same key.
+    expect(sqlCalls[0]!.values).toEqual(['solicitation_batch_business-1']);
+    expect(filesBuildingTheBatchLockKey()).toEqual([
+      'src/lib/solicitation/batch-builder.ts',
+    ]);
+  });
+
+  it('constructBatch takes the advisory lock before the batch row lock', async () => {
+    sqlReturnQueue.push(
+      // preparation
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([]),
+      // construction: advisory lock, then the batch row lock
+      mkTaggedResult([]),
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([{ category: 'automotive' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ pool_count: 0 }]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toMatchObject({ status: 'built' });
+
+    const advisoryIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('pg_advisory_xact_lock'),
+    );
+    const batchRowLockIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('FROM solicitation_batches sb')
+      && call.text.includes('FOR UPDATE OF sb')
+      && call.values.includes('account-1'),
+    );
+    expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+    expect(batchRowLockIndex).toBeGreaterThanOrEqual(0);
+    // Global order: advisory first, then row locks. The reverse is an ABBA
+    // deadlock against the offboarding purge, which holds this key across the
+    // deletes that row-lock these same batches.
+    expect(advisoryIndex).toBeLessThan(batchRowLockIndex);
+    expect(sqlCalls[advisoryIndex]!.values).toEqual([
+      'solicitation_batch_business-1',
+    ]);
   });
 });

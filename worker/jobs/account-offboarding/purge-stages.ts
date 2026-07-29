@@ -8,6 +8,7 @@ import {
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
+import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
 import {
   deleteByBusiness,
@@ -256,14 +257,31 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     //
     // Waiting here is the intended behaviour: an ingest holds its lock across a
     // <=5,000-row transaction, so the purge blocks for at most that long.
+    //
+    // The same argument, and the same shape, apply to the solicitation_batch
+    // lock (#624 T8): batch construction holds it across the transaction that
+    // row-locks and builds a batch, and this stage's DELETE of
+    // contact_csv_uploads cascades into solicitation_batches — taking row locks
+    // on the very rows construction is mutating, and transitively removing
+    // solicitation_asks and (migration 091) solicitation_outreach, whose
+    // batch_id/account_id/business_id FK is ON DELETE CASCADE. No DELETE of its
+    // own for either child table; the cascade is the sweep.
+    //
+    // GLOBAL LOCK ORDER — advisory first, then row locks. This loop is the
+    // "advisory first" half for both keys; batch construction obeys the same
+    // order from the other side (acquireSolicitationBatchLock's docstring owns
+    // the contract). Reversing either side is an ABBA deadlock.
     const businesses = await tx<{ id: string }[]>`
       SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid ORDER BY id
     `;
     // Sequential by necessity — one transaction connection — and ordered by id
-    // so two purges touching a shared business can never deadlock.
+    // so two purges touching a shared business can never deadlock. Both keys
+    // are taken per business in one pass, always csv_ingest then
+    // solicitation_batch, so two purges cannot invert them either.
     // react-doctor-disable-next-line react-doctor/async-parallel
     for (const business of businesses) {
       await acquireCsvIngestLock(tx, business.id);
+      await acquireSolicitationBatchLock(tx, business.id);
     }
 
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
@@ -276,7 +294,8 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     // Contacts CSV ingestion + batch persistence (migrations 086/088):
     // deleting the account-scoped upload rows CASCADEs to solicitation_contacts
     // and solicitation_batches; contacts transitively remove visits, while
-    // batches transitively remove solicitation_asks. Visits also cascade through
+    // batches transitively remove solicitation_asks and, since migration 091,
+    // solicitation_outreach. Visits also cascade through
     // their own upload_id FK and through the composite
     // solicitation_visits_contact_business_fk on solicitation_contacts(id,
     // business_id), so no separate DELETE is needed for any child table.
