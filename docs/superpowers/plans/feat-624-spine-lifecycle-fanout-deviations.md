@@ -380,3 +380,43 @@ rollback restores the bootstrap stub exactly.
 sibling live-DB suite can observe the in-transaction `auth.uid()`. The
 assertion is meaningful in both directions: it proves the clean row IS visible
 and the `moderation_high` withheld row is NOT — a vacuous deny would fail it.
+
+## 2026-07-29 — T2: only ONE of the two malformed gap-analysis references is inside Appendix A
+
+**What happened.** T2 is told to fix "the two malformed nested-backtick
+references to the gap analysis that Appendix A carries". The malformed pattern
+
+```
+`docs/research/2026-07-28-send-mode-executor-gap.md (branch `research/send-mode-executor-gap`)`
+```
+
+occurs **twice in the spec file**, but only once inside Appendix A:
+
+- `2026-07-28-send-mode-executor-approval-design.md:1238` — inside Appendix A.
+  **Fixed** in the extracted ADR (`docs/adr/0014-send-mode-spine-lifecycle.md`)
+  as `` `…-gap.md` (branch `research/send-mode-executor-gap`) ``.
+- `2026-07-28-send-mode-executor-approval-design.md:13` — the spec's own opening
+  paragraph, **outside** Appendix A. Not fixed: the executor-approval spec is not
+  on T2's allowed edit surface (ADR 0014, the amendments doc, `CONTEXT.md`, this
+  file), and a docs-only task must not silently widen its surface.
+
+**Follow-up owed.** A one-line cosmetic fix to line 13 of
+`docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md`, same
+shape as the ADR's. It renders wrong today — the nesting splits the path across
+two code spans — but no semantic content is affected.
+
+## 2026-07-29 — T2 added a SECOND ADR 0014 consequences bullet, for the purge/lock contract
+
+**What happened.** The T2 brief names one Consequences bullet to add (the revised
+G10). B11 as specified, however, asserts that *"ADR 0014 records that an
+in-flight send must be visible to purge in committed state"* — and Appendix A
+carries no such statement, so writing B11 verbatim would have cited a record that
+does not exist.
+
+**What T2 did.** Added that bullet to ADR 0014 as well, grounded in the plan's own
+T8 resolution (`plan:571-587`), which explicitly assigns that record to ADR 0014.
+It states the transaction-scope limit of `pg_advisory_xact_lock` across a provider
+call, the committed-`sending` visibility requirement, the advisory-before-row
+ordering, and that closing the race is #630's obligation under B11. No new
+semantics — it is the same contract T8 and B11 already state, written where B11
+points.
