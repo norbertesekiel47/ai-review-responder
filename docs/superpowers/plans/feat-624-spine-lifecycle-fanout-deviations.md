@@ -554,3 +554,37 @@ construction, not by luck: `build_failed` attributes the *build* run
 `solicitation_send_batch`), so `parentErrorCode` can never observe it — and a
 batch that failed to build has no send parent at all, which the
 `no_send_parent` guard catches first.
+
+## 2026-07-29 — T1 never registered `solicitation_outreach` in `TENANT_TABLES`; T6 found it
+
+**What happened.** T6 could not land the `tenant-scope-allowlist.ts` entry its own
+brief mandates, because `solicitation_outreach` is absent from `TENANT_TABLES`
+(`scripts/ci/tenant-tables.ts`) while both its siblings — `solicitation_batches`
+and `solicitation_asks` — are present.
+
+**Why that is worse than a missing entry.** `findUnusedAllowlistEntries` only
+marks an entry used when its table is in `TENANT_TABLES`, so adding the entry
+alone makes `ci:tenant-scope` fail with *"unused tenant scope allowlist entry"* —
+proved empirically. More importantly, both `ci:tenant-scope` and `ci:rls-audit`
+derive their coverage from that list, so **since T1 landed, every audit run has
+passed vacuously over the new table**: the gate was green about a table it was
+not looking at.
+
+**This is the exact failure the round-1 plan gate caught.** Finding 6 required
+"register the table in `scripts/ci/tenant-tables.ts`", the plan assigns it to T1
+(`plan.md:261`), and the risk table asserts *"Registered in `TENANT_TABLES` in
+T1; `ci:tenant-scope` + `ci:rls-audit` are in the gate's verification commands,
+and now actually cover it"* (`plan.md:622`). T1 shipped without it and its
+verification run reported those audits clean — which they were, over nothing.
+
+**Resolution.** Both files are on the feature's declared `allowed_edit_surface`,
+so this is closing declared scope, not widening it. Landed in T6's task: the
+`TENANT_TABLES` registration, the ArchivalPoller allowlist entry, and the
+`ALLOWLIST_BASELINE` 407 → 408 bump, in one commit — with a negative check
+(remove the entry, confirm the audit goes red) proving the coverage is real
+rather than nominal.
+
+**The generalizable lesson.** "Audit passes" is not evidence that an audit
+*covers* the thing under test. A registration-driven audit needs a negative
+control — remove the exemption, watch it fail — before its green is worth
+anything. T1's verification list ran both audits and learned nothing from them.
