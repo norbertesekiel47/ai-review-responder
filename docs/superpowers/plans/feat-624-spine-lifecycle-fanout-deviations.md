@@ -588,3 +588,58 @@ rather than nominal.
 *covers* the thing under test. A registration-driven audit needs a negative
 control — remove the exemption, watch it fail — before its green is worth
 anything. T1's verification list ran both audits and learned nothing from them.
+
+## 2026-07-29 — T7 ships `checkStalledSendBatches(sql)`, not the planned `(sql, cfg)`
+
+**What the plan says.** `checkStalledSendBatches(sql, cfg)` returning a
+`HealthFinding | null`.
+
+**What shipped.** `checkStalledSendBatches(sql)`. The threshold is owned by
+`stalledThresholdMsForKind` (T4), not by `HealthAlertConfig`, so `cfg` would have
+been an unused parameter. Making it env-tunable instead would require a new
+`HEALTH_ALERT_*` key in `src/lib/config/worker.ts` plus a registry entry in
+`.claude/reference/env-vars.md` — both outside T7's edit surface, and neither
+asked for.
+
+**Why it is the right call, not just the cheap one.** This check is the only one
+in the registry whose threshold is a **construction bound** rather than an ops
+dial: a send batch is bounded at ≤10 days by the 7-day approval window plus the
+72-hour send window, and 11 days is one day past that. There is no operational
+reason to tune it — a different value would mean the bound itself changed, which
+is a code change. If we ever do want it tunable, the default must still be
+sourced from `stalledThresholdMsForKind` so the 11-day number keeps one owner.
+
+**Accepted by the orchestrator:** an unused parameter carried only to satisfy a
+signature written in prose is worse than the deviation.
+
+## 2026-07-29 — T7's first pass proved the finding's shape but not that the predicate matches a row
+
+**What happened.** T7 landed with mock-`sql` coverage only, and flagged it
+itself: the suite proved the `HealthFinding` shape, the null cases, the
+shared-constant sourcing and the single-row bound — but not that
+`kind = 'solicitation_send_batch' AND status = 'running'` matches anything a real
+writer produces.
+
+**Why that gap mattered more than usual.** Every literal in that predicate is
+vocabulary introduced by this same ticket — the kind came from T3, the
+`agent_runs` status set was widened in T1 — and a mocked `sql` accepts a typo'd
+kind or an unreachable status literal without complaint. The failure mode is
+**silence**: a health check whose predicate matches nothing is indistinguishable
+from a healthy system, and nobody notices an alert that never fires until the
+incident it existed to catch. That is the same "silent no-op dressed as a running
+poller" hazard the plan names for T6's sweep, with more consequence because this
+one is the alerting path.
+
+**Resolution.** The existing live-DB `checks.integration.test.ts` was extended to
+seed a real send-batch run **through the spine writer** (`startOrGetSolicitation
+BatchRun`) rather than a hand-rolled INSERT — so the test also proves the kind the
+predicate matches is the kind the writer actually emits, which is exactly what a
+mock cannot tell you. Age is seeded in SQL (`NOW() - make_interval(...)`), never
+by round-tripping a JS `Date`.
+
+**The generalizable lesson, and it is the second instance in this ticket.** A
+green check is not evidence of coverage. T1's audits passed over a table that was
+not registered; T7's mock suite passed over a predicate that had never met a row.
+Both were caught only by a negative control — break the thing, watch the test go
+red. Treat "did I prove this fails when it should?" as part of done, not as extra
+credit.
