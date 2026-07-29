@@ -29,11 +29,13 @@ import {
   checkOwnerUnreachable,
   checkBacklogDepth,
   checkFailedInboundEvents,
+  checkStalledSendBatches,
   runHealthChecks,
   type HealthAlertConfig,
 } from '../checks';
 import { resetWorkerConfigForTests } from '../../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../../src/lib/shared/queue-names';
+import { stalledThresholdMsForKind } from '../../../../../src/lib/agents/read';
 
 const CFG: HealthAlertConfig = {
   pendingAgeThresholdS: 900,
@@ -261,10 +263,65 @@ describe('health-alert checks', () => {
     });
   });
 
+  describe('checkStalledSendBatches', () => {
+    const RUN_ID = '00000000-0000-7000-8000-0000000000aa';
+
+    it('checkStalledSendBatches reports a solicitation_send_batch still running past 11 days', async () => {
+      sqlReturnQueue.push([{ count: 2, oldest_run_id: RUN_ID, oldest_age_s: 1_040_000 }]);
+
+      const finding = await checkStalledSendBatches(mockSql);
+
+      expect(finding?.key).toBe('solicitation_send_batch_stalled');
+      expect(finding?.level).toBe('error');
+      // Detail is run id + age only — never contact/review content (no PII).
+      expect(finding?.detail).toEqual({
+        count: 2,
+        oldest_run_id: RUN_ID,
+        oldest_age_s: 1_040_000,
+        threshold_s: 11 * 24 * 60 * 60,
+      });
+    });
+
+    it('returns null when every send batch is still inside the 11-day threshold', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_run_id: null, oldest_age_s: null }]);
+      expect(await checkStalledSendBatches(mockSql)).toBeNull();
+    });
+
+    it('returns null when the aggregate row is missing entirely', async () => {
+      sqlReturnQueue.push([]);
+      expect(await checkStalledSendBatches(mockSql)).toBeNull();
+    });
+
+    it('sources its threshold from stalledThresholdMsForKind, not a re-spelled literal', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_run_id: null, oldest_age_s: null }]);
+
+      await checkStalledSendBatches(mockSql);
+
+      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('FROM agent_runs');
+      expect(queryText).toContain("status = 'running'");
+      expect(values).toContain('solicitation_send_batch');
+      // The interpolated interval is the shared constant, expressed in seconds.
+      expect(values).toContain(stalledThresholdMsForKind('solicitation_send_batch') / 1000);
+    });
+
+    it('bounds the probe to a single aggregate row — no unbounded row set', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_run_id: null, oldest_age_s: null }]);
+
+      await checkStalledSendBatches(mockSql);
+
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('COUNT(*)::int AS count');
+      expect(queryText).not.toContain('GROUP BY');
+    });
+  });
+
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
   // Sequential dispatch order: failedByTopic, oldestPending, staleDispatching,
-  // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents, backlogDepth
-  // — push a queue entry per check in that order.
+  // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents,
+  // stalledSendBatches, backlogDepth — push a queue entry per check in that order.
   function pushQuietChecksBeforeBacklog(): void {
     sqlReturnQueue.push([]);              // failedByTopic → []
     sqlReturnQueue.push([{ age: null }]); // oldestPending → null
@@ -273,6 +330,7 @@ describe('health-alert checks', () => {
     sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
     sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
     sqlReturnQueue.push([]);              // failedInboundEvents → []
+    sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
   }
 
   describe('backlog-depth threshold config', () => {
@@ -296,7 +354,8 @@ describe('health-alert checks', () => {
     it('aggregates findings across all checks (env defaults)', async () => {
       // Order matches sequential dispatch order in runHealthChecks:
       // failedByTopic, oldestPending, staleDispatching, openFlagged,
-      // zeroDelivery, ownerUnreachable, failedInboundEvents, backlogDepth
+      // zeroDelivery, ownerUnreachable, failedInboundEvents,
+      // stalledSendBatches, backlogDepth
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
       sqlReturnQueue.push([{ count: 0 }]);                             // stale → null
@@ -304,6 +363,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
       sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
+      sqlReturnQueue.push([{ count: 1, oldest_run_id: '00000000-0000-7000-8000-0000000000bb', oldest_age_s: 1_000_000 }]); // stalled send batch → finding
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
       const findings = await runHealthChecks(mockSql);
@@ -313,13 +373,14 @@ describe('health-alert checks', () => {
         'flagged_open_backlog',
         'inbound_events_failed:stripe:invoice.paid',
         'outbox_failed:publish_response',
+        'solicitation_send_batch_stalled',
       ]);
     });
 
     // F-medium regression: a backlog-count failure (checkBacklogDepth uses
     // sql.begin) must NOT reject Promise.all and swallow the critical findings.
     it('isolates a backlog-check failure: other findings survive, failure becomes a warning', async () => {
-      // First six checks (dispatch order) drain the queue synchronously; the
+      // The core checks (dispatch order) drain the queue synchronously; the
       // backlog check's sql.begin rejects (as it would under the DB pressure it
       // detects) and consumes no queue entry.
       sqlReturnQueue.push([]);              // failedByTopic → []
@@ -329,6 +390,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);  // zeroDelivery → null
       sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
       sqlReturnQueue.push([]);              // failedInboundEvents → []
+      sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
       mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
 
       const findings = await runHealthChecks(mockSql);
@@ -393,8 +455,8 @@ describe('health-alert checks', () => {
 
     // One queue entry per tagged-template QUERY, in sequential dispatch order:
     // failedByTopic, oldestPending, staleDispatching, openFlagged, zeroDelivery,
-    // ownerUnreachable, failedInboundEvents, then backlogDepth's inner SELECT (its
-    // SET LOCAL via .unsafe consumes none).
+    // ownerUnreachable, failedInboundEvents, stalledSendBatches, then
+    // backlogDepth's inner SELECT (its SET LOCAL via .unsafe consumes none).
     function quietRows(): unknown[] {
       return [
         [], // failedByTopic → []
@@ -404,6 +466,7 @@ describe('health-alert checks', () => {
         [{ count: 0 }], // zeroDelivery → null
         [{ count: 0 }], // ownerUnreachable → null
         [], // failedInboundEvents → []
+        [{ count: 0 }], // stalledSendBatches → null
         [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
       ];
     }
