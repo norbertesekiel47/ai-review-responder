@@ -12,7 +12,7 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 0 Classify | done — RISK=high, surface=mixed, db_touching=true |
 | 1 Grill | done — 10 forks locked (G1–G10), intake signed off, `open_questions: []` |
 | 2 Setup | done — worktree armed, no cross-worktree surface overlap |
-| 3 Plan | written; **gate round 1 CLOSED (REVISE), plan revised, round 2 IN FLIGHT** |
+| 3 Plan | written; **rounds 1 and 2 CLOSED (both REVISE), plan revised twice, round 3 IN FLIGHT — the LAST allowed round** |
 | 4 Execute | not started — no code written, tree is docs-only |
 
 `.feature/state.json` phase is still `worktree_ready`, **not** `plan_approved`: round 2 has
@@ -34,13 +34,54 @@ Eight findings were independently re-verified against the worktree before being 
 because a review's citations are hints and not facts. All eight held. The plan's
 "Verified facts" section now carries those six new rows with their own citations.
 
-## Round 2 — in flight when the session ended
+## Round 2 is also done — `VERDICT: REVISE`, 11 findings, all accepted
 
-Dispatched as a detached `codex exec --sandbox read-only` against the revised plan.
+Verbatim: `docs/reviews/feat-624-spine-lifecycle-fanout/plan-gate-codex-round2.md`.
+Folded in at commit `fc4d533e`. 4 High / 6 Medium / 1 Low.
 
-- Prompt: `<scratchpad>/codex-round2-prompt.txt`
-- Live output: `<scratchpad>/codex-round2-out.txt`
+**Round 2 cleared every round-1 fix**, naming the riskiest explicitly: the `constructBatch`
+lock-order flip preserves the ownership CAS and removes the ABBA edge. `IS TRUE` mechanics,
+widened `deriveRunDisplayState`, `STEP_PERSONA`, the no-parent guard, the bounded archival CTE,
+attempt uniqueness and lifecycle pairings all check out.
+
+The four that mattered most:
+- **`sent` is terminal but takes no reason** (`executor-design:377`). The plan conflated
+  "terminal" with "reason-bearing", and the intake promised a test that **could not pass**
+  against the intended CHECK. Both corrected; a positive `sent`-takes-NULL test added.
+- **The veto widening loosened a live lane** — global `(15,30,60)` would let a `reply` row
+  store 60, which `074:54` pins to `(15,30)`. The pairing CHECK now fixes action class *and*
+  window per persona.
+- **The redaction index was inverted** — Postgres B-trees index NULL keys, so
+  `WHERE body_redacted_at IS NULL` alone holds every never-sent row forever. Needs
+  `sent_at IS NOT NULL`.
+- **`closeBatchIfSettled` was not idempotent** — `appendRunStep` always appends
+  (`run-spine.ts:294`), so writing the step before the CAS let a second caller add a duplicate
+  receipt. All writes now gate on the winning `send_closed_at` CAS.
+
+**The procedural lesson, which applies to how round 1 was handled:** a rationale in the plan
+**cannot amend a binding spec**. G1's deferral contradicts the §1066 checklist and the round-1
+answer merely argued for it in a lower-precedence doc. It now ships as an amendment. Same
+class of error produced the `B8` label collision.
+
+## Round 3 — in flight when the session ended, and it is the LAST round
+
+Dispatched as a detached `codex exec --sandbox read-only` against the twice-revised plan.
+
+- Prompt: `<scratchpad>/codex-round3-prompt.txt`
+- Live output: `<scratchpad>/codex-round3-out.txt`
 - Codex session logs live under `~/.codex/sessions/2026/07/29/`
+
+**If round 3 returns `REVISE`, do NOT start a round 4.** The rule is to stop and surface the
+disagreement to the map owner — with a recommendation on each surviving finding, not just the
+list. Round 3 was told it is the final round and asked to distinguish defects from stylistic
+or speculative objections.
+
+Round 3 was pointed at the likeliest self-inflicted wounds: whether pinning `reply` to
+`(15,30)` **rejects a row that exists in production today** (i.e. is the constraint safe to
+apply, or does it need a data check first — this is the one that could block the migration),
+whether the CAS-first reordering breaks the no-send-parent guard or the settled-predicate
+ordering, the new FK indexes, and whether B9/B10/B11 are internally consistent against the
+binding doc's existing content.
 
 **On resume, first check whether it finished** — the round-1 lesson is that these complete
 after the session does. Look for a trailing `VERDICT:` line in the out-file, or find the
@@ -67,7 +108,15 @@ only then begin T1.
 
 ## Owner decisions taken this session — do NOT re-litigate
 
-Three round-1 findings landed on ground the owner had already locked. All three resolved:
+**From round 2** — the dispatch-vs-purge race (finding 4). D6d's real race is purge during a
+**live send**, and the send worker's provider call sits between two transactions where no
+`pg_advisory_xact_lock` holds. #624 builds no send worker and cannot close it. **Decision:
+#624 defines the contract, #630 is bound to it** — the helper is documented as
+transaction-scoped with the trap named at the helper, ADR 0014 records that an in-flight send
+must be visible to purge in *committed state*, and amendment **B11** makes it #630's
+obligation. Explicitly out of scope for #624; do not let a subagent build it.
+
+**From round 1** — three findings landed on ground the owner had already locked. All resolved:
 
 - **G10 overruled (finding 7).** The original decision shipped `stalledThresholdMsForKind`
   unwired. Binding D15b (`executor-design:797`) requires `deriveRunDisplayState` itself to be
@@ -87,9 +136,20 @@ Three round-1 findings landed on ground the owner had already locked. All three 
 G1–G9 otherwise stand as locked. G1 now carries an explicit reconciliation note against
 executor-spec §1066 so the deferred `QUEUE_NAMES`/helper is tracked debt, not an omission.
 
-## The four revisions most likely to matter during execution
+## The revisions most likely to matter during execution
 
 Full detail is in the plan; these are the ones a subagent could silently get wrong.
+
+- **`sent` is terminal AND takes a NULL reason.** "Terminal" and "reason-bearing" are
+  different partitions. Reason-bearing is `withheld|cancelled|failed|unknown`; NULL-reason is
+  `rendered|queued|sending|sent`.
+- **Pin the veto window per persona**, not globally — `reply` stays `(15,30)`.
+- **Gate every `closeBatchIfSettled` write on the `send_closed_at` CAS**, because
+  `appendRunStep` always appends.
+- **Two queries need `tenant-scope-allowlist.ts` entries** (T6's redaction sweep, T7's health
+  query). The audit matches SQL text **exactly**, so the entry and the query must be edited in
+  lockstep — this is a live tripwire, not a one-time chore.
+- **Amendments are B9/B10/B11**; `B8` exists. B9 must also edit §D's consequences list.
 
 - **Lock order is the whole risk in T8.** One global order: **advisory lock first, then row
   locks.** The advisory lock **stays in `constructBatch`** — `prepareBatch` is a *separate*
@@ -141,8 +201,9 @@ bash scripts/arm-check.sh          # any DISARMED output ⇒ STOP and report
 ## Step 5 gate expectations
 
 `bash scripts/verify-gate.sh` (and `--review` for the final pass). The `promised-tests` row
-stays red until all **40** titles exist verbatim. The intake's `verification_commands` are now
-the authoritative list (14 entries) and include `pnpm typecheck` and `pnpm build`.
+stays red until all **48** titles exist verbatim. The intake's `verification_commands` are now
+the authoritative list (18 entries) and include `pnpm typecheck`, `pnpm build`,
+`ci:db-imports`, `ci:feature-surface`, `ci:live-db-suites` and `ci:outbox-seam`.
 
 ## Ship lane
 
