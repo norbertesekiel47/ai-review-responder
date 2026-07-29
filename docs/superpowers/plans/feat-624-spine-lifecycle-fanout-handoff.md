@@ -12,8 +12,37 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 0 Classify | done — RISK=high, surface=mixed, db_touching=true |
 | 1 Grill | done — 10 forks locked (G1–G10), intake signed off, `open_questions: []` |
 | 2 Setup | done — worktree armed, no cross-worktree surface overlap |
-| 3 Plan | written; **rounds 1 and 2 CLOSED (both REVISE), plan revised twice, round 3 IN FLIGHT — the LAST allowed round** |
-| 4 Execute | not started — no code written, tree is docs-only |
+| 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
+| 4 Execute | **IN PROGRESS — T1 partially done.** Migration 091 written, applied and verified. |
+
+## Execution state — read this before touching anything
+
+`.feature/state.json` phase is **`plan_approved`**. Code now exists; this is no
+longer a docs-only tree.
+
+**T1 done so far** (commit `bac7340f`):
+- `supabase/migrations/091_send_mode_spine_lifecycle.sql` — all seven parts.
+  Applies cleanly through the full local sequence (bootstrap + 001…091).
+- `.claude/reference/migrations-log.md` — head 090 → 091, the full 091 entry, and
+  a `solicitation_outreach` retention row.
+
+**T1 remaining:**
+- `src/lib/shared/__tests__/helpers/schema-ready.ts` — add 091's migration→objects
+  map entry. Without it the live-DB suites cannot assert schema readiness.
+- `src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts` —
+  the shape suite, promised titles 1–16. It is a **migration-shape** suite, so it
+  must hold `acquireLiveDbLock` *and* roll back any unconditional re-apply, per
+  the #573 convention.
+
+Then T2 → T8. T2 and T1 can run in parallel; everything else waits on T1.
+
+**Verification already banked** (do not redo, but do encode as tests):
+- Frozen constraints confirmed by introspection: `agent_runs_terminal_consistency`
+  and `agent_runs_one_active_per_subject` still 071's;
+  `agent_outcomes_unit_count_check` still 088's; `agent_runs_status_check` widened.
+- The `auto_approval_policies` pairing CHECK rejects `reply+60`, `reply+sending`,
+  `solicitation+15`; accepts `reply/posting/30`, `solicitation/sending/60`.
+- The `IS TRUE` totality fix was proved empirically on the test DB.
 
 `.feature/state.json` phase is still `worktree_ready`, **not** `plan_approved`: round 2 has
 not returned a verdict, and even an `APPROVED` needs owner sign-off before the phase moves.
@@ -63,7 +92,26 @@ The four that mattered most:
 answer merely argued for it in a lower-precedence doc. It now ships as an amendment. Same
 class of error produced the `B8` label collision.
 
-## Round 3 — in flight when the session ended, and it is the LAST round
+## Round 3 — CLOSED, `VERDICT: REVISE`, all 6 findings folded in
+
+Verbatim: `docs/reviews/feat-624-spine-lifecycle-fanout/plan-gate-codex-round3.md`.
+Folded in at `3e920a6b`. **The owner then closed the gate** rather than spending a
+fourth round — convergence was clear (20 → 11 → 6; High 13 → 4 → 2) and no finding
+was disputed. Remaining review budget goes to the step-7 dual review of real code.
+
+Two round-3 findings corrected **round-2 edits of mine**, which is the pattern to
+watch if anyone reopens this:
+- `closeBatchIfSettled` takes `{batchId, accountId, businessId}`. Round 2's answer
+  ("it locks the batch row first, so it has the ids") fails because *that lock
+  query is itself unscoped* and `solicitation_batches` is audited.
+- `(business_id, queued_at)` was wrongly dropped in round 2. B3 removes the default
+  *constant*; D19/D20's two-level cap survives via location-override rows.
+
+Round 3 also settled the migration-safety question as a **proof**: 074 already pins
+`persona='reply'`, `action_class='posting'`, `veto_window_minutes IN (15,30)`, so
+the new reply arm cannot reject an existing row. No pre-flight data check needed.
+
+## Superseded — how round 3 was dispatched (kept for the recovery recipe)
 
 Dispatched as a detached `codex exec --sandbox read-only` against the twice-revised plan.
 
@@ -180,6 +228,19 @@ bash scripts/arm-check.sh          # any DISARMED output ⇒ STOP and report
 ```
 
 `/feature-resume` re-runs the arm check itself; do it manually only if resuming another way.
+
+## Two things carried out of #624 that are NOT #624's to fix
+
+- **Migration 088 has a live NULL hole.** `solicitation_asks_status_reason_consistency`
+  admits `('withhold', NULL)` — that arm evaluates to NULL and `FALSE OR NULL` is
+  NULL, which a CHECK accepts. Proved empirically against the test DB while
+  writing 091. 091 is immune (`IS TRUE` throughout); the asks table is not.
+  Pre-existing, deliberately out of scope, worth its own ticket. Flagged to the
+  owner; no decision taken.
+- **`.env.local` declares `TEST_DATABASE_POOL_URL` twice** — once empty, once set.
+  It resolved correctly here, but a mis-resolution makes live-DB suites skip
+  silently, and a skipped integration row means the step-5 gate is not
+  review-ready. Clean up before the gate.
 
 ## Reminders that bit during planning
 
