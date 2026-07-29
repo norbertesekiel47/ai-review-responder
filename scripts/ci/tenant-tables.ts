@@ -34,6 +34,11 @@ export const TENANT_TABLES = [
   // partial/failed logical fan-out never becomes owner-visible.
   'solicitation_batches',
   'solicitation_asks',
+  // Owner-read-only RLS (migration 091, #624 send-mode artifact table) — the
+  // owner SELECT policy carries the D6a moderation carve-out. Carries
+  // account_id/business_id; the ArchivalPoller body-redaction sweep is
+  // deliberately cross-tenant and is exempted in tenant-scope-allowlist.ts.
+  'solicitation_outreach',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints
