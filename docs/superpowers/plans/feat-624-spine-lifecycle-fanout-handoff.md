@@ -13,7 +13,25 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 1 Grill | done — 10 forks locked (G1–G10), intake signed off, `open_questions: []` |
 | 2 Setup | done — worktree armed, no cross-worktree surface overlap |
 | 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
-| 4 Execute | **IN PROGRESS — T1 and T2 DONE.** T3–T8 remain. |
+| 4 Execute | **IN PROGRESS — T1, T2, T3, T4 DONE.** T5–T8 remain. |
+
+## Task ledger (update this row when a task lands)
+
+| Task | Commit | State |
+|---|---|---|
+| T1 migration 091 + schema-ready + log | `bac7340f`, `b9ad24a6`, `186f8c1b` | **done** — all four defects closed |
+| T2 ADR 0014 + CONTEXT.md glossary | `4c91b352` | **done** |
+| T3 run-spine lifecycle + lazy child seam | `8a015ac7` | **done** — titles 17–19 |
+| T4 cancelled display state + kind threshold | `f17d4398` | **done** — titles 20–22 |
+| T5 `src/lib/solicitation/outreach.ts` | — | **next** — titles 23–28 |
+| T6 ArchivalPoller body redaction | — | pending |
+| T7 HealthAlertPoller stalled-send-batch | — | pending |
+| T8 offboarding purge lock extraction | — | pending |
+
+T5–T8 are unblocked (their only blockers were T1 and T3). **T5 carries the two
+`tenant-scope-allowlist.ts` tripwires' sibling risk** — read the plan's T5 block in
+full before writing it; four separate review rounds corrected that function's
+signature, write ordering and disposition derivation.
 
 ## Status at 2026-07-29 resume #2 — T1 IS COMPLETE, all four defects closed
 
