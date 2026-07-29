@@ -16,6 +16,7 @@ import {
   personaForStep,
   startOrGetActiveRun,
   startOrGetSolicitationBatchRun,
+  startOrGetSolicitationAskRun,
   findActiveReviewRun,
   recordCompletedChildRuns,
   recordStep,
@@ -36,21 +37,22 @@ describe('run-spine constants', () => {
     ]);
   });
 
-  it('run kinds match migration 088 CHECK', () => {
+  it('run kinds match migration 091 CHECK', () => {
     expect(AGENT_RUN_KINDS).toEqual([
       'review_handler',
       'weekly_insights',
       'solicitation_batch',
       'solicitation_ask',
+      'solicitation_send_batch',
     ]);
   });
 
-  it('outcome kinds match the migration 088 CHECK', () => {
+  it('outcome kinds match the migration 091 CHECK', () => {
     expect(AGENT_OUTCOME_KINDS).toEqual([
       'reply_drafted', 'reply_posted', 'reply_auto_posted',
       'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
       'review_escalated', 'escalation_resolved', 'digest_sent',
-      'solicitation_batch_built',
+      'solicitation_batch_built', 'solicitation_sent', 'review_attributed',
     ]);
   });
 });
@@ -76,6 +78,7 @@ describe('persona map', () => {
     expect(personaForStep('digest_sent')).toBe('insights');
     expect(personaForStep('ask_evaluated')).toBe('solicitation');
     expect(personaForStep('batch_built')).toBe('solicitation');
+    expect(personaForStep('send_batch_closed')).toBe('solicitation');
   });
 });
 
@@ -209,6 +212,42 @@ describe('startOrGetSolicitationBatchRun', () => {
     expect(insert.values).toContain('solicitation_batch');
     expect(insert.values).toContain('batch-1');
     expect(insert.values).toContain('correlation-1');
+  });
+});
+
+describe('startOrGetSolicitationAskRun', () => {
+  let harness: MockSqlHarness;
+  beforeEach(() => { harness = createMockSql(); });
+
+  it('startOrGetSolicitationAskRun requires business_id and parent_run_id and reuses the running child on conflict', async () => {
+    // Conflict path: the INSERT returns nothing, the lookup returns the live child.
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'ask-run-1' }]));
+
+    const out = await startOrGetSolicitationAskRun(tx(harness), {
+      askId: 'ask-1',
+      accountId: 'account-1',
+      businessId: 'business-1',
+      parentRunId: 'send-batch-run-1',
+    });
+
+    expect(out).toEqual({ runId: 'ask-run-1', created: false });
+
+    const insert = harness.sqlCalls[0]!;
+    expect(insert.text).toContain('INSERT INTO agent_runs');
+    expect(insert.values).toContain('solicitation_ask');
+    expect(insert.values).toContain('ask-1');
+    // business_id and parent_run_id are required by the input type, so neither
+    // can arrive as the null the generic seam's optional fields would allow.
+    // Asserted by position — correlation_id IS legitimately null here, and a
+    // bare "no nulls anywhere" check would be testing the wrong column.
+    const [, , businessId, , , , correlationId, parentRunId] = insert.values;
+    expect(businessId).toBe('business-1');
+    expect(parentRunId).toBe('send-batch-run-1');
+    expect(correlationId).toBeNull();
+
+    // The reuse lookup is the shared internal one — same active-run predicate.
+    expect(harness.sqlCalls[1]!.text).toContain("status = 'running'");
   });
 });
 
@@ -370,6 +409,23 @@ describe('completeRun', () => {
     await expect(completeRun(tx(harness), 'missing', 'completed'))
       .rejects.toThrow(/run not found/i);
   });
+
+  it('completeRun terminalizes a run as cancelled', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'send-batch-run-1' }]));
+
+    await completeRun(tx(harness), 'send-batch-run-1', 'cancelled', {
+      code: 'halted',
+      halt_reason: 'owner_veto',
+    });
+
+    expect(harness.sqlCalls).toHaveLength(1);
+    const transition = harness.sqlCalls[0]!;
+    expect(transition.values).toContain('cancelled');
+    // Cancelled uses the same running-only CAS as the other two terminals —
+    // it is a third terminal state, not a second mechanism.
+    expect(transition.text).toContain("status = 'running'");
+    expect(transition.text).toContain('ended_at = NOW()');
+  });
 });
 
 describe('completeSolicitationBatchRun', () => {
@@ -452,6 +508,26 @@ describe('failSolicitationBatchRun', () => {
     expect(transition.values).toContainEqual({
       code: 'gate_closed',
       gate: 'account_offboarding_blocked',
+    });
+  });
+
+  it('failSolicitationBatchRun accepts the generation_failed failure code', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: 'send-batch-run-1' }]));
+
+    await failSolicitationBatchRun(tx(harness), {
+      runId: 'send-batch-run-1',
+      failure: { code: 'generation_failed', failedCount: 3, withheldCount: 2 },
+    });
+
+    const transition = harness.sqlCalls[0]!;
+    expect(transition.values).toContain('failed');
+    // The two counts survive into the error jsonb: one disposition, but
+    // "every render threw" and "every render was withheld" are different
+    // operational stories and only these keys tell them apart.
+    expect(transition.values).toContainEqual({
+      code: 'generation_failed',
+      failed_count: 3,
+      withheld_count: 2,
     });
   });
 });

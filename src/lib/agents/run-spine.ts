@@ -39,13 +39,14 @@ export const AGENT_RUN_KINDS = [
   'weekly_insights',
   'solicitation_batch',
   'solicitation_ask',
+  'solicitation_send_batch',
 ] as const;
 
 export const AGENT_OUTCOME_KINDS = [
   'reply_drafted', 'reply_posted', 'reply_auto_posted',
   'reply_approved_no_edit', 'reply_edited_by_owner', 'reply_vetoed_by_owner',
   'review_escalated', 'escalation_resolved', 'digest_sent',
-  'solicitation_batch_built',
+  'solicitation_batch_built', 'solicitation_sent', 'review_attributed',
 ] as const;
 export type AgentOutcomeKind = (typeof AGENT_OUTCOME_KINDS)[number];
 
@@ -65,6 +66,7 @@ export const STEP_PERSONA = {
   digest_sent: 'insights',
   ask_evaluated: 'solicitation',
   batch_built: 'solicitation',
+  send_batch_closed: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;
@@ -82,15 +84,18 @@ interface StartRunBase {
 }
 
 // Discriminated on kind so the DB's agent_runs_kind_subject_type_pairing
-// CHECK (migration 071) is unrepresentable to violate in TS: review_handler
-// only pairs with a 'review' subject, weekly_insights with 'account_week',
-// and each Solicitation kind with its same-named subject type.
+// CHECK (migrations 071/088/091) is unrepresentable to violate in TS:
+// review_handler only pairs with a 'review' subject, weekly_insights with
+// 'account_week', and each Solicitation kind with its same-named subject type —
+// except solicitation_send_batch, which is the send-lane sibling of the
+// solicitation_batch build run and so shares its 'solicitation_batch' subject.
 export type StartRunInput = StartRunBase &
   (
     | { kind: 'review_handler'; subjectType: 'review' }
     | { kind: 'weekly_insights'; subjectType: 'account_week' }
     | { kind: 'solicitation_batch'; subjectType: 'solicitation_batch' }
     | { kind: 'solicitation_ask'; subjectType: 'solicitation_ask' }
+    | { kind: 'solicitation_send_batch'; subjectType: 'solicitation_batch' }
   );
 
 export interface StartRunResult {
@@ -171,6 +176,37 @@ export async function startOrGetSolicitationBatchRun(
     accountId: input.accountId,
     businessId: input.businessId,
     correlationId: input.correlationId,
+  });
+}
+
+export interface StartSolicitationAskRunInput {
+  askId: string;
+  accountId: string;
+  businessId: string;
+  parentRunId: string;
+}
+
+/**
+ * Start or reuse the lazy child run for one Solicitation dispatch attempt.
+ *
+ * Unlike the generic writer, `businessId` and `parentRunId` are both REQUIRED
+ * (G7): a send-mode child is always per-location and always has the send batch
+ * parent above it, so the type refuses to express the orphan and the
+ * account-wide child that the generic seam's optional fields would allow. A
+ * child is created at release, never at build — the spine records work
+ * performed, never work planned.
+ */
+export async function startOrGetSolicitationAskRun(
+  tx: TxClient,
+  input: StartSolicitationAskRunInput,
+): Promise<StartRunResult> {
+  return startOrGetActiveRunInternal(tx, {
+    kind: 'solicitation_ask',
+    subjectType: 'solicitation_ask',
+    subjectId: input.askId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    parentRunId: input.parentRunId,
   });
 }
 
@@ -378,7 +414,7 @@ export async function recordOutcome(tx: TxClient, input: RecordOutcomeInput): Pr
 async function transitionRunToTerminal(
   tx: TxClient,
   runId: string,
-  status: 'completed' | 'failed',
+  status: 'completed' | 'cancelled' | 'failed',
   error?: Record<string, unknown>,
 ): Promise<void> {
   const updated = await tx<{ id: string }[]>`
@@ -406,7 +442,7 @@ async function transitionRunToTerminal(
 export async function completeRun(
   tx: TxClient,
   runId: string,
-  status: 'completed' | 'failed',
+  status: 'completed' | 'cancelled' | 'failed',
   error?: Record<string, unknown>,
 ): Promise<void> {
   await transitionRunToTerminal(tx, runId, status, error);
@@ -467,11 +503,38 @@ export type SolicitationBatchRunFailure =
   | {
       code: 'build_failed';
       errorClass: string;
+    }
+  // D14: every render for the batch failed or was withheld, so nothing is
+  // releasable and the owner has nothing to approve. The two counts are the
+  // only way to tell those causes apart afterwards — one disposition, two
+  // very different operational stories.
+  | {
+      code: 'generation_failed';
+      failedCount: number;
+      withheldCount: number;
     };
 
 export interface FailSolicitationBatchRunInput {
   runId: string;
   failure: SolicitationBatchRunFailure;
+}
+
+/** Closed union → the snake_case shape the agent_runs.error jsonb carries. */
+function failureToError(
+  failure: SolicitationBatchRunFailure,
+): Record<string, unknown> {
+  switch (failure.code) {
+    case 'gate_closed':
+      return failure;
+    case 'build_failed':
+      return { code: failure.code, error_class: failure.errorClass };
+    case 'generation_failed':
+      return {
+        code: failure.code,
+        failed_count: failure.failedCount,
+        withheld_count: failure.withheldCount,
+      };
+  }
 }
 
 /**
@@ -483,11 +546,5 @@ export async function failSolicitationBatchRun(
   tx: TxClient,
   input: FailSolicitationBatchRunInput,
 ): Promise<void> {
-  const error = input.failure.code === 'gate_closed'
-    ? input.failure
-    : {
-        code: input.failure.code,
-        error_class: input.failure.errorClass,
-      };
-  await transitionRunToTerminal(tx, input.runId, 'failed', error);
+  await transitionRunToTerminal(tx, input.runId, 'failed', failureToError(input.failure));
 }
