@@ -19,16 +19,22 @@ This doc references artifacts by path; it does not restate them. Every decision 
 
 | Task | Commit | State |
 |---|---|---|
-| T1 migration 091 + schema-ready + log | `bac7340f`, `b9ad24a6`, `186f8c1b` | code **done** (4 defects closed); **10 promised titles still owed** |
+| T1 migration 091 + schema-ready + log | `bac7340f`, `b9ad24a6`, `186f8c1b`, `140a2889` | **done** — 4 defects closed, 26 titles |
 | T2 ADR 0014 + CONTEXT.md glossary | `4c91b352` | **done** |
-| T3 run-spine lifecycle + lazy child seam | `8a015ac7` | code **done**; **1 promised title owed** |
-| T4 cancelled display state + kind threshold | `f17d4398` | code **done**; **1 promised title owed** |
+| T3 run-spine lifecycle + lazy child seam | `8a015ac7`, `140a2889` | **done** — titles 17–19 |
+| T4 cancelled display state + kind threshold | `f17d4398`, `140a2889` | **done** — titles 20–22 |
 
-> **The first gate run (2026-07-29 11:23) found 12 missing promised titles inside T1/T3/T4** —
-> see the deviations log's top entry. The behaviour is implemented in every case; the titles
-> were folded into neighbouring tests (T3/T4) or predate the round-1 intake re-signing (T1).
-> `promised-tests` cannot go green until all 12 are written verbatim. Gate evidence:
-> `.feature/gate-status.json`, tails in `.feature/logs/`.
+> **Promised titles: 34 of 52.** The 18 remaining are exactly T5–T8's — verify with the
+> snippet below rather than trusting this number, since the intake has moved before:
+> ```
+> python3 -c "import json,os;t=json.load(open('.feature/intake.json'))['tests_to_add'];\
+> f=[os.path.join(r,x) for b in ('src','worker') for r,_,fs in os.walk(b) for x in fs if x.endswith(('.test.ts','.test.tsx'))];\
+> b=''.join(open(p,encoding='utf-8').read() for p in f);\
+> m=[i for i in t if i not in b];print(len(t)-len(m),'/',len(t));[print(' -',i) for i in m]"
+> ```
+> **Run that at the END of every task from here on.** The first gate run found 12 titles
+> missing inside T1/T3/T4 — the behaviour was implemented but the titles were folded into
+> neighbouring tests, which the verbatim matcher cannot see. See the deviations log.
 | T5 `src/lib/solicitation/outreach.ts` | — | **next** — titles 23–28 |
 | T6 ArchivalPoller body redaction | — | pending |
 | T7 HealthAlertPoller stalled-send-batch | — | pending |
