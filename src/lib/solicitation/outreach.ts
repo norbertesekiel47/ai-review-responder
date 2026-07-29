@@ -22,7 +22,16 @@
 import type { TransactionSql } from 'postgres';
 import { completeRun, recordStep } from '@/lib/agents/run-spine';
 
-/** Approval window, anchored on `built_at`. Past it, neither lane may approve. */
+/**
+ * Approval window, anchored on `built_at`. Past it, neither lane may approve.
+ *
+ * Two readers evaluate it — `deriveBatchState` in JS and `closeBatchIfSettled`
+ * in SQL — so both derive the interval from this constant AND spell the same
+ * boundary: the instant `built_at + window` is already expired (`>=` / `<=`).
+ * A boundary that disagreed would let the owner's screen read `expired` while
+ * the join derived `exhausted` and terminalized the parent `completed`, which
+ * the closure CAS then makes permanent.
+ */
 export const BATCH_APPROVAL_WINDOW_DAYS = 7;
 
 /**
@@ -211,10 +220,14 @@ function tallyOutreach(
  * Ordered precedence over explicit sources, highest first. `generation_failed`
  * and `gate_closed` have no batch column: they are read from the failure the
  * lane already recorded on the send parent run (`failSolicitationBatchRun`, so
- * `agent_runs.error->>'code'`), written in the same transaction that calls this
- * function. A mis-derived disposition writes the wrong terminal status on the
- * parent and the closure CAS makes it unrecoverable, so nothing here is guessed
- * from the status tallies.
+ * `agent_runs.error->>'code'`).
+ *
+ * CALLER CONTRACT, and it is ordering-sensitive: the lane must record that
+ * failure BEFORE it calls `closeBatchIfSettled`, in the same transaction.
+ * Recording it afterwards reads as no failure at all — the batch derives
+ * `exhausted` and the parent terminalizes `completed`, i.e. a batch that never
+ * rendered a message is filed as a successful drip. The closure CAS makes that
+ * permanent, which is the whole reason this precedence exists.
  */
 function deriveDisposition(
   batch: BatchClosureRow,
@@ -257,7 +270,7 @@ export async function closeBatchIfSettled(
       (
         approved_at IS NULL
         AND built_at IS NOT NULL
-        AND built_at < NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
+        AND built_at <= NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
       ) AS approval_window_elapsed
     FROM solicitation_batches
     WHERE id = ${input.batchId}::uuid

@@ -20,7 +20,13 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { closeBatchIfSettled, type CloseBatchIfSettledResult } from '../outreach';
+import {
+  BATCH_APPROVAL_WINDOW_DAYS,
+  closeBatchIfSettled,
+  deriveBatchState,
+  type BatchLifecycleRow,
+  type CloseBatchIfSettledResult,
+} from '../outreach';
 
 // Live-DB suite for the send-batch join (#624 T5). Applies NO migration SQL:
 // `pnpm test:db:setup` provisions the schema and this file asserts it with
@@ -494,6 +500,52 @@ describeWithDb(
       });
 
       const result = await close(batchId);
+
+      expect(result).toMatchObject({
+        status: 'closed',
+        disposition: 'expired',
+        parentStatus: 'cancelled',
+      });
+      expect(await readRunStatus(parentRunId)).toBe('cancelled');
+    });
+
+    it('closeBatchIfSettled and deriveBatchState agree at the exact approval-window boundary', async () => {
+      const { batchId, uploadId } = await seedBatch({ builtAgo: '1 hour' });
+      const parentRunId = await seedSendParent({ batchId });
+      await seedOutreach({
+        batchId,
+        uploadId,
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'batch_expired',
+      });
+
+      // NOW() is transaction_timestamp() — fixed for the whole transaction. So
+      // pinning built_at to exactly NOW() - window INSIDE the transaction puts
+      // the row on the boundary instant for the closure query too, which is the
+      // one input that tells a strict comparison apart from an inclusive one.
+      const result = (await sql().begin(async (tx) => {
+        await tx`
+          UPDATE solicitation_batches
+          SET built_at = NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
+          WHERE id = ${batchId}::uuid
+            AND account_id = ${accountId()}::uuid
+            AND business_id = ${businessId}::uuid
+        `;
+        const [row] = await tx<(BatchLifecycleRow & { now: Date })[]>`
+          SELECT built_at, approved_at, veto_deadline_at, sending_started_at,
+                 send_closed_at, halted_at, NOW() AS now
+          FROM solicitation_batches
+          WHERE id = ${batchId}::uuid
+            AND account_id = ${accountId()}::uuid
+            AND business_id = ${businessId}::uuid
+        `;
+        expect(deriveBatchState(row!, row!.now)).toBe('expired');
+        return closeBatchIfSettled(tx, {
+          batchId,
+          accountId: accountId(),
+          businessId,
+        });
+      })) as CloseBatchIfSettledResult;
 
       expect(result).toMatchObject({
         status: 'closed',
