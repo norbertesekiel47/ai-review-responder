@@ -56,7 +56,7 @@ Nine forks were resolved with the map owner. Recorded here because downstream ti
 
 | # | Fork | Decision |
 |---|---|---|
-| G1 | Where the outbox topic constants + typed helpers land | **091 creates the two in-flight indexes only.** `QUEUE_NAMES` entries and `enqueueSolicitationSend`/`enqueueGenerateSolicitationAsks` ship with their producers (#628/#630). Safe because `ci:outbox-topics` does not scan migrations. **Reconciliation with executor spec §1066** (which bundles index+helper+`QUEUE_NAMES` in one step): the spec's checklist assumes one ticket owns topic and producer; here the map splits them across the migration slot and the producers. The index is inert until a producer exists, so the split is safe in the only direction that matters — an index with no writer costs nothing, a writer with no index races. #628/#630 inherit the obligation to add `QUEUE_NAMES` + the typed helper **in the same PR as their first raw insert**, or `ci:outbox-seam` fails them. Recorded here so the deferral is a tracked debt, not an omission. |
+| G1 | Where the outbox topic constants + typed helpers land | **091 creates the two in-flight indexes only.** `QUEUE_NAMES` entries and `enqueueSolicitationSend`/`enqueueGenerateSolicitationAsks` ship with their producers (#628/#630). The index is inert until a producer exists, so the split is safe in the only direction that matters — an index with no writer costs nothing, a writer with no index races. **The binding spec's migration checklist (§1066/§1074) assigns all three to 091/#624, so this decision *deviates from a binding doc* and a rationale in the plan cannot amend it** (round-2 finding 3, which correctly refused the round-1 answer). T2 therefore ships a cross-spec amendment moving the `QUEUE_NAMES`/helper obligation to #628/#630, discharged in the same PR as their first raw insert or `ci:outbox-seam` fails them. Until that amendment lands, the binding doc wins and this row is not authority. |
 | G2 | What a `cancelled` run displays as | **New `RunDisplayState` member `'cancelled'`.** Folding it into `completed` would reintroduce the exact lie D4 exists to prevent. |
 | G3 | Body-presence CHECK vs withheld rows | **Keyed on `delivery_status` too.** A `render_failed`/`moderation_high` withhold never had a body; the literal spec wording would force #628 to synthesize one. |
 | G4 | `deriveBatchState` ownership | **Ships in #624** alongside `closeBatchIfSettled`, in `src/lib/solicitation/outreach.ts`. It is a pure function over columns 091 creates. |
@@ -205,7 +205,15 @@ in this order (FK prerequisites first):
      > disjunction in `IS TRUE` — `CHECK ((… OR … OR …) IS TRUE)` — which is one edit, cannot
      > be forgotten per-arm, and is the same defensive move 090 made with
      > `IS NOT DISTINCT FROM`. The integration suite must assert a NULL reason is rejected
-     > against **every** reason-bearing status, and accepted against all four non-terminal ones.
+     > against every **reason-bearing** status — `withheld`, `cancelled`, `failed`, `unknown` —
+     > and *required* NULL for `rendered`, `queued`, `sending`, **and `sent`**.
+     >
+     > **`sent` is terminal but takes no reason** (round-2 finding 2). The binding terminal set
+     > is `sent, withheld, cancelled, failed, unknown` and the non-terminal set is
+     > `rendered, queued, sending` (`executor-design:377`). "Terminal" and "reason-bearing" are
+     > therefore **not** the same partition, and the earlier wording conflated them — a
+     > successful send has nothing to explain. Any test title phrased "every terminal status"
+     > is wrong and could not pass; the promised titles say **reason-bearing**.
    - body-presence CHECK per **G3**, stated as three exhaustive rules rather than one
      disjunction (round-1 finding 3 — the original wording admitted a `queued` row with both
      bodies NULL and a redaction stamp):
@@ -230,8 +238,17 @@ in this order (FK prerequisites first):
      `queued_at`**, and drops `DEFAULT_DAILY_SEND_CAP_BUSINESS` as a dead knob, leaving a
      single account-wide ceiling (`amendments:90`). A per-business index would serve no
      reviewed query and #630 would need another migration slot to fix it.
-   - `(sent_at) WHERE body_redacted_at IS NULL` — the partial index T6's redaction sweep needs;
-     it stays small because rows leave it permanently once redacted
+   - `(sent_at) WHERE sent_at IS NOT NULL AND body_redacted_at IS NULL` — the partial index
+     T6's redaction sweep needs. **The `sent_at IS NOT NULL` half is load-bearing** (round-2
+     finding 11): Postgres B-trees index NULL keys, so a predicate of only
+     `body_redacted_at IS NULL` would permanently hold every never-sent row — the opposite of
+     small. With both conjuncts, rows enter on send and leave permanently on redaction.
+   - **FK-action support indexes** (round-2 finding 7), following the shapes 088 added for
+     `solicitation_asks` (`088:206`): a business-leading index, a contact-leading index, and
+     `(agent_run_id) WHERE agent_run_id IS NOT NULL`. Without them a cascading business or
+     contact delete, and the agent-run archival sweep, each degrade to a full scan of
+     outreach. Referential-integrity actions do not use the composite tenant FKs' indexes
+     unless the FK's own leading column is covered.
    - RLS: owner SELECT with the D6a moderation carve-out; service role full
    - **register the table in `scripts/ci/tenant-tables.ts`** (round-1 finding 6). Without it
      both `ci:rls-audit` and `ci:tenant-scope` derive zero coverage for the new table and the
@@ -239,13 +256,21 @@ in this order (FK prerequisites first):
      `solicitation_batches`/`solicitation_asks` are already registered.
 6. **`auto_approval_policies`** — widen `persona` with `'solicitation'`, `action_class` with
    `'sending'`, `veto_window_minutes` to `(15,30,60)`; add `daily_send_cap SMALLINT` (`NULL OR
-   1..50`); add D19's cross-persona consistency CHECK. **Widening the two columns independently
-   admits nonsense pairs** — `reply`+`sending` and `solicitation`+`posting` (round-1 finding
-   15). D19's proposed CHECK constrains only the dial columns, so add the pairing explicitly:
-   `(persona='reply' AND action_class='posting') OR (persona='solicitation' AND
-   action_class='sending')`, `IS TRUE`-wrapped. `daily_send_cap` is meaningful only for the
-   solicitation arm; the resolver's platform ceiling of 10 (B3) lives in code, not the CHECK,
-   so the `1..50` column domain stays as spec'd.
+   1..50`); add D19's cross-persona consistency CHECK. **Widening the columns independently
+   admits nonsense rows** — `reply`+`sending`, `solicitation`+`posting` (round-1 finding 15),
+   and `reply`+`60` (round-2 finding 6). D19's proposed CHECK constrains only the dial columns,
+   so make the whole persona row consistent in **one** `IS TRUE`-wrapped CHECK that pins the
+   action class *and* the veto window per persona:
+   - `persona='reply'` ⇒ `action_class='posting' AND veto_window_minutes IN (15,30)` — 074's
+     existing Reply contract (`074:54`), which a bare global widening to `(15,30,60)` would
+     silently loosen for the already-live lane
+   - `persona='solicitation'` ⇒ `action_class='sending' AND veto_window_minutes IN (30,60)`
+     per D20 (`executor-design:975`)
+
+   `daily_send_cap` is meaningful only for the solicitation arm; the resolver's platform
+   ceiling of 10 (B3) lives in code, not the CHECK, so the `1..50` column domain stays as
+   spec'd. The `veto_window_minutes IN (15,30,60)` column CHECK becomes the loose outer bound
+   and the pairing CHECK is what actually constrains each lane.
 7. **`job_outbox`** — the two partial unique in-flight indexes, each spelling
    `status IN ('pending','dispatching','dispatched')` in **members-and-order** per
    `src/lib/shared/job-outbox-status.ts`. Both are keyed `(topic, aggregate_id)`:
@@ -295,11 +320,22 @@ malformed nested-backtick references to the gap analysis that Appendix A carries
 Consequences bullet recording the revised **G10** (D15b wired at its one caller, behaviour
 unchanged for `review_handler`).
 
-Also in T2 — **one cross-spec amendment**, appended to
-`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` as B8: B4's
-`solicitation_unsubscribe_tokens.outreach_id` moves from #624 to **#626**, which owns that
-table's creation. Ticket #630 takes its dependency on #626 accordingly. Amending the binding
-doc rather than silently diverging from it is the point — see the T1 note.
+Also in T2 — **three cross-spec amendments**, appended to
+`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`. **They are B9, B10 and
+B11 — `B8` is already taken** ("Mechanical cross-reference fixes", `amendments:173`; round-2
+finding 8 caught the collision). Amending the binding doc rather than silently diverging from
+it is the whole point: a rationale in this lower-precedence plan cannot amend a binding
+contract.
+
+- **B9 — B4's unsubscribe column moves to #626.** `solicitation_unsubscribe_tokens.outreach_id`
+  goes to the ticket that owns the table's `CREATE TABLE`; #630 depends on #626 for it.
+  **Must also edit §D's consequences list** (`amendments:208-210`), which still assigns
+  `outreach_id` to #624 — leaving it produces two conflicting ownership statements, which is
+  exactly the failure B9 exists to prevent.
+- **B10 — the `QUEUE_NAMES`/typed-helper obligation moves to #628/#630.** §1066/§1074's
+  checklist bundles them with the index into 091; the map splits them. Each producer
+  discharges its half in the PR carrying its first raw insert (G1).
+- **B11 — the dispatch-vs-purge lock contract binds #630.** See T8.
 
 Add a `## Solicitation (send-mode)` section to `CONTEXT.md` defining the terms this ticket
 makes real, extending — not contradicting — the existing watch-mode entries, which already
@@ -369,6 +405,22 @@ New module, `sql`/`tx` as explicit parameters (invariant #15), no `@/lib/db/serv
   batch is a no-op, since `transitionRunToTerminal` already no-ops on a terminal run and
   `send_closed_at` is CAS'd on NULL.
 
+  > **Gate every write on the `send_closed_at` CAS, not just the timestamp** (round-2 finding
+  > 5). The stated order writes the terminal parent step *before* the CAS, and `appendRunStep`
+  > **always appends** (`run-spine.ts:294`) — so a serialized second caller adds a duplicate
+  > `send_batch_closed` receipt even though the timestamp and the terminal transition both
+  > correctly no-op. Idempotency here means "no observable second effect", and a duplicate
+  > step is observable. Do the `UPDATE … SET send_closed_at = NOW() WHERE send_closed_at IS
+  > NULL RETURNING id` **first**; if it returns no row the batch was already closed, so return
+  > without appending. Every subsequent write hangs off that winning CAS.
+  >
+  > **Scope the queries by tenant, not by `batch_id` alone** (round-2 finding 1). Registering
+  > the table in `TENANT_TABLES` activates `ci:tenant-scope`, which requires `account_id`/
+  > `business_id` predicates. `closeBatchIfSettled` already locks the batch row, so it has both
+  > ids in hand — carry them into the outreach count and the update rather than filtering on
+  > `batch_id` only. This is a real scoping improvement, not a lint appeasement: a batch id is
+  > a bare UUID with no tenant proof attached.
+
   > **Guard the zero-outreach case before the settled predicate** (round-1 finding 9).
   > `NOT EXISTS` is **vacuously true** over zero rows, so a batch with no outreach and no send
   > parent would sail through, get counted, stamped `send_closed_at`, and terminalized —
@@ -411,7 +463,18 @@ UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL,
 `ORDER BY sent_at` makes progress monotonic (oldest first), `SKIP LOCKED` keeps it from
 blocking on a row a send worker holds, and the partial index from T1 §5 serves the candidate
 scan. When the count comes back at the cap, log it as **saturated** so a persistent backlog is
-visible rather than inferred. **No new poller**
+visible rather than inferred.
+
+> **This query needs a `tenant-scope-allowlist.ts` entry** (round-2 finding 1). Once
+> `solicitation_outreach` is in `TENANT_TABLES`, `ci:tenant-scope` fails any query without an
+> account/business predicate — and a retention sweep is *deliberately* cross-tenant. Add a
+> `category: 'background-global-scan'` entry with the **exact** SQL snippet (the audit matches
+> exact text, so the entry must be updated in lockstep with any later edit to the query) and a
+> reason in the house idiom, beside the existing `ArchivalPoller`/`api_costs` entry at
+> `tenant-scope-allowlist.ts:627`. Same obligation for T7's health query, which scans
+> `agent_runs` globally by design.
+
+**No new poller**
 (D6c: this map grows the P2 single-replica list by exactly one, and D7 already spent it).
 Emit the redacted row count into the existing cycle log. Never log a body (D6e: string args
 are logged verbatim).
@@ -464,6 +527,26 @@ Covers promised title 31.
 - A **concurrent build-versus-purge** live-DB `*.integration.test.ts` proving the two contend
   rather than deadlock. This is the test that would have caught the original ordering, so it is
   added to the promised titles rather than left implicit.
+
+> **The race D6d actually names is dispatch-vs-purge, and #624 cannot close it** (round-2
+> finding 4). Build-vs-purge is the race #624 *creates* and therefore must fix. But D6d
+> (`executor-design:415`) is about purge running during a **live send**, and the send worker's
+> provider call sits *between* two transactions (`executor-design:548`) — so a
+> `pg_advisory_xact_lock` taken in tx1 is released at its commit, well before the provider
+> call, and holds nothing across the gap. #624 builds no send worker, so it cannot demonstrate
+> or test this.
+>
+> **Resolved with the map owner: #624 defines the contract, #630 is bound to it.** Concretely:
+> - `acquireSolicitationBatchLock` is documented as **transaction-scoped**, with an explicit
+>   warning that it does **not** span a provider call — the trap is named at the helper rather
+>   than left for #630 to rediscover.
+> - ADR 0014 records the required discipline: a send in flight must be visible to purge in
+>   *committed state* (a claim row / `sending` status the purge checks), because no advisory
+>   lock can bridge two transactions. Purge blocks on that state, not on a lock.
+> - **B11** makes this a binding obligation on #630, so the gap has an owner and a paper trail
+>   rather than being inherited silently.
+>
+> Out of scope for #624 by construction — stated here so a subagent does not try to build it.
 - `table-disposition.ts`: add `solicitation_outreach` as
   `hard_delete` / `direct_account_id` / `must_be_absent`.
 - `purge-verification.ts`: add the matching absence query.
