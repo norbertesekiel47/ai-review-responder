@@ -522,3 +522,35 @@ call, the committed-`sending` visibility requirement, the advisory-before-row
 ordering, and that closing the race is #630's obligation under B11. No new
 semantics — it is the same contract T8 and B11 already state, written where B11
 points.
+
+## 2026-07-29 — T5: `generation_failed` / `gate_closed` are read off `agent_runs.error`, which pins a caller ordering
+
+**What happened.** The plan pins `closeBatchIfSettled`'s signature to
+`{batchId, accountId, businessId}` but names the `generation_failed` and
+`gate_closed` disposition sources only as "the batch run's
+`SolicitationBatchRunFailure` arm" and "D6's dispatch gate" — neither of which
+is a `solicitation_batches` column, and neither of which the pinned signature
+carries.
+
+**What T5 did.** Both are arms of the closed `SolicitationBatchRunFailure` union
+(`run-spine.ts:495`), and `failSolicitationBatchRun` is their only writer — it
+persists `{code: …}` to `agent_runs.error`. That makes the send parent's
+`error->>'code'` the single existing owner of the fact, so `closeBatchIfSettled`
+reads it there rather than taking a new parameter. Read in SQL (`->>`), so this
+adds no JSONB field-to-parser site.
+
+**The contract this pins, documented at the function.** The failing lane records
+the failure on the **send parent** run in the same transaction, *before* calling
+`closeBatchIfSettled`. It is correct in both orderings — the `gate_closed` test
+reads the code off a still-running parent and proves the mapping writes `failed`;
+the `generation_failed` test uses an already-terminal parent and proves the
+disposition is still derived correctly while the transition no-ops. **#628/#630
+must honour that ordering**, or their batches close as `exhausted`→`completed`.
+
+**Why the third union arm is safe to ignore.** `build_failed` has no entry in the
+D14 precedence table and falls through to `exhausted`. That is correct by
+construction, not by luck: `build_failed` attributes the *build* run
+(kind `solicitation_batch`), never the send parent (kind
+`solicitation_send_batch`), so `parentErrorCode` can never observe it — and a
+batch that failed to build has no send parent at all, which the
+`no_send_parent` guard catches first.
