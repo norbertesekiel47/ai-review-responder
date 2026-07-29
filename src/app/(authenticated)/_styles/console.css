@@ -656,6 +656,10 @@
 .timeline-run-state--waiting_on_owner { color: var(--rw-blush-deep); background: var(--rw-blush-soft); }
 .timeline-run-state--stalled,
 .timeline-run-state--failed { color: var(--rw-danger); background: var(--rw-danger-soft); }
+/* Cancelled is neither success nor error — a run deliberately stopped (an owner
+   veto, a halted send batch) is not a failure to alarm about. It gets the muted
+   tray treatment rather than joining the sage or terracotta group. */
+.timeline-run-state--cancelled { color: var(--rw-app-text-muted); background: var(--rw-tray); }
 .timeline-steps {
   position: relative;
   display: grid;

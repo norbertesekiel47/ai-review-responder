@@ -4,6 +4,7 @@ import type { EscalationStatus } from '@/lib/escalations/types';
 import type { TriageOutput, TriageSeverity } from '@/lib/reviews/triage-schema';
 import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
 import { dashboardWindowParams, type DashboardWindow } from '@/lib/kpi/types';
+import { AGENT_RUN_KINDS } from './run-spine';
 import type {
   AgentOutcomeKind,
   AgentPersona,
@@ -15,9 +16,27 @@ export type RunDisplayState =
   | 'waiting_on_owner'
   | 'stalled'
   | 'completed'
+  | 'cancelled'
   | 'failed';
 
 const STALLED_RUNNING_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+
+// A send batch is legitimately long-lived: 7-day approval window + 72-hour send
+// window bounds it at 10 days BY CONSTRUCTION, so 11 days is "past a bound that
+// cannot be reached", not a threshold picked by feel. Every other kind keeps the
+// 48-hour default — a review handler running for two days really is stuck.
+export const STALLED_THRESHOLD_SEND_BATCH_DAYS = 11;
+
+const STALLED_THRESHOLD_SEND_BATCH_MS =
+  STALLED_THRESHOLD_SEND_BATCH_DAYS * 24 * 60 * 60 * 1000;
+
+export function stalledThresholdMsForKind(
+  kind: (typeof AGENT_RUN_KINDS)[number],
+): number {
+  return kind === 'solicitation_send_batch'
+    ? STALLED_THRESHOLD_SEND_BATCH_MS
+    : STALLED_RUNNING_THRESHOLD_MS;
+}
 
 export interface ReviewTimelineStep {
   stepIndex: number;
@@ -37,7 +56,7 @@ export interface ReviewTimelineOutcome {
 
 export interface ReviewTimelineRun {
   id: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
   startedAt: string;
   endedAt: string | null;
   error: Record<string, unknown> | null;
@@ -87,7 +106,8 @@ const OWNER_WAITING_RESPONSE_STATUSES = new Set([
 
 export function deriveRunDisplayState(
   run: {
-    status: 'running' | 'completed' | 'failed';
+    status: 'running' | 'completed' | 'cancelled' | 'failed';
+    kind: (typeof AGENT_RUN_KINDS)[number];
     startedAt: Date | string;
   },
   latestResponse: {
@@ -98,11 +118,12 @@ export function deriveRunDisplayState(
   now: Date,
 ): RunDisplayState {
   if (run.status === 'completed') return 'completed';
+  if (run.status === 'cancelled') return 'cancelled';
   if (run.status === 'failed') return 'failed';
   if (latestResponse && OWNER_WAITING_RESPONSE_STATUSES.has(latestResponse.status)) {
     return 'waiting_on_owner';
   }
-  if (now.getTime() - new Date(run.startedAt).getTime() > STALLED_RUNNING_THRESHOLD_MS) {
+  if (now.getTime() - new Date(run.startedAt).getTime() > stalledThresholdMsForKind(run.kind)) {
     return 'stalled';
   }
   return 'in_progress';
@@ -138,7 +159,8 @@ type EscalationRow = {
 
 type RunRow = {
   id: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  kind: (typeof AGENT_RUN_KINDS)[number];
   started_at: Date | string;
   ended_at: Date | string | null;
   error: unknown;
@@ -320,7 +342,7 @@ export async function getReviewTimeline(
       LIMIT 1
     `,
     sql<RunRow[]>`
-      SELECT ar.id, ar.status, ar.started_at, ar.ended_at, ar.error
+      SELECT ar.id, ar.status, ar.kind, ar.started_at, ar.ended_at, ar.error
       FROM agent_runs ar
       WHERE ar.account_id = ${params.accountId}
         AND ar.kind = 'review_handler'
@@ -388,7 +410,7 @@ export async function getReviewTimeline(
       endedAt: nullableIso(run.ended_at),
       error: run.error == null ? null : parseJsonbObject(run.error, 'agent_runs.error'),
       displayState: deriveRunDisplayState(
-        { status: run.status, startedAt: run.started_at },
+        { status: run.status, kind: run.kind, startedAt: run.started_at },
         latestResponse,
         now,
       ),
