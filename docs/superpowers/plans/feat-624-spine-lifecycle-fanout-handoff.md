@@ -15,6 +15,51 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
 | 4 Execute | **IN PROGRESS — T1 partially done.** Migration 091 written, applied and verified. |
 
+## Status at 2026-07-29 resume — READ THE DEVIATIONS DOC FIRST
+
+`docs/superpowers/plans/feat-624-spine-lifecycle-fanout-deviations.md` is now the
+highest-signal file on this branch. Writing T1's shape suite surfaced **four defects**,
+each independently re-verified; the doc carries the full analysis and the verbatim
+patch text for each.
+
+| # | Defect | State |
+|---|---|---|
+| 1 | 091's approval/halt consistency CHECKs reject every **unapproved** and every **non-halted** batch — `FALSE = NULL` collapses the conjunction and the `IS TRUE` wrapper turns that NULL into a rejection. A batch row is representable only if *both* approved and halted | patch written, **not applied** |
+| 2 | 091's persona CHECK dropped D19 Correction 2's three cross-column exclusions, so promised title 15 cannot pass | patch written, **not applied** |
+| 3 | The 088 shape suite applied 088 twice and committed, reverting 091's widening of three constraints on the shared test DB | **FIXED** in `b9ad24a6` |
+| 4 | 091 is not re-runnable — §3's unconditional `DROP CONSTRAINT` fails once the outreach FK depends on it; the plan had specified a guarded `DO`-block add | patch written, **not applied** |
+
+Defects 1, 2 and 4 are all edits to `supabase/migrations/091_send_mode_spine_lifecycle.sql`.
+They could not be applied in the previous session: `migration-immutability-guard.sh` treats
+091 as an applied migration, because T1 bumped `migrations-log.md` to head **091** in the same
+commit as the migration (the documented convention) while staging and prod remain in lockstep
+at **090**. The guard's own header names this exact false positive — amending a file that is
+genuinely unapplied after a premature log bump — and the map owner approved using the guard's
+documented escape hatch rather than shipping a corrective 092, since 091 has never been pushed
+nor applied anywhere but the local test DB.
+
+> **The local test DB is hand-patched, NOT at-091-as-checked-in.** Two agents applied ad-hoc
+> DDL so their proofs would not be vacuous. Re-provision with `pnpm test:db:setup` **after**
+> the migration is patched, never before — before the fix it yields a database where every
+> `solicitation_batches` insert is rejected.
+
+**Verification order once 091 is patched:** run the 091 suite, then the 088 suite, then the
+091 suite **again** — that third run is the ordering-independence proof and is what would catch
+defect 3 regressing. Then the 090 suite (defect 1 broke it), then `pnpm typecheck`, `pnpm lint`,
+`pnpm ci:live-db-suites`, `pnpm ci:outbox-status`.
+
+Last measured: 091 suite **15/16** (sole red is title 15 = defect 2), 088 **7/7** with 091's
+widenings intact afterwards, 090 **15/15**, all four audits green.
+
+## T2 is DONE (commit `4c91b352`)
+
+ADR 0014 at status `accepted`, cross-spec amendments **B9/B10/B11** appended to the binding doc
+(with §D's consequences list rewritten so `outreach_id` has exactly one owner, #626), and
+`CONTEXT.md`'s new `## Solicitation (send-mode)` section defining Outreach row, Send batch
+parent, Lazy child, Settled batch, Batch state, Body redaction and Halt latch.
+
+**Remaining: T1's three migration patches, then T3 → T8** (all of which are blocked by T1).
+
 ## Execution state — read this before touching anything
 
 `.feature/state.json` phase is **`plan_approved`**. Code now exists; this is no
