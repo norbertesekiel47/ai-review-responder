@@ -44,8 +44,10 @@ Then T2 → T8. T2 and T1 can run in parallel; everything else waits on T1.
   `solicitation+15`; accepts `reply/posting/30`, `solicitation/sending/60`.
 - The `IS TRUE` totality fix was proved empirically on the test DB.
 
-`.feature/state.json` phase is still `worktree_ready`, **not** `plan_approved`: round 2 has
-not returned a verdict, and even an `APPROVED` needs owner sign-off before the phase moves.
+> **Corrected 2026-07-29 (resume).** An earlier revision of this doc claimed here that the
+> phase was still `worktree_ready` and that "round 2 has not returned a verdict". Both were
+> stale — rounds 2 and 3 closed (see below, commits `fc4d533e` / `3e920a6b`), the owner closed
+> the gate, and `state.json` is now **`executing`**.
 
 ## Round 1 is done — do NOT re-run it
 
@@ -237,10 +239,9 @@ bash scripts/arm-check.sh          # any DISARMED output ⇒ STOP and report
   writing 091. 091 is immune (`IS TRUE` throughout); the asks table is not.
   Pre-existing, deliberately out of scope, worth its own ticket. Flagged to the
   owner; no decision taken.
-- **`.env.local` declares `TEST_DATABASE_POOL_URL` twice** — once empty, once set.
-  It resolved correctly here, but a mis-resolution makes live-DB suites skip
-  silently, and a skipped integration row means the step-5 gate is not
-  review-ready. Clean up before the gate.
+- ~~**`.env.local` declares `TEST_DATABASE_POOL_URL` twice**~~ — **withdrawn on resume, this
+  was wrong.** Line 292 is *commented out*; line 301 is the single active declaration. dotenv
+  never sees two values, so there is no silent-skip risk and nothing to clean up.
 
 ## Reminders that bit during planning
 
