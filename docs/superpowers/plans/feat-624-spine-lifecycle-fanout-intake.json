@@ -14,7 +14,7 @@
     "Owner edit of a rendered ask (D22, struck by amendment B2)"
   ],
   "user_visible_behavior": [
-    "A run whose agent_runs.status is 'cancelled' renders a new 'Cancelled' badge state in the review timeline (RunStateBadge), styled distinctly from Completed and Failed. No run reaches this status until #630 ships, so the state is unreachable in production on merge."
+    "A run whose agent_runs.status is 'cancelled' renders a new 'Cancelled' badge state in the review timeline (RunStateBadge), styled distinctly from Completed and Failed. No run reaches this status on merge; the first writer is #629's halt/veto path, so the state is unreachable in production until #629 ships — not #630."
   ],
   "invariants": [
     "agent_runs_terminal_consistency and agent_runs_one_active_per_subject stay byte-for-byte untouched — verified by an integration test that reads pg_constraint/pg_indexes definitions, not by inspection",
@@ -126,7 +126,11 @@
     "solicitation_outreach rejects an attempt_no of zero",
     "auto_approval_policies rejects a reply row with a 60 minute veto window",
     "the send_batch_closed step is attributed to the solicitation persona",
-    "closeBatchIfSettled appends no second step when the batch is already closed"
+    "closeBatchIfSettled appends no second step when the batch is already closed",
+    "closeBatchIfSettled maps the expired disposition to a cancelled parent run",
+    "closeBatchIfSettled maps the generation_failed disposition to a failed parent run",
+    "closeBatchIfSettled maps the gate_closed disposition to a failed parent run",
+    "closeBatchIfSettled prefers halted over every other disposition source"
   ],
   "verification_commands": [
     "pnpm build",

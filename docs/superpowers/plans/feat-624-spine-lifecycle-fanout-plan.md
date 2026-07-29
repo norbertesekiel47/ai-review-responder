@@ -233,22 +233,30 @@ in this order (FK prerequisites first):
      the writer contract B2 requires — **update the old row to a terminal status first, then
      insert `attempt_no + 1`**, both in one transaction.
    - `(batch_id, delivery_status)` — serves `closeBatchIfSettled`'s settled predicate and count
-   - `(account_id, queued_at)` — the daily-cap index. **Not `(business_id, sent_at)`**
-     (round-1 finding 2): B3 supersedes D9's `sent_at` counting with **dispatch attempts by
-     `queued_at`**, and drops `DEFAULT_DAILY_SEND_CAP_BUSINESS` as a dead knob, leaving a
-     single account-wide ceiling (`amendments:90`). A per-business index would serve no
-     reviewed query and #630 would need another migration slot to fix it.
+   - `(account_id, queued_at)` **and `(business_id, queued_at)`** — the daily-cap indexes.
+     **Keyed on `queued_at`, not `sent_at`** (round-1 finding 2): B3 supersedes D9's `sent_at`
+     counting with **dispatch attempts by `queued_at`** (`amendments:90`).
+
+     > Round 2 dropped the per-business index on the reading that B3 had killed the
+     > per-business cap. **That was wrong and round 3 caught it** (finding 3). B3 drops
+     > `DEFAULT_DAILY_SEND_CAP_BUSINESS` — the *default constant* — but D19/D20's two-level
+     > mechanism survives: the account-default row (`location_id IS NULL`) carries the
+     > per-account cap and a **location-override row carries a per-business cap**
+     > (`executor-design:940`). So a per-business count query genuinely exists, and without
+     > this index #630 would need another migration slot to add it. It also discharges the
+     > business-leading FK-action index below.
    - `(sent_at) WHERE sent_at IS NOT NULL AND body_redacted_at IS NULL` — the partial index
      T6's redaction sweep needs. **The `sent_at IS NOT NULL` half is load-bearing** (round-2
      finding 11): Postgres B-trees index NULL keys, so a predicate of only
      `body_redacted_at IS NULL` would permanently hold every never-sent row — the opposite of
      small. With both conjuncts, rows enter on send and leave permanently on redaction.
    - **FK-action support indexes** (round-2 finding 7), following the shapes 088 added for
-     `solicitation_asks` (`088:206`): a business-leading index, a contact-leading index, and
-     `(agent_run_id) WHERE agent_run_id IS NOT NULL`. Without them a cascading business or
-     contact delete, and the agent-run archival sweep, each degrade to a full scan of
-     outreach. Referential-integrity actions do not use the composite tenant FKs' indexes
-     unless the FK's own leading column is covered.
+     `solicitation_asks` (`088:206`): a contact-leading index and
+     `(agent_run_id) WHERE agent_run_id IS NOT NULL`. The business-leading requirement is
+     already met by `(business_id, queued_at)` above — one index, two jobs. Without these a
+     cascading business or contact delete, and the agent-run archival sweep, each degrade to a
+     full scan of outreach. Referential-integrity actions do not use the composite tenant FKs'
+     indexes unless the FK's own leading column is covered.
    - RLS: owner SELECT with the D6a moderation carve-out; service role full
    - **register the table in `scripts/ci/tenant-tables.ts`** (round-1 finding 6). Without it
      both `ci:rls-audit` and `ci:tenant-scope` derive zero coverage for the new table and the
@@ -281,7 +289,12 @@ in this order (FK prerequisites first):
    stores the outreach id. Per **G1**, no `QUEUE_NAMES` entry and no helper.
 
 Also in T1: update `src/lib/shared/__tests__/helpers/schema-ready.ts`'s migration→objects map,
-and add the 091 entry to `.claude/reference/migrations-log.md`.
+and make **two** additions to `.claude/reference/migrations-log.md` — the 091 entry, **and a
+`solicitation_outreach` row in the retention inventory** (round-3 finding 6). That table
+declares itself authoritative (`migrations-log.md:17`) and already carries
+`solicitation_batches`/`solicitation_asks` (`:35`); a new table with a *novel* retention shape
+— 90-day body redaction that is not a delete, plus purge-by-cascade — is exactly the kind that
+must not be missing from the one place that claims to list them all.
 
 Live-DB suite `src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts`,
 following the 090 precedent: `*.integration.test.ts`, **no migration SQL applied at run time**,
@@ -414,12 +427,38 @@ New module, `sql`/`tx` as explicit parameters (invariant #15), no `@/lib/db/serv
   > NULL RETURNING id` **first**; if it returns no row the batch was already closed, so return
   > without appending. Every subsequent write hangs off that winning CAS.
   >
-  > **Scope the queries by tenant, not by `batch_id` alone** (round-2 finding 1). Registering
-  > the table in `TENANT_TABLES` activates `ci:tenant-scope`, which requires `account_id`/
-  > `business_id` predicates. `closeBatchIfSettled` already locks the batch row, so it has both
-  > ids in hand — carry them into the outreach count and the update rather than filtering on
-  > `batch_id` only. This is a real scoping improvement, not a lint appeasement: a batch id is
-  > a bare UUID with no tenant proof attached.
+  > **The signature takes tenant ids, not a bare batch id** —
+  > `closeBatchIfSettled(tx, {batchId, accountId, businessId})` (round-2 finding 1, corrected
+  > by round-3 finding 2). Round 2's answer — "it locks the batch row first, so it has the ids
+  > in hand" — does not survive contact with the audit: **that very first lock query is
+  > itself unscoped**, and `solicitation_batches` is an audited table
+  > (`tenant-tables.ts:35`), so `ci:tenant-scope` rejects it. There is no ordering that fixes
+  > this from inside; the ids must arrive as parameters. Every planned caller already holds
+  > them. This is the better contract anyway: a batch id is a bare UUID carrying no tenant
+  > proof, and taking the ids explicitly is what makes the function safe to call from a
+  > worker that got its batch id off a queue payload.
+
+  > **Disposition is not derivable from status counts alone — lock its sources and
+  > precedence** (round-3 finding 4). Two of D14's five dispositions are not functions of the
+  > outreach tallies at all: `gate_closed` and `generation_failed` have no batch column, and
+  > `exhausted` (everything dispatched, some withheld naturally) can produce *identical*
+  > status totals to `generation_failed` (nothing ever rendered). Counting cannot separate
+  > them, and the closure CAS makes whatever it picks permanent. Fix the derivation as an
+  > ordered precedence over explicit sources, highest first:
+  >
+  > | Disposition | Source | Parent terminal |
+  > |---|---|---|
+  > | `halted` | `halted_at IS NOT NULL` (+ `halt_reason`) | `cancelled` |
+  > | `expired` | B7 expiry — `approved_at IS NULL` and past the approval window | `cancelled` |
+  > | `generation_failed` | the batch run's `SolicitationBatchRunFailure` arm (T3) | `failed` |
+  > | `gate_closed` | D6's dispatch gate refusing the batch | `failed` |
+  > | `exhausted` | the default once no other source fires | `completed` |
+  >
+  > Counts remain what populate the step's `{sent, withheld, cancelled, failed, unknown,
+  > withheld_by_reason}` receipt (`executor-design:765`) — they are the *evidence*, not the
+  > *decision*. The intake promised tests for only `exhausted` and `halted`; all five now have
+  > one, since a mis-derived disposition writes the wrong terminal status on the parent and
+  > the CAS makes it unrecoverable.
 
   > **Guard the zero-outreach case before the settled predicate** (round-1 finding 9).
   > `NOT EXISTS` is **vacuously true** over zero rows, so a batch with no outreach and no send
@@ -542,9 +581,20 @@ Covers promised title 31.
 >   than left for #630 to rediscover.
 > - ADR 0014 records the required discipline: a send in flight must be visible to purge in
 >   *committed state* (a claim row / `sending` status the purge checks), because no advisory
->   lock can bridge two transactions. Purge blocks on that state, not on a lock.
+>   lock can bridge two transactions.
 > - **B11** makes this a binding obligation on #630, so the gap has an owner and a paper trail
 >   rather than being inherited silently.
+>
+> **Committed-state visibility alone is NOT sufficient — B11 must bind the ordering too**
+> (round-3 finding 1). "Purge checks for a committed `sending` row" is a TOCTOU on its own:
+> purge observes no send → dispatch commits `sending` → purge deletes the row while the
+> provider call is in flight. The claim and the purge must be *mutually exclusive*, not merely
+> mutually observable. B11 therefore binds #630 to **the same global lock order this ticket
+> establishes**: acquire `acquireSolicitationBatchLock` **before** its batch-row lock
+> (`executor-design:548`'s dispatch transaction currently starts at the row lock), so the
+> claim-writing transaction and purge serialize on the advisory lock, and the committed
+> `sending` state is what purge then *sees* rather than what it *races*. B11 also requires a
+> claim-versus-purge race test in #630, mirroring T8's build-versus-purge test here.
 >
 > Out of scope for #624 by construction — stated here so a subagent does not try to build it.
 - `table-disposition.ts`: add `solicitation_outreach` as
