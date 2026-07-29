@@ -144,20 +144,41 @@ describe('stalledThresholdMsForKind', () => {
     ] as const) {
       expect(stalledThresholdMsForKind(kind)).toBe(HOURS_48_MS);
     }
+  });
 
-    // The one live caller's display behaviour is unchanged by the wiring: a
-    // review_handler run just past 48 hours still reads stalled.
+  it('deriveRunDisplayState applies the unchanged stalled threshold to review_handler runs', () => {
+    const now = new Date('2026-07-13T12:00:00.000Z');
+
+    // G10 wired the threshold through deriveRunDisplayState, and the one live
+    // caller's behaviour must not move: just past 48 hours still reads stalled,
+    // exactly at the boundary still reads in_progress.
+    expect(
+      deriveRunDisplayState(
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T11:59:59.999Z' },
+        { status: 'posted' },
+        now,
+      ),
+    ).toBe('stalled');
+    expect(
+      deriveRunDisplayState(
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T12:00:00.000Z' },
+        null,
+        now,
+      ),
+    ).toBe('in_progress');
+
+    // The same age on a send batch is nowhere near its 11-day threshold.
     expect(
       deriveRunDisplayState(
         {
           status: 'running',
-          kind: 'review_handler',
+          kind: 'solicitation_send_batch',
           startedAt: '2026-07-11T11:59:59.999Z',
         },
-        { status: 'posted' },
-        new Date('2026-07-13T12:00:00.000Z'),
+        null,
+        now,
       ),
-    ).toBe('stalled');
+    ).toBe('in_progress');
   });
 });
 

@@ -78,7 +78,14 @@ describe('persona map', () => {
     expect(personaForStep('digest_sent')).toBe('insights');
     expect(personaForStep('ask_evaluated')).toBe('solicitation');
     expect(personaForStep('batch_built')).toBe('solicitation');
+  });
+
+  it('the send_batch_closed step is attributed to the solicitation persona', () => {
     expect(personaForStep('send_batch_closed')).toBe('solicitation');
+    // The key lives in STEP_PERSONA, not in T5's closeBatchIfSettled, because
+    // RecordStepInput derives its accepted key union from this map — the spine
+    // keeps sole ownership of the step vocabulary.
+    expect(STEP_PERSONA).toHaveProperty('send_batch_closed');
   });
 });
 

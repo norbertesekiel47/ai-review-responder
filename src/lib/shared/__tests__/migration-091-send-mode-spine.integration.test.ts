@@ -168,6 +168,74 @@ function insertOutreach(
   `;
 }
 
+/**
+ * Lifecycle timestamps are given as SECONDS AFTER the row's own `created_at`,
+ * never as JS `Date`s. postgres.js decodes timestamptz into a Date and silently
+ * truncates Postgres microseconds, so a JS-derived `built_at` reliably lands
+ * *before* the NOW()-defaulted `created_at` it must not precede — tripping
+ * solicitation_batches_built_after_created for reasons that have nothing to do
+ * with the constraint under test. Resolving the offsets in SQL keeps the whole
+ * comparison on the database side.
+ */
+interface BatchLifecycleInput {
+  builtAfterSec?: number | null;
+  approvedAfterSec?: number | null;
+  approvalMethod?: string | null;
+  approvedByUserId?: string | null;
+  sendingStartedAfterSec?: number | null;
+  sendClosedAfterSec?: number | null;
+  haltedAfterSec?: number | null;
+  haltReason?: string | null;
+  haltedBy?: string | null;
+}
+
+/**
+ * A second `solicitation_batches` row under the seeded business, carrying only
+ * the lifecycle columns the case is about. Defaults are all NULL — the shape
+ * the 088 batch-builder writes — so a rejection can only come from the
+ * lifecycle CHECK under test. Cleaned up by afterEach.
+ *
+ * Each call mints its OWN contact_csv_uploads row: `source_upload_id` is UNIQUE
+ * (088), so probes sharing the seeded upload would collide on that unique
+ * instead of reaching the constraint under test.
+ */
+async function insertBatch(input: BatchLifecycleInput = {}): Promise<unknown> {
+  const probeUploadId = randomUUID();
+  await db!`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, report, attested_by_user_id, attested_at,
+      attestation_version, completed_at
+    ) VALUES (
+      ${probeUploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+      ${`migration-091-probe-${probeUploadId}.csv`}, 1, ${checksum(probeUploadId)},
+      NULL, 'completed', ${db!.json({ accepted: 1 })},
+      ${tenant!.userId}::uuid, NOW(), 'migration-091-test', NOW()
+    )
+  `;
+  const at = (seconds: number | null | undefined) =>
+    seconds == null ? null : `${seconds} seconds`;
+  return db!`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at, built_at,
+      approved_at, approval_method, approved_by_user_id,
+      sending_started_at, send_closed_at,
+      halted_at, halt_reason, halted_by
+    ) VALUES (
+      ${randomUUID()}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+      ${probeUploadId}::uuid, NOW(),
+      NOW() + ${at(input.builtAfterSec)}::interval,
+      NOW() + ${at(input.approvedAfterSec)}::interval,
+      ${input.approvalMethod ?? null},
+      ${input.approvedByUserId ?? null}::uuid,
+      NOW() + ${at(input.sendingStartedAfterSec)}::interval,
+      NOW() + ${at(input.sendClosedAfterSec)}::interval,
+      NOW() + ${at(input.haltedAfterSec)}::interval,
+      ${input.haltReason ?? null}, ${input.haltedBy ?? null}::uuid
+    )
+  `;
+}
+
 function insertRun(input: {
   id: string;
   kind: string;
@@ -326,6 +394,11 @@ describeWithDb(
       await db`DELETE FROM agent_outcomes WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`;
+      // Lifecycle-probe batches only — the seeded batch carries the ask fixture.
+      await db`
+        DELETE FROM solicitation_batches
+        WHERE account_id = ${tenant.accountId}::uuid AND id <> ${batchId}::uuid
+      `;
     });
 
     afterAll(async () => {
@@ -521,6 +594,124 @@ describeWithDb(
       );
     });
 
+    // ── 2b. solicitation_batches approval / halt / send lifecycle ────────────
+
+    it('solicitation_batches rejects an approved batch with no approval method', async () => {
+      // The pairing runs both ways: an approval always records HOW, and a
+      // method never appears without an approval.
+      await expect(insertBatch({ approvedAfterSec: 1 })).rejects.toThrow(
+        /solicitation_batches_approval_consistency/,
+      );
+      await expect(insertBatch({ approvalMethod: 'owner' })).rejects.toThrow(
+        /solicitation_batches_approval_consistency/,
+      );
+
+      // An owner approval carries the acting user; an auto_policy one cannot.
+      // The accepted rows are also CLOSED, because
+      // solicitation_batches_one_active_send_per_business (D8) allows only one
+      // approved-and-unclosed batch per business — without that these two would
+      // collide on the partial unique rather than testing the CHECK.
+      const closed = { builtAfterSec: 0, sendClosedAfterSec: 2 };
+      await expect(
+        insertBatch({
+          ...closed,
+          approvedAfterSec: 1,
+          approvalMethod: 'owner',
+          approvedByUserId: tenant!.userId,
+        }),
+      ).resolves.toBeDefined();
+      await expect(
+        insertBatch({ ...closed, approvedAfterSec: 1, approvalMethod: 'owner' }),
+      ).rejects.toThrow(/solicitation_batches_approval_consistency/);
+      await expect(
+        insertBatch({ ...closed, approvedAfterSec: 1, approvalMethod: 'auto_policy' }),
+      ).resolves.toBeDefined();
+
+      // The regression this constraint shipped with: an UNAPPROVED batch — what
+      // the 088 batch-builder writes on every build — must be representable.
+      // `FALSE = NULL` collapsed the conjunction and the IS TRUE wrapper turned
+      // that NULL into a rejection, so a row was legal only if BOTH approved
+      // and halted. This line is the one that was red.
+      await expect(insertBatch()).resolves.toBeDefined();
+    });
+
+    it('solicitation_batches rejects a halted batch with no halt reason', async () => {
+      await expect(insertBatch({ haltedAfterSec: 0 })).rejects.toThrow(
+        /solicitation_batches_halt_consistency/,
+      );
+      await expect(insertBatch({ haltReason: 'owner_halt' })).rejects.toThrow(
+        /solicitation_batches_halt_consistency/,
+      );
+
+      // The three owner/admin reasons carry an actor …
+      await expect(
+        insertBatch({
+          haltedAfterSec: 0,
+          haltReason: 'owner_veto',
+          haltedBy: tenant!.userId,
+        }),
+      ).resolves.toBeDefined();
+      await expect(
+        insertBatch({ haltedAfterSec: 0, haltReason: 'owner_veto' }),
+      ).rejects.toThrow(/solicitation_batches_halt_consistency/);
+      // … and the two system-derived ones must not.
+      await expect(
+        insertBatch({ haltedAfterSec: 0, haltReason: 'send_window_elapsed' }),
+      ).resolves.toBeDefined();
+      await expect(
+        insertBatch({
+          haltedAfterSec: 0,
+          haltReason: 'batch_expired',
+          haltedBy: tenant!.userId,
+        }),
+      ).rejects.toThrow(/solicitation_batches_halt_consistency/);
+
+      // The same NULL hole as the approval arm: a NON-HALTED batch is legal.
+      await expect(insertBatch()).resolves.toBeDefined();
+    });
+
+    it('solicitation_batches accepts a batch closed by generation_failed before approval', async () => {
+      // Closure deliberately does NOT imply approval. D14's generation_failed
+      // and B7's batch expiry both close a batch that was never approved, and a
+      // blanket "closed implies approved" CHECK would reject them outright.
+      await expect(
+        insertBatch({ builtAfterSec: 0, sendClosedAfterSec: 1 }),
+      ).resolves.toBeDefined();
+
+      // What closure DOES imply is that the batch was built — you cannot close
+      // what was never constructed.
+      await expect(insertBatch({ sendClosedAfterSec: 1 })).rejects.toThrow(
+        /solicitation_batches_send_ordering/,
+      );
+
+      // Sending, unlike closure, does imply approval.
+      await expect(
+        insertBatch({ builtAfterSec: 0, sendingStartedAfterSec: 1 }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      // …and never before it.
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 2,
+          approvalMethod: 'auto_policy',
+          sendingStartedAfterSec: 1,
+          sendClosedAfterSec: 3,
+        }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      // The whole legal lifecycle in one row.
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 1,
+          approvalMethod: 'auto_policy',
+          sendingStartedAfterSec: 2,
+          sendClosedAfterSec: 3,
+        }),
+      ).resolves.toBeDefined();
+    });
+
     // ── 3. solicitation_outreach body presence ───────────────────────────────
 
     it('solicitation_outreach rejects a rendered row with a null body', async () => {
@@ -585,11 +776,15 @@ describeWithDb(
         insertOutreach(db!, { deliveryStatus: 'unknown', dispositionReason: 'send_failed' }),
       ).rejects.toThrow(/solicitation_outreach_status_reason_consistency/);
 
-      // And the NULL side of the same rule. A CHECK passes on NULL, so without
-      // the `IS TRUE` wrapper each of these would slip straight through the arm
-      // written to catch it. Reason-bearing is NOT the same partition as
-      // terminal: `sent` is terminal and takes a NULL reason, because a
-      // successful send has nothing to explain.
+      // The NULL side of this rule, and the `sent` side, now have their own
+      // titles below — one owner per promised fact.
+    });
+
+    it('solicitation_outreach rejects a null disposition_reason for every reason-bearing delivery status', async () => {
+      // A Postgres CHECK passes on NULL: each arm here evaluates to NULL rather
+      // than FALSE, and a bare disjunction would let all four straight through
+      // the arm written to catch them. The `IS TRUE` wrapper is what turns that
+      // NULL into the rejection — this asserts the wrapper, not the arms.
       for (const reasonBearingStatus of ['withheld', 'cancelled', 'failed', 'unknown']) {
         await expect(
           insertOutreach(db!, {
@@ -598,9 +793,60 @@ describeWithDb(
           }),
         ).rejects.toThrow(/solicitation_outreach_status_reason_consistency/);
       }
+    });
+
+    it('solicitation_outreach requires a null disposition_reason for a sent row', async () => {
+      // Reason-bearing is NOT the same partition as terminal. `sent` is
+      // terminal and takes NO reason, because a successful send has nothing to
+      // explain — the intake originally promised a test that could not pass
+      // because it conflated the two (round-2 finding, executor-design:377).
       await expect(
         insertOutreach(db!, { deliveryStatus: 'sent', sentAt: new Date() }),
       ).resolves.toBeDefined();
+      await db!`DELETE FROM solicitation_outreach WHERE ask_id = ${askId}::uuid`;
+
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'sent',
+          sentAt: new Date(),
+          dispositionReason: 'send_failed',
+        }),
+      ).rejects.toThrow(/solicitation_outreach_status_reason_consistency/);
+      // The other three NULL-reason statuses behave the same way.
+      for (const nullReasonStatus of ['rendered', 'queued', 'sending']) {
+        await db!`DELETE FROM solicitation_outreach WHERE ask_id = ${askId}::uuid`;
+        await expect(
+          insertOutreach(db!, {
+            deliveryStatus: nullReasonStatus,
+            dispositionReason: 'send_failed',
+          }),
+        ).rejects.toThrow(/solicitation_outreach_status_reason_consistency/);
+      }
+    });
+
+    it('solicitation_outreach rejects a queued row carrying a body_redacted_at stamp', async () => {
+      // Redaction implies sent. A queued row is still dispatchable, so a
+      // redaction stamp on one would mean "send this, the body is gone" — the
+      // exact case the body-presence rules were split into three to catch.
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'queued',
+          renderedSubject: null,
+          sentAt: null,
+          bodyRedactedAt: new Date(),
+        }),
+      ).rejects.toThrow(/solicitation_outreach_body_presence/);
+
+      // Not merely because the body is absent: a queued row with its body
+      // INTACT and a redaction stamp is equally illegal, since redaction means
+      // the body is gone.
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'queued',
+          sentAt: null,
+          bodyRedactedAt: new Date(),
+        }),
+      ).rejects.toThrow(/solicitation_outreach_body_presence/);
     });
 
     it('solicitation_outreach rejects a cancelled row carrying a withhold reason', async () => {
@@ -640,8 +886,21 @@ describeWithDb(
         insertOutreach(db!, { attemptNo: 2, deliveryStatus: 'queued' }),
       ).resolves.toBeDefined();
 
-      // The FULL unique coexists with the partial one: numbers are never
-      // reused, even by a row that is not live.
+      // Attempt-number reuse has its own title below.
+    });
+
+    it('solicitation_outreach rejects reusing an attempt_no for the same ask', async () => {
+      // The FULL unique coexists with the one-live partial index: numbers are
+      // never reused, even by a row that is not live. Without it, a regenerate
+      // could recycle attempt 1 and the audit trail of what was sent to whom
+      // would silently lose an entry.
+      await insertOutreach(db!, { attemptNo: 1, deliveryStatus: 'rendered' });
+      await db!`
+        UPDATE solicitation_outreach
+        SET delivery_status = 'cancelled', disposition_reason = 'superseded'
+        WHERE ask_id = ${askId}::uuid AND attempt_no = 1
+      `;
+
       await expect(
         insertOutreach(db!, {
           attemptNo: 1,
@@ -650,6 +909,22 @@ describeWithDb(
           renderedSubject: null,
         }),
       ).rejects.toThrow(/solicitation_outreach_ask_attempt_uniq/);
+
+      // attempt_no + 1 is the writer contract, and it is accepted.
+      await expect(
+        insertOutreach(db!, { attemptNo: 2, deliveryStatus: 'queued' }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_outreach rejects an attempt_no of zero', async () => {
+      // B2: attempt numbers start at 1. A zeroth attempt would make "attempts
+      // so far" ambiguous between zero-based and one-based readers.
+      await expect(
+        insertOutreach(db!, { attemptNo: 0 }),
+      ).rejects.toThrow(/solicitation_outreach_attempt_no_check/);
+      await expect(
+        insertOutreach(db!, { attemptNo: -1 }),
+      ).rejects.toThrow(/solicitation_outreach_attempt_no_check/);
     });
 
     // ── 6. D6a moderation carve-out (RLS) ────────────────────────────────────
@@ -807,6 +1082,34 @@ describeWithDb(
       ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
     });
 
+    it('auto_approval_policies rejects the reply persona paired with the sending action class', async () => {
+      // Widening persona and action_class independently would have admitted
+      // this pair. One CHECK fixes the action class per persona.
+      await expect(
+        insertPolicy({ persona: 'reply', actionClass: 'sending', vetoWindowMinutes: 30 }),
+      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+      // …and the mirror image.
+      await expect(
+        insertPolicy({ persona: 'solicitation', actionClass: 'posting', vetoWindowMinutes: 60 }),
+      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+    });
+
+    it('auto_approval_policies rejects a reply row with a 60 minute veto window', async () => {
+      // The subtle one: a global (15, 30, 60) widening would have silently
+      // loosened the already-live Reply lane that 074 pins to (15, 30).
+      await expect(
+        insertPolicy({ persona: 'reply', actionClass: 'posting', vetoWindowMinutes: 60 }),
+      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+      // The window is pinned per persona in both directions — 15 is legal for
+      // reply and illegal for solicitation.
+      await expect(
+        insertPolicy({ persona: 'reply', actionClass: 'posting', vetoWindowMinutes: 15 }),
+      ).resolves.toBeDefined();
+      await expect(
+        insertPolicy({ persona: 'solicitation', actionClass: 'sending', vetoWindowMinutes: 15 }),
+      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+    });
+
     it('auto_approval_policies accepts veto_window_minutes 60 for a solicitation row', async () => {
       await expect(
         insertPolicy({
@@ -817,21 +1120,9 @@ describeWithDb(
         }),
       ).resolves.toBeDefined();
 
-      // Widening the three columns INDEPENDENTLY would have loosened the
-      // already-live Reply lane to a 60-minute window. One CHECK keeps each
-      // persona's whole row consistent.
-      await expect(
-        insertPolicy({ persona: 'reply', actionClass: 'posting', vetoWindowMinutes: 60 }),
-      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
-      await expect(
-        insertPolicy({ persona: 'solicitation', actionClass: 'sending', vetoWindowMinutes: 15 }),
-      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
-      await expect(
-        insertPolicy({ persona: 'solicitation', actionClass: 'posting', vetoWindowMinutes: 60 }),
-      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
-      await expect(
-        insertPolicy({ persona: 'reply', actionClass: 'sending', vetoWindowMinutes: 30 }),
-      ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+      // The rejections this used to also assert now have their own titles —
+      // the reply/sending pairing and the reply 60-minute window — so each
+      // promised fact has exactly one owner.
     });
   },
 );
