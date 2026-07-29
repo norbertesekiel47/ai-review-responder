@@ -2,6 +2,81 @@
 
 Dated entries for anything the plan did not anticipate. One entry per surprise.
 
+## 2026-07-29 — the first gate run exposed 12 missing promised titles in tasks reported DONE
+
+**What happened.** The first `scripts/verify-gate.sh` run on this branch (after T1–T4
+landed) reported `promised-tests FAIL` with **30** missing titles. 18 belong to the
+unbuilt T5–T8 and are expected. **The other 12 belong to tasks already reported
+complete**, and that is the finding:
+
+- **10 are migration-shape titles T1's suite never implemented.** The 091 suite has 16
+  `it(...)` titles; the intake promises 26 for the migration. The gap is exactly the
+  titles added when the intake was **re-signed** during round 1 (48 → 52 titles,
+  `tests_to_add` 33 → 40): `solicitation_batches rejects an approved batch with no
+  approval method`, `… rejects a halted batch with no halt reason`, `… accepts a batch
+  closed by generation_failed before approval`, `solicitation_outreach rejects a null
+  disposition_reason for every reason-bearing delivery status`, `… requires a null
+  disposition_reason for a sent row`, `… rejects a queued row carrying a
+  body_redacted_at stamp`, `… rejects reusing an attempt_no for the same ask`, `…
+  rejects an attempt_no of zero`, `auto_approval_policies rejects the reply persona
+  paired with the sending action class`, `… rejects a reply row with a 60 minute veto
+  window`.
+- **1 is T3's**: `the send_batch_closed step is attributed to the solicitation persona`.
+- **1 is T4's**: `deriveRunDisplayState applies the unchanged stalled threshold to
+  review_handler runs`.
+
+**Why it happened, and it is the same mistake twice.** In T3 and T4 the *assertion*
+exists — `send_batch_closed`'s attribution is asserted inside `attributes pipeline steps
+to the personas the design doc names`, and the review_handler non-change is asserted
+inside `stalledThresholdMsForKind returns the 48-hour default for every other run kind`.
+Folding an assertion into a neighbouring test satisfies the behaviour but **not the
+contract**: the gate matches promised titles *verbatim*, and a title that exists only as
+a line inside another test is invisible to it. T1's gap is the same failure one step
+earlier — the suite was written against the pre-re-signing title list and never
+re-reconciled after the intake changed underneath it.
+
+**The lesson worth keeping:** "the assertion is covered" is not the bar. Re-read
+`tests_to_add` from `.feature/intake.json` at the *end* of each task and diff it against
+the titles actually written — the intake is a moving target across review rounds, and a
+task that started before a re-signing is stale by definition.
+
+**Owed.** 10 titles in the 091 shape suite, 1 in `run-spine.test.ts`, 1 in `read.test.ts`.
+None require production-code changes — the behaviour they name is already implemented and
+(for the 10) already constrained by the migration.
+
+## 2026-07-29 — two gate rows fail for harness self-races, not for defects
+
+Both reproduce on a clean tree and neither is a code problem. Recording them because a
+future run will hit them again and read them as regressions.
+
+- **`extra-pnpm-build-` FAIL while `build` PASSES.** `pnpm build` appears both as the
+  gate's own `build` row and in the intake's `verification_commands`, so the gate runs it
+  twice **concurrently**. The second invocation dies on Next's own guard: `Another next
+  build process is already running.` The `build` row is the trustworthy one.
+- **`extra-pnpm-test-src-lib-shared---tests---migra` FAIL: `relation
+  "solicitation_asks" does not exist`.** `pnpm test:db:setup` is also in
+  `verification_commands`, and it **drops schema `public`** before re-applying every
+  migration. The gate ran it in parallel with the live-DB migration suites, so those
+  suites queried a database mid-rebuild. Proven a race, not a regression: run standalone
+  immediately afterwards, `migration-091` + `migration-088` are **23/23**.
+
+**Recommendation for the intake, not applied here** (it is a signed contract, and
+changing it is the owner's call): `pnpm test:db:setup` is a *provisioning* step, not a
+verification command — it mutates the shared resource every other row reads. It should be
+removed from `verification_commands` and run once before the gate, or the gate needs to
+serialize it ahead of everything else. Leaving it in guarantees a red row on every future
+run, which trains the reader to ignore red.
+
+## 2026-07-29 — T1's new table immediately reds an existing offboarding suite (expected, owned by T8)
+
+`src/lib/account-offboarding/__tests__/table-disposition.test.ts` fails with
+`expected [ 'solicitation_outreach' ] to deeply equal []`. That suite asserts every
+directly account-linked table created by a migration has a disposition classification;
+091 added `solicitation_outreach` and nothing has classified it yet. This is precisely
+T8's "inventory" deliverable, so it is pending work rather than a defect — but it means
+**the branch carries a known-red suite from T1 until T8 lands**, and anyone bisecting in
+between should not treat it as new breakage.
+
 ## 2026-07-29 — T1 found migration 091 rejects every unapproved batch (BLOCKER)
 
 **What happened.** While seeding fixtures for the T1 shape suite, the natural

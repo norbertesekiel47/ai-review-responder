@@ -19,10 +19,16 @@ This doc references artifacts by path; it does not restate them. Every decision 
 
 | Task | Commit | State |
 |---|---|---|
-| T1 migration 091 + schema-ready + log | `bac7340f`, `b9ad24a6`, `186f8c1b` | **done** — all four defects closed |
+| T1 migration 091 + schema-ready + log | `bac7340f`, `b9ad24a6`, `186f8c1b` | code **done** (4 defects closed); **10 promised titles still owed** |
 | T2 ADR 0014 + CONTEXT.md glossary | `4c91b352` | **done** |
-| T3 run-spine lifecycle + lazy child seam | `8a015ac7` | **done** — titles 17–19 |
-| T4 cancelled display state + kind threshold | `f17d4398` | **done** — titles 20–22 |
+| T3 run-spine lifecycle + lazy child seam | `8a015ac7` | code **done**; **1 promised title owed** |
+| T4 cancelled display state + kind threshold | `f17d4398` | code **done**; **1 promised title owed** |
+
+> **The first gate run (2026-07-29 11:23) found 12 missing promised titles inside T1/T3/T4** —
+> see the deviations log's top entry. The behaviour is implemented in every case; the titles
+> were folded into neighbouring tests (T3/T4) or predate the round-1 intake re-signing (T1).
+> `promised-tests` cannot go green until all 12 are written verbatim. Gate evidence:
+> `.feature/gate-status.json`, tails in `.feature/logs/`.
 | T5 `src/lib/solicitation/outreach.ts` | — | **next** — titles 23–28 |
 | T6 ArchivalPoller body redaction | — | pending |
 | T7 HealthAlertPoller stalled-send-batch | — | pending |
