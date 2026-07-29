@@ -13,43 +13,37 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 1 Grill | done — 10 forks locked (G1–G10), intake signed off, `open_questions: []` |
 | 2 Setup | done — worktree armed, no cross-worktree surface overlap |
 | 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
-| 4 Execute | **IN PROGRESS — T1 partially done.** Migration 091 written, applied and verified. |
+| 4 Execute | **IN PROGRESS — T1 and T2 DONE.** T3–T8 remain. |
 
-## Status at 2026-07-29 resume — READ THE DEVIATIONS DOC FIRST
+## Status at 2026-07-29 resume #2 — T1 IS COMPLETE, all four defects closed
 
-`docs/superpowers/plans/feat-624-spine-lifecycle-fanout-deviations.md` is now the
-highest-signal file on this branch. Writing T1's shape suite surfaced **four defects**,
-each independently re-verified; the doc carries the full analysis and the verbatim
-patch text for each.
+`docs/superpowers/plans/feat-624-spine-lifecycle-fanout-deviations.md` carries the full
+analysis of each. All four are now resolved; the doc's per-entry `### APPLIED` headers
+record what landed and the evidence.
 
 | # | Defect | State |
 |---|---|---|
-| 1 | 091's approval/halt consistency CHECKs reject every **unapproved** and every **non-halted** batch — `FALSE = NULL` collapses the conjunction and the `IS TRUE` wrapper turns that NULL into a rejection. A batch row is representable only if *both* approved and halted | patch written, **not applied** |
-| 2 | 091's persona CHECK dropped D19 Correction 2's three cross-column exclusions, so promised title 15 cannot pass | patch written, **not applied** |
+| 1 | 091's approval/halt consistency CHECKs reject every **unapproved** and every **non-halted** batch — `FALSE = NULL` collapses the conjunction and the `IS TRUE` wrapper turns that NULL into a rejection | **FIXED** — inner `IS TRUE` on both arms |
+| 2 | 091's persona CHECK dropped D19 Correction 2's three cross-column exclusions, so promised title 15 cannot pass | **FIXED** — exclusions merged, title 15 green |
 | 3 | The 088 shape suite applied 088 twice and committed, reverting 091's widening of three constraints on the shared test DB | **FIXED** in `b9ad24a6` |
-| 4 | 091 is not re-runnable — §3's unconditional `DROP CONSTRAINT` fails once the outreach FK depends on it; the plan had specified a guarded `DO`-block add | patch written, **not applied** |
+| 4 | 091 is not re-runnable — §3's unconditional `DROP CONSTRAINT` fails once the outreach FK depends on it | **FIXED** — guarded `DO` block; three consecutive applies proven |
 
-Defects 1, 2 and 4 are all edits to `supabase/migrations/091_send_mode_spine_lifecycle.sql`.
-They could not be applied in the previous session: `migration-immutability-guard.sh` treats
-091 as an applied migration, because T1 bumped `migrations-log.md` to head **091** in the same
-commit as the migration (the documented convention) while staging and prod remain in lockstep
-at **090**. The guard's own header names this exact false positive — amending a file that is
-genuinely unapplied after a premature log bump — and the map owner approved using the guard's
-documented escape hatch rather than shipping a corrective 092, since 091 has never been pushed
-nor applied anywhere but the local test DB.
+Defects 1, 2 and 4 were hook-blocked in the prior session: `migration-immutability-guard.sh`
+treats 091 as applied, because T1 bumped `migrations-log.md` to head **091** in the same commit
+as the migration (the documented convention) while staging and prod remain in lockstep at
+**090**. The guard's own header names this exact false positive, and the map owner approved its
+documented escape hatch (`MIGRATION_GUARD_DISABLE=1` at session launch) rather than shipping a
+corrective 092, since 091 has never been pushed nor applied anywhere but the local test DB.
+**Any future session that needs to amend 091 must be launched the same way.**
 
-> **The local test DB is hand-patched, NOT at-091-as-checked-in.** Two agents applied ad-hoc
-> DDL so their proofs would not be vacuous. Re-provision with `pnpm test:db:setup` **after**
-> the migration is patched, never before — before the fix it yields a database where every
-> `solicitation_batches` insert is rejected.
+> The local test DB was re-provisioned from scratch (`pnpm test:db:setup`) **after** the patches
+> landed, so it is now at-091-as-checked-in with no hand-patching. The earlier ad-hoc DDL is gone.
 
-**Verification order once 091 is patched:** run the 091 suite, then the 088 suite, then the
-091 suite **again** — that third run is the ordering-independence proof and is what would catch
-defect 3 regressing. Then the 090 suite (defect 1 broke it), then `pnpm typecheck`, `pnpm lint`,
-`pnpm ci:live-db-suites`, `pnpm ci:outbox-status`.
-
-Last measured: 091 suite **15/16** (sole red is title 15 = defect 2), 088 **7/7** with 091's
-widenings intact afterwards, 090 **15/15**, all four audits green.
+**Verification run at 2026-07-29 11:12, all green:** 091 suite **16/16** → 088 suite **7/7** →
+091 suite **16/16** again (the ordering-independence proof) → 090 suite **15/15** →
+`pnpm typecheck`, `pnpm lint`, `pnpm ci:live-db-suites`, `pnpm ci:outbox-status` all clean.
+Re-runnability proven separately: `psql -f 091` twice more against the at-head DB, both
+reaching `COMMIT` with exit 0.
 
 ## T2 is DONE (commit `4c91b352`)
 
@@ -58,28 +52,23 @@ ADR 0014 at status `accepted`, cross-spec amendments **B9/B10/B11** appended to 
 `CONTEXT.md`'s new `## Solicitation (send-mode)` section defining Outreach row, Send batch
 parent, Lazy child, Settled batch, Batch state, Body redaction and Halt latch.
 
-**Remaining: T1's three migration patches, then T3 → T8** (all of which are blocked by T1).
+**Remaining: T3 → T8.** T1 (which they were all blocked by) and T2 are done.
 
 ## Execution state — read this before touching anything
 
-`.feature/state.json` phase is **`plan_approved`**. Code now exists; this is no
+`.feature/state.json` phase is **`executing`**. Code now exists; this is no
 longer a docs-only tree.
 
-**T1 done so far** (commit `bac7340f`):
-- `supabase/migrations/091_send_mode_spine_lifecycle.sql` — all seven parts.
-  Applies cleanly through the full local sequence (bootstrap + 001…091).
+**T1 is COMPLETE** (commits `bac7340f`, `b9ad24a6`, plus the resume-session patches):
+- `supabase/migrations/091_send_mode_spine_lifecycle.sql` — all seven parts, with
+  defects 1/2/4 patched. Applies cleanly through the full local sequence
+  (bootstrap + 001…091) and is genuinely re-runnable.
 - `.claude/reference/migrations-log.md` — head 090 → 091, the full 091 entry, and
   a `solicitation_outreach` retention row.
-
-**T1 remaining:**
-- `src/lib/shared/__tests__/helpers/schema-ready.ts` — add 091's migration→objects
-  map entry. Without it the live-DB suites cannot assert schema readiness.
+- `src/lib/shared/__tests__/helpers/schema-ready.ts` — 091's migration→objects map entry.
 - `src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts` —
-  the shape suite, promised titles 1–16. It is a **migration-shape** suite, so it
-  must hold `acquireLiveDbLock` *and* roll back any unconditional re-apply, per
-  the #573 convention.
-
-Then T2 → T8. T2 and T1 can run in parallel; everything else waits on T1.
+  the shape suite, promised titles 1–16, all green. Holds `acquireLiveDbLock` and
+  rolls back its re-apply, per the #573 convention.
 
 **Verification already banked** (do not redo, but do encode as tests):
 - Frozen constraints confirmed by introspection: `agent_runs_terminal_consistency`
@@ -308,7 +297,9 @@ bash scripts/arm-check.sh          # any DISARMED output ⇒ STOP and report
 ## Step 5 gate expectations
 
 `bash scripts/verify-gate.sh` (and `--review` for the final pass). The `promised-tests` row
-stays red until all **48** titles exist verbatim. The intake's `verification_commands` are now
+stays red until every title in the intake's `tests_to_add` exists verbatim — **52** as re-signed,
+not the 48 an earlier revision of this doc quoted. Read the count from `.feature/intake.json`,
+never from here. The intake's `verification_commands` are now
 the authoritative list (18 entries) and include `pnpm typecheck`, `pnpm build`,
 `ci:db-imports`, `ci:feature-surface`, `ci:live-db-suites` and `ci:outbox-seam`.
 

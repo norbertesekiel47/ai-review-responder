@@ -75,11 +75,23 @@ ALTER TABLE agent_outcomes
 -- 088 gave this shape to solicitation_batches and agent_runs but not to asks,
 -- which carries only its PK and (batch_id, contact_id). MUST precede §5.
 
-ALTER TABLE solicitation_asks
-  DROP CONSTRAINT IF EXISTS solicitation_asks_account_business_id_uniq;
-ALTER TABLE solicitation_asks
-  ADD CONSTRAINT solicitation_asks_account_business_id_uniq
-  UNIQUE (id, account_id, business_id);
+-- Guarded add, not drop-and-re-add: §5's solicitation_outreach_ask_tenant_fk
+-- depends on this unique's index, so an unconditional DROP fails on any second
+-- apply. Same pg_constraint idiom 088 uses for agent_runs_account_business_id_uniq.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'solicitation_asks'::regclass
+      AND conname = 'solicitation_asks_account_business_id_uniq'
+  ) THEN
+    ALTER TABLE solicitation_asks
+      ADD CONSTRAINT solicitation_asks_account_business_id_uniq
+      UNIQUE (id, account_id, business_id);
+  END IF;
+END
+$$;
 
 -- ── 4. solicitation_batches: approval / send / halt lifecycle ───────────────
 
@@ -104,7 +116,7 @@ ALTER TABLE solicitation_batches
     (
       (approved_at IS NULL) = (approval_method IS NULL)
       AND (approval_method IS NULL OR approval_method IN ('owner', 'auto_policy'))
-      AND (approved_by_user_id IS NOT NULL) = (approval_method = 'owner')
+      AND (approved_by_user_id IS NOT NULL) = ((approval_method = 'owner') IS TRUE)
     ) IS TRUE
   );
 
@@ -122,7 +134,8 @@ ALTER TABLE solicitation_batches
           'send_window_elapsed', 'batch_expired'
         )
       )
-      AND (halted_by IS NOT NULL) = (halt_reason IN ('owner_veto', 'owner_halt', 'admin_halt'))
+      AND (halted_by IS NOT NULL)
+          = ((halt_reason IN ('owner_veto', 'owner_halt', 'admin_halt')) IS TRUE)
     ) IS TRUE
   );
 
@@ -405,6 +418,12 @@ ALTER TABLE auto_approval_policies
 -- consistent. This cannot reject an existing row: 074 already enforced
 -- persona='reply', action_class='posting' and veto_window_minutes IN (15,30),
 -- so every pre-091 row satisfies the reply arm by construction.
+--
+-- D19 Correction 2 also excludes each persona from the OTHER lane's dials:
+-- otherwise a solicitation row carries a star threshold for an agent that does
+-- not read stars — inert nonsense that reads as intent. Safe on existing rows:
+-- daily_send_cap is added by this migration (NULL everywhere), and 074 pinned
+-- persona IN ('reply'), so no solicitation row can exist yet.
 ALTER TABLE auto_approval_policies
   DROP CONSTRAINT IF EXISTS auto_approval_policies_persona_consistency;
 ALTER TABLE auto_approval_policies
@@ -412,10 +431,13 @@ ALTER TABLE auto_approval_policies
     (
       (persona = 'reply'
         AND action_class = 'posting'
-        AND veto_window_minutes IN (15, 30)) OR
+        AND veto_window_minutes IN (15, 30)
+        AND daily_send_cap IS NULL) OR
       (persona = 'solicitation'
         AND action_class = 'sending'
-        AND veto_window_minutes IN (30, 60))
+        AND veto_window_minutes IN (30, 60)
+        AND auto_approve_min_star IS NULL
+        AND daily_auto_post_cap IS NULL)
     ) IS TRUE
   );
 

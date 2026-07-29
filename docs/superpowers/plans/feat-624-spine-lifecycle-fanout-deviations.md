@@ -64,6 +64,16 @@ and `solicitation_outreach_status_reason_consistency` were checked for the same
 class of hole and are clean (their nullable operands sit behind `IS NULL OR …`,
 or the columns involved are `NOT NULL`).
 
+### APPLIED 2026-07-29 (resume) — both arms carry the inner `IS TRUE`
+
+Landed verbatim in the idiom below. Live definitions confirmed by
+`pg_get_constraintdef` after re-provisioning; the 090 suite this defect broke is
+back to 15/15 and the 091 suite is 16/16. The hook block described below was
+lifted by launching the resume session with `MIGRATION_GUARD_DISABLE=1` — the
+guard's own documented escape hatch for a premature log bump, approved by the
+map owner. Everything from here down is the original analysis, kept for the
+record.
+
 ### Resolution 2026-07-29 — NOT APPLIED (migration file hook-blocked); audit re-done and confirmed
 
 The fix could not be written: `.claude/hooks/migration-immutability-guard.sh`
@@ -185,6 +195,13 @@ ADD CONSTRAINT auto_approval_policies_persona_consistency CHECK (
 DDL, and T1 stopped rather than working around it. Title 15 is therefore RED
 until the migration carries the clause. The test is written against the
 spec-correct behaviour so it goes green the moment the migration is fixed.
+
+### APPLIED 2026-07-29 (resume) — all three exclusions merged into the persona CHECK
+
+Landed verbatim, `IS TRUE` wrapper kept, with the spec's rationale carried into
+the migration's own comment so the "why" travels with the constraint. Promised
+title 15 is now green — the 091 suite is 16/16, the sole red is gone. Everything
+from here down is the original analysis, kept for the record.
 
 ### Resolution 2026-07-29 — NOT APPLIED (same migration-file hook block); "cannot reject an existing row" VERIFIED
 
@@ -313,6 +330,16 @@ plan established for migration-shape suites.
 no-op once the dependent FK exists — e.g. drop the outreach FK first and re-add
 it after, or make §3 conditional on the constraint being absent. Then either
 correct the header or restore genuine re-runnability.
+
+### APPLIED 2026-07-29 (resume) — §3 is now a guarded `DO` block, and re-runnability is PROVEN
+
+The `DO`-block below landed verbatim. **The proof this entry said was owed by
+whoever lands the patch is now discharged**: after `pnpm test:db:setup` took the
+DB to head, `psql -f 091_send_mode_spine_lifecycle.sql` ran twice more against
+the same database, both reaching `COMMIT` with exit 0 (three applies total). The
+header's "Additive and re-runnable" claim is now true as written and needs no
+correction. Everything from here down is the original analysis, kept for the
+record.
 
 ### Resolution 2026-07-29 — NOT APPLIED (same migration-file hook block); patch and full re-run audit below
 
