@@ -263,10 +263,35 @@ the gap. #624 builds no send worker and can neither demonstrate nor test it.
   at the row lock), so the claim-writing transaction and purge serialize on the
   advisory lock and the committed `sending` state is what purge *sees* rather
   than what it *races*.
+- **Serializing is not deciding — purge must DETECT and durably DEFER**
+  (added 2026-07-30 from #624's step-6 adversarial review, finding F2). The
+  bullet above gets purge and the claim onto the same lock so purge *observes*
+  committed `sending` state instead of racing it. It does not say what purge must
+  then do, and observing a live send while proceeding to delete it is the same
+  data loss by a slower route. #624's purge stage today takes the advisory lock
+  and then **unconditionally** deletes `contact_csv_uploads`, cascading through
+  batches into outreach — so the seam as shipped is safe for construction and
+  unsafe for dispatch, which is exactly its intended consumer.
+
+  **#630 must therefore, after acquiring all advisory locks, check for committed
+  `sending` claims on the account's batches and durably defer or fail the purge
+  until they resolve** — never delete past one. "Durably" excludes an in-memory
+  wait: the offboarding row must carry the deferral so a worker restart resumes
+  it, per the existing offboarding state machine.
+
 - **#630 owes a claim-versus-purge race test**, mirroring #624's
-  build-versus-purge live-DB test.
+  build-versus-purge live-DB test. Its shape, made explicit because a test that
+  merely runs the two without a deadlock proves nothing: **claim commits →
+  provider call paused mid-flight → purge attempts and is refused/deferred →
+  provider call completes and the outreach row terminalizes → purge then
+  succeeds.** The paused provider call is the whole point; without it the test
+  cannot distinguish "purge deferred" from "purge got lucky on timing".
+
 - Explicitly **out of scope for #624** — recorded here so the gap has an owner
-  and a paper trail rather than being inherited silently.
+  and a paper trail rather than being inherited silently. #624's own review
+  re-raised it as a High finding and it was rejected *for #624* on exactly this
+  basis; the reviewer's sharper requirement is folded in above rather than
+  discarded.
 
 ## C. Codex findings triage summary
 
