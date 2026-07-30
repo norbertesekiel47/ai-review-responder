@@ -643,3 +643,73 @@ not registered; T7's mock suite passed over a predicate that had never met a row
 Both were caught only by a negative control — break the thing, watch the test go
 red. Treat "did I prove this fails when it should?" as part of done, not as extra
 credit.
+
+## 2026-07-29 — surface amendment #1: `src/lib/approval/__tests__/**`
+
+**Why.** T5's `closeBatchIfSettled` calls `recordStep`/`completeRun`, which makes
+`src/lib/solicitation/outreach.ts` a spine writer. The anchor-pairing contract
+(`src/lib/approval/__tests__/outcome-anchor-pairing.test.ts`) requires every
+spine-writing file to be declared, and that file was outside the declared
+surface. The tripwire fired exactly as designed.
+
+**Resolution, owner-approved.** `outreach.ts` was added to `CALLER_ALLOWLIST` and
+`NON_REVIEW_SUBJECT_CALLERS`. Its subject is a `solicitation_batch`, never a
+review, so the reviews-first lock law does not apply — but the contract had to
+say so explicitly rather than by omission.
+
+**Its lock footprint is strictly narrower than the existing weekly carve-out**,
+and that was verified rather than asserted: it INSERTs no `agent_runs` /
+`agent_outcomes` row; `agent_run_steps` FK-references only `agent_runs`
+(`071:51`), so the step INSERT's implicit FK `FOR KEY SHARE` lands on the run row
+the tx already holds `FOR UPDATE`; and `transitionRunToTerminal`'s
+`UPDATE agent_runs SET status = …` changes no FK column, so Postgres takes no new
+key-share. `agent_runs` does FK to `accounts`/`businesses` (`071:17-18`) — which
+is why the "no parent-row lock at all" claim depends on there being no run
+INSERT, and why it must be re-checked if one is ever added.
+
+**The pin test kept its teeth.** Removing the carve-out fails both the pairing
+check and the pin — verified by negative control.
+
+**Amendment count: 1.** A second surface amendment trips the abort criteria in
+`.claude/commands/feature.md` step 5.
+
+## 2026-07-29 — the verify gate was racing itself: two self-colliding verification commands
+
+**What happened.** The first full gate run after T5–T8 came back with 16 failing
+rows, including `test database is behind head — missing schema objects` and
+`agent_runs missing from pg_class`. Read naively, that is a migration or schema
+defect in this ticket. It was not.
+
+**Root cause.** `scripts/verify-gate.sh` backgrounds every check with `&` (`:44`)
+and waits (`:125`) — all `verification_commands` run in **parallel**. Two intake
+entries cannot survive that:
+
+- **`pnpm test:db:setup`** runs `DROP SCHEMA IF EXISTS public CASCADE`
+  (`scripts/test-db-setup.sh:45`). The gate was dropping the test schema
+  concurrently with its own 7 live-DB suites. It also "passed" while doing so,
+  which is what made the failure look like it lived somewhere else. It is a
+  **provisioning** step, not a verification — CLAUDE.md specifies running it once
+  after a migration lands.
+- **`pnpm build`** duplicates the gate's own `build` row. Two concurrent
+  `next build` invocations; Next refuses the second with "Another next build
+  process is already running." The gate's own `build` row passed every time while
+  the duplicate failed — a tell that was visible from the very first run and
+  initially misread as flake.
+
+**Effect of removing both:** 16 failing rows → 1.
+
+**The remaining `test` row is gate-load flakiness, not a defect.** 6 of its 7
+failures are 5000ms timeouts, the failing *set changes between runs*
+(`confirm`/`lead-intake` one run; `stripe-activation-enqueue`/`webhook-dedup`/
+`generate-responses` the next), and none of those files is on #624's surface.
+Evidence: standalone `pnpm test` is fully green (766 files / 9791 tests / 0
+failures), and the five files the gate failed pass in **877 ms** when run
+directly. The gate runs the full suite concurrently with ~20 other checks plus a
+`next build` and 7 live-DB suites on one machine.
+
+**Lesson worth carrying past this ticket.** A parallel gate must not contain a
+command that mutates the shared resource other commands read, and must not
+duplicate a row it already owns. Both defects presented as failures in unrelated
+code, which cost real diagnosis time. Worth a follow-up on `verify-gate.sh`:
+either serialize destructive commands or reject them from
+`verification_commands` outright.
