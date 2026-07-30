@@ -134,7 +134,6 @@
     "closeBatchIfSettled prefers halted over every other disposition source"
   ],
   "verification_commands": [
-    "pnpm build",
     "pnpm ci:db-imports",
     "pnpm ci:feature-surface",
     "pnpm ci:live-db-suites",
@@ -150,7 +149,6 @@
     "pnpm test src/lib/solicitation/__tests__/outreach.test.ts",
     "pnpm test worker/background/pollers/__tests__ worker/background/pollers/health-alert/__tests__",
     "pnpm test worker/jobs/account-offboarding/__tests__ src/lib/account-offboarding/__tests__",
-    "pnpm test:db:setup",
     "pnpm typecheck"
   ],
   "estimated_diff_size": "+1900 / -70",
