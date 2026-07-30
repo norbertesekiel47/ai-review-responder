@@ -2,6 +2,58 @@
 
 Dated entries for anything the plan did not anticipate. One entry per surprise.
 
+## Step 6.5 read-back — triage verdicts (2026-07-29, all 16 entries)
+
+Every entry read end to end and verdicted. **16 ACCEPT, 0 RE-PLAN** — no entry
+invalidates a locked intake decision, so the abort criteria do not apply.
+
+Evidence backing the ACCEPTs on the four T1 blockers: the final gate run has all
+7 live-DB integration suites PASS against a **freshly re-provisioned** test DB
+(dropped and rebuilt bootstrap + 001…091), so their fixes are proven against
+current schema rather than against a hand-patched database.
+
+| # | Entry | Verdict |
+|---|---|---|
+| 1 | 12 missing promised titles in tasks reported DONE | **ACCEPT** — closed in `140a2889`; count is now 52/52 and the check runs per task |
+| 2 | Two gate rows fail for harness self-races | **ACCEPT** — same class as entry 16, root-caused and fixed there |
+| 3 | T1's new table reds an existing offboarding suite | **ACCEPT** — T8 closed it; `table-disposition.test.ts` verified green |
+| 4 | 091 rejects every unapproved batch (BLOCKER) | **ACCEPT** — inner `IS TRUE` on both arms; 091 suite green |
+| 5 | 091 dropped D19 Correction 2 from the persona CHECK (BLOCKER) | **ACCEPT** — exclusions merged; promised title 15 green |
+| 6 | 088 shape suite silently reverts 091's widening (BLOCKER) | **ACCEPT** — fixed in `b9ad24a6`; 088 and 091 suites both green in either order |
+| 7 | 091 not re-runnable, contrary to its own header | **ACCEPT** — §3 guarded `DO` block; three consecutive applies proven |
+| 8 | T1 overrides `auth.uid()` in a rolled-back tx to exercise RLS | **ACCEPT** — sound: DDL/GRANTs are transactional, suite holds the cross-process lock, assertion is meaningful in both directions |
+| 9 | T2: only one malformed gap-analysis ref is inside Appendix A | **ACCEPT** — correctly scoped; the second ref is off-surface. **Carries an open follow-up** (see below) |
+| 10 | T2 added a second ADR 0014 consequences bullet | **ACCEPT** — B11 cited a record that did not exist; writing it where B11 points is the fix, no new semantics |
+| 11 | T5 reads the disposition source off `agent_runs.error` | **ACCEPT** — the union's only writer is `failSolicitationBatchRun`; single owner, read in SQL, no new JSONB parse site. Pins a caller ordering that #628/#630 must honour |
+| 12 | T1 never registered `solicitation_outreach` in `TENANT_TABLES` | **ACCEPT** — registered; coverage proven real by negative control (perturb the snippet → audit reds) |
+| 13 | T7 ships `(sql)` not the planned `(sql, cfg)` | **ACCEPT** — an unused parameter carried to satisfy prose is worse than the deviation; threshold keeps one owner |
+| 14 | T7's first pass proved shape but not that the predicate matches a row | **ACCEPT** — closed with a live-DB case seeded through the spine writer; two discrimination probes both red |
+| 15 | Surface amendment #1 (`src/lib/approval/__tests__/**`) | **ACCEPT** — owner-approved; carve-out claims verified against `071:51` / `071:17-18` / `transitionRunToTerminal`; pin test still bites |
+| 16 | The verify gate was racing itself (2 self-colliding commands) | **ACCEPT** — provisioning and duplicate-build commands removed; 16 failing rows → 1 |
+
+### The one open follow-up, carried deliberately
+
+Entry 9 owes a one-line cosmetic fix to line 13 of
+`docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` (a
+malformed nested-backtick reference that splits a path across two code spans).
+That file is not on the allowed edit surface and the content is purely cosmetic,
+so it is **not** being fixed here rather than widening the surface a second time.
+
+### Two things carried out of #624 that are NOT #624's to fix
+
+Restated here so the review agents do not re-raise them as new findings:
+
+1. **Migration 088 has a live NULL hole.**
+   `solicitation_asks_status_reason_consistency` admits `('withhold', NULL)` —
+   that arm evaluates to NULL and a CHECK accepts NULL. Proved empirically. 091
+   is immune (`IS TRUE` throughout); the asks table is not. Pre-existing,
+   deliberately out of scope, worth its own ticket.
+2. **`checks.integration.test.ts` self-heals migration 083** with an inline
+   `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in `beforeAll` — the exact
+   "apply, don't assert" pattern #573 outlawed, and invisible to
+   `ci:live-db-suites` because it uses no `.unsafe(`. Found by T7, pre-existing,
+   off-surface. Worth a ticket **and** an audit-coverage gap to close.
+
 ## 2026-07-29 — the first gate run exposed 12 missing promised titles in tasks reported DONE
 
 **What happened.** The first `scripts/verify-gate.sh` run on this branch (after T1–T4
