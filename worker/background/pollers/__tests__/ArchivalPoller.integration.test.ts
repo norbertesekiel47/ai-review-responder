@@ -37,7 +37,14 @@ import {
   assertSchemaReady,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+  MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import {
+  checksum,
+  insertOutreach,
+  OUTREACH_BODY,
+  OUTREACH_SUBJECT,
+} from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
@@ -68,8 +75,27 @@ function runOneArchivalCycle(): Promise<void> {
   return runArchival(createWorkerLogger('[ArchivalPollerIntegration]'));
 }
 
-const SUBJECT = 'How did we do?';
-const BODY = 'Would you mind leaving a review?';
+const SUBJECT = OUTREACH_SUBJECT;
+const BODY = OUTREACH_BODY;
+
+/**
+ * The four terminal statuses that never carry `sent_at`, each with a reason
+ * 091's status/reason CHECK accepts. Before #636 none of them was redactable
+ * OR sweepable — the constraint made the stamp unrepresentable and the sweep
+ * keyed on a column that is NULL on all four.
+ *
+ * `dispatched` splits them by whether a send was ever attempted: `withheld` and
+ * `cancelled` are decided before dispatch and carry no lifecycle stamps, while
+ * `failed` and `unknown` are provider outcomes and carry queued/sending. Both
+ * shapes go through the same sweep, and seeding only one would leave half the
+ * class unproven.
+ */
+const UNSENT_TERMINALS = [
+  { deliveryStatus: 'withheld', dispositionReason: 'suppressed', dispatched: false },
+  { deliveryStatus: 'cancelled', dispositionReason: 'owner_veto', dispatched: false },
+  { deliveryStatus: 'failed', dispositionReason: 'send_failed', dispatched: true },
+  { deliveryStatus: 'unknown', dispositionReason: 'send_indeterminate', dispatched: true },
+] as const;
 
 /**
  * The source the body was rendered FROM. Both members are third-party PII the
@@ -83,17 +109,20 @@ const INTERPOLATION_INPUTS = {
 } as const;
 
 /**
- * One Outreach row on its own upload/batch/contact/ask chain, sent `sentAgo`
- * before NOW(). The chain is per-row because both
- * `solicitation_outreach_one_live_per_ask` and
+ * The upload → contact → batch → ask chain one Outreach row hangs off. Per-row
+ * because both `solicitation_outreach_one_live_per_ask` and
  * `solicitation_outreach_ask_attempt_uniq` are scoped to a single ask.
+ *
+ * The batch is seeded already CLOSED, which is both realistic for one 400 days
+ * old and required: `solicitation_batches_one_active_send_per_business` (D8)
+ * admits exactly one approved-and-unclosed batch per Business, so a case
+ * seeding two rows would collide on that unique instead of testing the sweep.
  */
-async function seedSentOutreach(sentAgo: string): Promise<string> {
+async function seedChain(): Promise<{ batchId: string; askId: string; contactId: string }> {
   const uploadId = randomUUID();
   const batchId = randomUUID();
   const contactId = randomUUID();
   const askId = randomUUID();
-  const outreachId = randomUUID();
 
   await sql()`
     INSERT INTO contact_csv_uploads (
@@ -102,8 +131,7 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
       attestation_version, completed_at
     ) VALUES (
       ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${`archival-${uploadId}.csv`}, 1,
-      ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
+      ${`archival-${uploadId}.csv`}, 1, ${checksum(uploadId)},
       NULL, 'completed', ${sql().json({ accepted: 1 })},
       ${tenant!.userId}::uuid, NOW(), 'archival-redaction-test', NOW()
     )
@@ -118,12 +146,12 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
   await sql()`
     INSERT INTO solicitation_batches (
       id, account_id, business_id, source_upload_id, created_at,
-      built_at, approved_at, approval_method, sending_started_at
+      built_at, approved_at, approval_method, sending_started_at, send_closed_at
     ) VALUES (
       ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
       ${uploadId}::uuid, NOW() - INTERVAL '400 days',
       NOW() - INTERVAL '399 days', NOW() - INTERVAL '399 days',
-      'auto_policy', NOW() - INTERVAL '399 days'
+      'auto_policy', NOW() - INTERVAL '399 days', NOW() - INTERVAL '398 days'
     )
   `;
   await sql()`
@@ -136,35 +164,63 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
       NOW() - INTERVAL '399 days'
     )
   `;
-  await sql()`
-    INSERT INTO solicitation_outreach (
-      id, account_id, business_id, batch_id, ask_id, contact_id,
-      attempt_no, rendered_subject, rendered_body,
-      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
-      ask_lint_version, lint_detail, moderation_status, moderation_detail,
-      delivery_status, queued_at, sending_at, sent_at
-    ) VALUES (
-      ${outreachId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${batchId}::uuid, ${askId}::uuid, ${contactId}::uuid,
-      1, ${SUBJECT}, ${BODY},
-      'solicitation_ask_v1', ${outreachId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
-      ${sql().json(INTERPOLATION_INPUTS)}, NOW() - ${sentAgo}::interval,
-      'ask_lint_v1', ${sql().json({})},
-      'clean', ${sql().json({})},
-      'sent',
-      NOW() - ${sentAgo}::interval - INTERVAL '2 seconds',
-      NOW() - ${sentAgo}::interval - INTERVAL '1 second',
-      NOW() - ${sentAgo}::interval
-    )
-  `;
-  return outreachId;
+  return { batchId, askId, contactId };
 }
+
+interface SeedOutreachOptions {
+  deliveryStatus?: string;
+  dispositionReason?: string | null;
+  /** Give the row the lifecycle stamps of an attempted dispatch. */
+  dispatched?: boolean;
+}
+
+/**
+ * One Outreach row aged `agedBy` before NOW(), on its own chain.
+ *
+ * `agedBy` sets `rendered_at` and, for a `sent` row, `sent_at` — the two
+ * columns the two sweep arms key on, so one knob moves whichever clock the
+ * case is about. Every stamp is a SQL interval off NOW() rather than a JS
+ * `Date`: postgres.js truncates timestamptz microseconds, so a JS-derived
+ * timestamp compared against a SQL-derived retention boundary can mis-order by
+ * under a millisecond — and the boundary is exactly what these cases test.
+ */
+async function seedOutreach(
+  agedBy: string,
+  options: SeedOutreachOptions = {},
+): Promise<string> {
+  const { batchId, askId, contactId } = await seedChain();
+  const deliveryStatus = options.deliveryStatus ?? 'sent';
+  const isSent = deliveryStatus === 'sent';
+  const dispatched = options.dispatched ?? isSent;
+  const isLive = deliveryStatus === 'rendered';
+
+  return insertOutreach(sql(), {
+    accountId: accountId(),
+    businessId,
+    batchId,
+    askId,
+    contactId,
+    deliveryStatus,
+    dispositionReason: options.dispositionReason ?? null,
+    interpolationInputs: INTERPOLATION_INPUTS,
+    renderedAt: sql()`NOW() - ${agedBy}::interval`,
+    // A `rendered` row may carry NO dispatch stamps at all (091), which is what
+    // makes it the case where an age-only sweep would do the damage.
+    queuedAt: dispatched && !isLive ? sql()`NOW() - ${agedBy}::interval - INTERVAL '2 seconds'` : null,
+    sendingAt: dispatched && !isLive ? sql()`NOW() - ${agedBy}::interval - INTERVAL '1 second'` : null,
+    sentAt: isSent ? sql()`NOW() - ${agedBy}::interval` : null,
+  });
+}
+
+/** The pre-#636 fixture, kept as the name the sent-arm cases read best under. */
+const seedSentOutreach = (sentAgo: string): Promise<string> => seedOutreach(sentAgo);
 
 interface OutreachBodyRow {
   rendered_subject: string | null;
   rendered_body: string | null;
   body_redacted_at: string | null;
   sent_at: string | null;
+  delivery_status: string;
   // Read as ::text so the assertion compares the stored document itself rather
   // than whatever postgres.js decoded — the same reason every timestamp here is
   // read as text.
@@ -176,6 +232,7 @@ async function readOutreach(outreachId: string): Promise<OutreachBodyRow> {
     SELECT rendered_subject, rendered_body,
            body_redacted_at::text AS body_redacted_at,
            sent_at::text AS sent_at,
+           delivery_status,
            interpolation_inputs::text AS interpolation_inputs
     FROM solicitation_outreach
     WHERE id = ${outreachId}::uuid
@@ -206,6 +263,7 @@ describeWithDb(
       await assertSchemaReady(sql(), [
         MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
         MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+        MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
       ]);
       tenant = await seedTenantAccount(sql(), {
         userName: 'Archival Redaction Owner',
@@ -284,6 +342,107 @@ describeWithDb(
       const row = await readOutreach(outreachId);
       expect(firstStamp).not.toBeNull();
       expect(row.body_redacted_at).toBe(firstStamp);
+    });
+
+    // ── Terminal rows that never sent (#636) ─────────────────────────────
+    //
+    // The arm above is reachable only by `sent` rows: migration 091 makes
+    // `sent_at IS NOT NULL` equivalent to `delivery_status = 'sent'`, so a
+    // `withheld`/`cancelled`/`failed`/`unknown` row could neither be selected
+    // by a sweep keyed on `sent_at` nor legally carry `body_redacted_at` at
+    // all. Both halves kept their bodies AND their `interpolation_inputs`
+    // forever. `unknown` is the sharp one — the provider never confirmed, so
+    // the message may well have been delivered.
+
+    it.each(UNSENT_TERMINALS)(
+      'ArchivalPoller redacts an aged $deliveryStatus row that never sent',
+      async ({ deliveryStatus, dispositionReason, dispatched }) => {
+        const outreachId = await seedOutreach('91 days', {
+          deliveryStatus,
+          dispositionReason,
+          dispatched,
+        });
+
+        await runOneArchivalCycle();
+
+        const row = await readOutreach(outreachId);
+        expect(row.rendered_subject).toBeNull();
+        expect(row.rendered_body).toBeNull();
+        expect(row.body_redacted_at).not.toBeNull();
+        // The source goes with the prose — contact_first_name and visit_note
+        // are the PII the sentence was assembled from.
+        expect(JSON.parse(row.interpolation_inputs)).toEqual({});
+        // Redaction is not a delete, and it does not invent a send: the
+        // disposition survives and `sent_at` stays NULL.
+        expect(row.delivery_status).toBe(deliveryStatus);
+        expect(row.sent_at).toBeNull();
+      },
+    );
+
+    it('ArchivalPoller leaves a never-sent terminal row inside the retention window untouched', async () => {
+      const outreachId = await seedOutreach('89 days', {
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'owner_veto',
+      });
+
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(row.rendered_subject).toBe(SUBJECT);
+      expect(row.rendered_body).toBe(BODY);
+      expect(row.body_redacted_at).toBeNull();
+      // Same boundary for both halves, so the erasure above is the sweep acting
+      // and not the fixture having been empty all along.
+      expect(JSON.parse(row.interpolation_inputs)).toEqual(INTERPOLATION_INPUTS);
+    });
+
+    it('ArchivalPoller never redacts a LIVE row, however old it is', async () => {
+      // The reason the new arm filters on status rather than age alone. A
+      // bodyless `rendered` row can neither send nor settle, and wedges its
+      // whole batch behind `solicitation_outreach_one_live_per_ask` — so age
+      // must not be a licence. 400 days is far past every window in the poller.
+      const outreachId = await seedOutreach('400 days', { deliveryStatus: 'rendered' });
+
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(row.rendered_subject).toBe(SUBJECT);
+      expect(row.rendered_body).toBe(BODY);
+      expect(row.body_redacted_at).toBeNull();
+      expect(JSON.parse(row.interpolation_inputs)).toEqual(INTERPOLATION_INPUTS);
+    });
+
+    it('ArchivalPoller never-sent redaction is idempotent', async () => {
+      const outreachId = await seedOutreach('120 days', {
+        deliveryStatus: 'unknown',
+        dispositionReason: 'send_indeterminate',
+        dispatched: true,
+      });
+
+      await runOneArchivalCycle();
+      const firstStamp = (await readOutreach(outreachId)).body_redacted_at;
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(firstStamp).not.toBeNull();
+      expect(row.body_redacted_at).toBe(firstStamp);
+    });
+
+    it('ArchivalPoller sweeps both clocks in one cycle', async () => {
+      // Two arms, one pass. A sent row ages from `sent_at` and a never-sent one
+      // from `rendered_at`; if either arm were dropped or shadowed by the other
+      // this is the case that catches it, since a single cycle has to clear
+      // both.
+      const sentId = await seedSentOutreach('91 days');
+      const cancelledId = await seedOutreach('91 days', {
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'batch_expired',
+      });
+
+      await runOneArchivalCycle();
+
+      expect((await readOutreach(sentId)).body_redacted_at).not.toBeNull();
+      expect((await readOutreach(cancelledId)).body_redacted_at).not.toBeNull();
     });
   },
 );

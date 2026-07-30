@@ -48,6 +48,7 @@ function queueArchivalResults(counts: {
   agentOutcomes?: number;
   agentRuns?: number;
   outreachBodies?: number;
+  unsentOutreachBodies?: number;
 }): void {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
@@ -59,6 +60,7 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.push([{ count: String(counts.agentOutcomes ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.agentRuns ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.outreachBodies ?? 0) }]);
+  sqlReturnQueue.push([{ count: String(counts.unsentOutreachBodies ?? 0) }]);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -101,16 +103,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 9 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach)', async () => {
+  it('issues 10 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(9);
+    expect(mockSql).toHaveBeenCalledTimes(10);
   });
 
-  it('logs all 9 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11 });
+  it('logs all 10 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13 });
 
     await runOneCycle();
 
@@ -128,9 +130,10 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"agent_outcomes":3');
     expect(msg).toContain('"agent_runs":9');
     expect(msg).toContain('"solicitation_outreach_bodies":11');
+    expect(msg).toContain('"solicitation_outreach_unsent_bodies":13');
   });
 
-  it('logs "Nothing to archive" when all 9 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 10 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
@@ -299,6 +302,80 @@ describe('ArchivalPoller', () => {
     expect(BODY_RETENTION_DAYS).toBe(90);
     const redactionCall = mockSql.mock.calls[8];
     expect(redactionCall!.slice(1)).toContain(BODY_RETENTION_DAYS);
+  });
+
+  // ── Terminal-but-never-sent redaction (#636) ─────────────────────────
+  //
+  // Arm 9 above can only ever see `sent` rows, because migration 091 makes
+  // `sent_at IS NOT NULL` equivalent to `delivery_status = 'sent'`. Arm 10 is
+  // the counterpart for the four terminal statuses that never sent, keyed on
+  // `rendered_at` because `sent_at` is NULL on exactly those rows. Row-level
+  // behaviour is proved in ArchivalPoller.integration.test.ts; these pin the
+  // parts a live suite cannot see.
+
+  it('sweeps terminal never-sent rows on rendered_at, bounded and skip-locked (query shape assertion)', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // The 10th sql() call (index 9) is the never-sent redaction block.
+    const unsentCall = mockSql.mock.calls[9];
+    expect(unsentCall).toBeDefined();
+    const fullSql = (unsentCall![0] as TemplateStringsArray).join(' ');
+    // rendered_at, NOT sent_at: sent_at is NULL on every row this arm is for,
+    // so keying on it is what made the whole class unreachable.
+    expect(fullSql).toContain('rendered_at < NOW() - make_interval(days =>');
+    expect(fullSql).not.toContain('sent_at');
+    expect(fullSql).toContain('body_redacted_at IS NULL');
+    expect(fullSql).toContain('ORDER BY rendered_at');
+    expect(fullSql).toContain('LIMIT 5000');
+    expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+    expect(fullSql).toContain('UPDATE solicitation_outreach');
+    expect(fullSql).not.toContain('DELETE FROM solicitation_outreach');
+    // Redaction takes the source with the prose (#624 T2).
+    expect(fullSql).toContain("interpolation_inputs = '{}'::jsonb");
+    expect(unsentCall!.slice(1)).toContain(BODY_RETENTION_DAYS);
+  });
+
+  it('filters arm 10 to the four terminal statuses, spelled literally', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    const fullSql = (mockSql.mock.calls[9]![0] as TemplateStringsArray).join(' ');
+    // Literal, not bound: a bind parameter here would stop the planner proving
+    // this predicate implies idx_solicitation_outreach_unsent_terminal_redaction_sweep's
+    // own literal predicate, and the sweep would degrade to a full scan every
+    // cycle. Same partial-index inference failure CLAUDE.md documents for
+    // ON CONFLICT.
+    expect(fullSql).toContain(
+      "delivery_status IN ('withheld', 'cancelled', 'failed', 'unknown')",
+    );
+    // A live row is never a candidate at any age — redacting one leaves a
+    // bodyless attempt that can neither send nor settle, wedging its batch
+    // behind solicitation_outreach_one_live_per_ask.
+    for (const liveStatus of ['rendered', 'queued', 'sending']) {
+      expect(fullSql).not.toContain(`'${liveStatus}'`);
+    }
+  });
+
+  it('logs the never-sent redaction count and saturates independently of arm 9', async () => {
+    queueArchivalResults({
+      outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0,
+      outreachBodies: 0, unsentOutreachBodies: 5000,
+    });
+
+    await runOneCycle();
+
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
+    );
+    expect(archivedLog![0] as string).toContain('"solicitation_outreach_unsent_bodies":5000');
+    // Two arms, two saturation signals: arm 9 draining while arm 10 is pinned
+    // at the cap has to be visible, or a permanent PII backlog reads as
+    // "redaction is keeping up".
+    const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
+    expect(warnMsg).toContain('solicitation_outreach_unsent_bodies');
   });
 
   it('logs the solicitation_outreach redaction count in the Archived log', async () => {

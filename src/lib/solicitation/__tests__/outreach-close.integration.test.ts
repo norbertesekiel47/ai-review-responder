@@ -20,6 +20,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import type { SolicitationBatchRunFailure } from '@/lib/agents/run-spine';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
@@ -223,33 +224,26 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
   // left NULL. Resolved in SQL off NOW(): postgres.js truncates timestamptz
   // microseconds, so a JS-derived stamp can mis-order against a NOW()-defaulted
   // sibling by <1ms and trip the ordering arms for reasons unrelated to the case.
+  // That is also why this suite does NOT use the fixture's Date-based
+  // `deriveDispatchStamps` — only its column set (#636 T3).
   const dispatched =
     input.deliveryStatus === 'queued'
     || input.deliveryStatus === 'sending'
     || input.deliveryStatus === 'sent';
-  await sql()`
-    INSERT INTO solicitation_outreach (
-      id, account_id, business_id, batch_id, ask_id, contact_id,
-      attempt_no, rendered_subject, rendered_body,
-      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
-      ask_lint_version, lint_detail, moderation_status, moderation_detail,
-      delivery_status, disposition_reason, queued_at, sending_at, sent_at
-    ) VALUES (
-      ${outreachId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${input.batchId}::uuid, ${askId}::uuid, ${ask!.contact_id}::uuid,
-      1,
-      ${withheld ? null : 'How did we do?'},
-      ${withheld ? null : 'Would you mind leaving a review?'},
-      'solicitation_ask_v1', ${outreachId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
-      ${sql().json({})}, NOW(), 'ask_lint_v1', ${sql().json({})},
-      'clean', ${sql().json({})},
-      ${input.deliveryStatus}, ${input.dispositionReason ?? null},
-      ${dispatched ? sql()`NOW() - INTERVAL '2 seconds'` : null},
-      ${input.deliveryStatus === 'sending' ? sql()`NOW() - INTERVAL '1 second'` : null},
-      ${input.deliveryStatus === 'sent' ? sql()`NOW()` : null}
-    )
-  `;
-  return outreachId;
+  return insertOutreach(sql(), {
+    id: outreachId,
+    accountId: accountId(),
+    businessId,
+    batchId: input.batchId,
+    askId,
+    contactId: ask!.contact_id,
+    ...(withheld ? { renderedSubject: null, renderedBody: null } : {}),
+    deliveryStatus: input.deliveryStatus,
+    dispositionReason: input.dispositionReason ?? null,
+    queuedAt: dispatched ? sql()`NOW() - INTERVAL '2 seconds'` : null,
+    sendingAt: input.deliveryStatus === 'sending' ? sql()`NOW() - INTERVAL '1 second'` : null,
+    sentAt: input.deliveryStatus === 'sent' ? sql()`NOW()` : null,
+  });
 }
 
 function close(

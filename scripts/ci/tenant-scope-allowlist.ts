@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 409;
+export const ALLOWLIST_BASELINE = 410;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -663,6 +663,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH candidates AS ( SELECT id FROM solicitation_outreach WHERE sent_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS}) AND body_redacted_at IS NULL ORDER BY sent_at LIMIT 5000 FOR UPDATE SKIP LOCKED ), redacted AS ( UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW() WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM redacted",
     category: 'background-global-scan',
     reason: "Global archival poller enforces 90-day outreach body redaction independent of tenant request scope; a retention sweep is deliberately cross-tenant.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM solicitation_outreach WHERE rendered_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS}) AND body_redacted_at IS NULL AND delivery_status IN ('withheld', 'cancelled', 'failed', 'unknown') ORDER BY rendered_at LIMIT 5000 FOR UPDATE SKIP LOCKED ), redacted AS ( UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW() WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM redacted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces the same 90-day outreach body redaction for rows that went terminal without ever sending (#636); a retention sweep is deliberately cross-tenant.",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
