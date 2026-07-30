@@ -72,6 +72,17 @@ const SUBJECT = 'How did we do?';
 const BODY = 'Would you mind leaving a review?';
 
 /**
+ * The source the body was rendered FROM. Both members are third-party PII the
+ * business gave us about its customer, which is why redacting only the rendered
+ * prose would delete the sentence and keep the sentence's ingredients.
+ */
+const INTERPOLATION_INPUTS = {
+  contact_first_name: 'Dana',
+  visit_note: 'Came in for a brake inspection on the 4th.',
+  template_id: 'solicitation_ask_v1',
+} as const;
+
+/**
  * One Outreach row on its own upload/batch/contact/ask chain, sent `sentAgo`
  * before NOW(). The chain is per-row because both
  * `solicitation_outreach_one_live_per_ask` and
@@ -137,7 +148,8 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
       ${batchId}::uuid, ${askId}::uuid, ${contactId}::uuid,
       1, ${SUBJECT}, ${BODY},
       'solicitation_ask_v1', ${outreachId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
-      ${sql().json({})}, NOW() - ${sentAgo}::interval, 'ask_lint_v1', ${sql().json({})},
+      ${sql().json(INTERPOLATION_INPUTS)}, NOW() - ${sentAgo}::interval,
+      'ask_lint_v1', ${sql().json({})},
       'clean', ${sql().json({})},
       'sent', NOW() - ${sentAgo}::interval
     )
@@ -150,13 +162,18 @@ interface OutreachBodyRow {
   rendered_body: string | null;
   body_redacted_at: string | null;
   sent_at: string | null;
+  // Read as ::text so the assertion compares the stored document itself rather
+  // than whatever postgres.js decoded — the same reason every timestamp here is
+  // read as text.
+  interpolation_inputs: string;
 }
 
 async function readOutreach(outreachId: string): Promise<OutreachBodyRow> {
   const [row] = await sql()<OutreachBodyRow[]>`
     SELECT rendered_subject, rendered_body,
            body_redacted_at::text AS body_redacted_at,
-           sent_at::text AS sent_at
+           sent_at::text AS sent_at,
+           interpolation_inputs::text AS interpolation_inputs
     FROM solicitation_outreach
     WHERE id = ${outreachId}::uuid
       AND account_id = ${accountId()}::uuid
@@ -230,6 +247,11 @@ describeWithDb(
       expect(row.rendered_subject).toBeNull();
       expect(row.rendered_body).toBeNull();
       expect(row.body_redacted_at).not.toBeNull();
+      // The source the body was rendered from goes with it. Nulling only the
+      // prose would delete the sentence and keep contact_first_name and
+      // visit_note — the third-party PII the sentence was assembled from — which
+      // is not the data minimization CONTEXT.md's Body redaction entry promises.
+      expect(JSON.parse(row.interpolation_inputs)).toEqual({});
       // Redaction is not a delete: the metadata row and its send proof stay.
       expect(row.sent_at).not.toBeNull();
     });
@@ -243,6 +265,10 @@ describeWithDb(
       expect(row.rendered_subject).toBe(SUBJECT);
       expect(row.rendered_body).toBe(BODY);
       expect(row.body_redacted_at).toBeNull();
+      // The window is one boundary for both halves — a row that keeps its body
+      // keeps the inputs, so the erasure above is the sweep acting and not the
+      // fixture having been empty all along.
+      expect(JSON.parse(row.interpolation_inputs)).toEqual(INTERPOLATION_INPUTS);
     });
 
     it('ArchivalPoller redaction is idempotent — a second cycle does not re-stamp an already-redacted row', async () => {

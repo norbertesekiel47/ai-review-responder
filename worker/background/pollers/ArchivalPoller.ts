@@ -243,6 +243,12 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     // free — a never-sent row has no send to minimize and stays out of the
     // sweep permanently, which is also what keeps the partial index small.
     //
+    // interpolation_inputs is emptied with the bodies, not kept: it carries the
+    // contact_first_name and visit_note the body was rendered FROM, so keeping
+    // it would delete the sentence and retain its source. The column is
+    // NOT NULL, hence '{}'::jsonb rather than NULL. Nothing reads it — this
+    // erases reproducibility past 90 days, which is the point.
+    //
     // ORDER BY sent_at makes progress monotonic (oldest first) so a large first
     // backlog drains cycle by cycle instead of re-scanning the same window and
     // burning the 30s statement_timeout; FOR UPDATE SKIP LOCKED keeps the sweep
@@ -259,7 +265,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       ),
       redacted AS (
         UPDATE solicitation_outreach
-        SET rendered_subject = NULL, rendered_body = NULL, body_redacted_at = NOW()
+        SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW()
         WHERE id IN (SELECT id FROM candidates)
         RETURNING id
       )

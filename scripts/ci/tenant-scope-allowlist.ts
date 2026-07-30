@@ -660,7 +660,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
     table: "solicitation_outreach",
-    sqlSnippet: "WITH candidates AS ( SELECT id FROM solicitation_outreach WHERE sent_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS}) AND body_redacted_at IS NULL ORDER BY sent_at LIMIT 5000 FOR UPDATE SKIP LOCKED ), redacted AS ( UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL, body_redacted_at = NOW() WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM redacted",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM solicitation_outreach WHERE sent_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS}) AND body_redacted_at IS NULL ORDER BY sent_at LIMIT 5000 FOR UPDATE SKIP LOCKED ), redacted AS ( UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW() WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM redacted",
     category: 'background-global-scan',
     reason: "Global archival poller enforces 90-day outreach body redaction independent of tenant request scope; a retention sweep is deliberately cross-tenant.",
   },

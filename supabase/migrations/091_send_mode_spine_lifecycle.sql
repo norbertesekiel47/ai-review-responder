@@ -139,17 +139,41 @@ ALTER TABLE solicitation_batches
     ) IS TRUE
   );
 
--- Sending implies approval. Closure deliberately does NOT: D14's
--- generation_failed and B7's batch expiry both close a batch that was never
--- approved, and a blanket "closed implies approved" CHECK would reject them.
+-- The full transition graph, not just its sending arm. Approval implies built
+-- content: without that arm an approved-but-unbuilt batch is legal, and it
+-- enters solicitation_batches_one_active_send_per_business below (which keys on
+-- approved_at IS NOT NULL) while deriveBatchState reports it 'approved' — a
+-- live send over content that does not exist.
+--
+-- Closure deliberately does NOT imply approval: D14's generation_failed and
+-- B7's batch expiry both close a batch that was never approved, and a blanket
+-- "closed implies approved" CHECK would reject them. That carve-out is why
+-- closure is tied to built_at and to each optional stamp individually.
 ALTER TABLE solicitation_batches
   DROP CONSTRAINT IF EXISTS solicitation_batches_send_ordering;
 ALTER TABLE solicitation_batches
   ADD CONSTRAINT solicitation_batches_send_ordering CHECK (
     (
-      (sending_started_at IS NULL OR approved_at IS NOT NULL)
+      -- approval implies built content, and never precedes it. The first arm is
+      -- deliberately explicit even though the second already rejects a NULL
+      -- built_at through the IS TRUE wrapper: stating the rule beats relying on
+      -- three-valued logic to produce it as a side effect.
+      (approved_at IS NULL OR built_at IS NOT NULL)
+      AND (approved_at IS NULL OR approved_at >= built_at)
+      -- the veto window is an artifact of approval
+      AND (veto_deadline_at IS NULL OR approved_at IS NOT NULL)
+      AND (veto_deadline_at IS NULL OR veto_deadline_at >= approved_at)
+      -- sending implies approval, and never precedes it
+      AND (sending_started_at IS NULL OR approved_at IS NOT NULL)
       AND (sending_started_at IS NULL OR sending_started_at >= approved_at)
+      -- closure implies built, and never precedes the events it closes
       AND (send_closed_at IS NULL OR built_at IS NOT NULL)
+      AND (send_closed_at IS NULL OR send_closed_at >= built_at)
+      AND (send_closed_at IS NULL OR approved_at IS NULL OR send_closed_at >= approved_at)
+      AND (send_closed_at IS NULL OR sending_started_at IS NULL
+           OR send_closed_at >= sending_started_at)
+      -- the halt latch cannot predate the build it halts
+      AND (halted_at IS NULL OR built_at IS NULL OR halted_at >= built_at)
     ) IS TRUE
   );
 
@@ -291,6 +315,39 @@ ALTER TABLE solicitation_outreach
         'send_failed', 'send_exhausted'
       )) OR
       (delivery_status = 'unknown' AND disposition_reason = 'send_indeterminate')
+    ) IS TRUE
+  );
+
+-- Status ↔ lifecycle timestamps. The reason pairing above says nothing about
+-- the stamps, which leaves two holes that both wedge real work:
+--
+--   1. delivery_status='sent' with sent_at NULL. The ArchivalPoller redaction
+--      sweep selects on sent_at, so such a row is never a candidate and keeps
+--      its rendered body forever — the 90-day retention promise silently does
+--      not apply to it.
+--   2. A live 'rendered' row carrying a stale sent_at. The sweep filters on
+--      sent_at and body_redacted_at only, never on delivery_status, so it would
+--      redact a row that has not sent yet, producing a bodyless live attempt
+--      that can neither send nor settle — wedging its batch behind
+--      solicitation_outreach_one_live_per_ask.
+--
+-- Both are closed in the data rather than in the sweep's predicate, because the
+-- sweep is not the only future reader. Arm 1 subsumes hole 2: once sent_at
+-- implies 'sent', a 'rendered' row cannot carry one at all.
+ALTER TABLE solicitation_outreach
+  DROP CONSTRAINT IF EXISTS solicitation_outreach_status_timestamp_consistency;
+ALTER TABLE solicitation_outreach
+  ADD CONSTRAINT solicitation_outreach_status_timestamp_consistency CHECK (
+    (
+      -- sent is the only status that carries sent_at, and it requires it
+      (delivery_status = 'sent') = (sent_at IS NOT NULL)
+      -- queued/sending/sent imply the preceding stamp, in order
+      AND (sending_at IS NULL OR queued_at IS NOT NULL)
+      AND (sending_at IS NULL OR sending_at >= queued_at)
+      AND (sent_at IS NULL OR sending_at IS NULL OR sent_at >= sending_at)
+      -- a live attempt has not been dispatched yet
+      AND (delivery_status <> 'rendered' OR (queued_at IS NULL AND sending_at IS NULL))
+      AND (delivery_status <> 'queued'   OR sending_at IS NULL)
     ) IS TRUE
   );
 

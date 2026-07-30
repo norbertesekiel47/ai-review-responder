@@ -126,6 +126,8 @@ interface OutreachInput {
   renderedSubject?: string | null;
   renderedBody?: string | null;
   bodyRedactedAt?: Date | null;
+  queuedAt?: Date | null;
+  sendingAt?: Date | null;
   sentAt?: Date | null;
   moderationStatus?: string;
 }
@@ -151,7 +153,7 @@ function insertOutreach(
       prompt_version, prompt_hash, interpolation_inputs, rendered_at,
       body_redacted_at, ask_lint_version, lint_detail,
       moderation_status, moderation_detail,
-      delivery_status, disposition_reason, sent_at
+      delivery_status, disposition_reason, queued_at, sending_at, sent_at
     ) VALUES (
       ${input.id ?? randomUUID()}::uuid, ${tenant!.accountId}::uuid,
       ${businessId}::uuid, ${input.batchId ?? batchId}::uuid,
@@ -163,7 +165,7 @@ function insertOutreach(
       ${input.bodyRedactedAt ?? null}, 'ask_lint_v1', ${exec.json({})},
       ${input.moderationStatus ?? 'clean'}, ${exec.json({})},
       ${input.deliveryStatus ?? 'rendered'}, ${input.dispositionReason ?? null},
-      ${input.sentAt ?? null}
+      ${input.queuedAt ?? null}, ${input.sendingAt ?? null}, ${input.sentAt ?? null}
     )
   `;
 }
@@ -182,6 +184,7 @@ interface BatchLifecycleInput {
   approvedAfterSec?: number | null;
   approvalMethod?: string | null;
   approvedByUserId?: string | null;
+  vetoDeadlineAfterSec?: number | null;
   sendingStartedAfterSec?: number | null;
   sendClosedAfterSec?: number | null;
   haltedAfterSec?: number | null;
@@ -218,7 +221,7 @@ async function insertBatch(input: BatchLifecycleInput = {}): Promise<unknown> {
   return db!`
     INSERT INTO solicitation_batches (
       id, account_id, business_id, source_upload_id, created_at, built_at,
-      approved_at, approval_method, approved_by_user_id,
+      approved_at, approval_method, approved_by_user_id, veto_deadline_at,
       sending_started_at, send_closed_at,
       halted_at, halt_reason, halted_by
     ) VALUES (
@@ -228,6 +231,7 @@ async function insertBatch(input: BatchLifecycleInput = {}): Promise<unknown> {
       NOW() + ${at(input.approvedAfterSec)}::interval,
       ${input.approvalMethod ?? null},
       ${input.approvedByUserId ?? null}::uuid,
+      NOW() + ${at(input.vetoDeadlineAfterSec)}::interval,
       NOW() + ${at(input.sendingStartedAfterSec)}::interval,
       NOW() + ${at(input.sendClosedAfterSec)}::interval,
       NOW() + ${at(input.haltedAfterSec)}::interval,
@@ -712,6 +716,110 @@ describeWithDb(
       ).resolves.toBeDefined();
     });
 
+    it('solicitation_batches rejects an approved batch whose content was never built', async () => {
+      // The dangerous shape, and the reason this arm exists at all: the
+      // solicitation_batches_one_active_send_per_business partial unique keys on
+      // `approved_at IS NOT NULL AND send_closed_at IS NULL AND halted_at IS NULL`,
+      // so an approved-but-unbuilt batch ENTERS the live-send index — and
+      // deriveBatchState reports it 'approved', because precedence puts approved
+      // above built. A live send over content that does not exist.
+      await expect(
+        insertBatch({ approvedAfterSec: 1, approvalMethod: 'auto_policy' }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      // Approval never precedes the build it approves.
+      await expect(
+        insertBatch({
+          builtAfterSec: 2,
+          approvedAfterSec: 1,
+          approvalMethod: 'auto_policy',
+          sendClosedAfterSec: 3,
+        }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      // Approving the instant the build lands is legal — the boundary is `>=`,
+      // matching every other ordering arm in this constraint.
+      await expect(
+        insertBatch({
+          builtAfterSec: 1,
+          approvedAfterSec: 1,
+          approvalMethod: 'auto_policy',
+          sendClosedAfterSec: 2,
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_batches rejects a veto deadline with no approval behind it', async () => {
+      // The veto window is an artifact of approval: it is the deadline by which
+      // the owner may still pull back an approval that already happened. An
+      // orphan deadline on an unapproved batch would be a countdown against
+      // nothing that the send lane could still read as a live window.
+      await expect(insertBatch({ builtAfterSec: 0, vetoDeadlineAfterSec: 1 })).rejects.toThrow(
+        /solicitation_batches_send_ordering/,
+      );
+
+      // And it cannot close before the approval it protects opened.
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 2,
+          approvalMethod: 'auto_policy',
+          vetoDeadlineAfterSec: 1,
+          sendClosedAfterSec: 3,
+        }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 1,
+          approvalMethod: 'auto_policy',
+          vetoDeadlineAfterSec: 2,
+          sendClosedAfterSec: 3,
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_batches rejects a closure or halt that precedes the events it ends', async () => {
+      // Closure stays deliberately independent of approval (generation_failed
+      // and B7 expiry both close unapproved batches), which is exactly why each
+      // stamp it can outrank is bounded individually rather than through one
+      // chained rule.
+      await expect(
+        insertBatch({ builtAfterSec: 2, sendClosedAfterSec: 1 }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 2,
+          approvalMethod: 'auto_policy',
+          sendClosedAfterSec: 1,
+        }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      await expect(
+        insertBatch({
+          builtAfterSec: 0,
+          approvedAfterSec: 1,
+          approvalMethod: 'auto_policy',
+          sendingStartedAfterSec: 2,
+          sendClosedAfterSec: 1,
+        }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      // The halt latch is bounded against the build only: a batch can be halted
+      // before it was ever approved (that is what owner_veto during the window
+      // IS), but not before the content it halts existed.
+      await expect(
+        insertBatch({ builtAfterSec: 2, haltedAfterSec: 0, haltReason: 'batch_expired' }),
+      ).rejects.toThrow(/solicitation_batches_send_ordering/);
+
+      await expect(
+        insertBatch({ builtAfterSec: 0, haltedAfterSec: 1, haltReason: 'batch_expired' }),
+      ).resolves.toBeDefined();
+    });
+
     // ── 3. solicitation_outreach body presence ───────────────────────────────
 
     it('solicitation_outreach rejects a rendered row with a null body', async () => {
@@ -861,6 +969,88 @@ describeWithDb(
     it('solicitation_outreach accepts superseded as a cancel reason', async () => {
       await expect(
         insertOutreach(db!, { deliveryStatus: 'cancelled', dispositionReason: 'superseded' }),
+      ).resolves.toBeDefined();
+    });
+
+    // ── 4b. solicitation_outreach status <-> lifecycle timestamps ────────────
+
+    it('solicitation_outreach requires sent_at exactly for a sent row', async () => {
+      // A 'sent' row with no sent_at is invisible to the ArchivalPoller
+      // redaction sweep, which selects on `sent_at < NOW() - 90 days` — so it
+      // would keep its rendered body FOREVER while reporting as sent. The
+      // 90-day retention promise is only as total as this arm.
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sent', sentAt: null }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      // The mirror: sent_at is the stamp of a completed send and no other
+      // status may carry one. This is what makes a live 'rendered' row
+      // unreachable by the sweep — it cannot hold a sent_at to be selected on.
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'failed',
+          dispositionReason: 'send_failed',
+          sentAt: new Date(),
+        }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'rendered', sentAt: new Date() }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sent', sentAt: new Date() }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_outreach rejects a live attempt carrying dispatch timestamps', async () => {
+      // 'rendered' means built-but-not-handed-off. A queued_at on one would
+      // claim a dispatch that the status says never happened, and the daily-cap
+      // count (B3, keyed on queued_at) would charge the account for it.
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'rendered', queuedAt: new Date() }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      // 'queued' means handed to the send lane but not yet in flight.
+      const queuedAt = new Date();
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'queued',
+          queuedAt,
+          sendingAt: new Date(queuedAt.getTime() + 1_000),
+        }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'queued', queuedAt }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_outreach rejects out-of-order dispatch timestamps', async () => {
+      const queuedAt = new Date();
+      const sendingAt = new Date(queuedAt.getTime() + 1_000);
+      const sentAt = new Date(queuedAt.getTime() + 2_000);
+
+      // In flight without ever having been queued.
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sending', queuedAt: null, sendingAt }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      // Each inversion in turn.
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sending', queuedAt: sendingAt, sendingAt: queuedAt }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'sent',
+          queuedAt,
+          sendingAt: sentAt,
+          sentAt: sendingAt,
+        }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      // The whole ordered chain in one row.
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sent', queuedAt, sendingAt, sentAt }),
       ).resolves.toBeDefined();
     });
 
