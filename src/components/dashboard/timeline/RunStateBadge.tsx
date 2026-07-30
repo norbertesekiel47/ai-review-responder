@@ -5,6 +5,7 @@ const STATE_LABELS: Record<RunDisplayState, string> = {
   waiting_on_owner: 'Waiting on you',
   stalled: 'Stalled',
   completed: 'Completed',
+  cancelled: 'Cancelled',
   failed: 'Failed',
 };
 

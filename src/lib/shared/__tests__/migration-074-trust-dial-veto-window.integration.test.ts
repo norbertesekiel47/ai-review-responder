@@ -169,15 +169,35 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
   it('scope + dial CHECKs reject out-of-domain persona, action_class, veto window and cap values', async () => {
     const policyId = await insertPolicy(null, 5);
 
+    // persona and action_class are no longer single-valued at head: migration
+    // 091 (#624) widened them to add the solicitation lane. A lone flip of
+    // either is still rejected — but now by 091's pairing CHECK rather than by
+    // the per-column domain, because each value is individually legal and only
+    // the COMBINATION is not. Asserting the old constraint names here would
+    // pass only against a pre-091 database.
     await expect(
       sql()`UPDATE auto_approval_policies SET persona = 'solicitation' WHERE id = ${policyId}::uuid`,
-    ).rejects.toThrow(/auto_approval_policies_persona_check/);
+    ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
     await expect(
       sql()`UPDATE auto_approval_policies SET action_class = 'sending' WHERE id = ${policyId}::uuid`,
+    ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
+    // The per-column domains still reject a value outside BOTH lanes, which is
+    // what keeps this suite a test of 074's CHECKs and not merely of 091's.
+    await expect(
+      sql()`UPDATE auto_approval_policies SET persona = 'insights' WHERE id = ${policyId}::uuid`,
+    ).rejects.toThrow(/auto_approval_policies_persona_check/);
+    await expect(
+      sql()`UPDATE auto_approval_policies SET action_class = 'escalating' WHERE id = ${policyId}::uuid`,
     ).rejects.toThrow(/auto_approval_policies_action_class_check/);
+    // Also 091: veto_window_check widened to (15, 30, 60) and became a loose
+    // outer bound, which the per-lane pairing subsumes entirely — every value
+    // outside {15,30,60} violates BOTH, and Postgres evaluates CHECKs in
+    // alphabetical order by constraint name (relcache CheckConstraintCmp), so
+    // `persona_consistency` is the one reported. The lane-specific windows
+    // (reply rejects 60, solicitation rejects 15) are owned by the 091 suite.
     await expect(
       sql()`UPDATE auto_approval_policies SET veto_window_minutes = 20 WHERE id = ${policyId}::uuid`,
-    ).rejects.toThrow(/auto_approval_policies_veto_window_check/);
+    ).rejects.toThrow(/auto_approval_policies_persona_consistency/);
     await sql()`UPDATE auto_approval_policies SET veto_window_minutes = 30 WHERE id = ${policyId}::uuid`;
     await expect(
       sql()`UPDATE auto_approval_policies SET daily_auto_post_cap = 0 WHERE id = ${policyId}::uuid`,
@@ -199,8 +219,11 @@ describeWithDb('migration 074 trust dial + veto window — shape', { timeout: 30
       /auto_approval_policies_one_location_override/,
     );
 
-    // persona/action_class are single-valued today (CHECK-locked), so index
-    // membership of the new scope columns is asserted structurally.
+    // Index membership of the scope columns is asserted structurally rather
+    // than behaviourally. Until 091 that was because persona/action_class were
+    // single-valued; now a second lane exists, but the pairing CHECK still ties
+    // each persona to exactly one action_class, so no two rows under one
+    // account can differ on these columns alone.
     const indexes = await sql()<{ indexname: string; indexdef: string }[]>`
       SELECT indexname, indexdef FROM pg_indexes
       WHERE tablename = 'auto_approval_policies'

@@ -34,6 +34,51 @@ function readMigration088Sql(): string {
   return readFileSync(migrationPath, 'utf-8');
 }
 
+/** Rolls the 088 re-apply back without swallowing genuine failures. */
+class RollbackAfterReapply extends Error {
+  constructor() {
+    super('088 re-apply probe complete — rolling back');
+    this.name = 'RollbackAfterReapply';
+  }
+}
+
+/**
+ * The run-spine constraints 088 replaces (plus the one it deliberately leaves
+ * alone), each of which a later migration may legitimately have widened on the
+ * shared database.
+ */
+const SPINE_CONSTRAINTS = [
+  ['agent_runs', 'agent_runs_kind_check'],
+  ['agent_runs', 'agent_runs_kind_subject_type_pairing'],
+  ['agent_runs', 'agent_runs_status_check'],
+  ['agent_outcomes', 'agent_outcomes_outcome_kind_check'],
+] as const;
+
+type SqlExecutor = postgresType.Sql | postgresType.TransactionSql;
+
+async function constraintDefinition(
+  exec: SqlExecutor,
+  table: string,
+  name: string,
+): Promise<string | undefined> {
+  const [row] = await exec<{ definition: string }[]>`
+    SELECT pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint
+    WHERE conrelid = to_regclass(${`public.${table}`}) AND conname = ${name}
+  `;
+  return row === undefined ? undefined : normalizeSql(row.definition);
+}
+
+async function spineConstraintDefinitions(
+  exec: SqlExecutor,
+): Promise<Record<string, string | undefined>> {
+  const definitions: Record<string, string | undefined> = {};
+  for (const [table, name] of SPINE_CONSTRAINTS) {
+    definitions[name] = await constraintDefinition(exec, table, name);
+  }
+  return definitions;
+}
+
 describe('migration 088 checked-in SQL contract', () => {
   it('migration 088 widens the run spine and creates tenant-safe Solicitation batch tables', () => {
     expect(existsSync(migrationPath)).toBe(true);
@@ -123,12 +168,16 @@ describeWithDb(
   beforeAll(async () => {
     const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
     featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
+    // No migration SQL here on purpose. `pnpm test:db:setup` provisions the
+    // shared database to head; 088's re-apply lives in its own test below,
+    // inside a transaction that always rolls back, because 088 re-adds three
+    // run-spine constraints at its own narrower text and committing that
+    // silently reverts every later migration's widening (CLAUDE.md live-DB
+    // rule: migration-shape suites "must roll back any unconditional re-apply").
     db = postgres(databaseUrl, {
       max: 1,
       prepare: false,
     });
-    await db.unsafe(readMigration088Sql());
-    await db.unsafe(readMigration088Sql());
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -140,7 +189,7 @@ describeWithDb(
     }
   }, 120_000);
 
-  it('keeps the active-run predicate and three-state status enum exact', async () => {
+  it('keeps the active-run predicate exact and never narrows the run-status enum', async () => {
     const [activeIndex] = await db!<{ predicate: string | null }[]>`
       SELECT pg_get_expr(i.indpred, i.indrelid) AS predicate
       FROM pg_index i
@@ -149,15 +198,58 @@ describeWithDb(
     `;
     expect(activeIndex?.predicate).toBe("(status = 'running'::text)");
 
-    const [statusConstraint] = await db!<{ definition: string }[]>`
-      SELECT pg_get_constraintdef(oid) AS definition
-      FROM pg_constraint
-      WHERE conrelid = 'agent_runs'::regclass
-        AND conname = 'agent_runs_status_check'
-    `;
-    expect(statusConstraint?.definition).toContain(
-      "ARRAY['running'::text, 'completed'::text, 'failed'::text]",
+    // 088 deliberately does not touch agent_runs_status_check — the SQL-text
+    // assertion in the contract block above (no ADD/DROP of it anywhere in
+    // 088) is what owns that claim, and the re-apply test below proves it
+    // against the live catalog. The status DOMAIN therefore belongs to
+    // whichever migration last widened it (091 added 'cancelled' and pins the
+    // exact four-state array in its own suite), so the honest thing for this
+    // file to assert is only that 088's three states are still members.
+    const statusDefinition = await constraintDefinition(
+      db!,
+      'agent_runs',
+      'agent_runs_status_check',
     );
+    for (const status of ['running', 'completed', 'failed']) {
+      expect(statusDefinition).toContain(`'${status}'::text`);
+    }
+  });
+
+  it('re-applies migration 088 idempotently and leaves the shared database untouched', async () => {
+    const beforeReapply = await spineConstraintDefinitions(db!);
+
+    let duringReapply: Record<string, string | undefined> = {};
+    try {
+      await db!.begin(async (tx) => {
+        // Applying 088 twice is the idempotency proof: the second run must be
+        // a clean no-op rather than an error. Both runs and every assertion
+        // that depends on them stay inside this transaction, because 088
+        // re-adds agent_runs_kind_check, the kind/subject_type pairing and
+        // agent_outcomes_outcome_kind_check at its own narrower definitions.
+        await tx.unsafe(readMigration088Sql());
+        await tx.unsafe(readMigration088Sql());
+        duringReapply = await spineConstraintDefinitions(tx);
+        throw new RollbackAfterReapply();
+      });
+    } catch (error) {
+      if (!(error instanceof RollbackAfterReapply)) throw error;
+    }
+
+    // 088's own shape, as re-applied.
+    expect(duringReapply.agent_runs_kind_check).toBe(
+      "CHECK ((kind = ANY (ARRAY['review_handler'::text, 'weekly_insights'::text, " +
+        "'solicitation_batch'::text, 'solicitation_ask'::text])))",
+    );
+    expect(duringReapply.agent_runs_kind_subject_type_pairing).not.toContain(
+      'solicitation_send_batch',
+    );
+    expect(duringReapply.agent_outcomes_outcome_kind_check).not.toContain('solicitation_sent');
+    // The one 088 leaves alone: a re-apply must not move it in either direction.
+    expect(duringReapply.agent_runs_status_check).toBe(beforeReapply.agent_runs_status_check);
+
+    // And the point of the rollback: every widening a later migration made to
+    // these constraints is still there.
+    expect(await spineConstraintDefinitions(db!)).toEqual(beforeReapply);
   });
 
   it('migration 088 rejects cross-account and cross-business parent and ask run links', async () => {

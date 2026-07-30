@@ -371,6 +371,13 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'must_be_absent',
     reason: 'Authoritative per-contact solicitation decisions are customer data and cascade from their batch.',
   },
+  {
+    table: 'solicitation_outreach',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Physical send attempts carry rendered contact-facing bodies and provider results, and cascade from their batch.',
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(

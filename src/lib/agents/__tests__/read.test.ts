@@ -5,6 +5,8 @@ import {
   deriveRunDisplayState,
   getAgentTeamSummary,
   getReviewTimeline,
+  stalledThresholdMsForKind,
+  STALLED_THRESHOLD_SEND_BATCH_DAYS,
 } from '../read';
 
 describe('deriveRunDisplayState', () => {
@@ -13,17 +15,31 @@ describe('deriveRunDisplayState', () => {
   it('renders a completed run as completed', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'completed', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'completed', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         null,
         now,
       ),
     ).toBe('completed');
   });
 
+  it('deriveRunDisplayState returns cancelled for a cancelled run', () => {
+    expect(
+      deriveRunDisplayState(
+        {
+          status: 'cancelled',
+          kind: 'solicitation_send_batch',
+          startedAt: '2026-07-13T11:00:00.000Z',
+        },
+        null,
+        now,
+      ),
+    ).toBe('cancelled');
+  });
+
   it('renders a failed run as failed', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'failed', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'failed', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         null,
         now,
       ),
@@ -33,7 +49,7 @@ describe('deriveRunDisplayState', () => {
   it('renders a running draft awaiting approval as waiting on the owner', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         { status: 'pending_approval' },
         now,
       ),
@@ -43,7 +59,7 @@ describe('deriveRunDisplayState', () => {
   it('renders a running draft awaiting owner connection as waiting on the owner', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         { status: 'awaiting_owner_connect' },
         now,
       ),
@@ -53,7 +69,7 @@ describe('deriveRunDisplayState', () => {
   it('prioritizes waiting on the owner over stalled for an old run', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-06-22T12:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-06-22T12:00:00.000Z' },
         { status: 'pending_approval' },
         now,
       ),
@@ -63,7 +79,7 @@ describe('deriveRunDisplayState', () => {
   it('renders a running run older than 48 hours as stalled', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-11T11:59:59.999Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T11:59:59.999Z' },
         { status: 'posted' },
         now,
       ),
@@ -73,7 +89,7 @@ describe('deriveRunDisplayState', () => {
   it('does not call a run stalled at the exact 48-hour boundary', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-11T12:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T12:00:00.000Z' },
         null,
         now,
       ),
@@ -83,7 +99,7 @@ describe('deriveRunDisplayState', () => {
   it('renders a fresh running run as in progress', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         null,
         now,
       ),
@@ -93,12 +109,73 @@ describe('deriveRunDisplayState', () => {
   it('renders a scheduled auto-post as in progress', () => {
     expect(
       deriveRunDisplayState(
-        { status: 'running', startedAt: '2026-07-13T11:00:00.000Z' },
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-13T11:00:00.000Z' },
         {
           status: 'approved',
           approvalMethod: 'auto_policy',
           autoPostScheduledAt: '2026-07-13T12:15:00.000Z',
         },
+        now,
+      ),
+    ).toBe('in_progress');
+  });
+});
+
+describe('stalledThresholdMsForKind', () => {
+  const HOURS_48_MS = 48 * 60 * 60 * 1000;
+
+  it('stalledThresholdMsForKind returns 11 days for solicitation_send_batch runs', () => {
+    expect(stalledThresholdMsForKind('solicitation_send_batch')).toBe(
+      STALLED_THRESHOLD_SEND_BATCH_DAYS * 24 * 60 * 60 * 1000,
+    );
+    // The threshold sits past the 10-day construction bound (7-day approval
+    // window + 72-hour send window), so a healthy batch can never trip it.
+    expect(stalledThresholdMsForKind('solicitation_send_batch')).toBeGreaterThan(
+      10 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it('stalledThresholdMsForKind returns the 48-hour default for every other run kind', () => {
+    for (const kind of [
+      'review_handler',
+      'weekly_insights',
+      'solicitation_batch',
+      'solicitation_ask',
+    ] as const) {
+      expect(stalledThresholdMsForKind(kind)).toBe(HOURS_48_MS);
+    }
+  });
+
+  it('deriveRunDisplayState applies the unchanged stalled threshold to review_handler runs', () => {
+    const now = new Date('2026-07-13T12:00:00.000Z');
+
+    // G10 wired the threshold through deriveRunDisplayState, and the one live
+    // caller's behaviour must not move: just past 48 hours still reads stalled,
+    // exactly at the boundary still reads in_progress.
+    expect(
+      deriveRunDisplayState(
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T11:59:59.999Z' },
+        { status: 'posted' },
+        now,
+      ),
+    ).toBe('stalled');
+    expect(
+      deriveRunDisplayState(
+        { status: 'running', kind: 'review_handler', startedAt: '2026-07-11T12:00:00.000Z' },
+        null,
+        now,
+      ),
+    ).toBe('in_progress');
+
+    // The same age on a send batch is nowhere near its 11-day threshold.
+    expect(
+      deriveRunDisplayState(
+        {
+          status: 'running',
+          kind: 'solicitation_send_batch',
+          startedAt: '2026-07-11T11:59:59.999Z',
+        },
+        null,
         now,
       ),
     ).toBe('in_progress');
@@ -210,6 +287,7 @@ describe('getReviewTimeline', () => {
         {
           id: 'run-new',
           status: 'running',
+          kind: 'review_handler',
           started_at: '2026-07-12T08:01:00.000Z',
           ended_at: null,
           error: null,
@@ -217,6 +295,7 @@ describe('getReviewTimeline', () => {
         {
           id: 'run-old',
           status: 'failed',
+          kind: 'review_handler',
           started_at: '2026-07-11T08:01:00.000Z',
           ended_at: '2026-07-11T08:03:00.000Z',
           error: '{"reason":"provider_terminal"}',

@@ -13,6 +13,8 @@ import {
 } from '../../../../src/lib/shared/outbox-completion-reason';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
+import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
+import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
 
 export interface HealthFinding {
   key: string;
@@ -262,6 +264,51 @@ export async function checkFailedInboundEvents(sql: postgres.Sql, cfg: HealthAle
     }));
 }
 
+// The send-batch parent kind this probe watches, typed against AGENT_RUN_KINDS so
+// renaming the kind fails the build here rather than silently matching zero rows.
+const SEND_BATCH_RUN_KIND: (typeof AGENT_RUN_KINDS)[number] = 'solicitation_send_batch';
+
+// ONE owner for the 11-day number: stalledThresholdMsForKind (src/lib/agents/read.ts),
+// which the owner timeline's `stalled` display state reads too. A send batch is
+// bounded at 10 days BY CONSTRUCTION (7-day approval window + 72-hour send window),
+// so a run past 11 days is genuinely wedged, not merely slow. Derived — never
+// re-spelled — so a change to the kind→threshold mapping moves this probe with it.
+const STALLED_SEND_BATCH_THRESHOLD_S = stalledThresholdMsForKind(SEND_BATCH_RUN_KIND) / 1000;
+const STALLED_SEND_BATCH_THRESHOLD_DAYS = STALLED_SEND_BATCH_THRESHOLD_S / 86_400;
+
+// A solicitation_send_batch parent run still 'running' past its construction
+// bound — the drip never closed, so owner-approved asks are stuck unsent and the
+// spine will never terminalize the run. Aggregate-only: one row by construction
+// (no LIMIT needed), carrying the oldest wedged run id + its age so an operator
+// can open the run directly. Detail is ids and durations only — never contact or
+// review content. Served by the partial index on agent_runs (kind, subject_type,
+// subject_id) WHERE status = 'running'.
+export async function checkStalledSendBatches(sql: postgres.Sql): Promise<HealthFinding | null> {
+  const [row] = await sql<{ count: number; oldest_run_id: string | null; oldest_age_s: number | null }[]>`
+    SELECT
+      COUNT(*)::int AS count,
+      (ARRAY_AGG(id::text ORDER BY started_at))[1] AS oldest_run_id,
+      MAX(EXTRACT(EPOCH FROM (NOW() - started_at))::int) AS oldest_age_s
+    FROM agent_runs
+    WHERE kind = ${SEND_BATCH_RUN_KIND}
+      AND status = 'running'
+      AND started_at < NOW() - make_interval(secs => ${STALLED_SEND_BATCH_THRESHOLD_S})
+  `;
+  const count = row?.count ?? 0;
+  if (count <= 0) return null;
+  return {
+    key: 'solicitation_send_batch_stalled',
+    level: 'error',
+    title: `${count} solicitation send batch run(s) still running past ${STALLED_SEND_BATCH_THRESHOLD_DAYS} days — the drip never closed and approved asks are stuck unsent`,
+    detail: {
+      count,
+      oldest_run_id: row?.oldest_run_id ?? null,
+      oldest_age_s: row?.oldest_age_s ?? null,
+      threshold_s: STALLED_SEND_BATCH_THRESHOLD_S,
+    },
+  };
+}
+
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
   const findings: HealthFinding[] = [];
@@ -287,6 +334,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkZeroDeliveryNotifications(sql, cfg));
   collect(await checkOwnerUnreachable(sql, cfg));
   collect(await checkFailedInboundEvents(sql, cfg));
+  collect(await checkStalledSendBatches(sql));
 
   // Isolate the backlog check: it reads the DB precisely when the DB is under
   // pressure, so its rejection must NOT fail the whole cycle and suppress the

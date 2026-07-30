@@ -1,0 +1,289 @@
+// Live-Postgres suite for the ArchivalPoller body-redaction arm (#624 T6).
+//
+// The unit suite pins the query's shape against a mock sql; only a real schema
+// can prove the thing body redaction actually promises: the rendered subject
+// and body are gone, `body_redacted_at` is stamped, the metadata row survives,
+// and the write satisfies `solicitation_outreach_body_presence` — the CHECK
+// that makes "redacted implies sent, and bodies are paired" a schema fact
+// rather than a convention. A mock can assert none of that.
+//
+// Applies NO migration SQL: `pnpm test:db:setup` provisions the schema and this
+// file asserts it with assertSchemaReady (#573). It holds the cross-process
+// live-DB lock because `runArchival` is a GLOBAL retention sweep — every arm
+// prunes rows platform-wide by age, so a live-DB writer in another vitest
+// process could have its aged fixtures collected mid-test.
+//
+// Every timestamp is written as a SQL interval off NOW(), never as a JS `Date`:
+// postgres.js truncates timestamptz microseconds, so a JS-derived `sent_at`
+// compared against a SQL-derived retention boundary can mis-order by <1ms — and
+// the window boundary is exactly what these cases are about.
+//
+// The poller reads the module-level `sql` singleton from @/lib/db/server, which
+// binds DATABASE_POOL_URL at import time — so both it and the singleton are
+// imported DYNAMICALLY, after beforeAll points that variable at the test DB.
+
+import { randomUUID } from 'node:crypto';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+  MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
+import {
+  cleanupTenantAccount,
+  seedTenantAccount,
+  type TenantSeed,
+} from '@/lib/shared/__tests__/live-db-tenant';
+import { createWorkerLogger, type WorkerLogger } from '@/lib/shared/logger';
+
+const testDatabaseUrl = resolveTestDatabaseUrl();
+const businessId = randomUUID();
+
+let featureDatabaseLock: LiveDbLock | undefined;
+let tenant: TenantSeed | undefined;
+let appSql: Sql | undefined;
+let runArchival: ((logger: WorkerLogger) => Promise<void>) | undefined;
+
+function sql(): Sql {
+  if (!appSql) throw new Error('archival integration database was not initialized');
+  return appSql;
+}
+
+function accountId(): string {
+  if (!tenant) throw new Error('archival integration tenant was not seeded');
+  return tenant.accountId;
+}
+
+function runOneArchivalCycle(): Promise<void> {
+  if (!runArchival) throw new Error('archival integration poller was not imported');
+  return runArchival(createWorkerLogger('[ArchivalPollerIntegration]'));
+}
+
+const SUBJECT = 'How did we do?';
+const BODY = 'Would you mind leaving a review?';
+
+/**
+ * The source the body was rendered FROM. Both members are third-party PII the
+ * business gave us about its customer, which is why redacting only the rendered
+ * prose would delete the sentence and keep the sentence's ingredients.
+ */
+const INTERPOLATION_INPUTS = {
+  contact_first_name: 'Dana',
+  visit_note: 'Came in for a brake inspection on the 4th.',
+  template_id: 'solicitation_ask_v1',
+} as const;
+
+/**
+ * One Outreach row on its own upload/batch/contact/ask chain, sent `sentAgo`
+ * before NOW(). The chain is per-row because both
+ * `solicitation_outreach_one_live_per_ask` and
+ * `solicitation_outreach_ask_attempt_uniq` are scoped to a single ask.
+ */
+async function seedSentOutreach(sentAgo: string): Promise<string> {
+  const uploadId = randomUUID();
+  const batchId = randomUUID();
+  const contactId = randomUUID();
+  const askId = randomUUID();
+  const outreachId = randomUUID();
+
+  await sql()`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, report, attested_by_user_id, attested_at,
+      attestation_version, completed_at
+    ) VALUES (
+      ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${`archival-${uploadId}.csv`}, 1,
+      ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
+      NULL, 'completed', ${sql().json({ accepted: 1 })},
+      ${tenant!.userId}::uuid, NOW(), 'archival-redaction-test', NOW()
+    )
+  `;
+  await sql()`
+    INSERT INTO solicitation_contacts (id, business_id, name, email, created_by_upload_id)
+    VALUES (
+      ${contactId}::uuid, ${businessId}::uuid, 'Redaction Candidate',
+      ${`${contactId}@example.test`}, ${uploadId}::uuid
+    )
+  `;
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at,
+      built_at, approved_at, approval_method, sending_started_at
+    ) VALUES (
+      ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${uploadId}::uuid, NOW() - INTERVAL '400 days',
+      NOW() - INTERVAL '399 days', NOW() - INTERVAL '399 days',
+      'auto_policy', NOW() - INTERVAL '399 days'
+    )
+  `;
+  await sql()`
+    INSERT INTO solicitation_asks (
+      id, account_id, business_id, batch_id, contact_id, status, evidence, decided_at
+    ) VALUES (
+      ${askId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${batchId}::uuid, ${contactId}::uuid, 'send',
+      ${sql().json({ contact_id: contactId, policy_version: 'archival-fixture', decision: 'send' })},
+      NOW() - INTERVAL '399 days'
+    )
+  `;
+  await sql()`
+    INSERT INTO solicitation_outreach (
+      id, account_id, business_id, batch_id, ask_id, contact_id,
+      attempt_no, rendered_subject, rendered_body,
+      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
+      ask_lint_version, lint_detail, moderation_status, moderation_detail,
+      delivery_status, queued_at, sending_at, sent_at
+    ) VALUES (
+      ${outreachId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${batchId}::uuid, ${askId}::uuid, ${contactId}::uuid,
+      1, ${SUBJECT}, ${BODY},
+      'solicitation_ask_v1', ${outreachId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
+      ${sql().json(INTERPOLATION_INPUTS)}, NOW() - ${sentAgo}::interval,
+      'ask_lint_v1', ${sql().json({})},
+      'clean', ${sql().json({})},
+      'sent',
+      NOW() - ${sentAgo}::interval - INTERVAL '2 seconds',
+      NOW() - ${sentAgo}::interval - INTERVAL '1 second',
+      NOW() - ${sentAgo}::interval
+    )
+  `;
+  return outreachId;
+}
+
+interface OutreachBodyRow {
+  rendered_subject: string | null;
+  rendered_body: string | null;
+  body_redacted_at: string | null;
+  sent_at: string | null;
+  // Read as ::text so the assertion compares the stored document itself rather
+  // than whatever postgres.js decoded — the same reason every timestamp here is
+  // read as text.
+  interpolation_inputs: string;
+}
+
+async function readOutreach(outreachId: string): Promise<OutreachBodyRow> {
+  const [row] = await sql()<OutreachBodyRow[]>`
+    SELECT rendered_subject, rendered_body,
+           body_redacted_at::text AS body_redacted_at,
+           sent_at::text AS sent_at,
+           interpolation_inputs::text AS interpolation_inputs
+    FROM solicitation_outreach
+    WHERE id = ${outreachId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  if (!row) throw new Error(`seeded outreach row ${outreachId} disappeared`);
+  return row;
+}
+
+describeWithDb(
+  'ArchivalPoller body redaction against live local Postgres',
+  { enabled: Boolean(testDatabaseUrl), timeout: 90_000 },
+  () => {
+    beforeAll(async () => {
+      const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+      featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
+
+      // The app `sql` singleton binds DATABASE_POOL_URL at import, and the
+      // poller reads that singleton — so point it here, then import both
+      // dynamically. The suite seeds through the SAME client the poller uses.
+      process.env.DATABASE_POOL_URL = databaseUrl;
+      const dbModule = await import('@/lib/db/server');
+      appSql = dbModule.sql as unknown as Sql;
+      const pollerModule = await import('../ArchivalPoller');
+      runArchival = pollerModule.runArchival;
+
+      await assertSchemaReady(sql(), [
+        MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+        MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+      ]);
+      tenant = await seedTenantAccount(sql(), {
+        userName: 'Archival Redaction Owner',
+        accountDisplayName: 'Archival Redaction Account',
+      });
+      await sql()`
+        INSERT INTO businesses (
+          id, name, owner_name, owner_email, account_id, subscription_status, category
+        ) VALUES (
+          ${businessId}::uuid, 'Archival Redaction Business', 'Redaction Owner',
+          ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active', 'automotive'
+        )
+      `;
+    }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
+
+    afterEach(async () => {
+      await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
+      await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
+      await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
+      await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
+      await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
+    }, 30_000);
+
+    afterAll(async () => {
+      try {
+        if (appSql) {
+          await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+          if (tenant) await cleanupTenantAccount(sql(), tenant);
+        }
+      } finally {
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
+      }
+    }, 120_000);
+
+    it('ArchivalPoller redacts outreach bodies past the retention window and stamps body_redacted_at', async () => {
+      const outreachId = await seedSentOutreach('91 days');
+
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(row.rendered_subject).toBeNull();
+      expect(row.rendered_body).toBeNull();
+      expect(row.body_redacted_at).not.toBeNull();
+      // The source the body was rendered from goes with it. Nulling only the
+      // prose would delete the sentence and keep contact_first_name and
+      // visit_note — the third-party PII the sentence was assembled from — which
+      // is not the data minimization CONTEXT.md's Body redaction entry promises.
+      expect(JSON.parse(row.interpolation_inputs)).toEqual({});
+      // Redaction is not a delete: the metadata row and its send proof stay.
+      expect(row.sent_at).not.toBeNull();
+    });
+
+    it('ArchivalPoller leaves an outreach body inside the retention window untouched', async () => {
+      const outreachId = await seedSentOutreach('89 days');
+
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(row.rendered_subject).toBe(SUBJECT);
+      expect(row.rendered_body).toBe(BODY);
+      expect(row.body_redacted_at).toBeNull();
+      // The window is one boundary for both halves — a row that keeps its body
+      // keeps the inputs, so the erasure above is the sweep acting and not the
+      // fixture having been empty all along.
+      expect(JSON.parse(row.interpolation_inputs)).toEqual(INTERPOLATION_INPUTS);
+    });
+
+    it('ArchivalPoller redaction is idempotent — a second cycle does not re-stamp an already-redacted row', async () => {
+      const outreachId = await seedSentOutreach('120 days');
+
+      await runOneArchivalCycle();
+      const firstStamp = (await readOutreach(outreachId)).body_redacted_at;
+      await runOneArchivalCycle();
+
+      const row = await readOutreach(outreachId);
+      expect(firstStamp).not.toBeNull();
+      expect(row.body_redacted_at).toBe(firstStamp);
+    });
+  },
+);

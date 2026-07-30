@@ -86,6 +86,7 @@ import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/po
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
 import { runContentPurgeStage, type AccountOffboardingPurgeRow } from '../purge-stages';
 import { acquireCsvIngestLock } from '../../../../src/lib/solicitation/ingest';
+import { acquireSolicitationBatchLock } from '../../../../src/lib/solicitation/batch-builder';
 import { supabaseServerBounded } from '../../../../src/lib/db/server';
 import {
   cleanupOwnerOffboardingSeed,
@@ -707,6 +708,82 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       expect(Number(afterIngest?.count ?? 0)).toBe(0);
     } finally {
       releaseIngest?.();
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // #624 T8. The lock is per-BUSINESS and this stage is per-ACCOUNT, so the
+  // claim under test is coverage of EVERY business — the second location is
+  // the one a single-business shortcut would miss. Two live connections again:
+  // only a real block proves the key contends.
+  it('the offboarding purge takes the solicitation batch advisory lock for every business under the account', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const sql = getE2eSql();
+    const secondBusinessId = randomUUID();
+    const uploadId = randomUUID();
+    let releaseBuild: (() => void) | undefined;
+
+    try {
+      await sql`
+        INSERT INTO businesses (
+          id, name, owner_name, owner_email, account_id,
+          subscription_status, category
+        ) VALUES (
+          ${secondBusinessId}::uuid, 'Second Offboarding Location', 'Owner Offboarding',
+          ${seed.ownerEmail}, ${seed.accountId}::uuid, 'active', 'restaurant'
+        )
+      `;
+      // Under the FIRST business: it is deleted by the same stage, so its
+      // survival while blocked shows nothing was purged behind the held lock.
+      await sql`
+        INSERT INTO contact_csv_uploads (
+          id, account_id, business_id, filename, byte_size, content_sha256,
+          raw_csv, status, attested_by_user_id, attested_at, attestation_version
+        ) VALUES (
+          ${uploadId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+          'batch-lock-fixture.csv', 42, ${'c'.repeat(64)}, 'name,email', 'pending',
+          ${seed.userId}::uuid, NOW(), 'v1'
+        )
+      `;
+
+      // Stand in for a batch-construction transaction on the SECOND business:
+      // hold that business's key, then park.
+      let signalLockHeld: (() => void) | undefined;
+      const lockHeld = new Promise<void>((resolve) => { signalLockHeld = resolve; });
+      const buildMayFinish = new Promise<void>((resolve) => { releaseBuild = resolve; });
+      const build = sql.begin(async (tx) => {
+        await acquireSolicitationBatchLock(tx, secondBusinessId);
+        signalLockHeld?.();
+        await buildMayFinish;
+      });
+      await lockHeld;
+
+      const purgeRow = { account_id: seed.accountId } as AccountOffboardingPurgeRow;
+      const purge = runContentPurgeStage(sql, purgeRow);
+      const settled = Symbol('settled');
+      const outcome = await Promise.race([
+        purge.then(() => settled),
+        new Promise((resolve) => setTimeout(() => resolve('blocked'), 750)),
+      ]);
+      expect(outcome).toBe('blocked');
+
+      const [duringBuild] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
+      `;
+      expect(Number(duringBuild?.count ?? 0)).toBe(1);
+
+      releaseBuild?.();
+      releaseBuild = undefined;
+      await build;
+      await purge;
+
+      const [afterBuild] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
+      `;
+      expect(Number(afterBuild?.count ?? 0)).toBe(0);
+    } finally {
+      releaseBuild?.();
+      await sql`DELETE FROM businesses WHERE id = ${secondBusinessId}::uuid`;
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

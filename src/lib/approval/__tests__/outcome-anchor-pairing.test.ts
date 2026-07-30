@@ -29,6 +29,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/escalations/transitions.ts', // in-file reviews FOR UPDATE as tx statement #1
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
+  'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
@@ -47,7 +48,10 @@ const LOCK_HELD_BY_CALLER = new Set([
 ]);
 
 // Spine tenants with no review subject are outside the reviews-first lock
-// law: weekly_insights explicitly locks only weekly_summaries + its
+// law. Every entry states which locks its tx actually takes and why they
+// cannot close a cycle back onto the reviews lane.
+//
+// weekly_insights explicitly locks only weekly_summaries + its
 // account_week run row, though its spine INSERTs (agent_runs / steps /
 // outcomes) also take implicit FK FOR KEY SHARE locks on the parent
 // businesses + accounts rows. Those key-shares are cycle-free: they conflict
@@ -57,7 +61,34 @@ const LOCK_HELD_BY_CALLER = new Set([
 // back onto it. It must not grow a reviews/businesses lock
 // later without leaving this carve-out and re-entering the global
 // reviews → businesses → child rows → agent_runs order.
+//
+// solicitation/outreach.ts is closeBatchIfSettled (#624 T5). Its subject is a
+// solicitation_batch, never a review: it locks solicitation_batches FOR UPDATE,
+// then writes its own solicitation_send_batch run via recordStep / completeRun
+// (or failSolicitationBatchRun) — the only agent_runs row it touches is that
+// send parent's own. It takes NO reviews or businesses exclusive lock, and it
+// INSERTs no agent_runs/agent_outcomes row; agent_run_steps FK-references only
+// agent_runs (migration 071), so the step INSERT's implicit FK FOR KEY SHARE
+// lands on the run row this tx already holds, and the terminal UPDATE changes
+// no FK column — no businesses/accounts parent-row lock is taken at all.
+//
+// CORRECTED 2026-07-30 after the step-6 adversarial review (finding F1). An
+// earlier revision of this comment justified the carve-out by asserting that
+// "no holder of a run lock ever waits on solicitation_batches". That was FALSE
+// as written: T5's original contract had the lane record the failure on the send
+// parent BEFORE calling in, which took the agent_runs lock first and then the
+// batch lock — run→batch — against every other caller's batch→run. That ABBA
+// pair is now gone: the failure arrives as a parameter
+// (CloseBatchIfSettledInput.failure) and this lane is single-ordered batch→run.
+// The carve-out's conclusion holds, but it rests on that single order, NOT on
+// the false claim it used to make. Do not restore the old wording.
+//
+// Same forward-looking warning as the weekly entry: it must not grow a
+// reviews/businesses lock later without leaving this carve-out and re-entering
+// the global reviews → businesses → child rows → agent_runs order — and it must
+// not reintroduce any path that locks the send parent before the batch.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
+  'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
 ]);
 
@@ -105,8 +136,9 @@ function findCallerFiles(): { file: string; text: string }[] {
 describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun callers hold the reviews lock', () => {
   const callers = findCallerFiles();
 
-  it('pins the non-review-subject carve-out to the weekly account_week caller only', () => {
+  it('pins the non-review-subject carve-out to exactly the weekly account_week and solicitation send-batch callers', () => {
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
+      'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
     ]);
   });

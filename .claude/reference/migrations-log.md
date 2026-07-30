@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **090** — next migration is **091**
+Current head: **091** — next migration is **092**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -34,6 +34,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
 | `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
 | `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
+| `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `body_redacted_at` stamped 90 days after `sent_at` — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. Hard-deletes with its batch on account purge | ArchivalPoller (migration 091, index `idx_solicitation_outreach_redaction_sweep`); purge via `solicitation_batches` cascade |
 
 Revisit triggers:
 
@@ -966,6 +967,63 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **091** — Send-mode spine lifecycle + physical fan-out primitives (#624 of
+  wayfinder map #617). Additive and re-runnable. Seven parts: `agent_runs` gains
+  the terminal status `'cancelled'` and the parent kind
+  `'solicitation_send_batch'` (pairing with the existing `solicitation_batch`
+  subject type, so that subject now legitimately pairs with two kinds);
+  `agent_outcomes` gains `'solicitation_sent'` and `'review_attributed'`;
+  `solicitation_asks` gains the `(id, account_id, business_id)` unique the new
+  ask FK requires; `solicitation_batches` gains the approval/send/halt lifecycle
+  columns plus D8's one-active-send-per-Business partial unique;
+  **`solicitation_outreach`** is created as the single send artifact table (B1);
+  `auto_approval_policies` gains the solicitation lane and `daily_send_cap`; and
+  `job_outbox` gains two in-flight partial uniques.
+
+  **Frozen on purpose, and asserted as such by the integration suite:**
+  `agent_runs_terminal_consistency` and `agent_runs_one_active_per_subject` keep
+  their **071** definitions (the former reads `(status='running') = (ended_at IS
+  NULL)`, which a terminal `cancelled` row with `ended_at` set satisfies as
+  `FALSE = FALSE`; the latter is `WHERE status='running'` and never covered
+  terminal rows). `agent_outcomes_unit_count_check` keeps its **088** definition —
+  both new outcome kinds carry `unit_count = 1`, so the "zero is legal only for
+  `solicitation_batch_built`" carve-out is untouched. The kind/subject/pairing and
+  outcome-kind constraints are replicated from **088**, not 071; 088 had already
+  widened all four.
+
+  **Every multi-arm CHECK is wrapped in `IS TRUE`, and that is load-bearing.** A
+  Postgres CHECK rejects only `FALSE` and *passes on NULL*, so the `IN (...)`
+  idiom this lane inherited admits a NULL reason: 088's own
+  `solicitation_asks_status_reason_consistency` accepts `('withhold', NULL)`
+  today, because that arm evaluates to NULL and `FALSE OR NULL` is NULL. Verified
+  empirically against the test DB before 091 was written. Over
+  `delivery_status`'s eight values the same hole would have been much wider. (This
+  is the same class of defect 090 closed with `IS NOT DISTINCT FROM`; the shipped
+  088 hole is pre-existing and out of scope here.)
+
+  Two subtleties a future reader will trip on. **"Terminal" and "reason-bearing"
+  are different partitions** — the terminal set is `sent, withheld, cancelled,
+  failed, unknown`, but `sent` takes a NULL `disposition_reason` because a
+  successful send has nothing to explain. And the
+  `auto_approval_policies_persona_consistency` CHECK pins action class *and* veto
+  window per persona rather than widening the three columns independently, which
+  would have silently loosened the already-live Reply lane from 074's `(15,30)` to
+  allow 60. That CHECK cannot reject an existing row: 074 already enforced
+  `persona='reply'`, `action_class='posting'` and `veto_window_minutes IN (15,30)`,
+  so every pre-091 row satisfies the reply arm by construction — a proof, not a
+  data check.
+
+  The two `job_outbox` indexes are keyed `(topic, aggregate_id)` — the table has
+  **no `batch_id` column**. They ship without a `QUEUE_NAMES` entry or typed
+  helper per amendment B10, which moves that obligation to the producers
+  (#628/#630), each discharging it in the same PR as its first raw insert or
+  `ci:outbox-seam` fails them. Safe because `ci:outbox-topics` scans `src/lib`,
+  `src/app` and `worker` only, never migrations.
+
+  Plan: `docs/superpowers/plans/feat-624-spine-lifecycle-fanout-plan.md`.
+  ADR: `docs/adr/0014-send-mode-spine-lifecycle.md`.
+  Shape suite: `src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts`.
 
 - **090** — `solicitation_asks.evidence` decision discriminant enforced at WRITE
   time (#593, from the 2026-07-27 architecture review). 088 created

@@ -169,6 +169,37 @@ describe('purge verification', () => {
     }
   });
 
+  it('purge verification fails when a solicitation_outreach row survives the purge', async () => {
+    const accountId = '00000000-0000-7000-8000-000000000001';
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes('FROM solicitation_outreach')) return [{ violation_count: 3 }];
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId,
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    }, mockSql);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'solicitation_outreach',
+        disposition: 'hard_delete',
+        purgeVerification: 'must_be_absent',
+        violationCount: 3,
+      }),
+    ]);
+    // Scoped by account_id — outreach carries its own tenant column, so the
+    // check does not depend on the batches it cascades from still existing.
+    const outreachQuery = calls.find((call) => call.text.includes('FROM solicitation_outreach'));
+    expect(outreachQuery?.text).toContain('WHERE account_id = ?::uuid');
+    expect(outreachQuery?.values).toEqual([accountId]);
+  });
+
   it('uses explicit account, business, offboarding, and compliance retention scopes', async () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',

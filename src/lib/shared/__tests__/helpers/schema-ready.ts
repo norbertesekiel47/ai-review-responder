@@ -224,6 +224,38 @@ export const MIGRATION_089_COMPETITOR_RIVAL_PICK: SchemaRequirement = {
   ],
 };
 
+export const MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE: SchemaRequirement = {
+  migration: '091_send_mode_spine_lifecycle',
+  tables: ['solicitation_outreach'],
+  columns: [
+    'solicitation_batches.approved_at',
+    'solicitation_batches.approval_method',
+    'solicitation_batches.approved_by_user_id',
+    'solicitation_batches.veto_deadline_at',
+    'solicitation_batches.sending_started_at',
+    'solicitation_batches.send_closed_at',
+    'solicitation_batches.halted_at',
+    'solicitation_batches.halt_reason',
+    'solicitation_batches.halted_by',
+    'auto_approval_policies.daily_send_cap',
+  ],
+  indexes: [
+    'solicitation_outreach_one_live_per_ask',
+    'solicitation_batches_one_active_send_per_business',
+    'job_outbox_solicitation_send_inflight',
+    'job_outbox_generate_solicitation_asks_inflight',
+  ],
+  // The two constraints 091 REPLACES rather than adds — presence of a widened
+  // column proves nothing about them, so name them explicitly. The asks unique
+  // is the one the outreach ask FK is built on, so a DB missing it fails at
+  // table-creation time rather than mysteriously later.
+  constraints: [
+    { table: 'solicitation_asks', name: 'solicitation_asks_account_business_id_uniq' },
+    { table: 'solicitation_outreach', name: 'solicitation_outreach_status_reason_consistency' },
+    { table: 'auto_approval_policies', name: 'auto_approval_policies_persona_consistency' },
+  ],
+};
+
 /**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can

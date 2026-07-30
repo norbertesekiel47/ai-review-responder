@@ -37,7 +37,7 @@ columns**, which are re-homed, not dropped:
 - `source TEXT NOT NULL CHECK (source IN ('llm'))` — `'owner_edit'` removed per B7
 - `ask_lint_version TEXT NOT NULL`, `lint_detail JSONB NOT NULL`
 - `moderation_status TEXT NOT NULL CHECK (IN ('clean','flagged','error','disabled'))`, `moderation_detail JSONB NOT NULL`
-- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict)
+- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict, but **only inside the 90-day body-retention window**: #624's redaction sweep empties it to `'{}'` with the bodies, and `solicitation_outreach_body_presence` enforces that pairing. No reproducibility is lost that the same sweep did not already destroy — §2.4 is computed over `subject + body`.)
 - `prompt_hash TEXT NOT NULL` (alongside #619's `prompt_version`; #619's `policy_version` column is renamed duty: restraint version stays on the ask row's evidence — the outreach column carries `ask_lint_version`, so drop #619's ambiguous `policy_version` in favor of the two explicit columns)
 - **consent snapshot** (Codex critical 1 tail; #620 §3.5): `consent_basis`, `consent_attestation_version`, `consent_row_id` — nullable, **stamped at dispatch by #630** (resolving #620's §3.5-vs-§9 ambiguity: dispatch, not render; #620's #628 binding moves to #630)
 
@@ -190,6 +190,109 @@ stalled alert.
   "no real consumers; owner-controlled seed inboxes only" (matches #622 §3.4;
   the brief goes to counsel and must be accurate).
 
+### B9. B4's unsubscribe column moves from #624 to #626 (#624 implementation finding)
+
+B4 gives the token row a unique `outreach_id` so a dispatch retry re-uses the
+existing token. **That contract stands; what moves is who adds the column.**
+
+`solicitation_unsubscribe_tokens` does not exist yet, and its `CREATE TABLE` is
+owned by #626's suppression spec (`suppression-unsubscribe-design:735`).
+Migration 091 (#624) cannot add a column to a table a later ticket creates, so
+§D's assignment was unbuildable as written.
+
+- **#626 carries `outreach_id UUID UNIQUE` in its own `CREATE TABLE`**, with the
+  FK to `solicitation_outreach` — which 091 does create, so the dependency runs
+  the correct way round.
+- **#630 depends on #626 for it, not on #624.** B4's mint-at-dispatch step and
+  its idempotent-mint keying are unchanged; only the schema prerequisite is
+  re-homed.
+- §D's `#624 (091)` bullet is amended in place by this resolution — the token
+  clause is struck there rather than left to contradict this section.
+
+### B10. `QUEUE_NAMES` entries and typed outbox helpers ship with their producers, not with 091
+
+#619 §9's migration checklist (`executor-design:1066`/`:1074`) bundles three
+things into #624: the two `job_outbox` in-flight partial unique indexes, the
+`QUEUE_NAMES` constants for `generate_solicitation_asks` / `solicitation_send`,
+and their typed enqueue helpers. **They split.**
+
+- **091 creates the indexes only**, and #624 ships no `QUEUE_NAMES` entry and no
+  enqueue helper. `ci:outbox-topics` does not scan migrations, so the indexes are
+  inert until a producer exists.
+- **Each producer discharges its own half in the PR carrying its first raw
+  insert** — `generate_solicitation_asks` with **#628**, `solicitation_send`
+  with **#630**. The `QUEUE_NAMES` entry and the typed helper land in that same
+  PR.
+- The split is safe in the only direction that matters: **an index with no
+  writer costs nothing, a writer with no index races.**
+- This ordering is not bookkeeping preference — `ci:outbox-seam` derives helper
+  coverage from `job-outbox-helpers.ts` itself, so **a topic that has a helper
+  must use it**. Shipping `enqueueSolicitationSend` ahead of its producer would
+  land a helper with no caller and turn any later raw insert red outside the PR
+  that introduced it; shipping it *with* the producer discharges both at once.
+- #624's own outbox obligation is discharged by the two indexes plus
+  `ci:outbox-status` passing on their
+  `status IN ('pending','dispatching','dispatched')` predicates, spelled
+  members-and-order per `src/lib/shared/job-outbox-status.ts`.
+
+### B11. The dispatch-versus-purge lock contract binds #630; #624 defines it and cannot close it
+
+D6d (`executor-design:415`) names offboarding purge running during a **live
+send**. #624 cannot close that race: the send worker's provider call sits
+*between* two transactions (`executor-design:548`), and `pg_advisory_xact_lock`
+releases at the end of the transaction that took it, so no advisory lock spans
+the gap. #624 builds no send worker and can neither demonstrate nor test it.
+
+**#624 defines the contract; #630 is bound to it.**
+
+- #624 establishes **one global lock order — advisory lock first, then row
+  locks** — and applies it at both sites it owns (batch construction and the
+  offboarding purge stage). `acquireSolicitationBatchLock` is documented as
+  **transaction-scoped**, with the "does not span a provider call" trap named at
+  the helper rather than left for #630 to rediscover.
+- **ADR 0014** records the required discipline: an in-flight send must be visible
+  to purge in **committed state** (a `sending` delivery status purge reads),
+  because no advisory lock can bridge two transactions.
+- **Committed-state visibility alone is not sufficient**, and #630 must not stop
+  there. "Purge checks for a committed `sending` row" is a TOCTOU on its own:
+  purge observes no send → dispatch commits `sending` → purge deletes the row
+  while the provider call is in flight. The claim and the purge must be
+  *mutually exclusive*, not merely mutually observable. **#630's dispatch
+  transaction therefore takes `acquireSolicitationBatchLock` before its
+  batch-row lock** (`executor-design:548`'s dispatch transaction currently starts
+  at the row lock), so the claim-writing transaction and purge serialize on the
+  advisory lock and the committed `sending` state is what purge *sees* rather
+  than what it *races*.
+- **Serializing is not deciding — purge must DETECT and durably DEFER**
+  (added 2026-07-30 from #624's step-6 adversarial review, finding F2). The
+  bullet above gets purge and the claim onto the same lock so purge *observes*
+  committed `sending` state instead of racing it. It does not say what purge must
+  then do, and observing a live send while proceeding to delete it is the same
+  data loss by a slower route. #624's purge stage today takes the advisory lock
+  and then **unconditionally** deletes `contact_csv_uploads`, cascading through
+  batches into outreach — so the seam as shipped is safe for construction and
+  unsafe for dispatch, which is exactly its intended consumer.
+
+  **#630 must therefore, after acquiring all advisory locks, check for committed
+  `sending` claims on the account's batches and durably defer or fail the purge
+  until they resolve** — never delete past one. "Durably" excludes an in-memory
+  wait: the offboarding row must carry the deferral so a worker restart resumes
+  it, per the existing offboarding state machine.
+
+- **#630 owes a claim-versus-purge race test**, mirroring #624's
+  build-versus-purge live-DB test. Its shape, made explicit because a test that
+  merely runs the two without a deadlock proves nothing: **claim commits →
+  provider call paused mid-flight → purge attempts and is refused/deferred →
+  provider call completes and the outreach row terminalizes → purge then
+  succeeds.** The paused provider call is the whole point; without it the test
+  cannot distinguish "purge deferred" from "purge got lucky on timing".
+
+- Explicitly **out of scope for #624** — recorded here so the gap has an owner
+  and a paper trail rather than being inherited silently. #624's own review
+  re-raised it as a High finding and it was rejected *for #624* on exactly this
+  basis; the reviewer's sharper requirement is folded in above rather than
+  discarded.
+
 ## C. Codex findings triage summary
 
 | Codex finding | Triage |
@@ -209,12 +312,22 @@ call; B3's cap number (10) if a different deliverability posture is wanted.
 
 - **#624 (091)**: outreach column list = #619 §3 D5 **as amended by B1/B2**
   (add lint/moderation/interpolation/consent-snapshot columns, `source`,
-  `superseded` reason; drop `policy_version`); token table gains
-  `outreach_id UUID UNIQUE` (B4).
-- **#628**: renders with placeholders (B4); no token mint; no owner-edit path.
+  `superseded` reason; drop `policy_version`). **No unsubscribe-token column —
+  moved to #626 by B9.** **No `QUEUE_NAMES` entry and no enqueue helper —
+  moved to #628/#630 by B10;** 091 creates the two in-flight indexes only.
+  Defines the advisory-before-row lock contract B11 binds #630 to.
+- **#628**: renders with placeholders (B4); no token mint; no owner-edit path;
+  ships the `generate_solicitation_asks` `QUEUE_NAMES` entry + typed helper with
+  its first raw insert (B10).
 - **#629**: approve/exclude/regenerate — no edit surface; approval FKs the
   outreach row (live attempt), not the ask.
 - **#630**: token mint + substitution (B4); gate union (B6); attempt-grain
-  idempotency; cap counting on `queued_at`.
+  idempotency; cap counting on `queued_at`; ships the `solicitation_send`
+  `QUEUE_NAMES` entry + typed helper with its first raw insert (B10); closes the
+  dispatch-versus-purge race under #624's lock order, with a
+  claim-versus-purge test (B11). Depends on **#626** for the token row's
+  `outreach_id` (B9).
 - **#625/#626**: unchanged by this doc except #626 reads `unsubscribed_at`
-  effects on outreach and the token-mint move.
+  effects on outreach, the token-mint move, and **#626's
+  `solicitation_unsubscribe_tokens` `CREATE TABLE` now carries
+  `outreach_id UUID UNIQUE` (B9)**.

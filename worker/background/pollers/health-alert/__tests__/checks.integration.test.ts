@@ -10,7 +10,14 @@ import {
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { OUTBOX_COMPLETION_REASON } from '@/lib/shared/outbox-completion-reason';
 import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+  MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
+import { startOrGetActiveRun } from '@/lib/agents/run-spine';
+import {
   checkOwnerUnreachable,
+  checkStalledSendBatches,
   checkZeroDeliveryNotifications,
   type HealthAlertConfig,
 } from '../checks';
@@ -70,6 +77,43 @@ const PROBE_CFG: HealthAlertConfig = {
 async function ownerUnreachableCount(): Promise<number> {
   const finding = await checkOwnerUnreachable(sql(), PROBE_CFG);
   return (finding?.detail.count as number | undefined) ?? 0;
+}
+
+// checkStalledSendBatches scans agent_runs GLOBALLY (it has no tenant filter by
+// design), so these assertions are DELTAS around a baseline rather than absolute
+// counts or a bare null — a sibling live-DB suite in a concurrent vitest process
+// may legitimately hold send-batch runs of its own.
+async function stalledSendBatchCount(): Promise<number> {
+  const finding = await checkStalledSendBatches(sql());
+  return (finding?.detail.count as number | undefined) ?? 0;
+}
+
+// Seeds a send-batch parent run through the REAL spine writer, so this test also
+// proves the kind the probe's predicate matches is the kind the writer produces
+// — the one thing a mocked `sql` can never tell us. The age is applied in SQL
+// (NOW() - make_interval), never by passing a JS Date back in: postgres.js
+// truncates timestamptz microseconds to millisecond precision, so a JS-Date-seeded
+// fixture carries zero µs and cannot exercise the threshold boundary honestly.
+async function seedSendBatchRun(ageDays: number): Promise<string> {
+  const seed = tenant;
+  if (!seed) throw new Error('stalled send-batch fixture requires a seeded tenant');
+  let runId = '';
+  await sql().begin(async (tx) => {
+    const started = await startOrGetActiveRun(tx, {
+      kind: 'solicitation_send_batch',
+      subjectType: 'solicitation_batch',
+      subjectId: randomUUID(),
+      accountId: seed.accountId,
+      businessId: liveBusinessId,
+    });
+    runId = started.runId;
+  });
+  await sql()`
+    UPDATE agent_runs
+    SET started_at = NOW() - make_interval(days => ${ageDays})
+    WHERE id = ${runId}::uuid
+  `;
+  return runId;
 }
 
 async function zeroDeliveryCount(): Promise<number> {
@@ -143,6 +187,7 @@ async function seedDelivery(
 }
 
 async function clearSeededRows(): Promise<void> {
+  await sql()`DELETE FROM agent_runs WHERE business_id IN (${liveBusinessId}::uuid, ${archivedBusinessId}::uuid)`;
   for (const businessId of [liveBusinessId, archivedBusinessId]) {
     await sql()`
       DELETE FROM job_outbox
@@ -159,11 +204,22 @@ const FRESH = 60; // below the 4h floor
 const OLD_MARKER = 7200; // older marker created_at
 const NEW_COMPLETION = 60; // superseding completion created_at (more recent)
 
+// The probe fires one day past a send batch's ≤10-day construction bound.
+const STALLED_SEND_BATCH_DAYS = 12; // past the 11-day threshold
+const LIVE_SEND_BATCH_DAYS = 9; // inside it — a legitimately long-lived batch
+
 const registerSuite = testDatabaseUrl ? describe : describe.skip;
 
 registerSuite('owner-unreachable health checks against live local Postgres', () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    // Assert, never apply (#573): agent_runs itself (071) plus the 091 widening
+    // that makes 'solicitation_send_batch' a legal kind. A DB behind head fails
+    // loudly here instead of as a mystifying CHECK violation in the fixture.
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+    ]);
     // Bring the shared local test DB current with T1's migration 083 column
     // (job_outbox.completion_reason). Test-DB bootstrap only — migration
     // 083_outbox_owner_unreachable.sql remains the authoritative owner of this
@@ -248,6 +304,36 @@ registerSuite('owner-unreachable health checks against live local Postgres', () 
     const before = await ownerUnreachableCount();
     await seedResponse(liveBusinessId, AGED); // aged pending, but no outbox marker at all
     expect(await ownerUnreachableCount()).toBe(before);
+  });
+
+  it('counts a real solicitation_send_batch run seeded past the 11-day threshold', async () => {
+    const before = await stalledSendBatchCount();
+    await seedSendBatchRun(STALLED_SEND_BATCH_DAYS);
+
+    const finding = await checkStalledSendBatches(sql());
+
+    expect(finding?.detail.count).toBe(before + 1);
+    // MAX(age) over the matched set, so the seeded 12-day run puts a hard floor
+    // under it regardless of what a concurrent sibling suite may also hold.
+    expect(finding?.detail.oldest_age_s as number).toBeGreaterThanOrEqual(
+      STALLED_SEND_BATCH_DAYS * 86_400 - 60,
+    );
+    expect(finding?.detail.oldest_run_id).toEqual(expect.any(String));
+  });
+
+  it('does not count a send batch still inside the 11-day threshold', async () => {
+    const before = await stalledSendBatchCount();
+    await seedSendBatchRun(LIVE_SEND_BATCH_DAYS);
+    expect(await stalledSendBatchCount()).toBe(before);
+  });
+
+  it('does not count a send batch that already terminalized', async () => {
+    const before = await stalledSendBatchCount();
+    const runId = await seedSendBatchRun(STALLED_SEND_BATCH_DAYS);
+    await sql()`
+      UPDATE agent_runs SET status = 'completed', ended_at = NOW() WHERE id = ${runId}::uuid
+    `;
+    expect(await stalledSendBatchCount()).toBe(before);
   });
 
   it('de-conflates zero-delivery: owner_unreachable-marked rows are excluded, unmarked zero-delivery rows are counted', async () => {

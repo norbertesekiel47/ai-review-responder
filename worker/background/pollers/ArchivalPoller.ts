@@ -17,6 +17,13 @@ const ARCHIVAL_CYCLE_TIMEOUT_MS = 1_800_000; // 30 minutes
 // retention window MUST exceed that read window, so 180 > 90.
 export const AGENT_SPINE_RETENTION_DAYS = 180;
 
+// Outreach body retention (migration 091: solicitation_outreach). 90 days sits
+// comfortably past the 14-day attribution window and past bounce/complaint
+// feedback lag, so nothing that still reads a body loses one. This is data
+// minimization on third-party PII held on the contact's behalf — a
+// redact-in-place, NOT a delete: the metadata row is kept forever.
+export const BODY_RETENTION_DAYS = 90;
+
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().ARCHIVAL_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
@@ -24,11 +31,15 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-// Eight independent batched-DELETE arms + count/saturation reporting; the
+// Nine independent batched retention arms + count/saturation reporting; the
 // length is the retention vocabulary, one block per table. Pre-existing size —
-// the perf pass only added the failed-outbox arm to the first block.
+// the perf pass only added the failed-outbox arm to the first block, and #624
+// the redact-in-place arm at the end.
+//
+// Exported so the live-DB suite can drive exactly one cycle; the poller itself
+// goes through createGuardedPoll below.
 // fallow-ignore-next-line complexity
-async function runArchival(logger: WorkerLogger): Promise<void> {
+export async function runArchival(logger: WorkerLogger): Promise<void> {
   try {
     // 1. Outbox entries: completed rows older than 7 days; failed rows older
     // than 90 days (kept longer for dead-letter forensics — mirrors the
@@ -225,6 +236,42 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 9. solicitation_outreach body redaction (migration 091) older than 90
+    // days. The only arm that does NOT delete: it NULLs the rendered subject +
+    // body in place and stamps body_redacted_at, keeping the metadata row
+    // forever. Redaction implies sent, which the sent_at predicate gives for
+    // free — a never-sent row has no send to minimize and stays out of the
+    // sweep permanently, which is also what keeps the partial index small.
+    //
+    // interpolation_inputs is emptied with the bodies, not kept: it carries the
+    // contact_first_name and visit_note the body was rendered FROM, so keeping
+    // it would delete the sentence and retain its source. The column is
+    // NOT NULL, hence '{}'::jsonb rather than NULL. Nothing reads it — this
+    // erases reproducibility past 90 days, which is the point.
+    //
+    // ORDER BY sent_at makes progress monotonic (oldest first) so a large first
+    // backlog drains cycle by cycle instead of re-scanning the same window and
+    // burning the 30s statement_timeout; FOR UPDATE SKIP LOCKED keeps the sweep
+    // off a row a send worker currently holds. Both conjuncts match
+    // idx_solicitation_outreach_redaction_sweep.
+    const [outreachBodiesResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM solicitation_outreach
+        WHERE sent_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS})
+          AND body_redacted_at IS NULL
+        ORDER BY sent_at
+        LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      redacted AS (
+        UPDATE solicitation_outreach
+        SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW()
+        WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM redacted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
@@ -233,6 +280,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
     const analyticsCount = parseInt(analyticsResult?.count ?? '0', 10);
     const agentOutcomesCount = parseInt(agentOutcomesResult?.count ?? '0', 10);
     const agentRunsCount = parseInt(agentRunsResult?.count ?? '0', 10);
+    const outreachBodiesCount = parseInt(outreachBodiesResult?.count ?? '0', 10);
 
     const totalArchived =
       outboxCount +
@@ -242,7 +290,8 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       notificationsCount +
       analyticsCount +
       agentOutcomesCount +
-      agentRunsCount;
+      agentRunsCount +
+      outreachBodiesCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -254,6 +303,8 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
         analytics_events: analyticsCount,
         agent_outcomes: agentOutcomesCount,
         agent_runs: agentRunsCount,
+        // Count only — a body is never logged.
+        solicitation_outreach_bodies: outreachBodiesCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -266,6 +317,7 @@ async function runArchival(logger: WorkerLogger): Promise<void> {
       if (analyticsCount >= BATCH_LIMIT) saturated.push('analytics_events');
       if (agentOutcomesCount >= BATCH_LIMIT) saturated.push('agent_outcomes');
       if (agentRunsCount >= BATCH_LIMIT) saturated.push('agent_runs');
+      if (outreachBodiesCount >= BATCH_LIMIT) saturated.push('solicitation_outreach_bodies');
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.

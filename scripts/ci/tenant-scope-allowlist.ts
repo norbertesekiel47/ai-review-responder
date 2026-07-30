@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 407;
+export const ALLOWLIST_BASELINE = 409;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -133,6 +133,12 @@ const FAILOVER_OWNER_UNREACHABLE_RECHECK_SQL =
 
 const HEALTH_FAILED_INBOUND_EVENTS_SQL =
   "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'failed' AND received_at > NOW() - make_interval(secs => ${cfg.failedWindowS}) GROUP BY source, event_type";
+
+// D15c stalled send-batch probe. HealthAlertPoller.checkStalledSendBatches counts
+// solicitation_send_batch parent runs still 'running' past their 11-day threshold
+// (one day beyond the ≤10-day construction bound). Read-only cross-tenant probe.
+const HEALTH_STALLED_SEND_BATCHES_SQL =
+  "SELECT COUNT(*)::int AS count, (ARRAY_AGG(id::text ORDER BY started_at))[1] AS oldest_run_id, MAX(EXTRACT(EPOCH FROM (NOW() - started_at))::int) AS oldest_age_s FROM agent_runs WHERE kind = ${SEND_BATCH_RUN_KIND} AND status = 'running' AND started_at < NOW() - make_interval(secs => ${STALLED_SEND_BATCH_THRESHOLD_S})";
 
 const JUDGE_SWEEP_CANDIDATES_SQL =
   "SELECT r.id AS response_id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id WHERE r.status = 'posted' AND r.approval_method = 'auto_policy' AND r.posted_at >= NOW() - make_interval(hours => ${options.lookbackHours}) AND ${publisherSubscriptionEligibleSql(sql)} AND NOT EXISTS ( SELECT 1 FROM judge_verdicts jv WHERE jv.response_id = r.id ) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.JUDGE_VERDICT} AND jo.aggregate_id = r.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY r.posted_at ASC, r.id ASC LIMIT ${options.limit}";
@@ -624,6 +630,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "HealthAlertPoller failed-inbound-events probe: counts inbound_events rows stuck in status='failed' grouped by (source, event_type) to surface webhook processing bugs otherwise masked by provider retries. Read-only platform health probe, intentionally cross-tenant (prod-hardening P7).",
   },
   {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "agent_runs",
+    sqlSnippet: HEALTH_STALLED_SEND_BATCHES_SQL,
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller stalled-send-batch probe (#624 D15c): counts solicitation_send_batch parent runs still 'running' past the 11-day threshold, one day beyond the batch's ≤10-day construction bound, so an operator sees a drip that never closed. A platform wedge scan is deliberately cross-tenant; the aggregate carries run ids and ages only. Read-only.",
+  },
+  {
     file: "worker/background/pollers/ArchivalPoller.ts",
     table: "api_costs",
     sqlSnippet: "WITH candidates AS ( SELECT id FROM api_costs WHERE created_at < NOW() - INTERVAL '90 days' ORDER BY created_at, id LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM api_costs WHERE id IN (SELECT id FROM candidates) RETURNING business_id, provider, created_at::date AS cost_date, cost_usd, COALESCE(input_tokens, 0)::bigint AS input_tokens, COALESCE(output_tokens, 0)::bigint AS output_tokens ), aggregated AS ( SELECT business_id, provider, cost_date, SUM(cost_usd) AS total_cost_usd, SUM(input_tokens)::bigint AS total_input_tokens, SUM(output_tokens)::bigint AS total_output_tokens, COUNT(*)::bigint AS call_count FROM deleted GROUP BY business_id, provider, cost_date ), upserted AS ( INSERT INTO api_costs_daily_rollups (id, business_id, provider, rollup_date, total_cost_usd, total_input_tokens, total_output_tokens, call_count) SELECT gen_random_uuid(), business_id, provider, cost_date, total_cost_usd, total_input_tokens, total_output_tokens, call_count FROM aggregated ON CONFLICT ON CONSTRAINT uniq_cost_rollups_business_provider_date DO UPDATE SET total_cost_usd = api_costs_daily_rollups.total_cost_usd + EXCLUDED.total_cost_usd, total_input_tokens = api_costs_daily_rollups.total_input_tokens + EXCLUDED.total_input_tokens, total_output_tokens = api_costs_daily_rollups.total_output_tokens + EXCLUDED.total_output_tokens, call_count = api_costs_daily_rollups.call_count + EXCLUDED.call_count RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
@@ -643,6 +656,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_outcomes WHERE occurred_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_outcomes WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
     reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_outcomes has no account/business column.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM solicitation_outreach WHERE sent_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS}) AND body_redacted_at IS NULL ORDER BY sent_at LIMIT 5000 FOR UPDATE SKIP LOCKED ), redacted AS ( UPDATE solicitation_outreach SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW() WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM redacted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces 90-day outreach body redaction independent of tenant request scope; a retention sweep is deliberately cross-tenant.",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",

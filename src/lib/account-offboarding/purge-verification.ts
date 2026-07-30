@@ -593,6 +593,15 @@ export function verificationQuery(
         FROM solicitation_asks
         WHERE account_id = ${accountId}::uuid
       `;
+    // Outreach has no DELETE of its own (G9): it cascades from
+    // solicitation_batches, which cascades from contact_csv_uploads. This is
+    // the read-side proof that the cascade actually fired.
+    case 'solicitation_outreach':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_outreach
+        WHERE account_id = ${accountId}::uuid
+      `;
 
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);

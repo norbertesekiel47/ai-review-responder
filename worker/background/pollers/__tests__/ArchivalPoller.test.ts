@@ -21,6 +21,7 @@ import {
   startArchivalPoller,
   stopArchivalPoller,
   AGENT_SPINE_RETENTION_DAYS,
+  BODY_RETENTION_DAYS,
 } from '../ArchivalPoller';
 import { DASHBOARD_WINDOWS, dashboardWindowParams } from '@/lib/kpi/types';
 import { GOVERNOR_WINDOW_DAYS } from '@/lib/auto-approval/governor';
@@ -46,6 +47,7 @@ function queueArchivalResults(counts: {
   analytics?: number;
   agentOutcomes?: number;
   agentRuns?: number;
+  outreachBodies?: number;
 }): void {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
@@ -56,6 +58,7 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.push([{ count: String(counts.analytics ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.agentOutcomes ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.agentRuns ?? 0) }]);
+  sqlReturnQueue.push([{ count: String(counts.outreachBodies ?? 0) }]);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -98,16 +101,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 8 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs)', async () => {
+  it('issues 9 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(8);
+    expect(mockSql).toHaveBeenCalledTimes(9);
   });
 
-  it('logs all 8 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9 });
+  it('logs all 9 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11 });
 
     await runOneCycle();
 
@@ -124,9 +127,10 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"analytics_events":7');
     expect(msg).toContain('"agent_outcomes":3');
     expect(msg).toContain('"agent_runs":9');
+    expect(msg).toContain('"solicitation_outreach_bodies":11');
   });
 
-  it('logs "Nothing to archive" when all 8 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 9 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
@@ -253,6 +257,70 @@ describe('ArchivalPoller', () => {
     expect(warnSpy).toHaveBeenCalled();
     const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
     expect(warnMsg).toContain('agent_runs');
+  });
+
+  // ── Body redaction (#624 T6) ─────────────────────────────────────
+  //
+  // This arm is the one that does NOT delete: it NULLs the rendered subject +
+  // body in place and stamps body_redacted_at, keeping the metadata row
+  // forever. Row-level behaviour is proved against real Postgres in
+  // ArchivalPoller.integration.test.ts; these pin the parts the live suite
+  // cannot see — that the sweep stays bounded and that the cycle log reports it.
+
+  it('solicitation_outreach redaction is bounded, oldest-first and skip-locked (query shape assertion)', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // The 9th sql() call (index 8) is the body-redaction block.
+    const redactionCall = mockSql.mock.calls[8];
+    expect(redactionCall).toBeDefined();
+    const templateStrings = redactionCall![0] as TemplateStringsArray;
+    const fullSql = templateStrings.join(' ');
+    expect(fullSql).toContain('solicitation_outreach');
+    expect(fullSql).toContain('sent_at < NOW() - make_interval(days =>');
+    expect(fullSql).toContain('body_redacted_at IS NULL');
+    // Bound + monotonic progress: without ORDER BY sent_at a large backlog can
+    // re-scan the same window forever; without LIMIT it can exhaust the 30s
+    // statement_timeout on every cycle and never redact a single row.
+    expect(fullSql).toContain('ORDER BY sent_at');
+    expect(fullSql).toContain('LIMIT 5000');
+    expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+    // Redact in place — the metadata row is kept, never deleted.
+    expect(fullSql).toContain('UPDATE solicitation_outreach');
+    expect(fullSql).not.toContain('DELETE FROM solicitation_outreach');
+  });
+
+  it('passes the 90-day body retention window to the redaction sweep', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    expect(BODY_RETENTION_DAYS).toBe(90);
+    const redactionCall = mockSql.mock.calls[8];
+    expect(redactionCall!.slice(1)).toContain(BODY_RETENTION_DAYS);
+  });
+
+  it('logs the solicitation_outreach redaction count in the Archived log', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, outreachBodies: 42 });
+
+    await runOneCycle();
+
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
+    );
+    expect(archivedLog).toBeDefined();
+    expect(archivedLog![0] as string).toContain('"solicitation_outreach_bodies":42');
+  });
+
+  it('includes solicitation_outreach_bodies in the saturation warning when it hits the limit', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0, outreachBodies: 5000 });
+
+    await runOneCycle();
+
+    expect(warnSpy).toHaveBeenCalled();
+    const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
+    expect(warnMsg).toContain('solicitation_outreach_bodies');
   });
 
   it('does not warn when all counts are below 5000', async () => {
