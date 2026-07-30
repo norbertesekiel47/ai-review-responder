@@ -842,6 +842,59 @@ silently no-ops is a false negative that reads exactly like a discriminating
 test. Always pass `ON_ERROR_STOP=1`, and confirm the break landed by reading
 `pg_get_constraintdef` before trusting a still-green run.
 
+## 2026-07-30 — CI caught what the local gate structurally cannot: 091 invalidated the 074 shape suite
+
+**The failure.** PR #637's `test` job failed 1/10030:
+`migration-074-trust-dial-veto-window.integration.test.ts` asserted that
+`persona = 'solicitation'` is rejected by `auto_approval_policies_persona_check`.
+091 legitimately **widens** that CHECK to add the solicitation lane, so the value
+is now individually legal and only the *combination* is not — the row is rejected
+by 091's new `auto_approval_policies_persona_consistency` instead. `fallow` went
+red for the identical reason (it runs the suite to generate coverage), so one
+defect produced two red checks.
+
+**Why the local gate could not catch it.** `scripts/verify-gate.sh`'s full-suite
+row sets `REPWORTH_DISABLE_LIVE_DB_SUITES=1` (#563, to dodge the #520 singleton
+clash). So the only live-DB suites that run locally are the ones the intake names
+in `verification_commands` — 088 and 091 here. **Every other migration-shape
+suite is invisible to the local gate.** CI has no such exclusion.
+
+**The general hazard, worth carrying past this ticket:** a migration that widens
+a constraint silently invalidates any OLDER shape suite that pinned the narrower
+domain. This is the second sibling-suite interaction on this branch — the first
+was the 088 double-apply reverting 091's widening. When a migration replaces a
+constraint another migration's suite asserts, that suite is part of the change's
+blast radius even though nothing in it was edited.
+
+**Three assertions needed updating**, and the third is the subtle one:
+
+| Set | Was rejected by | Now rejected by |
+|---|---|---|
+| `persona = 'solicitation'` | `persona_check` | `persona_consistency` |
+| `action_class = 'sending'` | `action_class_check` | `persona_consistency` |
+| `veto_window_minutes = 20` | `veto_window_check` | `persona_consistency` |
+
+The third is not a naming detail. After 091 the per-column window bound is a
+**loose outer bound that the lane pairing subsumes entirely** — every value
+outside `{15,30,60}` violates both constraints, so `veto_window_check` is
+unreachable as a *reported* error. Which name Postgres reports is deterministic
+but non-obvious: **CHECKs are evaluated in alphabetical order by constraint
+name** (`CheckConstraintCmp` in relcache.c), and `…_persona_consistency` sorts
+before `…_veto_window_check`. Two added assertions (`persona = 'insights'`,
+`action_class = 'escalating'`) keep the per-column domains genuinely covered,
+and they are deterministic for the same reason — `…_action_class_check` and
+`…_persona_check` both sort ahead of `…_persona_consistency`.
+
+**Sweep done rather than guessed.** Rather than fix one suite and burn another
+8-minute CI cycle, the whole live-DB project was run locally
+(`pnpm vitest run --project integration` with `DATABASE_POOL_URL` pointed at the
+test DB — without that override the #520 singleton clash produces a wall of
+`ECONNREFUSED :5432` that masks the real signal). Result: **54 passed, 1 failed**,
+and the one failure is `migration-056`'s deny-all RLS behavioural test, which
+**passes in CI** — locally the `authenticated` role's schema grants differ, so
+Postgres says "relation does not exist" where Supabase says "permission denied".
+Pre-existing local divergence, not a branch defect, not this branch's to fix.
+
 **F5 decision (owner, this session): wholesale.** `interpolation_inputs` is
 emptied to `'{}'::jsonb` with the bodies rather than split into sensitive vs
 reproducible. Grep evidence: the column has **zero production readers** — only

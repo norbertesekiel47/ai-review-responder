@@ -53,7 +53,7 @@ now derives dispatch stamps from the status unless a case names the field
 explicitly (keyed on the property being ABSENT, so a case probing the implication
 keeps its explicit null); the other two derive theirs in SQL off `NOW()`.
 
-## S2 — non-`sent` terminals retain bodies and source PII forever · Medium · DEFER to a new ticket
+## S2 — non-`sent` terminals retain bodies and source PII forever · Medium · DEFERRED to #636
 
 `ArchivalPoller.ts:266` + `091:360-372`. `body_presence` requires
 `sent_at IS NOT NULL` for any `body_redacted_at`, and F4's arm 1 makes `sent_at`
@@ -79,6 +79,11 @@ outreach rows until that ticket lands. Nothing in #624 writes those statuses
 (#630 builds the send worker), so no such row can exist in production before the
 follow-up has a chance to land — but that is a sequencing accident, not a
 guarantee, and the follow-up must land before #630.
+
+**Filed as #636**, carrying the full defect derivation, the five-part fix
+outline, the acceptance criteria, and the "must land before #630" ordering
+constraint. T3 below is folded into it as the cheapest place to do that
+extraction.
 
 ## S3 — `rls-inventory.md` off the enumerated surface · Low · REJECT
 
