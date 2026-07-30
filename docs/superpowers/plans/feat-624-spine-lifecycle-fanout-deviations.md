@@ -599,6 +599,36 @@ the `generation_failed` test uses an already-terminal parent and proves the
 disposition is still derived correctly while the transition no-ops. **#628/#630
 must honour that ordering**, or their batches close as `exhausted`→`completed`.
 
+> ### SUPERSEDED 2026-07-30 by step-6 adversarial finding F1 — this contract was a deadlock
+>
+> The ordering above is exactly what the adversarial review killed, and it was
+> right. Recording the failure on the send parent first takes the `agent_runs`
+> row lock and *then* the batch lock (**run → batch**), while every other caller
+> — a last-child close, the releaser backstop — takes **batch → run**. Same two
+> rows, opposite orders: ABBA.
+>
+> And the aftermath was worse than the deadlock. With the failure transaction
+> chosen as the victim, the surviving closer saw no `error->>'code'`, derived
+> `exhausted`, CAS'd `send_closed_at`, and filed the parent `completed` — a failed
+> batch permanently recorded as a successful drip, unrepairable because both the
+> CAS and the terminal transition no-op on retry.
+>
+> **The judgement that was wrong.** I accepted "an unenforceable temporal contract,
+> documented loudly" as adequate. It is not: a contract a caller can violate by
+> writing two statements in the natural order is a latent bug with a comment on
+> it. The lesson is that "documented sharply enough" does not substitute for a
+> signature that cannot be called wrongly.
+>
+> **Now:** the failure arrives as `CloseBatchIfSettledInput.failure`, the function
+> owns the parent's error write / receipt / terminal transition, and **batch → run
+> is the sole order in the lane**. Callers must NOT pre-record the failure.
+> Terminalization branches on the resolved *disposition*, not on the parameter's
+> presence — `halted` and `expired` outrank both failure arms, so a halted batch
+> handed a failure still terminalizes `cancelled`; branching on the parameter
+> wrote `failed` while returning `cancelled`. That bug was caught during the fix
+> and is now pinned by the halted-precedence test (verified: reintroducing it
+> fails with `expected 'failed' to be 'cancelled'`).
+
 **Why the third union arm is safe to ignore.** `build_failed` has no entry in the
 D14 precedence table and falls through to `exhausted`. That is correct by
 construction, not by luck: `build_failed` attributes the *build* run

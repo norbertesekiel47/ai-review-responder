@@ -20,7 +20,8 @@
  */
 
 import type { TransactionSql } from 'postgres';
-import { completeRun, recordStep } from '@/lib/agents/run-spine';
+import { completeRun, failSolicitationBatchRun, recordStep } from '@/lib/agents/run-spine';
+import type { SolicitationBatchRunFailure } from '@/lib/agents/run-spine';
 
 /**
  * Approval window, anchored on `built_at`. Past it, neither lane may approve.
@@ -145,6 +146,28 @@ export interface CloseBatchIfSettledInput {
   batchId: string;
   accountId: string;
   businessId: string;
+  /**
+   * The failure that ended this batch's send lane, when one did.
+   *
+   * This arrives as a PARAMETER rather than being read back off
+   * `agent_runs.error`, and that is a deadlock fix, not a style choice. Reading
+   * it back required the lane to record the failure on the send parent *before*
+   * calling in — which takes the `agent_runs` row lock first and then the batch
+   * lock, while every other caller (a last-child close, the releaser backstop)
+   * takes batch-then-run. Two live paths, opposite orders, same two rows: ABBA.
+   *
+   * Worse than the deadlock was its aftermath. If Postgres chose the failure
+   * transaction as the victim, the surviving closer saw no error code, derived
+   * `exhausted`, CAS'd `send_closed_at` and filed the parent `completed` — a
+   * failed batch permanently recorded as a successful drip, unrepairable
+   * because both the CAS and the terminal transition no-op on retry.
+   *
+   * Passing it in makes **batch → run** the sole lock order and turns an
+   * unenforceable temporal contract into a signature that cannot be called
+   * wrongly. Do NOT call `failSolicitationBatchRun` for the send parent before
+   * this function; hand the failure over and let this own the whole close.
+   */
+  failure?: SolicitationBatchRunFailure;
 }
 
 export type CloseBatchIfSettledResult =
@@ -166,7 +189,6 @@ interface BatchClosureRow {
 
 interface SendParentRow {
   id: string;
-  error_code: string | null;
 }
 
 interface OutreachTallyRow {
@@ -217,26 +239,27 @@ function tallyOutreach(
 }
 
 /**
- * Ordered precedence over explicit sources, highest first. `generation_failed`
- * and `gate_closed` have no batch column: they are read from the failure the
- * lane already recorded on the send parent run (`failSolicitationBatchRun`, so
- * `agent_runs.error->>'code'`).
+ * Ordered precedence over explicit sources, highest first.
  *
- * CALLER CONTRACT, and it is ordering-sensitive: the lane must record that
- * failure BEFORE it calls `closeBatchIfSettled`, in the same transaction.
- * Recording it afterwards reads as no failure at all — the batch derives
- * `exhausted` and the parent terminalizes `completed`, i.e. a batch that never
- * rendered a message is filed as a successful drip. The closure CAS makes that
- * permanent, which is the whole reason this precedence exists.
+ * `halted` and `expired` are facts about the batch row. `generation_failed` and
+ * `gate_closed` have no batch column and are NOT derivable from the outreach
+ * tallies — `exhausted` (everything dispatched, some withheld naturally) can
+ * produce identical status totals to `generation_failed` (nothing ever
+ * rendered). They therefore arrive as `input.failure`, whose docstring explains
+ * why that is a parameter and not a read of `agent_runs.error`.
+ *
+ * `build_failed` is deliberately absent: it attributes the *build* run (kind
+ * `solicitation_batch`), never the send parent, and a batch that failed to build
+ * has no send parent at all — the `no_send_parent` guard catches it first.
  */
 function deriveDisposition(
   batch: BatchClosureRow,
-  parentErrorCode: string | null,
+  failure: SolicitationBatchRunFailure | undefined,
 ): BatchDisposition {
   if (batch.halted) return 'halted';
   if (batch.approval_window_elapsed) return 'expired';
-  if (parentErrorCode === 'generation_failed') return 'generation_failed';
-  if (parentErrorCode === 'gate_closed') return 'gate_closed';
+  if (failure?.code === 'generation_failed') return 'generation_failed';
+  if (failure?.code === 'gate_closed') return 'gate_closed';
   return 'exhausted';
 }
 
@@ -247,7 +270,12 @@ function deriveDisposition(
  * Called by every writer that terminalizes an Outreach row, in that writer's
  * own transaction, and by the releaser tick as a backstop.
  *
- * Order is load-bearing:
+ * Order is load-bearing, and **batch → run is the sole order in this lane**.
+ * Nothing may take the `agent_runs` row lock for the send parent before calling
+ * in — see `CloseBatchIfSettledInput.failure` for the ABBA deadlock that
+ * requirement exists to prevent. This function owns the parent's error write,
+ * its receipt step, and its terminal transition, all after the batch lock.
+ *
  *  1. lock the batch row (domain-before-spine, the order the halt path already
  *     takes). The lock also serializes new Outreach rows against this join —
  *     inserting one takes FOR KEY SHARE on the batch it references, which
@@ -288,7 +316,7 @@ export async function closeBatchIfSettled(
   // column. The send parent is the sibling of the build parent: same subject,
   // different kind.
   const [parent] = await tx<SendParentRow[]>`
-    SELECT id, error->>'code' AS error_code
+    SELECT id
     FROM agent_runs
     WHERE kind = 'solicitation_send_batch'
       AND subject_type = 'solicitation_batch'
@@ -324,7 +352,7 @@ export async function closeBatchIfSettled(
   `;
   if (closed.count === 0) return { status: 'already_closed' };
 
-  const disposition = deriveDisposition(batch, parent.error_code);
+  const disposition = deriveDisposition(batch, input.failure);
   const parentStatus = PARENT_TERMINAL_BY_DISPOSITION[disposition];
 
   await recordStep(tx, {
@@ -340,7 +368,23 @@ export async function closeBatchIfSettled(
       withheld_by_reason: counts.withheldByReason,
     },
   });
-  await completeRun(tx, parent.id, parentStatus);
+
+  // One terminalization, and the failure's error payload rides with it. Both
+  // arms write agent_runs only AFTER the batch lock, which is what keeps this
+  // lane single-ordered. `failSolicitationBatchRun` transitions to 'failed' and
+  // is the only writer of the error jsonb, so a failure disposition goes through
+  // it rather than through completeRun.
+  //
+  // Branch on the resolved DISPOSITION, never on `input.failure` being present:
+  // `halted` and `expired` outrank both failure arms, so a halted batch that was
+  // also handed a failure must still terminalize `cancelled`. Branching on the
+  // parameter would write 'failed' while returning parentStatus 'cancelled' —
+  // the row and the receipt disagreeing about the same run.
+  if (parentStatus === 'failed' && input.failure) {
+    await failSolicitationBatchRun(tx, { runId: parent.id, failure: input.failure });
+  } else {
+    await completeRun(tx, parent.id, parentStatus);
+  }
 
   return { status: 'closed', parentRunId: parent.id, disposition, parentStatus, counts };
 }

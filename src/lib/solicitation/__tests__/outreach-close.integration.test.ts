@@ -20,6 +20,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import type { SolicitationBatchRunFailure } from '@/lib/agents/run-spine';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
   closeBatchIfSettled,
@@ -240,9 +241,12 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
   return outreachId;
 }
 
-function close(batchId: string): Promise<CloseBatchIfSettledResult> {
+function close(
+  batchId: string,
+  failure?: SolicitationBatchRunFailure,
+): Promise<CloseBatchIfSettledResult> {
   return sql().begin((tx) =>
-    closeBatchIfSettled(tx, { batchId, accountId: accountId(), businessId }),
+    closeBatchIfSettled(tx, { batchId, accountId: accountId(), businessId, failure }),
   ) as Promise<CloseBatchIfSettledResult>;
 }
 
@@ -265,6 +269,17 @@ async function readRunStatus(runId: string): Promise<string> {
       AND business_id = ${businessId}::uuid
   `;
   return row!.status;
+}
+
+// Read in SQL (`->>`), so this is not a JSONB field-to-parser site.
+async function readRunErrorCode(runId: string): Promise<string | null> {
+  const [row] = await sql()<{ error_code: string | null }[]>`
+    SELECT error->>'code' AS error_code FROM agent_runs
+    WHERE id = ${runId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  return row!.error_code;
 }
 
 interface CloseStepRow {
@@ -556,15 +571,12 @@ describeWithDb(
     });
 
     it('closeBatchIfSettled maps the generation_failed disposition to a failed parent run', async () => {
-      // The realistic ordering: the generation lane records the failure on the
-      // parent, then joins in the SAME transaction. The terminal transition
-      // no-ops; the disposition still has to come out right.
+      // The lane hands the failure over; it does NOT pre-record it on the parent.
+      // Pre-recording is what created the run→batch lock order that deadlocked
+      // against every batch→run closer, so the parent starts `running` here and
+      // this function is what writes both the error and the terminal status.
       const { batchId, uploadId } = await seedBatch({ builtAgo: '2 hours' });
-      const parentRunId = await seedSendParent({
-        batchId,
-        status: 'failed',
-        errorCode: 'generation_failed',
-      });
+      const parentRunId = await seedSendParent({ batchId });
       await seedOutreach({
         batchId,
         uploadId,
@@ -572,7 +584,11 @@ describeWithDb(
         dispositionReason: 'render_failed',
       });
 
-      const result = await close(batchId);
+      const result = await close(batchId, {
+        code: 'generation_failed',
+        failedCount: 0,
+        withheldCount: 1,
+      });
 
       expect(result).toMatchObject({
         status: 'closed',
@@ -580,6 +596,9 @@ describeWithDb(
         parentStatus: 'failed',
       });
       expect(await readRunStatus(parentRunId)).toBe('failed');
+      // The error payload has to land too — the disposition alone is not the
+      // record. This is what `failSolicitationBatchRun` owns.
+      expect(await readRunErrorCode(parentRunId)).toBe('generation_failed');
       expect(stepDetail((await readCloseSteps(parentRunId))[0]!)).toMatchObject({
         disposition: 'generation_failed',
         withheld: 1,
@@ -588,11 +607,8 @@ describeWithDb(
     });
 
     it('closeBatchIfSettled maps the gate_closed disposition to a failed parent run', async () => {
-      // Deliberately the OTHER ordering: the recorded failure is read from a
-      // parent that is still running, so this case proves the mapping actually
-      // WRITES 'failed' rather than inheriting it.
       const { batchId, uploadId } = await seedBatch({ builtAgo: '2 hours' });
-      const parentRunId = await seedSendParent({ batchId, errorCode: 'gate_closed' });
+      const parentRunId = await seedSendParent({ batchId });
       await seedOutreach({
         batchId,
         uploadId,
@@ -600,7 +616,7 @@ describeWithDb(
         dispositionReason: 'superseded',
       });
 
-      const result = await close(batchId);
+      const result = await close(batchId, { code: 'gate_closed', gate: 'flag_disabled' });
 
       expect(result).toMatchObject({
         status: 'closed',
@@ -612,14 +628,19 @@ describeWithDb(
 
     it('closeBatchIfSettled prefers halted over every other disposition source', async () => {
       // Over-determined on purpose: halted AND past the approval window AND
-      // carrying a recorded gate_closed failure. Every lower source fires, so
-      // only the precedence can produce the right answer.
+      // handed a gate_closed failure. Every lower source fires, so only the
+      // precedence can produce the right answer.
+      //
+      // This also pins the terminalization branch: it must key off the RESOLVED
+      // disposition, not off `failure` being present. Branching on the parameter
+      // writes 'failed' to agent_runs while returning parentStatus 'cancelled' —
+      // the row and the receipt disagreeing about the same run.
       const { batchId, uploadId } = await seedBatch({
         builtAgo: '9 days',
         haltedAgo: '1 hour',
         haltReason: 'batch_expired',
       });
-      const parentRunId = await seedSendParent({ batchId, errorCode: 'gate_closed' });
+      const parentRunId = await seedSendParent({ batchId });
       await seedOutreach({
         batchId,
         uploadId,
@@ -627,7 +648,7 @@ describeWithDb(
         dispositionReason: 'batch_expired',
       });
 
-      const result = await close(batchId);
+      const result = await close(batchId, { code: 'gate_closed', gate: 'flag_disabled' });
 
       expect(result).toMatchObject({
         status: 'closed',
