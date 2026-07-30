@@ -358,9 +358,10 @@ describeWithDb(
       // table; an unmatched predicate would still show a Seq Scan or a Filter.
       //
       // Run inside a transaction with SET LOCAL so the seqscan setting is
-      // scoped to this probe, and through template queries rather than
-      // `sql.unsafe` — `ci:live-db-suites` reads `.unsafe(` in a file that also
-      // names supabase/migrations as run-time DDL, which this is not.
+      // scoped to this probe, and through template queries rather than the
+      // raw-SQL escape hatch: `ci:live-db-suites` treats that call form, in a
+      // file that also names the migrations directory, as run-time DDL — which
+      // this is not, and the audit cannot tell the difference from text alone.
       const plan = await db!.begin(async (tx) => {
         await tx`SET LOCAL enable_seqscan = off`;
         return tx<{ 'QUERY PLAN': string }[]>`
