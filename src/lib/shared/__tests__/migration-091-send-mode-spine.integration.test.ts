@@ -130,6 +130,7 @@ interface OutreachInput {
   sendingAt?: Date | null;
   sentAt?: Date | null;
   moderationStatus?: string;
+  interpolationInputs?: Record<string, string>;
 }
 
 /**
@@ -141,11 +142,35 @@ interface OutreachInput {
 /** Pool handle or an open transaction — the RLS case needs the latter. */
 type SqlExecutor = postgresType.Sql | postgresType.TransactionSql;
 
+/**
+ * Dispatch stamps the status now REQUIRES, for a case that did not name them.
+ *
+ * `queued`/`sending`/`sent` each imply `queued_at`, so a fixture that omits it
+ * would be rejected by the status/timestamp CHECK rather than reaching the
+ * constraint under test. Presence is keyed on the property being ABSENT, not on
+ * it being null — a case that explicitly passes `queuedAt: null` is probing that
+ * implication and must keep its null.
+ */
+function dispatchStamps(input: OutreachInput): { queuedAt: Date | null; sendingAt: Date | null } {
+  const status = input.deliveryStatus ?? 'rendered';
+  const dispatched = status === 'queued' || status === 'sending' || status === 'sent';
+  const base = input.sentAt ?? new Date();
+  return {
+    queuedAt: 'queuedAt' in input
+      ? (input.queuedAt ?? null)
+      : (dispatched ? new Date(base.getTime() - 2_000) : null),
+    sendingAt: 'sendingAt' in input
+      ? (input.sendingAt ?? null)
+      : (status === 'sending' ? new Date(base.getTime() - 1_000) : null),
+  };
+}
+
 function insertOutreach(
   exec: SqlExecutor,
   input: OutreachInput = {},
 ): Promise<unknown> {
   const hasBody = input.renderedSubject !== null;
+  const stamps = dispatchStamps(input);
   return exec`
     INSERT INTO solicitation_outreach (
       id, account_id, business_id, batch_id, ask_id, contact_id,
@@ -161,11 +186,12 @@ function insertOutreach(
       ${input.attemptNo ?? 1},
       ${hasBody ? (input.renderedSubject ?? 'How did we do?') : null},
       ${hasBody ? (input.renderedBody ?? 'Would you mind leaving a review?') : null},
-      'solicitation_ask_v1', ${checksum(askId)}, ${exec.json({})}, NOW(),
+      'solicitation_ask_v1', ${checksum(askId)},
+      ${exec.json(input.interpolationInputs ?? {})}, NOW(),
       ${input.bodyRedactedAt ?? null}, 'ask_lint_v1', ${exec.json({})},
       ${input.moderationStatus ?? 'clean'}, ${exec.json({})},
       ${input.deliveryStatus ?? 'rendered'}, ${input.dispositionReason ?? null},
-      ${input.queuedAt ?? null}, ${input.sendingAt ?? null}, ${input.sentAt ?? null}
+      ${stamps.queuedAt}, ${stamps.sendingAt}, ${input.sentAt ?? null}
     )
   `;
 }
@@ -1022,6 +1048,71 @@ describeWithDb(
 
       await expect(
         insertOutreach(db!, { deliveryStatus: 'queued', queuedAt }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_outreach requires queued_at for every dispatched status', async () => {
+      // The implication half, which the ordering arms do NOT give: they are all
+      // vacuous on a NULL, so before this arm a 'sent' row with queued_at NULL
+      // was legal. That row is invisible to the daily-send cap, which counts by
+      // DISPATCH ATTEMPT (queued_at, B3) via
+      // idx_solicitation_outreach_account_queued — so the account could exceed
+      // daily_send_cap by sending rows the counter cannot see.
+      for (const dispatched of ['queued', 'sending', 'sent']) {
+        await expect(
+          insertOutreach(db!, {
+            deliveryStatus: dispatched,
+            queuedAt: null,
+            sendingAt: dispatched === 'sending' ? new Date() : null,
+            sentAt: dispatched === 'sent' ? new Date() : null,
+          }),
+        ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+      }
+
+      // 'sending' additionally requires its own stamp — it claims to be in
+      // flight right now, so the moment it entered flight must be recorded.
+      const queuedAt = new Date();
+      await expect(
+        insertOutreach(db!, { deliveryStatus: 'sending', queuedAt, sendingAt: null }),
+      ).rejects.toThrow(/solicitation_outreach_status_timestamp_consistency/);
+
+      // 'sent' deliberately does NOT require sending_at: whether the send worker
+      // stamps it before the provider call is #630's contract, unpinned today.
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'sent',
+          queuedAt,
+          sendingAt: null,
+          sentAt: new Date(queuedAt.getTime() + 1_000),
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('solicitation_outreach rejects a redaction that leaves interpolation_inputs populated', async () => {
+      // Redaction takes the SOURCE with the prose. Nulling the body while
+      // keeping contact_first_name / visit_note deletes the sentence and keeps
+      // its ingredients, which is not the minimization the retention sweep
+      // promises. The sweep does empty it — this arm is what stops a SECOND
+      // future writer of body_redacted_at from skipping that step.
+      const sentAt = new Date();
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'sent',
+          renderedSubject: null,
+          sentAt,
+          bodyRedactedAt: new Date(sentAt.getTime() + 1_000),
+          interpolationInputs: { contact_first_name: 'Dana', visit_note: 'brake inspection' },
+        }),
+      ).rejects.toThrow(/solicitation_outreach_body_presence/);
+
+      // An unredacted row keeps its inputs — the arm is scoped to redaction,
+      // not a blanket ban on the column carrying anything.
+      await expect(
+        insertOutreach(db!, {
+          deliveryStatus: 'sent',
+          sentAt,
+          interpolationInputs: { contact_first_name: 'Dana' },
+        }),
       ).resolves.toBeDefined();
     });
 

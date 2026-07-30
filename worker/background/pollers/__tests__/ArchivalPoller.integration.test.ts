@@ -142,7 +142,7 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
       attempt_no, rendered_subject, rendered_body,
       prompt_version, prompt_hash, interpolation_inputs, rendered_at,
       ask_lint_version, lint_detail, moderation_status, moderation_detail,
-      delivery_status, sent_at
+      delivery_status, queued_at, sending_at, sent_at
     ) VALUES (
       ${outreachId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
       ${batchId}::uuid, ${askId}::uuid, ${contactId}::uuid,
@@ -151,7 +151,10 @@ async function seedSentOutreach(sentAgo: string): Promise<string> {
       ${sql().json(INTERPOLATION_INPUTS)}, NOW() - ${sentAgo}::interval,
       'ask_lint_v1', ${sql().json({})},
       'clean', ${sql().json({})},
-      'sent', NOW() - ${sentAgo}::interval
+      'sent',
+      NOW() - ${sentAgo}::interval - INTERVAL '2 seconds',
+      NOW() - ${sentAgo}::interval - INTERVAL '1 second',
+      NOW() - ${sentAgo}::interval
     )
   `;
   return outreachId;

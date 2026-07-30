@@ -37,7 +37,7 @@ columns**, which are re-homed, not dropped:
 - `source TEXT NOT NULL CHECK (source IN ('llm'))` — `'owner_edit'` removed per B7
 - `ask_lint_version TEXT NOT NULL`, `lint_detail JSONB NOT NULL`
 - `moderation_status TEXT NOT NULL CHECK (IN ('clean','flagged','error','disabled'))`, `moderation_detail JSONB NOT NULL`
-- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict)
+- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict, but **only inside the 90-day body-retention window**: #624's redaction sweep empties it to `'{}'` with the bodies, and `solicitation_outreach_body_presence` enforces that pairing. No reproducibility is lost that the same sweep did not already destroy — §2.4 is computed over `subject + body`.)
 - `prompt_hash TEXT NOT NULL` (alongside #619's `prompt_version`; #619's `policy_version` column is renamed duty: restraint version stays on the ask row's evidence — the outreach column carries `ask_lint_version`, so drop #619's ambiguous `policy_version` in favor of the two explicit columns)
 - **consent snapshot** (Codex critical 1 tail; #620 §3.5): `consent_basis`, `consent_attestation_version`, `consent_row_id` — nullable, **stamped at dispatch by #630** (resolving #620's §3.5-vs-§9 ambiguity: dispatch, not render; #620's #628 binding moves to #630)
 

@@ -341,7 +341,21 @@ ALTER TABLE solicitation_outreach
     (
       -- sent is the only status that carries sent_at, and it requires it
       (delivery_status = 'sent') = (sent_at IS NOT NULL)
-      -- queued/sending/sent imply the preceding stamp, in order
+      -- a dispatched status REQUIRES its dispatch stamp. Ordering alone is not
+      -- enough: the arms below are vacuous on a NULL, so without these three a
+      -- 'sent' row with queued_at NULL is legal — and the daily-send cap (B3)
+      -- counts by queued_at, so that dispatch is invisible to the cap and the
+      -- account can exceed daily_send_cap. queued_at is required of every
+      -- dispatched status for exactly that reason.
+      --
+      -- sending_at is deliberately NOT required of 'sent': whether the send
+      -- worker stamps it before the provider call is #630's contract and no
+      -- spec pins it today. Requiring it here would reject a legitimate row if
+      -- that worker batches the two writes.
+      AND (delivery_status <> 'queued'  OR queued_at IS NOT NULL)
+      AND (delivery_status <> 'sending' OR (queued_at IS NOT NULL AND sending_at IS NOT NULL))
+      AND (delivery_status <> 'sent'    OR queued_at IS NOT NULL)
+      -- and the stamps that ARE present run in order
       AND (sending_at IS NULL OR queued_at IS NOT NULL)
       AND (sending_at IS NULL OR sending_at >= queued_at)
       AND (sent_at IS NULL OR sending_at IS NULL OR sent_at >= sending_at)
@@ -368,6 +382,13 @@ ALTER TABLE solicitation_outreach
       AND (body_redacted_at IS NOT NULL
         OR delivery_status = 'withheld'
         OR rendered_subject IS NOT NULL)
+      -- redaction takes the SOURCE with the prose. interpolation_inputs carries
+      -- contact_first_name and visit_note, so a redaction that leaves it behind
+      -- deletes the sentence and keeps its ingredients. The ArchivalPoller sweep
+      -- empties it, but a sweep is not a guarantee — this is the arm that makes
+      -- data minimization a schema fact, so a second future writer of
+      -- body_redacted_at cannot stamp a redaction and leave the PII in place.
+      AND (body_redacted_at IS NULL OR interpolation_inputs = '{}'::jsonb)
     ) IS TRUE
   );
 

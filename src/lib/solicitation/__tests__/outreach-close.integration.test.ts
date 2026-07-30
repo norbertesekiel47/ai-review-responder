@@ -218,13 +218,22 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
       AND business_id = ${businessId}::uuid
   `;
   const withheld = input.deliveryStatus === 'withheld';
+  // queued/sending/sent each require queued_at (the daily-send cap counts by
+  // dispatch attempt), so the stamps are derived from the status rather than
+  // left NULL. Resolved in SQL off NOW(): postgres.js truncates timestamptz
+  // microseconds, so a JS-derived stamp can mis-order against a NOW()-defaulted
+  // sibling by <1ms and trip the ordering arms for reasons unrelated to the case.
+  const dispatched =
+    input.deliveryStatus === 'queued'
+    || input.deliveryStatus === 'sending'
+    || input.deliveryStatus === 'sent';
   await sql()`
     INSERT INTO solicitation_outreach (
       id, account_id, business_id, batch_id, ask_id, contact_id,
       attempt_no, rendered_subject, rendered_body,
       prompt_version, prompt_hash, interpolation_inputs, rendered_at,
       ask_lint_version, lint_detail, moderation_status, moderation_detail,
-      delivery_status, disposition_reason, sent_at
+      delivery_status, disposition_reason, queued_at, sending_at, sent_at
     ) VALUES (
       ${outreachId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
       ${input.batchId}::uuid, ${askId}::uuid, ${ask!.contact_id}::uuid,
@@ -235,7 +244,9 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
       ${sql().json({})}, NOW(), 'ask_lint_v1', ${sql().json({})},
       'clean', ${sql().json({})},
       ${input.deliveryStatus}, ${input.dispositionReason ?? null},
-      ${input.deliveryStatus === 'sent' ? new Date() : null}
+      ${dispatched ? sql()`NOW() - INTERVAL '2 seconds'` : null},
+      ${input.deliveryStatus === 'sending' ? sql()`NOW() - INTERVAL '1 second'` : null},
+      ${input.deliveryStatus === 'sent' ? sql()`NOW()` : null}
     )
   `;
   return outreachId;
