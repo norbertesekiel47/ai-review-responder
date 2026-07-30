@@ -29,6 +29,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/escalations/transitions.ts', // in-file reviews FOR UPDATE as tx statement #1
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
+  'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
@@ -47,7 +48,10 @@ const LOCK_HELD_BY_CALLER = new Set([
 ]);
 
 // Spine tenants with no review subject are outside the reviews-first lock
-// law: weekly_insights explicitly locks only weekly_summaries + its
+// law. Every entry states which locks its tx actually takes and why they
+// cannot close a cycle back onto the reviews lane.
+//
+// weekly_insights explicitly locks only weekly_summaries + its
 // account_week run row, though its spine INSERTs (agent_runs / steps /
 // outcomes) also take implicit FK FOR KEY SHARE locks on the parent
 // businesses + accounts rows. Those key-shares are cycle-free: they conflict
@@ -57,7 +61,26 @@ const LOCK_HELD_BY_CALLER = new Set([
 // back onto it. It must not grow a reviews/businesses lock
 // later without leaving this carve-out and re-entering the global
 // reviews → businesses → child rows → agent_runs order.
+//
+// solicitation/outreach.ts is closeBatchIfSettled (#624 T5). Its subject is a
+// solicitation_batch, never a review: it locks solicitation_batches FOR UPDATE
+// (outreach.ts:279), then writes its own solicitation_send_batch run via
+// recordStep (:330) / completeRun (:343) — the only agent_runs row it locks is
+// that send parent's own. It takes NO reviews or businesses exclusive lock,
+// and its footprint is strictly narrower than the weekly entry's: it INSERTs
+// no agent_runs/agent_outcomes row, and agent_run_steps FK-references only
+// agent_runs (migration 071), so the step INSERT's implicit FK FOR KEY SHARE
+// lands on the run row this tx already holds FOR UPDATE while completeRun's
+// UPDATE changes no FK column — no businesses/accounts parent-row lock is
+// taken at all. Same cycle-free shape as the weekly carve-out: key-shares
+// conflict only with exclusive parent-row locks, and no holder of such a lock
+// ever waits on solicitation_batches or a solicitation-subject run — the
+// send-lane tx can wait, but no cycle can close back onto it. Same
+// forward-looking warning: it must not grow a reviews/businesses lock later
+// without leaving this carve-out and re-entering the global
+// reviews → businesses → child rows → agent_runs order.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
+  'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
 ]);
 
@@ -105,8 +128,9 @@ function findCallerFiles(): { file: string; text: string }[] {
 describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun callers hold the reviews lock', () => {
   const callers = findCallerFiles();
 
-  it('pins the non-review-subject carve-out to the weekly account_week caller only', () => {
+  it('pins the non-review-subject carve-out to exactly the weekly account_week and solicitation send-batch callers', () => {
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
+      'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
     ]);
   });
