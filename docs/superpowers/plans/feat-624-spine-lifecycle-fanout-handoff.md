@@ -52,13 +52,34 @@ This doc references artifacts by path; it does not restate them. Every decision 
 
 **Everything green except two rows, neither a defect:**
 
-- `test` — **gate-load flake, not a defect.** 6 of 7 failures are 5000 ms timeouts,
-  the failing *set changes between runs* (`confirm`/`lead-intake` in one,
-  `stripe-activation-enqueue`/`webhook-dedup`/`generate-responses` in the next),
-  and none of those files is on #624's surface. Evidence: standalone `pnpm test`
-  is fully green (766 files / 9791 tests / 0 failures) and those five files pass
-  in **877 ms** run directly. The gate runs the full suite concurrently with ~20
-  checks plus a `next build` and 7 live-DB suites on one machine.
+- `test` — **gate-load flake on this machine, not a defect. Do NOT spend more gate
+  rounds on it; six were already spent proving this.** Every failure is a 5000 ms
+  timeout, and the failing set is **disjoint across runs and always in files this
+  branch never touched**:
+
+  | Run | Failed | Files |
+  |---|---|---|
+  | 1 | 7 | `confirm`, `lead-intake`, botid routes |
+  | 2 | 7 | `stripe-activation-enqueue`, `webhook-dedup`, `generate-responses` |
+  | 3 | 2 | `denorm-queries`, + `NotificationFailoverPoller` (separate row) |
+  | 4 | 1 | `account/settings/route` |
+
+  Each set passes in **under a second** when run directly (`denorm-queries` +
+  `NotificationFailoverPoller`: 17 tests / 514 ms). Standalone `pnpm test` is
+  **fully green — 766 files / 9791 tests / 0 failures.**
+
+  Cause: `verify-gate.sh` backgrounds ~20 checks with `&` and has **no
+  concurrency limit** (`:41-46`) — the full suite competes with `next build`, 7
+  live-DB suites and ~12 audits on 12 cores, and vitest's default 5 s
+  `testTimeout` loses. Bounding `VITEST_MAX_THREADS=3` did **not** fix it; the
+  contention is across processes, not within one.
+
+  Not fixable from this branch: `scripts/verify-gate.sh` is **off the allowed edit
+  surface**, and raising `testTimeout` globally to paper over a harness problem
+  would be the wrong fix. **CI is the authoritative full-suite gate** (CLAUDE.md,
+  "CI & repo") and runs on a dedicated runner without this contention — so the PR's
+  CI is the real signal for this row. Worth a follow-up ticket to give the gate a
+  `MAX_PARALLEL` bound.
 - `reclassify` — **consciously accepted WARN.** Actual 6788 changed lines vs a
   1900 estimate (3.5×), and one surface amendment. But the split is
   tests +3409 / docs +2230 / migration +488 / **production +649 across 13 files** —
