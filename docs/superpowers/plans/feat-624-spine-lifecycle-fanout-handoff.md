@@ -4,67 +4,49 @@ This doc references artifacts by path; it does not restate them. Every decision 
 
 ---
 
-# ▶ START HERE — resuming for the 3 open adversarial findings
+# ▶ START HERE — step 7 is the only thing left
 
-**State in one line:** T1–T8 complete, 52/52 promised titles, gate GREEN, step 6 adversarial
-review done and triaged. **F1 and F2 fixed. F3/F4/F5 are open and all three amend migration 091.**
+**State in one line:** T1–T8 complete, 52/52 promised titles, **all five adversarial findings
+closed** (F1/F2 earlier, F3/F4/F5 this session), gate **GREEN**. The next action is step 7 — the
+two parallel review agents — and nothing else.
 
-### 1. Launch the session with the guard disabled — this is not optional
+### 1. What landed this session
 
-```
-cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-624-spine-lifecycle-fanout
-MIGRATION_GUARD_DISABLE=1 claude
-```
-
-then `/feature-resume feat-624-spine-lifecycle-fanout`.
-
-**Why:** all three findings edit `supabase/migrations/091_send_mode_spine_lifecycle.sql`.
-`migration-immutability-guard.sh` reads `MIGRATION_GUARD_DISABLE` from the **session
-environment**, so it cannot be set mid-session — a session started without it simply cannot do
-this work, and `bash-write-guard.sh` correctly blocks the `sed -i` workaround. The previous
-session burned its remaining budget discovering this; do not repeat it.
+F3, F4 and F5 were applied as one in-place amendment to
+`supabase/migrations/091_send_mode_spine_lifecycle.sql`, plus the F5 poller/allowlist pair.
 
 **Why 091 and not 092:** 091 has **never been applied outside the local test DB**. Staging and
 prod are both at **090**. Amending in place is correct; a corrective 092 would ship two
 migrations describing one never-deployed schema. The guard only fires because T1 bumped
 `migrations-log.md` to head 091 in the same commit as the migration (the documented convention),
 which makes an unapplied file look applied — the guard's own header names this false positive and
-sanctions the escape hatch.
+sanctions the escape hatch. **Any future session that needs to amend 091 must still launch with
+`MIGRATION_GUARD_DISABLE=1`** — it is read from the session environment and cannot be set
+mid-session, and `bash-write-guard.sh` correctly closes the `sed -i` back door.
 
-### 2. Apply the patch that is already written
+| # | Sev | Defect | State |
+|---|---|---|---|
+| F3 | High | 091's send-ordering CHECK never tied `approved_at` to `built_at`, so an approved-but-unbuilt batch was legal — and entered the `one_active_send_per_business` index, where `deriveBatchState` reports it `approved` | **FIXED** — full transition graph: approval⇒built, veto⇒approval, closure/halt bounded against each stamp they end |
+| F4 | High | `delivery_status='sent'` with `sent_at IS NULL` was legal → body kept forever; a live `rendered` row with a stale `sent_at` would be redacted into an unsendable row that wedges its batch | **FIXED** — new `solicitation_outreach_status_timestamp_consistency`; arm 1 subsumes hole 2 |
+| F5 | Medium | Redaction nulled the rendered prose but kept `interpolation_inputs` (`contact_first_name`, `visit_note`) — deleting the sentence and keeping its source | **FIXED** — owner chose **wholesale** `'{}'::jsonb`; poller `SET` + `tenant-scope-allowlist.ts` `sqlSnippet` moved in the same commit |
 
-**`docs/reviews/feat-624-spine-lifecycle-fanout/pending-f3-f4-f5-migration-patch.md`** holds the
-complete work: exact SQL per finding, the rationale for every arm, the tests owed, and the one
-decision outstanding. Column names in it are already verified against `091:205-207`. You should
-not need to re-derive anything — read it, sanity-check it against the migration, apply it.
+**Every fix was probed** (break it, watch red, restore) — the probe table is in the deviations
+log's 2026-07-30 entry. One probe was itself a finding: F3's `(approved_at IS NULL OR built_at IS
+NOT NULL)` arm is **redundant**, because the following ordering arm already collapses to NULL and
+the `IS TRUE` wrapper rejects on it under the same constraint name. The arm is kept deliberately
+and commented as such; the honest probe is reverting to the pre-fix constraint text, which turns
+all three F3 titles red.
 
-What the three findings are, in one line each:
+### 2. Verification banked (do not redo)
 
-| # | Sev | Defect |
-|---|---|---|
-| F3 | High | 091's send-ordering CHECK never ties `approved_at` to `built_at`, so an **approved-but-unbuilt batch is legal** — and it enters the `one_active_send_per_business` index, where `deriveBatchState` reports it `approved` |
-| F4 | High | `delivery_status='sent'` with `sent_at IS NULL` is legal → body **kept forever**; a live `rendered` row with a stale `sent_at` gets **redacted into an unsendable row** that wedges its batch |
-| F5 | Medium | Redaction nulls the rendered prose but keeps `interpolation_inputs`, which carries `contact_first_name` and `visit_note` — we delete the sentence and keep its source |
+Clean `pnpm test:db:setup`, then 41 files / **523 tests** green across the 091 shape suite,
+`src/lib/solicitation/__tests__` and `worker/background/pollers/__tests__` — including
+`batch-purge-concurrency.integration.test.ts`, the suspected flake, which passed. Promised titles
+**52/52**. Full gate: **GREEN**, every row PASS including the previously-flaky `test` row; only
+`reclassify` WARN, which is the already-accepted one (now 8037 changed lines vs the 1900
+estimate — still dominated by tests and docs).
 
-### 3. The one decision owed (ask the owner before coding F5)
-
-Redact `interpolation_inputs` wholesale (`'{}'::jsonb`) **or** split sensitive from reproducible.
-**Recommendation: wholesale** — nothing consumes reproducibility past 90 days, and YAGNI and data
-minimization point the same way. Either way the `ArchivalPoller` `SET` clause changes, so the
-`tenant-scope-allowlist.ts` `sqlSnippet` must move **in the same commit** — that audit matches SQL
-text byte-for-byte and is a live tripwire.
-
-### 4. Verify, in this order
-
-```
-pnpm test:db:setup        # SERIALLY, and never as a gate row — see deviations entry 16
-export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2- | tr -d '"')"
-pnpm test src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts
-pnpm test src/lib/solicitation/__tests__ worker/background/pollers/__tests__
-bash scripts/verify-gate.sh          # export the DB var first, or 7 integration rows SKIP
-```
-
-### 5. Then, and only then, step 7
+### 3. Then, and only then, step 7
 
 Two parallel review agents (spec/correctness against `.feature/intake.json` field by field;
 standards via `/thermo-nuclear-code-quality-review`), both fed the triaged deviations log and
@@ -115,8 +97,8 @@ then PR to `main` and **PAUSE for explicit merge approval**. #624 holds the only
 | 5 Verify gate | **effectively green** — see "Gate state" below. Two rows are not defects: `test` is gate-load flake, `reclassify` is a consciously-accepted WARN |
 | 6 Review 0 adversarial | **DONE** — Codex `needs-attention` / no-ship, 4 High + 1 Medium. Triaged 4 ACCEPT / 1 REJECT in `docs/reviews/<branch>/adversarial-review-codex.md` |
 | 6.5 Deviations read-back | **DONE** — 16 entries, 16 ACCEPT / 0 RE-PLAN (verdict table at the top of the deviations log) |
-| 6.9 Adversarial fixes | **F1 + F2 DONE. F3/F4/F5 BLOCKED — see below.** |
-| 7 Review | **NOT started, deliberately.** `blast-radius.md` is generated. Hold until F3/F4/F5 land, or its spec agent will re-report them as new |
+| 6.9 Adversarial fixes | **DONE — all five closed.** F1 + F2 earlier; F3/F4/F5 on 2026-07-30 |
+| 7 Review | **NOT started.** `blast-radius.md` is generated. F3/F4/F5 have now landed, so the schema is stable and its spec agent will no longer re-report them — this is the next action |
 
 ## Adversarial-review fix state — READ THIS BEFORE RESUMING
 
@@ -124,36 +106,13 @@ then PR to `main` and **PAUSE for explicit merge approval**. #624 holds the only
 |---|---|---|
 | F1 — failure-first closure is an ABBA deadlock, and an aborted failure tx files a failed batch as `completed` | High | **FIXED** `0fd8adde` — disposition arrives as `CloseBatchIfSettledInput.failure`; batch→run is the sole lock order |
 | F2 — advisory lock does not protect an in-flight provider send from purge | High | **REJECTED for #624** (owner-locked deferral to #630). Its sharper requirement folded into **B11** at `d9749ce9` |
-| F3 — `solicitation_batches` transition graph unenforced | High | **BLOCKED — patch written, not applied** |
-| F4 — outreach status/timestamps can contradict | High | **BLOCKED — patch written, not applied** |
-| F5 — redaction keeps `interpolation_inputs` PII | Medium | **BLOCKED — patch written, decision owed** |
+| F3 — `solicitation_batches` transition graph unenforced | High | **FIXED** — 091's `send_ordering` now carries the full graph; 3 new shape titles, probed against the pre-fix text |
+| F4 — outreach status/timestamps can contradict | High | **FIXED** — new `solicitation_outreach_status_timestamp_consistency`; 3 new shape titles, probed arm-group by arm-group |
+| F5 — redaction keeps `interpolation_inputs` PII | Medium | **FIXED** — wholesale `'{}'::jsonb` (owner decision); poller + allowlist in one commit, both halves probed |
 
-### The block, and how to clear it
-
-F3/F4/F5 all amend `supabase/migrations/091_*.sql`.
-`migration-immutability-guard.sh` reads `MIGRATION_GUARD_DISABLE` from the **session
-environment**, so it cannot be set mid-session; `bash-write-guard.sh` correctly closes the
-`sed -i` back door. **Relaunch the session with `MIGRATION_GUARD_DISABLE=1`.**
-
-It must amend **091**, not add 092: 091 has never been applied outside the local test DB
-(staging and prod are both at **090**). A corrective 092 would ship two migrations describing one
-never-deployed schema.
-
-**The complete patch — SQL, rationale, tests owed, and the F5 option to pick — is at
-`docs/reviews/feat-624-spine-lifecycle-fanout/pending-f3-f4-f5-migration-patch.md`.** Column names
-in it are already verified against `091:205-207`. Apply it, then:
-
-```
-pnpm test:db:setup        # serially, NEVER as a gate row (deviations entry 16)
-export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2- | tr -d '"')"
-pnpm test src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts
-bash scripts/verify-gate.sh
-```
-
-One decision is owed on F5: redact `interpolation_inputs` wholesale (`'{}'::jsonb`,
-recommended) or split sensitive from reproducible. Either way the `ArchivalPoller` `SET` clause
-changes, so the `tenant-scope-allowlist.ts` `sqlSnippet` must move in the same commit — the audit
-matches SQL text exactly.
+The staged patch at
+`docs/reviews/feat-624-spine-lifecycle-fanout/pending-f3-f4-f5-migration-patch.md` is now
+**applied** and is kept only as the rationale record for each arm.
 
 ### One loose end worth naming
 

@@ -795,3 +795,56 @@ duplicate a row it already owns. Both defects presented as failures in unrelated
 code, which cost real diagnosis time. Worth a follow-up on `verify-gate.sh`:
 either serialize destructive commands or reject them from
 `verification_commands` outright.
+
+## 2026-07-30 — F3's "approval implies built" arm is redundant, and the first probe proved it
+
+**Context.** F3/F4/F5 landed as an in-place amendment to migration 091 (correct,
+not a mistake: 091 has never been applied outside the local test DB; staging and
+prod are both at 090, so a corrective 092 would ship two migrations describing
+one never-deployed schema). Every fix was probed by breaking it and watching the
+test go red, per the discipline this branch adopted after three green-but-
+covering-nothing defects.
+
+**What the first probe found.** Neutralising F3's first arm alone —
+`(approved_at IS NULL OR built_at IS NOT NULL)` → `(approved_at IS NULL OR TRUE)`
+— re-applying 091 and re-running the shape suite produced **32/32 still green**.
+The constraint text in `pg_constraint` confirmed the weakening had actually
+landed, so this was not a stale-DB artifact.
+
+**Why.** With `approved_at` set and `built_at` NULL, the *next* arm
+(`approved_at >= built_at`) evaluates to **NULL**, the conjunction collapses to
+NULL, and the migration's `IS TRUE` wrapper turns that into a rejection — under
+the *same constraint name*, so `.rejects.toThrow(/…send_ordering/)` still passes.
+The explicit arm is therefore belt-and-braces: it states the rule rather than
+letting three-valued logic produce it as a side effect. **It is deliberately
+kept**, with a comment saying exactly that, because a later edit that relaxes the
+ordering arm must not silently reopen the hole.
+
+**What the honest probe is.** Reverting the constraint to its true **pre-fix**
+text (the three arms 091 originally shipped) and re-applying. That turned all
+three new F3 titles red with `promise resolved "[]" instead of rejecting` —
+i.e. the tests detect the defect as it actually existed.
+
+**Probe results, all three findings:**
+
+| Fix | Probe | Result |
+|---|---|---|
+| F3 | constraint reverted to its pre-fix 3-arm text | 3 titles RED |
+| F4 | arm 1 (`(delivery_status='sent') = (sent_at IS NOT NULL)`) neutralised | 1 title RED (`requires sent_at exactly`) |
+| F4 | ordering + live-attempt arms neutralised, arm 1 kept | 2 titles RED |
+| F5 | `interpolation_inputs = '{}'::jsonb` removed from the poller `SET` | 1 title RED, showing `contact_first_name` / `visit_note` surviving |
+| F5 | allowlist `sqlSnippet` left stale against the new `SET` | `ci:tenant-scope` FAILED (`unused tenant scope allowlist entry` + `missing account_id or business_id scope`) |
+
+**Carry forward:** `psql -f <migration>` returns exit 0 even when statements
+fail unless `-v ON_ERROR_STOP=1` is passed. The first probe was run without it;
+it happened not to matter (the DDL did apply), but a probe whose "break" step
+silently no-ops is a false negative that reads exactly like a discriminating
+test. Always pass `ON_ERROR_STOP=1`, and confirm the break landed by reading
+`pg_get_constraintdef` before trusting a still-green run.
+
+**F5 decision (owner, this session): wholesale.** `interpolation_inputs` is
+emptied to `'{}'::jsonb` with the bodies rather than split into sensitive vs
+reproducible. Grep evidence: the column has **zero production readers** — only
+091 itself and three test fixtures reference it anywhere in the tree — so a
+retained-shape contract would have been built for nobody, and `prompt_version` /
+`prompt_hash` are already their own columns on the row.
