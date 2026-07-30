@@ -94,15 +94,26 @@ export function deriveBatchState(row: BatchLifecycleRow, now: Date): BatchState 
   return now.getTime() >= approvalDeadline ? 'expired' : 'built';
 }
 
-/** Closed union mapping 1:1 onto the send parent's terminal status. */
-export const BATCH_DISPOSITIONS = [
-  'halted',
-  'expired',
-  'generation_failed',
-  'gate_closed',
-  'exhausted',
-] as const;
-export type BatchDisposition = (typeof BATCH_DISPOSITIONS)[number];
+/**
+ * Closed union mapping 1:1 onto the send parent's terminal status.
+ *
+ * A plain union rather than a `typeof [...] [number]` derivation: nothing
+ * iterates these at runtime, so the array was a value with no consumer.
+ * Exhaustiveness is still enforced — `PARENT_TERMINAL_BY_DISPOSITION` below
+ * `satisfies Record<BatchDisposition, ParentTerminalStatus>`, so adding a
+ * member here without mapping it is a compile error.
+ *
+ * Module-private, matching `ParentTerminalStatus` and
+ * `TERMINAL_DELIVERY_STATUSES` below: all three surface through
+ * `CloseBatchIfSettledResult` structurally and none has an external consumer.
+ * Export one when a caller needs to name it — not before.
+ */
+type BatchDisposition =
+  | 'halted'
+  | 'expired'
+  | 'generation_failed'
+  | 'gate_closed'
+  | 'exhausted';
 
 type ParentTerminalStatus = 'completed' | 'cancelled' | 'failed';
 
