@@ -13,7 +13,11 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 1 Grill | done — 10 forks locked (G1–G10), intake signed off, `open_questions: []` |
 | 2 Setup | done — worktree armed, no cross-worktree surface overlap |
 | 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
-| 4 Execute | **IN PROGRESS — T1, T2, T3, T4 DONE.** T5–T8 remain. |
+| 4 Execute | **DONE — T1–T8 all landed.** |
+| 5 Verify gate | **effectively green** — see "Gate state" below. Two rows are not defects: `test` is gate-load flake, `reclassify` is a consciously-accepted WARN |
+| 6 Review 0 adversarial | **NEXT — owner action.** `/codex:adversarial-review` is user-invocable only |
+| 6.5 Deviations read-back | **DONE** — 16 entries, 16 ACCEPT / 0 RE-PLAN (verdict table at the top of the deviations log) |
+| 7 Review | not started — `blast-radius.md` already generated |
 
 ## Task ledger (update this row when a task lands)
 
@@ -35,10 +39,43 @@ This doc references artifacts by path; it does not restate them. Every decision 
 > **Run that at the END of every task from here on.** The first gate run found 12 titles
 > missing inside T1/T3/T4 — the behaviour was implemented but the titles were folded into
 > neighbouring tests, which the verbatim matcher cannot see. See the deviations log.
-| T5 `src/lib/solicitation/outreach.ts` | — | **next** — titles 23–28 |
-| T6 ArchivalPoller body redaction | — | pending |
-| T7 HealthAlertPoller stalled-send-batch | — | pending |
-| T8 offboarding purge lock extraction | — | pending |
+| T5 `src/lib/solicitation/outreach.ts` | `a035b87b`, `ba932bf4` | **done** — 12 titles; boundary pinned to one owner |
+| T6 ArchivalPoller body redaction | `3790592a`, `cdd25dde` | **done** — 2 titles; also paid T1's `TENANT_TABLES` debt |
+| T7 HealthAlertPoller stalled-send-batch | `f57629df`, `c6c51cf8` | **done** — 1 title + live-DB predicate proof |
+| T8 offboarding purge lock extraction | `cd57f31a` | **done** — 3 titles; closed the red offboarding suite |
+| anchor-pairing carve-out (amendment #1) | `1b7e59bb`, `46bac12b` | **done** — T5 is a spine writer; contract now declares it |
+| gate self-collision fixes | `486cdd32` | **done** — 16 failing rows → 1 |
+
+## Promised titles: 52 / 52. Verify with the snippet above; do not trust this number.
+
+## Gate state at 2026-07-29 19:30 (4 runs; run 4 is authoritative)
+
+**Everything green except two rows, neither a defect:**
+
+- `test` — **gate-load flake, not a defect.** 6 of 7 failures are 5000 ms timeouts,
+  the failing *set changes between runs* (`confirm`/`lead-intake` in one,
+  `stripe-activation-enqueue`/`webhook-dedup`/`generate-responses` in the next),
+  and none of those files is on #624's surface. Evidence: standalone `pnpm test`
+  is fully green (766 files / 9791 tests / 0 failures) and those five files pass
+  in **877 ms** run directly. The gate runs the full suite concurrently with ~20
+  checks plus a `next build` and 7 live-DB suites on one machine.
+- `reclassify` — **consciously accepted WARN.** Actual 6788 changed lines vs a
+  1900 estimate (3.5×), and one surface amendment. But the split is
+  tests +3409 / docs +2230 / migration +488 / **production +649 across 13 files** —
+  production is *inside* the estimate, so the scope creep the trigger proxies for
+  did not happen. RISK=high is already the heaviest lane. Owner accepted; go to
+  review rather than re-run step 0.
+
+All 7 live-DB integration suites PASS against a **freshly re-provisioned** test DB.
+
+> **Run the gate with the DB var exported**, or the 7 integration rows SKIP and the
+> work is not review-ready:
+> ```
+> export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2- | tr -d '"'"'"'')"
+> bash scripts/verify-gate.sh
+> ```
+> And **provision the DB serially first** (`pnpm test:db:setup`) — never as a gate
+> row. See deviations entry 16 for why that mattered.
 
 T5–T8 are unblocked (their only blockers were T1 and T3). **T5 carries the two
 `tenant-scope-allowlist.ts` tripwires' sibling risk** — read the plan's T5 block in
