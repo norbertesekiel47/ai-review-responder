@@ -30,7 +30,7 @@ Heuristic import-text search; verify semantic impact per caller.
 - worker/background/pollers/health-alert/__tests__/checks.test.ts
 - worker/background/pollers/health-alert/checks.ts
 
-## `src/lib/agents/run-spine.ts` — 40 importer(s)
+## `src/lib/agents/run-spine.ts` — 41 importer(s)
 - src/components/dashboard/timeline/TimelineStepRow.tsx
 - src/lib/agents/__tests__/read.integration.test.ts
 - src/lib/agents/__tests__/run-spine.integration.test.ts
@@ -55,6 +55,7 @@ Heuristic import-text search; verify semantic impact per caller.
 - src/lib/reviews/triage.ts
 - src/lib/solicitation/__tests__/batch-builder.integration.test.ts
 - src/lib/solicitation/__tests__/batch-builder.test.ts
+- src/lib/solicitation/__tests__/outreach-close.integration.test.ts
 - src/lib/solicitation/batch-builder.ts
 - src/lib/solicitation/outreach.ts
 - worker/background/pollers/health-alert/__tests__/checks.integration.test.ts
