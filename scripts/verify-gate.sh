@@ -39,8 +39,27 @@ SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
 NAMES=()
 PIDS=()
 
+# Bound the fan-out. Unbounded, this script launches ~20 concurrent rows —
+# the full vitest suite, a Next build, one vitest process per changed live-DB
+# suite, and every ci:* audit — and the resulting CPU starvation trips vitest's
+# 5s default testTimeout in rows that pass in under a second on their own. A
+# gate that goes RED under its own load is worse than no gate.
+MAX_PARALLEL=${MAX_PARALLEL:-4}
+# The full-suite row sizes its own worker pool from the core count, so the row
+# cap alone still oversubscribes. Bound it too; gate-only, so `pnpm test` on its
+# own is untouched. (vitest 4 flag — the old VITEST_MAX_THREADS env var is gone.)
+VITEST_WORKERS=${VITEST_WORKERS:-4}
+
 launch() {
   local name="$1"; shift
+  # Throttle by POLLING `jobs -rp`, never `wait -n`: the result loop below
+  # recovers each row's exit code with `wait "${PIDS[$i]}"`, and `wait -n` does
+  # not exist in bash 3.2 (what /usr/bin/env bash resolves to on macOS) — it
+  # returns "invalid option" without blocking, spinning this loop forever.
+  # `jobs -rp` counts running jobs without consuming any exit status.
+  while [ "$(jobs -rp | wc -l)" -ge "$MAX_PARALLEL" ]; do
+    sleep 0.5
+  done
   ( "$@" ) > ".feature/logs/${name}.log" 2>&1 &
   NAMES+=("$name")
   PIDS+=("$!")
@@ -64,9 +83,9 @@ run_full_suite() {
   env -u TEST_DATABASE_POOL_URL REPWORTH_DISABLE_LIVE_DB_SUITES=1 "$@"
 }
 if [ "$REVIEW_MODE" = true ]; then
-  launch test run_full_suite pnpm test:coverage
+  launch test run_full_suite pnpm test:coverage --maxWorkers="$VITEST_WORKERS"
 else
-  launch test run_full_suite pnpm test
+  launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
