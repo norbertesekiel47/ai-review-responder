@@ -15,9 +15,55 @@ This doc references artifacts by path; it does not restate them. Every decision 
 | 3 Plan | **DONE.** Three gate rounds (20 → 11 → 6 findings, all REVISE). 36 of 37 findings accepted, 1 rejected. Owner closed the gate and signed off rather than spending a 4th round. |
 | 4 Execute | **DONE — T1–T8 all landed.** |
 | 5 Verify gate | **effectively green** — see "Gate state" below. Two rows are not defects: `test` is gate-load flake, `reclassify` is a consciously-accepted WARN |
-| 6 Review 0 adversarial | **NEXT — owner action.** `/codex:adversarial-review` is user-invocable only |
+| 6 Review 0 adversarial | **DONE** — Codex `needs-attention` / no-ship, 4 High + 1 Medium. Triaged 4 ACCEPT / 1 REJECT in `docs/reviews/<branch>/adversarial-review-codex.md` |
 | 6.5 Deviations read-back | **DONE** — 16 entries, 16 ACCEPT / 0 RE-PLAN (verdict table at the top of the deviations log) |
-| 7 Review | not started — `blast-radius.md` already generated |
+| 6.9 Adversarial fixes | **F1 + F2 DONE. F3/F4/F5 BLOCKED — see below.** |
+| 7 Review | **NOT started, deliberately.** `blast-radius.md` is generated. Hold until F3/F4/F5 land, or its spec agent will re-report them as new |
+
+## Adversarial-review fix state — READ THIS BEFORE RESUMING
+
+| Finding | Sev | State |
+|---|---|---|
+| F1 — failure-first closure is an ABBA deadlock, and an aborted failure tx files a failed batch as `completed` | High | **FIXED** `0fd8adde` — disposition arrives as `CloseBatchIfSettledInput.failure`; batch→run is the sole lock order |
+| F2 — advisory lock does not protect an in-flight provider send from purge | High | **REJECTED for #624** (owner-locked deferral to #630). Its sharper requirement folded into **B11** at `d9749ce9` |
+| F3 — `solicitation_batches` transition graph unenforced | High | **BLOCKED — patch written, not applied** |
+| F4 — outreach status/timestamps can contradict | High | **BLOCKED — patch written, not applied** |
+| F5 — redaction keeps `interpolation_inputs` PII | Medium | **BLOCKED — patch written, decision owed** |
+
+### The block, and how to clear it
+
+F3/F4/F5 all amend `supabase/migrations/091_*.sql`.
+`migration-immutability-guard.sh` reads `MIGRATION_GUARD_DISABLE` from the **session
+environment**, so it cannot be set mid-session; `bash-write-guard.sh` correctly closes the
+`sed -i` back door. **Relaunch the session with `MIGRATION_GUARD_DISABLE=1`.**
+
+It must amend **091**, not add 092: 091 has never been applied outside the local test DB
+(staging and prod are both at **090**). A corrective 092 would ship two migrations describing one
+never-deployed schema.
+
+**The complete patch — SQL, rationale, tests owed, and the F5 option to pick — is at
+`docs/reviews/feat-624-spine-lifecycle-fanout/pending-f3-f4-f5-migration-patch.md`.** Column names
+in it are already verified against `091:205-207`. Apply it, then:
+
+```
+pnpm test:db:setup        # serially, NEVER as a gate row (deviations entry 16)
+export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2- | tr -d '"')"
+pnpm test src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts
+bash scripts/verify-gate.sh
+```
+
+One decision is owed on F5: redact `interpolation_inputs` wholesale (`'{}'::jsonb`,
+recommended) or split sensitive from reproducible. Either way the `ArchivalPoller` `SET` clause
+changes, so the `tenant-scope-allowlist.ts` `sqlSnippet` must move in the same commit — the audit
+matches SQL text exactly.
+
+### One loose end worth naming
+
+During F1 verification, one run of `pnpm test src/lib/solicitation/__tests__` failed a single test
+and I did not capture which. Three consecutive re-runs were clean (180/180). The most likely
+candidate is `batch-purge-concurrency.integration.test.ts`, which deliberately races two real
+transactions — an intermittently-failing concurrency test would matter, so **if it recurs, capture
+the name before dismissing it.** Not reproduced; recorded rather than waved away.
 
 ## Task ledger (update this row when a task lands)
 
