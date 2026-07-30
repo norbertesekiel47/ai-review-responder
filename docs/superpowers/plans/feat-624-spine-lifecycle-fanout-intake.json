@@ -65,6 +65,7 @@
     "src/lib/account-offboarding/table-disposition.ts",
     "src/lib/agents/__tests__/**",
     "src/lib/agents/read.ts",
+    "src/lib/approval/__tests__/**",
     "src/lib/agents/run-spine.ts",
     "src/lib/shared/__tests__/**",
     "src/lib/solicitation/__tests__/**",
