@@ -117,3 +117,25 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   close this cheaply by making class 7 assert exactly-once (a duplicated
   placeholder becomes a lint_failed render); otherwise it falls to #630's
   substitution contract.
+- [2026-07-30] **Task 6: the "verbatim" untrusted-data line swaps its referent
+  from "the review text" to "the visit note".** A byte-for-byte copy of
+  prompt-policy.ts's line would tell the model to distrust "the review text",
+  a field that does not exist in the ask prompt — the ask's only untrusted
+  surface is the visit note. SPEC §1.3's own quotation elides exactly that
+  middle span ("contained inside … as untrusted"), so the surrounding phrasing
+  is carried verbatim and only the referent changes. Pinned structurally, not
+  by copy: the test derives the expected line FROM `SYSTEM_PROMPT_BASE` at run
+  time (referent substitution only), so a reply-side rewording of that line
+  fails the ask suite instead of drifting silently. Also per §1.3, the ask
+  base is the ENTIRE system prompt (no dynamic append like the reply lane), so
+  it additionally carries task framing + the JSON-envelope instruction
+  (triage.ts precedent) on top of the six policy lines.
+- [2026-07-30] **Task 6 quality-review follow-up deferred (out of edit
+  surface):** a reciprocal marker comment on the untrusted-data line in
+  `src/lib/responses/prompt-policy.ts` (noting it is pinned by
+  `ask-prompt-policy.test.ts`'s referent-swap derivation) would localize the
+  far-from-cause failure a reply-side rewording produces — but that file is
+  outside this ticket's allowed_edit_surface. Carry as a one-line follow-up
+  for the next ticket that touches `src/lib/responses/`. The in-surface half
+  (a backtick-fence admissibility test tying the prompt module's fence
+  guarantee to enforced lint behavior) landed with Task 6.
