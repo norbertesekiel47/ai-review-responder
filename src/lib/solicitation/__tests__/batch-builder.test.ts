@@ -676,7 +676,7 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
 
     expect(mocks.enqueueGenerateSolicitationAsks).toHaveBeenCalledExactlyOnceWith(
       mockSql,
-      { batchId: 'batch-1', correlationId: 'corr-1' },
+      { batchId: 'batch-1', businessId: 'business-1', correlationId: 'corr-1' },
     );
     // Same transaction as the batch build (invariant #2), and strictly after
     // the built_at CAS — the enqueue rides the transition, never precedes it.

@@ -470,7 +470,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     // enqueue would throw 42P10 (no matching constraint) or insert a
     // duplicate; instead it returns null — already in flight.
     const deduped = await sql().begin((tx) =>
-      enqueueGenerateSolicitationAsks(tx, { batchId: batch.batchId }),
+      enqueueGenerateSolicitationAsks(tx, { batchId: batch.batchId, businessId }),
     );
     expect(deduped).toBeNull();
   });

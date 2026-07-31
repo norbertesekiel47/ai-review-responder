@@ -352,8 +352,9 @@ export interface RecordGenerationStepsInput {
  * which aborts a stale replay before any domain write.
  *
  * Locking follows `appendRunStep`: the parent run row is locked in its OWN
- * statement, and only the subsequent statement — whose READ COMMITTED snapshot
- * is taken after the lock wait — computes the base step_index.
+ * statement, and only a subsequent statement — whose READ COMMITTED snapshot
+ * is taken after the lock wait — computes the base step_index (via the shared
+ * `nextStepIndex`, the one owner of that query).
  *
  * Step ids are `gen_random_uuid()`, the one sanctioned departure from the
  * UUIDv7 PK convention (migration 046's "database fallback" carve-out): v7
@@ -379,19 +380,15 @@ export async function recordGenerationSteps(
     );
   }
 
+  const baseIndex = (await nextStepIndex(tx, { runId: input.parentRunId })) - 1;
   const inserted = await tx<{ id: string }[]>`
-    WITH base AS (
-      SELECT COALESCE(MAX(step_index), 0) AS max_index
-      FROM agent_run_steps
-      WHERE agent_run_id = ${input.parentRunId}
-    )
     INSERT INTO agent_run_steps (
       id, agent_run_id, step_index, step_key, attributed_agent, status, detail
     )
     SELECT
       gen_random_uuid(),
       ${input.parentRunId},
-      base.max_index + ROW_NUMBER() OVER (ORDER BY outreach.created_at, outreach.id),
+      ${baseIndex} + ROW_NUMBER() OVER (ORDER BY outreach.created_at, outreach.id),
       'ask_generated',
       ${personaForStep('ask_generated')},
       'completed',
@@ -402,7 +399,7 @@ export async function recordGenerationSteps(
         'delivery_status', outreach.delivery_status,
         'disposition_reason', outreach.disposition_reason
       ))
-    FROM solicitation_outreach AS outreach, base
+    FROM solicitation_outreach AS outreach
     WHERE outreach.batch_id = ${input.batchId}::uuid
       AND outreach.account_id = ${input.accountId}::uuid
       AND outreach.business_id = ${input.businessId}::uuid
@@ -449,6 +446,23 @@ export interface RecordStepInput {
  * wait and hand two appenders the same index. Persona comes from
  * STEP_PERSONA — callers cannot mis-attribute a step.
  */
+/**
+ * Next step_index for a run — the ONE owner of this query. Callers must
+ * already hold the run's agent_runs row lock so the READ COMMITTED snapshot
+ * here (taken after the lock wait) sees every committed step.
+ */
+async function nextStepIndex(
+  tx: TxClient,
+  input: { runId: string },
+): Promise<number> {
+  const [row] = await tx<{ next_index: number }[]>`
+    SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index
+    FROM agent_run_steps
+    WHERE agent_run_id = ${input.runId}
+  `;
+  return row?.next_index ?? 1;
+}
+
 async function appendRunStep(tx: TxClient, input: RecordStepInput): Promise<void> {
   const lock = await tx<{ ok: number }[]>`
     SELECT 1 AS ok FROM agent_runs WHERE id = ${input.runId} FOR UPDATE
@@ -457,18 +471,14 @@ async function appendRunStep(tx: TxClient, input: RecordStepInput): Promise<void
     throw new Error(`run-spine: run not found for recordStep(${input.runId}, ${input.stepKey})`);
   }
 
-  const [row] = await tx<{ next_index: number }[]>`
-    SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index
-    FROM agent_run_steps
-    WHERE agent_run_id = ${input.runId}
-  `;
+  const nextIndex = await nextStepIndex(tx, { runId: input.runId });
 
   await tx`
     INSERT INTO agent_run_steps (
       id, agent_run_id, step_index, step_key, attributed_agent,
       status, detail, latency_ms
     ) VALUES (
-      ${uuidv7()}, ${input.runId}, ${row!.next_index}, ${input.stepKey},
+      ${uuidv7()}, ${input.runId}, ${nextIndex}, ${input.stepKey},
       ${personaForStep(input.stepKey)}, ${input.status ?? 'completed'},
       ${tx.json((input.detail ?? {}) as never)}, ${input.latencyMs ?? null}
     )

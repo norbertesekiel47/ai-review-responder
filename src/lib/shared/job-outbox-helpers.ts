@@ -140,6 +140,8 @@ export interface EnqueueBuildSolicitationBatchInput {
 export interface EnqueueGenerateSolicitationAsksInput {
   outboxId?: string;
   batchId: string;
+  /** Tenant proof for the generation module's queries (invariant #8). */
+  businessId: string;
   /** Present only for a single-ask regeneration (#629); omitted for the
    *  whole-batch generation the build transaction enqueues. */
   askId?: string;
@@ -647,6 +649,7 @@ export async function enqueueGenerateSolicitationAsks(
   const outboxId = input.outboxId ?? uuidv7();
   const payload: GenerateSolicitationAsksPayload = {
     batch_id: input.batchId,
+    business_id: input.businessId,
   };
   if (input.askId !== undefined) {
     payload.ask_id = input.askId;

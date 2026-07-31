@@ -551,6 +551,7 @@ describe('job outbox helpers', () => {
 
     const outboxId = await enqueueGenerateSolicitationAsks(tx, {
       batchId: 'batch-1',
+      businessId: 'business-1',
       correlationId: 'corr-1',
     });
 
@@ -569,7 +570,7 @@ describe('job outbox helpers', () => {
     expect(tx.mock.calls[0]).toContain('solicitation_batch');
     expect(tx.mock.calls[0]).toContain('batch-1');
     const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
-    expect(payload).toEqual({ batch_id: 'batch-1', correlation_id: 'corr-1' });
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1', correlation_id: 'corr-1' });
   });
 
   it('returns null when an in-flight generate_solicitation_asks row already exists for the batch', async () => {
@@ -578,11 +579,11 @@ describe('job outbox helpers', () => {
     // build-tx caller treats it as fine; #629's route surfaces it as 409.
     const tx = createMockTx(); // resolves []
 
-    const outboxId = await enqueueGenerateSolicitationAsks(tx, { batchId: 'batch-1' });
+    const outboxId = await enqueueGenerateSolicitationAsks(tx, { batchId: 'batch-1', businessId: 'business-1' });
 
     expect(outboxId).toBeNull();
     const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
-    expect(payload).toEqual({ batch_id: 'batch-1' });
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1' });
   });
 
   it('carries ask_id for a single-ask regeneration and honors a supplied outboxId', async () => {
@@ -592,13 +593,14 @@ describe('job outbox helpers', () => {
     const outboxId = await enqueueGenerateSolicitationAsks(tx, {
       outboxId: 'caller-supplied-id',
       batchId: 'batch-1',
+      businessId: 'business-1',
       askId: 'ask-1',
     });
 
     expect(outboxId).toBe('caller-supplied-id');
     expect(tx.mock.calls[0]).toContain('caller-supplied-id');
     const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
-    expect(payload).toEqual({ batch_id: 'batch-1', ask_id: 'ask-1' });
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1', ask_id: 'ask-1' });
   });
 
   it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {

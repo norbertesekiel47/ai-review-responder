@@ -202,3 +202,58 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   The omission was an intake oversight, not a scope boundary. The two
   mechanical lines recorded in the previous entry were applied with the
   amendment; `llmJobOptions` per the generateResponse precedent.
+- [2026-07-31] **Task 8: `OutboxHandle` lives in `ask-generation.ts`, not
+  `src/lib/solicitation/outbox.ts`.** The plan's named home does not exist —
+  the primitives (`markOutboxCompletedIfOwned`, `extractOutboxHandle`) live in
+  `src/lib/shared/outbox.ts`, which is OUTSIDE allowed_edit_surface (the
+  edit-surface hook blocked adding the type there). `ask-generation.ts`
+  declares and exports `OutboxHandle` structurally identical to
+  `extractOutboxHandle`'s return; if a later ticket touches shared/outbox.ts,
+  move the type to its natural owner and re-export.
+- [2026-07-31] **Task 8 interface deviation: `business_id` added to
+  `GenerateSolicitationAsksPayload` / `enqueueGenerateSolicitationAsks` /
+  both module inputs.** The plan's pinned `{ batchId, outboxHandle }` input is
+  unimplementable under `ci:tenant-scope`: the audit requires a BOUND tenant
+  value in the batch-context query, and a bare batch UUID carries no tenant
+  proof (invariant #8). `BuildSolicitationBatchPayload` is the precedent.
+  Task 9's helper, build-tx call site, and test assertions updated in the same
+  change; the 091 in-flight dedup index is unaffected (keys on aggregate_id).
+  #629's regen route must pass `businessId` when it enqueues.
+- [2026-07-31] **Task 8 fixed a PRE-EXISTING red `ci:tenant-scope` from
+  Task 7:** `recordGenerationSteps`' `WITH base AS (SELECT … FROM
+  agent_run_steps …)` was unscopable (the table has no tenant columns; the
+  audit strips subquery bodies; the allowlist file is out of surface).
+  Refactored: base index now comes from a shared private `nextStepIndex(tx,
+  { runId })` whose query text byte-matches the EXISTING run-spine allowlist
+  entry, and `appendRunStep` uses the same helper (one owner of that query).
+  Lock-then-read semantics unchanged; run-spine unit + live-DB suites green.
+- [2026-07-31] **Task 8 postal-address inert-landing upgrade:** the context
+  loader reads `to_jsonb(b) ->> 'solicitation_postal_address'` instead of the
+  raw column, so pre-#627 execution reads NULL (fail-closed: withheld
+  `lint_failed`/`missing_required_element`) instead of raising 42703. This
+  retires the earlier "loader crashes if executed before #627" latent
+  dependency AND is what makes the mandated live-DB integration test runnable
+  at head 092 (it asserts the fail-closed postal path against the real 091
+  constraints). Replace with a direct column read once #627 lands.
+- [2026-07-31] **Task 8 additions beyond the plan's literal regen pre-check
+  list (all fail-closed):** (a) `solicitationSendEnabled()` +
+  `subscriptionGrantsFullAccess` gates on the regen door (invariant #11
+  symmetry with the batch door); (b) `RegenBudgetExceededError` and
+  `CostLimitExceededError`/`GlobalCostLimitExceededError` during regen are
+  REFUSALS (outbox completed, prior render kept live) — terminal errors must
+  not strand the dispatched row or burn retries; (c) the regen step reuses
+  step key `ask_generated` with `regenerated: true` in detail (no
+  `STEP_PERSONA` widening needed); (d) the batch door's parent-run tx is
+  gated on `lockDispatchedOutboxAttemptIfOwned` (prepareBatch precedent) so a
+  stale replay whose finale already terminalized the parent cannot mint a
+  second forever-running send parent; (e) the flag gate runs BEFORE the
+  context load (the plan listed load first) so the lane stays no-op-safe
+  while the flag is off. The finale derives k=0 from the DATABASE (zero rows
+  in rendered/queued/sending/sent), not in-memory tallies, so a resumed retry
+  decides correctly; `failedCount` = `render_failed` rows, `withheldCount` =
+  `lint_failed` + `moderation_high` rows (D14's two-count story).
+- [2026-07-31] **Task 8 whitespace-body guard (as instructed):** effectively
+  empty structured output (`body.trim() === ''`) is treated as
+  LLMStructuredOutputError-equivalent — withheld `render_failed` with the
+  locked decision-2 fills — closing the Task 5 known gap at the orchestration
+  layer.

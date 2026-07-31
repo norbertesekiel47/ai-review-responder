@@ -318,9 +318,12 @@ export interface BuildSolicitationBatchPayload extends BasePayload {
  * ONLY by enqueueGenerateSolicitationAsks: batch-builder's built_at
  * transaction (whole-batch generation, no ask_id) and #629's regeneration
  * route (ask_id present). aggregate_id = batch_id — the migration 091
- * in-flight index contract.
+ * in-flight index contract. `business_id` is the tenant proof the generation
+ * module scopes every query by (invariant #8; BuildSolicitationBatchPayload
+ * precedent) — a bare batch UUID proves nothing.
  */
 export interface GenerateSolicitationAsksPayload extends BasePayload {
   batch_id: string;
+  business_id: string;
   ask_id?: string;
 }

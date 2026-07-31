@@ -738,6 +738,7 @@ async function constructBatch(
     if (summary.sendCount > 0 && solicitationSendEnabled()) {
       await enqueueGenerateSolicitationAsks(tx, {
         batchId: batch.id,
+        businessId: batch.business_id,
         correlationId: input.correlationId,
       });
     }
