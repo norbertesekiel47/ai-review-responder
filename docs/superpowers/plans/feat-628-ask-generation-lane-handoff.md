@@ -1,51 +1,55 @@
 # Handoff — feat-628-ask-generation-lane
 
-**Phase:** `plan_approved` (owner signed off 2026-07-30 after a 3-round codex
-adversarial review). **Next step: 4 — EXECUTE** via
-`superpowers:subagent-driven-development`, task-by-task from the plan.
+**Phase:** `gate_green` (all 12 plan tasks executed, per-task dual reviews
+passed, full `verify-gate.sh --review` GREEN incl. diff-coverage at HEAD
+`60125aae`, 2026-07-31). **Next step: 6 — adversarial review** (RISK=high ⇒
+`/codex:adversarial-review`, USER-INVOKED; codex session for steps 6–7
+context: `codex resume 019fb5dc-2eb6-7480-a232-d41aea5a425e`).
 
 ## Bootstrap order (read in this order, nothing else needed)
 
 1. **Intake (drift detector):** `docs/superpowers/plans/feat-628-ask-generation-lane-intake.json`
-   — edit surface, 24 VERBATIM promised test titles, invariants.
-2. **Plan (the work):** `docs/superpowers/plans/2026-07-30-628-ask-generation-lane.md`
-   — 12 tasks with blocking edges; header carries 10 LOCKED decisions (3 grilling +
-   7 adversarial-round resolutions). Do not re-litigate any of them.
-3. **Deviations:** `docs/superpowers/plans/feat-628-ask-generation-lane-deviations.md`
-   — #625 merge-order agreement, postal-address inert-landing, spec-gap resolutions.
-4. **Governing docs** (slices are named per task in the plan):
-   `docs/superpowers/specs/2026-07-28-ask-generation-design.md` (banner!),
-   `…-send-mode-cross-spec-amendments.md` (B1/B2/B4/B5/B10 — wins on conflict),
-   `…-send-mode-executor-approval-design.md` (D3/D14/D17/D21).
+   — amended 4× during execution (all recorded in the deviations file,
+   ALL PENDING OWNER RETROACTIVE SIGN-OFF): worker/queues.ts (Task 9);
+   two requests-UI fixtures (Task 11); startup-assertion.test.ts (Task 12);
+   four gate-tripwire/assertion test files + runnable verification_commands
+   (Task 12 gate round).
+2. **Plan:** `docs/superpowers/plans/2026-07-30-628-ask-generation-lane.md`
+3. **Deviations (now the primary review artifact):**
+   `docs/superpowers/plans/feat-628-ask-generation-lane-deviations.md` —
+   every task's deviations were adjudicated inline by per-task spec reviewers
+   (all ACCEPT); step 6.5 owner triage should confirm the verdicts, especially
+   the four intake amendments and the Task 8 interface deviation
+   (`business_id` in `GenerateSolicitationAsksPayload` — #629's enqueue must
+   pass it).
+4. Governing specs as before (banner: §5 table superseded; AMEND wins).
 
-## Session facts a resumed session needs
+## Session facts
 
 - Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-628-ask-generation-lane`,
-  branch `feat-628-ask-generation-lane`, based on main @ 44de0a79. Enforcement ARMED
-  (re-run `scripts/arm-check.sh` on resume). Prefix every Bash command with
-  `cd <worktree-root> && …`; absolute worktree paths for all Edit/Write.
-- **Merge order (owner-approved):** #625 (consent ledger) merges first; this branch
-  REBASES over it before gate/review rounds. The collision file is `batch-builder.ts`.
-- **Execution discipline:** fresh subagent per task; each prompt carries the task's spec
-  slice + blocking-edge context; subagents append surprises to the deviations file, never
-  dump context. TDD where specifiable. Commit per completed task.
-  **First-task enforcement spot check** (workflow step 4): after the first subagent
-  completes, diff `git status --porcelain` against the intake's `allowed_edit_surface`;
-  an out-of-surface file ⇒ STOP.
-- Task order respecting blocking edges: 1 → 2, and 3/4/9 parallel-safe; 5 after 4;
-  6 after 5; 7 independent; 8 after {2,3,5,6,7}; 10 after {8,9}; 11 after 7; 12 last.
-- Live-DB tasks (7, 8-integration, 11-RLS test) need `TEST_DATABASE_POOL_URL`; provision
-  with `pnpm test:db:setup` if the local test DB is behind head (head = 092).
-- Step 5 gate: `bash scripts/verify-gate.sh` after each fix round; final pre-review run
-  with `--review` (diff coverage). Codex review session for steps 6–7 context:
-  `codex resume 019fb5dc-2eb6-7480-a232-d41aea5a425e`.
-- RISK=high ⇒ step 6 (`/codex:adversarial-review`, user-invoked) and step 8 rides
-  staging first. Full-path staging smoke is NOT possible pre-#627 (postal-address
-  column) — flag-off no-op smoke only; full proof belongs to the #633 runbook campaign.
+  branch `feat-628-ask-generation-lane`, based on main @ 44de0a79; 13 commits
+  (intake, plan, handoff, Tasks 1–12; Task 8 = two commits).
+- **Merge order (owner-approved): #625 merges first; this branch REBASES over
+  it before its review rounds land** — collision file `batch-builder.ts`.
+  #625 had NOT merged as of this checkpoint (main still 44de0a79).
+- Gate mechanics learned this run: the gate flakes under its own load on this
+  machine at default `MAX_PARALLEL=4`/`VITEST_WORKERS=4` (arbitrary timeouts
+  in untouched suites; three distinct false-red runs). `MAX_PARALLEL=2
+  VITEST_WORKERS=6` runs clean. The 5 changed live-DB integration suites run
+  GREEN via the gate's "extra" verification row (39/39) — the
+  `integration-suites SKIP` warning row is redundant with it.
+- `reclassify WARN` is real: actual diff 8262 lines vs 3200 estimate (~2.6×,
+  test-dominated). The workflow's re-classification trigger fired; owner may
+  waive or re-classify at review.
+- Remaining post-review steps: step 8 rides staging first (flag-off no-op
+  smoke ONLY pre-#627 — the postal-address column doesn't exist; full-path
+  proof belongs to the #633 runbook campaign). `SOLICITATION_SEND_ENABLED`
+  must not be set anywhere before #627 lands.
 
 ## Glossary anchors (use verbatim)
 
-Solicitation (never "Solicitor") · ask · render/outreach row · attempt · supersede ·
-withheld vs cancelled vs failed (091 vocab) · lint_failed folding (AMEND B1) ·
-blocked-is-terminal · generate-then-approve · byte-for-byte stored bytes ·
-placeholders (B4) · send parent (`solicitation_send_batch`) · releasable.
+Solicitation (never "Solicitor") · ask · render/outreach row · attempt ·
+supersede · withheld vs cancelled vs failed (091 vocab) · lint_failed folding
+(AMEND B1) · blocked-is-terminal · generate-then-approve · byte-for-byte
+stored bytes · placeholders (B4) · send parent (`solicitation_send_batch`) ·
+releasable.
