@@ -172,6 +172,20 @@
   re-classification confirms lane, corrects the estimate. PROMOTE at ship: "a new table or a new
   ANALYTICS_EVENT_NAMES entry is never wiring-only — budget the registry/migration ripples."
 
+## Step 8 ship-lane fix (2026-07-31)
+
+- [2026-07-31] **PR CI's fallow job failed on `upsertCandidates`** (ingest.ts —
+  12 cyclomatic / 18 cognitive / 59 lines) after #625's §7.1 retained-email
+  guard pushed the function over the changed-code cognitive threshold.
+  verify-gate excludes `ci:fallow*` BY DESIGN (own workflow, own baseline), so
+  this class of finding surfaces only at PR time — expected lane behavior, not
+  a gate gap. Fix followed the house precedent (new logic is extracted into
+  small decision helpers; `.fallowrc.jsonc` waivers are reserved for
+  pre-existing complexity swept in mechanically): the guard became the pure
+  module-private `consentEligibleEmail(candidate, decision, byEmail, byPhone)`
+  with the §7.1 doc comment moved onto it. Behavior identical; covered by the
+  existing ingest suites. `pnpm ci:fallow` green post-extraction. ACCEPT.
+
 ## Step 6.5 read-back verdicts (orchestrator, 2026-07-30)
 - Surface overlap w/ feat-628 (merge order: #625 first): ACCEPT — order stands; #628 rebases.
 - Task 2 pre-existing table-disposition failure (owned by Task 6): ACCEPT — resolved by pulling Task 6 forward.

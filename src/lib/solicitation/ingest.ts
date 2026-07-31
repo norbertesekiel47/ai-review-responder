@@ -247,19 +247,9 @@ async function upsertCandidates(
       duplicateVisits += 1;
     }
 
-    // §7.1 deletability requires every ledger handle to be reachable from a
-    // contact this business retains: deleteContact sweeps consent by the
-    // contact's STORED email, so a row minted for a handle matching discarded
-    // (phone match onto a contact that already carries a different email)
-    // could never be deleted — orphaned PII in a no-TTL ledger, violating
-    // "consent fails closed" (DR1). Write consent only when the candidate's
-    // email is the resolved contact's post-upsert email: created-with-email,
-    // merged-email, or unchanged-matching-email.
-    const retainedEmail = decision.action === 'create'
-      ? candidate.email
-      : decision.set.email ?? (byEmail ?? byPhone)!.email;
-    if (candidate.email !== null && retainedEmail === candidate.email) {
-      await upsertConsent(tx, businessId, upload, candidate.email);
+    const consentEmail = consentEligibleEmail(candidate, decision, byEmail, byPhone);
+    if (consentEmail !== null) {
+      await upsertConsent(tx, businessId, upload, consentEmail);
     }
   }
 
@@ -272,6 +262,27 @@ async function upsertCandidates(
     rejected,
     structuralFailure: null,
   };
+}
+
+/** §7.1 deletability guard, pure: the email to record consent for, or null.
+ *  deleteContact sweeps consent by the contact's STORED email, so a row minted
+ *  for a handle the resolved contact does not retain (phone match onto a
+ *  contact that already carries a different email) could never be deleted —
+ *  orphaned PII in a no-TTL ledger, violating "consent fails closed" (DR1).
+ *  Returns the candidate's email only when it is the resolved contact's
+ *  post-upsert email: created-with-email, merged-email, or
+ *  unchanged-matching-email. */
+function consentEligibleEmail(
+  candidate: { email: string | null },
+  decision: Exclude<ContactMatchDecision, { action: 'reject' }>,
+  byEmail: ExistingContact | null,
+  byPhone: ExistingContact | null,
+): string | null {
+  if (candidate.email === null) return null;
+  const retainedEmail = decision.action === 'create'
+    ? candidate.email
+    : decision.set.email ?? (byEmail ?? byPhone)!.email;
+  return retainedEmail === candidate.email ? candidate.email : null;
 }
 
 async function createContact(
