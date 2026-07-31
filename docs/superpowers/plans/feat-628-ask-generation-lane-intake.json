@@ -86,7 +86,9 @@
     ".claude/reference/env-vars.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
-    "docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md"
+    "docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md",
+    "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx"
   ],
   "tests_to_add": [
     "blocks incentive language introduced by the model",

@@ -139,6 +139,54 @@ async function seedAsk(input: {
   return askId;
 }
 
+const ATTEMPT_INTERPOLATION_INPUTS = {
+  contact_first_name: 'Dana',
+  business_name: 'Batch View Integration Business',
+  days_since_visit_bucket: 'last week',
+  vertical: 'home_services',
+  visit_note: null,
+  note_disposition: 'absent',
+};
+
+/**
+ * One outreach attempt, satisfying 091's CHECKs (bodies paired; status↔reason
+ * consistency; no dispatch stamps for undispatched statuses).
+ */
+async function seedOutreach(input: {
+  batchId: string;
+  askId: string;
+  contactId: string;
+  attemptNo?: number;
+  deliveryStatus: 'rendered' | 'withheld' | 'cancelled';
+  dispositionReason?: string | null;
+  subject?: string | null;
+  body?: string | null;
+  lintDetail?: readonly string[];
+  moderationStatus?: string;
+  moderationDetail?: Record<string, unknown>;
+}): Promise<string> {
+  const outreachId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_outreach
+      (id, account_id, business_id, batch_id, ask_id, contact_id, attempt_no,
+       rendered_subject, rendered_body, prompt_version, prompt_hash,
+       interpolation_inputs, rendered_at, ask_lint_version, lint_detail,
+       moderation_status, moderation_detail, delivery_status, disposition_reason)
+    VALUES
+      (${outreachId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+       ${input.batchId}::uuid, ${input.askId}::uuid, ${input.contactId}::uuid,
+       ${input.attemptNo ?? 1},
+       ${input.subject ?? null}, ${input.body ?? null},
+       'solicitation_ask_v1', ${'0'.repeat(64)},
+       ${sql().json(ATTEMPT_INTERPOLATION_INPUTS)}, NOW(),
+       'ask_lint_v1', ${sql().json([...(input.lintDetail ?? [])])},
+       ${input.moderationStatus ?? 'clean'},
+       ${sql().json((input.moderationDetail ?? {}) as never)},
+       ${input.deliveryStatus}, ${input.dispositionReason ?? null})
+  `;
+  return outreachId;
+}
+
 async function reviewedAt(batchId: string): Promise<string | null> {
   const [row] = await sql()<{ reviewed_at: string | null }[]>`
     SELECT reviewed_at::text AS reviewed_at
@@ -249,6 +297,96 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
       total: 0,
       sample: [],
     });
+  });
+
+  it('joins each ask\'s current attempt, excludes superseded rows, and redacts moderation_high content', async () => {
+    const batchId = await seedBatch({
+      createdAt: '2026-07-20T10:00:00Z',
+      builtAt: '2026-07-20T10:05:00Z',
+    });
+
+    // Ask 1: regenerated once — the cancelled attempt 1 must not surface.
+    const draftedContact = await seedContact('Drafted Dana');
+    const draftedAsk = await seedAsk({
+      batchId, contactId: draftedContact, status: 'send', decidedAt: '2026-07-20T10:05:00Z',
+    });
+    await seedOutreach({
+      batchId, askId: draftedAsk, contactId: draftedContact, attemptNo: 1,
+      deliveryStatus: 'cancelled', dispositionReason: 'superseded',
+      subject: 'SUPERSEDED-SUBJECT', body: 'SUPERSEDED-BODY',
+    });
+    await seedOutreach({
+      batchId, askId: draftedAsk, contactId: draftedContact, attemptNo: 2,
+      deliveryStatus: 'rendered',
+      subject: 'Thanks for having us out', body: 'Hi Dana — thanks for choosing us.',
+    });
+
+    // Ask 2: moderation-blocked — the row stores its bytes for admin
+    // diagnosis, but the owner view must never carry them (SPEC §3.3).
+    const blockedContact = await seedContact('Blocked Bea');
+    const blockedAsk = await seedAsk({
+      batchId, contactId: blockedContact, status: 'send', decidedAt: '2026-07-20T10:05:00Z',
+    });
+    await seedOutreach({
+      batchId, askId: blockedAsk, contactId: blockedContact,
+      deliveryStatus: 'withheld', dispositionReason: 'moderation_high',
+      subject: 'FORBIDDEN-SUBJECT', body: 'FORBIDDEN-BODY',
+      moderationStatus: 'flagged', moderationDetail: { harassment: 0.97 },
+    });
+
+    // Ask 3: lint-blocked — text and matched classes stay visible on purpose
+    // (SPEC §5.2: the block teaches the owner).
+    const lintContact = await seedContact('Linted Lou');
+    const lintAsk = await seedAsk({
+      batchId, contactId: lintContact, status: 'send', decidedAt: '2026-07-20T10:05:00Z',
+    });
+    await seedOutreach({
+      batchId, askId: lintAsk, contactId: lintContact,
+      deliveryStatus: 'withheld', dispositionReason: 'lint_failed',
+      subject: 'A special thank-you', body: 'Mention us in your review for 10% off.',
+      lintDetail: ['incentive_language', 'review_steering'],
+    });
+
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.attempts).toHaveLength(3);
+
+    const drafted = view.attempts.find((attempt) => attempt.askId === draftedAsk);
+    if (!drafted || drafted.redacted) throw new Error('expected an unredacted drafted attempt');
+    expect(drafted.attemptNo).toBe(2);
+    expect(drafted.deliveryStatus).toBe('rendered');
+    expect(drafted.subject).toBe('Thanks for having us out');
+    expect(drafted.body).toBe('Hi Dana — thanks for choosing us.');
+    expect(drafted.lintClasses).toEqual([]);
+    expect(drafted.moderationStatus).toBe('clean');
+    expect(drafted.interpolationInputs).toEqual(ATTEMPT_INTERPOLATION_INPUTS);
+    expect(drafted.contactName).toBe('Drafted Dana');
+
+    const blocked = view.attempts.find((attempt) => attempt.askId === blockedAsk);
+    expect(blocked).toEqual({
+      outreachId: expect.any(String),
+      askId: blockedAsk,
+      contactId: blockedContact,
+      contactName: 'Blocked Bea',
+      attemptNo: 1,
+      deliveryStatus: 'withheld',
+      dispositionReason: 'moderation_high',
+      renderedAt: expect.any(String),
+      redacted: true,
+    });
+
+    const linted = view.attempts.find((attempt) => attempt.askId === lintAsk);
+    if (!linted || linted.redacted) throw new Error('expected an unredacted lint attempt');
+    expect(linted.body).toBe('Mention us in your review for 10% off.');
+    expect(linted.lintClasses).toEqual(['incentive_language', 'review_steering']);
+    expect(linted.dispositionReason).toBe('lint_failed');
+
+    // Leak-proof across the WHOLE view: neither superseded nor
+    // moderation_high bytes appear anywhere in the serialized payload.
+    const serialized = JSON.stringify(view);
+    expect(serialized).not.toContain('FORBIDDEN');
+    expect(serialized).not.toContain('SUPERSEDED');
   });
 
   it('returns hasBatch false when the location\'s uploads completed before watch-mode was enabled', async () => {

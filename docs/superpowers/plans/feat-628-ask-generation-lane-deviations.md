@@ -318,3 +318,26 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   (cross-worker surface, outside this intake). Also noted: when #627 lands the
   postal-address column, the all-withheld integration case (which relies on
   head-092 column absence) needs an explicit fixture knob instead.
+- [2026-07-31] **Task 11: extending `BatchView`'s `built` arm with a required
+  `attempts: AskAttemptView[]` breaks two out-of-surface UI-test fixtures.**
+  `src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx`
+  (`builtView()`, `satisfies BatchView`) and
+  `.../batch-report.test.tsx` (`builtBatch()`) construct `built` views and are
+  outside `allowed_edit_surface`; the edit-surface hook blocked the fix.
+  **Known-red at the Task 11 commit: `pnpm typecheck` fails with exactly 6
+  errors confined to those two files.** Both suites still PASS at runtime
+  (37/37 — vitest transforms without typechecking), and every in-surface gate
+  is green. The fix is one mechanical line per fixture: add `attempts: []`
+  before `...overrides`. Needs a surface amendment naming the two exact file
+  paths (owner sign-off — the Task 9 `worker/queues.ts` precedent) before the
+  Task 12 final gate. `attempts` is deliberately REQUIRED, not optional:
+  `readLatestBatch` always returns it, and an optional field would force every
+  consumer (#629's approval screen) to handle an `undefined` that cannot occur.
+- [2026-07-31] **INTAKE AMENDMENT 2 (controller-applied, pending owner
+  retroactive sign-off): the two requests-UI test fixture files added to
+  allowed_edit_surface** (`requests-client.test.tsx`, `batch-report.test.tsx`;
+  both copies in sync). Task 11's `BatchView.built` gained the required
+  `attempts` field — deliberately required, not optional, so #629 never
+  handles an impossible `undefined` — which compile-breaks the two fixture
+  builders. Fix is one mechanical `attempts: []` line per builder, applied
+  with the amendment.

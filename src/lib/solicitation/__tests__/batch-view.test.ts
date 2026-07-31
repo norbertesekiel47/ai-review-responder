@@ -11,7 +11,8 @@ import {
 // Test doubles for the Postgres.js tagged-template client mirror the stub style
 // of src/lib/solicitation/__tests__/uploads.test.ts. Results are returned in
 // statement order, which readLatestBatch fixes deterministically:
-// SET TRANSACTION -> Q1 latest batch -> Q2 contacts on file -> Q3 asks.
+// SET TRANSACTION -> Q1 latest batch -> Q2 contacts on file -> Q3 asks
+// -> Q4 attempts (built batches only).
 type QueryResult = unknown[];
 
 interface MockTx {
@@ -290,6 +291,186 @@ describe('readLatestBatch', () => {
       contactsOnFile: 7,
     });
     expect(tx.mock.calls).toHaveLength(3);
+  });
+});
+
+describe('readLatestBatch attempts join (#628)', () => {
+  const INTERPOLATION_INPUTS = {
+    contact_first_name: 'Dana',
+    business_name: 'Ridgeline Plumbing',
+    days_since_visit_bucket: 'last week',
+    vertical: 'home_services',
+    visit_note: null,
+    note_disposition: 'absent',
+  };
+
+  function attemptDbRow(overrides: {
+    outreachId?: string;
+    askId?: string;
+    attemptNo?: number;
+    deliveryStatus?: string;
+    dispositionReason?: string | null;
+    subject?: string | null;
+    body?: string | null;
+    lintDetail?: unknown;
+    moderationStatus?: string;
+    moderationDetail?: unknown;
+    interpolationInputs?: unknown;
+  }) {
+    return {
+      outreachId: overrides.outreachId ?? 'o-1',
+      askId: overrides.askId ?? 'ask-1',
+      contactId: 'c-1',
+      contactName: 'Dana Scully',
+      attemptNo: overrides.attemptNo ?? 1,
+      deliveryStatus: overrides.deliveryStatus ?? 'rendered',
+      dispositionReason: overrides.dispositionReason ?? null,
+      renderedAt: '2026-07-29 10:00:00+00',
+      subject: overrides.subject ?? null,
+      body: overrides.body ?? null,
+      lintDetail: overrides.lintDetail ?? [],
+      moderationStatus: overrides.moderationStatus ?? 'clean',
+      moderationDetail: overrides.moderationDetail ?? {},
+      interpolationInputs: overrides.interpolationInputs ?? INTERPOLATION_INPUTS,
+    };
+  }
+
+  function builtBatchResults(attemptRows: unknown[]): QueryResult[] {
+    return [
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 3 }],
+      [{ queued: 1, held: 0, evaluated: 1, askId: null, contactId: null, contactName: null, decidedAt: null, evidence: null, reason: null, groupTotal: null }],
+      attemptRows,
+    ];
+  }
+
+  it('exposes a drafted attempt with its subject and body bytes and attempt number', async () => {
+    const { sql, tx } = createMockSql(builtBatchResults([
+      attemptDbRow({
+        attemptNo: 2,
+        deliveryStatus: 'rendered',
+        subject: 'Thanks for having us out',
+        body: 'Hi Dana — thanks for choosing Ridgeline Plumbing.',
+      }),
+    ]));
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.attempts).toEqual([
+      {
+        outreachId: 'o-1',
+        askId: 'ask-1',
+        contactId: 'c-1',
+        contactName: 'Dana Scully',
+        attemptNo: 2,
+        deliveryStatus: 'rendered',
+        dispositionReason: null,
+        renderedAt: '2026-07-29 10:00:00+00',
+        redacted: false,
+        subject: 'Thanks for having us out',
+        body: 'Hi Dana — thanks for choosing Ridgeline Plumbing.',
+        lintClasses: [],
+        moderationStatus: 'clean',
+        moderationDetail: {},
+        interpolationInputs: INTERPOLATION_INPUTS,
+      },
+    ]);
+
+    // The current attempt is `delivery_status != 'cancelled'` — NOT the
+    // live-only set: withheld rows are terminal yet owner-visible.
+    const attemptsQuery = sqlText(statementAt(tx, 4));
+    expect(attemptsQuery).toContain('FROM solicitation_outreach');
+    expect(attemptsQuery).toContain("o.delivery_status <> 'cancelled'");
+    // Tenant scope rides the query itself (invariant #8).
+    expect(statementAt(tx, 4).slice(1)).toEqual(
+      expect.arrayContaining([ACCOUNT_ID, BUSINESS_ID, BATCH_ID]),
+    );
+  });
+
+  it('redacts a moderation_high attempt to a marker even when bytes reach the mapper', async () => {
+    // Feed bytes deliberately: even if the SQL-level CASE redaction were
+    // dropped, the mapper must still never let moderation_high bytes into the
+    // view (SPEC §3.3 — the owner sees count + reason only).
+    const { sql, tx } = createMockSql(builtBatchResults([
+      attemptDbRow({
+        deliveryStatus: 'withheld',
+        dispositionReason: 'moderation_high',
+        subject: 'FORBIDDEN-SUBJECT',
+        body: 'FORBIDDEN-BODY',
+        moderationStatus: 'flagged',
+        moderationDetail: { sexual: 0.99 },
+        interpolationInputs: { ...INTERPOLATION_INPUTS, visit_note: 'FORBIDDEN-NOTE' },
+      }),
+    ]));
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    // Exact equality: the redacted arm carries the marker and NOTHING content-shaped.
+    expect(view.attempts).toEqual([
+      {
+        outreachId: 'o-1',
+        askId: 'ask-1',
+        contactId: 'c-1',
+        contactName: 'Dana Scully',
+        attemptNo: 1,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'moderation_high',
+        renderedAt: '2026-07-29 10:00:00+00',
+        redacted: true,
+      },
+    ]);
+    expect(JSON.stringify(view)).not.toContain('FORBIDDEN');
+
+    // First layer: the bytes are dropped in SQL — the CASE keeps them from
+    // ever leaving the database for a moderation_high row.
+    const attemptsQuery = sqlText(statementAt(tx, 4));
+    expect(attemptsQuery).toContain('CASE WHEN o.disposition_reason = ? THEN NULL ELSE o.rendered_subject END');
+    expect(attemptsQuery).toContain('CASE WHEN o.disposition_reason = ? THEN NULL ELSE o.rendered_body END');
+    expect(statementAt(tx, 4).slice(1)).toContain('moderation_high');
+  });
+
+  it('exposes withheld lint_failed text and matched classes so the block teaches the owner', async () => {
+    const { sql } = createMockSql(builtBatchResults([
+      attemptDbRow({
+        deliveryStatus: 'withheld',
+        dispositionReason: 'lint_failed',
+        subject: 'A special thank-you',
+        body: 'Mention us in your review for 10% off.',
+        // PgBouncer can hand JSONB back as strings — the Task 7 parsers own
+        // that carve-out; this exercises them through the read model.
+        lintDetail: JSON.stringify(['incentive_language', 'review_steering']),
+        moderationDetail: JSON.stringify({}),
+        interpolationInputs: JSON.stringify(INTERPOLATION_INPUTS),
+      }),
+    ]));
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    const attempt = view.attempts[0];
+    if (!attempt || attempt.redacted) throw new Error('expected an unredacted attempt');
+    expect(attempt.subject).toBe('A special thank-you');
+    expect(attempt.body).toBe('Mention us in your review for 10% off.');
+    expect(attempt.lintClasses).toEqual(['incentive_language', 'review_steering']);
+    expect(attempt.dispositionReason).toBe('lint_failed');
+    expect(attempt.interpolationInputs).toEqual(INTERPOLATION_INPUTS);
+  });
+
+  it('throws when an ask carries two non-cancelled attempts', async () => {
+    // The non-cancelled predicate leans on two domain invariants (withheld
+    // ends the attempt line; supersede swaps atomically), so a second row is
+    // corruption and must fail loudly, not render twice.
+    const { sql } = createMockSql(builtBatchResults([
+      attemptDbRow({ outreachId: 'o-1', askId: 'ask-1', attemptNo: 1 }),
+      attemptDbRow({ outreachId: 'o-2', askId: 'ask-1', attemptNo: 2 }),
+    ]));
+
+    await expect(readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID)).rejects.toThrow(
+      /more than one non-cancelled outreach attempt/,
+    );
   });
 });
 
