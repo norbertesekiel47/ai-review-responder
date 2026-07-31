@@ -97,8 +97,8 @@ export interface IngestReport {
 interface UploadRow {
   id: string;
   business_id: string;
-  /** businesses.account_id — the authoritative business→account pairing
-   *  (093's §3.2 posture), joined at read for the analytics rows below. */
+  /** contact_csv_uploads.account_id (migration 086) — read straight off the
+   *  upload row for the analytics rows below. */
   account_id: string;
   status: ContactUploadStatus;
   byte_size: number;
@@ -145,11 +145,10 @@ export async function ingestContactsCsvUpload(
     // future caller ever re-reads without the bound predicate — but is
     // unreachable through this bound query today.
     const [upload] = await tx<UploadRow[]>`
-      SELECT upload.id, upload.business_id, business.account_id, upload.status,
+      SELECT upload.id, upload.business_id, upload.account_id, upload.status,
              upload.byte_size, upload.raw_csv, upload.report,
              upload.attested_at, upload.attestation_version, upload.attested_by_user_id
       FROM contact_csv_uploads upload
-      JOIN businesses business ON business.id = upload.business_id
       WHERE upload.id = ${uploadId} AND upload.business_id = ${expectedBusinessId}
     `;
     if (!upload) {

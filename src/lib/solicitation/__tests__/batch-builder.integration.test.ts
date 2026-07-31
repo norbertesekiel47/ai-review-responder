@@ -1086,7 +1086,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     });
   });
 
-  it('the §1.2 re-upload trap end-to-end: after a v2 re-upload the contact is send-eligible', async () => {
+  it('the §1.2 re-upload trap: re-uploading the identical CSV under v2 inserts zero visits AND leaves the contact send-eligible', async () => {
     const csv = `${CSV_HEADER}\nRe Upload,reupload-trap@example.test,,${daysAgoUtc(2)},`;
     const v1UploadId = await seedPendingUpload(csv, {
       attestationVersion: 'consent_attestation_v1',
