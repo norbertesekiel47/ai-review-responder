@@ -65,7 +65,13 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
           <thead className="border-b border-gray-200 bg-gray-50">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className={`px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${col.className ?? ''}`}>
+                <th
+                  key={col.key}
+                  aria-sort={
+                    col.sortValue && sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
+                  }
+                  className={`px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${col.className ?? ''}`}
+                >
                   {col.sortValue ? (
                     <button type="button" onClick={() => toggleSort(col.key)} className="inline-flex items-center gap-1 hover:text-gray-900">
                       {col.header}

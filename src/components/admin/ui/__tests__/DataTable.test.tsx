@@ -45,6 +45,15 @@ describe('DataTable', () => {
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
   });
 
+  it('resets to page 1 when sorting from a later page', async () => {
+    render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} pageSize={2} emptyState={<EmptyState title="none" />} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Name/ }));
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(names()).toEqual(['Alpha', 'Bravo']);
+  });
+
   it('renders the empty state when there are no rows', () => {
     render(<DataTable columns={columns} rows={[]} rowKey={(r) => r.id} emptyState={<EmptyState title="No rows yet" />} />);
     expect(screen.getByText('No rows yet')).toBeInTheDocument();
