@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ADMIN_AUTH_ROUTES, ADMIN_NAV_GROUPS, type AdminNavItem } from './nav-config';
 
@@ -72,13 +72,46 @@ function NavGroups({ pathname, counts, onNavigate }: {
 export function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobilePanelRef = useRef<HTMLDivElement>(null);
+  const wasMobileOpenRef = useRef(false);
 
   const { data: counts } = useQuery({
     queryKey: ['admin', 'nav-counts'],
     queryFn: fetchNavCounts,
     refetchInterval: 60_000,
     staleTime: 30_000,
+    retry: 1,
   });
+
+  // Move focus into the drawer on open, and back to the hamburger on close —
+  // never on initial mount, when the drawer was never open to begin with.
+  useEffect(() => {
+    if (mobileOpen) {
+      mobilePanelRef.current?.focus();
+      wasMobileOpenRef.current = true;
+    } else if (wasMobileOpenRef.current) {
+      mobileTriggerRef.current?.focus();
+      wasMobileOpenRef.current = false;
+    }
+  }, [mobileOpen]);
+
+  // Escape closes the drawer; body scroll is locked while it's open (restored
+  // on close or unmount).
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMobileOpen(false);
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [mobileOpen]);
 
   if (pathname !== null && ADMIN_AUTH_ROUTES.includes(pathname)) {
     return null;
@@ -100,6 +133,7 @@ export function AdminSidebar() {
           RepWorth <span className="align-top text-[10px] font-semibold text-red-400">ADMIN</span>
         </Link>
         <button
+          ref={mobileTriggerRef}
           type="button"
           onClick={() => setMobileOpen((open) => !open)}
           aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
@@ -115,7 +149,11 @@ export function AdminSidebar() {
         </button>
       </div>
       {mobileOpen && (
-        <div className="fixed inset-0 top-12 z-40 flex flex-col bg-gray-900 pt-2 md:hidden">
+        <div
+          ref={mobilePanelRef}
+          tabIndex={-1}
+          className="fixed inset-0 top-12 z-40 flex flex-col bg-gray-900 pt-2 outline-none md:hidden"
+        >
           <NavGroups pathname={pathname} counts={counts} onNavigate={() => setMobileOpen(false)} />
         </div>
       )}

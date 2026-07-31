@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminSidebar } from '../AdminSidebar';
 import { ADMIN_NAV_GROUPS } from '../nav-config';
@@ -55,5 +56,27 @@ describe('AdminSidebar', () => {
     mockUsePathname.mockReturnValue('/admin/login');
     const { container } = renderSidebar();
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('Escape closes the mobile drawer, restoring body scroll and trigger focus', async () => {
+    const user = userEvent.setup();
+    const { container } = renderSidebar();
+
+    const trigger = screen.getByRole('button', { name: /open navigation/i });
+    await user.click(trigger);
+
+    expect(screen.getByRole('button', { name: /close navigation/i })).toBeInTheDocument();
+    const panel = container.querySelector('[tabindex="-1"]');
+    expect(panel).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+    await waitFor(() => expect(panel).toHaveFocus());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(container.querySelector('[tabindex="-1"]')).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe('');
+    expect(trigger).toHaveFocus();
   });
 });
