@@ -275,7 +275,11 @@ async function seedPriorAsk(input: {
 
 describeWithDb('solicitation batch builder against live local Postgres', {
   enabled: Boolean(testDatabaseUrl),
-  timeout: 90_000,
+  // 180s, not 90s: the 5000-contact window test runs 7s standalone but ~100s
+  // under verify-gate's concurrent coverage load (same contention class as the
+  // 120s cleanup hooks below) — a body budget near the observed worst case is
+  // a flake, not a guard.
+  timeout: 180_000,
 }, () => {
   beforeAll(async () => {
     const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
