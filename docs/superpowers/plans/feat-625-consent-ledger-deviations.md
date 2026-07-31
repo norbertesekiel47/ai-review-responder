@@ -159,3 +159,12 @@
   test-fixture compile fallout. Lane was already the heaviest (RISK=high, full pipeline);
   re-classification confirms lane, corrects the estimate. PROMOTE at ship: "a new table or a new
   ANALYTICS_EVENT_NAMES entry is never wiring-only — budget the registry/migration ripples."
+
+## Step 6.5 read-back verdicts (orchestrator, 2026-07-30)
+- Surface overlap w/ feat-628 (merge order: #625 first): ACCEPT — order stands; #628 rebases.
+- Task 2 pre-existing table-disposition failure (owned by Task 6): ACCEPT — resolved by pulling Task 6 forward.
+- Task 3 event_name CHECK → migration 094: ACCEPT (owner-approved amendment 2); lesson flagged for promotion.
+- Task 4 batch-report fixture compile fallout: ACCEPT (narrow amendment 3, mechanical).
+- Task 6 tenant-tables registration + purge sweep: ACCEPT; spec §7.2 cascade finding flagged for spec+lab-notes promotion.
+- Parallel-gate hook-timeout collateral: ACCEPT; lab-note lesson flagged for promotion.
+- Re-classification (~2500 vs ~1200): ACCEPT — lane confirmed heaviest; estimate corrected.
