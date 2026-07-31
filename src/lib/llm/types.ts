@@ -11,7 +11,12 @@
 // Demo/eval callers are the sanctioned unguarded exceptions.
 import type { z } from 'zod';
 
-export type LLMTaskId = 'reply_generation' | 'triage' | 'judge' | 'insights';
+export type LLMTaskId =
+  | 'reply_generation'
+  | 'triage'
+  | 'judge'
+  | 'insights'
+  | 'solicitation_ask';
 
 export type LLMProviderId = 'openai' | 'anthropic';
 

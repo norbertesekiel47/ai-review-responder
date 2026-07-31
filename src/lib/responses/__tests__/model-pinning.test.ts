@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { OPENAI_MODEL, ANTHROPIC_MODEL, getLlmTask } from '@/lib/llm/tasks';
 import { calculateCostUsd } from '@/lib/costs/audit';
 import { JudgeOutputSchema } from '../judge-schema';
+import { SolicitationAskOutputSchema } from '@/lib/solicitation/ask-schema';
 
 describe('LLM model pinning', () => {
   it('pins the OpenAI model to a dated snapshot (no bare alias)', () => {
@@ -55,5 +56,16 @@ describe('LLM model pinning', () => {
     expect(task.maxTokens).toBe(300);
     expect(task.temperature).toBe(0);
     expect(task.outputSchema).toBe(JudgeOutputSchema);
+  });
+
+  it('pins solicitation_ask to the shared model pair at temperature 0.6', () => {
+    const task = getLlmTask('solicitation_ask');
+    expect(task.taskId).toBe('solicitation_ask');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.primary.model).not.toBe('gpt-4o-mini');
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+    expect(task.maxTokens).toBe(400);
+    expect(task.temperature).toBe(0.6);
+    expect(task.outputSchema).toBe(SolicitationAskOutputSchema);
   });
 });

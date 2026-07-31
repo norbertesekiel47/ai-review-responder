@@ -1,6 +1,7 @@
 import type { LLMTaskDescriptor, LLMTaskId } from './types';
 import { TriageOutputSchema } from '@/lib/reviews/triage-schema';
 import { JudgeOutputSchema } from '@/lib/responses/judge-schema';
+import { SolicitationAskOutputSchema } from '@/lib/solicitation/ask-schema';
 
 // Pinned snapshots — never a bare alias like 'gpt-4o-mini' (silent-regression
 // risk). Guarded by model-pinning.test.ts. Single owner: consumers import
@@ -40,6 +41,17 @@ const LLM_TASKS: Record<LLMTaskId, LLMTaskDescriptor> = {
     maxTokens: 300,
     temperature: 0,
     outputSchema: JudgeOutputSchema,
+  },
+  solicitation_ask: {
+    taskId: 'solicitation_ask',
+    primary: { provider: 'openai', model: OPENAI_MODEL },
+    fallback: { provider: 'anthropic', model: ANTHROPIC_MODEL },
+    maxTokens: 400,
+    // 0.6 by design (spec §4.3): below reply_generation's 0.7 for the stricter
+    // fact-provenance bar, above 0 so sibling asks in one batch don't render
+    // near-identical bodies. Structured output does NOT imply temperature 0 here.
+    temperature: 0.6,
+    outputSchema: SolicitationAskOutputSchema,
   },
 };
 
