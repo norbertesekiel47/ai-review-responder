@@ -37,7 +37,7 @@ columns**, which are re-homed, not dropped:
 - `source TEXT NOT NULL CHECK (source IN ('llm'))` — `'owner_edit'` removed per B7
 - `ask_lint_version TEXT NOT NULL`, `lint_detail JSONB NOT NULL`
 - `moderation_status TEXT NOT NULL CHECK (IN ('clean','flagged','error','disabled'))`, `moderation_detail JSONB NOT NULL`
-- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict, but **only inside the 90-day body-retention window**: #624's redaction sweep empties it to `'{}'` with the bodies, and `solicitation_outreach_body_presence` enforces that pairing. No reproducibility is lost that the same sweep did not already destroy — §2.4 is computed over `subject + body`.)
+- `interpolation_inputs JSONB NOT NULL` (#623 §5.3 — load-bearing for the §2.4 provenance verdict, but **only inside the 90-day body-retention window**: #624's redaction sweep empties it to `'{}'` with the bodies — as does #636's second arm, for rows that went terminal without ever sending (B12) — and `solicitation_outreach_body_presence` enforces that pairing. No reproducibility is lost that the same sweep did not already destroy — §2.4 is computed over `subject + body`.)
 - `prompt_hash TEXT NOT NULL` (alongside #619's `prompt_version`; #619's `policy_version` column is renamed duty: restraint version stays on the ask row's evidence — the outreach column carries `ask_lint_version`, so drop #619's ambiguous `policy_version` in favor of the two explicit columns)
 - **consent snapshot** (Codex critical 1 tail; #620 §3.5): `consent_basis`, `consent_attestation_version`, `consent_row_id` — nullable, **stamped at dispatch by #630** (resolving #620's §3.5-vs-§9 ambiguity: dispatch, not render; #620's #628 binding moves to #630)
 
@@ -292,6 +292,39 @@ the gap. #624 builds no send worker and can neither demonstrate nor test it.
   re-raised it as a High finding and it was rejected *for #624* on exactly this
   basis; the reviewer's sharper requirement is folded in above rather than
   discarded.
+
+### B12. D6b's retention rule is keyed on TERMINAL, not on `sent` (#624 step-7 finding S2, closed by #636)
+
+`executor-design:403` states D6b as **"Body survives send, then redacts"**, and
+#624 implemented it literally: `solicitation_outreach_body_presence` required
+`sent_at IS NOT NULL` of any redaction, and 091's status/timestamp CHECK made
+`sent_at IS NOT NULL` equivalent to `delivery_status = 'sent'`.
+
+**That framing silently excluded four of the five terminal statuses.** A
+`withheld`, `cancelled`, `failed` or `unknown` row could not legally CARRY
+`body_redacted_at`, and the sweep — keyed on `sent_at` — could not have selected
+one anyway. Both halves kept their `rendered_subject`/`rendered_body` and their
+NOT NULL `interpolation_inputs` permanently. `unknown` is the case that makes it
+concrete: it pairs exclusively with `send_indeterminate`, so the provider never
+confirmed and the message may well have been delivered.
+
+**The amended rule.** D6b's promise is about the *body's age*, not about a send
+having happened:
+
+- A **terminal** row is redactable — all five statuses, `sent` included.
+- A **live** row (`rendered`/`queued`/`sending`) is never redactable, at any
+  age. This is the hazard the original arm actually existed for: a bodyless live
+  attempt can neither send nor settle and wedges its batch behind
+  `solicitation_outreach_one_live_per_ask`. `sent` was a proxy for "not live"
+  that happened to exclude four terminal statuses too.
+- **One window, two clocks.** 90 days either way; `sent` rows age from
+  `sent_at`, never-sent terminals from `rendered_at` (NOT NULL, never updated,
+  and the moment the body and its inputs came into existence — so a late touch
+  cannot restart the clock the way `updated_at` would).
+
+Shipped as **migration 092** plus a tenth `ArchivalPoller` arm. It had to land
+**before #630**: nothing writes those four statuses until the send worker
+exists, so the pre-#636 exposure was zero by sequencing alone, not by design.
 
 ## C. Codex findings triage summary
 

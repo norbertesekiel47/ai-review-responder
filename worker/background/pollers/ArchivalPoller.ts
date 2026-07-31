@@ -22,6 +22,11 @@ export const AGENT_SPINE_RETENTION_DAYS = 180;
 // feedback lag, so nothing that still reads a body loses one. This is data
 // minimization on third-party PII held on the contact's behalf — a
 // redact-in-place, NOT a delete: the metadata row is kept forever.
+//
+// ONE window, two clocks (#636). A row that sent ages from `sent_at`; a row
+// that went terminal without sending has no `sent_at` and ages from
+// `rendered_at`. Same number of days either way — the promise is about the
+// body's age, and the clock only decides which column measures it.
 export const BODY_RETENTION_DAYS = 90;
 
 function getIntervalMs(): number {
@@ -31,10 +36,12 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-// Nine independent batched retention arms + count/saturation reporting; the
+// Ten independent batched retention arms + count/saturation reporting; the
 // length is the retention vocabulary, one block per table. Pre-existing size —
-// the perf pass only added the failed-outbox arm to the first block, and #624
-// the redact-in-place arm at the end.
+// the perf pass only added the failed-outbox arm to the first block, #624 the
+// redact-in-place arm, and #636 its never-sent counterpart. The last two are
+// one table with two age columns, which is why they are two arms: each ORDER BY
+// has to match its own partial index for the sweep to stay bounded.
 //
 // Exported so the live-DB suite can drive exactly one cycle; the poller itself
 // goes through createGuardedPoll below.
@@ -272,6 +279,49 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM redacted
     `;
 
+    // 10. solicitation_outreach body redaction for rows that went TERMINAL
+    // without ever sending (migration 092, #636). Arm 9 above can only ever see
+    // `sent` rows — 091 makes sent_at IS NOT NULL equivalent to
+    // delivery_status = 'sent' — so `withheld`, `cancelled`, `failed` and
+    // `unknown` rows kept their bodies and their interpolation_inputs forever.
+    // `unknown` is the one that stings: it means the provider never confirmed,
+    // so the message may well have been delivered.
+    //
+    // Keyed on rendered_at, because sent_at is NULL on exactly these rows.
+    // rendered_at is NOT NULL, no writer updates it, and it is the moment the
+    // body and its inputs came into existence — so the clock cannot be restarted
+    // by a late touch (as updated_at could) and never runs later than a
+    // terminalization-time key would.
+    //
+    // The status list is spelled literally, not bound: a bind parameter inside
+    // the predicate would stop the planner proving implication of
+    // idx_solicitation_outreach_unsent_terminal_redaction_sweep's own literal
+    // predicate, the same partial-index inference failure CLAUDE.md documents
+    // for ON CONFLICT. It must stay byte-identical to that index and to
+    // solicitation_outreach_body_presence's terminal arm; the 092 shape suite
+    // asserts all three agree.
+    //
+    // Disjoint from arm 9 by construction, so a row is never a candidate for
+    // both. Same bound, same ordering rationale, same skip-locked contract.
+    const [unsentOutreachBodiesResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM solicitation_outreach
+        WHERE rendered_at < NOW() - make_interval(days => ${BODY_RETENTION_DAYS})
+          AND body_redacted_at IS NULL
+          AND delivery_status IN ('withheld', 'cancelled', 'failed', 'unknown')
+        ORDER BY rendered_at
+        LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      redacted AS (
+        UPDATE solicitation_outreach
+        SET rendered_subject = NULL, rendered_body = NULL, interpolation_inputs = '{}'::jsonb, body_redacted_at = NOW()
+        WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM redacted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
@@ -281,6 +331,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     const agentOutcomesCount = parseInt(agentOutcomesResult?.count ?? '0', 10);
     const agentRunsCount = parseInt(agentRunsResult?.count ?? '0', 10);
     const outreachBodiesCount = parseInt(outreachBodiesResult?.count ?? '0', 10);
+    const unsentOutreachBodiesCount = parseInt(unsentOutreachBodiesResult?.count ?? '0', 10);
 
     const totalArchived =
       outboxCount +
@@ -291,7 +342,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       analyticsCount +
       agentOutcomesCount +
       agentRunsCount +
-      outreachBodiesCount;
+      outreachBodiesCount +
+      unsentOutreachBodiesCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -305,6 +357,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
         agent_runs: agentRunsCount,
         // Count only — a body is never logged.
         solicitation_outreach_bodies: outreachBodiesCount,
+        solicitation_outreach_unsent_bodies: unsentOutreachBodiesCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -318,6 +371,9 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       if (agentOutcomesCount >= BATCH_LIMIT) saturated.push('agent_outcomes');
       if (agentRunsCount >= BATCH_LIMIT) saturated.push('agent_runs');
       if (outreachBodiesCount >= BATCH_LIMIT) saturated.push('solicitation_outreach_bodies');
+      if (unsentOutreachBodiesCount >= BATCH_LIMIT) {
+        saturated.push('solicitation_outreach_unsent_bodies');
+      }
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.

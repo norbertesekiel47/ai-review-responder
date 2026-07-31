@@ -257,6 +257,21 @@ export const MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE: SchemaRequirement = {
 };
 
 /**
+ * 092 adds one index and REPLACES one 091 constraint with a wider one. The
+ * constraint entry proves only that the name exists — which 091 already
+ * guarantees — so the index is what actually distinguishes a 092 database from
+ * a 091 one, and suites asserting the wider redaction rule must name this
+ * requirement rather than MIGRATION_091 alone.
+ */
+export const MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION: SchemaRequirement = {
+  migration: '092_terminal_outreach_body_redaction',
+  indexes: ['idx_solicitation_outreach_unsent_terminal_redaction_sweep'],
+  constraints: [
+    { table: 'solicitation_outreach', name: 'solicitation_outreach_body_presence' },
+  ],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.

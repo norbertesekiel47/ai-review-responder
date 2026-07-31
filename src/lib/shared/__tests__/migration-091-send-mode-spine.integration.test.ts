@@ -20,6 +20,12 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  checksum,
+  deriveDispatchStamps,
+  insertOutreach as sharedInsertOutreach,
+  type OutreachRowInput,
+} from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
 
 // Shape suite for migration 091 — send-mode spine lifecycle + physical fan-out
@@ -104,9 +110,6 @@ const foreignBatchId = randomUUID();
 let tenant: TenantSeed | undefined;
 let foreignTenant: TenantSeed | undefined;
 
-function checksum(seed: string): string {
-  return seed.replaceAll('-', '').padEnd(64, '0').slice(0, 64);
-}
 
 /** Rolls a probing transaction back without swallowing genuine failures. */
 class RollbackAfterProbe extends Error {
@@ -116,84 +119,40 @@ class RollbackAfterProbe extends Error {
   }
 }
 
-interface OutreachInput {
-  id?: string;
-  batchId?: string;
-  askId?: string;
-  attemptNo?: number;
-  deliveryStatus?: string;
-  dispositionReason?: string | null;
-  renderedSubject?: string | null;
-  renderedBody?: string | null;
-  bodyRedactedAt?: Date | null;
-  queuedAt?: Date | null;
-  sendingAt?: Date | null;
-  sentAt?: Date | null;
-  moderationStatus?: string;
-  interpolationInputs?: Record<string, string>;
-}
-
-/**
- * One `solicitation_outreach` row, defaulting to the shape #628 will write
- * first: a freshly rendered attempt with its bodies present and no disposition.
- * Callers override exactly the field under test, so a rejection can only come
- * from the constraint the case is about.
- */
 /** Pool handle or an open transaction — the RLS case needs the latter. */
 type SqlExecutor = postgresType.Sql | postgresType.TransactionSql;
 
-/**
- * Dispatch stamps the status now REQUIRES, for a case that did not name them.
- *
- * `queued`/`sending`/`sent` each imply `queued_at`, so a fixture that omits it
- * would be rejected by the status/timestamp CHECK rather than reaching the
- * constraint under test. Presence is keyed on the property being ABSENT, not on
- * it being null — a case that explicitly passes `queuedAt: null` is probing that
- * implication and must keep its null.
- */
-function dispatchStamps(input: OutreachInput): { queuedAt: Date | null; sendingAt: Date | null } {
-  const status = input.deliveryStatus ?? 'rendered';
-  const dispatched = status === 'queued' || status === 'sending' || status === 'sent';
-  const base = input.sentAt ?? new Date();
-  return {
-    queuedAt: 'queuedAt' in input
-      ? (input.queuedAt ?? null)
-      : (dispatched ? new Date(base.getTime() - 2_000) : null),
-    sendingAt: 'sendingAt' in input
-      ? (input.sendingAt ?? null)
-      : (status === 'sending' ? new Date(base.getTime() - 1_000) : null),
-  };
-}
+/** Only the fields a case overrides; the tenant chain is this suite's own. */
+type OutreachInput = Partial<
+  Omit<OutreachRowInput, 'accountId' | 'businessId' | 'contactId' | 'renderedAt'>
+>;
 
+/**
+ * One `solicitation_outreach` row on this suite's seeded chain, defaulting to
+ * the shape #628 will write first: a freshly rendered attempt with its bodies
+ * present and no disposition. Callers override exactly the field under test, so
+ * a rejection can only come from the constraint the case is about.
+ *
+ * The column set itself lives in `helpers/outreach-fixture` (#636 T3) — three
+ * suites were re-spelling 091's fifteen NOT NULL columns, so a sixteenth meant
+ * editing three files that had nothing to do with the change. Dispatch stamps
+ * come from the same helper: `queued`/`sending`/`sent` each REQUIRE `queued_at`,
+ * so a fixture omitting it would be rejected by the status/timestamp CHECK
+ * before reaching the constraint under test.
+ */
 function insertOutreach(
   exec: SqlExecutor,
   input: OutreachInput = {},
-): Promise<unknown> {
-  const hasBody = input.renderedSubject !== null;
-  const stamps = dispatchStamps(input);
-  return exec`
-    INSERT INTO solicitation_outreach (
-      id, account_id, business_id, batch_id, ask_id, contact_id,
-      attempt_no, rendered_subject, rendered_body,
-      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
-      body_redacted_at, ask_lint_version, lint_detail,
-      moderation_status, moderation_detail,
-      delivery_status, disposition_reason, queued_at, sending_at, sent_at
-    ) VALUES (
-      ${input.id ?? randomUUID()}::uuid, ${tenant!.accountId}::uuid,
-      ${businessId}::uuid, ${input.batchId ?? batchId}::uuid,
-      ${input.askId ?? askId}::uuid, ${contactId}::uuid,
-      ${input.attemptNo ?? 1},
-      ${hasBody ? (input.renderedSubject ?? 'How did we do?') : null},
-      ${hasBody ? (input.renderedBody ?? 'Would you mind leaving a review?') : null},
-      'solicitation_ask_v1', ${checksum(askId)},
-      ${exec.json(input.interpolationInputs ?? {})}, NOW(),
-      ${input.bodyRedactedAt ?? null}, 'ask_lint_v1', ${exec.json({})},
-      ${input.moderationStatus ?? 'clean'}, ${exec.json({})},
-      ${input.deliveryStatus ?? 'rendered'}, ${input.dispositionReason ?? null},
-      ${stamps.queuedAt}, ${stamps.sendingAt}, ${input.sentAt ?? null}
-    )
-  `;
+): Promise<string> {
+  return sharedInsertOutreach(exec, {
+    accountId: tenant!.accountId,
+    businessId,
+    contactId,
+    batchId: input.batchId ?? batchId,
+    askId: input.askId ?? askId,
+    ...input,
+    ...deriveDispatchStamps(input),
+  });
 }
 
 /**
@@ -880,7 +839,15 @@ describeWithDb(
         }),
       ).resolves.toBeDefined();
 
-      // Redaction means gone AND sent — a never-sent row cannot claim one.
+      // 091 read this arm as "redaction means gone AND SENT", which made the
+      // stamp unrepresentable on the four terminal statuses that never send —
+      // so their bodies and their interpolation_inputs were retained forever
+      // (#636 / step-7 finding S2). Migration 092 widens it to "gone AND
+      // TERMINAL", so a redacted `withheld` row is now legal. Asserting the
+      // rejection here would only pass against a pre-092 database.
+      //
+      // What 092 does NOT relax — a LIVE row is still never redactable — is
+      // asserted below and owned in full by the 092 suite.
       await expect(
         insertOutreach(db!, {
           attemptNo: 2,
@@ -890,7 +857,7 @@ describeWithDb(
           sentAt: null,
           bodyRedactedAt: new Date(),
         }),
-      ).rejects.toThrow(/solicitation_outreach_body_presence/);
+      ).resolves.toBeDefined();
     });
 
     // ── 4. solicitation_outreach status <-> reason totality ──────────────────
@@ -959,9 +926,11 @@ describeWithDb(
     });
 
     it('solicitation_outreach rejects a queued row carrying a body_redacted_at stamp', async () => {
-      // Redaction implies sent. A queued row is still dispatchable, so a
-      // redaction stamp on one would mean "send this, the body is gone" — the
-      // exact case the body-presence rules were split into three to catch.
+      // Redaction implies TERMINAL (091 said `sent`; 092 widened it — see the
+      // redacted-body case above). A queued row is still dispatchable under
+      // either reading, so a redaction stamp on one would mean "send this, the
+      // body is gone" — the exact case the body-presence rules were split into
+      // three to catch, and the one arm 092 deliberately leaves alone.
       await expect(
         insertOutreach(db!, {
           deliveryStatus: 'queued',

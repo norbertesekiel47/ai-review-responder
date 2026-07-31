@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **091** — next migration is **092**
+Current head: **092** — next migration is **093**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -34,7 +34,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
 | `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
 | `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
-| `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `body_redacted_at` stamped 90 days after `sent_at` — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. Hard-deletes with its batch on account purge | ArchivalPoller (migration 091, index `idx_solicitation_outreach_redaction_sweep`); purge via `solicitation_batches` cascade |
+| `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
 
 Revisit triggers:
 
@@ -967,6 +967,57 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **092** — Outreach body redaction reaches every TERMINAL row, not just `sent`
+  (#636, deferred from #624 by the step-7 spec/correctness review as finding
+  S2). Two objects: `solicitation_outreach_body_presence` is replaced with a
+  wider arm, and one partial index is added.
+
+  **The defect was true by construction, not by oversight.** 091's
+  `body_presence` required `sent_at IS NOT NULL` of any row carrying
+  `body_redacted_at`, and its `status_timestamp_consistency` made
+  `sent_at IS NOT NULL` equivalent to `delivery_status = 'sent'`. So the
+  redaction stamp was UNREPRESENTABLE on a `withheld`, `cancelled`, `failed` or
+  `unknown` row — and the ArchivalPoller sweep, keyed on `sent_at`, could not
+  have selected one even if the constraint had allowed it. Those rows kept their
+  `rendered_subject`/`rendered_body` **and** their NOT NULL
+  `interpolation_inputs` (`contact_first_name`, `visit_note` — third-party PII
+  held on the contact's behalf) permanently. `unknown` is the sharp case: it
+  pairs exclusively with `send_indeterminate`, meaning the provider never
+  confirmed, so those messages may well have been delivered.
+
+  **Widening, so it cannot reject a stored row — a proof, not a data check.**
+  091 gives `sent_at IS NOT NULL` = `status = 'sent'`, and `'sent'` is a member
+  of the new list, so the old arm implies the new one for every row satisfying
+  both constraints. Exposure was zero anyway and only by sequencing: nothing
+  writes those statuses until #630 builds the send worker, which is why this
+  had to land BEFORE it rather than after.
+
+  **The terminal set is spelled positively, and the direction is the point.**
+  Under the explicit five-member list a future status is non-redactable until
+  someone adds it — a retention gap, loud at test time. Under
+  `NOT IN ('rendered','queued','sending')` a future LIVE status would be
+  redactable the day it is added, silently reopening the wedge the arm exists to
+  prevent (a bodyless live row can neither send nor settle, and pins its batch
+  behind `solicitation_outreach_one_live_per_ask`).
+
+  **`rendered_at` keys the new sweep arm, not `updated_at`.** `sent_at` is NULL
+  on exactly the rows the arm is for. `rendered_at` is NOT NULL, no writer
+  updates it, and it is when the body and its inputs came into existence — so
+  the retention clock cannot be restarted by a late touch (a bounce signal, a
+  backfill), which `updated_at` would allow, and it redacts no later than a
+  terminalization-time key would. The same 90-day `BODY_RETENTION_DAYS`
+  governs both arms: one window, two clocks.
+
+  The status list is re-spelled literally in `ArchivalPoller`'s arm 10 rather
+  than bound, because a bind parameter defeats the planner's partial-index
+  implication proof — the same failure mode as a parameterized `ON CONFLICT`
+  predicate. That the CHECK, the index predicate and the poller agree is
+  asserted by the shape suite, since it is a fact with no single owner.
+
+  Shape suite: `src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts`
+  (constraint + index + planner). Sweep behaviour:
+  `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts`.
 
 - **091** — Send-mode spine lifecycle + physical fan-out primitives (#624 of
   wayfinder map #617). Additive and re-runnable. Seven parts: `agent_runs` gains
