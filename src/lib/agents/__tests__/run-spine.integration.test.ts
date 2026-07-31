@@ -19,13 +19,20 @@ import {
   assertSchemaReady,
   MIGRATION_071_RUN_SPINE,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+  MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import {
+  checksum,
+  insertOutreach,
+} from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   completeRun,
   recordCompletedChildRuns,
+  recordGenerationSteps,
   recordOutcome,
   recordStep,
   startOrGetActiveRun,
+  startOrGetSolicitationSendBatchRun,
 } from '../run-spine';
 import { commitWeeklyInsightsDigest } from '../../../../worker/jobs/WeeklySummaryWorker';
 
@@ -85,6 +92,7 @@ describeWithDb(
     await assertSchemaReady(db, [
       MIGRATION_071_RUN_SPINE,
       MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+      MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
     ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Run Spine Owner',
@@ -440,6 +448,229 @@ describeWithDb(
       await sql()`DELETE FROM businesses WHERE id IN (
         ${firstBusinessId}::uuid, ${secondBusinessId}::uuid
       )`;
+    }
+  });
+
+  it('startOrGetSolicitationSendBatchRun starts the send parent once and coexists with the build parent', async () => {
+    const batchId = randomUUID();
+
+    const first = await sql().begin((tx) =>
+      startOrGetSolicitationSendBatchRun(tx, {
+        batchId,
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+        correlationId: 'send-batch:first',
+      }),
+    );
+    const replay = await sql().begin((tx) =>
+      startOrGetSolicitationSendBatchRun(tx, {
+        batchId,
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+      }),
+    );
+    expect(first.created).toBe(true);
+    expect(replay).toEqual({ runId: first.runId, created: false });
+
+    const [row] = await sql()<{ kind: string; subject_type: string; subject_id: string }[]>`
+      SELECT kind, subject_type, subject_id FROM agent_runs WHERE id = ${first.runId}::uuid
+    `;
+    // 091's widened kind CHECK and pairing: the send parent shares the build
+    // parent's 'solicitation_batch' subject as its sibling on the same subject.
+    expect(row).toEqual({
+      kind: 'solicitation_send_batch',
+      subject_type: 'solicitation_batch',
+      subject_id: batchId,
+    });
+
+    // agent_runs_one_active_per_subject keys on (kind, subject_type,
+    // subject_id), so the BUILD parent for the same batch is a distinct,
+    // concurrently running run — not a conflict.
+    const buildParent = await sql().begin((tx) =>
+      startOrGetActiveRun(tx, {
+        kind: 'solicitation_batch',
+        subjectType: 'solicitation_batch',
+        subjectId: batchId,
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+      }),
+    );
+    expect(buildParent.created).toBe(true);
+    expect(buildParent.runId).not.toBe(first.runId);
+  });
+
+  it('recordGenerationSteps derives one parent step per non-cancelled outreach row of the batch', async () => {
+    const uploadId = randomUUID();
+    const batchId = randomUUID();
+
+    await sql()`
+      INSERT INTO contact_csv_uploads (
+        id, account_id, business_id, filename, byte_size, content_sha256,
+        raw_csv, status, report, attested_by_user_id, attested_at,
+        attestation_version, completed_at
+      ) VALUES (
+        ${uploadId}::uuid, ${accountId()}::uuid, ${solicitationBusinessId}::uuid,
+        'run-spine-generation.csv', 1, ${checksum(uploadId)},
+        NULL, 'completed', ${sql().json({ accepted: 1 })},
+        ${tenant!.userId}::uuid, NOW(), 'run-spine-test', NOW()
+      )
+    `;
+    await sql()`
+      INSERT INTO solicitation_batches (id, account_id, business_id, source_upload_id)
+      VALUES (
+        ${batchId}::uuid, ${accountId()}::uuid, ${solicitationBusinessId}::uuid,
+        ${uploadId}::uuid
+      )
+    `;
+    const seedAsk = async (): Promise<string> => {
+      const contactId = randomUUID();
+      const askId = randomUUID();
+      await sql()`
+        INSERT INTO solicitation_contacts (id, business_id, name, email, created_by_upload_id)
+        VALUES (
+          ${contactId}::uuid, ${solicitationBusinessId}::uuid, 'Generation Candidate',
+          ${`${contactId}@example.test`}, ${uploadId}::uuid
+        )
+      `;
+      await sql()`
+        INSERT INTO solicitation_asks (
+          id, account_id, business_id, batch_id, contact_id,
+          status, withheld_reason, evidence, decided_at
+        ) VALUES (
+          ${askId}::uuid, ${accountId()}::uuid, ${solicitationBusinessId}::uuid,
+          ${batchId}::uuid, ${contactId}::uuid, 'send', NULL,
+          ${sql().json({ decision: 'send' })}, NOW()
+        )
+      `;
+      return askId;
+    };
+    const contactOf = async (askId: string): Promise<string> => {
+      const [row] = await sql()<{ contact_id: string }[]>`
+        SELECT contact_id::text AS contact_id FROM solicitation_asks WHERE id = ${askId}::uuid
+      `;
+      return row!.contact_id;
+    };
+
+    try {
+      const { runId: parentRunId } = await sql().begin((tx) =>
+        startOrGetSolicitationSendBatchRun(tx, {
+          batchId,
+          accountId: accountId(),
+          businessId: solicitationBusinessId,
+        }),
+      );
+
+      const renderedAskId = await seedAsk();
+      const withheldAskId = await seedAsk();
+      const supersededAskId = await seedAsk();
+      const base = {
+        accountId: accountId(),
+        businessId: solicitationBusinessId,
+        batchId,
+      };
+      const renderedOutreachId = await insertOutreach(sql(), {
+        ...base,
+        askId: renderedAskId,
+        contactId: await contactOf(renderedAskId),
+        deliveryStatus: 'rendered',
+      });
+      const withheldOutreachId = await insertOutreach(sql(), {
+        ...base,
+        askId: withheldAskId,
+        contactId: await contactOf(withheldAskId),
+        deliveryStatus: 'withheld',
+        dispositionReason: 'moderation_high',
+        moderationStatus: 'flagged',
+        renderedSubject: null,
+        renderedBody: null,
+      });
+      // The superseded ask carries a cancelled attempt 1 AND a live attempt 2:
+      // exclusion is per ROW (delivery_status <> 'cancelled'), so the
+      // replacement row is stepped and its predecessor is not.
+      const supersededContactId = await contactOf(supersededAskId);
+      await insertOutreach(sql(), {
+        ...base,
+        askId: supersededAskId,
+        contactId: supersededContactId,
+        attemptNo: 1,
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'superseded',
+      });
+      const replacementOutreachId = await insertOutreach(sql(), {
+        ...base,
+        askId: supersededAskId,
+        contactId: supersededContactId,
+        attemptNo: 2,
+        deliveryStatus: 'rendered',
+      });
+
+      const written = await sql().begin((tx) =>
+        recordGenerationSteps(tx, { parentRunId, ...base }),
+      );
+      expect(written).toBe(3);
+
+      const steps = await sql()<{
+        step_index: number;
+        step_key: string;
+        attributed_agent: string;
+        detail: unknown;
+      }[]>`
+        SELECT step_index, step_key, attributed_agent, detail
+        FROM agent_run_steps
+        WHERE agent_run_id = ${parentRunId}::uuid
+        ORDER BY step_index
+      `;
+      expect(steps.map((row) => row.step_index)).toEqual([1, 2, 3]);
+      expect(steps.every((row) => row.step_key === 'ask_generated')).toBe(true);
+      expect(steps.every((row) => row.attributed_agent === 'solicitation')).toBe(true);
+
+      const details = steps.map((row) => {
+        const raw = row.detail;
+        return (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, unknown>;
+      });
+      const byOutreachId = new Map(details.map((detail) => [detail.outreach_id, detail]));
+      expect(byOutreachId.get(renderedOutreachId)).toEqual({
+        outreach_id: renderedOutreachId,
+        ask_id: renderedAskId,
+        attempt_no: 1,
+        delivery_status: 'rendered',
+        // disposition_reason stripped by jsonb_strip_nulls — ids/enums only.
+      });
+      expect(byOutreachId.get(withheldOutreachId)).toEqual({
+        outreach_id: withheldOutreachId,
+        ask_id: withheldAskId,
+        attempt_no: 1,
+        delivery_status: 'withheld',
+        disposition_reason: 'moderation_high',
+      });
+      expect(byOutreachId.get(replacementOutreachId)).toMatchObject({
+        ask_id: supersededAskId,
+        attempt_no: 2,
+        delivery_status: 'rendered',
+      });
+
+      // recordStep and recordGenerationSteps share one index sequence: the
+      // closure receipt appends AFTER the bulk block, gaplessly.
+      await sql().begin((tx) =>
+        recordStep(tx, { runId: parentRunId, stepKey: 'send_batch_closed' }),
+      );
+      const [last] = await sql()<{ max_index: number }[]>`
+        SELECT MAX(step_index)::int AS max_index FROM agent_run_steps
+        WHERE agent_run_id = ${parentRunId}::uuid
+      `;
+      expect(last!.max_index).toBe(4);
+
+      await expect(
+        sql().begin((tx) => recordGenerationSteps(tx, { parentRunId: randomUUID(), ...base })),
+      ).rejects.toThrow(/send parent run not found/);
+    } finally {
+      await sql()`DELETE FROM solicitation_outreach WHERE batch_id = ${batchId}::uuid`;
+      await sql()`DELETE FROM solicitation_asks WHERE batch_id = ${batchId}::uuid`;
+      await sql()`
+        DELETE FROM solicitation_contacts WHERE created_by_upload_id = ${uploadId}::uuid
+      `;
+      await sql()`DELETE FROM solicitation_batches WHERE id = ${batchId}::uuid`;
+      await sql()`DELETE FROM contact_csv_uploads WHERE id = ${uploadId}::uuid`;
     }
   });
   },

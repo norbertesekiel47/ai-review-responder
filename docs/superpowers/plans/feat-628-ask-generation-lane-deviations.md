@@ -139,3 +139,28 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   for the next ticket that touches `src/lib/responses/`. The in-surface half
   (a backtick-fence admissibility test tying the prompt module's fence
   guarantee to enforced lint behavior) landed with Task 6.
+- [2026-07-30] **Task 7 mandated finding — `closeBatchIfSettled` ALREADY
+  produces D14's `generation_failed`; no extension was needed.** Its
+  `deriveDisposition` maps `input.failure.code === 'generation_failed'` →
+  disposition `generation_failed` → parent `failed` via
+  `failSolicitationBatchRun` (which also writes the error jsonb with
+  `failed_count`/`withheld_count`), and the pre-existing #624 integration test
+  `closeBatchIfSettled maps the generation_failed disposition to a failed
+  parent run` proves it end-to-end. The disposition is deliberately NOT
+  derivable from the outreach tallies (`exhausted` and `generation_failed` can
+  produce identical counts), so the obligation transfers to Task 8: the finale
+  must pass `failure: { code: 'generation_failed', failedCount, withheldCount }`
+  to its single `closeBatchIfSettled` call when every render failed or was
+  withheld (k=0), and must NOT call `failSolicitationBatchRun` for the send
+  parent itself (the batch→run lock-order contract on
+  `CloseBatchIfSettledInput.failure`).
+- [2026-07-30] **Task 7: `recordGenerationSteps` step ids are
+  `gen_random_uuid()`, not UUIDv7.** The plan mandates ONE set-based
+  `INSERT … SELECT` and Postgres 16 has no `uuidv7()`, so per-row v7 ids cannot
+  be generated inside the statement. Migration 046's comment blesses
+  `gen_random_uuid()` as the database fallback, and step ORDER is owned by
+  `step_index`, never by id — nothing reads step ids time-ordered. Also
+  recorded: the plan named no step key for the bulk generation steps; Task 7
+  chose `ask_generated` (STEP_PERSONA → `solicitation`), sibling to the build
+  lane's `ask_evaluated`, covering both rendered and withheld rows ("the
+  generation attempt produced a row").

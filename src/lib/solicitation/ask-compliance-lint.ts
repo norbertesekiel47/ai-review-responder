@@ -56,6 +56,15 @@ export type AskBlockReason = (typeof ASK_BLOCK_REASONS)[number];
 /** The seven reasons the lint itself can assign. */
 export type AskLintClass = Exclude<AskBlockReason, 'moderation_high'>;
 
+/**
+ * The same seven as a runtime value, derived from the vocabulary above so the
+ * "block reasons minus moderation_high" fact keeps ONE owner. Consumed by the
+ * `lint_detail` read-boundary parser (outreach.ts).
+ */
+export const ASK_LINT_CLASSES: readonly AskLintClass[] = ASK_BLOCK_REASONS.filter(
+  (reason): reason is AskLintClass => reason !== 'moderation_high',
+);
+
 // ---------------------------------------------------------------------------
 // Note admissibility (§1.2) — the single largest untrusted-input surface.
 // Inadmissible ⇒ the note is OMITTED and generation proceeds on the four

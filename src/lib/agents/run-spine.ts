@@ -66,6 +66,7 @@ export const STEP_PERSONA = {
   digest_sent: 'insights',
   ask_evaluated: 'solicitation',
   batch_built: 'solicitation',
+  ask_generated: 'solicitation',
   send_batch_closed: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
@@ -171,6 +172,34 @@ export async function startOrGetSolicitationBatchRun(
 ): Promise<StartRunResult> {
   return startOrGetActiveRunInternal(tx, {
     kind: 'solicitation_batch',
+    subjectType: 'solicitation_batch',
+    subjectId: input.batchId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    correlationId: input.correlationId,
+  });
+}
+
+export interface StartSolicitationSendBatchRunInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+/**
+ * Start or reuse the send-lane parent run for one Solicitation batch (#628,
+ * EXEC D3). Kind `solicitation_send_batch` shares the build parent's
+ * `solicitation_batch` subject — the two are siblings on the same subject, and
+ * `agent_runs_one_active_per_subject` keys on (kind, subject_type, subject_id),
+ * so both can run at once without contention.
+ */
+export async function startOrGetSolicitationSendBatchRun(
+  tx: TxClient,
+  input: StartSolicitationSendBatchRunInput,
+): Promise<StartRunResult> {
+  return startOrGetActiveRunInternal(tx, {
+    kind: 'solicitation_send_batch',
     subjectType: 'solicitation_batch',
     subjectId: input.batchId,
     accountId: input.accountId,
@@ -297,6 +326,90 @@ export async function recordCompletedChildRuns(
       `run-spine: expected ${input.children.length} ask_evaluated steps, inserted ${insertedSteps.count}`,
     );
   }
+}
+
+export interface RecordGenerationStepsInput {
+  parentRunId: string;
+  accountId: string;
+  businessId: string;
+  batchId: string;
+}
+
+/**
+ * Bulk-write one `ask_generated` step on the send parent per NON-CANCELLED
+ * `solicitation_outreach` row of the batch (#628, EXEC D3: steps on the
+ * parent, no child fan-out; D17: no `cost_cents` — render cost lives in
+ * `api_costs`).
+ *
+ * DATABASE-DERIVED on purpose: the step set comes from one `INSERT … SELECT`
+ * over the persisted outreach rows, never from an in-memory children array —
+ * a retried generation job that skipped already-persisted children still
+ * records their steps. Cancelled rows are excluded because a superseded
+ * attempt's replacement row carries the ask's current fact.
+ *
+ * NOT idempotent by itself: a second call appends a second step per row. The
+ * generation finale runs it exactly once behind the outbox-ownership CAS,
+ * which aborts a stale replay before any domain write.
+ *
+ * Locking follows `appendRunStep`: the parent run row is locked in its OWN
+ * statement, and only the subsequent statement — whose READ COMMITTED snapshot
+ * is taken after the lock wait — computes the base step_index.
+ *
+ * Step ids are `gen_random_uuid()`, the one sanctioned departure from the
+ * UUIDv7 PK convention (migration 046's "database fallback" carve-out): v7
+ * cannot be generated inside a single set-based Postgres 16 statement, and
+ * step ordering is owned by `step_index`, never by id.
+ *
+ * Returns the number of steps written.
+ */
+export async function recordGenerationSteps(
+  tx: TxClient,
+  input: RecordGenerationStepsInput,
+): Promise<number> {
+  const lock = await tx<{ ok: number }[]>`
+    SELECT 1 AS ok FROM agent_runs
+    WHERE id = ${input.parentRunId}
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+    FOR UPDATE
+  `;
+  if (lock.count === 0) {
+    throw new Error(
+      `run-spine: send parent run not found for recordGenerationSteps(${input.parentRunId})`,
+    );
+  }
+
+  const inserted = await tx<{ id: string }[]>`
+    WITH base AS (
+      SELECT COALESCE(MAX(step_index), 0) AS max_index
+      FROM agent_run_steps
+      WHERE agent_run_id = ${input.parentRunId}
+    )
+    INSERT INTO agent_run_steps (
+      id, agent_run_id, step_index, step_key, attributed_agent, status, detail
+    )
+    SELECT
+      gen_random_uuid(),
+      ${input.parentRunId},
+      base.max_index + ROW_NUMBER() OVER (ORDER BY outreach.created_at, outreach.id),
+      'ask_generated',
+      ${personaForStep('ask_generated')},
+      'completed',
+      jsonb_strip_nulls(jsonb_build_object(
+        'outreach_id', outreach.id,
+        'ask_id', outreach.ask_id,
+        'attempt_no', outreach.attempt_no,
+        'delivery_status', outreach.delivery_status,
+        'disposition_reason', outreach.disposition_reason
+      ))
+    FROM solicitation_outreach AS outreach, base
+    WHERE outreach.batch_id = ${input.batchId}::uuid
+      AND outreach.account_id = ${input.accountId}::uuid
+      AND outreach.business_id = ${input.businessId}::uuid
+      AND outreach.delivery_status <> 'cancelled'
+    RETURNING id
+  `;
+  return inserted.count;
 }
 
 /**
