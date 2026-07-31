@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import fc from 'fast-check';
 import type { Sql } from 'postgres';
 
 // Set env vars BEFORE any tracker imports trigger getCacheRedisOptions()
@@ -235,6 +236,51 @@ describe('releaseCost', () => {
   });
 });
 
+describe('task-scoped estimate threading', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // ARGV layout reminder — eval(LUA, numKeys, bizKey, globalKey, argv...):
+  // calls[i][4] is the first ARGV (estimate on reserve, adjustment on
+  // finalize/release), calls[i][5] the second.
+  it('reserves, finalizes, and releases with the same task-scoped estimate', async () => {
+    const { reserveCost, finalizeCost, releaseCost } = await import('../tracker');
+
+    // Reserve at 1¢ — the Lua estimate ARGV must be 1, NOT the 15¢ default.
+    mockRedis.eval.mockResolvedValueOnce(['ok', 1, 1]);
+    const dateStr = await reserveCost('biz-001', 'copilot', 1);
+    expect(mockRedis.eval.mock.calls[0]![4]).toBe('1');
+
+    // Finalize with actual 0 against the SAME 1¢ estimate → adjustment -1
+    // (integer cents only; callers round via Math.ceil(usd * 100)).
+    mockRedis.eval.mockResolvedValueOnce('ok');
+    await finalizeCost('biz-001', 0, dateStr, 1);
+    expect(mockRedis.eval.mock.calls[1]![4]).toBe('-1');
+
+    // Release with the SAME 1¢ estimate → -1, not -15.
+    mockRedis.eval.mockResolvedValueOnce('ok');
+    await releaseCost('biz-001', dateStr, 1);
+    expect(mockRedis.eval.mock.calls[2]![4]).toBe('-1');
+  });
+
+  it('omitted estimate keeps the 15¢ pessimistic default everywhere (existing-caller regression)', async () => {
+    const { reserveCost, finalizeCost, releaseCost } = await import('../tracker');
+
+    mockRedis.eval.mockResolvedValueOnce(['ok', 15, 15]);
+    const dateStr = await reserveCost('biz-001', 'copilot');
+    expect(mockRedis.eval.mock.calls[0]![4]).toBe('15');
+
+    mockRedis.eval.mockResolvedValueOnce('ok');
+    await finalizeCost('biz-001', 5, dateStr);
+    expect(mockRedis.eval.mock.calls[1]![4]).toBe('-10');
+
+    mockRedis.eval.mockResolvedValueOnce('ok');
+    await releaseCost('biz-001', dateStr);
+    expect(mockRedis.eval.mock.calls[2]![4]).toBe('-15');
+  });
+});
+
 describe('checkRegenBudget', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -257,6 +303,38 @@ describe('checkRegenBudget', () => {
       RegenBudgetExceededError,
     );
     expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('checkAskRegenBudget', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('throws RegenBudgetExceededError on the 4th call for one askId', async () => {
+    mockRedis.eval
+      .mockResolvedValueOnce(['ok', 1])
+      .mockResolvedValueOnce(['ok', 2])
+      .mockResolvedValueOnce(['ok', 3])
+      .mockResolvedValueOnce(['exceeded', 4]);
+
+    const { checkAskRegenBudget, RegenBudgetExceededError } =
+      await import('../tracker');
+
+    await expect(checkAskRegenBudget('ask-001')).resolves.toBeUndefined();
+    await checkAskRegenBudget('ask-001');
+    await checkAskRegenBudget('ask-001');
+    await expect(checkAskRegenBudget('ask-001')).rejects.toThrow(
+      RegenBudgetExceededError,
+    );
+
+    // Key + TTL contract: regen:ask:{askId}:{date}, 86400s TTL, shared
+    // 3-per-day limit — same Lua primitive as checkRegenBudget.
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[1]).toBe(1);
+    expect(evalArgs[2]).toMatch(/^regen:ask:ask-001:\d{4}-\d{2}-\d{2}$/);
+    expect(evalArgs[3]).toBe('3');
+    expect(evalArgs[4]).toBe('86400');
   });
 });
 
@@ -345,5 +423,49 @@ describe('checkIdempotentCache', () => {
     const err = await checkIdempotentCache('rev-001', 1).catch((e) => e);
     expect(err).toBeInstanceOf(CostInfraUnavailableError);
     expect(err.touchpoint).toBe('checkIdempotentCache');
+  });
+});
+
+// Property tests (fast-check): the house style for invariant-level coverage —
+// see src/lib/reviews/__tests__/sentiment.test.ts "invariants" block.
+describe('cost reservation invariants', () => {
+  it('reserve followed by release restores the daily counters for any estimate', async () => {
+    const { reserveCost, releaseCost } = await import('../tracker');
+
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 50 }), async (estimate) => {
+        // mockReset (not clearAllMocks): also drops any leftover
+        // mockResolvedValueOnce queue that would bypass the model below.
+        mockRedis.eval.mockReset();
+        // In-memory counter model of the two Lua scripts: both apply their
+        // first ARGV as a signed delta to the biz + global keys.
+        const counters = new Map<string, number>();
+        mockRedis.eval.mockImplementation(
+          async (
+            script: string,
+            _numKeys: number,
+            bizKey: string,
+            globalKey: string,
+            firstArgv: string,
+          ) => {
+            const delta = Number(firstArgv);
+            counters.set(bizKey, (counters.get(bizKey) ?? 0) + delta);
+            counters.set(globalKey, (counters.get(globalKey) ?? 0) + delta);
+            return script.includes('bizLimit')
+              ? ['ok', counters.get(bizKey)!, counters.get(globalKey)!]
+              : 'ok';
+          },
+        );
+
+        const dateStr = await reserveCost('biz-prop', 'copilot', estimate);
+        await releaseCost('biz-prop', dateStr, estimate);
+
+        expect(counters.get(`cost:daily:biz-prop:${dateStr}`)).toBe(0);
+        expect(counters.get(`cost:global:${dateStr}`)).toBe(0);
+      }),
+    );
+
+    // Don't leak the in-memory model into any later suite.
+    mockRedis.eval.mockReset();
   });
 });

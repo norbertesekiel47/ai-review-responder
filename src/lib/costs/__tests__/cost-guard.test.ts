@@ -53,9 +53,9 @@ describe('withCostGuard', () => {
     const result = await withCostGuard(baseOpts, () => makeGuardedResult('hello', 10));
 
     expect(result).toBe('hello');
-    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot');
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot', undefined);
     expect(acquireConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
-    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03');
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03', undefined);
     expect(releaseConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
     expect(releaseCost).not.toHaveBeenCalled();
   });
@@ -68,9 +68,9 @@ describe('withCostGuard', () => {
     );
 
     expect(result).toBe('hello');
-    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot');
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot', undefined);
     expect(acquireConcurrencySlot).not.toHaveBeenCalled();
-    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03');
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 10, '2026-05-03', undefined);
     expect(releaseConcurrencySlot).not.toHaveBeenCalled();
     expect(releaseCost).not.toHaveBeenCalled();
   });
@@ -99,7 +99,7 @@ describe('withCostGuard', () => {
 
     await expect(withCostGuard(baseOpts, fn)).rejects.toThrow(slotErr);
     expect(fn).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
     expect(releaseConcurrencySlot).not.toHaveBeenCalled();
   });
 
@@ -112,7 +112,7 @@ describe('withCostGuard', () => {
     ).rejects.toThrow(fnErr);
 
     expect(releaseConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
     expect(finalizeCost).not.toHaveBeenCalled();
   });
 
@@ -250,13 +250,13 @@ describe('withCostGuard', () => {
   // ── 14. Larger actualCostCents passes through ────────────────────────
   it('actualCostCents larger than typical → finalize called with the supplied value', async () => {
     await withCostGuard(baseOpts, () => makeGuardedResult('hello', 25));
-    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 25, '2026-05-03');
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 25, '2026-05-03', undefined);
   });
 
   // ── 15. Smaller actualCostCents passes through ───────────────────────
   it('actualCostCents smaller than typical → finalize called with the supplied value', async () => {
     await withCostGuard(baseOpts, () => makeGuardedResult('hello', 5));
-    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 5, '2026-05-03');
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 5, '2026-05-03', undefined);
   });
 
   // ── 16. fn throws + withConcurrency: false ───────────────────────────
@@ -272,13 +272,13 @@ describe('withCostGuard', () => {
 
     expect(acquireConcurrencySlot).not.toHaveBeenCalled();
     expect(releaseConcurrencySlot).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
   });
 
   // ── 17. actualCostCents = 0 boundary ─────────────────────────────────
   it('actualCostCents = 0 → finalize called with 0 (cancels reservation)', async () => {
     await withCostGuard(baseOpts, () => makeGuardedResult('hello', 0));
-    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 0, '2026-05-03');
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 0, '2026-05-03', undefined);
     expect(releaseCost).not.toHaveBeenCalled();
   });
 
@@ -294,7 +294,7 @@ describe('withCostGuard', () => {
     ).rejects.toThrow(TypeError);
 
     expect(finalizeCost).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
     expect(releaseConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
   });
 
@@ -304,7 +304,7 @@ describe('withCostGuard', () => {
     ).rejects.toThrow(TypeError);
 
     expect(finalizeCost).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
   });
 
   it('actualCostCents = 1.5 (fractional) → throws TypeError, reservation released', async () => {
@@ -313,7 +313,7 @@ describe('withCostGuard', () => {
     ).rejects.toThrow(TypeError);
 
     expect(finalizeCost).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
   });
 
   it('actualCostCents = -1 (negative) → throws TypeError, reservation released', async () => {
@@ -322,7 +322,65 @@ describe('withCostGuard', () => {
     ).rejects.toThrow(TypeError);
 
     expect(finalizeCost).not.toHaveBeenCalled();
-    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', undefined);
+  });
+
+  // ── Task-scoped estimate threading (#628) ────────────────────────────
+  // The estimate travels via the closure to ALL THREE tracker calls — a
+  // reserve/finalize mismatch silently leaks budget (SPEC §7.2).
+
+  it('acquires no concurrency slot when withConcurrency is false', async () => {
+    const result = await withCostGuard(
+      { ...baseOpts, withConcurrency: false, estimateCents: 1 },
+      () => makeGuardedResult('hello', 0),
+    );
+
+    // PRIMARY: withConcurrency: false must never touch the slot machinery.
+    expect(acquireConcurrencySlot).not.toHaveBeenCalled();
+    expect(releaseConcurrencySlot).not.toHaveBeenCalled();
+
+    // Secondary: value returned, and the same 1¢ estimate reaches reserve AND finalize.
+    expect(result).toBe('hello');
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot', 1);
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 0, '2026-05-03', 1);
+    expect(releaseCost).not.toHaveBeenCalled();
+  });
+
+  it('fn throws with estimateCents set → releaseCost receives the same task-scoped estimate', async () => {
+    const fnErr = new Error('fn boom');
+
+    await expect(
+      withCostGuard(
+        { ...baseOpts, withConcurrency: false, estimateCents: 1 },
+        () => Promise.reject(fnErr),
+      ),
+    ).rejects.toThrow(fnErr);
+
+    expect(reserveCost).toHaveBeenCalledExactlyOnceWith('biz-001', 'copilot', 1);
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03', 1);
+    expect(finalizeCost).not.toHaveBeenCalled();
+  });
+
+  it('estimateCents = 1.5 (fractional) → throws TypeError before any reservation', async () => {
+    await expect(
+      withCostGuard(
+        { ...baseOpts, estimateCents: 1.5 },
+        () => makeGuardedResult('hello', 0),
+      ),
+    ).rejects.toThrow(TypeError);
+
+    expect(reserveCost).not.toHaveBeenCalled();
+  });
+
+  it('estimateCents = 0 (non-positive) → throws TypeError before any reservation', async () => {
+    await expect(
+      withCostGuard(
+        { ...baseOpts, estimateCents: 0 },
+        () => makeGuardedResult('hello', 0),
+      ),
+    ).rejects.toThrow(TypeError);
+
+    expect(reserveCost).not.toHaveBeenCalled();
   });
 
   // ── 22-23. Boundary validation (L6) ──────────────────────────────────
