@@ -49,3 +49,11 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   of `triage` and `judge` (registry temperature 0) from the SDK default to 0 —
   beneficial (deterministic classification on fallback) but part of the blast
   radius the spec's §9 wording understated.
+- [2026-07-30] **Task 4 spec-review carry-forward: placeholder uniqueness is
+  unowned.** If the LLM body itself emitted `{{unsubscribe_url}}` /
+  `{{review_link}}`, assembly would yield two occurrences: lint class 7 checks
+  presence only, provenance (class 6) ignores lowercase tokens, and AMEND B4
+  does not specify duplicate-substitution behavior for #630. Task 5 SHOULD
+  close this cheaply by making class 7 assert exactly-once (a duplicated
+  placeholder becomes a lint_failed render); otherwise it falls to #630's
+  substitution contract.
