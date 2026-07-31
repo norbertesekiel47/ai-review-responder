@@ -62,7 +62,9 @@
     "src/lib/shared/__tests__/migration-093-*.integration.test.ts",
     ".claude/reference/migrations-log.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "worker/jobs/account-offboarding/**",
+    "scripts/ci/tenant-tables.ts"
   ],
   "tests_to_add": [
     "consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",

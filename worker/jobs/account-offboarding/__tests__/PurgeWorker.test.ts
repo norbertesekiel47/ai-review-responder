@@ -339,6 +339,22 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(sqlText).not.toContain('DELETE FROM solicitation_visits');
     expect(sqlText).not.toContain('DELETE FROM solicitation_batches');
     expect(sqlText).not.toContain('DELETE FROM solicitation_asks');
+    // Consent ledger (migration 093, #625): businesses rows are TOMBSTONED,
+    // never deleted, so 093's business_id ON DELETE CASCADE never fires on
+    // this path; source_upload_id is ON DELETE SET NULL and consent has no FK
+    // to contacts, so the upload delete above sweeps nothing here either. The
+    // explicit deleteByBusiness call is the ONLY deleter at purge (spec §7.2's
+    // cascade assumption was wrong; consent fails closed — DR1). The table
+    // name arrives as an identifier fragment (see identifierFragment above).
+    const isConsentByBusinessDelete = (call: QueryCall) =>
+      call.text.includes('DELETE FROM ?')
+      && call.values.some((value) => (value as { __id?: string } | null)?.__id === 'solicitation_consent');
+    const consentDeleteIndex = calls.findIndex(isConsentByBusinessDelete);
+    expect(consentDeleteIndex).toBeGreaterThan(-1);
+    expect(calls[consentDeleteIndex]?.text).toContain(
+      'SELECT id FROM businesses WHERE account_id =',
+    );
+    expect(calls[consentDeleteIndex]?.scope).toBe('tx');
     // Agent run spine tables are hard_delete/must_be_absent (accounts rows are
     // retained de-identified, so their ON DELETE CASCADE never fires) — the
     // purge must delete outcomes then runs explicitly; agent_run_steps cascades

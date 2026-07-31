@@ -71,6 +71,7 @@ const DELETABLE_BY_BUSINESS = new Set<string>([
   'satisfaction_responses',
   'google_connections',
   'zernio_connections',
+  'solicitation_consent',
 ]);
 
 export async function deleteByBusiness(

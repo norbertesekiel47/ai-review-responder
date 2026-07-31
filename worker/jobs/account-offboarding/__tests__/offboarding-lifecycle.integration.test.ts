@@ -98,6 +98,7 @@ import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-
 import {
   assertSchemaReady,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+  MIGRATION_093_SOLICITATION_CONSENT,
 } from '../../../../src/lib/shared/__tests__/helpers/schema-ready';
 
 // The hoisted block above already parsed .env.local and set DATABASE_POOL_URL,
@@ -118,7 +119,10 @@ beforeAll(async () => {
   // on agent_runs / solicitation_* and deadlocked (40P01) against sibling
   // live-DB suites running in a CONCURRENT vitest process — #573. The schema is
   // provisioned once by `pnpm test:db:setup`; assert it instead.
-  await assertSchemaReady(getE2eSql(), [MIGRATION_088_SOLICITATION_BATCH_EXECUTOR]);
+  await assertSchemaReady(getE2eSql(), [
+    MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+    MIGRATION_093_SOLICITATION_CONSENT,
+  ]);
 });
 
 afterAll(async () => {
@@ -394,6 +398,9 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
 
   it('account offboarding purge cascades from contact uploads through Solicitation batches and asks', async () => {
     const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    // Bystander tenant: its consent row must SURVIVE the other account's purge
+    // — the sweep is business-scoped, not global (#625 spec §3.2).
+    const bystander = await seedOwnerOffboardingAccount({ zernioConnection: false });
     try {
       const sql = getE2eSql();
       const offboardingId = randomUUID();
@@ -480,6 +487,45 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
               decision: 'send',
             } as never)},
             NOW()
+          )
+        `;
+        // Consent ledger (migration 093, #625): businesses are TOMBSTONED at
+        // purge (never DELETEd), so 093's business_id ON DELETE CASCADE never
+        // fires on this path, and the upload delete only nulls
+        // source_upload_id — the explicit purge-stage sweep is the ONLY
+        // deleter. Seed one row for the purged tenant (pointing at the upload
+        // being deleted, to prove the sweep handles the SET NULL ordering) and
+        // one for the bystander tenant.
+        await tx`
+          INSERT INTO solicitation_consent (
+            id, channel, normalized_handle, business_id, basis,
+            attestation_version, attested_at, attested_by_user_id, source_upload_id
+          ) VALUES (
+            ${randomUUID()}::uuid,
+            'email',
+            'purge-fixture@example.com',
+            ${seed.businessId}::uuid,
+            'owner_attested',
+            'consent_attestation_v2',
+            NOW(),
+            ${seed.userId}::uuid,
+            ${contactsCsvUploadId}::uuid
+          )
+        `;
+        await tx`
+          INSERT INTO solicitation_consent (
+            id, channel, normalized_handle, business_id, basis,
+            attestation_version, attested_at, attested_by_user_id, source_upload_id
+          ) VALUES (
+            ${randomUUID()}::uuid,
+            'email',
+            'bystander-fixture@example.com',
+            ${bystander.businessId}::uuid,
+            'owner_attested',
+            'consent_attestation_v2',
+            NOW(),
+            ${bystander.userId}::uuid,
+            NULL
           )
         `;
       });
@@ -623,6 +669,17 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
         SELECT COUNT(*) AS count FROM solicitation_asks WHERE account_id = ${seed.accountId}::uuid
       `;
       expect(Number(solicitationAsksRemaining?.count ?? 0)).toBe(0);
+      // The explicit consent sweep (purge-stages.ts) removed the purged
+      // tenant's ledger row — no cascade does this, see the seeding comment.
+      const [consentRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_consent WHERE business_id = ${seed.businessId}::uuid
+      `;
+      expect(Number(consentRemaining?.count ?? 0)).toBe(0);
+      // …and only that tenant's: the bystander's consent row survives.
+      const [bystanderConsentRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_consent WHERE business_id = ${bystander.businessId}::uuid
+      `;
+      expect(Number(bystanderConsentRemaining?.count ?? 0)).toBe(1);
 
       const offboardingHash = createHash('sha256').update(offboardingId).digest('hex');
       const [purgedEvent] = await sql<{
@@ -646,6 +703,7 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       expect(parsePayload(purgedEvent?.properties)).toEqual({});
     } finally {
       await cleanupOwnerOffboardingSeed(seed);
+      await cleanupOwnerOffboardingSeed(bystander);
     }
   });
 

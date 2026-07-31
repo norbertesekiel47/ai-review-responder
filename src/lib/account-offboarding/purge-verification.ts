@@ -605,10 +605,10 @@ export function verificationQuery(
 
     // The consent ledger carries NO account_id by design (#625 spec §3.2), so
     // verification joins through businesses like the contacts/visits it covers.
-    // NOTE: businesses are retain_deidentified (tombstoned, never DELETEd), so
-    // the businesses(id) ON DELETE CASCADE never fires during offboarding purge
-    // — this check fails closed until the purge stage gains an explicit
-    // consent sweep (deviations log, 2026-07-30).
+    // businesses are retain_deidentified (tombstoned, never DELETEd), so the
+    // businesses(id) ON DELETE CASCADE never fires during offboarding purge —
+    // this is the read-side proof of purge-stages.ts's explicit
+    // deleteByBusiness('solicitation_consent') sweep, the ONLY deleter here.
     case 'solicitation_consent':
       return absentByBusiness('solicitation_consent', accountId, exec);
 

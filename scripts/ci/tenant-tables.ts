@@ -39,6 +39,11 @@ export const TENANT_TABLES = [
   // account_id/business_id; the ArchivalPoller body-redaction sweep is
   // deliberately cross-tenant and is exempted in tenant-scope-allowlist.ts.
   'solicitation_outreach',
+  // Deny-all RLS (migration 093, #625 consent ledger) — zero policies, the
+  // auto_approval_policies posture (invariant #14). Business-scoped via
+  // business_id; deliberately carries NO account_id (spec §3.2), so
+  // account-level sweeps join through businesses.
+  'solicitation_consent',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints

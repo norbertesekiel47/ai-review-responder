@@ -32,6 +32,12 @@
   `TENANT_TABLES` (amending the surface with user sign-off) so `ci:rls-audit`
   guards its RLS posture and `ci:tenant-scope` audits its queries — the
   precedent every other `solicitation_*` table follows.
+  **RESOLVED [2026-07-30]** with `fix(#625): explicit consent purge sweep +
+  tenant-table registration`: the map owner approved the surface amendment
+  (both intake copies now include `scripts/ci/tenant-tables.ts` and
+  `worker/jobs/account-offboarding/**`); `solicitation_consent` is registered
+  in `TENANT_TABLES` like its siblings and the EXPLICIT-list workaround is
+  removed — one authoritative owner.
 - [2026-07-30] **Spec §7.2's cascade assumption does not hold on the
   offboarding purge path.** The locked reason text says consent rows "leave
   with the business via the businesses(id) cascade", but
@@ -50,3 +56,13 @@
   DELETE because the parent row is tombstoned), and pin it in
   `PurgeWorker.test.ts`. The locked entry text was kept verbatim per the
   plan; the purge-verification.ts comment records the real mechanics.
+  **RESOLVED [2026-07-30]** with `fix(#625): explicit consent purge sweep +
+  tenant-table registration`: `deleteByBusiness(tx, 'solicitation_consent',
+  …)` now runs in the content-purge stage (after the upload delete, under the
+  same csv-ingest/batch advisory locks), pinned by `PurgeWorker.test.ts` and
+  by a live-DB absent-vs-bystander-survives assertion pair in
+  `offboarding-lifecycle.integration.test.ts`. **Keep the underlying finding:
+  spec §7.2's "rows leave with the business via the businesses(id) cascade"
+  is WRONG on the offboarding purge path (businesses are tombstoned, never
+  DELETEd — the cascade only fires on real location deletion); promote this
+  to the spec + lab notes at ship time.**

@@ -61,11 +61,6 @@ export const EXPLICIT_ACCOUNT_OFFBOARDING_TABLES = [
   'analytics_events',
   'flagged_responses',
   'impersonation_sessions',
-  // #625 consent ledger (migration 093): business-scoped, deny-all RLS, no
-  // account_id by design (spec §3.2). Listed here pending its TENANT_TABLES
-  // adoption — scripts/ci/tenant-tables.ts is outside the #625 intake edit
-  // surface (recorded in feat-625-consent-ledger-deviations.md).
-  'solicitation_consent',
 ] as const;
 
 export const SPEC_ONLY_ACCOUNT_OFFBOARDING_TABLES = [
