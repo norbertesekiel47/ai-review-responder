@@ -29,6 +29,11 @@ const CALLER_ALLOWLIST = new Set([
   // post-hoc judge tenant (WS6) — judgeResponse wraps the pinned task with
   // withConcurrency:false and log-and-return-value finalization.
   'src/lib/responses/judge.ts',
+  // solicitation ask tenant (#628) — generateChildRender wraps runLlmTask in
+  // withCostGuard per child, task-scoped estimateCents
+  // (SOLICITATION_ASK_ESTIMATE_CENTS=1) and withConcurrency:false; the reserve
+  // precedes every LLM call.
+  'src/lib/solicitation/ask-generation.ts',
   // Optional WS6 live judge eval — deliberately bypasses tenant accounting in
   // the key-gated external harness; tests/llm-eval/live-runner.ts marks the
   // call site as the sanctioned demo/eval exception from llm/types.ts.

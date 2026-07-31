@@ -82,13 +82,18 @@
     "worker/index.ts",
     "worker/queues.ts",
     "worker/config/startup-assert.ts",
+    "worker/config/__tests__/startup-assertion.test.ts",
     ".claude/CLAUDE.md",
     ".claude/reference/env-vars.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
     "docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md",
     "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
-    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx"
+    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx",
+    "src/__tests__/cost-guard-contract.test.ts",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
+    "src/lib/responses/__tests__/generator.test.ts",
+    "src/lib/responses/__tests__/review-summary.test.ts"
   ],
   "tests_to_add": [
     "blocks incentive language introduced by the model",
@@ -117,7 +122,7 @@
     "reserve followed by release restores the daily counters for any estimate"
   ],
   "verification_commands": [
-    "TEST_DATABASE_POOL_URL set: run every new/changed *.integration.test.ts explicitly (outreach render persistence, regen supersede, RLS moderation_high direct-read, spine send-parent)"
+    "pnpm vitest run src/lib/agents/__tests__/run-spine.integration.test.ts src/lib/solicitation/__tests__/ask-generation.integration.test.ts src/lib/solicitation/__tests__/batch-builder.integration.test.ts src/lib/solicitation/__tests__/batch-view.integration.test.ts src/lib/solicitation/__tests__/outreach-render.integration.test.ts"
   ],
   "estimated_diff_size": "~3200 lines (dominated by net-new modules + tests; largest edits to existing files: tracker.ts/cost-guard.ts estimate threading, batch-builder.ts enqueue, run-spine.ts send-parent primitives)",
   "dependencies_added": [],

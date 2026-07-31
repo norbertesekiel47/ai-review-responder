@@ -341,3 +341,36 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   handles an impossible `undefined` — which compile-breaks the two fixture
   builders. Fix is one mechanical `attempts: []` line per builder, applied
   with the amendment.
+- [2026-07-31] **INTAKE AMENDMENT 3 (controller-applied, pending owner
+  retroactive sign-off): `worker/config/__tests__/startup-assertion.test.ts`
+  added to allowed_edit_surface.** The surface declared
+  `worker/config/startup-assert.ts` but not its colocated test; the Task 10
+  spec-review advisory carried to Task 12 explicitly requires extending BOTH
+  (the flag-on envelope bound needs a regression test around the protected
+  contract). Same mechanical-narrowness class as amendment 2.
+- [2026-07-31] **Task 12: the CLAUDE.md JSONB allowlist entry names
+  `batch-view.ts` as the parsers' only consumer, not `ask-generation.ts`.**
+  The task brief said the three `parseOutreach*` parsers are consumed by both;
+  the code disagrees — `ask-generation.ts` re-ASSEMBLES interpolation inputs
+  from batch context on every path (regen included) and never re-reads the
+  JSONB columns, so the sole production consumer is the Requests read model in
+  `src/lib/solicitation/batch-view.ts`. The codebase wins.
+- [2026-07-31] **INTAKE AMENDMENT 4 (controller-applied, pending owner
+  retroactive sign-off): four gate-guard/assertion test files added to
+  allowed_edit_surface, and the prose `verification_commands` entry replaced
+  with a runnable `pnpm vitest run …` over the five changed integration
+  suites.** The files: `src/__tests__/cost-guard-contract.test.ts` and
+  `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` — tripwire
+  guards DESIGNED to force a new caller to declare itself, so when the branch
+  introduces a new `runLlmTask` caller / spine writer
+  (`src/lib/solicitation/ask-generation.ts`, Task 10) the guards' allowlists
+  are inherently part of the intake's surface; ask-generation entered
+  `NON_REVIEW_SUBJECT_CALLERS` with a written justification (batch → run
+  single order per its file header, reviews never touched) and the carve-out
+  pin test now lists all three members. Plus
+  `src/lib/responses/__tests__/generator.test.ts` and
+  `src/lib/responses/__tests__/review-summary.test.ts` — Task 3 arity
+  fallout: `reserveCost`/`releaseCost`/`finalizeCost` gained the trailing
+  task-scoped `estimateCents` param, so `toHaveBeenCalledWith` assertions
+  carry the explicit trailing `undefined` (the `cost-guard.test.ts`
+  precedent, documenting "omitted ⇒ 15¢ default").

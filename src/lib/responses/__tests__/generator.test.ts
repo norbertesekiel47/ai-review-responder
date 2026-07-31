@@ -219,7 +219,8 @@ describe('generateResponse', () => {
     const { generateResponse } = await import('../generator');
     await generateResponse(mockSql, review, businessContext, [], productionOptions);
 
-    expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'copilot');
+    // Trailing undefined = estimateCents omitted, the 15¢ default (#628).
+    expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'copilot', undefined);
     expect(concurrencyGuard.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.finalizeCost).toHaveBeenCalled();
     expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
@@ -297,7 +298,7 @@ describe('generateResponse', () => {
     ).rejects.toThrow();
 
     expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
-    expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15');
+    expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15', undefined);
   });
 
   it('throws TypeError when production mode receives demo-shaped context', async () => {
@@ -336,7 +337,7 @@ describe('generateResponse', () => {
       generateResponse(mockSql, review, businessContext, [], productionOptions),
     ).rejects.toThrow('Concurrency limit exceeded');
 
-    expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15');
+    expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15', undefined);
     expect(concurrencyGuard.releaseConcurrencySlot).not.toHaveBeenCalled();
   });
 
