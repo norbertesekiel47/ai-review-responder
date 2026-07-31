@@ -24,6 +24,7 @@ import {
   isProcessingBlocked,
   lockAccountBeforeOffboardingProjection,
 } from '@/lib/account-offboarding/gate';
+import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import {
   lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned,
@@ -31,7 +32,7 @@ import {
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
 import { MAX_DATA_ROWS } from './contacts-csv';
-import { solicitationWatchEnabled } from './flags';
+import { solicitationSendEnabled, solicitationWatchEnabled } from './flags';
 import {
   evaluateBatch,
   WITHHOLD_REASONS,
@@ -728,6 +729,17 @@ async function constructBatch(
       throw new Error(
         `solicitation batch builder: expected to build batch ${batch.id}, updated ${built.count}`,
       );
+    }
+
+    // Send-mode handoff (EXEC D21), in the SAME transaction as the built_at
+    // CAS: zero send asks means no generation work exists — no enqueue, no
+    // send parent, watch-mode report unchanged. A `null` return (in-flight
+    // generation row already exists) is fine — an idempotent build retry.
+    if (summary.sendCount > 0 && solicitationSendEnabled()) {
+      await enqueueGenerateSolicitationAsks(tx, {
+        batchId: batch.id,
+        correlationId: input.correlationId,
+      });
     }
 
     return summary;

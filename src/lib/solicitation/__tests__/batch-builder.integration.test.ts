@@ -23,6 +23,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
 import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
@@ -312,6 +313,18 @@ describeWithDb('solicitation batch builder against live local Postgres', {
 
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
+    delete process.env.SOLICITATION_SEND_ENABLED;
+    // Generation rows carry no business_id in their payload (batch_id only),
+    // so they need their own batch-scoped delete — and it must run before the
+    // uploads delete below cascades the batches away.
+    await sql()`
+      DELETE FROM job_outbox
+      WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+        AND aggregate_id IN (
+          SELECT id FROM solicitation_batches
+          WHERE business_id = ${businessId}::uuid
+        )
+    `;
     await sql()`
       DELETE FROM job_outbox
       WHERE aggregate_type = 'solicitation_batch'
@@ -420,6 +433,46 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     expect(state!.linked_run_id).not.toBeNull();
     expect(state!.evidence_text).not.toContain('@example.test');
     expect(state!.evidence_text).not.toContain('Batch Candidate');
+  });
+
+  it('flag-on build with send asks enqueues one generation row and the real 091 index dedups a second enqueue', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, new Date().toISOString().slice(0, 10));
+    const batch = await seedBatch();
+
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      sendCount: 1,
+    });
+
+    // The build transaction enqueued exactly one pending generation row keyed
+    // by the batch (091 comment contract: aggregate_id = batch id).
+    const generationRows = await sql()<{
+      status: string;
+      payload_batch_id: string | null;
+    }[]>`
+      SELECT status, payload->>'batch_id' AS payload_batch_id
+      FROM job_outbox
+      WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+        AND aggregate_id = ${batch.batchId}::uuid
+    `;
+    expect(generationRows).toHaveLength(1);
+    expect(generationRows[0]).toMatchObject({
+      status: 'pending',
+      payload_batch_id: batch.batchId,
+    });
+
+    // Execution-level proof of the byte-for-byte contract: the helper's
+    // ON CONFLICT predicate must be inferred against migration 091's partial
+    // unique index by the REAL planner. If the spelling drifted, this second
+    // enqueue would throw 42P10 (no matching constraint) or insert a
+    // duplicate; instead it returns null — already in flight.
+    const deduped = await sql().begin((tx) =>
+      enqueueGenerateSolicitationAsks(tx, { batchId: batch.batchId }),
+    );
+    expect(deduped).toBeNull();
   });
 
   it('builds an empty accumulated pool with a zero-unit batch outcome', async () => {

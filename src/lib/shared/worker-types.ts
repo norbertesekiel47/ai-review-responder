@@ -312,3 +312,15 @@ export interface BuildSolicitationBatchPayload extends BasePayload {
   batch_id: string;
   business_id: string;
 }
+
+/**
+ * GenerateSolicitationAsksPayload — the ask-generation lane (#628). Emitted
+ * ONLY by enqueueGenerateSolicitationAsks: batch-builder's built_at
+ * transaction (whole-batch generation, no ask_id) and #629's regeneration
+ * route (ask_id present). aggregate_id = batch_id — the migration 091
+ * in-flight index contract.
+ */
+export interface GenerateSolicitationAsksPayload extends BasePayload {
+  batch_id: string;
+  ask_id?: string;
+}

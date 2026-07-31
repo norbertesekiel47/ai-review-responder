@@ -14,6 +14,9 @@ export const QUEUE_NAMES = {
   ZERNIO_INITIAL_BACKFILL: 'zernio_initial_backfill',
   CSV_INGEST: 'csv_ingest',
   BUILD_SOLICITATION_BATCH: 'build_solicitation_batch',
+  // Must byte-match migration 091's in-flight partial-index predicate topic
+  // (job_outbox_generate_solicitation_asks_inflight).
+  GENERATE_SOLICITATION_ASKS: 'generate_solicitation_asks',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

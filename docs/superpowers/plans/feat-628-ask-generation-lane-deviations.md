@@ -154,6 +154,35 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   withheld (k=0), and must NOT call `failSolicitationBatchRun` for the send
   parent itself (the batch→run lock-order contract on
   `CloseBatchIfSettledInput.failure`).
+- [2026-07-30] **Task 9 plan gap — `worker/queues.ts` needs the
+  `generate_solicitation_asks` Queue + `topicToQueue` entry, but the file is
+  outside `allowed_edit_surface` and the edit-surface hook blocked the edit.**
+  Adding `GENERATE_SOLICITATION_ASKS` to `QUEUE_NAMES` (a mandatory Task 9
+  step) makes `worker/__tests__/queue-routing.test.ts`'s completeness guard
+  fail: `topicToQueue is missing 'generate_solicitation_asks'`. Neither
+  Task 9 nor Task 10 lists `worker/queues.ts` in its file list, and the
+  intake surface omits it entirely — Task 10's `worker/index.ts` Worker
+  registration cannot discharge it either, so this needs a surface amendment
+  (user sign-off) before the final gate. **Known-red test at the Task 9
+  commit:** exactly that one completeness assertion; every Task 9 gate passes
+  (batch-builder unit+integration, job-outbox-helpers, `ci:outbox-seam`,
+  `ci:outbox-topics`, `ci:outbox-status`, typecheck, eslint). The fix is two
+  mechanical lines: in `worker/queues.ts` add
+  `generateSolicitationAsks: new Queue(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS,
+  { connection: opts, defaultJobOptions: llmJobOptions })` to `queues`
+  (LLM-bound lane ⇒ `llmJobOptions`, the `generateResponse` precedent — the
+  ask lane's retries are spend-safe via the cost reservation + live-render
+  skip) and `[QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]:
+  queues.generateSolicitationAsks` to `topicToQueue`.
+- [2026-07-30] **Task 9 test addition beyond the plan's named titles
+  (in-surface):** `batch-builder.integration.test.ts` gained `flag-on build
+  with send asks enqueues one generation row and the real 091 index dedups a
+  second enqueue` — the only execution-level proof of the byte-for-byte
+  ON CONFLICT contract, since Postgres performs partial-unique-index inference
+  at plan time (a drifted spelling throws 42P10 or double-inserts; the test
+  asserts the second enqueue returns `null` instead). The suite's `afterEach`
+  also now clears `SOLICITATION_SEND_ENABLED` and deletes generation outbox
+  rows batch-scoped (their payload carries no `business_id`).
 - [2026-07-30] **Task 7: `recordGenerationSteps` step ids are
   `gen_random_uuid()`, not UUIDv7.** The plan mandates ONE set-based
   `INSERT … SELECT` and Postgres 16 has no `uuidv7()`, so per-row v7 ids cannot
@@ -164,3 +193,12 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   chose `ask_generated` (STEP_PERSONA → `solicitation`), sibling to the build
   lane's `ask_evaluated`, covering both rendered and withheld rows ("the
   generation attempt produced a row").
+- [2026-07-30] **INTAKE AMENDMENT (controller-applied, pending owner
+  retroactive sign-off): `worker/queues.ts` added to allowed_edit_surface**
+  (both copies, kept in sync). Rationale: a registered outbox topic without a
+  Queue + `topicToQueue` entry is a broken lane — `queue-routing.test.ts`'s
+  completeness guard proves it red — and Task 10 (in-plan) registers a Worker
+  on `QUEUE_NAMES.GENERATE_SOLICITATION_ASKS`, which presupposes the Queue.
+  The omission was an intake oversight, not a scope boundary. The two
+  mechanical lines recorded in the previous entry were applied with the
+  amendment; `llmJobOptions` per the generateResponse precedent.

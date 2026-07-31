@@ -80,6 +80,7 @@
     "src/lib/responses/__tests__/model-pinning.test.ts",
     "worker/jobs/solicitation-batch/**",
     "worker/index.ts",
+    "worker/queues.ts",
     "worker/config/startup-assert.ts",
     ".claude/CLAUDE.md",
     ".claude/reference/env-vars.md",
