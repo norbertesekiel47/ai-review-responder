@@ -23,6 +23,7 @@ const mockPipeline = {
 const mockRedis = {
   get: vi.fn(),
   set: vi.fn(),
+  del: vi.fn(),
   incr: vi.fn(),
   decr: vi.fn(),
   expire: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('ioredis', () => ({
   default: class MockRedis {
     get = mockRedis.get;
     set = mockRedis.set;
+    del = mockRedis.del;
     incr = mockRedis.incr;
     decr = mockRedis.decr;
     expire = mockRedis.expire;
@@ -309,9 +311,12 @@ describe('checkRegenBudget', () => {
 describe('checkAskRegenBudget', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Fresh charge markers claim successfully unless a test narrows this.
+    mockRedis.set.mockResolvedValue('OK');
+    mockRedis.del.mockResolvedValue(1);
   });
 
-  it('throws RegenBudgetExceededError on the 4th call for one askId', async () => {
+  it('throws RegenBudgetExceededError on the 4th distinct regeneration for one askId', async () => {
     mockRedis.eval
       .mockResolvedValueOnce(['ok', 1])
       .mockResolvedValueOnce(['ok', 2])
@@ -321,10 +326,10 @@ describe('checkAskRegenBudget', () => {
     const { checkAskRegenBudget, RegenBudgetExceededError } =
       await import('../tracker');
 
-    await expect(checkAskRegenBudget('ask-001')).resolves.toBeUndefined();
-    await checkAskRegenBudget('ask-001');
-    await checkAskRegenBudget('ask-001');
-    await expect(checkAskRegenBudget('ask-001')).rejects.toThrow(
+    await expect(checkAskRegenBudget('ask-001', 'ob-1')).resolves.toBeUndefined();
+    await checkAskRegenBudget('ask-001', 'ob-2');
+    await checkAskRegenBudget('ask-001', 'ob-3');
+    await expect(checkAskRegenBudget('ask-001', 'ob-4')).rejects.toThrow(
       RegenBudgetExceededError,
     );
 
@@ -335,6 +340,46 @@ describe('checkAskRegenBudget', () => {
     expect(evalArgs[2]).toMatch(/^regen:ask:ask-001:\d{4}-\d{2}-\d{2}$/);
     expect(evalArgs[3]).toBe('3');
     expect(evalArgs[4]).toBe('86400');
+
+    // Marker contract: one SET NX claim per logical request, 24h TTL.
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'regen:ask:ask-001:charge:ob-1',
+      '1',
+      'EX',
+      86_400,
+      'NX',
+    );
+  });
+
+  it('replayed attempts of one logical regeneration consume one budget unit', async () => {
+    // First processor attempt claims the marker and charges; the BullMQ
+    // retries after transient failures find the marker and charge nothing.
+    mockRedis.set
+      .mockResolvedValueOnce('OK')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockRedis.eval.mockResolvedValueOnce(['ok', 1]);
+
+    const { checkAskRegenBudget } = await import('../tracker');
+
+    await checkAskRegenBudget('ask-001', 'ob-1');
+    await checkAskRegenBudget('ask-001', 'ob-1');
+    await checkAskRegenBudget('ask-001', 'ob-1');
+
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    expect(mockRedis.set).toHaveBeenCalledTimes(3);
+  });
+
+  it('releases the charge marker when the budget refuses the claim', async () => {
+    mockRedis.eval.mockResolvedValueOnce(['exceeded', 4]);
+
+    const { checkAskRegenBudget, RegenBudgetExceededError } =
+      await import('../tracker');
+
+    await expect(checkAskRegenBudget('ask-001', 'ob-9')).rejects.toThrow(
+      RegenBudgetExceededError,
+    );
+    expect(mockRedis.del).toHaveBeenCalledWith('regen:ask:ask-001:charge:ob-9');
   });
 });
 

@@ -33,7 +33,7 @@ import {
  * matching logic changes (RESTRAINT_POLICY_VERSION pattern) — a verdict must
  * stay reproducible under the version that produced it.
  */
-export const ASK_LINT_VERSION = 'ask_lint_2026-07-30.1';
+export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.1';
 
 /**
  * The union of everything that can block a render, so `blocked_reason` has one
@@ -185,7 +185,10 @@ export interface AskLintInput {
    * note. The bucket and vertical are closed vocabularies, definitionally not
    * PII, and must NOT be listed here; first name and business name are
    * subject-safe by B5. Required so the caller decides explicitly (fail-closed
-   * by construction).
+   * by construction). Enforcement is FRAGMENT-LEVEL, not whole-value: any
+   * content token of a listed value blocks the subject (see
+   * `subjectCarriesDisallowedFragment`), so "discussed HIV treatment" also
+   * bans "HIV" and "treatment" from the subject line.
    */
   subjectDisallowedValues: readonly string[];
 }
@@ -312,6 +315,43 @@ const SUBJECT_STRUCTURAL_RULES: readonly string[] = [
   `max_${MAX_SUBJECT_EMOJI}_emoji`,
   `no_digit_run_of_${PII_DIGIT_RUN_LENGTH}_plus_ignoring_phone_separators`,
   'no_disallowed_interpolated_value_in_subject',
+  'no_note_derived_content_token_in_subject',
+];
+
+/**
+ * Tokens that cannot, alone, leak note content into a subject line: English
+ * function words plus the handful of scaffolding words ubiquitous in ask copy
+ * ("How was your visit to …?"). Everything else that a disallowed value
+ * contributes is a CONTENT token and bans itself from the subject — the
+ * fail-closed side of the fragment-level check (a withheld render is the
+ * recoverable outcome; a leaked medical fragment is not). Golden-filed so
+ * tuning is a visible diff.
+ */
+const SUBJECT_NOTE_TOKEN_ALLOWLIST: readonly string[] = [
+  // Articles, determiners, quantifiers.
+  'a', 'an', 'the', 'this', 'that', 'these', 'those', 'any', 'all', 'both',
+  'each', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own', 'same',
+  // Conjunctions and connectives.
+  'and', 'or', 'but', 'if', 'so', 'as', 'than', 'then', 'too', 'also', 'not',
+  'no', 'nor',
+  // Prepositions.
+  'at', 'by', 'for', 'from', 'in', 'into', 'of', 'off', 'on', 'onto', 'out',
+  'over', 'to', 'up', 'with', 'about', 'after', 'before', 'during', 'since',
+  'until', 'again', 'once', 'here', 'there',
+  // Question words.
+  'when', 'where', 'why', 'how', 'what', 'which', 'who', 'whom',
+  // Pronouns.
+  'i', 'me', 'my', 'we', 'us', 'our', 'you', 'your', 'yours', 'he', 'him',
+  'his', 'she', 'her', 'hers', 'it', 'its', 'they', 'them', 'their', 'theirs',
+  // Auxiliaries and copulas.
+  'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does', 'did',
+  'have', 'has', 'had', 'will', 'would', 'shall', 'should', 'can', 'could',
+  'may', 'might', 'must', 'very', 'just',
+  // Ask-copy scaffolding: every ask is about a visit, so these leak nothing.
+  'visit', 'time', 'day', 'week', 'month', 'year', 'today', 'yesterday',
+  'recent', 'recently', 'last', 'next', 'thanks', 'thank', 'question', 'quick',
+  'hello', 'hi', 'hey', 'came', 'come', 'stopped', 'stopping', 'went', 'get',
+  'got', 'service',
 ];
 
 /** One emoji = one pictographic ZWJ sequence or one regional-indicator flag pair. */
@@ -447,15 +487,78 @@ function deceptiveSubject(input: AskLintInput): boolean {
   // separators are stripped.
   if (PII_DIGIT_RUN_PATTERN.test(subject.replace(/[\s().-]/g, ''))) return true;
 
+  // Whole-value containment: catches a disallowed value made entirely of
+  // allowlisted tokens, which the fragment check below cannot see.
   const lowerSubject = subject.toLowerCase();
-  return input.subjectDisallowedValues.some((value) => {
+  const wholeValueHit = input.subjectDisallowedValues.some((value) => {
     const needle = value.trim().toLowerCase();
     return needle.length > 0 && lowerSubject.includes(needle);
   });
+  if (wholeValueHit) return true;
+
+  return subjectCarriesDisallowedFragment(input);
 }
 
 function normalizeToken(token: string): string {
   return token.replace(/’/g, "'").toLowerCase();
+}
+
+/** Shared token shape for classes 5 and 6: word (apostrophes/hyphens kept) or digit run. */
+const TOKEN_PATTERN = /[A-Za-z][A-Za-z'’-]*|\d+/g;
+
+/**
+ * Comparison form for the fragment check: normalized, possessive `'s`
+ * stripped, and a single trailing plural `s` folded (length ≥ 4 only, so
+ * "was"/"his" survive) — "treatments" in a subject must not slip past a note
+ * that said "treatment".
+ */
+function foldToken(token: string): string {
+  const normalized = normalizeToken(token).replace(/'s$/, '');
+  return normalized.length >= 4 && normalized.endsWith('s')
+    ? normalized.slice(0, -1)
+    : normalized;
+}
+
+function foldedTokensOf(text: string): string[] {
+  return [...text.matchAll(TOKEN_PATTERN)].map((match) => foldToken(match[0]));
+}
+
+const FOLDED_SUBJECT_NOTE_TOKEN_ALLOWLIST: ReadonlySet<string> = new Set(
+  SUBJECT_NOTE_TOKEN_ALLOWLIST.map(foldToken),
+);
+
+/**
+ * Fragment-level side of the B5 subject rule: a subject is blocked when it
+ * carries ANY content token of a disallowed value — not merely the value as
+ * one contiguous substring. "Discussed HIV treatment" admitted as a note must
+ * ban "HIV" and "treatment" from the subject individually; the class 6
+ * provenance corpus deliberately admits note tokens (they ARE verifiable), so
+ * without this check the note would launder its own fragments into the
+ * subject. Tokens are exempt only when they are closed-set function/
+ * scaffolding words or also appear in a subject-SAFE interpolation value
+ * (first name, business name, bucket, vertical) — the same
+ * admitted-via-a-safe-channel logic as §2.5.
+ */
+function subjectCarriesDisallowedFragment(input: AskLintInput): boolean {
+  if (input.subjectDisallowedValues.length === 0) return false;
+
+  const disallowedValues = new Set(input.subjectDisallowedValues);
+  const subjectSafeTokens = new Set(
+    input.interpolationValues
+      .filter((value) => !disallowedValues.has(value))
+      .flatMap(foldedTokensOf),
+  );
+  const disallowedTokens = new Set(
+    input.subjectDisallowedValues
+      .flatMap(foldedTokensOf)
+      .filter(
+        (token) =>
+          !FOLDED_SUBJECT_NOTE_TOKEN_ALLOWLIST.has(token) && !subjectSafeTokens.has(token),
+      ),
+  );
+  if (disallowedTokens.size === 0) return false;
+
+  return foldedTokensOf(input.subject).some((token) => disallowedTokens.has(token));
 }
 
 /**
@@ -481,8 +584,7 @@ function isSentenceInitial(text: string, index: number): boolean {
  */
 function hasUnverifiableFact(text: string, values: readonly string[]): boolean {
   const normalizedValues = values.map((value) => normalizeToken(value));
-  const tokenPattern = /[A-Za-z][A-Za-z'’-]*|\d+/g;
-  for (const match of text.matchAll(tokenPattern)) {
+  for (const match of text.matchAll(TOKEN_PATTERN)) {
     const token = match[0];
     if (/^\d/.test(token)) {
       if (!normalizedValues.some((value) => value.includes(token))) return true;
@@ -588,6 +690,7 @@ export function askLintGoldenTable(): Record<string, unknown> {
         interpolatedValueExemption: false,
         patterns: serializePatterns(SUBJECT_PATTERN_RULES),
         structural: [...SUBJECT_STRUCTURAL_RULES],
+        subjectNoteTokenAllowlist: [...SUBJECT_NOTE_TOKEN_ALLOWLIST].sort(),
       },
       {
         class: 6,

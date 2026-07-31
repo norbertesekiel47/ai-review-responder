@@ -1,10 +1,30 @@
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
+import { CostInfraUnavailableError } from '@/lib/costs/errors';
+import { TransientLLMError } from '@/lib/llm/error-classifier';
 import { createWorkerLogger } from '@/lib/shared/logger';
-import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
+import {
+  extractOutboxHandle,
+  markOutboxFailed,
+  recordOutboxTransientError,
+} from '@/lib/shared/outbox';
 import type { GenerateSolicitationAsksPayload } from '@/lib/shared/worker-types';
 
 const logger = createWorkerLogger('[GenerateSolicitationAsksWorker.failed]');
+
+/**
+ * The exhaustion classes that stay WATCHDOG-ELIGIBLE: exactly the two the
+ * domain rethrows for retry (generateChildRender's contract, SPEC §7.5). A
+ * strict lane-local allowlist on purpose (the crash-net precedent): anything
+ * else — including an unknown error — terminalizes, because an unclassified
+ * failure re-driven forever is worse than an operator re-drive. Deliberately
+ * NOT generalized to the sibling hooks: the build lane's failures are
+ * DB-shaped (no LLM call), and the publisher lane already classifies via
+ * ZernioTransientError in its own failed-hook.
+ */
+function isRetryableExhaustion(err: unknown): boolean {
+  return err instanceof TransientLLMError || err instanceof CostInfraUnavailableError;
+}
 
 function isExhausted(job: Job<GenerateSolicitationAsksPayload>): boolean {
   const maxAttempts =
@@ -35,9 +55,12 @@ function logFailureSafely(
 }
 
 /**
- * Exhausted-attempt terminalizer for generate_solicitation_asks: an
- * attempt-guarded CAS marks the dispatched outbox row failed, so the watchdog
- * stops re-driving it and operators keep a diagnosis/re-drive surface.
+ * Exhausted-attempt handler for generate_solicitation_asks. Terminal failure
+ * classes: an attempt-guarded CAS marks the dispatched outbox row failed, so
+ * the watchdog stops re-driving it and operators keep a diagnosis/re-drive
+ * surface. Retryable classes (isRetryableExhaustion) instead leave the row
+ * dispatched — the watchdog is the out-of-band re-driver once in-band BullMQ
+ * attempts run out.
  *
  * Deliberately NO send-parent terminalization, unlike the sibling build
  * failed-hook: `closeBatchIfSettled` owns every send-parent terminal
@@ -66,6 +89,28 @@ export async function handleGenerateSolicitationAsksFailed(
     logFailureSafely({
       status: 'missing_exact_attempt',
       ...jobFields,
+      error_class: errorClass,
+    });
+    return;
+  }
+
+  if (isRetryableExhaustion(err)) {
+    // In-band BullMQ attempts are exhausted but the failure class is
+    // transient: leave the row 'dispatched' so the watchdog re-pends it
+    // (bounded by job_outbox.max_attempts — beyond that the watchdog itself
+    // terminalizes). Marking it failed here would strand a partially
+    // generated batch behind a running send parent with no re-driver; the
+    // §7.4 DB-existence idempotency makes the re-drive resume, not re-spend.
+    await recordOutboxTransientError(
+      sql,
+      outboxId,
+      `generate_solicitation_asks_exhausted_retryable:${errorClass}`,
+      attempt,
+    );
+    logFailureSafely({
+      status: 'watchdog_eligible',
+      ...jobFields,
+      outbox_attempt: attempt,
       error_class: errorClass,
     });
     return;

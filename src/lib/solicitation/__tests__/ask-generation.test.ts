@@ -669,7 +669,9 @@ describe('regenerateAsk', () => {
 
     await regenerateAsk(sql, REGEN_INPUT);
 
-    expect(mocks.checkAskRegenBudget).toHaveBeenCalledWith('ask-1');
+    // Charged by logical request: the outbox id is the idempotency key, so
+    // BullMQ replays of this same regeneration reuse the charge.
+    expect(mocks.checkAskRegenBudget).toHaveBeenCalledWith('ask-1', 'outbox-1');
     expect(mocks.reserveCost).not.toHaveBeenCalled();
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);

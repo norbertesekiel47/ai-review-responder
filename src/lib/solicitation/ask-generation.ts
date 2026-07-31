@@ -1107,9 +1107,10 @@ export async function regenerateAsk(
 
   // SPEC §8.2 r3: budget is enforced HERE in the worker — an API-only limiter
   // is bypassable via outbox replay. Exceeded is terminal: refuse, keep the
-  // existing render live.
+  // existing render live. Charged per logical request (the outbox row), so
+  // BullMQ retries of one regeneration consume one unit, not one per attempt.
   try {
-    await checkAskRegenBudget(input.askId);
+    await checkAskRegenBudget(input.askId, outboxId);
   } catch (err) {
     if (err instanceof RegenBudgetExceededError) {
       await refuse('regen_budget_exhausted');

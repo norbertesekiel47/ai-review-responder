@@ -383,3 +383,41 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   the 3/day allowance (ask-generation.ts:1111-1118). Full text + fix guidance
   in the handoff doc; fixes to be re-submitted to codex thread
   019fb9be-13ac-7352-b506-81f0bc2d3699.
+- [2026-07-31] **Codex round-1 fix (finding 1): subject lint fragment-level
+  detection.** `deceptiveSubject` now blocks on ANY content token of a
+  disallowed value (tokenized with the class-6 `TOKEN_PATTERN`, possessive +
+  plural folded), not only the whole value as one substring. Exemptions:
+  the new golden-filed `SUBJECT_NOTE_TOKEN_ALLOWLIST` (function words +
+  ask-copy scaffolding like "visit"/"week") and tokens that also appear in a
+  subject-SAFE interpolation value (the §2.5 admitted-via-a-safe-channel
+  logic — a first name inside the note stays subject-legal). The whole-value
+  check is retained for values made entirely of allowlisted tokens.
+  `ASK_LINT_VERSION` bumped to `ask_lint_2026-07-31.1`; golden file rides the
+  change; 6 regression cases added (partial medical fragment, single
+  distinctive token, plural echo, identity fragment, function-word-only
+  overlap passes, safe-channel token passes).
+- [2026-07-31] **Codex round-1 fix (finding 2): retryable exhaustion stays
+  watchdog-eligible.** `generate-failed-hook` now classifies before
+  terminalizing: `TransientLLMError` / `CostInfraUnavailableError` (exactly
+  the two classes the domain rethrows for retry, §7.5) leave the outbox row
+  `dispatched` — the watchdog re-pends it, bounded by `max_attempts`, and
+  §7.4 idempotency makes the re-drive resume past persisted renders;
+  `recordOutboxTransientError` stamps `last_error` for observability. All
+  other classes keep the terminal CAS. DELIBERATELY lane-local (strict
+  allowlist, crash-net precedent): the build sibling's failures are DB-shaped
+  (no LLM call) and its coupled transition terminalizes the parent; the
+  publisher hook already classifies via `ZernioTransientError`. The
+  csv-ingest and judge hooks are OUT of this intake's surface — auditing them
+  for the same shape is a follow-up ticket, not a silent surface widening.
+- [2026-07-31] **Codex round-1 fix (finding 3): regen budget charged per
+  logical request.** `checkAskRegenBudget(askId, outboxId)` claims a
+  `SET NX` charge marker keyed by the outbox id (the logical regeneration:
+  BullMQ retries and watchdog re-drives replay the same row; a new owner
+  regen is a new row) before running the shared INCR-with-cap Lua; replays
+  find the marker and charge nothing; a budget refusal releases the marker.
+  Chose a TS-level marker over extending the shared Lua: the shared
+  primitive stays untouched (one mechanism, two doors) and the idempotency
+  is provable at the mocked-Redis seam ("replayed attempts consume one
+  unit" test), where a Lua-internal branch would be invisible to the unit
+  suite. The marker-claimed-then-charge-crashed race UNDERCHARGES by design —
+  the cost-guard's documented fail-open direction.

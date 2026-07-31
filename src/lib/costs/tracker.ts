@@ -59,6 +59,15 @@ function regenBudgetKey(reviewId: string): string {
   return `regen:${reviewId}:${todayDateStr()}`;
 }
 
+/**
+ * Per-logical-request charge marker for the ask regen door. Deliberately NOT
+ * date-scoped: a retry that crosses UTC midnight is still the same paid
+ * request.
+ */
+function askRegenChargeKey(askId: string, outboxId: string): string {
+  return `regen:ask:${askId}:charge:${outboxId}`;
+}
+
 function askRegenBudgetKey(askId: string): string {
   return `regen:ask:${askId}:${todayDateStr()}`;
 }
@@ -296,9 +305,37 @@ export async function checkRegenBudget(reviewId: string): Promise<void> {
  * Same 3-per-day limit and terminal RegenBudgetExceededError as the review
  * door; the counter is keyed `regen:ask:{askId}:{date}` so review and ask
  * budgets never collide.
+ *
+ * Charged IDEMPOTENTLY per logical regeneration request: `outboxId` is the
+ * request identity (BullMQ retries and watchdog re-drives replay the same
+ * outbox row; a new owner-triggered regen is a new row), and a SET NX marker
+ * makes every replay after the first free — N transient attempts consume one
+ * unit, not N. The marker is claimed BEFORE the counter so two concurrent
+ * processors of one outbox row cannot double-charge; the losing side of that
+ * race (or a crash between marker and charge) undercharges by one, which is
+ * the cost-guard's documented fail-open direction — never fail-closed.
  */
-export async function checkAskRegenBudget(askId: string): Promise<void> {
-  await enforceRegenBudget(askRegenBudgetKey(askId), askId);
+export async function checkAskRegenBudget(
+  askId: string,
+  outboxId: string,
+): Promise<void> {
+  const redis = getCacheRedis();
+  const chargeKey = askRegenChargeKey(askId, outboxId);
+  const claimed = await redis.set(chargeKey, '1', 'EX', CACHE_TTL_SECONDS, 'NX');
+  if (claimed === null) return; // this logical regeneration already paid
+
+  try {
+    await enforceRegenBudget(askRegenBudgetKey(askId), askId);
+  } catch (err) {
+    if (err instanceof RegenBudgetExceededError) {
+      // A refused claim must not stay marked as paid: release the marker so a
+      // replay re-checks the budget instead of bypassing it. Best-effort — a
+      // refusal completes the outbox row (no retry reads a stale marker) and
+      // the marker ages out via TTL regardless.
+      await redis.del(chargeKey).catch(() => undefined);
+    }
+    throw err;
+  }
 }
 
 export interface RegenBudgetStatus {

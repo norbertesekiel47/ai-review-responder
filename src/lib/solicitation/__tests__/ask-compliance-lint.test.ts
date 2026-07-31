@@ -53,7 +53,7 @@ function input(overrides: Partial<AskLintInput> = {}): AskLintInput {
 
 describe('module contract', () => {
   it('pins the version and the eight-member block-reason vocabulary', () => {
-    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-30.1');
+    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.1');
     expect(ASK_BLOCK_REASONS).toEqual([
       'incentive_language',
       'review_steering',
@@ -240,6 +240,78 @@ describe('class 5 — deceptive_subject (AMEND B5 union)', () => {
       }),
     );
     expect(verdict.blockedReason).toBe('deceptive_subject');
+  });
+
+  it('blocks a subject carrying a partial medical fragment of the note', () => {
+    const note = 'discussed HIV treatment';
+    const verdict = lintAsk(
+      input({
+        subject: 'Checking in after your HIV treatment',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBe('deceptive_subject');
+  });
+
+  it('blocks a subject carrying a single distinctive note token', () => {
+    const note = 'discussed HIV treatment';
+    const verdict = lintAsk(
+      input({
+        subject: 'A question about your HIV results',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBe('deceptive_subject');
+  });
+
+  it('blocks a pluralized subject echo of a singular note token', () => {
+    const note = 'knee treatment follow-up';
+    const verdict = lintAsk(
+      input({
+        subject: 'How are your knee treatments going?',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBe('deceptive_subject');
+  });
+
+  it('blocks an identity fragment of the note in the subject', () => {
+    const note = 'came in with her daughter Sofia';
+    const verdict = lintAsk(
+      input({
+        subject: 'How did Sofia like the visit?',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBe('deceptive_subject');
+  });
+
+  it('does not block a subject sharing only function words with the note', () => {
+    const note = 'asked about our winter tire packages';
+    const verdict = lintAsk(
+      input({
+        subject: 'How was your visit to Joe’s Diner?',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBeNull();
+  });
+
+  it('keeps a note token subject-safe when it also appears in a safe interpolation value', () => {
+    const note = 'Dana asked about a second appointment';
+    const verdict = lintAsk(
+      input({
+        subject: 'Dana, how was your visit?',
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBeNull();
   });
 
   it('allows a subject at exactly 80 characters with one exclamation mark and one emoji', () => {

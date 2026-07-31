@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   runLlmTask: vi.fn(),
   markOutboxCompletedIfOwned: vi.fn(),
   markOutboxFailed: vi.fn(),
+  recordOutboxTransientError: vi.fn(),
   logger: {
     log: vi.fn(),
     warn: vi.fn(),
@@ -31,13 +32,16 @@ vi.mock('@/lib/shared/outbox', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/shared/outbox')>()),
   markOutboxCompletedIfOwned: mocks.markOutboxCompletedIfOwned,
   markOutboxFailed: mocks.markOutboxFailed,
+  recordOutboxTransientError: mocks.recordOutboxTransientError,
 }));
 vi.mock('@/lib/shared/logger', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/shared/logger')>()),
   createWorkerLogger: () => mocks.logger,
 }));
 
+import { CostInfraUnavailableError } from '@/lib/costs/errors';
 import { RegenBudgetExceededError } from '@/lib/costs/tracker';
+import { TransientLLMError } from '@/lib/llm/error-classifier';
 import {
   generateAsksForBatch,
   regenerateAsk,
@@ -145,7 +149,7 @@ describe('handleGenerateSolicitationAsks', () => {
       else process.env.SOLICITATION_SEND_ENABLED = flagBefore;
     }
 
-    expect(mocks.checkAskRegenBudget).toHaveBeenCalledWith('ask-1');
+    expect(mocks.checkAskRegenBudget).toHaveBeenCalledWith('ask-1', 'outbox-1');
     expect(mocks.runLlmTask).not.toHaveBeenCalled();
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledWith(
       expect.anything(),
@@ -187,6 +191,48 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     expect(mocks.logger.error).toHaveBeenCalledWith(
       'ask generation exhausted',
       expect.objectContaining({ status: 'terminalized', outbox_attempt: 4 }),
+    );
+  });
+
+  it('leaves transient LLM exhaustion watchdog-eligible after partial persistence', async () => {
+    // Exhausted in-band attempts on a TransientLLMError must NOT terminalize:
+    // the row stays 'dispatched' so the watchdog re-drives, and the §7.4
+    // DB-existence idempotency resumes past already-persisted renders.
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      new TransientLLMError(new Error('provider 503')),
+    );
+
+    expect(mocks.markOutboxFailed).not.toHaveBeenCalled();
+    expect(mocks.recordOutboxTransientError).toHaveBeenCalledWith(
+      fakeSql,
+      'outbox-1',
+      'generate_solicitation_asks_exhausted_retryable:TransientLLMError',
+      4,
+    );
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({
+        status: 'watchdog_eligible',
+        error_class: 'TransientLLMError',
+      }),
+    );
+  });
+
+  it('leaves cost-infra exhaustion watchdog-eligible', async () => {
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      new CostInfraUnavailableError('reserveCost'),
+    );
+
+    expect(mocks.markOutboxFailed).not.toHaveBeenCalled();
+    expect(mocks.recordOutboxTransientError).toHaveBeenCalledWith(
+      fakeSql,
+      'outbox-1',
+      'generate_solicitation_asks_exhausted_retryable:CostInfraUnavailableError',
+      4,
     );
   });
 
