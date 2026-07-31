@@ -132,3 +132,11 @@
   is WRONG on the offboarding purge path (businesses are tombstoned, never
   DELETEd — the cascade only fires on real location deletion); promote this
   to the spec + lab notes at ship time.**
+
+## Re-classification (step-0 re-check at gate, 2026-07-30)
+- Actual diff ~2500 changed lines vs ~1200 estimated. Drivers, all approved mid-run: CI-registry
+  ripples (tenant-tables.ts, rls-inventory.md, purge sweep — spec §7.2's cascade assumption wrong),
+  migration 094 (analytics event_name CHECK allowlist) + 089 drift-guard handoff, and one
+  test-fixture compile fallout. Lane was already the heaviest (RISK=high, full pipeline);
+  re-classification confirms lane, corrects the estimate. PROMOTE at ship: "a new table or a new
+  ANALYTICS_EVENT_NAMES entry is never wiring-only — budget the registry/migration ripples."

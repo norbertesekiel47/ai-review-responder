@@ -86,7 +86,7 @@
   "verification_commands": [
     "TEST_DATABASE_POOL_URL-backed run of src/lib/solicitation/__tests__/ingest.integration.test.ts and batch-builder.integration.test.ts"
   ],
-  "estimated_diff_size": "~1200 lines (~450 src + migration, ~750 tests); deletions small (tautology SQL, v1-era comments)",
+  "estimated_diff_size": "~2500 lines actual (re-classified at gate per step-0 re-check 2026-07-30: original ~1200 estimate missed the CI-registry ripples — tenant-tables/rls-inventory/purge sweep, migration 094 for the analytics event_name CHECK, and the 089 drift-guard handoff. Lane already RISK=high/full pipeline — no heavier lane exists; decision: continue, lesson to lab notes at ship)",
   "dependencies_added": [],
   "rollback_plan": "Pre-send-mode lane: nothing dispatches (no send worker exists; SOLICITATION_SEND_ENABLED unbuilt), so rollback = revert the PR (constants and derivation return to v1 semantics) and DROP TABLE solicitation_consent on staging — the table is written only by ingest and read only by the reverted derivation, no other consumer exists until #628/#630. Migration applies staging-first per runbook; prod application rides the normal promotion lockstep.",
   "observability": [
