@@ -70,7 +70,10 @@
     "src/lib/shared/__tests__/migration-089-*.integration.test.ts",
     "src/lib/shared/__tests__/migration-089-*.test.ts",
     "docs/analytics/events.md",
-    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx"
+    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx",
+    "docs/security/rls-inventory.md",
+    "supabase/migrations/095_*.sql",
+    "src/lib/shared/__tests__/migration-095-*.integration.test.ts"
   ],
   "tests_to_add": [
     "consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",
