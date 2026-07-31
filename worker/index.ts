@@ -29,6 +29,8 @@ import { handleCsvIngest } from './jobs/csv-ingest';
 import { handleCsvIngestFailed } from './jobs/csv-ingest/failed-hook';
 import { handleSolicitationBatch } from './jobs/solicitation-batch';
 import { handleSolicitationBatchFailed } from './jobs/solicitation-batch/failed-hook';
+import { handleGenerateSolicitationAsks } from './jobs/solicitation-batch/generate';
+import { handleGenerateSolicitationAsksFailed } from './jobs/solicitation-batch/generate-failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -54,6 +56,7 @@ import type {
   PublishResponsePayload,
   CsvIngestPayload,
   BuildSolicitationBatchPayload,
+  GenerateSolicitationAsksPayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -299,6 +302,24 @@ solicitationBatchWorker.on('failed', (job, err) =>
   handleSolicitationBatchFailed(sql, job, err),
 );
 
+// Ask-generation lane (#628). Default BullMQ concurrency is ONE slot on
+// purpose: children run sequentially inside a job (SPEC §7.3,
+// withConcurrency:false — no reply-generation slot is held), so this queue's
+// LLM parallelism IS its worker concurrency. Flag-gated by
+// SOLICITATION_SEND_ENABLED at both the enqueue seam and inside the domain
+// module (flag off ⇒ no-op success), the judge_verdict posture.
+const generateSolicitationAsksWorker = new Worker<GenerateSolicitationAsksPayload>(
+  QUEUE_NAMES.GENERATE_SOLICITATION_ASKS,
+  withJobLogContext<GenerateSolicitationAsksPayload>((job) =>
+    handleGenerateSolicitationAsks(sql, job),
+  ),
+  workerOpts,
+);
+
+generateSolicitationAsksWorker.on('failed', (job, err) =>
+  handleGenerateSolicitationAsksFailed(sql, job, err),
+);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -320,9 +341,11 @@ const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, hand
 const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, handleOnboardingDemo, workerOpts);
 
 // Worker-slot cap (ADR 0005 addendum): summed non-flag-gated LLM worker slots
-// must stay ≤ SUMMED_LLM_WORKER_SLOT_CAP; judge_verdict is flag-gated and
-// capped separately. Reads EFFECTIVE worker.opts (same pattern as
-// assertSingleConcurrencyWorker below) so an options-object edit fails boot.
+// must stay ≤ SUMMED_LLM_WORKER_SLOT_CAP; the flag-gated queues (judge_verdict
+// behind JUDGE_ENABLED, generate_solicitation_asks behind
+// SOLICITATION_SEND_ENABLED) are capped separately. Reads EFFECTIVE
+// worker.opts (same pattern as assertSingleConcurrencyWorker below) so an
+// options-object edit fails boot.
 // grep runLlmTask callers before editing this list — generate_demo was missed once (#490).
 assertSummedLlmWorkerSlots([
   { queueName: QUEUE_NAMES.GENERATE_RESPONSE, opts: responseGenWorker.opts },
@@ -331,6 +354,14 @@ assertSummedLlmWorkerSlots([
   { queueName: QUEUE_NAMES.SEND_MONTHLY_IMPACT, opts: monthlyImpactWorker.opts },
   { queueName: QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, opts: onboardingDemoWorker.opts },
   { queueName: QUEUE_NAMES.JUDGE_VERDICT, opts: judgeVerdictWorker.opts, flagGated: true },
+  {
+    queueName: QUEUE_NAMES.GENERATE_SOLICITATION_ASKS,
+    opts: generateSolicitationAsksWorker.opts,
+    // Gated by SOLICITATION_SEND_ENABLED at enqueue AND inside the domain
+    // module (flag off ⇒ no-op success, zero LLM calls) — the judge posture.
+    // The non-gated sum sits at the cap (9), so this entry MUST stay gated.
+    flagGated: true,
+  },
 ]);
 
 const updateStripeOverageWorker = new Worker<UpdateStripeOveragePayload>(
@@ -412,6 +443,7 @@ const workersByQueue = {
   [QUEUE_NAMES.JUDGE_VERDICT]: judgeVerdictWorker,
   [QUEUE_NAMES.CSV_INGEST]: csvIngestWorker,
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: solicitationBatchWorker,
+  [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: generateSolicitationAsksWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

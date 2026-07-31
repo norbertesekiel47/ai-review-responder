@@ -266,3 +266,55 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   replacement no-ops (`not_settled`). No `failure` is passed: such a batch
   settles `exhausted` (renders existed and were approvable), not
   `generation_failed`.
+- [2026-07-31] **Task 10: `GENERATE_SOLICITATION_ASKS` registers in
+  `assertSummedLlmWorkerSlots` as `flagGated: true`, not as a sum
+  contribution.** The plan said "the sum contribution is its BullMQ
+  concurrency of 1", but the non-flag-gated sum already sits AT the cap
+  (GENERATE_RESPONSE=5 + GENERATE_DEMO/WEEKLY_SUMMARY/SEND_MONTHLY_IMPACT/
+  ONBOARDING_DEMO_RESPONSE=1 each = 9 = SUMMED_LLM_WORKER_SLOT_CAP), so a
+  non-gated entry fails every boot. The lane is genuinely flag-gated —
+  `SOLICITATION_SEND_ENABLED` gates both the enqueue seam and the domain
+  module (flag off ⇒ no-op success, zero LLM calls) — which is exactly the
+  judge_verdict posture the assert's flag-gated arm exists for; concurrency 1
+  satisfies `FLAG_GATED_LLM_WORKER_SLOT_CAP`. startup-assert.ts doc comment
+  updated to name both flag-gated queues.
+- [2026-07-31] **Task 10: `generate-failed-hook.ts` marks the outbox attempt
+  failed but deliberately does NOT terminalize the send parent** (the build
+  failed-hook's coupled transition is not mirrored). Three reasons: the
+  batch→run single-join contract makes `closeBatchIfSettled` the sole owner
+  of send-parent terminal transitions; only the domain finale can know
+  whether the batch settled; and on the regeneration path the parent is
+  healthy (the prior render stays live), so failing it would corrupt a
+  working batch. An operator re-drive of the failed row resumes idempotently
+  (§7.4 any-non-cancelled-row skip). Matches the plan's literal "Sentry +
+  outbox failure marking" scope; Sentry arrives via the shared
+  `workersByQueue` failed-breadcrumb loop.
+- [2026-07-31] **Task 10: handler-level regen-budget classification is a
+  no-op by construction** — Task 8's landed `regenerateAsk` catches
+  `RegenBudgetExceededError` internally and refuses (outbox completed,
+  terminal), so it never reaches the handler. The INTAKE test `enforces the
+  three-per-day ask regeneration budget in the worker` therefore drives the
+  REAL `regenerateAsk` through the handler (vi.mock `spy: true` passthrough)
+  with only `checkAskRegenBudget`/LLM/outbox-CAS mocked, proving: handler
+  resolves (no BullMQ retry), zero LLM calls, outbox attempt completed. The
+  second INTAKE title landed in `ask-generation.integration.test.ts` (live
+  DB): all-withheld batch ⇒ parent `failed` with `generation_failed` error
+  jsonb + `send_batch_closed` receipt; the suite's shared `afterEach` now
+  also resets `solicitation_batches.send_closed_at` for test independence.
+- [2026-07-31] **Task 10 spec-review advisory (carried to Task 12):** the
+  flag-gated arm of `assertSummedLlmWorkerSlots` has per-entry caps but no
+  AGGREGATE bound, so the all-flags-on worst case is now 9+1+1 = 11 in-flight
+  LLM calls — brushing ADR 0005's "~10 requires the global Redis semaphore"
+  trigger, and each future flag-gated lane silently widens it by 1. Task 12
+  should add an aggregate worst-case bound (non-gated sum + flag-gated count
+  ≤ 11, documented as the ADR 0005 flag-on envelope) in
+  `worker/config/startup-assert.ts` (in surface) so a third gated lane forces
+  the semaphore conversation.
+- [2026-07-31] **Task 10 quality-review follow-up (out of scope here):**
+  `isExhausted`/`boundedErrorClass`/`logFailureSafely` now exist as a third
+  verbatim copy across colocated failed hooks (solicitation-batch, csv-ingest,
+  judge, + generate). Mechanical helpers, not per-worker knowledge — candidate
+  for one shared owner in a future ticket that may touch all hook files
+  (cross-worker surface, outside this intake). Also noted: when #627 lands the
+  postal-address column, the all-withheld integration case (which relies on
+  head-092 column absence) needs an explicit fixture knob instead.

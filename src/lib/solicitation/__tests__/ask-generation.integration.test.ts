@@ -260,6 +260,13 @@ describeWithDb(
       `;
       await db`DELETE FROM agent_runs WHERE business_id = ${businessId}::uuid`;
       await db`DELETE FROM job_outbox WHERE aggregate_id = ${batchId}::uuid`;
+      // The shared batch row is reused across tests: restore the built-only
+      // lifecycle a settling test (generation_failed close) advanced.
+      await db`
+        UPDATE solicitation_batches
+        SET send_closed_at = NULL
+        WHERE id = ${batchId}::uuid
+      `;
     });
 
     afterAll(async () => {
@@ -359,6 +366,81 @@ describeWithDb(
       expect(costMocks.reserveCost).not.toHaveBeenCalled();
       expect(llmMocks.runLlmTask).not.toHaveBeenCalled();
       expect(rerun).toMatchObject({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 3 });
+    });
+
+    it('terminalizes the send parent failed with generation_failed when every render fails or is withheld', async () => {
+      // Two fresh asks, no prior renders. At head 092 the postal-address
+      // column is absent, so BOTH freshly generated children withhold
+      // lint_failed (fail-closed footer) — zero rows stay releasable, which is
+      // exactly D14's "nothing to approve" settle: the finale's k = 0 arm
+      // hands closeBatchIfSettled the generation_failed failure.
+      await seedSendAsk(1);
+      await seedSendAsk(2);
+      const handle = await seedDispatchedOutboxRow();
+
+      const result = await generateAsksForBatch(sql(), {
+        batchId,
+        businessId,
+        outboxHandle: handle,
+      });
+      expect(result).toMatchObject({
+        rendered: 0,
+        withheld: 2,
+        failed: 0,
+        skippedExisting: 0,
+      });
+
+      // The finale still completed the owned outbox attempt (decision 9).
+      const [outboxRow] = await sql()<{ status: string }[]>`
+        SELECT status FROM job_outbox WHERE id = ${handle.outboxId}::uuid
+      `;
+      expect(outboxRow).toMatchObject({ status: 'completed' });
+
+      // The send parent terminalized failed, and the error jsonb carries the
+      // generation_failed attribution with the two-count evidence split.
+      const [parent] = await sql()<
+        { id: string; status: string; error: unknown }[]
+      >`
+        SELECT id, status, error FROM agent_runs
+        WHERE kind = 'solicitation_send_batch'
+          AND subject_type = 'solicitation_batch'
+          AND subject_id = ${batchId}
+          AND account_id = ${accountId()}::uuid
+          AND business_id = ${businessId}::uuid
+      `;
+      expect(parent).toBeDefined();
+      expect(parent!.status).toBe('failed');
+      const parentError =
+        typeof parent!.error === 'string'
+          ? (JSON.parse(parent!.error) as Record<string, unknown>)
+          : (parent!.error as Record<string, unknown>);
+      expect(parentError).toMatchObject({
+        code: 'generation_failed',
+        failed_count: 0,
+        withheld_count: 2,
+      });
+
+      // The batch settled: send lane closed with the generation_failed
+      // disposition on the close receipt.
+      const [batchRow] = await sql()<{ send_closed_at: Date | null }[]>`
+        SELECT send_closed_at FROM solicitation_batches
+        WHERE id = ${batchId}::uuid
+      `;
+      expect(batchRow!.send_closed_at).not.toBeNull();
+      const [closeStep] = await sql()<{ detail: unknown }[]>`
+        SELECT detail FROM agent_run_steps
+        WHERE agent_run_id = ${parent!.id}::uuid
+          AND step_key = 'send_batch_closed'
+      `;
+      expect(closeStep).toBeDefined();
+      const closeDetail =
+        typeof closeStep!.detail === 'string'
+          ? (JSON.parse(closeStep!.detail) as Record<string, unknown>)
+          : (closeStep!.detail as Record<string, unknown>);
+      expect(closeDetail).toMatchObject({
+        disposition: 'generation_failed',
+        withheld: 2,
+      });
     });
   },
 );

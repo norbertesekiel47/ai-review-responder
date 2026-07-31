@@ -143,11 +143,12 @@ const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
  * amended 2026-07-20). The summed BullMQ concurrency across the LLM-calling
  * queues is a per-process worker-slot budget — the de-facto GLOBAL LLM
  * concurrency bound ONLY under single-replica deployment (ADR 0005). Effective
- * slots per entry = opts.concurrency ?? 1 (BullMQ's default — five of the six
+ * slots per entry = opts.concurrency ?? 1 (BullMQ's default — most of the
  * LLM workers register with bare workerOpts). Non-flag-gated entries must sum
- * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict) is
- * capped separately at FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag
- * ON never trips the sum. Raising the sum past ~10 requires building the
+ * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict,
+ * generate_solicitation_asks) is capped separately at
+ * FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag ON never trips the
+ * sum. Raising the sum past ~10 requires building the
  * global Redis semaphore first (ADR 0005 deferral trigger).
  *
  * Scope note: per-job LLM fan-out (the demo Promise.allSettled over ≤15
