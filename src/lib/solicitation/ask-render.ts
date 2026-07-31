@@ -24,6 +24,19 @@ export const UNSUBSCRIBE_URL_PLACEHOLDER = '{{unsubscribe_url}}';
 /** Replaced by #630 at dispatch with the business's Google review link (AMEND B4). */
 export const REVIEW_LINK_PLACEHOLDER = '{{review_link}}';
 
+// Footer byte facts, exported so lint class 7 (`missing_required_element`,
+// ask-compliance-lint.ts) can assert the footer's presence against the SAME
+// bytes this module emits — one authoritative owner of the footer shape.
+
+/** The line separating the ask copy from the CAN-SPAM footer trio. */
+export const FOOTER_SEPARATOR = '---';
+
+/** Prefix of the sender-identification line (#622 §7.2 block 1). */
+export const SENDER_IDENTIFICATION_PREFIX = 'Sent by RepWorth on behalf of ';
+
+/** Prefix of the unsubscribe line (#622 §7.2 block 3). */
+export const UNSUBSCRIBE_LINE_PREFIX = 'Unsubscribe: ';
+
 export interface AskFooterInput {
   businessName: string;
   /** Owner-attested `businesses.solicitation_postal_address` (#627); null until attested. */
@@ -51,10 +64,10 @@ export function assembleAskBody(llmBody: string, footer: AskFooterInput): string
     '',
     `Leave a review: ${REVIEW_LINK_PLACEHOLDER}`,
     '',
-    '---',
+    FOOTER_SEPARATOR,
     '',
-    `Sent by RepWorth on behalf of ${footer.businessName}.`,
+    `${SENDER_IDENTIFICATION_PREFIX}${footer.businessName}.`,
     footer.postalAddress,
-    `Unsubscribe: ${UNSUBSCRIBE_URL_PLACEHOLDER}`,
+    `${UNSUBSCRIBE_LINE_PREFIX}${UNSUBSCRIBE_URL_PLACEHOLDER}`,
   ].join('\n');
 }

@@ -1,0 +1,223 @@
+{
+  "version": "ask_lint_2026-07-30.1",
+  "blockReasons": [
+    "incentive_language",
+    "review_steering",
+    "gating_funnel",
+    "pressure",
+    "deceptive_subject",
+    "unverifiable_fact",
+    "missing_required_element",
+    "moderation_high"
+  ],
+  "classes": [
+    {
+      "class": 1,
+      "reason": "incentive_language",
+      "scope": "subject_and_body",
+      "interpolatedValueExemption": true,
+      "patterns": [
+        "/\\bdiscount(s|ed)?\\b/gi",
+        "/\\bcoupons?\\b/gi",
+        "/\\bvouchers?\\b/gi",
+        "/\\bgift cards?\\b/gi",
+        "/\\bfree\\s+(?!to\\b)[a-z]/gi",
+        "/\\bon us\\b/gi",
+        "/\\bcomp(ed|ing)\\b/gi",
+        "/\\braffles?\\b/gi",
+        "/\\bgiveaways?\\b/gi",
+        "/\\bentry\\b/gi",
+        "/\\bentered to win\\b/gi",
+        "/\\bpoints\\b/gi",
+        "/\\brewards?\\b/gi",
+        "/\\d+\\s*%\\s*off/gi",
+        "/\\$\\s*\\d+\\s*off/gi",
+        "/\\bin exchange for\\b/gi"
+      ]
+    },
+    {
+      "class": 2,
+      "reason": "review_steering",
+      "scope": "subject_and_body",
+      "interpolatedValueExemption": true,
+      "patterns": [
+        "/\\b5[- ]star/gi",
+        "/\\bfive[- ]star/gi",
+        "/★/g",
+        "/\\bpositive review/gi",
+        "/\\bglowing\\b/gi",
+        "/\\bgreat review/gi",
+        "/\\bmention (the|our|that)\\b/gi",
+        "/\\bsay that\\b/gi",
+        "/\\btell them (about|how)\\b/gi",
+        "/\\bwrite that\\b/gi",
+        "/\\binclude .{0,80} in your review/gi",
+        "/\\brate us\\b/gi"
+      ]
+    },
+    {
+      "class": 3,
+      "reason": "gating_funnel",
+      "scope": "subject_and_body",
+      "interpolatedValueExemption": true,
+      "patterns": [
+        "/\\bif you (loved|enjoyed|liked|were happy|had a (great|good) )/gi",
+        "/\\bif (anything|something) (was|went) wrong[\\s\\S]{0,60}?(contact|reply|let us know|reach out)/gi",
+        "/\\bbefore you leave a review, /gi"
+      ]
+    },
+    {
+      "class": 4,
+      "reason": "pressure",
+      "scope": "subject_and_body",
+      "interpolatedValueExemption": true,
+      "patterns": [
+        "/\\brequired\\b/gi",
+        "/\\byou must\\b/gi",
+        "/\\bwe need you to\\b/gi",
+        "/\\bbefore you can\\b/gi",
+        "/\\bwon['’]?t be able to\\b/gi",
+        "/\\bexpected of\\b/gi"
+      ]
+    },
+    {
+      "class": 5,
+      "reason": "deceptive_subject",
+      "scope": "subject_only",
+      "interpolatedValueExemption": false,
+      "patterns": [
+        "/^\\s*(re|fwd?|fw)\\s*:/i",
+        "/\\baction required\\b/i",
+        "/\\burgent\\b/i",
+        "/\\baccount (suspended|closed)\\b/i",
+        "/\\byou (won|have won)\\b/i",
+        "/\\bfinal notice\\b/i",
+        "/https?:\\/\\//i",
+        "/\\bwww\\./i",
+        "/\\b[a-z0-9-]+\\.(?:com|net|org|io|co|us|info|biz|app|dev)\\b/i",
+        "/[^\\s@]+@[^\\s@]+\\.[^\\s@]+/"
+      ],
+      "structural": [
+        "non_empty",
+        "max_80_code_points",
+        "max_1_exclamation_mark",
+        "not_all_caps",
+        "max_1_emoji",
+        "no_digit_run_of_7_plus_ignoring_phone_separators",
+        "no_disallowed_interpolated_value_in_subject"
+      ]
+    },
+    {
+      "class": 6,
+      "reason": "unverifiable_fact",
+      "scope": "subject_and_model_authored_body_excluding_footer",
+      "interpolatedValueExemption": false,
+      "structural": [
+        "capitalized_non_sentence_initial_tokens_must_appear_in_interpolation_values_or_allowlist",
+        "digit_runs_must_appear_in_interpolation_values"
+      ],
+      "allowlist": [
+        "april",
+        "august",
+        "best",
+        "cheers",
+        "dear",
+        "december",
+        "february",
+        "friday",
+        "hello",
+        "hey",
+        "hi",
+        "i",
+        "i'd",
+        "i'll",
+        "i'm",
+        "i've",
+        "january",
+        "july",
+        "june",
+        "leave",
+        "march",
+        "may",
+        "monday",
+        "november",
+        "october",
+        "regards",
+        "repworth",
+        "saturday",
+        "sent",
+        "september",
+        "sincerely",
+        "sunday",
+        "thank",
+        "thanks",
+        "thursday",
+        "tuesday",
+        "unsubscribe",
+        "warmly",
+        "wednesday"
+      ]
+    },
+    {
+      "class": 7,
+      "reason": "missing_required_element",
+      "scope": "body_only",
+      "interpolatedValueExemption": false,
+      "structural": [
+        "review_link_placeholder_exactly_once",
+        "unsubscribe_placeholder_exactly_once",
+        "postal_address_block_between_identification_and_unsubscribe_lines"
+      ]
+    }
+  ],
+  "noteAdmissibility": [
+    {
+      "rule": "sentiment_token",
+      "patterns": [
+        "/\\bloved\\b/i",
+        "/\\blove(s|d)?\\s+it\\b/i",
+        "/\\bthrilled\\b/i",
+        "/\\bdelighted\\b/i",
+        "/\\bhappy\\b/i",
+        "/\\bunhappy\\b/i",
+        "/\\bangry\\b/i",
+        "/\\bupset\\b/i",
+        "/\\bcomplained\\b/i",
+        "/\\bcomplaints?\\b/i",
+        "/\\brefund/i",
+        "/\\bapolog/i",
+        "/\\b[1-5]\\s*star/i",
+        "/★/",
+        "/\\bgreat customer\\b/i",
+        "/\\bdifficult customer\\b/i",
+        "/\\bhated\\b/i"
+      ]
+    },
+    {
+      "rule": "contact_channel",
+      "patterns": [
+        "/https?:\\/\\//i",
+        "/\\bwww\\./i",
+        "/\\b[a-z0-9-]+\\.(?:com|net|org|io|co|us|info|biz|app|dev)\\b/i",
+        "/@/",
+        "/\\d{7,}/"
+      ]
+    },
+    {
+      "rule": "imperative_to_model",
+      "patterns": [
+        "/ignore\\s+(?:the\\s+)?(?:above|previous)/i",
+        "/\\byou are\\b/i",
+        "/\\bsystem:/i",
+        "/\\bassistant:/i",
+        "/\\binstructions?:/i",
+        "/\\brespond with\\b/i",
+        "/```/"
+      ]
+    },
+    {
+      "rule": "length",
+      "maxNormalizedLength": 200
+    }
+  ]
+}
