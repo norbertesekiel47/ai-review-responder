@@ -12,7 +12,7 @@ export default function AdminLayout({
     <AdminProviders>
       <div className="flex min-h-screen bg-gray-50">
         <AdminSidebar />
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1 pt-12 md:pt-0">{children}</main>
       </div>
     </AdminProviders>
   );

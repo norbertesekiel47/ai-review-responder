@@ -157,8 +157,10 @@ export function AdminSidebar() {
           <NavGroups pathname={pathname} counts={counts} onNavigate={() => setMobileOpen(false)} />
         </div>
       )}
-      {/* Spacer so page content clears the fixed mobile top bar */}
-      <div className="h-12 md:hidden" />
+      {/* No in-flow mobile spacer here: this component is a flex-row sibling of
+          <main>, so a spacer div would sit beside it, not above page content.
+          The layout's <main> carries `pt-12 md:pt-0` instead, to clear the
+          fixed top bar. */}
     </>
   );
 }
