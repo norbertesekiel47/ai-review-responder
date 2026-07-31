@@ -1,0 +1,90 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Ship the solicitation_consent ledger (migration 093) and its ingest wiring so consent resolution becomes a ledger lookup gated by SEND_ELIGIBLE_ATTESTATION_VERSIONS, killing the consent_attested tautology and the §1.2 re-upload trap.",
+  "non_goals": [
+    "No dispatch gate (§6.3) — that is #630's consent-row existence + allowlist check; #625 never touches solicitation_outreach",
+    "No consent snapshot stamping on outreach rows — stamped at DISPATCH by #630 per amendments B1",
+    "No suppression ledger reads or writes — #621/#626 own revocation entirely; no revoked_at column, ever (D7)",
+    "No owner-facing grant-consent action — the attestation checkbox is the only surface (§4.1)",
+    "No SMS consent rows (DR3) — channel CHECK ships email-only",
+    "No new env vars or feature flags — allowlist and attestation constants are code constants (§8.3)",
+    "No new withhold reason — case (b) is distinguished by evidence fields, not a new enum member (§6.1)",
+    "No basis values beyond owner_attested (D5)",
+    "Spec §10 test 7 and the solicitation_consent_missing_at_dispatch event DEFERRED to #630 (map-owner decision 2026-07-30): both exercise the §6.3 dispatch gate, which #630 builds; §9's #625 row binds §3/§4/§6.1/§6.2/§7 only"
+  ],
+  "user_visible_behavior": [
+    "Uploading a CSV records/upgrades one solicitation_consent row per valid email row, inside the existing ingest transaction",
+    "The upload attestation checkbox text changes to the v2 wording (names email, opt-outs, and the sender-agent relationship); new uploads stamp consent_attestation_v2",
+    "Contacts covered only by v1 now withhold with no_consent case (b) (upload_id + attestation_version populated) instead of counting as attested — visible in watch-mode batch evidence",
+    "Re-uploading the same CSV under v2 upgrades consent rows even when every visit dedupes (duplicate_visit), making those contacts send-eligible — the §1.2 trap remedy",
+    "Deleting a contact deletes its consent rows by handle in the same transaction",
+    "Offboarding purge hard-deletes all consent rows via the businesses cascade, with an explicit TABLE_DISPOSITIONS entry and must_be_absent verification"
+  ],
+  "invariants": [
+    "Consent fails closed; suppression fails open (DR1) — consent rows are hard_delete on contact delete and purge",
+    "No consent row for a channel the attestation text did not name (DR3) — phone handles mint zero rows",
+    "Monotone forward only: the ON CONFLICT DO UPDATE carries WHERE EXCLUDED.attested_at > solicitation_consent.attested_at (§4.2)",
+    "Ingest is the sole writer, inside the per-business advisory-locked transaction (D8)",
+    "attested_by_user_id is a plain UUID with NO FK — the 086 users cascade must not reach the ledger (§3.4)",
+    "source_upload_id FK is ON DELETE SET NULL — audit pointer only",
+    "No account_id column — business-scoped per 086's denormalization warning (§3.2)",
+    "RLS enabled, deny-all to browser — same posture as auto_approval_policies (invariant #14)",
+    "Re-running a csv_ingest job stays idempotent — the > guard makes replays no-ops without updated_at churn (§4.3)",
+    "evaluateAsk stays pure and unchanged — only the caller's derivation swaps (§6.1)",
+    "Never log or emit the raw handle — analytics properties carry channel/basis/version only (§8.1–8.2)",
+    "UUIDv7 worker-supplied PK per repo convention"
+  ],
+  "edge_cases": [
+    "In-flight pre-deploy csv_ingest job carrying v1 dispatches after the v2 deploy — the attested_at guard prevents the downgrade (§4.2)",
+    "Re-upload where zero visits insert (all duplicate_visit) must still upgrade consent rows (§1.2)",
+    "CSV row with phone but no email produces contacts/visits and no consent row (DR3)",
+    "Same handle at two businesses in one account: consent at A does not cover B (§3.2)",
+    "Contact deleted then same handle re-uploaded: stale consent must not survive to grant consent the owner did not re-give (§7.1 — silent-failure case, contract-tested)",
+    "Suppressed handle re-attested under v2: suppression still outranks (§5.2) — pure evaluateAsk precedence test",
+    "postgres.js microsecond truncation does not apply to the §4.2 guard (both operands in one statement) — recorded, not worked around"
+  ],
+  "existing_patterns_to_follow": [
+    "supabase/migrations/086_solicitation_contacts.sql — table conventions, RLS posture, comment style for the solicitation lane",
+    "src/lib/solicitation/ingest.ts ingestContactsCsvUpload tx + acquireCsvIngestLock — the transaction the consent upsert joins",
+    "src/lib/account-offboarding/table-disposition.ts solicitation_* entries — disposition + verification shape",
+    "src/lib/shared/__tests__/helpers/schema-ready.ts — migration→objects map gains 093",
+    "src/lib/shared/__tests__/migration-092-terminal-body-redaction.integration.test.ts — migration shape-suite pattern (live-db lock + rollback)",
+    "restraint-policy.ts .2 doc-comment precedent for recording the .3 bump reason"
+  ],
+  "allowed_edit_surface": [
+    "supabase/migrations/093_solicitation_consent.sql",
+    "src/lib/solicitation/**",
+    "src/lib/account-offboarding/**",
+    "src/lib/analytics/**",
+    "src/lib/shared/__tests__/helpers/schema-ready.ts",
+    "src/lib/shared/__tests__/migration-093-*.integration.test.ts",
+    ".claude/reference/migrations-log.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",
+    "the §1.2 re-upload trap: re-uploading the identical CSV under v2 inserts zero visits AND leaves the contact send-eligible",
+    "monotonicity guard: a v1 write with an earlier attested_at cannot downgrade a v2 consent row",
+    "tenant scope: a consent row at business A does not make the same handle eligible at business B in the same account",
+    "contact delete sweeps consent rows by handle; re-uploading after delete requires a fresh attestation",
+    "suppression outranks a fresh attestation: an attested candidate with a suppression present still withholds as suppressed",
+    "evidence shape: both no_consent cases round-trip through parseEvidence and satisfy migration 090's CHECK",
+    "no SMS rows: a CSV with phone handles produces zero channel='sms' consent rows",
+    "monotone upsert idempotency: replaying the same csv_ingest job re-writes identical values as a no-op without updated_at churn"
+  ],
+  "verification_commands": [
+    "TEST_DATABASE_POOL_URL-backed run of src/lib/solicitation/__tests__/ingest.integration.test.ts and batch-builder.integration.test.ts"
+  ],
+  "estimated_diff_size": "~1200 lines (~450 src + migration, ~750 tests); deletions small (tautology SQL, v1-era comments)",
+  "dependencies_added": [],
+  "rollback_plan": "Pre-send-mode lane: nothing dispatches (no send worker exists; SOLICITATION_SEND_ENABLED unbuilt), so rollback = revert the PR (constants and derivation return to v1 semantics) and DROP TABLE solicitation_consent on staging — the table is written only by ingest and read only by the reverted derivation, no other consumer exists until #628/#630. Migration applies staging-first per runbook; prod application rides the normal promotion lockstep.",
+  "observability": [
+    "solicitation_consent_recorded durable analytics event (channel, basis, attestation_version — never the handle), idempotent on event_key",
+    "solicitation_consent_upgraded event (channel, from_version, to_version) — the #633 flip-evidence metric for v1→v2 re-upload migration",
+    "consent row id (never handle) in worker logs when correlation is needed"
+  ],
+  "open_questions": []
+}
