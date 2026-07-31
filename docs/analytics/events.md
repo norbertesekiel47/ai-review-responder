@@ -228,3 +228,25 @@ CSV content.
 - **Required properties:** `action` (`set` or `cleared`), `placeId` (the picked Place ID; `null` on clear), `businessId`
 - **Optional properties:** none
 - **Privacy notes:** IDs only. `businessId` is duplicated into properties on purpose — `AnalyticsDispatchPoller` forwards only the properties blob to PostHog, so the `analytics_events.business_id` column never leaves Postgres and the location dimension would otherwise be unavailable. No rival display name is sent (it is third-party business content, not our fact to publish).
+
+### `solicitation_consent_recorded`
+- **Status:** live
+- **Description:** A consent ledger row was inserted for an email handle at one location — the first attestation covering that `(channel, normalized_handle, business_id)` scope (#625, consent-ledger spec §8.1).
+- **Owner:** `upsertConsent` (`src/lib/solicitation/ingest.ts`), inside the csv_ingest advisory-locked transaction
+- **Source:** server-side, same transaction as the consent-row insert (durable; **not** client-postable — a client-postable variant would let anyone forge consent)
+- **Distinct ID:** account ID
+- **Event key:** `solicitation_consent_recorded_<consent_row_id>` — the whole ingest is one transaction, so a replayed job either short-circuits on the terminal upload or rolls the event back with the row; the key never double-mints.
+- **Required properties:** `channel` (`email`), `basis` (`owner_attested`), `attestation_version`
+- **Optional properties:** none
+- **Privacy notes:** never the handle — IDs and version strings only (spec §8.1).
+
+### `solicitation_consent_upgraded`
+- **Status:** live
+- **Description:** The §4.2 guarded monotone upsert's DO UPDATE branch fired across an attestation-version change. The metric that shows whether the v1→v2 re-upload migration is actually happening — #633 flip evidence, not a vanity number.
+- **Owner:** `upsertConsent` (`src/lib/solicitation/ingest.ts`), inside the csv_ingest advisory-locked transaction
+- **Source:** server-side, same transaction as the consent-row update (durable; **not** client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `solicitation_consent_upgraded_<consent_row_id>_<to_version>` — the consent row id is stable across upgrades, so replaying the same version upgrade re-mints the same key and `ON CONFLICT` drops it.
+- **Required properties:** `channel` (`email`), `from_version`, `to_version`
+- **Optional properties:** none
+- **Privacy notes:** never the handle.

@@ -21,6 +21,43 @@
   entry") in the locked plan. Everything else green: 768 passed / 1 failed
   files, 9839 passed / 1 failed tests. No adaptation made — proceeding.
 
+## Task 3
+
+- [2026-07-30] **BLOCKED: spec §8.1's events need a DB migration the plan did
+  not anticipate, and every file it needs is outside the edit surface.**
+  `analytics_events.event_name` is a DB-level CHECK allowlist (046, last
+  extended by 089 — whose own header warns that registering a name only in
+  `ANALYTICS_EVENT_NAMES` is not enough). With `solicitation_consent_recorded`
+  / `solicitation_consent_upgraded` registered in code but absent from the
+  CHECK, **every consent-recording csv_ingest transaction rolls back**
+  (verified on the live suite: `violates check constraint
+  "analytics_events_event_name_check"`). Migration 093 is the recorded head
+  and immutable (the fix is head+1 = 094), but the edit-surface-guard blocked
+  `supabase/migrations/094_*.sql`, the migration-094 shape suite, the
+  migration-089 drift-guard handoff edit, and `docs/analytics/events.md`
+  (needed by `ci:analytics-events`). No in-surface adaptation exists for a DB
+  constraint. **All four artifacts are written and parked verbatim in
+  `feat-625-consent-ledger-task3-pending-artifacts.md`** — after the owner
+  amends the intake surface (Task 6 precedent), land them, bump
+  migrations-log to 094 (AFTER the 094 file exists — the immutability hook
+  reads the head), run `pnpm test:db:setup`, and Task 3's gates go green. All
+  in-surface Task 3 work (ingest.ts writer, analytics registration, unit +
+  integration tests) is complete in the working tree; the commit is
+  deliberately withheld until the gates can pass.
+  **RESOLVED [2026-07-30]** with `feat(#625): migration 094 — analytics
+  event_name allowlist gains consent events`: the map owner approved the
+  second surface amendment (recorded in both intake copies — migration
+  `094_*.sql`, the migration-094 shape suite, the migration-089 suite edit,
+  `docs/analytics/events.md`). Migration 094 landed exactly as parked, the
+  live CHECK⟺allowlist drift guard handed off 089 → 094 (the 069 → 089
+  precedent), migrations-log bumped to head 094, and the parking file
+  (`feat-625-consent-ledger-task3-pending-artifacts.md`) was deleted once its
+  contents landed — this bullet is now the only record of it. Keep the
+  underlying lesson at ship time: **any new `ANALYTICS_EVENT_NAMES` entry
+  needs a paired event_name-CHECK migration** — a plan that registers an
+  event without one repeats this block. 094 applies to staging + prod in the
+  normal ship-time lockstep alongside 093.
+
 ## Task 6
 
 - [2026-07-30] **`scripts/ci/tenant-tables.ts` is outside the intake's

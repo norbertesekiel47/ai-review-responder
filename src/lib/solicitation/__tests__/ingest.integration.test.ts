@@ -15,6 +15,10 @@ import {
   resolveTestDatabaseUrl,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_093_SOLICITATION_CONSENT,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
@@ -36,8 +40,19 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-async function seedUpload(csvText: string): Promise<string> {
+interface SeedUploadOptions {
+  attestationVersion?: string;
+  /** Postgres interval subtracted from NOW() for attested_at — seeded in SQL
+   *  so ordering never depends on a JS Date round-trip. */
+  attestedAgo?: string;
+}
+
+async function seedUpload(csvText: string, options: SeedUploadOptions = {}): Promise<string> {
   const uploadId = randomUUID();
+  const attestationVersion = options.attestationVersion ?? CONSENT_ATTESTATION_VERSION;
+  const attestedAtExpr = options.attestedAgo === undefined
+    ? sql()`NOW()`
+    : sql()`NOW() - ${options.attestedAgo}::interval`;
   await sql()`
     INSERT INTO contact_csv_uploads
       (id, account_id, business_id, filename, byte_size, content_sha256,
@@ -46,9 +61,50 @@ async function seedUpload(csvText: string): Promise<string> {
       (${uploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
        'customers.csv', ${Buffer.byteLength(csvText, 'utf8')},
        ${'0'.repeat(64)}, ${csvText}, 'pending',
-       ${tenant!.userId}::uuid, NOW(), ${CONSENT_ATTESTATION_VERSION})
+       ${tenant!.userId}::uuid, ${attestedAtExpr}, ${attestationVersion})
   `;
   return uploadId;
+}
+
+interface ConsentRow {
+  channel: string;
+  normalized_handle: string;
+  attestation_version: string;
+  attested_at: string;
+  source_upload_id: string | null;
+  updated_at: string;
+}
+
+/** Timestamps read `::text` end-to-end so microsecond precision survives —
+ *  updated_at churn assertions must not be blurred by the JS Date truncation. */
+async function readConsentRows(): Promise<ConsentRow[]> {
+  return sql()<ConsentRow[]>`
+    SELECT channel, normalized_handle, attestation_version,
+           attested_at::text AS attested_at,
+           source_upload_id::text AS source_upload_id,
+           updated_at::text AS updated_at
+    FROM solicitation_consent
+    WHERE business_id = ${businessId}::uuid
+    ORDER BY normalized_handle
+  `;
+}
+
+async function readConsentAnalyticsEvents(): Promise<{ event_name: string; event_key: string; properties: unknown }[]> {
+  return sql()<{ event_name: string; event_key: string; properties: unknown }[]>`
+    SELECT event_name, event_key, properties
+    FROM analytics_events
+    WHERE business_id = ${businessId}::uuid
+      AND event_name IN ('solicitation_consent_recorded', 'solicitation_consent_upgraded')
+    ORDER BY event_name, event_key
+  `;
+}
+
+function parseEventProperties(value: unknown): Record<string, unknown> {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('analytics_events.properties was not an object');
+  }
+  return parsed as Record<string, unknown>;
 }
 
 async function runIngest(uploadId: string): Promise<IngestReport> {
@@ -78,6 +134,7 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
     const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
     featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
+    await assertSchemaReady(db, [MIGRATION_093_SOLICITATION_CONSENT]);
     tenant = await seedTenantAccount(db, {
       userName: 'CSV Ingest Integration Owner',
       accountDisplayName: 'CSV Ingest Integration Account',
@@ -101,6 +158,8 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
       WHERE aggregate_type = 'solicitation_batch'
         AND payload->>'business_id' = ${businessId}
     `;
+    await sql()`DELETE FROM analytics_events WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_consent WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
@@ -430,5 +489,143 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
       SELECT status FROM contact_csv_uploads WHERE id = ${uploadId}::uuid
     `;
     expect(after!.status).toBe('failed');
+  });
+
+  it('the §1.2 re-upload trap: re-uploading the identical CSV under v2 inserts zero visits AND upgrades the consent row', async () => {
+    const csv = [
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n');
+
+    const uploadA = await seedUpload(csv, {
+      attestationVersion: 'consent_attestation_v1',
+      attestedAgo: '2 hours',
+    });
+    const firstReport = await runIngest(uploadA);
+    expect(firstReport).toMatchObject({ contactsCreated: 1, visitsAdded: 1, duplicateVisits: 0 });
+
+    const [seeded] = await readConsentRows();
+    expect(seeded).toMatchObject({
+      channel: 'email',
+      normalized_handle: 'ada@example.com',
+      attestation_version: 'consent_attestation_v1',
+      source_upload_id: uploadA,
+    });
+
+    // The identical CSV re-uploaded under v2: every visit is a duplicate, yet
+    // the consent ledger is exactly what makes the re-upload effective (§1.2).
+    const uploadB = await seedUpload(csv, { attestationVersion: CONSENT_ATTESTATION_VERSION });
+    const secondReport = await runIngest(uploadB);
+    expect(secondReport.visitsAdded).toBe(0);
+    expect(secondReport.duplicateVisits).toBeGreaterThan(0);
+
+    const rows = await readConsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      channel: 'email',
+      normalized_handle: 'ada@example.com',
+      attestation_version: CONSENT_ATTESTATION_VERSION,
+      source_upload_id: uploadB,
+    });
+
+    // One recorded (upload A inserted the row) + one upgraded (upload B's
+    // §4.2 DO UPDATE branch fired across a version change), never the handle.
+    const events = await readConsentAnalyticsEvents();
+    expect(events.map((event) => event.event_name)).toEqual([
+      'solicitation_consent_recorded',
+      'solicitation_consent_upgraded',
+    ]);
+    const upgraded = parseEventProperties(events[1]!.properties);
+    expect(upgraded).toEqual({
+      channel: 'email',
+      from_version: 'consent_attestation_v1',
+      to_version: CONSENT_ATTESTATION_VERSION,
+    });
+    for (const event of events) {
+      expect(JSON.stringify(event.properties)).not.toContain('ada@example.com');
+    }
+  });
+
+  it('monotonicity guard: a v1 write with an earlier attested_at cannot downgrade a v2 consent row', async () => {
+    await runIngest(await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,',
+    ].join('\n')));
+    const [v2Row] = await readConsentRows();
+    expect(v2Row!.attestation_version).toBe(CONSENT_ATTESTATION_VERSION);
+
+    // The in-flight pre-deploy v1 job (§4.2): stamped before the v2 upload,
+    // dispatched after it. Different visit date so its visits DO insert —
+    // proving the guard rejected only the consent write, not the ingest.
+    const v1Report = await runIngest(await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-02-14,Belated visit',
+    ].join('\n'), {
+      attestationVersion: 'consent_attestation_v1',
+      attestedAgo: '3 hours',
+    }));
+    expect(v1Report.visitsAdded).toBe(1);
+
+    const rows = await readConsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.attestation_version).toBe(CONSENT_ATTESTATION_VERSION);
+    expect(rows[0]!.attested_at).toBe(v2Row!.attested_at);
+    // No churn: the guarded upsert must not touch the row at all.
+    expect(rows[0]!.updated_at).toBe(v2Row!.updated_at);
+    expect(rows[0]!.source_upload_id).toBe(v2Row!.source_upload_id);
+  });
+
+  it('monotone upsert idempotency: replaying the same csv_ingest job re-writes identical values as a no-op without updated_at churn', async () => {
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,Oil change',
+    ].join('\n'));
+    const report = await runIngest(uploadId);
+    const [before] = await readConsentRows();
+    expect(before).toBeDefined();
+
+    // A BullMQ retry of the same job: the terminal upload no-ops and the
+    // consent ledger must be byte-identical afterwards.
+    const replay = await ingestContactsCsvUpload(sql(), uploadId, businessId);
+    expect(replay).toEqual(report);
+
+    const rows = await readConsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.updated_at).toBe(before!.updated_at);
+    expect(rows[0]!.attested_at).toBe(before!.attested_at);
+
+    const events = await readConsentAnalyticsEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.event_name).toBe('solicitation_consent_recorded');
+    expect(parseEventProperties(events[0]!.properties)).toEqual({
+      channel: 'email',
+      basis: 'owner_attested',
+      attestation_version: CONSENT_ATTESTATION_VERSION,
+    });
+  });
+
+  it("no SMS rows: a CSV with phone handles produces zero channel='sms' consent rows", async () => {
+    const report = await runIngest(await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,',
+      'Bob Byrne,,4155552671,2026-01-06,',
+      'Cara Chen,cara@example.com,4155559999,2026-01-07,',
+    ].join('\n')));
+    expect(report).toMatchObject({ contactsCreated: 3, visitsAdded: 3, rejected: [] });
+
+    // DR3: consent rows exist for exactly the two email handles; the
+    // phone-only contact (Bob) mints no row on any channel.
+    const rows = await readConsentRows();
+    expect(rows.map((row) => row.normalized_handle)).toEqual([
+      'ada@example.com',
+      'cara@example.com',
+    ]);
+    expect(rows.every((row) => row.channel === 'email')).toBe(true);
+
+    const [smsCount] = await sql()<{ count: string }[]>`
+      SELECT COUNT(*)::text AS count FROM solicitation_consent
+      WHERE business_id = ${businessId}::uuid AND channel = 'sms'
+    `;
+    expect(smsCount!.count).toBe('0');
   });
 });

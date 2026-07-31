@@ -29,6 +29,8 @@ describe('analytics events', () => {
       'trial_payment_failed',
       'trial_cancelled',
       'competitor_rival_picked',
+      'solicitation_consent_recorded',
+      'solicitation_consent_upgraded',
     ]);
   });
 
@@ -61,6 +63,10 @@ describe('analytics events', () => {
       'offboarding_purged',
       // #546: the rival pick is a durable server-side write, never client intent.
       'competitor_rival_picked',
+      // #625 §8.1: consent-ledger facts are written only by the csv_ingest
+      // transaction — a client-postable variant would let anyone forge consent.
+      'solicitation_consent_recorded',
+      'solicitation_consent_upgraded',
     ]) {
       expect(isClientEnqueueableEventName(name)).toBe(false);
     }

@@ -159,14 +159,21 @@ describe('csv_ingest terminal-write owners', () => {
       [{
         id: 'upload-1',
         business_id: 'business-1',
+        account_id: 'account-1',
         status: UPLOAD_STATUSES.PENDING,
         byte_size: 64,
         raw_csv: 'name,email,phone,last_visit_date,note\nAda,ada@example.com,,2020-01-02,\n',
         report: null,
+        attested_at: new Date('2026-07-01T00:00:00Z'),
+        attestation_version: 'consent_attestation_v2',
+        attested_by_user_id: 'user-1',
       }],
       [], // findContactByHandle(email) — no existing contact
       [], // INSERT solicitation_contacts
       [{ inserted: true }], // upsertVisit
+      [], // upsertConsent pre-read — no existing ledger row
+      [{ id: 'consent-1' }], // §4.2 guarded upsert inserts the consent row
+      [], // analytics_events insert (solicitation_consent_recorded)
       // The terminal UPDATE falls through to the mock's empty result: the
       // offboarding purge (purge-stages.ts) deleted the row without the lock
       // between the pending read and this write. The job must still complete.
