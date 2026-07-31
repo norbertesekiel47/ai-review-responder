@@ -133,6 +133,25 @@
   DELETEd — the cascade only fires on real location deletion); promote this
   to the spec + lab notes at ship time.**
 
+## Verify-gate parallel integration failure (root-caused 2026-07-30)
+- [2026-07-30] `batch-builder.integration.test.ts` failed 2/16 inside `verify-gate.sh --review`
+  while passing 16/16 standalone → NOT a cross-suite data collision (all six changed
+  integration suites derive fixture ids via `randomUUID` and clean up tenant-scoped —
+  verified) → the afterEach following the 5000-contact window test was doing tens of
+  thousands of row-ops through FK fan-out (`contact_csv_uploads` cascade → contacts →
+  visits/asks/outreach, plus per-ask `agent_run_id` SET NULLs and the `agent_runs` →
+  steps cascade): ~7s standalone, >30s under the gate's concurrent coverage load →
+  vitest 30s hook timeout. **The FK violation in the NEXT test was pure collateral:**
+  a timed-out vitest hook is abandoned, not cancelled — postgres.js kept executing the
+  queued DELETEs, and the late cascade removed the contact the next test had just
+  seeded under the same suite-wide `businessId`, so its ask INSERT hit
+  `solicitation_asks_contact_business_fk`. → CORRECT APPROACH: cleanup hooks on
+  live-DB suites do child-first, business-scoped, set-based DELETEs (surviving cascade
+  triggers then probe empty children — cleanup dropped to sub-second) and carry a
+  generous explicit hookTimeout (30s → 120s). Promotable lab-note lesson: a vitest
+  hook timeout on a live-DB suite poisons the FOLLOWING tests in the same file —
+  never let a fixture-heavy cleanup run near its hook budget.
+
 ## Re-classification (step-0 re-check at gate, 2026-07-30)
 - Actual diff ~2500 changed lines vs ~1200 estimated. Drivers, all approved mid-run: CI-registry
   ripples (tenant-tables.ts, rls-inventory.md, purge sweep — spec §7.2's cascade assumption wrong),

@@ -313,16 +313,31 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       WHERE aggregate_type = 'solicitation_batch'
         AND payload->>'business_id' = ${businessId}
     `;
+    // Child-first set-based deletes instead of leaning on the
+    // contact_csv_uploads ON DELETE CASCADE: cascading away the 5000-contact
+    // window fixture fires ~15k per-row RI triggers, which blew this hook's
+    // old 30s budget under verify-gate's concurrent coverage load. Worse, a
+    // timed-out hook is ABANDONED, not cancelled — postgres.js keeps
+    // executing the queued DELETEs, and the late cascade then removes rows
+    // the NEXT test just seeded under the same suite-wide businessId (the
+    // solicitation_asks_contact_business_fk violation in the gate log). Each
+    // business-scoped DELETE below is one indexed statement; the cascades
+    // that still fire probe already-empty child tables.
+    await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
     await sql()`
       DELETE FROM agent_runs
       WHERE account_id = ${tenant!.accountId}::uuid
         AND kind IN ('solicitation_batch', 'solicitation_ask')
     `;
+    await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
-    // The uploads cascade removes contacts/visits/batches, but consent rows
-    // only SET NULL their source_upload_id (migration 093) — sweep explicitly.
+    // Consent rows never cascade from uploads — migration 093 only SET NULLs
+    // their source_upload_id — so sweep them explicitly.
     await sql()`DELETE FROM solicitation_consent WHERE business_id = ${businessId}::uuid`;
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     try {
