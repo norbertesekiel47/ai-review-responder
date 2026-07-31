@@ -64,7 +64,12 @@
     "docs/superpowers/plans/**",
     "docs/reviews/**",
     "worker/jobs/account-offboarding/**",
-    "scripts/ci/tenant-tables.ts"
+    "scripts/ci/tenant-tables.ts",
+    "supabase/migrations/094_*.sql",
+    "src/lib/shared/__tests__/migration-094-*.integration.test.ts",
+    "src/lib/shared/__tests__/migration-089-*.integration.test.ts",
+    "src/lib/shared/__tests__/migration-089-*.test.ts",
+    "docs/analytics/events.md"
   ],
   "tests_to_add": [
     "consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",

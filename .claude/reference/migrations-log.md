@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **093** — next migration is **094**
+Current head: **094** — next migration is **095**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -968,6 +968,21 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **094** — `consent_analytics_events`: extends the `analytics_events.event_name`
+  DB CHECK allowlist with `solicitation_consent_recorded` +
+  `solicitation_consent_upgraded` (#625 spec §8.1) — the consent ledger's two
+  durable server-side events, emitted by `upsertConsent` in the csv_ingest
+  transaction. Constraint-only (046 → 058 → 069 → 089 precedent: DROP + re-ADD
+  under `lock_timeout`; the new list is a strict superset, so existing rows
+  always pass); no new relation → no retention-policy row. Why not part of 093:
+  the gap surfaced after 093 was the recorded head, and registering names only
+  in `ANALYTICS_EVENT_NAMES` is not enough — without the CHECK entries every
+  consent-recording csv_ingest transaction rolls back (089's lesson). Shape
+  suite:
+  `src/lib/shared/__tests__/migration-094-consent-analytics-events.integration.test.ts`
+  — also the new owner of the live CHECK⟺allowlist drift guard, handed off
+  from migration-089's suite (069 → 089 precedent).
 
 - **093** — `solicitation_consent`: the consent ledger (#625; locked spec
   `docs/superpowers/specs/2026-07-28-consent-ledger-design.md` Part I §3).
