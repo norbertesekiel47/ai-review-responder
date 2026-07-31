@@ -52,12 +52,6 @@ describe('AdminSidebar', () => {
     });
   });
 
-  it('renders nothing on auth pages', () => {
-    mockUsePathname.mockReturnValue('/admin/login');
-    const { container } = renderSidebar();
-    expect(container).toBeEmptyDOMElement();
-  });
-
   it('Escape closes the mobile drawer, restoring body scroll and trigger focus', async () => {
     const user = userEvent.setup();
     const { container } = renderSidebar();

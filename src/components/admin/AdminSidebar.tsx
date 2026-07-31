@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ADMIN_AUTH_ROUTES, ADMIN_NAV_GROUPS, type AdminNavItem } from './nav-config';
+import { ADMIN_NAV_GROUPS, type AdminNavItem } from './nav-config';
 
 interface NavCounts {
   flaggedOpen: number;
@@ -112,10 +112,6 @@ export function AdminSidebar() {
       document.body.style.overflow = '';
     };
   }, [mobileOpen]);
-
-  if (pathname !== null && ADMIN_AUTH_ROUTES.includes(pathname)) {
-    return null;
-  }
 
   return (
     <>

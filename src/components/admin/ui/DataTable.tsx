@@ -62,7 +62,10 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
     <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50">
+          {/* Sticky within the overflow-x-auto wrapper above; only pins visually
+              once a consumer bounds this container's height (e.g. max-h-*) —
+              Phase 2 decides that per page. */}
+          <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
             <tr>
               {columns.map((col) => (
                 <th
