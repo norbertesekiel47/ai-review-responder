@@ -4,7 +4,6 @@ import {
   CONSENT_ATTESTATION_TEXT,
   CONSENT_ATTESTATION_VERSION,
   SEND_ELIGIBLE_ATTESTATION_VERSIONS,
-  isSendEligibleAttestation,
 } from '../attestation';
 
 describe('consent attestation v2 (#625 spec §2)', () => {
@@ -24,13 +23,10 @@ describe('consent attestation v2 (#625 spec §2)', () => {
   });
 
   it('allowlists only v2 as a send-eligible attestation version — v1 is deliberately absent', () => {
-    expect(SEND_ELIGIBLE_ATTESTATION_VERSIONS).toContain('consent_attestation_v2');
+    // Exact membership, not just containment: the allowlist IS the
+    // send-eligibility gate (the batch builder inlines it in SQL), so an
+    // accidental extra member would silently widen eligibility.
+    expect([...SEND_ELIGIBLE_ATTESTATION_VERSIONS]).toEqual(['consent_attestation_v2']);
     expect(SEND_ELIGIBLE_ATTESTATION_VERSIONS).not.toContain('consent_attestation_v1');
-  });
-
-  it('isSendEligibleAttestation gates on allowlist membership and is null-safe', () => {
-    expect(isSendEligibleAttestation('consent_attestation_v1')).toBe(false);
-    expect(isSendEligibleAttestation('consent_attestation_v2')).toBe(true);
-    expect(isSendEligibleAttestation(null)).toBe(false);
   });
 });

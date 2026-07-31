@@ -21,6 +21,7 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
+import { deleteContact } from '../contacts-repo';
 import {
   ingestContactsCsvUpload,
   parseIngestReportValue,
@@ -45,14 +46,20 @@ interface SeedUploadOptions {
   /** Postgres interval subtracted from NOW() for attested_at — seeded in SQL
    *  so ordering never depends on a JS Date round-trip. */
   attestedAgo?: string;
+  /** Exact ISO timestamp (millisecond precision) for attested_at — lets two
+   *  uploads share a byte-identical attested_at across transactions, which
+   *  NOW()-relative seeding cannot. Takes precedence over attestedAgo. */
+  attestedAt?: string;
 }
 
 async function seedUpload(csvText: string, options: SeedUploadOptions = {}): Promise<string> {
   const uploadId = randomUUID();
   const attestationVersion = options.attestationVersion ?? CONSENT_ATTESTATION_VERSION;
-  const attestedAtExpr = options.attestedAgo === undefined
-    ? sql()`NOW()`
-    : sql()`NOW() - ${options.attestedAgo}::interval`;
+  const attestedAtExpr = options.attestedAt !== undefined
+    ? sql()`${options.attestedAt}::timestamptz`
+    : options.attestedAgo === undefined
+      ? sql()`NOW()`
+      : sql()`NOW() - ${options.attestedAgo}::interval`;
   await sql()`
     INSERT INTO contact_csv_uploads
       (id, account_id, business_id, filename, byte_size, content_sha256,
@@ -602,6 +609,94 @@ describeWithDb('contacts CSV ingest against live local Postgres', {
       basis: 'owner_attested',
       attestation_version: CONSENT_ATTESTATION_VERSION,
     });
+  });
+
+  it('duplicate emails within one CSV hit the equal-attested_at guard: one consent row, one recorded event, no updated_at churn', async () => {
+    // Millisecond precision on purpose: the upload row's attested_at
+    // round-trips through a JS Date before the consent write, so microseconds
+    // would be truncated anyway; ms keeps the seeded value byte-identical to
+    // the bound one.
+    const attestedAt = '2026-07-29T12:00:00.000Z';
+    const uploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,First visit',
+      'Ada Lovelace,ada@example.com,,2026-01-06,Second visit',
+    ].join('\n'), { attestedAt });
+    const report = await runIngest(uploadId);
+    expect(report).toMatchObject({ contactsCreated: 1, visitsAdded: 2, rejected: [] });
+
+    // The second row's write carried EXCLUDED.attested_at equal to the stored
+    // one, so the §4.2 `>` guard rejected it: one row, one recorded event.
+    const rows = await readConsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      normalized_handle: 'ada@example.com',
+      source_upload_id: uploadId,
+    });
+    const firstUpdatedAt = rows[0]!.updated_at;
+    const events = await readConsentAnalyticsEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.event_name).toBe('solicitation_consent_recorded');
+
+    // NOW() is transaction-pinned, so updated_at churn from the in-file
+    // duplicate is unobservable above (a fired DO UPDATE would stamp the same
+    // timestamp the INSERT defaulted to). A second upload sharing the SAME
+    // attested_at — a distinct transaction — is what makes a `>` → `>=`
+    // regression ship red: on equality the DO UPDATE must not fire.
+    const replayUploadId = await seedUpload([
+      HEADER,
+      'Ada Lovelace,ada@example.com,,2026-03-01,',
+    ].join('\n'), { attestedAt });
+    await runIngest(replayUploadId);
+
+    const after = await readConsentRows();
+    expect(after).toHaveLength(1);
+    expect(after[0]!.updated_at).toBe(firstUpdatedAt);
+    expect(after[0]!.source_upload_id).toBe(uploadId);
+    expect(await readConsentAnalyticsEvents()).toHaveLength(1);
+  });
+
+  it('phone-matched rows whose email is not retained mint no consent row: the ledger stays deletable by contact sweep', async () => {
+    const uploadA = await seedUpload([
+      HEADER,
+      'Priya Patel,priya@example.com,4155550100,2026-01-05,',
+    ].join('\n'));
+    await runIngest(uploadA);
+
+    // Same person by phone, different email: §1.2 never overwrites an existing
+    // handle, so the matched contact keeps priya@example.com and the incoming
+    // email is discarded by matching.
+    const uploadB = await seedUpload([
+      HEADER,
+      'Priya Patel,priya.new@example.com,4155550100,2026-02-01,',
+    ].join('\n'));
+    const report = await runIngest(uploadB);
+    expect(report).toMatchObject({ contactsCreated: 0, visitsAdded: 1, rejected: [] });
+
+    // §7.1 deletability: a consent row for the discarded handle would be
+    // unreachable from any retained contact — deleteContact sweeps by the
+    // contact's STORED email, so that row could never be deleted (orphaned
+    // PII in a no-TTL ledger). The retained handle keeps its provenance:
+    // upload B attested nothing the contact retains, so upload A stays the
+    // source.
+    const rows = await readConsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      channel: 'email',
+      normalized_handle: 'priya@example.com',
+      source_upload_id: uploadA,
+    });
+
+    const [contact] = await sql()<{ id: string }[]>`
+      SELECT id::text AS id FROM solicitation_contacts
+      WHERE business_id = ${businessId}::uuid
+    `;
+    expect(await deleteContact(sql(), tenant!.accountId, businessId, contact!.id)).toBe(true);
+    const [remaining] = await sql()<{ count: string }[]>`
+      SELECT COUNT(*)::text AS count FROM solicitation_consent
+      WHERE business_id = ${businessId}::uuid
+    `;
+    expect(remaining!.count).toBe('0');
   });
 
   it("no SMS rows: a CSV with phone handles produces zero channel='sms' consent rows", async () => {

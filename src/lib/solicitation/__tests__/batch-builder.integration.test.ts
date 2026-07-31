@@ -1185,6 +1185,45 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     }
   });
 
+  it('legacy pre-ledger contacts read as no_consent case (a): visits without a ledger row yield null evidence', async () => {
+    // Decision pinned (Codex adversarial M2, accepted alternative): pre-#625
+    // contacts get NO ledger backfill, deliberately. Seeded DIRECTLY via SQL —
+    // never through the new ingest, which would mint ledger rows — this is
+    // exactly the shape a pre-#625 database carries: a completed v1 upload,
+    // a contact, visits, and zero solicitation_consent rows. That cohort must
+    // read as case (a) (both evidence fields null), whose #629 owner remedy
+    // — "upload under the current attestation" — is truthful and works.
+    const legacyUploadId = await seedCompletedUpload();
+    await sql()`
+      UPDATE contact_csv_uploads
+      SET attestation_version = 'consent_attestation_v1'
+      WHERE id = ${legacyUploadId}::uuid
+    `;
+    const legacyContactId = await seedContact(legacyUploadId, daysAgoUtc(1), { consent: false });
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 1,
+      sendCount: 0,
+      withholdCount: 1,
+      withheldByReason: expect.objectContaining({ no_consent: 1 }),
+    });
+
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({
+      contact_id: legacyContactId,
+      status: 'withhold',
+      withheld_reason: 'no_consent',
+    });
+    expect(parseAskEvidence(ask!.evidence)).toMatchObject({
+      reason: 'no_consent',
+      upload_id: null,
+      attestation_version: null,
+    });
+  });
+
   it("evidence shape: both no_consent cases round-trip through parseEvidence and satisfy migration 090's CHECK", async () => {
     // Case (b): a real v1 ingest leaves a stale-version ledger row.
     const v1UploadId = await seedPendingUpload(

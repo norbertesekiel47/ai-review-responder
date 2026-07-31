@@ -247,7 +247,18 @@ async function upsertCandidates(
       duplicateVisits += 1;
     }
 
-    if (candidate.email !== null) {
+    // §7.1 deletability requires every ledger handle to be reachable from a
+    // contact this business retains: deleteContact sweeps consent by the
+    // contact's STORED email, so a row minted for a handle matching discarded
+    // (phone match onto a contact that already carries a different email)
+    // could never be deleted — orphaned PII in a no-TTL ledger, violating
+    // "consent fails closed" (DR1). Write consent only when the candidate's
+    // email is the resolved contact's post-upsert email: created-with-email,
+    // merged-email, or unchanged-matching-email.
+    const retainedEmail = decision.action === 'create'
+      ? candidate.email
+      : decision.set.email ?? (byEmail ?? byPhone)!.email;
+    if (candidate.email !== null && retainedEmail === candidate.email) {
       await upsertConsent(tx, businessId, upload, candidate.email);
     }
   }

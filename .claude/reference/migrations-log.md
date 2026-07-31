@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **094** — next migration is **095**
+Current head: **095** — next migration is **096**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -968,6 +968,18 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **095** — `consent_business_index`: one business-leading index
+  `idx_solicitation_consent_business_handle` on
+  `solicitation_consent (business_id, normalized_handle)` (#625 review round;
+  Codex adversarial finding, 2026-07-30). The offboarding purge DELETE and the
+  §7.1 contact-delete sweep filter by `business_id` (+ handle), but 093's scope
+  unique leads with `channel` — PG16 has no skip scan, so those compliance
+  deletes were full-table scans on a no-TTL table. Index-only: no data change,
+  no new relation → no retention-policy row. Shape suite:
+  `src/lib/shared/__tests__/migration-095-consent-business-index.integration.test.ts`;
+  schema-ready entry `MIGRATION_095_CONSENT_BUSINESS_INDEX`. Ships to staging +
+  prod in the normal lockstep alongside 093/094.
 
 - **094** — `consent_analytics_events`: extends the `analytics_events.event_name`
   DB CHECK allowlist with `solicitation_consent_recorded` +

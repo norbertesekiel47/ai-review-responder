@@ -133,6 +133,18 @@
   DELETEd — the cascade only fires on real location deletion); promote this
   to the spec + lab notes at ship time.**
 
+## Review fix round (2026-07-30)
+
+- [2026-07-30] **Decision recorded — no legacy backfill.** Pre-#625 contacts
+  have no `solicitation_consent` rows and get none: the legacy cohort reads as
+  no_consent case (a) — both evidence fields null — **by design** (Codex
+  adversarial M2, accepted alternative). The owner remedy "upload under the
+  current attestation" is truthful and works for that cohort, so **#629's copy
+  must make case (a)'s remedy self-sufficient** (an owner seeing case (a) needs
+  no other context to act). Pinned by the batch-builder integration test
+  "legacy pre-ledger contacts read as no_consent case (a): visits without a
+  ledger row yield null evidence". Promote this decision to the spec at ship.
+
 ## Verify-gate parallel integration failure (root-caused 2026-07-30)
 - [2026-07-30] `batch-builder.integration.test.ts` failed 2/16 inside `verify-gate.sh --review`
   while passing 16/16 standalone → NOT a cross-suite data collision (all six changed
