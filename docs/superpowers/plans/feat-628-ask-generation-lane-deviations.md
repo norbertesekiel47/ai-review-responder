@@ -374,3 +374,12 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   task-scoped `estimateCents` param, so `toHaveBeenCalledWith` assertions
   carry the explicit trailing `undefined` (the `cost-guard.test.ts`
   precedent, documenting "omitted ⇒ 15¢ default").
+- [2026-07-31] **Codex adversarial review round 1: needs-attention (3
+  findings).** (1) high — subject lint whole-substring match misses partial
+  visit-note PII fragments (lint class 5/PII, ask-compliance-lint.ts:450-454);
+  (2) high — generate-failed-hook terminalizes transient exhaustion, killing
+  watchdog recovery (generate-failed-hook.ts:55-81); (3) medium — regen budget
+  charged per processor invocation, BullMQ retries of one logical regen burn
+  the 3/day allowance (ask-generation.ts:1111-1118). Full text + fix guidance
+  in the handoff doc; fixes to be re-submitted to codex thread
+  019fb9be-13ac-7352-b506-81f0bc2d3699.
