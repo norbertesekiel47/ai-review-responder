@@ -200,6 +200,44 @@ describe('purge verification', () => {
     expect(outreachQuery?.values).toEqual([accountId]);
   });
 
+  it('purge verification fails when a solicitation_consent row survives the purge', async () => {
+    const accountId = '00000000-0000-7000-8000-000000000001';
+    // absentByBusiness passes the table name through exec(tableName) as an
+    // identifier fragment, so mimic Postgres.js by tagging non-template calls.
+    mockSql.mockImplementation(((strings: any, ...values: unknown[]) => {
+      if (typeof strings === 'string') return { __id: strings };
+      if (!Array.isArray(strings)) return Promise.resolve([]);
+      const text = strings.join('?');
+      calls.push({ text, values });
+      const survivesConsent = values.some(
+        (value) => (value as { __id?: string } | null)?.__id === 'solicitation_consent',
+      );
+      return Promise.resolve([{ violation_count: survivesConsent ? 1 : 0 }]);
+    }) as any);
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId,
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    }, mockSql);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'solicitation_consent',
+        disposition: 'hard_delete',
+        purgeVerification: 'must_be_absent',
+        violationCount: 1,
+      }),
+    ]);
+    // The ledger carries NO account_id (#625 §3.2) — the check must join
+    // through businesses, mirroring the contacts/visits it grants coverage for.
+    const consentQuery = calls.find((call) =>
+      call.values.some((value) => (value as { __id?: string } | null)?.__id === 'solicitation_consent'));
+    expect(consentQuery?.text).toContain('WITH account_businesses AS');
+    expect(consentQuery?.text).toContain('business_id IN (SELECT id FROM account_businesses)');
+    expect(consentQuery?.values).toContainEqual(accountId);
+  });
+
   it('uses explicit account, business, offboarding, and compliance retention scopes', async () => {
     await verifyAccountOffboardingPurge({
       accountId: '00000000-0000-7000-8000-000000000001',

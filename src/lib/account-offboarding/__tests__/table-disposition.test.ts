@@ -23,6 +23,7 @@ const REQUIRED_EXPLICIT_TABLES = [
   'analytics_events',
   'flagged_responses',
   'impersonation_sessions',
+  'solicitation_consent',
 ] as const;
 
 const REQUIRED_SPEC_ONLY_TABLES = [
