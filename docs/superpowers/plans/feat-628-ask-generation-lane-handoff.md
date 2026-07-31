@@ -1,48 +1,35 @@
 # Handoff — feat-628-ask-generation-lane
 
-**Phase:** `gate_green`, adversarial review ROUND 1 RETURNED **needs-attention**
-(2026-07-31, codex thread `019fb9be-13ac-7352-b506-81f0bc2d3699`).
-**Next step: fix the three Codex findings below, then re-submit to the SAME
-codex thread** (`codex resume 019fb9be-13ac-7352-b506-81f0bc2d3699`) until
-APPROVED. All 12 plan tasks are executed, dual-reviewed, and committed; the
-full `verify-gate.sh --review` was GREEN before the review round.
+**Phase:** `gate_green`. Codex round-1 findings (needs-attention, thread
+`019fb9be-13ac-7352-b506-81f0bc2d3699`) are **ALL FIXED** in commit
+`0d0fd1b0` (2026-07-31); full `verify-gate.sh --review` GREEN at that
+commit, and the five changed live-DB integration suites ran 39/39 with
+`TEST_DATABASE_POOL_URL` exported (`.feature/logs/integration-explicit-round1.log`).
+**Next step: the OWNER runs `/codex:adversarial-review` round 2 against the
+SAME codex thread** (`019fb9be-13ac-7352-b506-81f0bc2d3699`) — the command
+is user-invocable only. Loop until APPROVED, then step 8 (high-risk lane:
+staging ride first, flag-off no-op smoke only pre-#627).
 
-## Codex round-1 findings (fix in this order; verbatim from the review)
+## Codex round-1 fixes (full rationale in the deviations file, entries dated 2026-07-31)
 
-1. **[high] Subject lint permits partial visit-note PII**
-   (`src/lib/solicitation/ask-compliance-lint.ts:450-454`). The subject check
-   rejects only the ENTIRE disallowed interpolation value as one substring —
-   an admitted note "discussed HIV treatment" does not block the subject
-   "Checking in after your HIV treatment", and provenance (class 6) separately
-   allows the fragment because it appears in the note. Fix: fail closed on
-   note-derived subject content (token/fragment-level detection or exclude
-   visit-note provenance from subjects entirely); add partial medical/identity
-   regression cases. Golden file must ride any pattern change; consider an
-   ASK_LINT_VERSION bump.
-2. **[high] Transient exhaustion permanently disables watchdog recovery**
-   (`worker/jobs/solicitation-batch/generate-failed-hook.ts:55-81`). The
-   failed hook marks every exhausted attempt `failed` without classifying —
-   including `TransientLLMError`/`CostInfraUnavailableError` which the domain
-   rethrows for retry. After 5 in-band attempts the watchdog can no longer
-   re-drive; partially generated batches strand a running send parent. Fix:
-   keep retryable classes watchdog-eligible (leave dispatched or re-pend);
-   mark failed only for terminal classes; test transient exhaustion after
-   partial persistence. NOTE: the sibling hooks (`failed-hook.ts`, csv-ingest,
-   judge) share this shape — check whether the fix generalizes or is
-   deliberately lane-local (surface! only solicitation-batch hooks are in
-   surface).
-3. **[medium] One transient regeneration consumes the full daily allowance**
-   (`src/lib/solicitation/ask-generation.ts:1111-1118`). `checkAskRegenBudget`
-   increments per processor invocation; BullMQ retries of one logical regen
-   burn the 3/day budget. Fix: charge idempotently by logical request/outbox
-   id (retries reuse the charge); test N transient attempts + success ⇒ one
-   unit consumed. The budget primitive lives in `src/lib/costs/tracker.ts`
-   (in surface).
-
-After fixes: re-run the 3 relevant suites + full gate (`MAX_PARALLEL=2
-VITEST_WORKERS=6 bash scripts/verify-gate.sh --review` — default parallelism
-false-reds on this machine), append deviations entries, commit per finding or
-as one review-round commit, then re-submit to the codex thread above.
+1. **[high] Subject lint partial PII → FIXED.** Fragment-level detection in
+   `deceptiveSubject`: any content token of a disallowed value blocks the
+   subject (possessive+plural folded, shared class-6 tokenizer). Exemptions:
+   golden-filed `SUBJECT_NOTE_TOKEN_ALLOWLIST` (function words + ask-copy
+   scaffolding) and tokens also present in a subject-safe interpolation
+   value. Whole-value check retained. `ASK_LINT_VERSION` →
+   `ask_lint_2026-07-31.1`, golden file updated, 6 regression cases added.
+2. **[high] Transient exhaustion killed watchdog recovery → FIXED.**
+   `generate-failed-hook` classifies before terminalizing:
+   `TransientLLMError`/`CostInfraUnavailableError` leave the row
+   `dispatched` (watchdog re-pends, bounded by `max_attempts`;
+   `recordOutboxTransientError` stamps `last_error`); all other classes keep
+   the terminal CAS. Deliberately lane-local; csv-ingest/judge sibling audit
+   flagged as follow-up (out of surface).
+3. **[medium] Regen budget burned per retry → FIXED.**
+   `checkAskRegenBudget(askId, outboxId)`: SET-NX charge marker keyed by
+   outbox id (the logical request); replays are free; refusal releases the
+   marker; shared Lua untouched. Tests prove one unit per logical regen.
 
 ## Bootstrap order (read in this order, nothing else needed)
 
