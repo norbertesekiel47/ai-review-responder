@@ -289,6 +289,7 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `demos/route.ts` | GET + POST demo requests. |
 | `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
 | `jobs/route.ts` | GET queue health. |
+| `nav-counts/route.ts` | Thin admin-gated GET for sidebar badge counts (flagged open, failed jobs); delegates to `getAdminNavCounts`. Polled every 60s by `AdminSidebar`. |
 | `notifications/route.ts` | GET delivery logs. |
 | `autonomy/suspensions/route.ts` | **(WS6)** Admin-only GET for the cross-account suspended-policy read model (current rates + five newest flag verdicts); delegates to `listSuspendedPolicies`. |
 | `autonomy/unsuspend/route.ts` | **(WS6)** Admin-only POST that validates `{ accountId, note }`, takes the account-level autonomy lock inside one transaction, and maps already-manual state to 409. |
@@ -667,6 +668,7 @@ Admin-side domain helpers.
 | `impersonation/session.ts` | Starts, ends, and loads active impersonation sessions with account audit logging. |
 | `impersonation/view.ts` | Resolves an admin-owned impersonation view session and loads account-scoped location data. |
 | `impersonation/guard.ts` | Non-destructive action allowlist for impersonation surfaces. |
+| `nav-counts-service.ts` | `getAdminNavCounts(sql)` — the two cross-tenant aggregate COUNT queries (flagged_responses open, job_outbox failed) behind the sidebar's badge counts. Used by `GET /api/admin/nav-counts`. |
 
 ### `onboarding/`
 

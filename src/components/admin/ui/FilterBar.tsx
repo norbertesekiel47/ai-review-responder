@@ -1,5 +1,8 @@
 'use client';
 
+// Exported for callers that build their own chip list before handing it to
+// FilterBar; no such consumer lands in Phase 2 (admin page migrations).
+// fallow-ignore-next-line unused-type
 export interface FilterChip {
   id: string;
   label: string;

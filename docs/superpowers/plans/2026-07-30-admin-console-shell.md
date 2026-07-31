@@ -48,7 +48,7 @@ Notes that bind every task:
 - Create: `src/components/admin/ui/StatusBadge.tsx`
 - Test: `src/components/admin/ui/__tests__/StatusBadge.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -84,12 +84,12 @@ describe('StatusBadge', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/StatusBadge.test.tsx`
 Expected: FAIL — cannot resolve `../StatusBadge`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```tsx
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
@@ -125,12 +125,12 @@ export function StatusBadge({ status }: { status: string }) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/StatusBadge.test.tsx`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/admin/ui/StatusBadge.tsx src/components/admin/ui/__tests__/StatusBadge.test.tsx
@@ -148,7 +148,7 @@ git commit -m "feat(admin): StatusBadge primitive — single status→color owne
 
 These are presentational; one focused test covers the conditional logic (alert variant, retry callback).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -184,12 +184,12 @@ describe('ErrorState', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/StatTile.test.tsx`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Write `StatTile.tsx`**
+- [x] **Step 3: Write `StatTile.tsx`**
 
 ```tsx
 import type { ReactNode } from 'react';
@@ -219,7 +219,7 @@ export function StatTile({ label, value, sub, alert = false }: StatTileProps) {
 }
 ```
 
-- [ ] **Step 4: Write `states.tsx`**
+- [x] **Step 4: Write `states.tsx`**
 
 ```tsx
 interface EmptyStateProps {
@@ -273,12 +273,12 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/StatTile.test.tsx`
 Expected: PASS (3 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/admin/ui/StatTile.tsx src/components/admin/ui/states.tsx src/components/admin/ui/__tests__/StatTile.test.tsx
@@ -293,7 +293,7 @@ git commit -m "feat(admin): StatTile + EmptyState/ErrorState/TableSkeleton primi
 - Create: `src/components/admin/ui/AdminPage.tsx`
 - Test: `src/components/admin/ui/__tests__/AdminPage.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -317,12 +317,12 @@ describe('AdminPage', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/AdminPage.test.tsx`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```tsx
 import type { ReactNode } from 'react';
@@ -353,12 +353,12 @@ export function AdminPage({ group, title, description, actions, children }: Admi
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/AdminPage.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/admin/ui/AdminPage.tsx src/components/admin/ui/__tests__/AdminPage.test.tsx
@@ -375,7 +375,7 @@ git commit -m "feat(admin): AdminPage chrome primitive"
 
 Client-side sort + pagination (Phase 1 scope). Pages with server-side pagination keep their own fetch params and can pass a single page of rows; extending DataTable to controlled mode is a Phase 2 decision if needed.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -444,12 +444,12 @@ describe('DataTable', () => {
 
 Note: `row.cells` needs the `HTMLTableRowElement` type — if TS complains in the helper, cast: `(row as HTMLTableRowElement).cells`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/DataTable.test.tsx`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```tsx
 'use client';
@@ -581,12 +581,12 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/DataTable.test.tsx`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/admin/ui/DataTable.tsx src/components/admin/ui/__tests__/DataTable.test.tsx
@@ -601,7 +601,7 @@ git commit -m "feat(admin): DataTable primitive — sortable, paginated, row-lin
 - Create: `src/components/admin/ui/FilterBar.tsx`
 - Test: `src/components/admin/ui/__tests__/FilterBar.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -635,12 +635,12 @@ describe('FilterBar', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/FilterBar.test.tsx`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```tsx
 'use client';
@@ -685,12 +685,12 @@ export function FilterBar({ search, onSearchChange, rowCount, chips = [], search
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/ui/__tests__/FilterBar.test.tsx`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/admin/ui/FilterBar.tsx src/components/admin/ui/__tests__/FilterBar.test.tsx
@@ -709,7 +709,7 @@ git commit -m "feat(admin): FilterBar primitive"
 
 Auth: `requireRoleOr401(request, 'admin')` — same gate as `/api/admin/overview`. (The flagged route's AAL2 step-up is for reading flagged *content*; two aggregate counts expose no tenant content, so the plain admin gate is correct.)
 
-- [ ] **Step 1: Write the failing service test**
+- [x] **Step 1: Write the failing service test**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -751,12 +751,12 @@ describe('getAdminNavCounts', () => {
 
 (If the mock-sql harness API differs from this sketch — e.g. queue helper names — mirror the exact usage in `src/app/api/admin/autonomy/__tests__/routes.test.ts`, which consumes the same helper.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run src/lib/admin/__tests__/nav-counts-service.test.ts`
 Expected: FAIL — `../nav-counts-service` not found.
 
-- [ ] **Step 3: Write the service**
+- [x] **Step 3: Write the service**
 
 ```ts
 import type { Sql } from 'postgres';
@@ -788,12 +788,12 @@ export async function getAdminNavCounts(sql: Sql): Promise<AdminNavCounts> {
 }
 ```
 
-- [ ] **Step 4: Run service test to verify it passes**
+- [x] **Step 4: Run service test to verify it passes**
 
 Run: `pnpm vitest run src/lib/admin/__tests__/nav-counts-service.test.ts`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Write the failing route test**
+- [x] **Step 5: Write the failing route test**
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server';
@@ -855,12 +855,12 @@ describe('GET /api/admin/nav-counts', () => {
 
 (Match the exact `requireRoleOr401` mock return shape used by `src/app/api/admin/businesses/__tests__` if it differs — mirror an existing passing route test rather than inventing a shape.)
 
-- [ ] **Step 6: Run route test to verify it fails**
+- [x] **Step 6: Run route test to verify it fails**
 
 Run: `pnpm vitest run src/app/api/admin/nav-counts/__tests__/route.test.ts`
 Expected: FAIL — `../route` not found.
 
-- [ ] **Step 7: Write the route**
+- [x] **Step 7: Write the route**
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server';
@@ -887,12 +887,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 ```
 
-- [ ] **Step 8: Run route test to verify it passes**
+- [x] **Step 8: Run route test to verify it passes**
 
 Run: `pnpm vitest run src/app/api/admin/nav-counts/__tests__/route.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 9: Run the tenant-scope audit; allowlist only what it flags**
+- [x] **Step 9: Run the tenant-scope audit; allowlist only what it flags**
 
 Run: `pnpm ci:tenant-scope`
 
@@ -910,7 +910,7 @@ If the two new COUNT queries are flagged, add entries to `scripts/ci/tenant-scop
 
 (and the analogous `job_outbox` entry if flagged), then bump `ALLOWLIST_BASELINE` by exactly the number of entries added. Re-run `pnpm ci:tenant-scope` until green. Also run `pnpm ci:rls-audit` (expected: green, no schema change).
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/lib/admin/nav-counts-service.ts src/lib/admin/__tests__/nav-counts-service.test.ts src/app/api/admin/nav-counts scripts/ci/tenant-scope-allowlist.ts
@@ -926,7 +926,7 @@ git commit -m "feat(admin): nav-counts endpoint for sidebar badges"
 - Create: `src/components/admin/AdminSidebar.tsx`
 - Test: `src/components/admin/__tests__/AdminSidebar.test.tsx`
 
-- [ ] **Step 1: Write `nav-config.ts`** (pure data, no test of its own — the sidebar test asserts it)
+- [x] **Step 1: Write `nav-config.ts`** (pure data, no test of its own — the sidebar test asserts it)
 
 ```ts
 export interface AdminNavItem {
@@ -982,7 +982,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
 export const ADMIN_AUTH_ROUTES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'];
 ```
 
-- [ ] **Step 2: Write the failing sidebar test**
+- [x] **Step 2: Write the failing sidebar test**
 
 ```tsx
 // @vitest-environment jsdom
@@ -1046,12 +1046,12 @@ describe('AdminSidebar', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `pnpm vitest run src/components/admin/__tests__/AdminSidebar.test.tsx`
 Expected: FAIL — `../AdminSidebar` not found.
 
-- [ ] **Step 4: Write `AdminSidebar.tsx`**
+- [x] **Step 4: Write `AdminSidebar.tsx`**
 
 ```tsx
 'use client';
@@ -1186,12 +1186,12 @@ export function AdminSidebar() {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm vitest run src/components/admin/__tests__/AdminSidebar.test.tsx`
 Expected: PASS (4 tests). If the "renders every nav item" test finds duplicate matches (desktop + mobile trees both mounted), scope queries with `within(screen.getByRole('complementary'))` — the `<aside>` — instead of the whole screen.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/admin/nav-config.ts src/components/admin/AdminSidebar.tsx src/components/admin/__tests__/AdminSidebar.test.tsx
@@ -1206,12 +1206,12 @@ git commit -m "feat(admin): grouped AdminSidebar with live badge counts"
 - Modify: `src/app/admin/layout.tsx`
 - Delete: `src/components/admin/AdminNav.tsx`
 
-- [ ] **Step 1: Check for other AdminNav references**
+- [x] **Step 1: Check for other AdminNav references**
 
 Run: `rg -l "AdminNav" src/`
 Expected: only `src/app/admin/layout.tsx` and `src/components/admin/AdminNav.tsx`. If anything else appears (a test, a story), update or delete it in this task and mention it in the commit.
 
-- [ ] **Step 2: Rewrite `src/app/admin/layout.tsx`**
+- [x] **Step 2: Rewrite `src/app/admin/layout.tsx`**
 
 ```tsx
 import { AdminProviders } from './providers';
@@ -1237,25 +1237,25 @@ export default function AdminLayout({
 
 (On auth routes the sidebar renders `null`, so login/reset pages get a full-width `<main>` — same behavior as today's nav-hides-on-login.)
 
-- [ ] **Step 3: Delete the old nav**
+- [x] **Step 3: Delete the old nav**
 
 ```bash
 git rm src/components/admin/AdminNav.tsx
 ```
 
-- [ ] **Step 4: Verify the app compiles and admin renders**
+- [x] **Step 4: Verify the app compiles and admin renders**
 
 Run: `pnpm typecheck && pnpm lint`
 Expected: clean.
 
 Run: `pnpm dev` and load `http://localhost:3000/admin/overview` (admin session required), spot-check: sidebar present with four groups, active state follows navigation, every link resolves (no 404), `/admin/login` has no sidebar, mobile viewport shows the top bar + drawer. Then stop the dev server.
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `pnpm test`
 Expected: green. Pages were not modified, but their tests exercise the layout indirectly — any failure here is a regression in this task, not "unrelated".
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/app/admin/layout.tsx
@@ -1266,12 +1266,12 @@ git commit -m "feat(admin): swap top nav for grouped sidebar shell, retire Admin
 
 ### Task 9: Full gates + PR
 
-- [ ] **Step 1: Run the full local gate**
+- [x] **Step 1: Run the full local gate**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: all green.
 
-- [ ] **Step 2: Run the DB-adjacent audits** (new SQL sites in this branch)
+- [x] **Step 2: Run the DB-adjacent audits** (new SQL sites in this branch)
 
 Run: `pnpm ci:tenant-scope && pnpm ci:rls-audit`
 Expected: green (Task 6 already reconciled the allowlist).

@@ -67,6 +67,11 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
               Phase 2 decides that per page. */}
           <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
             <tr>
+              {/* Header cell: sort button + optional direction indicator drives this
+                  callback's cyclomatic/cognitive score. No second column shape exists
+                  to justify decomposing further; consumer lands in Phase 2 (admin page
+                  migrations). */}
+              {/* fallow-ignore-next-line complexity */}
               {columns.map((col) => (
                 <th
                   key={col.key}
