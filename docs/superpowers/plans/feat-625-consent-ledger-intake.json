@@ -69,7 +69,8 @@
     "src/lib/shared/__tests__/migration-094-*.integration.test.ts",
     "src/lib/shared/__tests__/migration-089-*.integration.test.ts",
     "src/lib/shared/__tests__/migration-089-*.test.ts",
-    "docs/analytics/events.md"
+    "docs/analytics/events.md",
+    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx"
   ],
   "tests_to_add": [
     "consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",

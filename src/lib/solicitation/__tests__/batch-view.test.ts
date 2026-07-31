@@ -241,6 +241,39 @@ describe('readLatestBatch', () => {
     expect(group?.sample[0]?.evidence).toEqual(evidence);
   });
 
+  it('parses both widened no_consent evidence cases — (a) both fields null, (b) both populated (#620 §6.1)', async () => {
+    const caseA = {
+      contact_id: 'c-a',
+      policy_version: RESTRAINT_POLICY_VERSION,
+      decided_at: '2026-07-30T10:00:00Z',
+      decision: 'withhold',
+      reason: 'no_consent',
+      upload_id: null,
+      attestation_version: null,
+    };
+    const caseB = {
+      ...caseA,
+      contact_id: 'c-b',
+      upload_id: '01980000-0000-7000-8000-0000000000b1',
+      attestation_version: 'consent_attestation_v1',
+    };
+    const { sql } = createMockSql([
+      [],
+      [{ id: BATCH_ID, built_at: '2026-07-30 11:00:00+00', created_at: '2026-07-30 10:00:00+00' }],
+      [{ n: 2 }],
+      [
+        withholdRow({ askId: 'nc-a', reason: 'no_consent', groupTotal: 2, evidence: JSON.stringify(caseA) }),
+        withholdRow({ askId: 'nc-b', reason: 'no_consent', groupTotal: 2, evidence: JSON.stringify(caseB) }),
+      ],
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    const group = view.groups.find((candidate) => candidate.reason === 'no_consent');
+    expect(group?.sample.map((row) => row.evidence)).toEqual([caseA, caseB]);
+  });
+
   it('returns the building state while built_at is null', async () => {
     const { sql, tx } = createMockSql([
       [],

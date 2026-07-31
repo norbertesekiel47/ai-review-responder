@@ -58,6 +58,35 @@
   event without one repeats this block. 094 applies to staging + prod in the
   normal ship-time lockstep alongside 093.
 
+## Task 4
+
+- [2026-07-30] **BLOCKED: one compile-fallout site sits outside the edit
+  surface.** Widening `WithholdEvidence`'s `no_consent` member (§6.1 —
+  `upload_id: string | null; attestation_version: string | null`) breaks
+  `pnpm typecheck` in exactly one file:
+  `src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx`
+  (~line 49), whose `sampleFor('no_consent', …)` fixture builds
+  `{ ...base, reason, upload_id: 'upload-9' }` without the now-required
+  `attestation_version`. The fix is one token —
+  `upload_id: 'upload-9', attestation_version: 'consent_attestation_v1'` —
+  but `src/app/**` is outside both Task 4's fallout surface
+  (`src/lib/solicitation/**`) and the intake's `allowed_edit_surface`, so the
+  write was not attempted. Runtime is unaffected (the suite passes 14/14 —
+  vitest does not typecheck), so this is a compile-only block. Everything
+  in-surface is complete and green: restraint-policy unit suite (73),
+  batch-builder unit + integration (16, incl. the four promised titles),
+  batch-view unit (10), lint, and the full `pnpm test` sweep (760 files /
+  9714 tests, live-DB suites disabled per the verify-gate convention). Commit
+  deliberately withheld until the surface is amended and typecheck can pass
+  (Task 3 precedent).
+  **RESOLVED [2026-07-30]** via a narrow map-owner surface amendment
+  (recorded in both intake copies): the batch-report test file joined the
+  surface. The fixture keeps its case-(b) intent — `upload_id` already
+  populated — so it gained the matching populated
+  `attestation_version: 'consent_attestation_v1'` (a case-(a) fixture would
+  carry both nulls instead). Suite 14/14, `pnpm typecheck`, `pnpm lint`, and
+  the full `pnpm test` sweep all green; landed with the Task 4 commit.
+
 ## Task 6
 
 - [2026-07-30] **`scripts/ci/tenant-tables.ts` is outside the intake's

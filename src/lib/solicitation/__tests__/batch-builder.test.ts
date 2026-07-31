@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { Sql, TransactionSql } from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from '../attestation';
 import { MAX_DATA_ROWS } from '../contacts-csv';
 
 const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
@@ -417,8 +418,9 @@ describe('solicitation batch candidate loader', () => {
       mkTaggedResult([{
         contact_id: 'contact-1',
         last_visit_date: '2026-07-23',
-        upload_id: 'upload-1',
         consent_attested: true,
+        consent_upload_id: 'upload-1',
+        consent_attestation_version: 'consent_attestation_v2',
       }]),
       mkTaggedResult([{ pool_count: 1 }]),
       mkTaggedResult([{
@@ -494,6 +496,15 @@ describe('solicitation batch candidate loader', () => {
       'candidate_ask.business_id = ?::uuid',
     );
     expect(candidateQuery?.text).toContain('c.business_id = ?::uuid');
+    // #620 §6.1: consent derives from the ledger + allowlist, not the upload
+    // row (the pre-#625 tautology).
+    expect(candidateQuery?.text).toContain('LEFT JOIN solicitation_consent consent');
+    expect(candidateQuery?.text).toContain("consent.channel = 'email'");
+    expect(candidateQuery?.text).toContain('consent.normalized_handle = c.email');
+    expect(candidateQuery?.text).toContain('consent.business_id = ?::uuid');
+    expect(candidateQuery?.text).toContain('consent.attestation_version = ANY(?::text[])');
+    expect(candidateQuery?.text).not.toContain('u.attested_at');
+    expect(candidateQuery?.values).toContainEqual([...SEND_ELIGIBLE_ATTESTATION_VERSIONS]);
     expect(priorSendQuery?.text).toContain("send_ask.status = 'send'");
     expect(candidateQuery?.text).toContain(
       'latest_evaluation.decided_at ASC NULLS FIRST',

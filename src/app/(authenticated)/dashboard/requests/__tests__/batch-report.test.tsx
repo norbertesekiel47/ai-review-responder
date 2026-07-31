@@ -46,7 +46,14 @@ function sampleFor(reason: (typeof WITHHOLD_REASONS)[number], index: number): As
   const base = { ...envelope(index), decision: 'withhold' } as const;
   switch (reason) {
     case 'no_consent':
-      return askRow(index, { ...base, reason, upload_id: 'upload-9' });
+      // Case (b) of #620 §6.1: a ledger row exists with a stale attestation
+      // version, so BOTH evidence fields are populated (case (a) is both null).
+      return askRow(index, {
+        ...base,
+        reason,
+        upload_id: 'upload-9',
+        attestation_version: 'consent_attestation_v1',
+      });
     case 'suppressed':
       return askRow(index, {
         ...base,
