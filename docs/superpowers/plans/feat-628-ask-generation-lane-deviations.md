@@ -33,3 +33,19 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   offboarding table-disposition entry" binding targeted the superseded
   `solicitation_ask_messages` table (B1); `solicitation_outreach` disposition
   is #624's and already shipped. Nothing to do in #628.
+- [2026-07-30] **Task 1 (spec §4.4 prerequisite): Anthropic temperature
+  forwarding changes the FALLBACK behavior of existing tasks.**
+  `anthropic-provider.ts` now forwards `request.temperature` (key omitted when
+  undefined, preserving the SDK default), so the Anthropic fallback path of
+  `reply_generation` now runs at 0.7 and `insights` at 0.5 instead of the SDK
+  default. The change rides deliberately with a pinning regression test
+  (`changes reply_generation and insights anthropic fallback temperature
+  knowingly` in `src/lib/llm/__tests__/anthropic-provider.test.ts`). Minor
+  scope addition beyond the planned file list: the now-stale "NOT forwarded by
+  anthropic today" doc comment on `LLMTaskDescriptor.temperature` in
+  `src/lib/llm/types.ts` was updated in the same change (stale cross-references
+  are bugs per repo rules).
+  Spec-review addendum: the same forwarding also moves the Anthropic fallback
+  of `triage` and `judge` (registry temperature 0) from the SDK default to 0 —
+  beneficial (deterministic classification on fallback) but part of the blast
+  radius the spec's §9 wording understated.
