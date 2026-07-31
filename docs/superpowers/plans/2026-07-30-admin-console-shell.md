@@ -1276,7 +1276,7 @@ Expected: all green.
 Run: `pnpm ci:tenant-scope && pnpm ci:rls-audit`
 Expected: green (Task 6 already reconciled the allowlist).
 
-- [ ] **Step 3: Push and open the PR**
+- [x] **Step 3: Push and open the PR**
 
 ```bash
 git push -u origin admin-console-redesign
