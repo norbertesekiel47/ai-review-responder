@@ -257,3 +257,12 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   LLMStructuredOutputError-equivalent — withheld `render_failed` with the
   locked decision-2 fills — closing the Task 5 known gap at the orchestration
   layer.
+- [2026-07-31] **Task 8 self-review addition beyond the plan's pinned swap-tx
+  contents: the regen swap calls `closeBatchIfSettled` after the insert.** A
+  withheld replacement TERMINALIZES the ask, and outreach.ts's single-join
+  contract (D11) binds every terminalizing writer to join in the SAME
+  transaction — without it, regenerating the batch's last live render into a
+  block would strand the batch un-settled until the 7-day expiry. A rendered
+  replacement no-ops (`not_settled`). No `failure` is passed: such a batch
+  settles `exhausted` (renders existed and were approvable), not
+  `generation_failed`.

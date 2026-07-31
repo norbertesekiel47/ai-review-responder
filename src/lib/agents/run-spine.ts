@@ -438,15 +438,6 @@ export interface RecordStepInput {
 }
 
 /**
- * Append a step to a run. Serializes concurrent appenders: the run row is
- * locked in its OWN statement, and only a subsequent statement — whose READ
- * COMMITTED snapshot is taken AFTER the lock wait, so it sees every committed
- * step — computes the next step_index (UNIQUE (agent_run_id, step_index) is
- * the backstop). A single lock+aggregate statement would snapshot before the
- * wait and hand two appenders the same index. Persona comes from
- * STEP_PERSONA — callers cannot mis-attribute a step.
- */
-/**
  * Next step_index for a run — the ONE owner of this query. Callers must
  * already hold the run's agent_runs row lock so the READ COMMITTED snapshot
  * here (taken after the lock wait) sees every committed step.
@@ -463,6 +454,15 @@ async function nextStepIndex(
   return row?.next_index ?? 1;
 }
 
+/**
+ * Append a step to a run. Serializes concurrent appenders: the run row is
+ * locked in its OWN statement, and only a subsequent statement — whose READ
+ * COMMITTED snapshot is taken AFTER the lock wait, so it sees every committed
+ * step — computes the next step_index (UNIQUE (agent_run_id, step_index) is
+ * the backstop). A single lock+aggregate statement would snapshot before the
+ * wait and hand two appenders the same index. Persona comes from
+ * STEP_PERSONA — callers cannot mis-attribute a step.
+ */
 async function appendRunStep(tx: TxClient, input: RecordStepInput): Promise<void> {
   const lock = await tx<{ ok: number }[]>`
     SELECT 1 AS ok FROM agent_runs WHERE id = ${input.runId} FOR UPDATE

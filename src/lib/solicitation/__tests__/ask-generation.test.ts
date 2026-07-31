@@ -709,10 +709,14 @@ describe('regenerateAsk', () => {
     mocks.recordStep.mockImplementation(async () => {
       order.push('step');
     });
+    mocks.closeBatchIfSettled.mockImplementation(async () => {
+      order.push('close');
+      return { status: 'not_settled', liveCount: 1 };
+    });
 
     await regenerateAsk(sql, REGEN_INPUT);
 
-    expect(order).toEqual(['cas', 'advisory', 'supersede', 'insert', 'step']);
+    expect(order).toEqual(['cas', 'advisory', 'supersede', 'insert', 'step', 'close']);
     expect(mocks.insertOutreachRender.mock.calls[0]![1]).toMatchObject({
       askId: 'ask-1',
       attemptNo: 2,
@@ -750,6 +754,13 @@ describe('regenerateAsk', () => {
       dispositionReason: 'lint_failed',
       attemptNo: 2,
     });
+    // A withheld replacement terminalizes the ask, so the swap joins in the
+    // SAME transaction (outreach.ts single-join contract) — blocking the last
+    // live render must not strand the batch un-settled until expiry.
+    expect(mocks.closeBatchIfSettled).toHaveBeenCalledWith(
+      expect.anything(),
+      { batchId: BATCH_ID, accountId: ACCOUNT_ID, businessId: BUSINESS_ID },
+    );
   });
 
   it('a failed re-verification under the locks rolls back the swap but still completes the outbox', async () => {

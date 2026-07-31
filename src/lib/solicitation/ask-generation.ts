@@ -666,7 +666,7 @@ async function persistChildRender(
 ): Promise<string> {
   return sql.begin(async (tx) =>
     insertOutreachRender(tx, toInsertInput(ctx, child, outcome, attemptNo, parentRunId)),
-  ) as Promise<string>;
+  );
 }
 
 type AskGenerationLogger = ReturnType<typeof createWorkerLogger>;
@@ -759,6 +759,10 @@ async function settleBudgetStop(
   for (const [index, ask] of remaining.entries()) {
     const probe = await probeExistingRenders(sql, ctx, ask.ask_id);
     if (probe.nonCancelled > 0) {
+      // index 0 is the ask whose reservation was just refused — the caller
+      // probed it clean moments ago, so a hit here is unreachable and must
+      // not double-count it; later entries were never probed and a hit is a
+      // genuine skip.
       if (index > 0) result.skippedExisting += 1;
       continue;
     }
@@ -788,39 +792,42 @@ export async function generateAsksForBatch(
     failed: 0,
     skippedExisting: 0,
   };
+  // Every gate below is a no-op SUCCESS: complete the outbox attempt, log,
+  // return the (empty) tallies — the batch-door twin of the regen door's
+  // `refuse` closure. `warn` is reserved for states that should not exist.
+  const noop = async (
+    message: string,
+    detail: Record<string, unknown> = {},
+    level: 'log' | 'warn' = 'log',
+  ): Promise<GenerateAsksResult> => {
+    await completeOutboxNoop(sql, outboxId, attempt);
+    logger[level](message, { batch_id: input.batchId, ...detail });
+    return result;
+  };
 
   // Gate: flag flipped between enqueue and run ⇒ no-op SUCCESS. Checked before
   // any load so the loader (and its #627-dependent column projection) never
   // runs while the lane is switched off.
   if (!solicitationSendEnabled()) {
-    await completeOutboxNoop(sql, outboxId, attempt);
-    logger.log('ask generation no-op: send flag disabled', { batch_id: input.batchId });
-    return result;
+    return noop('ask generation no-op: send flag disabled');
   }
 
   const ctx = await loadBatchContext(sql, input.batchId, input.businessId);
   if (!ctx) {
-    await completeOutboxNoop(sql, outboxId, attempt);
-    logger.warn('ask generation no-op: batch missing', { batch_id: input.batchId });
-    return result;
+    return noop('ask generation no-op: batch missing', {}, 'warn');
   }
 
   // Gate: subscription (invariant #11).
   if (!subscriptionGrantsFullAccess(ctx.subscriptionStatus)) {
-    await completeOutboxNoop(sql, outboxId, attempt);
-    logger.log('ask generation no-op: subscription does not grant access', {
-      batch_id: ctx.batchId,
+    return noop('ask generation no-op: subscription does not grant access', {
       subscription_status: ctx.subscriptionStatus,
     });
-    return result;
   }
 
   const asks = await loadSendAsks(sql, ctx);
   // Defensive: the build tx does not enqueue for zero send asks (D21).
   if (asks.length === 0) {
-    await completeOutboxNoop(sql, outboxId, attempt);
-    logger.log('ask generation no-op: batch has no send asks', { batch_id: ctx.batchId });
-    return result;
+    return noop('ask generation no-op: batch has no send asks');
   }
 
   // Send parent run in its own short tx, gated on attempt ownership
@@ -1025,6 +1032,12 @@ class RegenSwapAbort extends Error {
   }
 }
 
+/** What a committed swap transaction hands back for the success log line. */
+interface RegenSwapResult {
+  outreachId: string;
+  attemptNo: number;
+}
+
 interface CurrentOutreachRow {
   delivery_status: string;
   attempt_no: number;
@@ -1163,14 +1176,12 @@ export async function regenerateAsk(
     throw err; // transient → BullMQ retry; the outbox row is NOT completed
   }
 
-  let swapped: { outreachId: string; attemptNo: number } | null = null;
-  let staleAttempt = false;
+  let swapped: RegenSwapResult | null = null;
   try {
-    await sql.begin(async (tx) => {
+    swapped = await sql.begin(async (tx): Promise<RegenSwapResult> => {
       // CAS-before-mutation: the transaction's FIRST statement.
       const owns = await markOutboxCompletedIfOwned(tx, outboxId, attempt);
       if (!owns) {
-        staleAttempt = true;
         throw new RegenSwapAbort('stale_outbox_attempt');
       }
       // B11 global lock order: advisory first, then row locks.
@@ -1246,11 +1257,32 @@ export async function regenerateAsk(
           regenerated: true,
         },
       });
-      swapped = { outreachId, attemptNo };
+      // A withheld replacement TERMINALIZES this ask, and every writer that
+      // terminalizes an Outreach row joins in the SAME transaction
+      // (outreach.ts single-join contract, D11) — without this, blocking the
+      // batch's last live render would strand it un-settled until expiry. A
+      // rendered replacement leaves a live row and the call no-ops
+      // (`not_settled`). No `failure` is passed: a batch the owner regenerated
+      // out of live renders settles `exhausted`, not `generation_failed` —
+      // renders existed and were approvable.
+      await closeBatchIfSettled(tx, {
+        batchId: ctx.batchId,
+        accountId: ctx.accountId,
+        businessId: ctx.businessId,
+      });
+      return { outreachId, attemptNo };
     });
   } catch (err) {
     if (!(err instanceof RegenSwapAbort)) throw err;
-    if (!staleAttempt) {
+    // The sentinel's reason is the ONE owner of why the swap aborted.
+    if (err.reason === 'stale_outbox_attempt') {
+      logger.warn('ask regeneration: stale outbox attempt — no domain writes', {
+        batch_id: ctx.batchId,
+        ask_id: input.askId,
+        outbox_id: outboxId,
+        outbox_attempt: attempt,
+      });
+    } else {
       // Eligibility died between generation and the swap: the render is
       // discarded (accepted rare waste — the spend is logged below via
       // api_costs) but the outbox attempt still completes.
@@ -1260,13 +1292,6 @@ export async function regenerateAsk(
         ask_id: input.askId,
         reason: err.reason,
       });
-    } else {
-      logger.warn('ask regeneration: stale outbox attempt — no domain writes', {
-        batch_id: ctx.batchId,
-        ask_id: input.askId,
-        outbox_id: outboxId,
-        outbox_attempt: attempt,
-      });
     }
   }
 
@@ -1275,12 +1300,11 @@ export async function regenerateAsk(
   await recordChildApiCost(sql, ctx, outcome.llm, logger);
 
   if (swapped !== null) {
-    const swap: { outreachId: string; attemptNo: number } = swapped;
     logger.log('ask regenerated', {
       batch_id: ctx.batchId,
       ask_id: input.askId,
-      outreach_id: swap.outreachId,
-      attempt_no: swap.attemptNo,
+      outreach_id: swapped.outreachId,
+      attempt_no: swapped.attemptNo,
       delivery_status: outcome.status,
       disposition_reason: outcome.dispositionReason ?? null,
     });
