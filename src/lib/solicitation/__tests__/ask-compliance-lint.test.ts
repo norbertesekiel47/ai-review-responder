@@ -53,7 +53,7 @@ function input(overrides: Partial<AskLintInput> = {}): AskLintInput {
 
 describe('module contract', () => {
   it('pins the version and the eight-member block-reason vocabulary', () => {
-    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.2');
+    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.3');
     expect(ASK_BLOCK_REASONS).toEqual([
       'incentive_language',
       'review_steering',
@@ -102,6 +102,26 @@ describe('class 1 — incentive_language', () => {
       input({ body: assembled('Hi Dana — leave a review for a chance to win a prize.') }),
     );
     expect(verdict.blockedReason).toBe('incentive_language');
+  });
+
+  it('blocks written-out percentages off (codex round-4 regression)', () => {
+    const verdict = lintAsk(
+      input({
+        body: assembled("Hi Dana — we'll take ten percent off your next visit."),
+      }),
+    );
+    expect(verdict.blockedReason).toBe('incentive_language');
+  });
+
+  it('blocks half-off and half-price offers (codex round-4 regression)', () => {
+    expect(
+      lintAsk(input({ body: assembled('Hi Dana — your next coffee is half price.') }))
+        .blockedReason,
+    ).toBe('incentive_language');
+    expect(
+      lintAsk(input({ body: assembled('Hi Dana — take half off your next order.') }))
+        .blockedReason,
+    ).toBe('incentive_language');
   });
 
   it('blocks sweepstakes and on-the-house paraphrases', () => {
@@ -528,6 +548,28 @@ describe('note admissibility (SPEC §1.2)', () => {
     expect(assessNoteAdmissibility('call back at 5125551234')).toEqual({
       admissible: false,
       disposition: 'rejected:contact_channel',
+    });
+  });
+
+  // codex round-4 regression: the digit-run rule ran against the raw note, so
+  // every separator scheme a human actually types walked past it.
+  it.each([
+    'Spoke with Jane at 555-123-4567 about the repair',
+    'Spoke with Jane at (555) 123-4567 about the repair',
+    'Spoke with Jane at 555 123 4567 about the repair',
+    'Spoke with Jane at +1 555-123-4567 about the repair',
+    'Spoke with Jane at 555.123.4567 about the repair',
+  ])('rejects a separator-formatted phone number: %s', (note) => {
+    expect(assessNoteAdmissibility(note)).toEqual({
+      admissible: false,
+      disposition: 'rejected:contact_channel',
+    });
+  });
+
+  it('still admits a note whose digits stay short once separators are stripped', () => {
+    expect(assessNoteAdmissibility('table 12, party of 4')).toEqual({
+      admissible: true,
+      disposition: 'admitted',
     });
   });
 

@@ -1,50 +1,42 @@
 # Handoff — feat-628-ask-generation-lane
 
-**Phase:** `gate_green`, adversarial review ROUND 4 RETURNED
-**needs-attention** (2026-07-31; rounds 1–3 fixed in `0d0fd1b0`, `e54f99fa`,
-`5d12e403`). **Next step: fix the three round-4 findings below, re-run the
-suites + full gate (`MAX_PARALLEL=2 VITEST_WORKERS=6 bash
-scripts/verify-gate.sh --review`), then the OWNER runs
+**Phase:** `gate_green`, rounds 1–4 ALL FIXED (`0d0fd1b0`, `e54f99fa`,
+`5d12e403`, and the round-4 commit below). **Next step: the OWNER runs
 `/codex:adversarial-review` round 5.** After APPROVED: step 8 (high-risk
 lane: staging ride first, flag-off no-op smoke only pre-#627).
 
-## Codex round-4 findings (verbatim guidance; fix in this order)
+## Codex round-4 fixes (full rationale in the deviations file, 2026-07-31)
 
-1. **[high] Final-attempt settlement failure permanently strands batch
-   state** (`worker/jobs/solicitation-batch/generate-failed-hook.ts:171-179`).
-   The whole-batch dead-letter's catch suppresses a `settleGenerationExhaustion`
-   failure; on the FINAL outbox attempt the row stays `dispatched` and the
-   generic OutboxPoller terminalizer later strands the lane. Fix: make
-   terminal settlement durably retryable independently of the exhausted
-   outbox budget (e.g. on the final attempt, retry the settlement itself
-   bounded, or leave the row dispatched ONLY when watchdog budget remains —
-   the catch currently cannot tell the two cases apart). Add a test for
-   settlement failure when `attempts === max_attempts`. NOTE the prior
-   residual (deviations round-3 entry): crash-mid-final-attempt still
-   reaches the generic terminalizer — OutboxPoller is out of surface.
-2. **[high] Separator-formatted phone numbers are admitted into the
-   prompt** (`ask-compliance-lint.ts` note admissibility, contact_channel
-   rules — `/\d{7,}/` only catches CONTIGUOUS digits). "Spoke with Jane at
-   555-123-4567 about the repair" is admissible today. Fix: test the
-   digit-run rule against the separator-stripped note (the class-5 subject
-   check already does exactly this: strip `[\s().-]` then `\d{7,}`), or a
-   bounded phone matcher incl. country prefixes. Regression: formatted
-   phone/paren/space/+1 forms are rejected `contact_channel`. Note
-   admissibility is versioned under ASK_LINT_VERSION — bump to
-   `ask_lint_2026-07-31.3` (or date of fix) and regenerate the golden file.
-3. **[high] Written-out percentages pass the incentive lint**
-   (`ask-compliance-lint.ts` class 1 — `\d+\s*%\s*off` only). "we'll take
-   ten percent off your next visit" passes. Fix: written-number percent
-   forms (`(?:ten|fifteen|twenty|…|half)\s*(?:percent|per cent)\s*off`, plus
-   `percent off` generally and `half off/half price`), golden + version
-   ride along; Codex's exact sentence is the regression case. Codex also
-   re-recommends the semantic verifier before dispatch — the deviations
-   round-3 finding-4 entry records that boundary as #631's decision; keep
-   deterministic here unless the owner overrules.
+1. **[high] Final-attempt settlement failure stranded the batch → FIXED.**
+   The whole-batch dead-letter is now `deadLetterWholeBatch`, which splits
+   the two cases the single catch could not tell apart: watchdog budget
+   REMAINS → leave the row dispatched (unchanged, the watchdog owns the
+   re-drive); budget EXHAUSTED → retry the settlement itself, bounded (2
+   retries, 200 ms), then concede under a NEW distinct status
+   `terminal_settlement_abandoned` — the only one that means nothing will
+   retry, so the only one worth paging on. Three tests. The round-3 residual
+   is unchanged and still open: a worker that CRASHES mid-job on its final
+   attempt runs no failed hook and still reaches the generic terminalizer
+   (OutboxPoller is out of surface — follow-up ticket).
+2. **[high] Separator-formatted phone numbers were admitted → FIXED.**
+   `PII_DIGIT_RUN_PATTERN` + a new `stripPhoneSeparators` moved into a
+   shared phone-PII block (one owner for the fact, used by note
+   admissibility AND class 5); `contact_channel` gained a
+   `separatorStrippedPatterns` arm carrying the digit run, while the domain
+   patterns stay on the raw note. Class 5 now calls the shared helper, which
+   adds `+` to its separator set. Five formatted-phone regressions plus a
+   short-digit note that must still be admitted.
+3. **[high] Written-out percentages passed the incentive lint → FIXED.**
+   Class 1 gains `percent|per cent + off` and `half off|half price`, matching
+   the shape rather than enumerating written numbers. Codex's exact sentence
+   is a regression case. Its re-recommendation of a semantic verifier is
+   unchanged from round-3 finding 4 — #631's decision, a locked intake
+   non-goal; OWNER should still confirm that boundary at triage.
 
-After fixes: lint suite + generate/ask-generation suites + the five
-integration suites with `TEST_DATABASE_POOL_URL` exported, then the full
-gate, deviations entries, one review-round commit, and round 5.
+`ASK_LINT_VERSION` → `ask_lint_2026-07-31.3`, golden file regenerated.
+Verification at this commit: both changed unit suites (83), all solicitation
++ worker-lane suites (294), the five live-DB integration suites 39/39 with
+`TEST_DATABASE_POOL_URL` exported, typecheck, and the full gate.
 
 ## Codex round-1 fixes (full rationale in the deviations file, entries dated 2026-07-31)
 

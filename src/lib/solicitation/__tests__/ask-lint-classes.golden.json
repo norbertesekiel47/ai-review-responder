@@ -1,5 +1,5 @@
 {
-  "version": "ask_lint_2026-07-31.2",
+  "version": "ask_lint_2026-07-31.3",
   "blockReasons": [
     "incentive_language",
     "review_steering",
@@ -41,6 +41,8 @@
         "/\\brewards?\\b/gi",
         "/\\d+\\s*%\\s*off/gi",
         "/\\$\\s*\\d+\\s*off/gi",
+        "/\\b(?:percent|per\\s?cent)\\s+off\\b/gi",
+        "/\\bhalf[\\s-]?(?:off|price)\\b/gi",
         "/\\bin exchange for\\b/gi"
       ]
     },
@@ -365,7 +367,9 @@
         "/https?:\\/\\//i",
         "/\\bwww\\./i",
         "/\\b[a-z0-9-]+\\.(?:com|net|org|io|co|us|info|biz|app|dev)\\b/i",
-        "/@/",
+        "/@/"
+      ],
+      "separatorStrippedPatterns": [
         "/\\d{7,}/"
       ]
     },

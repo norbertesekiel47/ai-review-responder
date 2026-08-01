@@ -239,8 +239,9 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     );
   });
 
-  it('a dead-letter settlement failure leaves the row dispatched for the watchdog', async () => {
+  it('a dead-letter settlement failure leaves the row dispatched while watchdog budget remains', async () => {
     vi.mocked(settleGenerationExhaustion).mockRejectedValueOnce(new Error('db down'));
+    queueOutboxBudget(2, 5);
 
     await expect(
       handleGenerateSolicitationAsksFailed(
@@ -250,9 +251,63 @@ describe('handleGenerateSolicitationAsksFailed', () => {
       ),
     ).resolves.toBeUndefined();
 
+    // The watchdog owns the re-drive: exactly one settlement attempt here.
+    expect(settleGenerationExhaustion).toHaveBeenCalledTimes(1);
     expect(mocks.logger.error).toHaveBeenCalledWith(
       'ask generation exhausted',
       expect.objectContaining({ status: 'terminal_checkpoint_failed' }),
+    );
+  });
+
+  it('retries the settlement in-hook when the FINAL attempt fails (codex round-4)', async () => {
+    // No watchdog budget left, so nothing else will ever settle this lane:
+    // the hook retries itself and succeeds on the second try.
+    vi.mocked(settleGenerationExhaustion)
+      .mockRejectedValueOnce(new Error('pool blip'))
+      .mockResolvedValueOnce({
+        status: 'settled',
+        filled: 3,
+        close: { status: 'closed' },
+      } as Awaited<ReturnType<typeof settleGenerationExhaustion>>);
+    queueOutboxBudget(5, 5);
+
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      new Error('boom'),
+    );
+
+    expect(settleGenerationExhaustion).toHaveBeenCalledTimes(2);
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({ status: 'terminalized_and_settled', filled: 3 }),
+    );
+  });
+
+  it('concedes the lane under its own status once final-attempt retries are spent (codex round-4)', async () => {
+    vi.mocked(settleGenerationExhaustion)
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockRejectedValueOnce(new Error('db down'));
+    // A budget row per failure — every one says the watchdog is exhausted.
+    queueOutboxBudget(5, 5);
+    queueOutboxBudget(5, 5);
+    queueOutboxBudget(5, 5);
+
+    await expect(
+      handleGenerateSolicitationAsksFailed(
+        fakeSql,
+        makeJob({}, { attemptsMade: 3, attempts: 3 }),
+        new Error('boom'),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(settleGenerationExhaustion).toHaveBeenCalledTimes(3);
+    // Distinct from terminal_checkpoint_failed on purpose: only this one means
+    // nothing will retry, so only this one is worth paging on.
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({ status: 'terminal_settlement_abandoned' }),
     );
   });
 
@@ -358,12 +413,15 @@ describe('handleGenerateSolicitationAsksFailed', () => {
   });
 
   it('leaves the row dispatched when the failure CAS itself throws', async () => {
+    // The BARE CAS is the regeneration branch's terminal write — on the
+    // whole-batch branch the CAS lives inside settleGenerationExhaustion's
+    // coupled transaction, so `markOutboxFailed` is never reached there.
     mocks.markOutboxFailed.mockRejectedValueOnce(new Error('db down'));
 
     await expect(
       handleGenerateSolicitationAsksFailed(
         fakeSql,
-        makeJob({}, { attemptsMade: 3, attempts: 3 }),
+        makeJob({ ask_id: 'ask-1' }, { attemptsMade: 3, attempts: 3 }),
         new Error('boom'),
       ),
     ).resolves.toBeUndefined();

@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { CostInfraUnavailableError } from '@/lib/costs/errors';
@@ -33,8 +34,9 @@ function isRetryableExhaustion(err: unknown): boolean {
  * settle terminally — the generic OutboxPoller's max_attempts terminalizer
  * knows nothing about this lane's domain state, so leaving the row dispatched
  * would strand a partially generated batch when it fires (codex round-3
- * finding 1). Best-effort read: a missing row or a failed read errs toward
- * the watchdog (the prior behavior), logged so the fallback is visible.
+ * finding 1). A missing row has nothing left to re-drive, so it reads as no
+ * budget; a FAILED read errs toward the watchdog (the prior behavior) and is
+ * logged so the fallback is visible.
  */
 async function watchdogRetryRemaining(
   sql: Sql,
@@ -52,6 +54,84 @@ async function watchdogRetryRemaining(
       error_class: boundedErrorClass(readErr),
     });
     return true;
+  }
+}
+
+/**
+ * Extra settlement attempts granted when the watchdog has none left. Small and
+ * short on purpose: this runs inside a bare BullMQ `failed` listener, so it
+ * must not hold the worker for long, and the settlement is one small
+ * transaction whose realistic failure is a brief pool blip.
+ */
+const FINAL_SETTLEMENT_RETRIES = 2;
+const FINAL_SETTLEMENT_BACKOFF_MS = 200;
+
+/**
+ * Whole-batch dead-letter: the coupled CAS + domain settlement, committed or
+ * rolled back as one unit.
+ *
+ * A settlement failure has two cases the old single catch could not tell apart
+ * (codex round-4 finding 1), split here by watchdog budget:
+ * - budget REMAINS → leave the row `dispatched`. The watchdog re-pends it, the
+ *   job runs again, and this hook gets another honest attempt. Retrying inside
+ *   a bare failed listener would only duplicate what the watchdog already owns.
+ * - budget EXHAUSTED → there is no re-driver left. The generic OutboxPoller
+ *   terminalizer will mark the row failed knowing nothing about this lane's
+ *   domain state, stranding a partially generated batch behind a running send
+ *   parent, so the settlement is retried HERE, bounded.
+ *
+ * When those are spent the lane is conceded to an operator under its own
+ * status (`terminal_settlement_abandoned`) rather than the ambiguous
+ * checkpoint status — the two need to be distinguishable in an alert, because
+ * only this one means "nothing will retry this."
+ */
+async function deadLetterWholeBatch(
+  sql: Sql,
+  job: Job<GenerateSolicitationAsksPayload>,
+  outboxHandle: { outboxId: string; attempt: number },
+  errorClass: string,
+  jobFields: Record<string, string>,
+): Promise<void> {
+  for (let retriesLeft = FINAL_SETTLEMENT_RETRIES; ; retriesLeft -= 1) {
+    try {
+      const settled = await settleGenerationExhaustion(sql, {
+        batchId: job.data.batch_id,
+        businessId: job.data.business_id,
+        outboxHandle,
+        errorClass,
+      });
+      logFailureSafely({
+        status: settled.status === 'settled' ? 'terminalized_and_settled' : settled.status,
+        ...jobFields,
+        outbox_attempt: outboxHandle.attempt,
+        error_class: errorClass,
+        ...(settled.status === 'settled'
+          ? { filled: settled.filled, close_status: settled.close.status }
+          : {}),
+      });
+      return;
+    } catch (hookErr) {
+      const settlementErrorClass = boundedErrorClass(hookErr);
+      if (await watchdogRetryRemaining(sql, outboxHandle.outboxId)) {
+        logFailureSafely({
+          status: 'terminal_checkpoint_failed',
+          ...jobFields,
+          outbox_attempt: outboxHandle.attempt,
+          error_class: settlementErrorClass,
+        });
+        return;
+      }
+      if (retriesLeft === 0) {
+        logFailureSafely({
+          status: 'terminal_settlement_abandoned',
+          ...jobFields,
+          outbox_attempt: outboxHandle.attempt,
+          error_class: settlementErrorClass,
+        });
+        return;
+      }
+      await delay(FINAL_SETTLEMENT_BACKOFF_MS);
+    }
   }
 }
 
@@ -150,34 +230,7 @@ export async function handleGenerateSolicitationAsksFailed(
   }
 
   if (job.data.ask_id === undefined) {
-    // Whole-batch dead-letter: coupled CAS + settlement, committed or rolled
-    // back as one unit.
-    try {
-      const settled = await settleGenerationExhaustion(sql, {
-        batchId: job.data.batch_id,
-        businessId: job.data.business_id,
-        outboxHandle: { outboxId, attempt },
-        errorClass,
-      });
-      logFailureSafely({
-        status: settled.status === 'settled' ? 'terminalized_and_settled' : settled.status,
-        ...jobFields,
-        outbox_attempt: attempt,
-        error_class: errorClass,
-        ...(settled.status === 'settled'
-          ? { filled: settled.filled, close_status: settled.close.status }
-          : {}),
-      });
-    } catch (hookErr) {
-      // The coupled transaction rolled back: leave the row dispatched for
-      // watchdog recovery rather than retrying inside a bare failed listener.
-      logFailureSafely({
-        status: 'terminal_checkpoint_failed',
-        ...jobFields,
-        outbox_attempt: attempt,
-        error_class: boundedErrorClass(hookErr),
-      });
-    }
+    await deadLetterWholeBatch(sql, job, { outboxId, attempt }, errorClass, jobFields);
     return;
   }
 

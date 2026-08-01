@@ -543,3 +543,57 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   written-out percentages ("ten percent off") pass the incentive lint
   (ask-compliance-lint.ts class 1). Full text + fix guidance in the handoff
   doc.
+- [2026-07-31] **Codex round-4 fix (finding 1): the whole-batch dead-letter
+  splits its two failure cases by watchdog budget.** The single catch could
+  not tell "the watchdog will re-drive this" from "nothing ever will", so it
+  logged `terminal_checkpoint_failed` for both and the second case was left
+  to the generic OutboxPoller terminalizer. The branch is now
+  `deadLetterWholeBatch`: on a settlement failure it re-reads
+  `watchdogRetryRemaining` — budget REMAINS → leave the row dispatched
+  exactly as before (the watchdog owns the re-drive; retrying in a bare
+  `failed` listener would only duplicate it); budget EXHAUSTED → retry the
+  settlement itself, bounded (`FINAL_SETTLEMENT_RETRIES=2`,
+  200 ms backoff — short because this runs inside a bare BullMQ listener and
+  the realistic failure is a pool blip). Once spent, the lane is conceded
+  under its OWN status, `terminal_settlement_abandoned`, deliberately
+  distinct from `terminal_checkpoint_failed`: only the new one means nothing
+  will retry, so only it is worth paging on. Tests: settlement failure with
+  budget remaining (one attempt, unchanged status), final-attempt retry that
+  succeeds on the second try, and retries-spent concession. The round-3
+  residual is UNCHANGED and still open — a worker that CRASHES mid-job on its
+  final attempt runs no failed hook at all and still reaches the generic
+  terminalizer; that window needs the out-of-surface OutboxPoller hook.
+  Incidental: `leaves the row dispatched when the failure CAS itself throws`
+  was passing for the wrong reason (it named the regeneration branch's bare
+  CAS but passed a whole-batch payload, where the CAS lives inside the mocked
+  settlement); it now passes `ask_id` and exercises the branch it names.
+- [2026-07-31] **Codex round-4 fix (finding 2): phone-shaped PII is one fact
+  with one owner, tested separator-stripped.** `PII_DIGIT_RUN_LENGTH` /
+  `PII_DIGIT_RUN_PATTERN` moved out of the class-5 block into a shared
+  phone-PII block alongside a new `stripPhoneSeparators`, and note
+  admissibility's `contact_channel` rule gained a `separatorStrippedPatterns`
+  arm carrying the digit run. The domain patterns stay on the raw note (`.`
+  carries the TLD), which is the same split class 5 already made. Class 5 now
+  calls the shared helper instead of its own inline strip, which adds `+` to
+  its separator set (a tightening; country-prefixed forms). Strictly broader
+  than before: stripping removes separators, never digits. DELIBERATE cost —
+  a hyphenated date ("2026-07-31") now reads as a digit run and the note is
+  omitted; that is the fail-closed side, since an inadmissible note is a
+  DEGRADATION (generation proceeds on the four structured fields) while a
+  leaked phone number reaches a stranger. Regressions: hyphen, paren, space,
+  `+1` and dotted forms all reject `contact_channel`, plus a short-digit note
+  that must still be admitted.
+- [2026-07-31] **Codex round-4 fix (finding 3): written-out percentages.**
+  Class 1 gains `/\b(?:percent|per\s?cent)\s+off\b/gi` and
+  `/\bhalf[\s-]?(?:off|price)\b/gi`. Matching the "… off" SHAPE rather than
+  enumerating written numbers subsumes every one of them in two patterns
+  instead of a list that would rot; "fifty percent discount" was already
+  class 1 via `/discount/`. Codex's exact sentence ("we'll take ten percent
+  off your next visit") plus half-off/half-price are regression cases.
+  Codex's re-recommendation of a semantic verifier before dispatch is
+  UNCHANGED from round 3 finding 4 — that boundary is #631's decision and a
+  locked intake non-goal; keeping it deterministic here still needs OWNER
+  confirmation at triage.
+- [2026-07-31] **Round-4 version bump: `ASK_LINT_VERSION` →
+  `ask_lint_2026-07-31.3`**, golden file regenerated (visible diff: two class-1
+  patterns, the `separatorStrippedPatterns` split on `contact_channel`).
