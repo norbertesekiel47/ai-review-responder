@@ -603,6 +603,15 @@ export function verificationQuery(
         WHERE account_id = ${accountId}::uuid
       `;
 
+    // The consent ledger carries NO account_id by design (#625 spec §3.2), so
+    // verification joins through businesses like the contacts/visits it covers.
+    // businesses are retain_deidentified (tombstoned, never DELETEd), so the
+    // businesses(id) ON DELETE CASCADE never fires during offboarding purge —
+    // this is the read-side proof of purge-stages.ts's explicit
+    // deleteByBusiness('solicitation_consent') sweep, the ONLY deleter here.
+    case 'solicitation_consent':
+      return absentByBusiness('solicitation_consent', accountId, exec);
+
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);
   }
@@ -621,6 +630,7 @@ const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
   'google_connections',
   'solicitation_contacts',
   'solicitation_visits',
+  'solicitation_consent',
 ]);
 
 export function absentByBusiness(

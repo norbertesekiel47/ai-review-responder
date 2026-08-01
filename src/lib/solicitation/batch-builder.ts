@@ -29,6 +29,7 @@ import {
   markOutboxCompletedIfOwned,
 } from '@/lib/shared/outbox';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
+import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
 import { MAX_DATA_ROWS } from './contacts-csv';
 import { solicitationWatchEnabled } from './flags';
 import {
@@ -91,8 +92,10 @@ interface ConstructionBatchRow {
 interface CandidateWindowRow {
   contact_id: string;
   last_visit_date: string;
-  upload_id: string;
   consent_attested: boolean;
+  /** Consent ledger row provenance — null when no row exists (case (a)). */
+  consent_upload_id: string | null;
+  consent_attestation_version: string | null;
 }
 
 interface PriorSendRow {
@@ -325,7 +328,8 @@ function toCandidate(
     lastVisitDate: row.last_visit_date,
     consent: {
       attested: row.consent_attested,
-      uploadId: row.upload_id,
+      uploadId: row.consent_upload_id,
+      attestationVersion: row.consent_attestation_version,
     },
     suppression: null,
     matchedReview: null,
@@ -369,16 +373,21 @@ async function loadCandidateWindow(
 ): Promise<CandidateWindow> {
   const { accountId, businessId } = batch;
 
+  // #620 §6.1: consent derives from the consent ledger gated by the
+  // send-eligible allowlist — never from the upload row, whose attestation
+  // columns are NOT NULL by construction (the pre-#625 tautology, §1.1).
+  const sendEligibleVersions = [...SEND_ELIGIBLE_ATTESTATION_VERSIONS];
+
   const candidateWindow = await tx<CandidateWindowRow[]>`
     SELECT
       c.id::text AS contact_id,
       latest_visit.visit_date::text AS last_visit_date,
-      latest_visit.upload_id::text AS upload_id,
       (
-        u.status = 'completed'
-        AND u.attested_at IS NOT NULL
-        AND u.attestation_version IS NOT NULL
-      ) AS consent_attested
+        consent.id IS NOT NULL
+        AND consent.attestation_version = ANY(${sendEligibleVersions}::text[])
+      ) AS consent_attested,
+      consent.source_upload_id::text AS consent_upload_id,
+      consent.attestation_version AS consent_attestation_version
     FROM solicitation_contacts c
     JOIN solicitation_visits latest_visit
       ON latest_visit.contact_id = c.id
@@ -404,6 +413,10 @@ async function loadCandidateWindow(
      AND u.account_id = ${accountId}::uuid
      AND u.business_id = ${businessId}::uuid
      AND u.status = 'completed'
+    LEFT JOIN solicitation_consent consent
+      ON consent.channel = 'email'
+     AND consent.normalized_handle = c.email
+     AND consent.business_id = ${businessId}::uuid
     LEFT JOIN solicitation_asks latest_evaluation
       ON latest_evaluation.contact_id = c.id
      AND latest_evaluation.account_id = ${accountId}::uuid

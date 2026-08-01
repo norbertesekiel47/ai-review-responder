@@ -21,6 +21,8 @@ export const ANALYTICS_EVENT_NAMES = [
   'trial_payment_failed',
   'trial_cancelled',
   'competitor_rival_picked',
+  'solicitation_consent_recorded',
+  'solicitation_consent_upgraded',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

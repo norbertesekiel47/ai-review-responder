@@ -13,8 +13,13 @@ import {
   LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_093_SOLICITATION_CONSENT,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { deleteContact, listContacts } from '../contacts-repo';
+import { ingestContactsCsvUpload } from '../ingest';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -72,6 +77,40 @@ async function seedContact(input: {
   return contactId;
 }
 
+const CSV_HEADER = 'name,email,phone,last_visit_date,note';
+
+/** Seeds a fresh pending upload attested under the current (v2) version and
+ *  runs the REAL ingest over it — the consent ledger's only writer — so the
+ *  consent rows the delete test sweeps were minted by production code. */
+async function ingestCsv(csvText: string): Promise<string> {
+  const csvUploadId = randomUUID();
+  await sql()`
+    INSERT INTO contact_csv_uploads
+      (id, account_id, business_id, filename, byte_size, content_sha256,
+       raw_csv, status, attested_by_user_id, attested_at, attestation_version)
+    VALUES
+      (${csvUploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+       'customers.csv', ${Buffer.byteLength(csvText, 'utf8')},
+       ${'0'.repeat(64)}, ${csvText}, 'pending',
+       ${tenant!.userId}::uuid, NOW(), ${CONSENT_ATTESTATION_VERSION})
+  `;
+  const report = await ingestContactsCsvUpload(sql(), csvUploadId, businessId);
+  if (report === null) throw new Error(`expected an ingest report for upload ${csvUploadId}`);
+  return csvUploadId;
+}
+
+async function readConsentRows(): Promise<{
+  normalized_handle: string;
+  source_upload_id: string | null;
+}[]> {
+  return sql()<{ normalized_handle: string; source_upload_id: string | null }[]>`
+    SELECT normalized_handle, source_upload_id::text AS source_upload_id
+    FROM solicitation_consent
+    WHERE business_id = ${businessId}::uuid
+    ORDER BY normalized_handle
+  `;
+}
+
 async function countVisitsForContact(contactId: string): Promise<number> {
   const [row] = await sql()<{ count: string }[]>`
     SELECT COUNT(*) AS count FROM solicitation_visits WHERE contact_id = ${contactId}::uuid
@@ -91,6 +130,7 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
     const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
     featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
+    await assertSchemaReady(db, [MIGRATION_093_SOLICITATION_CONSENT]);
     tenant = await seedTenantAccount(db, {
       userName: 'Contacts Repo Integration Owner',
       accountDisplayName: 'Contacts Repo Integration Account',
@@ -122,6 +162,11 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
+    // The consent-sweep test runs the real ingest, which also writes
+    // analytics rows — sweep both alongside contacts/visits (the
+    // batch-builder suite's convention for solicitation_consent).
+    await sql()`DELETE FROM analytics_events WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_consent WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
   });
@@ -179,6 +224,43 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
 
     // Deleting an already-deleted contact reports false (uniform 404 upstream).
     expect(await deleteContact(sql(), tenant!.accountId, businessId, targetId)).toBe(false);
+  });
+
+  it('contact delete sweeps consent rows by handle; re-uploading after delete requires a fresh attestation', async () => {
+    // Consent rows minted by the real ingest under v2 for both contacts.
+    const firstUploadId = await ingestCsv([
+      CSV_HEADER,
+      'Ada Lovelace,ada@example.com,,2026-01-05,',
+      'Bob Byrne,bob@example.com,,2026-01-06,',
+    ].join('\n'));
+    expect(await readConsentRows()).toEqual([
+      { normalized_handle: 'ada@example.com', source_upload_id: firstUploadId },
+      { normalized_handle: 'bob@example.com', source_upload_id: firstUploadId },
+    ]);
+
+    const [ada] = await sql()<{ id: string }[]>`
+      SELECT id FROM solicitation_contacts
+      WHERE business_id = ${businessId}::uuid AND email = 'ada@example.com'
+    `;
+    expect(await deleteContact(sql(), tenant!.accountId, businessId, ada!.id)).toBe(true);
+
+    // The deleted contact's consent row is swept by handle; the sibling
+    // contact's row at the same business survives.
+    expect(await readConsentRows()).toEqual([
+      { normalized_handle: 'bob@example.com', source_upload_id: firstUploadId },
+    ]);
+
+    // Re-uploading the same handle mints a FRESH consent row pointing at the
+    // NEW upload's attestation — the stale row did not survive the delete to
+    // grant consent the owner did not re-give (§7.1, DR1: consent fails closed).
+    const secondUploadId = await ingestCsv([
+      CSV_HEADER,
+      'Ada Lovelace,ada@example.com,,2026-02-01,',
+    ].join('\n'));
+    expect(await readConsentRows()).toEqual([
+      { normalized_handle: 'ada@example.com', source_upload_id: secondUploadId },
+      { normalized_handle: 'bob@example.com', source_upload_id: firstUploadId },
+    ]);
   });
 
   it('lists a bounded page ordered by most recent visit', async () => {

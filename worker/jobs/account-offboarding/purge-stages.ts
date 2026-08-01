@@ -308,6 +308,16 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
       DELETE FROM contact_csv_uploads
       WHERE account_id = ${row.account_id}::uuid
     `;
+    // Consent ledger (migration 093, #625): businesses rows are TOMBSTONED,
+    // never deleted, so 093's business_id ON DELETE CASCADE never fires on
+    // this path (spec §7.2's cascade assumption was wrong). The upload delete
+    // above only nulls source_upload_id (ON DELETE SET NULL) and consent has
+    // no FK to contacts, so this explicit sweep is the ONLY deleter at purge.
+    // Consent fails closed (DR1): a deleted row is safe, a surviving one is
+    // residual customer data — purge-verification's must_be_absent check
+    // backstops this. Runs under the same csv-ingest/batch advisory locks
+    // acquired above, after the upload delete so it sweeps post-SET-NULL rows.
+    await deleteByBusiness(tx, 'solicitation_consent', row.account_id);
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
     // Guardian escalations (migration 073): review_id FK has no cascade, so

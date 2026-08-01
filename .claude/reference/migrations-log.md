@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **092** — next migration is **093**
+Current head: **095** — next migration is **096**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -34,6 +34,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
 | `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
 | `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
+| `solicitation_consent` | **No TTL — consent rows never expire (§7.3)**; a consent row outliving or predeceasing its contact would desynchronize the two. Hard-deleted with the contact on per-contact delete (same transaction, by handle — the ledger has no FK to `solicitation_contacts`) and on offboarding purge (`must_be_absent`) — consent fails closed; suppression fails open (DR1), which is why these rows are destroyed where #621's suppression rows are retained | contact-delete path (#625) + `businesses` `ON DELETE CASCADE`; purge verification via `TABLE_DISPOSITIONS` (`hard_delete`, `direct_business_id`) |
 | `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
 
 Revisit triggers:
@@ -967,6 +968,70 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **095** — `consent_business_index`: one business-leading index
+  `idx_solicitation_consent_business_handle` on
+  `solicitation_consent (business_id, normalized_handle)` (#625 review round;
+  Codex adversarial finding, 2026-07-30). The offboarding purge DELETE and the
+  §7.1 contact-delete sweep filter by `business_id` (+ handle), but 093's scope
+  unique leads with `channel` — PG16 has no skip scan, so those compliance
+  deletes were full-table scans on a no-TTL table. Index-only: no data change,
+  no new relation → no retention-policy row. Shape suite:
+  `src/lib/shared/__tests__/migration-095-consent-business-index.integration.test.ts`;
+  schema-ready entry `MIGRATION_095_CONSENT_BUSINESS_INDEX`. Ships to staging +
+  prod in the normal lockstep alongside 093/094.
+
+- **094** — `consent_analytics_events`: extends the `analytics_events.event_name`
+  DB CHECK allowlist with `solicitation_consent_recorded` +
+  `solicitation_consent_upgraded` (#625 spec §8.1) — the consent ledger's two
+  durable server-side events, emitted by `upsertConsent` in the csv_ingest
+  transaction. Constraint-only (046 → 058 → 069 → 089 precedent: DROP + re-ADD
+  under `lock_timeout`; the new list is a strict superset, so existing rows
+  always pass); no new relation → no retention-policy row. Why not part of 093:
+  the gap surfaced after 093 was the recorded head, and registering names only
+  in `ANALYTICS_EVENT_NAMES` is not enough — without the CHECK entries every
+  consent-recording csv_ingest transaction rolls back (089's lesson). Shape
+  suite:
+  `src/lib/shared/__tests__/migration-094-consent-analytics-events.integration.test.ts`
+  — also the new owner of the live CHECK⟺allowlist drift guard, handed off
+  from migration-089's suite (069 → 089 precedent).
+
+- **093** — `solicitation_consent`: the consent ledger (#625; locked spec
+  `docs/superpowers/specs/2026-07-28-consent-ledger-design.md` Part I §3).
+  One new table, two indexes, RLS enabled with zero policies. One current-state
+  row per `(channel, normalized_handle, business_id)` answering "which
+  attestation covers this handle, for this channel, at this location."
+
+  **Current-state rows, monotone forward (D3).** Granted, then upgraded to a
+  newer attestation version by the guarded upsert (§4.2) — never backward.
+  Point-in-time "what the sender relied upon" proof is stamped on
+  `solicitation_outreach` at dispatch, never folded from an event log.
+  **Revocation is not in this table** (D7 — no `revoked_at`, ever): #621's
+  suppression ledger owns it entirely. The governing asymmetry is DR1 —
+  consent fails closed; suppression fails open — so consent rows hard-delete
+  with their contact and on offboarding purge, while suppression rows are
+  retained through purge.
+
+  **Email-only channel, one basis value (DR3, §3.3).** `CHECK (channel IN
+  ('email'))` and `CHECK (basis IN ('owner_attested'))` — both widen per
+  channel/basis alongside a new attestation text and counsel's answer, never
+  by default.
+
+  **Business-scoped, deliberately NO `account_id` (§3.2)** — 086's
+  denormalization warning applies verbatim; purge joins through `businesses`.
+  **`attested_by_user_id` is a plain UUID with NO FK (§3.4)**: 086's
+  `contact_csv_uploads.attested_by_user_id` is `REFERENCES users(id) ON DELETE
+  CASCADE`, and that staff-user cascade must never reach the ledger —
+  attestation fields are point-in-time CAPTURES (the invariant-#9a pattern),
+  with `source_upload_id` a nullable `ON DELETE SET NULL` audit pointer only.
+  The scope unique is TOTAL (not partial), so the byte-for-byte
+  `ON CONFLICT`/predicate gotcha does not arise for the upsert. PK is UUIDv7
+  worker-supplied.
+
+  Shape suite:
+  `src/lib/shared/__tests__/migration-093-solicitation-consent.integration.test.ts`
+  (columns/nullability, CHECKs, exact FK set + the attested_by_user_id
+  FK-ABSENCE, total unique, RLS-with-zero-policies).
 
 - **092** — Outreach body redaction reaches every TERMINAL row, not just `sent`
   (#636, deferred from #624 by the step-7 spec/correctness review as finding

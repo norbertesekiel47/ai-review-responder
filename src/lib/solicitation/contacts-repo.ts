@@ -91,22 +91,41 @@ export async function listContacts(
 }
 
 /** §5 hard delete: removes the contact; its visits CASCADE via the composite
- *  FK. Returns false when the contact does not exist or is not owned by this
- *  account+business — callers map that to a uniform 404. */
+ *  FK, and its consent-ledger rows are swept in the same transaction (#625
+ *  spec §7.1). Returns false when the contact does not exist or is not owned
+ *  by this account+business — callers map that to a uniform 404. */
 export async function deleteContact(
   sql: Sql,
   accountId: string,
   businessId: string,
   contactId: string,
 ): Promise<boolean> {
-  const deleted = await sql<{ id: string }[]>`
-    DELETE FROM solicitation_contacts c
-    USING businesses b
-    WHERE c.id = ${contactId}
-      AND c.business_id = ${businessId}
-      AND b.id = c.business_id
-      AND b.account_id = ${accountId}
-    RETURNING c.id
-  `;
-  return deleted.length > 0;
+  return sql.begin(async (tx) => {
+    const deleted = await tx<{ id: string; email: string | null }[]>`
+      DELETE FROM solicitation_contacts c
+      USING businesses b
+      WHERE c.id = ${contactId}
+        AND c.business_id = ${businessId}
+        AND b.id = c.business_id
+        AND b.account_id = ${accountId}
+      RETURNING c.id, c.email
+    `;
+    const [row] = deleted;
+    if (row === undefined) return false;
+    // §7.1: consent fails closed (DR1) — a retained row would be a residual
+    // record of a deleted person AND would silently grant consent on a future
+    // re-upload of the same handle. No FK reaches solicitation_consent
+    // (handle-keyed by design), so this sweep is the ONLY per-contact deleter.
+    // Handle-wide (all channels — deliberately no channel predicate); contacts
+    // store the normalized email (normalized at CSV parse), so c.email IS the
+    // normalized_handle.
+    if (row.email !== null) {
+      await tx`
+        DELETE FROM solicitation_consent
+        WHERE normalized_handle = ${row.email}
+          AND business_id = ${businessId}
+      `;
+    }
+    return true;
+  });
 }

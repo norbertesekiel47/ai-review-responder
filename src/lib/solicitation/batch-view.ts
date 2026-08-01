@@ -96,6 +96,12 @@ interface AskAggregateRow {
  * boundary: the CHECK cannot vouch for what `JSON.parse` returns, and a throw
  * that fires here means the constraint was dropped or bypassed, which is worth
  * a loud failure rather than a rendered blank.
+ *
+ * Only the `decision` discriminant is validated here — deliberately. The rest
+ * of the shape (including #620 §6.1's widened `no_consent` evidence, whose
+ * `upload_id` / `attestation_version` are BOTH nullable: case (a) both null,
+ * case (b) both populated) belongs to the writer; re-validating it here would
+ * be a second owner of the serialization contract.
  */
 function parseEvidence(value: unknown, askId: string): AskDecision {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;

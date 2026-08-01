@@ -16,10 +16,13 @@
  * cannot trust throws `RestraintPolicyDateError` rather than degrading to a
  * decision. See utcDayNumber — the previous NaN path decided `send`.
  *
- * v-watch footnote: `no_consent` (like `suppressed`) cannot fire in v-watch —
- * the #535 consent attestation is blocking, so every uploaded candidate is
- * covered by construction. Both gates ship and are contract-tested so the enum
- * is stable when send-mode lands.
+ * v-watch footnote: `no_consent` CAN fire since #625 — the caller derives
+ * consent from the consent ledger (`solicitation_consent`) gated by the
+ * SEND_ELIGIBLE_ATTESTATION_VERSIONS allowlist (src/lib/solicitation/
+ * attestation.ts), so a candidate with no ledger row, or a row whose
+ * attestation_version is not send-eligible (v1), withholds here.
+ * `suppressed` still has no v-watch source and stays contract-tested for
+ * enum stability until send-mode lands.
  */
 
 /**
@@ -29,8 +32,14 @@
  * plus `barre`/`kitchen`, and unparseable dates now throw instead of resolving
  * to `send` — so a decision made under `.1` is not reproducible under `.2`, and
  * stored evidence must stay attributable to the ruleset that produced it.
+ * `.3` (#620 §6.2, built by #625): the no_consent evidence serialization
+ * changed (nullable upload_id + attestation_version) AND no_consent gained
+ * discriminating power — consent now derives from the consent ledger + the
+ * SEND_ELIGIBLE_ATTESTATION_VERSIONS allowlist instead of the tautological
+ * upload expression — so a candidate deciding `send` under `.2` can decide
+ * withhold/no_consent under `.3`, which is exactly the bump criterion above.
  */
-export const RESTRAINT_POLICY_VERSION = 'restraint_v_watch_2026-07-23.2';
+export const RESTRAINT_POLICY_VERSION = 'restraint_v_watch_2026-07-23.3';
 
 /** Closed withhold-reason enum, listed in precedence order (spec §2). */
 export const WITHHOLD_REASONS = [
@@ -95,8 +104,14 @@ export interface AskCandidate {
   contactId: string;
   /** Most recent visit date (visits ledger), YYYY-MM-DD. */
   lastVisitDate: string;
-  /** Attestation coverage inherited from the upload (#535 §4). */
-  consent: { attested: boolean; uploadId: string };
+  /**
+   * Attestation coverage resolved by the caller from the consent ledger +
+   * SEND_ELIGIBLE_ATTESTATION_VERSIONS allowlist (#620 §6.1). uploadId /
+   * attestationVersion are the ledger row's provenance; both null when no
+   * row exists for the handle (no_consent case (a)), both populated when a
+   * row exists but its version is not send-eligible (case (b)).
+   */
+  consent: { attested: boolean; uploadId: string | null; attestationVersion: string | null };
   /** Suppression-ledger hit, if any (no v-watch source; send-mode scope). */
   suppression: { source: string; suppressedAt: string } | null;
   /** Existing review matched to this contact — any rating; the rating itself is never an input. */
@@ -119,7 +134,10 @@ export interface BatchContext {
 // ---------------------------------------------------------------------------
 
 export type WithholdEvidence =
-  | { reason: 'no_consent'; upload_id: string }
+  // no_consent (#620 §6.1): case (a) both null — no consent row for this
+  // handle at this location; case (b) both populated — a row exists but its
+  // attestation_version is not send-eligible (owner remedy: re-upload).
+  | { reason: 'no_consent'; upload_id: string | null; attestation_version: string | null }
   | { reason: 'suppressed'; suppression_source: string; suppressed_at: string }
   | { reason: 'already_reviewed'; review_id: string; review_date: string }
   | {
@@ -337,7 +355,13 @@ export function evaluateAsk(candidate: AskCandidate, context: BatchContext): Per
   };
 
   if (!candidate.consent.attested) {
-    return { ...envelope, decision: 'withhold', reason: 'no_consent', upload_id: candidate.consent.uploadId };
+    return {
+      ...envelope,
+      decision: 'withhold',
+      reason: 'no_consent',
+      upload_id: candidate.consent.uploadId,
+      attestation_version: candidate.consent.attestationVersion,
+    };
   }
 
   if (candidate.suppression !== null) {

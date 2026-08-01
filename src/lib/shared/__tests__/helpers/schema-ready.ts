@@ -272,6 +272,30 @@ export const MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION: SchemaRequirement =
 };
 
 /**
+ * 093 creates the consent ledger. The scope unique is what the §4.2 guarded
+ * upsert conflicts on, and the source-upload index is the migration's LAST
+ * object — its presence implies the whole file ran.
+ */
+export const MIGRATION_093_SOLICITATION_CONSENT: SchemaRequirement = {
+  migration: '093_solicitation_consent',
+  tables: ['solicitation_consent'],
+  indexes: ['solicitation_consent_scope_uniq', 'idx_solicitation_consent_source_upload'],
+};
+
+/**
+ * 095 adds the business-leading compliance-delete index. 093's scope unique
+ * leads with channel, so the purge/offboarding DELETEs and the contact-delete
+ * sweep (both filtering by business_id + normalized_handle) would otherwise
+ * full-scan a no-TTL table — PG16 has no skip scan. The index is the
+ * migration's only object, so its presence is what distinguishes a 095
+ * database from a 094 one.
+ */
+export const MIGRATION_095_CONSENT_BUSINESS_INDEX: SchemaRequirement = {
+  migration: '095_consent_business_index',
+  indexes: ['idx_solicitation_consent_business_handle'],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.

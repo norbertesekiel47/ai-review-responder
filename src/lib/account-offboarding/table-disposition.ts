@@ -378,6 +378,13 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'must_be_absent',
     reason: 'Physical send attempts carry rendered contact-facing bodies and provider results, and cascade from their batch.',
   },
+  {
+    table: 'solicitation_consent',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_business_id',
+    purgeVerification: 'must_be_absent',
+    reason: 'Consent fails closed (DR1): ledger rows are residual records of owner-uploaded customers and leave with the business via the businesses(id) cascade.',
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(

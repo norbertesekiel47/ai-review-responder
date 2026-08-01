@@ -26,6 +26,7 @@
 
 import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import type { Sql, TransactionSql } from 'postgres';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { enqueueBuildSolicitationBatch } from '@/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import {
@@ -96,10 +97,18 @@ export interface IngestReport {
 interface UploadRow {
   id: string;
   business_id: string;
+  /** contact_csv_uploads.account_id (migration 086) — read straight off the
+   *  upload row for the analytics rows below. */
+  account_id: string;
   status: ContactUploadStatus;
   byte_size: number;
   raw_csv: string | null;
   report: unknown;
+  /** Arrives as a JS Date from postgres.js. Kept OPAQUE: passed straight back
+   *  into SQL for the §4.2 guard, never stringified or compared in JS. */
+  attested_at: Date;
+  attestation_version: string;
+  attested_by_user_id: string;
 }
 
 interface UploadTerminalization {
@@ -136,9 +145,11 @@ export async function ingestContactsCsvUpload(
     // future caller ever re-reads without the bound predicate — but is
     // unreachable through this bound query today.
     const [upload] = await tx<UploadRow[]>`
-      SELECT id, business_id, status, byte_size, raw_csv, report
-      FROM contact_csv_uploads
-      WHERE id = ${uploadId} AND business_id = ${expectedBusinessId}
+      SELECT upload.id, upload.business_id, upload.account_id, upload.status,
+             upload.byte_size, upload.raw_csv, upload.report,
+             upload.attested_at, upload.attestation_version, upload.attested_by_user_id
+      FROM contact_csv_uploads upload
+      WHERE upload.id = ${uploadId} AND upload.business_id = ${expectedBusinessId}
     `;
     if (!upload) {
       logger.warn('upload row missing — nothing to ingest', { upload_id: uploadId });
@@ -178,7 +189,7 @@ export async function ingestContactsCsvUpload(
 
     // Bounded memory: MAX_DATA_ROWS (5,000) caps the candidate list, so
     // whole-file in-memory processing is fine.
-    const report = await upsertCandidates(tx, expectedBusinessId, uploadId, parsed.candidates, parsed.rejected);
+    const report = await upsertCandidates(tx, expectedBusinessId, upload, parsed.candidates, parsed.rejected);
     const terminalization = await terminalizeUpload(
       tx,
       uploadId,
@@ -206,7 +217,7 @@ export async function ingestContactsCsvUpload(
 async function upsertCandidates(
   tx: TransactionSql,
   businessId: string,
-  uploadId: string,
+  upload: UploadRow,
   candidates: ContactCandidate[],
   parseRejected: RejectedRow[],
 ): Promise<IngestReport> {
@@ -225,15 +236,20 @@ async function upsertCandidates(
     }
 
     const contact = decision.action === 'create'
-      ? await createContact(tx, businessId, uploadId, candidate)
+      ? await createContact(tx, businessId, upload.id, candidate)
       : await updateMatchedContact(tx, businessId, decision);
     if (contact.outcome === 'created') contactsCreated += 1;
     if (contact.outcome === 'merged') contactsMerged += 1;
 
-    if (await upsertVisit(tx, businessId, uploadId, contact.contactId, candidate)) {
+    if (await upsertVisit(tx, businessId, upload.id, contact.contactId, candidate)) {
       visitsAdded += 1;
     } else {
       duplicateVisits += 1;
+    }
+
+    const consentEmail = consentEligibleEmail(candidate, decision, byEmail, byPhone);
+    if (consentEmail !== null) {
+      await upsertConsent(tx, businessId, upload, consentEmail);
     }
   }
 
@@ -246,6 +262,27 @@ async function upsertCandidates(
     rejected,
     structuralFailure: null,
   };
+}
+
+/** §7.1 deletability guard, pure: the email to record consent for, or null.
+ *  deleteContact sweeps consent by the contact's STORED email, so a row minted
+ *  for a handle the resolved contact does not retain (phone match onto a
+ *  contact that already carries a different email) could never be deleted —
+ *  orphaned PII in a no-TTL ledger, violating "consent fails closed" (DR1).
+ *  Returns the candidate's email only when it is the resolved contact's
+ *  post-upsert email: created-with-email, merged-email, or
+ *  unchanged-matching-email. */
+function consentEligibleEmail(
+  candidate: { email: string | null },
+  decision: Exclude<ContactMatchDecision, { action: 'reject' }>,
+  byEmail: ExistingContact | null,
+  byPhone: ExistingContact | null,
+): string | null {
+  if (candidate.email === null) return null;
+  const retainedEmail = decision.action === 'create'
+    ? candidate.email
+    : decision.set.email ?? (byEmail ?? byPhone)!.email;
+  return retainedEmail === candidate.email ? candidate.email : null;
 }
 
 async function createContact(
@@ -314,6 +351,81 @@ async function upsertVisit(
     RETURNING (xmax = 0) AS inserted
   `;
   return visit?.inserted === true;
+}
+
+/** §4.2 guarded monotone upsert — the consent ledger's ONLY writer (D8). Email
+ *  rows only (DR3): a phone-only candidate mints no row. Serialized per
+ *  business by the caller's advisory lock, so the pre-read for event
+ *  derivation cannot race the upsert (contrast createContact's no-ON CONFLICT
+ *  comment: here the upsert is wanted — the upgrade semantics ARE the
+ *  feature). Last attestation wins, and "last" is attested_at, not arrival
+ *  order: an in-flight pre-deploy v1 job must not overwrite a v2 row. The
+ *  postgres.js microsecond gotcha does not apply — both guard operands sit in
+ *  one SQL statement. */
+async function upsertConsent(
+  tx: TransactionSql,
+  businessId: string,
+  upload: Pick<UploadRow, 'id' | 'account_id' | 'attested_at' | 'attestation_version' | 'attested_by_user_id'>,
+  normalizedEmail: string,
+): Promise<void> {
+  const [existing] = await tx<{ id: string; attestation_version: string }[]>`
+    SELECT id, attestation_version FROM solicitation_consent
+    WHERE channel = 'email' AND normalized_handle = ${normalizedEmail}
+      AND business_id = ${businessId}
+  `;
+  const [written] = await tx<{ id: string }[]>`
+    INSERT INTO solicitation_consent
+      (id, channel, normalized_handle, business_id, basis,
+       attestation_version, attested_at, attested_by_user_id, source_upload_id)
+    VALUES
+      (${uuidv7()}, 'email', ${normalizedEmail}, ${businessId}, 'owner_attested',
+       ${upload.attestation_version}, ${upload.attested_at},
+       ${upload.attested_by_user_id}, ${upload.id})
+    ON CONFLICT (channel, normalized_handle, business_id)
+    DO UPDATE SET
+      basis               = EXCLUDED.basis,
+      attestation_version = EXCLUDED.attestation_version,
+      attested_at         = EXCLUDED.attested_at,
+      attested_by_user_id = EXCLUDED.attested_by_user_id,
+      source_upload_id    = EXCLUDED.source_upload_id,
+      updated_at          = NOW()
+    WHERE EXCLUDED.attested_at > solicitation_consent.attested_at
+    RETURNING id
+  `;
+  // Guard rejected the update (older or equal attestation): deliberate no-op,
+  // no event — a replayed csv_ingest job must not churn the ledger (§4.3).
+  if (written === undefined) return;
+
+  // §8.1 events, idempotent on event_key — NEVER the handle in properties.
+  if (existing === undefined) {
+    await enqueueAnalyticsEvent(tx, {
+      eventName: 'solicitation_consent_recorded',
+      eventKey: `solicitation_consent_recorded_${written.id}`,
+      distinctId: upload.account_id,
+      accountId: upload.account_id,
+      businessId,
+      properties: {
+        channel: 'email',
+        basis: 'owner_attested',
+        attestation_version: upload.attestation_version,
+      },
+    });
+    return;
+  }
+  if (existing.attestation_version !== upload.attestation_version) {
+    await enqueueAnalyticsEvent(tx, {
+      eventName: 'solicitation_consent_upgraded',
+      eventKey: `solicitation_consent_upgraded_${written.id}_${upload.attestation_version}`,
+      distinctId: upload.account_id,
+      accountId: upload.account_id,
+      businessId,
+      properties: {
+        channel: 'email',
+        from_version: existing.attestation_version,
+        to_version: upload.attestation_version,
+      },
+    });
+  }
 }
 
 /** Impossible-state guards for a pending upload row (the route wrote row +

@@ -21,12 +21,15 @@ import {
   assertSchemaReady,
   MIGRATION_071_RUN_SPINE,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+  MIGRATION_093_SOLICITATION_CONSENT,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
 import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
+import { readLatestBatch } from '../batch-view';
+import { ingestContactsCsvUpload } from '../ingest';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
@@ -57,7 +60,7 @@ async function assertStillBlocked(promise: Promise<unknown>): Promise<void> {
   expect(outcome).toBe('blocked');
 }
 
-async function seedCompletedUpload(): Promise<string> {
+async function seedCompletedUpload(forBusinessId: string = businessId): Promise<string> {
   const uploadId = randomUUID();
   await sql()`
     INSERT INTO contact_csv_uploads (
@@ -65,7 +68,7 @@ async function seedCompletedUpload(): Promise<string> {
       raw_csv, status, report, attested_by_user_id, attested_at,
       attestation_version, completed_at
     ) VALUES (
-      ${uploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+      ${uploadId}::uuid, ${tenant!.accountId}::uuid, ${forBusinessId}::uuid,
       'batch-builder.csv', 1, ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
       NULL, 'completed', ${sql().json({ accepted: 0 })},
       ${tenant!.userId}::uuid, NOW(), ${CONSENT_ATTESTATION_VERSION}, NOW()
@@ -74,17 +77,38 @@ async function seedCompletedUpload(): Promise<string> {
   return uploadId;
 }
 
+/** Mirrors the ingest ledger write (#625) so directly-seeded candidates stay
+ *  send-eligible: consent now derives from `solicitation_consent`, not the
+ *  upload row, so a contact seeded without a ledger row withholds no_consent. */
+async function seedConsent(
+  normalizedEmail: string,
+  uploadId: string,
+): Promise<void> {
+  await sql()`
+    INSERT INTO solicitation_consent (
+      id, channel, normalized_handle, business_id, basis,
+      attestation_version, attested_at, attested_by_user_id, source_upload_id
+    ) VALUES (
+      ${randomUUID()}::uuid, 'email', ${normalizedEmail}, ${businessId}::uuid,
+      'owner_attested', ${CONSENT_ATTESTATION_VERSION}, NOW(),
+      ${tenant!.userId}::uuid, ${uploadId}::uuid
+    )
+  `;
+}
+
 async function seedContact(
   uploadId: string,
   visitDate: string,
+  options: { consent?: boolean } = {},
 ): Promise<string> {
   const contactId = randomUUID();
+  const email = `${contactId}@example.test`;
   await sql()`
     INSERT INTO solicitation_contacts (
       id, business_id, name, email, created_by_upload_id
     ) VALUES (
       ${contactId}::uuid, ${businessId}::uuid, 'Batch Candidate',
-      ${`${contactId}@example.test`}, ${uploadId}::uuid
+      ${email}, ${uploadId}::uuid
     )
   `;
   await sql()`
@@ -95,7 +119,64 @@ async function seedContact(
       ${visitDate}::date, ${uploadId}::uuid
     )
   `;
+  if (options.consent !== false) await seedConsent(email, uploadId);
   return contactId;
+}
+
+const CSV_HEADER = 'name,email,phone,last_visit_date,note';
+
+function daysAgoUtc(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A 'pending' upload carrying raw CSV, ready for the REAL ingest path —
+ *  the consent ledger is written only by ingestContactsCsvUpload (D8). */
+async function seedPendingUpload(
+  csvText: string,
+  options: { attestationVersion?: string; attestedAgo?: string; forBusinessId?: string } = {},
+): Promise<string> {
+  const uploadId = randomUUID();
+  const attestedAtExpr = options.attestedAgo === undefined
+    ? sql()`NOW()`
+    : sql()`NOW() - ${options.attestedAgo}::interval`;
+  await sql()`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, attested_by_user_id, attested_at, attestation_version
+    ) VALUES (
+      ${uploadId}::uuid, ${tenant!.accountId}::uuid,
+      ${options.forBusinessId ?? businessId}::uuid,
+      'customers.csv', ${Buffer.byteLength(csvText, 'utf8')},
+      ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
+      ${csvText}, 'pending', ${tenant!.userId}::uuid,
+      ${attestedAtExpr}, ${options.attestationVersion ?? CONSENT_ATTESTATION_VERSION}
+    )
+  `;
+  return uploadId;
+}
+
+interface StoredAskRow {
+  contact_id: string;
+  status: string;
+  withheld_reason: string | null;
+  evidence: unknown;
+}
+
+async function readAsks(batchId: string): Promise<StoredAskRow[]> {
+  return sql()<StoredAskRow[]>`
+    SELECT contact_id::text AS contact_id, status, withheld_reason, evidence
+    FROM solicitation_asks
+    WHERE batch_id = ${batchId}::uuid
+    ORDER BY contact_id
+  `;
+}
+
+function parseAskEvidence(value: unknown): Record<string, unknown> {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error('expected stored ask evidence to be an object');
+  }
+  return parsed as Record<string, unknown>;
 }
 
 interface SeedBatchResult {
@@ -104,16 +185,16 @@ interface SeedBatchResult {
   attempt: number;
 }
 
-async function seedBatch(attempt = 1): Promise<SeedBatchResult> {
+async function seedBatch(attempt = 1, forBusinessId: string = businessId): Promise<SeedBatchResult> {
   const batchId = randomUUID();
   const outboxId = randomUUID();
-  const sourceUploadId = await seedCompletedUpload();
+  const sourceUploadId = await seedCompletedUpload(forBusinessId);
   await sql()`
     INSERT INTO solicitation_batches (
       id, account_id, business_id, source_upload_id
     ) VALUES (
       ${batchId}::uuid, ${tenant!.accountId}::uuid,
-      ${businessId}::uuid, ${sourceUploadId}::uuid
+      ${forBusinessId}::uuid, ${sourceUploadId}::uuid
     )
   `;
   await sql()`
@@ -123,17 +204,17 @@ async function seedBatch(attempt = 1): Promise<SeedBatchResult> {
     ) VALUES (
       ${outboxId}::uuid, ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH},
       'solicitation_batch', ${batchId}::uuid,
-      ${sql().json({ batch_id: batchId, business_id: businessId })},
+      ${sql().json({ batch_id: batchId, business_id: forBusinessId })},
       'dispatched', ${attempt}, NOW()
     )
   `;
   return { batchId, outboxId, attempt };
 }
 
-async function build(batch: SeedBatchResult) {
+async function build(batch: SeedBatchResult, forBusinessId: string = businessId) {
   return buildSolicitationBatch(sql(), {
     batchId: batch.batchId,
-    businessId,
+    businessId: forBusinessId,
     outboxId: batch.outboxId,
     attempt: batch.attempt,
     correlationId: 'batch-builder-integration',
@@ -194,7 +275,11 @@ async function seedPriorAsk(input: {
 
 describeWithDb('solicitation batch builder against live local Postgres', {
   enabled: Boolean(testDatabaseUrl),
-  timeout: 90_000,
+  // 180s, not 90s: the 5000-contact window test runs 7s standalone but ~100s
+  // under verify-gate's concurrent coverage load (same contention class as the
+  // 120s cleanup hooks below) — a body budget near the observed worst case is
+  // a flake, not a guard.
+  timeout: 180_000,
 }, () => {
   beforeAll(async () => {
     const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
@@ -206,6 +291,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     await assertSchemaReady(db, [
       MIGRATION_071_RUN_SPINE,
       MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+      MIGRATION_093_SOLICITATION_CONSENT,
     ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',
@@ -231,13 +317,31 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       WHERE aggregate_type = 'solicitation_batch'
         AND payload->>'business_id' = ${businessId}
     `;
+    // Child-first set-based deletes instead of leaning on the
+    // contact_csv_uploads ON DELETE CASCADE: cascading away the 5000-contact
+    // window fixture fires ~15k per-row RI triggers, which blew this hook's
+    // old 30s budget under verify-gate's concurrent coverage load. Worse, a
+    // timed-out hook is ABANDONED, not cancelled — postgres.js keeps
+    // executing the queued DELETEs, and the late cascade then removes rows
+    // the NEXT test just seeded under the same suite-wide businessId (the
+    // solicitation_asks_contact_business_fk violation in the gate log). Each
+    // business-scoped DELETE below is one indexed statement; the cascades
+    // that still fire probe already-empty child tables.
+    await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
     await sql()`
       DELETE FROM agent_runs
       WHERE account_id = ${tenant!.accountId}::uuid
         AND kind IN ('solicitation_batch', 'solicitation_ask')
     `;
+    await sql()`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
-  }, 30_000);
+    // Consent rows never cascade from uploads — migration 093 only SET NULLs
+    // their source_upload_id — so sweep them explicitly.
+    await sql()`DELETE FROM solicitation_consent WHERE business_id = ${businessId}::uuid`;
+  }, 120_000);
 
   afterAll(async () => {
     try {
@@ -937,6 +1041,18 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         ${uploadId}::uuid
       FROM contacts
     `;
+    await sql()`
+      INSERT INTO solicitation_consent (
+        id, channel, normalized_handle, business_id, basis,
+        attestation_version, attested_at, attested_by_user_id, source_upload_id
+      )
+      SELECT
+        gen_random_uuid(), 'email', c.email, ${businessId}::uuid,
+        'owner_attested', ${CONSENT_ATTESTATION_VERSION}, NOW(),
+        ${tenant!.userId}::uuid, ${uploadId}::uuid
+      FROM solicitation_contacts c
+      WHERE c.business_id = ${businessId}::uuid AND c.email IS NOT NULL
+    `;
     const first = await seedBatch();
     const firstResult = await build(first);
     expect(firstResult).toMatchObject({ status: 'built', candidateCount: 5000 });
@@ -961,5 +1077,195 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         AND contact_id = ${neverEvaluated!.id}::uuid
     `;
     expect(rotated!.count).toBe(1);
+  });
+
+  it('consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false', async () => {
+    const csv = `${CSV_HEADER}\nPat Taut,taut-check@example.test,,${daysAgoUtc(1)},`;
+    const v1UploadId = await seedPendingUpload(csv, { attestationVersion: 'consent_attestation_v1' });
+    await ingestContactsCsvUpload(sql(), v1UploadId, businessId);
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 1,
+      sendCount: 0,
+      withholdCount: 1,
+      withheldByReason: expect.objectContaining({ no_consent: 1 }),
+    });
+
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({ status: 'withhold', withheld_reason: 'no_consent' });
+    // Case (b): the ledger row exists and names the v1 upload, so the #629
+    // owner remedy ("re-upload this list") is truthful.
+    expect(parseAskEvidence(ask!.evidence)).toMatchObject({
+      reason: 'no_consent',
+      upload_id: v1UploadId,
+      attestation_version: 'consent_attestation_v1',
+    });
+  });
+
+  it('the §1.2 re-upload trap: re-uploading the identical CSV under v2 inserts zero visits AND leaves the contact send-eligible', async () => {
+    const csv = `${CSV_HEADER}\nRe Upload,reupload-trap@example.test,,${daysAgoUtc(2)},`;
+    const v1UploadId = await seedPendingUpload(csv, {
+      attestationVersion: 'consent_attestation_v1',
+      attestedAgo: '1 hour',
+    });
+    await ingestContactsCsvUpload(sql(), v1UploadId, businessId);
+
+    // The trap's exact conditions: the identical CSV re-ingested under v2
+    // (later attested_at) dedupes EVERY visit — only the ledger row upgrades.
+    const v2UploadId = await seedPendingUpload(csv);
+    const report = await ingestContactsCsvUpload(sql(), v2UploadId, businessId);
+    expect(report).toMatchObject({ visitsAdded: 0, duplicateVisits: 1 });
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    // The visit sits well inside the automotive freshness window and no prior
+    // send exists, so no later precedence reason fires: a clean send.
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 1,
+      sendCount: 1,
+      withholdCount: 0,
+    });
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({ status: 'send', withheld_reason: null });
+  });
+
+  it('tenant scope: a consent row at business A does not make the same handle eligible at business B in the same account', async () => {
+    const otherBusinessId = randomUUID();
+    await sql()`
+      INSERT INTO businesses (
+        id, name, owner_name, owner_email, account_id,
+        subscription_status, category
+      ) VALUES (
+        ${otherBusinessId}::uuid, 'Batch Builder Tenant-Scope Business',
+        'Batch Owner', ${tenant!.ownerEmail}, ${tenant!.accountId}::uuid,
+        'active', 'automotive'
+      )
+    `;
+    let otherOutboxId: string | undefined;
+    try {
+      const csv = `${CSV_HEADER}\nShared Handle,shared-handle@example.test,,${daysAgoUtc(1)},`;
+      // v2 coverage at business A; a v1-era row at business B.
+      const uploadA = await seedPendingUpload(csv);
+      await ingestContactsCsvUpload(sql(), uploadA, businessId);
+      const uploadB = await seedPendingUpload(csv, {
+        attestationVersion: 'consent_attestation_v1',
+        forBusinessId: otherBusinessId,
+      });
+      await ingestContactsCsvUpload(sql(), uploadB, otherBusinessId);
+
+      process.env.SOLICITATION_WATCH_ENABLED = 'true';
+      const batchB = await seedBatch(1, otherBusinessId);
+      otherOutboxId = batchB.outboxId;
+      await expect(build(batchB, otherBusinessId)).resolves.toMatchObject({
+        status: 'built',
+        candidateCount: 1,
+        sendCount: 0,
+        withheldByReason: expect.objectContaining({ no_consent: 1 }),
+      });
+      const [askB] = await readAsks(batchB.batchId);
+      expect(parseAskEvidence(askB!.evidence)).toMatchObject({
+        reason: 'no_consent',
+        upload_id: uploadB,
+        attestation_version: 'consent_attestation_v1',
+      });
+
+      // The SAME handle at business A stays eligible: the row is scoped, not shared.
+      const batchA = await seedBatch();
+      await expect(build(batchA)).resolves.toMatchObject({
+        status: 'built',
+        candidateCount: 1,
+        sendCount: 1,
+      });
+    } finally {
+      if (otherOutboxId !== undefined) {
+        await sql()`DELETE FROM job_outbox WHERE id = ${otherOutboxId}::uuid`;
+      }
+      await sql()`DELETE FROM agent_runs WHERE business_id = ${otherBusinessId}::uuid`;
+      await sql()`DELETE FROM businesses WHERE id = ${otherBusinessId}::uuid`;
+    }
+  });
+
+  it('legacy pre-ledger contacts read as no_consent case (a): visits without a ledger row yield null evidence', async () => {
+    // Decision pinned (Codex adversarial M2, accepted alternative): pre-#625
+    // contacts get NO ledger backfill, deliberately. Seeded DIRECTLY via SQL —
+    // never through the new ingest, which would mint ledger rows — this is
+    // exactly the shape a pre-#625 database carries: a completed v1 upload,
+    // a contact, visits, and zero solicitation_consent rows. That cohort must
+    // read as case (a) (both evidence fields null), whose #629 owner remedy
+    // — "upload under the current attestation" — is truthful and works.
+    const legacyUploadId = await seedCompletedUpload();
+    await sql()`
+      UPDATE contact_csv_uploads
+      SET attestation_version = 'consent_attestation_v1'
+      WHERE id = ${legacyUploadId}::uuid
+    `;
+    const legacyContactId = await seedContact(legacyUploadId, daysAgoUtc(1), { consent: false });
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 1,
+      sendCount: 0,
+      withholdCount: 1,
+      withheldByReason: expect.objectContaining({ no_consent: 1 }),
+    });
+
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({
+      contact_id: legacyContactId,
+      status: 'withhold',
+      withheld_reason: 'no_consent',
+    });
+    expect(parseAskEvidence(ask!.evidence)).toMatchObject({
+      reason: 'no_consent',
+      upload_id: null,
+      attestation_version: null,
+    });
+  });
+
+  it("evidence shape: both no_consent cases round-trip through parseEvidence and satisfy migration 090's CHECK", async () => {
+    // Case (b): a real v1 ingest leaves a stale-version ledger row.
+    const v1UploadId = await seedPendingUpload(
+      `${CSV_HEADER}\nCase B,case-b@example.test,,${daysAgoUtc(1)},`,
+      { attestationVersion: 'consent_attestation_v1' },
+    );
+    await ingestContactsCsvUpload(sql(), v1UploadId, businessId);
+    // Case (a): a contact with NO ledger row at all.
+    const bareUploadId = await seedCompletedUpload();
+    const caseAContactId = await seedContact(bareUploadId, daysAgoUtc(1), { consent: false });
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    // Both asks persist through the real writer — the INSERT succeeding is
+    // what exercises 090's solicitation_asks_evidence_matches_columns CHECK.
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 2,
+      withholdCount: 2,
+      withheldByReason: expect.objectContaining({ no_consent: 2 }),
+    });
+
+    // Round-trip through the real read model: parseEvidence is its parse boundary.
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    if (view.state !== 'built') throw new Error('expected a built batch view');
+    const group = view.groups.find((candidate) => candidate.reason === 'no_consent');
+    expect(group?.total).toBe(2);
+    const byContact = new Map(group!.sample.map((row) => [row.contactId, row.evidence]));
+    expect(byContact.get(caseAContactId)).toMatchObject({
+      reason: 'no_consent',
+      upload_id: null,
+      attestation_version: null,
+    });
+    const caseBEvidence = [...byContact.entries()].find(([id]) => id !== caseAContactId)?.[1];
+    expect(caseBEvidence).toMatchObject({
+      reason: 'no_consent',
+      upload_id: v1UploadId,
+      attestation_version: 'consent_attestation_v1',
+    });
   });
 });

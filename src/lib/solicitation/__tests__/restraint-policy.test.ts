@@ -20,7 +20,7 @@ function eligibleCandidate(overrides: Partial<AskCandidate> = {}): AskCandidate 
   return {
     contactId: '01980000-0000-7000-8000-000000000001',
     lastVisitDate: '2026-07-20',
-    consent: { attested: true, uploadId: 'upload-1' },
+    consent: { attested: true, uploadId: 'upload-1', attestationVersion: 'consent_attestation_v2' },
     suppression: null,
     matchedReview: null,
     priorBatch: null,
@@ -75,6 +75,10 @@ describe('withhold-reason enum (contract)', () => {
     expect(BATCH_CAP).toBe(25);
     expect(MIN_GAP_DAYS).toBe(30);
   });
+
+  it('names the .3 ruleset: ledger-derived consent + widened no_consent evidence (#620 §6.2)', () => {
+    expect(RESTRAINT_POLICY_VERSION).toBe('restraint_v_watch_2026-07-23.3');
+  });
 });
 
 describe('resolveVertical', () => {
@@ -119,17 +123,53 @@ describe('evaluateAsk — per-reason contracts', () => {
     });
   });
 
-  it('no_consent: unattested candidate withheld with upload_id evidence (cannot fire in v-watch — #535 attestation is blocking; contract-tested for enum stability)', () => {
+  it('no_consent case (a): no consent ledger row — evidence carries null upload_id and null attestation_version', () => {
     const decision = evaluateAsk(
-      eligibleCandidate({ consent: { attested: false, uploadId: 'upload-9' } }),
+      eligibleCandidate({ consent: { attested: false, uploadId: null, attestationVersion: null } }),
+      context,
+    );
+    expect(decision).toMatchObject({
+      decision: 'withhold',
+      reason: 'no_consent',
+      upload_id: null,
+      attestation_version: null,
+      policy_version: RESTRAINT_POLICY_VERSION,
+      decided_at: context.decidedAt,
+    });
+  });
+
+  it('no_consent case (b): ledger row exists but the version is not send-eligible — evidence carries both fields populated', () => {
+    const decision = evaluateAsk(
+      eligibleCandidate({
+        consent: { attested: false, uploadId: 'upload-9', attestationVersion: 'consent_attestation_v1' },
+      }),
       context,
     );
     expect(decision).toMatchObject({
       decision: 'withhold',
       reason: 'no_consent',
       upload_id: 'upload-9',
+      attestation_version: 'consent_attestation_v1',
       policy_version: RESTRAINT_POLICY_VERSION,
       decided_at: context.decidedAt,
+    });
+  });
+
+  it('suppression outranks a fresh attestation: an attested candidate with a suppression present still withholds as suppressed', () => {
+    // Spec #620 §5.2: precedence is reporting order, not override — a v2
+    // re-attestation never un-suppresses a handle.
+    const decision = evaluateAsk(
+      eligibleCandidate({
+        consent: { attested: true, uploadId: 'u1', attestationVersion: 'consent_attestation_v2' },
+        suppression: { source: 'unsubscribe', suppressedAt: '2026-07-01T00:00:00.000Z' },
+      }),
+      context,
+    );
+    expect(decision).toMatchObject({
+      decision: 'withhold',
+      reason: 'suppressed',
+      suppression_source: 'unsubscribe',
+      suppressed_at: '2026-07-01T00:00:00.000Z',
     });
   });
 
@@ -236,7 +276,7 @@ describe('evaluateAsk — first-match precedence', () => {
     return {
       contactId: '01980000-0000-7000-8000-00000000000f',
       lastVisitDate: '2020-01-01',
-      consent: { attested: false, uploadId: 'upload-x' },
+      consent: { attested: false, uploadId: null, attestationVersion: null },
       suppression: { source: 'owner_manual', suppressedAt: '2026-07-01T00:00:00.000Z' },
       matchedReview: { reviewId: 'rev-x', reviewDate: '2026-06-01' },
       priorBatch: { batchId: 'batch-x', decidedAt: '2026-07-20T00:00:00.000Z' },
@@ -245,13 +285,14 @@ describe('evaluateAsk — first-match precedence', () => {
 
   it('reports exactly the first failing gate in precedence order', () => {
     const all = failsEverything();
+    const attestedConsent = { attested: true, uploadId: 'u', attestationVersion: 'consent_attestation_v2' };
     expect(evaluateAsk(all, context)).toMatchObject({ reason: 'no_consent' });
-    expect(evaluateAsk({ ...all, consent: { attested: true, uploadId: 'u' } }, context)).toMatchObject({ reason: 'suppressed' });
-    expect(evaluateAsk({ ...all, consent: { attested: true, uploadId: 'u' }, suppression: null }, context)).toMatchObject({ reason: 'already_reviewed' });
-    expect(evaluateAsk({ ...all, consent: { attested: true, uploadId: 'u' }, suppression: null, matchedReview: null }, context)).toMatchObject({ reason: 'stale_visit' });
+    expect(evaluateAsk({ ...all, consent: attestedConsent }, context)).toMatchObject({ reason: 'suppressed' });
+    expect(evaluateAsk({ ...all, consent: attestedConsent, suppression: null }, context)).toMatchObject({ reason: 'already_reviewed' });
+    expect(evaluateAsk({ ...all, consent: attestedConsent, suppression: null, matchedReview: null }, context)).toMatchObject({ reason: 'stale_visit' });
     expect(
       evaluateAsk(
-        { ...all, consent: { attested: true, uploadId: 'u' }, suppression: null, matchedReview: null, lastVisitDate: '2026-07-20' },
+        { ...all, consent: attestedConsent, suppression: null, matchedReview: null, lastVisitDate: '2026-07-20' },
         context,
       ),
     ).toMatchObject({ reason: 'over_contacted' });
@@ -355,7 +396,11 @@ describe('restraint policy invariants', () => {
   const arbCandidate: fc.Arbitrary<AskCandidate> = fc.record({
     contactId: hex12.map((h) => `01980000-0000-7000-8000-${h}`),
     lastVisitDate: isoDate,
-    consent: fc.record({ attested: fc.boolean(), uploadId: fc.constant('upload-1') }),
+    consent: fc.record({
+      attested: fc.boolean(),
+      uploadId: fc.option(fc.constant('upload-1'), { nil: null }),
+      attestationVersion: fc.option(fc.constant('consent_attestation_v1'), { nil: null }),
+    }),
     suppression: fc.option(
       fc.record({ source: fc.constant('owner_manual'), suppressedAt: fc.constant('2026-07-01T00:00:00.000Z') }),
       { nil: null },
