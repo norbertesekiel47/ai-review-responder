@@ -224,6 +224,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1), askRow(2)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(1), // ask-1 already holds a live render
       probeRow(0), // ask-2 is un-generated
       lifecycleRow(), // ask-2 persist revalidation
@@ -251,6 +252,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(1),
     );
     enqueueFinale(tallyRow(0, 1, 0));
@@ -267,6 +269,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1), askRow(2), askRow(3)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0), // ask-1: renders
       lifecycleRow(), // ask-1 persist revalidation
       probeRow(0), // ask-2: reserve throws
@@ -323,6 +326,7 @@ describe('generateAsksForBatch', () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation
         probeRow(0),
         lifecycleRow(),
       );
@@ -409,6 +413,7 @@ describe('generateAsksForBatch', () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation
         probeRow(0),
         lifecycleRow(),
       );
@@ -468,6 +473,7 @@ describe('generateAsksForBatch', () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation
         probeRow(0),
         lifecycleRow(),
       );
@@ -479,6 +485,7 @@ describe('generateAsksForBatch', () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow({ postal_address: null })]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation
         probeRow(0),
         lifecycleRow(),
       );
@@ -522,6 +529,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1), askRow(2)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0),
       lifecycleRow(),
       probeRow(0),
@@ -545,6 +553,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0),
     );
     mocks.runLlmTask.mockRejectedValue(new TransientLLMError(new Error('socket hangup')));
@@ -601,6 +610,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0),
       lifecycleRow(),
     );
@@ -612,15 +622,16 @@ describe('generateAsksForBatch', () => {
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
     expect(mocks.recordGenerationSteps).not.toHaveBeenCalled();
     expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
-    // Exactly the one advisory acquisition from the child persist tx — the
+    // Exactly two advisory acquisitions — parent mint + child persist; the
     // stale finale itself must never reach its own advisory lock.
-    expect(mocks.acquireSolicitationBatchLock).toHaveBeenCalledTimes(1);
+    expect(mocks.acquireSolicitationBatchLock).toHaveBeenCalledTimes(2);
   });
 
   it('an owned finale orders CAS → advisory lock → batch row → steps → close', async () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0),
       lifecycleRow(),
     );
@@ -644,18 +655,41 @@ describe('generateAsksForBatch', () => {
 
     await generateAsksForBatch(sql, GENERATE_INPUT);
 
-    // The leading 'advisory' is the child persist tx's own B11 acquisition
-    // (round-2 finding 2); the finale's ladder follows unchanged.
-    expect(order).toEqual(['advisory', 'cas', 'advisory', 'steps', 'close']);
+    // The two leading 'advisory' entries are the parent-mint (round-3
+    // finding 2) and child-persist (round-2 finding 2) B11 acquisitions; the
+    // finale's ladder follows unchanged.
+    expect(order).toEqual(['advisory', 'advisory', 'cas', 'advisory', 'steps', 'close']);
   });
 
-  describe('child persist revalidation (codex round-2 finding 2)', () => {
-    it('a halt that lands mid-generation stops the lane: no insert, spend audited, outbox completed', async () => {
+  describe('lifecycle revalidation (codex round-2 finding 2 + round-3 finding 2)', () => {
+    it('a batch no longer built at start refuses to mint a parent and completes the outbox', async () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow({ halted_at: new Date() }), // parent-mint revalidation
+      );
+
+      const result = await generateAsksForBatch(sql, GENERATE_INPUT);
+
+      expect(result).toEqual({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 0 });
+      expect(mocks.startOrGetSolicitationSendBatchRun).not.toHaveBeenCalled();
+      expect(mocks.runLlmTask).not.toHaveBeenCalled();
+      // Any orphan parent from a prior attempt is closed when settled.
+      expect(mocks.closeBatchIfSettled).toHaveBeenCalledTimes(1);
+      expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.logger.log).toHaveBeenCalledWith(
+        'ask generation no-op: batch not generatable at start',
+        expect.objectContaining({ batch_state: 'halted' }),
+      );
+    });
+
+    it('a halt that lands mid-generation stops the lane: no insert, spend audited, lane closed-if-settled', async () => {
+      sqlReturnQueue.push(
+        mkTaggedResult([contextRow()]),
+        mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation (still built)
         probeRow(0),
-        lifecycleRow({ halted_at: new Date() }),
+        lifecycleRow({ halted_at: new Date() }), // child persist revalidation
       );
 
       const result = await generateAsksForBatch(sql, GENERATE_INPUT);
@@ -664,20 +698,25 @@ describe('generateAsksForBatch', () => {
       expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
       // The discarded render's spend is still audited (regen-door precedent).
       expect(mocks.recordApiCost).toHaveBeenCalledTimes(1);
-      // The stop is a SUCCESS no-op: outbox completes, finale never runs.
+      // The stop is a SUCCESS no-op: outbox completes, the FINALE never runs
+      // (no steps) but the lane still closes-if-settled so no orphan parent
+      // survives the stop (round-3 finding 2).
       expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
       expect(mocks.recordGenerationSteps).not.toHaveBeenCalled();
-      expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
+      expect(mocks.closeBatchIfSettled).toHaveBeenCalledTimes(1);
+      const closeArgs = mocks.closeBatchIfSettled.mock.calls[0]![1] as Record<string, unknown>;
+      expect(closeArgs.failure).toBeUndefined();
       expect(mocks.logger.log).toHaveBeenCalledWith(
         'ask generation stopped: batch left generatable state mid-run',
         expect.objectContaining({ batch_state: 'halted' }),
       );
     });
 
-    it('an expired batch refuses new renders on a late re-drive', async () => {
+    it('an expired batch refuses new renders on a late re-drive and closes when settled', async () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation (still built)
         probeRow(0),
         lifecycleRow({ built_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) }),
       );
@@ -686,6 +725,7 @@ describe('generateAsksForBatch', () => {
 
       expect(result).toEqual({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 0 });
       expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+      expect(mocks.closeBatchIfSettled).toHaveBeenCalledTimes(1);
       expect(mocks.logger.log).toHaveBeenCalledWith(
         'ask generation stopped: batch left generatable state mid-run',
         expect.objectContaining({ batch_state: 'expired' }),
@@ -696,6 +736,7 @@ describe('generateAsksForBatch', () => {
       sqlReturnQueue.push(
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
+        lifecycleRow(), // parent-mint revalidation
         probeRow(0),
       );
       // Parent-run gate owns the attempt; the watchdog re-dispatches before
@@ -710,6 +751,8 @@ describe('generateAsksForBatch', () => {
       expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
       expect(mocks.recordApiCost).toHaveBeenCalledTimes(1);
       expect(mocks.markOutboxCompletedIfOwned).not.toHaveBeenCalled();
+      // A stale job never closes the lane — the newer attempt owns it.
+      expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
     });
   });
 
@@ -717,6 +760,7 @@ describe('generateAsksForBatch', () => {
     sqlReturnQueue.push(
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
       probeRow(0),
       lifecycleRow(),
     );

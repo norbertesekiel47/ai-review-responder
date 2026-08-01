@@ -27,6 +27,34 @@ function isRetryableExhaustion(err: unknown): boolean {
   return err instanceof TransientLLMError || err instanceof CostInfraUnavailableError;
 }
 
+/**
+ * True when the watchdog will grant this dispatched row another re-drive
+ * (attempts < max_attempts). On the FINAL attempt even a retryable class must
+ * settle terminally — the generic OutboxPoller's max_attempts terminalizer
+ * knows nothing about this lane's domain state, so leaving the row dispatched
+ * would strand a partially generated batch when it fires (codex round-3
+ * finding 1). Best-effort read: a missing row or a failed read errs toward
+ * the watchdog (the prior behavior), logged so the fallback is visible.
+ */
+async function watchdogRetryRemaining(
+  sql: Sql,
+  outboxId: string,
+): Promise<boolean> {
+  try {
+    const [row] = await sql<{ attempts: number; max_attempts: number }[]>`
+      SELECT attempts, max_attempts FROM job_outbox WHERE id = ${outboxId}
+    `;
+    return row !== undefined && row.attempts < row.max_attempts;
+  } catch (readErr) {
+    logFailureSafely({
+      status: 'watchdog_budget_read_failed',
+      outbox_id: outboxId,
+      error_class: boundedErrorClass(readErr),
+    });
+    return true;
+  }
+}
+
 function isExhausted(job: Job<GenerateSolicitationAsksPayload>): boolean {
   const maxAttempts =
     typeof job.opts.attempts === 'number' && job.opts.attempts > 0
@@ -96,13 +124,16 @@ export async function handleGenerateSolicitationAsksFailed(
     return;
   }
 
-  if (isRetryableExhaustion(err)) {
+  if (isRetryableExhaustion(err) && (await watchdogRetryRemaining(sql, outboxId))) {
     // In-band BullMQ attempts are exhausted but the failure class is
-    // transient: leave the row 'dispatched' so the watchdog re-pends it
-    // (bounded by job_outbox.max_attempts — beyond that the watchdog itself
-    // terminalizes). Marking it failed here would strand a partially
-    // generated batch behind a running send parent with no re-driver; the
-    // §7.4 DB-existence idempotency makes the re-drive resume, not re-spend.
+    // transient AND the watchdog still has re-drives left: leave the row
+    // 'dispatched' so it re-pends. Marking it failed here would strand a
+    // partially generated batch behind a running send parent with no
+    // re-driver; the §7.4 DB-existence idempotency makes the re-drive
+    // resume, not re-spend. When no watchdog budget remains, fall through —
+    // a retryable class with no re-driver left is terminal NOW, and the
+    // dead-letter below settles the lane instead of the generic poller
+    // terminalizer stranding it (codex round-3 finding 1).
     await recordOutboxTransientError(
       sql,
       outboxId,

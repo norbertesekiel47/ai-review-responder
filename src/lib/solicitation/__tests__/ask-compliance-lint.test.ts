@@ -53,7 +53,7 @@ function input(overrides: Partial<AskLintInput> = {}): AskLintInput {
 
 describe('module contract', () => {
   it('pins the version and the eight-member block-reason vocabulary', () => {
-    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.1');
+    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.2');
     expect(ASK_BLOCK_REASONS).toEqual([
       'incentive_language',
       'review_steering',
@@ -88,6 +88,31 @@ describe('class 1 — incentive_language', () => {
     );
     expect(verdict.blockedReason).toBe('incentive_language');
     expect(verdict.matches).toEqual(['incentive_language']);
+  });
+
+  it('blocks complimentary goods offered as thanks (codex round-3 regression)', () => {
+    const verdict = lintAsk(
+      input({ body: assembled('Hi Dana — enjoy a complimentary coffee as our thanks.') }),
+    );
+    expect(verdict.blockedReason).toBe('incentive_language');
+  });
+
+  it('blocks chance-to-win consideration (codex round-3 regression)', () => {
+    const verdict = lintAsk(
+      input({ body: assembled('Hi Dana — leave a review for a chance to win a prize.') }),
+    );
+    expect(verdict.blockedReason).toBe('incentive_language');
+  });
+
+  it('blocks sweepstakes and on-the-house paraphrases', () => {
+    expect(
+      lintAsk(input({ body: assembled('Hi Dana — reviewers enter our monthly sweepstakes.') }))
+        .blockedReason,
+    ).toBe('incentive_language');
+    expect(
+      lintAsk(input({ body: assembled('Hi Dana — your next visit is on the house.') }))
+        .blockedReason,
+    ).toBe('incentive_language');
   });
 
   it('does not block incentive-looking tokens inside interpolated values', () => {
@@ -327,6 +352,40 @@ describe('class 5 — deceptive_subject (AMEND B5 union)', () => {
 });
 
 describe('class 6 — unverifiable_fact (provenance)', () => {
+  it('blocks a lowercase invented-history claim (codex round-3 regression)', () => {
+    const verdict = lintAsk(
+      input({
+        body: assembled(
+          'Hi Dana — we have proudly served the neighborhood for years. Would you share how it went?',
+        ),
+      }),
+    );
+    expect(verdict.blockedReason).toBe('unverifiable_fact');
+  });
+
+  it('blocks lowercase invented reputation and ownership claims', () => {
+    for (const claim of [
+      'our award-winning kitchen would love your feedback',
+      'as a family-owned shop, reviews mean a lot to us',
+      'we are trusted by thousands of happy customers',
+    ]) {
+      const verdict = lintAsk(input({ body: assembled(`Hi Dana — ${claim}.`) }));
+      expect(verdict.blockedReason, claim).toBe('unverifiable_fact');
+    }
+  });
+
+  it('exempts a claim shape that appears inside an admitted interpolated value', () => {
+    const note = 'mentioned we are family-owned';
+    const verdict = lintAsk(
+      input({
+        body: assembled('Hi Dana — you mentioned we are family-owned. How did the visit go?'),
+        interpolationValues: [...INTERPOLATION_VALUES, note],
+        subjectDisallowedValues: [note],
+      }),
+    );
+    expect(verdict.blockedReason).toBeNull();
+  });
+
   it('flags a capitalized token absent from interpolation inputs as unverifiable_fact', () => {
     const verdict = lintAsk(
       input({ body: assembled('Hi Dana — Maria wanted to say hello after your visit.') }),

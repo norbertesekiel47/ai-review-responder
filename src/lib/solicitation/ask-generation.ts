@@ -863,6 +863,25 @@ async function settleBudgetStop(
   return { kind: 'settled' as const };
 }
 
+/**
+ * A stop (halt/expiry/close) won a race against this job. A halt already
+ * terminalized the parent through its own close call, but an EXPIRED batch
+ * has no other closer until #629/#630's batch_expired latch lands — so every
+ * stopped-after-parent path closes-if-settled here to avoid an orphan running
+ * parent (codex round-3 finding 2). Live rows keep the batch open on purpose:
+ * rendered copy stays approvable until expiry machinery cancels it.
+ */
+async function closeStoppedLane(sql: Sql, ctx: BatchGenerationContext): Promise<void> {
+  await sql.begin(async (tx) => {
+    await acquireSolicitationBatchLock(tx, ctx.businessId);
+    await closeBatchIfSettled(tx, {
+      batchId: ctx.batchId,
+      accountId: ctx.accountId,
+      businessId: ctx.businessId,
+    });
+  });
+}
+
 interface RenderTally {
   alive: number;
   failed_count: number;
@@ -946,20 +965,55 @@ export async function generateAsksForBatch(
   }
 
   // Send parent run in its own short tx, gated on attempt ownership
-  // (prepareBatch precedent): a stale replay whose finale already terminalized
-  // the parent must not mint a second, forever-running send parent.
-  const parentRunId = await sql.begin(async (tx) => {
-    const owns = await lockDispatchedOutboxAttemptIfOwned(tx, outboxId, attempt);
-    if (!owns) return null;
-    const run = await startOrGetSolicitationSendBatchRun(tx, {
-      batchId: ctx.batchId,
-      accountId: ctx.accountId,
-      businessId: ctx.businessId,
-      correlationId: input.correlationId,
-    });
-    return run.runId;
-  });
-  if (parentRunId === null) {
+  // (prepareBatch precedent) AND on the LOCKED batch state (codex round-3
+  // finding 2): a stale replay whose finale already terminalized the parent
+  // must not mint a second, forever-running send parent, and a delayed job
+  // for a batch that was halted/expired/closed since enqueue must not mint
+  // one either — the persist revalidation would refuse every child, leaving
+  // an active parent nothing terminalizes. The close call inside the stopped
+  // arm terminalizes any orphan parent a PRIOR attempt left, when settled.
+  const minted = await sql.begin(
+    async (
+      tx,
+    ): Promise<
+      | { kind: 'stale' }
+      | { kind: 'stopped'; state: BatchState }
+      | { kind: 'minted'; runId: string }
+    > => {
+      const owns = await lockDispatchedOutboxAttemptIfOwned(tx, outboxId, attempt);
+      if (!owns) return { kind: 'stale' };
+      await acquireSolicitationBatchLock(tx, ctx.businessId);
+      const [batchRow] = await tx<BatchLifecycleRow[]>`
+        SELECT built_at, approved_at, veto_deadline_at,
+               sending_started_at, send_closed_at, halted_at
+        FROM solicitation_batches
+        WHERE id = ${ctx.batchId}::uuid
+          AND account_id = ${ctx.accountId}::uuid
+          AND business_id = ${ctx.businessId}::uuid
+        FOR UPDATE
+      `;
+      if (!batchRow) {
+        throw new Error(`ask generation: batch ${ctx.batchId} vanished before parent mint`);
+      }
+      const state = deriveBatchState(batchRow, new Date());
+      if (state !== 'built') {
+        await closeBatchIfSettled(tx, {
+          batchId: ctx.batchId,
+          accountId: ctx.accountId,
+          businessId: ctx.businessId,
+        });
+        return { kind: 'stopped', state };
+      }
+      const run = await startOrGetSolicitationSendBatchRun(tx, {
+        batchId: ctx.batchId,
+        accountId: ctx.accountId,
+        businessId: ctx.businessId,
+        correlationId: input.correlationId,
+      });
+      return { kind: 'minted', runId: run.runId };
+    },
+  );
+  if (minted.kind === 'stale') {
     logger.warn('ask generation: stale outbox attempt — nothing done', {
       batch_id: ctx.batchId,
       outbox_id: outboxId,
@@ -967,6 +1021,12 @@ export async function generateAsksForBatch(
     });
     return result;
   }
+  if (minted.kind === 'stopped') {
+    return noop('ask generation no-op: batch not generatable at start', {
+      batch_state: minted.state,
+    });
+  }
+  const parentRunId = minted.runId;
 
   // Children, SEQUENTIAL (SPEC §7.3).
   for (const [index, ask] of asks.entries()) {
@@ -1014,6 +1074,7 @@ export async function generateAsksForBatch(
             return result;
           }
           if (settled.kind === 'stopped') {
+            await closeStoppedLane(sql, ctx);
             return noop('ask generation stopped mid-settle: batch left generatable state', {
               batch_state: settled.state,
             });
@@ -1052,8 +1113,11 @@ export async function generateAsksForBatch(
     if (persisted.kind === 'stopped') {
       // Halt/expiry/close won the race (codex round-2 finding 2): the render
       // is discarded — residual exposure is this one child's LLM call, the
-      // same contract the halt latch documents — but its spend is audited.
+      // same contract the halt latch documents — but its spend is audited,
+      // and the lane closes-if-settled so no orphan parent survives the stop
+      // (codex round-3 finding 2).
       await recordChildApiCost(sql, ctx, outcome.llmAttempts, logger);
+      await closeStoppedLane(sql, ctx);
       return noop('ask generation stopped: batch left generatable state mid-run', {
         ask_id: ask.ask_id,
         batch_state: persisted.state,

@@ -481,4 +481,54 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   the failed row pages via the existing failed-outbox alerting, and an
   operator re-drive is now SAFE because the finding-2 revalidation refuses
   stale inserts. Candidate follow-up ticket alongside the sibling-hook
-  audit.
+  audit. **SUPERSEDED by the round-3 finding-1 fix below** — the hook now
+  dead-letters on the final watchdog attempt, so the generic terminalizer
+  only fires for a worker that crashed mid-job on its last attempt.
+- [2026-07-31] **Codex adversarial review round 3: needs-attention (4
+  findings, all addressed same-day; new thread
+  019fbadf-5969-7381-8849-a8af7be9920c).**
+- [2026-07-31] **Codex round-3 fix (finding 1): the failed hook dead-letters
+  on the FINAL watchdog attempt.** `watchdogRetryRemaining` reads
+  `job_outbox.attempts < max_attempts`; a retryable class with no re-drive
+  budget left falls through to the terminal arms (whole-batch →
+  `settleGenerationExhaustion`, regen → bare CAS) instead of leaving the row
+  for the generic OutboxPoller terminalizer, which knows nothing about this
+  lane. Best-effort read errs toward the watchdog (logged). Remaining
+  residual: a worker that CRASHES mid-job on its final attempt (no failed
+  hook runs) still reaches the generic terminalizer — that window needs the
+  out-of-surface OutboxPoller hook (follow-up ticket); it is crash-during-
+  last-attempt narrow and pages via failed-outbox alerting.
+- [2026-07-31] **Codex round-3 fix (finding 2): lifecycle gate at parent
+  mint + stopped lanes close-if-settled.** The mint transaction now runs the
+  full ladder (attempt ownership → advisory → batch FOR UPDATE →
+  `deriveBatchState`); a batch not `built` refuses to mint, closes any
+  settled orphan parent from a prior attempt, and completes the outbox as a
+  no-op. Both stopped-after-parent paths (child persist, budget settle) now
+  call `closeStoppedLane` (advisory + `closeBatchIfSettled`) so an expired
+  batch with nothing live terminalizes its parent instead of orphaning it —
+  a halted batch was already closed by the halt writer (its close no-ops
+  here). DELIBERATE residual: an expired batch with LIVE rendered rows keeps
+  its parent running — closing it requires cancelling rows via the
+  `batch_expired` halt latch, which is #629/#630's machinery (091's
+  `cancelled` reasons are a closed set this lane may not spend).
+- [2026-07-31] **Codex round-3 fix (finding 3): incentive vocabulary
+  expanded.** complimentary / on the house / sweepstakes / chance-
+  opportunity-drawing to win / win a-an-one of / prize(s) / winner(s) /
+  cash back / store credit added to class 1; Codex's two accepted sentences
+  ("enjoy a complimentary coffee as our thanks", "leave a review for a
+  chance to win a prize") plus paraphrases are regression cases.
+  `ASK_LINT_VERSION` → `ask_lint_2026-07-31.2`, golden updated.
+- [2026-07-31] **Codex round-3 fix (finding 4): deterministic unverifiable-
+  claim patterns — NOT the recommended semantic verifier.** Class 6 gains a
+  golden-filed `claimPatterns` arm (lowercase invented history/reputation/
+  ownership shapes: served-the-community, for-years/decades, award-winning,
+  family/locally/woman/veteran-owned, voted best, top-rated, trusted by,
+  thousands of, longest-running, proudly serv/support) evaluated over
+  subject + model-authored body with the §2.5 interpolated-value exemption.
+  Codex's recommendation of mechanical clause assembly or a semantic
+  verifier is a DESIGN CHANGE the intake explicitly defers: "Judge content
+  review of asks (deliberately unresolved — #631's decision)" is a locked
+  non-goal, and an LLM-judge is the only honest general verifier of
+  arbitrary factual claims. Pattern hardening is the strongest enforcement
+  the deterministic lint can give; the general gap rides to #631. OWNER
+  should confirm this boundary at triage.

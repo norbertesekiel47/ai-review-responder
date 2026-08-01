@@ -50,11 +50,21 @@ import {
 import { handleGenerateSolicitationAsks } from '../generate';
 import { handleGenerateSolicitationAsksFailed } from '../generate-failed-hook';
 
-// The handler's sql surface in these tests is completeOutboxNoop's minimal
-// transaction; the tx handle is consumed only by the mocked outbox CAS.
-const fakeSql = {
-  begin: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({}),
-} as unknown as Sql;
+// The handler's sql surface in these tests: completeOutboxNoop's minimal
+// transaction (tx consumed only by mocked outbox CAS) plus the failed-hook's
+// watchdog-budget SELECT — raw tagged-template calls pop fakeSqlRows FIFO.
+const fakeSqlRows: unknown[][] = [];
+const fakeSql = Object.assign(
+  async (..._args: unknown[]) => fakeSqlRows.shift() ?? [],
+  {
+    begin: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({}),
+  },
+) as unknown as Sql;
+
+/** Watchdog budget row for the failed-hook's job_outbox read. */
+function queueOutboxBudget(attempts: number, maxAttempts: number): void {
+  fakeSqlRows.push([{ attempts, max_attempts: maxAttempts }]);
+}
 
 function makeJob(
   data: Partial<GenerateSolicitationAsksPayload>,
@@ -84,6 +94,7 @@ const emptyResult = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fakeSqlRows.length = 0;
   mocks.markOutboxCompletedIfOwned.mockResolvedValue(true);
   mocks.markOutboxFailed.mockResolvedValue(true);
 });
@@ -249,6 +260,7 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     // Exhausted in-band attempts on a TransientLLMError must NOT terminalize:
     // the row stays 'dispatched' so the watchdog re-drives, and the §7.4
     // DB-existence idempotency resumes past already-persisted renders.
+    queueOutboxBudget(2, 5);
     await handleGenerateSolicitationAsksFailed(
       fakeSql,
       makeJob({}, { attemptsMade: 3, attempts: 3 }),
@@ -272,6 +284,7 @@ describe('handleGenerateSolicitationAsksFailed', () => {
   });
 
   it('leaves cost-infra exhaustion watchdog-eligible', async () => {
+    queueOutboxBudget(2, 5);
     await handleGenerateSolicitationAsksFailed(
       fakeSql,
       makeJob({}, { attemptsMade: 3, attempts: 3 }),
@@ -283,6 +296,50 @@ describe('handleGenerateSolicitationAsksFailed', () => {
       fakeSql,
       'outbox-1',
       'generate_solicitation_asks_exhausted_retryable:CostInfraUnavailableError',
+      4,
+    );
+  });
+
+  it('a retryable class on the FINAL watchdog attempt dead-letters the whole batch (codex round-3)', async () => {
+    // attempts == max_attempts: the watchdog will never re-pend this row —
+    // its generic terminalizer would strand the lane, so the hook settles NOW.
+    queueOutboxBudget(5, 5);
+    vi.mocked(settleGenerationExhaustion).mockResolvedValueOnce({
+      status: 'settled',
+      filled: 1,
+      close: { status: 'closed' },
+    } as Awaited<ReturnType<typeof settleGenerationExhaustion>>);
+
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      new TransientLLMError(new Error('provider 503')),
+    );
+
+    expect(mocks.recordOutboxTransientError).not.toHaveBeenCalled();
+    expect(settleGenerationExhaustion).toHaveBeenCalledWith(fakeSql, {
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      outboxHandle: { outboxId: 'outbox-1', attempt: 4 },
+      errorClass: 'TransientLLMError',
+    });
+  });
+
+  it('a retryable regeneration on the FINAL watchdog attempt takes the bare terminal CAS', async () => {
+    queueOutboxBudget(5, 5);
+
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({ ask_id: 'ask-1' }, { attemptsMade: 3, attempts: 3 }),
+      new CostInfraUnavailableError('checkAskRegenBudget'),
+    );
+
+    expect(mocks.recordOutboxTransientError).not.toHaveBeenCalled();
+    expect(settleGenerationExhaustion).not.toHaveBeenCalled();
+    expect(mocks.markOutboxFailed).toHaveBeenCalledWith(
+      fakeSql,
+      'outbox-1',
+      'generate_solicitation_asks_exhausted:CostInfraUnavailableError',
       4,
     );
   });

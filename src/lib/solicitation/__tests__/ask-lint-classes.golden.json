@@ -1,5 +1,5 @@
 {
-  "version": "ask_lint_2026-07-31.1",
+  "version": "ask_lint_2026-07-31.2",
   "blockReasons": [
     "incentive_language",
     "review_steering",
@@ -23,11 +23,20 @@
         "/\\bgift cards?\\b/gi",
         "/\\bfree\\s+(?!to\\b)[a-z]/gi",
         "/\\bon us\\b/gi",
+        "/\\bon the house\\b/gi",
         "/\\bcomp(ed|ing)\\b/gi",
+        "/\\bcomplimentary\\b/gi",
         "/\\braffles?\\b/gi",
         "/\\bgiveaways?\\b/gi",
+        "/\\bsweepstakes?\\b/gi",
         "/\\bentry\\b/gi",
         "/\\bentered to win\\b/gi",
+        "/\\b(?:chance|opportunity|drawing) to win\\b/gi",
+        "/\\bwin (?:a|an|one of)\\b/gi",
+        "/\\bprizes?\\b/gi",
+        "/\\bwinners?\\b/gi",
+        "/\\bcash ?back\\b/gi",
+        "/\\bstore credit\\b/gi",
         "/\\bpoints\\b/gi",
         "/\\brewards?\\b/gi",
         "/\\d+\\s*%\\s*off/gi",
@@ -257,6 +266,21 @@
       "structural": [
         "capitalized_non_sentence_initial_tokens_must_appear_in_interpolation_values_or_allowlist",
         "digit_runs_must_appear_in_interpolation_values"
+      ],
+      "claimPatterns": [
+        "/\\b(?:served?|serving)\\b[^.!?\\n]{0,40}\\b(?:neighborhood|community|area|town|city|families|customers|clients)\\b/gi",
+        "/\\bfor (?:many |over |more than )?(?:years|decades|generations)\\b/gi",
+        "/\\baward[- ]winning\\b/gi",
+        "/\\bfamily[- ](?:owned|run|operated)\\b/gi",
+        "/\\blocally[- ]owned\\b/gi",
+        "/\\bwoman[- ]owned\\b/gi",
+        "/\\bveteran[- ]owned\\b/gi",
+        "/\\bvoted (?:best|#?\\s?1|number one)\\b/gi",
+        "/\\b(?:best|top|highest)[- ]rated\\b/gi",
+        "/\\btrusted by\\b/gi",
+        "/\\b(?:thousands|hundreds|millions) of\\b/gi",
+        "/\\blongest[- ](?:running|serving|standing)\\b/gi",
+        "/\\bproudly (?:serv|support)/gi"
       ],
       "allowlist": [
         "april",

@@ -1,13 +1,17 @@
 # Handoff — feat-628-ask-generation-lane
 
 **Phase:** `gate_green`. Codex adversarial rounds so far: round 1
-(3 findings — fixed in `0d0fd1b0`), round 2 (4 findings, new thread
-`019fba46-97a1-7db0-a92d-2caabcbb8836` — fixed in the round-2 fix commit;
-see the deviations file's four round-2 entries for design rationale and the
-two DOCUMENTED residual gaps: the mixed structured-fail+provider-error
-spend edge, and watchdog max_attempts exhaustion having no domain hook
-because OutboxPoller is out of surface).
-**Next step: the OWNER runs `/codex:adversarial-review` round 3** — the
+(3 findings — fixed in `0d0fd1b0`), round 2 (4 findings — fixed in
+`e54f99fa`), round 3 (4 findings, thread
+`019fbadf-5969-7381-8849-a8af7be9920c` — fixed in the round-3 fix commit).
+The deviations file's round-3 entries carry the design rationale and the
+open boundaries: finding 4's semantic-verifier recommendation is
+DELIBERATELY answered with deterministic pattern hardening only (LLM-judge
+review of asks is #631's locked decision — owner to confirm at triage);
+remaining residuals are the crash-mid-final-attempt watchdog window
+(OutboxPoller out of surface, follow-up ticket) and expired-with-live-rows
+parents (closed by #629/#630's batch_expired latch).
+**Next step: the OWNER runs `/codex:adversarial-review` round 4** — the
 command is user-invocable only. Loop until APPROVED, then step 8 (high-risk
 lane: staging ride first, flag-off no-op smoke only pre-#627).
 

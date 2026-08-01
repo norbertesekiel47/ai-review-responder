@@ -33,7 +33,7 @@ import {
  * matching logic changes (RESTRAINT_POLICY_VERSION pattern) — a verdict must
  * stay reproducible under the version that produced it.
  */
-export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.1';
+export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.2';
 
 /**
  * The union of everything that can block a render, so `blocked_reason` has one
@@ -219,11 +219,23 @@ const CONTENT_CLASSES: ReadonlyArray<{ reason: AskLintClass; patterns: readonly 
       // in polite ask copy) from blocking every render; "free coffee" still hits.
       /\bfree\s+(?!to\b)[a-z]/gi,
       /\bon us\b/gi,
+      /\bon the house\b/gi,
       /\bcomp(ed|ing)\b/gi,
+      /\bcomplimentary\b/gi,
       /\braffles?\b/gi,
       /\bgiveaways?\b/gi,
+      /\bsweepstakes?\b/gi,
       /\bentry\b/gi,
       /\bentered to win\b/gi,
+      // "chance/opportunity to win", "win a prize", "one of five winners" —
+      // the consideration is the CHANCE, not a guaranteed good (codex round-3
+      // finding 3: "complimentary" and "chance to win" sailed through).
+      /\b(?:chance|opportunity|drawing) to win\b/gi,
+      /\bwin (?:a|an|one of)\b/gi,
+      /\bprizes?\b/gi,
+      /\bwinners?\b/gi,
+      /\bcash ?back\b/gi,
+      /\bstore credit\b/gi,
       /\bpoints\b/gi,
       /\brewards?\b/gi,
       /\d+\s*%\s*off/gi,
@@ -411,6 +423,34 @@ const PROVENANCE_ALLOWLIST: ReadonlySet<string> = new Set([
   'unsubscribe',
   'leave',
 ]);
+
+/**
+ * Class 6 pattern arm (codex round-3 finding 4): the capitalized-token /
+ * digit-run provenance heuristic cannot see LOWERCASE invented facts ("we
+ * have proudly served the neighborhood for years"). These are the
+ * deterministic shapes of self-asserted history/reputation claims a review
+ * ask has no business making unless the owner's own inputs carry them —
+ * subject to the §2.5 interpolated-value exemption for exactly that reason.
+ * Deliberately NOT a semantic verifier: judging arbitrary factual claims is
+ * the ask-Judge decision deferred to #631 (intake non-goal); this arm is the
+ * strongest enforcement the deterministic lint can honestly give.
+ * `g` flags required for matchAll span extraction (CONTENT_CLASSES rules).
+ */
+const UNVERIFIABLE_CLAIM_PATTERNS: readonly RegExp[] = [
+  /\b(?:served?|serving)\b[^.!?\n]{0,40}\b(?:neighborhood|community|area|town|city|families|customers|clients)\b/gi,
+  /\bfor (?:many |over |more than )?(?:years|decades|generations)\b/gi,
+  /\baward[- ]winning\b/gi,
+  /\bfamily[- ](?:owned|run|operated)\b/gi,
+  /\blocally[- ]owned\b/gi,
+  /\bwoman[- ]owned\b/gi,
+  /\bveteran[- ]owned\b/gi,
+  /\bvoted (?:best|#?\s?1|number one)\b/gi,
+  /\b(?:best|top|highest)[- ]rated\b/gi,
+  /\btrusted by\b/gi,
+  /\b(?:thousands|hundreds|millions) of\b/gi,
+  /\blongest[- ](?:running|serving|standing)\b/gi,
+  /\bproudly (?:serv|support)/gi,
+];
 
 /**
  * The assembly-produced footer anchor. Everything from its LAST occurrence
@@ -652,7 +692,13 @@ export function lintAsk(input: AskLintInput): AskLintVerdict {
 
   const footerIndex = input.body.lastIndexOf(FOOTER_ANCHOR);
   const modelAuthoredBody = footerIndex === -1 ? input.body : input.body.slice(0, footerIndex);
-  if (hasUnverifiableFact(`${input.subject}\n${modelAuthoredBody}`, input.interpolationValues)) {
+  const subjectAndModelBody = `${input.subject}\n${modelAuthoredBody}`;
+  // `subjectAndModelBody` is a PREFIX of `combined`, so the exemption spans
+  // computed above stay positionally valid for the claim-pattern arm.
+  if (
+    hasUnverifiableFact(subjectAndModelBody, input.interpolationValues) ||
+    hasNonExemptMatch(subjectAndModelBody, UNVERIFIABLE_CLAIM_PATTERNS, exemptSpans)
+  ) {
     matches.push('unverifiable_fact');
   }
 
@@ -701,6 +747,7 @@ export function askLintGoldenTable(): Record<string, unknown> {
           'capitalized_non_sentence_initial_tokens_must_appear_in_interpolation_values_or_allowlist',
           'digit_runs_must_appear_in_interpolation_values',
         ],
+        claimPatterns: serializePatterns(UNVERIFIABLE_CLAIM_PATTERNS),
         allowlist: [...PROVENANCE_ALLOWLIST].sort(),
       },
       {
