@@ -532,3 +532,14 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   arbitrary factual claims. Pattern hardening is the strongest enforcement
   the deterministic lint can give; the general gap rides to #631. OWNER
   should confirm this boundary at triage.
+- [2026-07-31] **Codex adversarial review round 4: needs-attention (3
+  findings, checkpointed for a fresh session; thread in the round-4 review
+  output).** (1) high — the whole-batch dead-letter's catch suppresses a
+  settlement failure on the FINAL outbox attempt, leaving the row dispatched
+  for the generic terminalizer to strand (generate-failed-hook.ts:171-179);
+  (2) high — note admissibility rejects only 7+ CONTIGUOUS digits, so
+  separator-formatted phone numbers ("555-123-4567") are admitted into the
+  prompt (ask-compliance-lint.ts:116-124, contact_channel rules); (3) high —
+  written-out percentages ("ten percent off") pass the incentive lint
+  (ask-compliance-lint.ts class 1). Full text + fix guidance in the handoff
+  doc.
