@@ -34,9 +34,11 @@ function isRetryableExhaustion(err: unknown): boolean {
  * settle terminally — the generic OutboxPoller's max_attempts terminalizer
  * knows nothing about this lane's domain state, so leaving the row dispatched
  * would strand a partially generated batch when it fires (codex round-3
- * finding 1). A missing row has nothing left to re-drive, so it reads as no
- * budget; a FAILED read errs toward the watchdog (the prior behavior) and is
- * logged so the fallback is visible.
+ * finding 1). A missing row has nothing left to re-drive, and a FAILED read
+ * reports no budget too — it used to err toward the watchdog, but that answer
+ * sent a settlement failure down the "someone else will re-drive this" path on
+ * no evidence (round-5 finding 2). Reporting "no budget" instead routes it to
+ * the durable grant below, which is safe even when budget did remain.
  */
 async function watchdogRetryRemaining(
   sql: Sql,
@@ -53,7 +55,52 @@ async function watchdogRetryRemaining(
       outbox_id: outboxId,
       error_class: boundedErrorClass(readErr),
     });
-    return true;
+    return false;
+  }
+}
+
+/**
+ * Absolute ceiling on granted settlement re-drives. Bounds an otherwise
+ * unbounded budget grant: a batch whose settlement fails this many times is a
+ * genuine operator problem, not a blip worth another automated pass.
+ */
+const SETTLEMENT_REDRIVE_CEILING = 20;
+
+/**
+ * Hand the settlement back to the outbox watchdog by granting the row one more
+ * attempt. The watchdog re-pends `dispatched` rows while `attempts <
+ * max_attempts` and terminalizes them once `attempts >= max_attempts`, so
+ * raising the budget by one moves this row from its terminalize arm to its
+ * recover arm — the job runs again minutes later and re-attempts the whole
+ * settlement, resumed rather than re-spent by the §7.4 DB-existence
+ * idempotency.
+ *
+ * This is what makes terminal settlement durable without a new topic, a new
+ * poller, or teaching the generic OutboxPoller about this lane's domain
+ * (round-5 finding 2). The in-hook retries above only cover a blip lasting
+ * milliseconds; this covers an outage lasting hours, because the recovery
+ * trigger is persistent state rather than a listener that has already died.
+ *
+ * Returns false when the grant is refused — ceiling reached, or the row is no
+ * longer `dispatched` (someone else already terminalized it) — which is the
+ * only path that truly concedes the batch.
+ */
+async function grantSettlementRedrive(sql: Sql, outboxId: string): Promise<boolean> {
+  try {
+    const granted = await sql<{ id: string }[]>`
+      UPDATE job_outbox
+      SET max_attempts = max_attempts + 1,
+          last_error = 'generate_solicitation_asks: settlement deferred to watchdog re-drive'
+      WHERE id = ${outboxId}
+        AND status = 'dispatched'
+        AND max_attempts < ${SETTLEMENT_REDRIVE_CEILING}
+      RETURNING id
+    `;
+    return granted.count > 0;
+  } catch {
+    // The DB that just refused the settlement also refused this. Nothing is
+    // durable in this moment; the caller concedes under its own status.
+    return false;
   }
 }
 
@@ -80,10 +127,12 @@ const FINAL_SETTLEMENT_BACKOFF_MS = 200;
  *   domain state, stranding a partially generated batch behind a running send
  *   parent, so the settlement is retried HERE, bounded.
  *
- * When those are spent the lane is conceded to an operator under its own
- * status (`terminal_settlement_abandoned`) rather than the ambiguous
- * checkpoint status — the two need to be distinguishable in an alert, because
- * only this one means "nothing will retry this."
+ * When the in-hook retries are spent the settlement is handed back to the
+ * watchdog via `grantSettlementRedrive`, so recovery survives an outage longer
+ * than this listener does. Only a refused grant concedes the batch, under its
+ * own status (`terminal_settlement_abandoned`) rather than the ambiguous
+ * checkpoint status — the two must be distinguishable in an alert, because
+ * only that one means "nothing will retry this."
  */
 async function deadLetterWholeBatch(
   sql: Sql,
@@ -122,8 +171,9 @@ async function deadLetterWholeBatch(
         return;
       }
       if (retriesLeft === 0) {
+        const deferred = await grantSettlementRedrive(sql, outboxHandle.outboxId);
         logFailureSafely({
-          status: 'terminal_settlement_abandoned',
+          status: deferred ? 'settlement_deferred_to_watchdog' : 'terminal_settlement_abandoned',
           ...jobFields,
           outbox_attempt: outboxHandle.attempt,
           error_class: settlementErrorClass,

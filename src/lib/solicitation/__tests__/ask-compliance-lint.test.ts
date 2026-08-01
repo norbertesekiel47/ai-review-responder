@@ -53,7 +53,7 @@ function input(overrides: Partial<AskLintInput> = {}): AskLintInput {
 
 describe('module contract', () => {
   it('pins the version and the eight-member block-reason vocabulary', () => {
-    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.3');
+    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.4');
     expect(ASK_BLOCK_REASONS).toEqual([
       'incentive_language',
       'review_steering',
@@ -122,6 +122,57 @@ describe('class 1 — incentive_language', () => {
       lintAsk(input({ body: assembled('Hi Dana — take half off your next order.') }))
         .blockedReason,
     ).toBe('incentive_language');
+  });
+
+  // Round 5. Direct compensation is the most literal breach of the
+  // no-consideration rule, and the enumerated GOODS vocabulary could not see
+  // it at all — every one of these linted CLEAN before this round.
+  it.each([
+    'We will pay you ten dollars for sharing a review.',
+    "We'll pay you $10 for sharing a review.",
+    'We can pay each reviewer 20 dollars.',
+    'You will be compensated for your time.',
+    'We reimburse reviewers for parking.',
+    "Send us your Venmo and we'll square up.",
+    'Here is $5 for your trouble.',
+  ])('blocks direct compensation: %s', (offer) => {
+    expect(lintAsk(input({ body: assembled(`Hi Dana — ${offer}`) })).blockedReason).toBe(
+      'incentive_language',
+    );
+  });
+
+  // Round 5. Bare fractions never say "percent", and a hyphen defeated the
+  // round-4 percent patterns, which required whitespace before "off".
+  it.each([
+    'Take a quarter off your next order.',
+    'Take a third off your next order.',
+    'Enjoy twenty percent-off your next visit.',
+    'Enjoy 10%-off your next visit.',
+  ])('blocks discount shapes the round-4 patterns missed: %s', (offer) => {
+    expect(lintAsk(input({ body: assembled(`Hi Dana — ${offer}`) })).blockedReason).toBe(
+      'incentive_language',
+    );
+  });
+
+  // A numeric percent-off used to be caught only incidentally by class 6's
+  // digit-run provenance, which recorded the wrong reason in `lint_detail` and
+  // depended on the digits being absent from every interpolated value.
+  it('attributes a numeric percent-off to class 1, not class 6', () => {
+    const verdict = lintAsk(input({ body: assembled('Hi Dana — enjoy 10%-off today.') }));
+    expect(verdict.blockedReason).toBe('incentive_language');
+    expect(verdict.matches[0]).toBe('incentive_language');
+  });
+
+  it('does not block ordinary polite ask copy', () => {
+    expect(
+      lintAsk(
+        input({
+          body: assembled(
+            'Hi Dana — thanks for your time last week. Feel free to share how it went.',
+          ),
+        }),
+      ),
+    ).toEqual({ blockedReason: null, matches: [] });
   });
 
   it('blocks sweepstakes and on-the-house paraphrases', () => {
@@ -416,9 +467,22 @@ describe('class 6 — unverifiable_fact (provenance)', () => {
 
   it('flags a fabricated price as unverifiable_fact', () => {
     const verdict = lintAsk(
+      input({ body: assembled('Hi Dana — hope the 25 dollar special treated you well.') }),
+    );
+    expect(verdict.matches).toContain('unverifiable_fact');
+  });
+
+  // Round 5 moved CURRENCY-shaped amounts to class 1, which now blocks any
+  // monetary sum as consideration-shaped. A `$`-prefixed price is still caught
+  // — by the earlier class, so `blockedReason` reports the offer rather than
+  // the provenance. Both classes still record in `matches`, so the tuning data
+  // does not lose the provenance signal.
+  it('attributes a dollar-prefixed price to class 1 while class 6 still records it', () => {
+    const verdict = lintAsk(
       input({ body: assembled('Hi Dana — hope the $25 special treated you well.') }),
     );
-    expect(verdict.blockedReason).toBe('unverifiable_fact');
+    expect(verdict.blockedReason).toBe('incentive_language');
+    expect(verdict.matches).toContain('unverifiable_fact');
   });
 
   it('accepts digit runs that appear in an interpolated value', () => {
@@ -551,23 +615,34 @@ describe('note admissibility (SPEC §1.2)', () => {
     });
   });
 
-  // codex round-4 regression: the digit-run rule ran against the raw note, so
-  // every separator scheme a human actually types walked past it.
+  // Rounds 4 and 5. `\d{7,}` saw only contiguous digits; stripping an
+  // allowlist of separators then still missed slashes and every Unicode dash.
+  // The rule now matches digits across ARBITRARY punctuation, so the last two
+  // rows (round-5 finding 4) are covered by construction rather than by
+  // extending a list.
   it.each([
     'Spoke with Jane at 555-123-4567 about the repair',
     'Spoke with Jane at (555) 123-4567 about the repair',
     'Spoke with Jane at 555 123 4567 about the repair',
     'Spoke with Jane at +1 555-123-4567 about the repair',
     'Spoke with Jane at 555.123.4567 about the repair',
-  ])('rejects a separator-formatted phone number: %s', (note) => {
+    'Call 555/123/4567',
+    'Call 555–123–4567',
+    'Call 555—123—4567',
+    'Call 555‑123‑4567',
+  ])('rejects a phone number written with any separator: %s', (note) => {
     expect(assessNoteAdmissibility(note)).toEqual({
       admissible: false,
       disposition: 'rejected:contact_channel',
     });
   });
 
-  it('still admits a note whose digits stay short once separators are stripped', () => {
-    expect(assessNoteAdmissibility('table 12, party of 4')).toEqual({
+  it.each([
+    'table 12, party of 4',
+    'ordered the 12 oz steak, medium rare',
+    'came in twice last week',
+  ])('still admits a note whose digits are not phone-shaped: %s', (note) => {
+    expect(assessNoteAdmissibility(note)).toEqual({
       admissible: true,
       disposition: 'admitted',
     });

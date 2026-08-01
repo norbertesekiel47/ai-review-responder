@@ -93,7 +93,9 @@
     "src/__tests__/cost-guard-contract.test.ts",
     "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "src/lib/responses/__tests__/generator.test.ts",
-    "src/lib/responses/__tests__/review-summary.test.ts"
+    "src/lib/responses/__tests__/review-summary.test.ts",
+    "worker/background/pollers/health-alert/checks.ts",
+    "worker/background/pollers/health-alert/__tests__/checks.test.ts"
   ],
   "tests_to_add": [
     "blocks incentive language introduced by the model",

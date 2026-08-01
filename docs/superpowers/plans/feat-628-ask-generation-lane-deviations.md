@@ -597,3 +597,88 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
 - [2026-07-31] **Round-4 version bump: `ASK_LINT_VERSION` →
   `ask_lint_2026-07-31.3`**, golden file regenerated (visible diff: two class-1
   patterns, the `separatorStrippedPatterns` split on `contact_channel`).
+- [2026-07-31] **Codex adversarial review round 5: needs-attention (4
+  findings), plus 2 findings from the parallel self-triage. All 6 fixed
+  same-day.**
+- [2026-07-31] **Round-5 fix (Codex finding 1): a parentless batch could never
+  close.** `closeBatchIfSettled` looked up the send parent BEFORE tallying and
+  returned `no_send_parent` without ever reaching the `send_closed_at` CAS, so
+  a batch whose generation died before minting a parent stayed open forever —
+  nothing mints one afterwards and no later writer calls back in. The tally now
+  runs FIRST, which also matches the glossary ("no outreach row left in
+  rendered/queued/sending" — a definition that never mentions `agent_runs`),
+  and a parentless settled batch closes under a new
+  `closed_without_parent` result **only when the caller declares a `failure`**.
+  That gate is the whole safety argument: without it the releaser backstop
+  would slam `send_closed_at` on any ordinary built batch awaiting approval.
+  No receipt step is filed (there is no run to file it against), which is why
+  this could not reuse the parented path. Two integration regressions
+  (closes-with-failure, idempotent-second-call); the pre-existing
+  no-failure-no-mutation test still passes unchanged.
+- [2026-07-31] **Round-5 fix (Codex finding 2): terminal settlement is durable
+  now, not merely retried.** Round 4's two 200 ms in-hook retries covered a
+  blip and nothing longer — Codex was right that conceding to an ephemeral
+  listener is not durability. `grantSettlementRedrive` raises the row's
+  `max_attempts` by one, which moves it from the OutboxPoller watchdog's
+  TERMINALIZE arm (`attempts >= max_attempts`) to its RECOVER arm
+  (`attempts < max_attempts`); the job re-runs minutes later and re-attempts
+  the whole settlement, resumed rather than re-spent by §7.4 DB-existence
+  idempotency. The recovery trigger becomes persistent state instead of a
+  listener that has already died, and it needs no new topic, no new poller
+  (the single-replica P2 budget stays unspent) and no domain knowledge in the
+  generic OutboxPoller — the alternative Codex offered, which is a cross-lane
+  change every domain-coupled dead-letter would need, not this branch's.
+  Bounded by `SETTLEMENT_REDRIVE_CEILING = 20`; only a REFUSED grant concedes
+  the batch as `terminal_settlement_abandoned`. Also closes Codex's sub-point:
+  `watchdogRetryRemaining` no longer errs toward the watchdog on a failed
+  read — reporting "no budget" routes a settlement failure to the durable
+  grant, which is safe even when budget did remain.
+- [2026-07-31] **Round-5 fix (Codex finding 3): direct compensation.** Class 1
+  enumerated GOODS only, so "We will pay you ten dollars for sharing a review"
+  linted CLEAN — the most literal breach of the no-consideration rule was the
+  one shape the vocabulary could not see. Added pay/payment/compensate/
+  reimburse, the payment rails (venmo/paypal/zelle/cash app), any `$`-prefixed
+  or written currency amount, `in return for`, and `for your trouble`. `cash`
+  replaces the round-3 `cash ?back`, which it subsumes. **Deliberate
+  precedence shift:** `$25` in a fabricated price now blocks as
+  `incentive_language` rather than `unverifiable_fact` — still blocked, and
+  class 6 still records in `matches`, so the tuning signal survives; the class-6
+  provenance test moved to a currency-free fixture and a new test pins the
+  new ownership.
+- [2026-07-31] **Round-5 fix (Codex finding 4 + self-triage): phone PII stops
+  being a separator allowlist.** Round 4 stripped `[\s().+-]` and still missed
+  `555/123/4567` and every Unicode dash. `PHONE_SHAPED_DIGITS` now matches
+  7+ digits separated by ANY run of `\p{P}`/`\p{S}`/whitespace, so slashes,
+  en/em dashes and the non-breaking hyphen are covered by construction rather
+  than by extending a list. Letters are not separators, so "table 12, party of
+  4" stays admissible. This also fixes the self-triage finding that the
+  allowlist rejected `2026-07-31` but admitted `07/15/2026` — date handling is
+  now uniform (both rejected), and the over-reach onto dates and invoice
+  references remains the accepted fail-closed cost: an inadmissible note is a
+  DEGRADATION, a leaked phone number is not.
+- [2026-07-31] **Round-5 fix (self-triage finding 1): the lane's dead-letter
+  had no alerting.** `checkFailedOutboxByTopic` filters on a CLOSED topic
+  allowlist and `generate_solicitation_asks` was absent, so every terminal
+  failure in this lane was invisible — which silently voided both the round-3
+  and round-4 rationale, each of which concedes a stranded batch to "an
+  operator will see the failed row". Topic added, regression test added, and
+  the closed-allowlist trap is now documented at the call site so the next
+  topic does not repeat it. **INTAKE AMENDMENT 5 (PENDING OWNER RETROACTIVE
+  SIGN-OFF):** `allowed_edit_surface` gained
+  `worker/background/pollers/health-alert/checks.ts` + its test — the
+  edit-surface guard correctly blocked this as drift, and the fix is a
+  one-topic addition to an existing closed list, not new alerting machinery.
+- [2026-07-31] **Round-5 fix (self-triage finding 2): discount shapes the
+  round-4 patterns missed.** `a quarter off` / `a third off` (bare fractions
+  never say "percent") and `twenty percent-off` (a HYPHEN, where round 4
+  required whitespace) all linted CLEAN. The round-4 comment claiming the
+  shape-match "subsumes every written number" was wrong and is gone. Fraction
+  and hyphen-tolerant shapes added; all four probe sentences are regressions.
+- [2026-07-31] **Round-5 version bump: `ASK_LINT_VERSION` →
+  `ask_lint_2026-07-31.4`**, golden regenerated. **Standing owner decision,
+  now third-time-asked:** Codex has recommended a semantic verifier in rounds
+  3, 4 and 5. Three consecutive rounds of enumerated patterns losing to a
+  paraphrase is evidence about the INSTRUMENT, not just the vocabulary. The
+  deterministic lint stays (an LLM ask-Judge is a locked intake non-goal
+  deferred to #631) but the owner should treat "deterministic lint + #631
+  escalation" as an explicit decision rather than a default.

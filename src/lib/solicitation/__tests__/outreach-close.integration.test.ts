@@ -384,6 +384,47 @@ describeWithDb(
       expect(steps!.count).toBe(0);
     });
 
+    // Codex round-5 finding 1. Generation can die before it mints the send
+    // parent, and nothing ever mints one afterwards — so the parent guard
+    // above, which is right for an ordinary batch, permanently wedged a batch
+    // whose lane had terminally failed. A declared failure is what tells the
+    // two apart: no failure means "still awaiting approval, leave it alone".
+    it('closeBatchIfSettled closes a settled parentless batch when the caller declares a failure', async () => {
+      const { batchId } = await seedBatch({ builtAgo: '1 hour' });
+
+      const result = await close(batchId, {
+        code: 'generation_failed',
+        failedCount: 0,
+        withheldCount: 0,
+      });
+
+      expect(result).toMatchObject({
+        status: 'closed_without_parent',
+        disposition: 'generation_failed',
+      });
+      expect((await readBatchClosure(batchId)).send_closed_at).not.toBeNull();
+      // No parent exists, so no receipt step can be filed against one.
+      const [steps] = await sql()<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count FROM agent_run_steps
+        WHERE step_key = 'send_batch_closed'
+      `;
+      expect(steps!.count).toBe(0);
+    });
+
+    it('closeBatchIfSettled is idempotent on a parentless batch it already closed', async () => {
+      const { batchId } = await seedBatch({ builtAgo: '1 hour' });
+      const failure = {
+        code: 'generation_failed' as const,
+        failedCount: 0,
+        withheldCount: 0,
+      };
+
+      await close(batchId, failure);
+      const second = await close(batchId, failure);
+
+      expect(second).toEqual({ status: 'already_closed' });
+    });
+
     it('closeBatchIfSettled leaves the parent running while an outreach row is rendered, queued, or sending', async () => {
       for (const liveStatus of ['rendered', 'queued', 'sending'] as const) {
         const { batchId, uploadId } = await seedBatch({

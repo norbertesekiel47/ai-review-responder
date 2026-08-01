@@ -33,7 +33,7 @@ import {
  * matching logic changes (RESTRAINT_POLICY_VERSION pattern) — a verdict must
  * stay reproducible under the version that produced it.
  */
-export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.3';
+export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.4';
 
 /**
  * The union of everything that can block a render, so `blocked_reason` has one
@@ -77,25 +77,29 @@ type NoteRejectionRule = 'sentiment_token' | 'contact_channel' | 'imperative_to_
 
 /**
  * Phone-shaped PII, shared by note admissibility (§1.2 item 2) and class 5 —
- * one owner for the fact "a digit run this long is a phone number", because
- * the two rules protect the same input against the same evasion. A raw
- * `\d{7,}` sees only CONTIGUOUS digits, so every separator scheme a human
- * actually types ("555-123-4567", "(555) 123 4567", "+1 555 123 4567") walks
- * straight past it; both rules therefore test the digit run against the
- * separator-STRIPPED text. No `g` flag — `.test()` must stay stateless.
+ * one owner for the fact "this many digits is a phone number", because the two
+ * rules protect the same input against the same evasion.
  *
- * Stripping is deliberately blunt, so a hyphenated date ("2026-07-31") reads
- * as a digit run too. That is the fail-closed side: an inadmissible note is
- * OMITTED and generation proceeds on the four structured fields (a
- * degradation), whereas a leaked phone number reaches a stranger.
+ * Matches PII_DIGIT_RUN_LENGTH digits separated by ANY run of whitespace,
+ * punctuation or symbols, rather than stripping an allowlist of separators
+ * first. An allowlist is the wrong instrument here: `\d{7,}` alone missed
+ * "555-123-4567", and stripping `[\s().+-]` still missed "555/123/4567" and
+ * every Unicode dash (codex round-4 fix, then round-5 finding 4). `\p{P}`
+ * covers en/em dashes, the non-breaking hyphen and slashes; `\p{S}` covers the
+ * "+1" country prefix. Letters are NOT separators, so "table 12, party of 4"
+ * stays admissible — a digit run only accumulates across punctuation.
+ *
+ * DELIBERATE over-reach: dates and invoice references ("2026-07-31",
+ * "INV-2024-0011") read as phone-shaped and get the note omitted. That is the
+ * fail-closed side — an inadmissible note is a DEGRADATION (generation
+ * proceeds on the four structured fields) whereas a leaked phone number
+ * reaches a stranger. No `g` flag — `.test()` must stay stateless.
  */
 const PII_DIGIT_RUN_LENGTH = 7;
-const PII_DIGIT_RUN_PATTERN = new RegExp(`\\d{${PII_DIGIT_RUN_LENGTH},}`);
-const PHONE_SEPARATOR_PATTERN = /[\s().+-]/g;
-
-function stripPhoneSeparators(text: string): string {
-  return text.replace(PHONE_SEPARATOR_PATTERN, '');
-}
+const PHONE_SHAPED_DIGITS = new RegExp(
+  `\\d(?:[\\s\\p{P}\\p{S}]*\\d){${PII_DIGIT_RUN_LENGTH - 1},}`,
+  'u',
+);
 
 /** §1.2 item 4: normalized (whitespace-collapsed) notes longer than this are rejected. */
 const MAX_NORMALIZED_NOTE_LENGTH = 200;
@@ -108,8 +112,6 @@ const MAX_NORMALIZED_NOTE_LENGTH = 200;
 const NOTE_ADMISSIBILITY_RULES: ReadonlyArray<{
   rule: NoteRejectionRule;
   patterns: readonly RegExp[];
-  /** Tested against the separator-stripped note (see `stripPhoneSeparators`). */
-  separatorStrippedPatterns?: readonly RegExp[];
 }> = [
   {
     // Item 1 — sentiment / rating tokens: a note carrying sentiment drags the
@@ -144,11 +146,8 @@ const NOTE_ADMISSIBILITY_RULES: ReadonlyArray<{
       /\bwww\./i,
       /\b[a-z0-9-]+\.(?:com|net|org|io|co|us|info|biz|app|dev)\b/i,
       /@/,
+      PHONE_SHAPED_DIGITS,
     ],
-    // The domain patterns above depend on the separators (`.` carries the
-    // TLD), so only the digit run moves to the stripped text — the same split
-    // class 5 makes (codex round-4 finding 2: "555-123-4567" was admissible).
-    separatorStrippedPatterns: [PII_DIGIT_RUN_PATTERN],
   },
   {
     // Item 3 — imperative-to-model shapes (prompt injection). The prompt's
@@ -181,12 +180,8 @@ export function assessNoteAdmissibility(note: string | null): {
   }
 
   const normalized = note.trim().replace(/\s+/g, ' ');
-  const separatorStripped = stripPhoneSeparators(normalized);
-  for (const { rule, patterns, separatorStrippedPatterns } of NOTE_ADMISSIBILITY_RULES) {
-    if (
-      patterns.some((pattern) => pattern.test(normalized)) ||
-      separatorStrippedPatterns?.some((pattern) => pattern.test(separatorStripped))
-    ) {
+  for (const { rule, patterns } of NOTE_ADMISSIBILITY_RULES) {
+    if (patterns.some((pattern) => pattern.test(normalized))) {
       return { admissible: false, disposition: `rejected:${rule}` };
     }
   }
@@ -265,19 +260,36 @@ const CONTENT_CLASSES: ReadonlyArray<{ reason: AskLintClass; patterns: readonly 
       /\bwin (?:a|an|one of)\b/gi,
       /\bprizes?\b/gi,
       /\bwinners?\b/gi,
-      /\bcash ?back\b/gi,
+      // `cash` subsumes the round-3 `cash ?back` pattern, which it replaces.
+      /\bcash\b/gi,
       /\bstore credit\b/gi,
       /\bpoints\b/gi,
       /\brewards?\b/gi,
-      /\d+\s*%\s*off/gi,
-      /\$\s*\d+\s*off/gi,
-      // Written-out percentages: the numeric forms above cannot see "ten
-      // percent off" (codex round-4 finding 3). Matching the "… off" SHAPE
-      // rather than enumerating written numbers subsumes every one of them,
-      // and "fifty percent discount" is already class 1 via /discount/.
-      /\b(?:percent|per\s?cent)\s+off\b/gi,
-      /\bhalf[\s-]?(?:off|price)\b/gi,
-      /\bin exchange for\b/gi,
+      // Discount shapes. The separator between the amount and "off" includes
+      // the HYPHEN — "twenty percent-off" defeated the round-4 patterns, which
+      // required whitespace there.
+      /\d+\s*%[\s-]*off/gi,
+      /\b(?:percent|per\s?cent)[\s-]+off\b/gi,
+      // Bare fractions never say "percent", so the percent shape cannot reach
+      // them: round 4 added "half" and left "a quarter off" passing clean.
+      /\b(?:a\s+)?(?:half|quarter|third|fourth|fifth)[\s-]+off\b/gi,
+      /\bhalf[\s-]?price\b/gi,
+      // Direct compensation — the most literal breach of the no-consideration
+      // rule, and the enumerated GOODS vocabulary above could not see it at
+      // all ("we will pay you ten dollars for sharing a review").
+      /\b(?:pay|pays|paying|paid)\s+(?:you|each|every|our|all)\b/gi,
+      /\bwe(?:['’]ll| will| can)?\s+pay\b/gi,
+      /\bpayments?\b/gi,
+      /\bcompensat(?:e|es|ed|ing|ion)\b/gi,
+      /\breimburs(?:e|es|ed|ing|ement)\b/gi,
+      /\b(?:venmo|paypal|zelle|cash app)\b/gi,
+      // Any monetary amount, numeric or written out — an ask has no business
+      // naming a sum, so the shape is blocked rather than the intent guessed.
+      /\$\s*\d/gi,
+      /\b\d+\s*(?:dollars?|bucks?|euros?|pounds?)\b/gi,
+      /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)\s+(?:dollars?|bucks?|euros?|pounds?)\b/gi,
+      /\bin (?:exchange|return) for\b/gi,
+      /\bfor your trouble\b/gi,
     ],
   },
   {
@@ -361,7 +373,7 @@ const SUBJECT_STRUCTURAL_RULES: readonly string[] = [
   `max_${MAX_SUBJECT_EXCLAMATION_MARKS}_exclamation_mark`,
   'not_all_caps',
   `max_${MAX_SUBJECT_EMOJI}_emoji`,
-  `no_digit_run_of_${PII_DIGIT_RUN_LENGTH}_plus_ignoring_phone_separators`,
+  `no_phone_shaped_run_of_${PII_DIGIT_RUN_LENGTH}_plus_digits_across_any_punctuation`,
   'no_disallowed_interpolated_value_in_subject',
   'no_note_derived_content_token_in_subject',
 ];
@@ -559,9 +571,7 @@ function deceptiveSubject(input: AskLintInput): boolean {
   if (/\p{Lu}/u.test(subject) && !/\p{Ll}/u.test(subject)) return true;
   if (countEmoji(subject) > MAX_SUBJECT_EMOJI) return true;
   if (SUBJECT_PATTERN_RULES.some((pattern) => pattern.test(subject))) return true;
-  // Phone-shaped PII: a digit run of ≥PII_DIGIT_RUN_LENGTH once phone
-  // separators are stripped.
-  if (PII_DIGIT_RUN_PATTERN.test(stripPhoneSeparators(subject))) return true;
+  if (PHONE_SHAPED_DIGITS.test(subject)) return true;
 
   // Whole-value containment: catches a disallowed value made entirely of
   // allowlisted tokens, which the fragment check below cannot see.
@@ -795,12 +805,9 @@ export function askLintGoldenTable(): Record<string, unknown> {
       },
     ],
     noteAdmissibility: [
-      ...NOTE_ADMISSIBILITY_RULES.map(({ rule, patterns, separatorStrippedPatterns }) => ({
+      ...NOTE_ADMISSIBILITY_RULES.map(({ rule, patterns }) => ({
         rule,
         patterns: serializePatterns(patterns),
-        ...(separatorStrippedPatterns
-          ? { separatorStrippedPatterns: serializePatterns(separatorStrippedPatterns) }
-          : {}),
       })),
       { rule: 'length', maxNormalizedLength: MAX_NORMALIZED_NOTE_LENGTH },
     ],

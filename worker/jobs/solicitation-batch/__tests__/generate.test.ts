@@ -55,7 +55,13 @@ import { handleGenerateSolicitationAsksFailed } from '../generate-failed-hook';
 // watchdog-budget SELECT — raw tagged-template calls pop fakeSqlRows FIFO.
 const fakeSqlRows: unknown[][] = [];
 const fakeSql = Object.assign(
-  async (..._args: unknown[]) => fakeSqlRows.shift() ?? [],
+  // postgres.js result arrays carry `.count` (rows affected) alongside the
+  // rows themselves, and the hook's re-drive grant reads it — a bare array
+  // would report every grant as refused.
+  async (..._args: unknown[]) => {
+    const rows = fakeSqlRows.shift() ?? [];
+    return Object.assign(rows, { count: rows.length });
+  },
   {
     begin: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({}),
   },
@@ -284,15 +290,18 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     );
   });
 
-  it('concedes the lane under its own status once final-attempt retries are spent (codex round-4)', async () => {
+  it('hands settlement back to the watchdog once in-hook retries are spent (codex round-5)', async () => {
+    // The in-hook retries only cover a blip. Granting the row one more attempt
+    // moves it from the watchdog's terminalize arm to its recover arm, so
+    // recovery outlives this listener by hours instead of 400ms.
     vi.mocked(settleGenerationExhaustion)
       .mockRejectedValueOnce(new Error('db down'))
       .mockRejectedValueOnce(new Error('db down'))
       .mockRejectedValueOnce(new Error('db down'));
-    // A budget row per failure — every one says the watchdog is exhausted.
     queueOutboxBudget(5, 5);
     queueOutboxBudget(5, 5);
     queueOutboxBudget(5, 5);
+    fakeSqlRows.push([{ id: 'outbox-1' }]); // the grant UPDATE ... RETURNING id
 
     await expect(
       handleGenerateSolicitationAsksFailed(
@@ -303,6 +312,31 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     ).resolves.toBeUndefined();
 
     expect(settleGenerationExhaustion).toHaveBeenCalledTimes(3);
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({ status: 'settlement_deferred_to_watchdog' }),
+    );
+  });
+
+  it('concedes the lane only when the re-drive grant is refused (codex round-5)', async () => {
+    vi.mocked(settleGenerationExhaustion)
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockRejectedValueOnce(new Error('db down'));
+    queueOutboxBudget(5, 5);
+    queueOutboxBudget(5, 5);
+    queueOutboxBudget(5, 5);
+    // Grant refused: ceiling reached or the row is no longer 'dispatched'.
+    fakeSqlRows.push([]);
+
+    await expect(
+      handleGenerateSolicitationAsksFailed(
+        fakeSql,
+        makeJob({}, { attemptsMade: 3, attempts: 3 }),
+        new Error('boom'),
+      ),
+    ).resolves.toBeUndefined();
+
     // Distinct from terminal_checkpoint_failed on purpose: only this one means
     // nothing will retry, so only this one is worth paging on.
     expect(mocks.logger.error).toHaveBeenCalledWith(

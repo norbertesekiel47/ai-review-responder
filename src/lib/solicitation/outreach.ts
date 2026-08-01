@@ -190,6 +190,14 @@ export interface CloseBatchIfSettledInput {
 
 export type CloseBatchIfSettledResult =
   | { status: 'no_send_parent' }
+  /**
+   * Settled and closed with no send parent to terminalize — generation died
+   * before minting one and never will, so the batch would otherwise stay open
+   * forever with nothing left to close it (#628 round 5). Reachable ONLY when
+   * the caller declares a `failure`: without one, a parentless batch is an
+   * ordinary built batch awaiting approval and must be left alone.
+   */
+  | { status: 'closed_without_parent'; disposition: BatchDisposition; counts: OutreachStatusCounts }
   | { status: 'not_settled'; liveCount: number }
   | { status: 'already_closed' }
   | {
@@ -330,6 +338,25 @@ export async function closeBatchIfSettled(
     );
   }
 
+  // One grouped read answers the join condition AND carries the receipt's
+  // evidence, so the decision and the counts come from one snapshot.
+  //
+  // Settledness is asked of the DOMAIN table before `agent_runs` is consulted
+  // at all — the glossary's definition of a settled batch is "no outreach row
+  // left in rendered/queued/sending", which does not mention runs. The parent
+  // lookup used to run first and short-circuit, which is what made a
+  // parentless batch permanently unclosable (#628 round 5).
+  const tallyRows = await tx<OutreachTallyRow[]>`
+    SELECT delivery_status, disposition_reason, COUNT(*)::int AS total
+    FROM solicitation_outreach
+    WHERE batch_id = ${input.batchId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+    GROUP BY delivery_status, disposition_reason
+  `;
+  const { liveCount, counts } = tallyOutreach(tallyRows, input.batchId);
+  if (liveCount > 0) return { status: 'not_settled', liveCount };
+
   // subject_id is TEXT (migration 071) — a polymorphic subject key, not a uuid
   // column. The send parent is the sibling of the build parent: same subject,
   // different kind.
@@ -344,20 +371,33 @@ export async function closeBatchIfSettled(
     ORDER BY started_at DESC
     LIMIT 1
   `;
-  if (!parent) return { status: 'no_send_parent' };
+  if (!parent) {
+    // No failure declared: an ordinary batch that has not entered the send
+    // lane. It has no rows to be live and no parent to terminalize, and
+    // closing it here would slam the door on a batch still awaiting approval.
+    if (!input.failure) return { status: 'no_send_parent' };
 
-  // One grouped read answers the join condition AND carries the receipt's
-  // evidence, so the decision and the counts come from one snapshot.
-  const tallyRows = await tx<OutreachTallyRow[]>`
-    SELECT delivery_status, disposition_reason, COUNT(*)::int AS total
-    FROM solicitation_outreach
-    WHERE batch_id = ${input.batchId}::uuid
-      AND account_id = ${input.accountId}::uuid
-      AND business_id = ${input.businessId}::uuid
-    GROUP BY delivery_status, disposition_reason
-  `;
-  const { liveCount, counts } = tallyOutreach(tallyRows, input.batchId);
-  if (liveCount > 0) return { status: 'not_settled', liveCount };
+    // Failure declared and settled: generation died before minting a parent,
+    // so nothing will ever mint one and no later writer will call back in.
+    // Close the batch on its own — there is no run to terminalize and no
+    // receipt step to record, which is exactly why this cannot reuse the
+    // path below.
+    const closedParentless = await tx<{ id: string }[]>`
+      UPDATE solicitation_batches
+      SET send_closed_at = NOW()
+      WHERE id = ${input.batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND send_closed_at IS NULL
+      RETURNING id
+    `;
+    if (closedParentless.count === 0) return { status: 'already_closed' };
+    return {
+      status: 'closed_without_parent',
+      disposition: deriveDisposition(batch, input.failure),
+      counts,
+    };
+  }
 
   const closed = await tx<{ id: string }[]>`
     UPDATE solicitation_batches

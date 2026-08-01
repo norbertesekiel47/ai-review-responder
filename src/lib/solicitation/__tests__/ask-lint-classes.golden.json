@@ -1,5 +1,5 @@
 {
-  "version": "ask_lint_2026-07-31.3",
+  "version": "ask_lint_2026-07-31.4",
   "blockReasons": [
     "incentive_language",
     "review_steering",
@@ -35,15 +35,25 @@
         "/\\bwin (?:a|an|one of)\\b/gi",
         "/\\bprizes?\\b/gi",
         "/\\bwinners?\\b/gi",
-        "/\\bcash ?back\\b/gi",
+        "/\\bcash\\b/gi",
         "/\\bstore credit\\b/gi",
         "/\\bpoints\\b/gi",
         "/\\brewards?\\b/gi",
-        "/\\d+\\s*%\\s*off/gi",
-        "/\\$\\s*\\d+\\s*off/gi",
-        "/\\b(?:percent|per\\s?cent)\\s+off\\b/gi",
-        "/\\bhalf[\\s-]?(?:off|price)\\b/gi",
-        "/\\bin exchange for\\b/gi"
+        "/\\d+\\s*%[\\s-]*off/gi",
+        "/\\b(?:percent|per\\s?cent)[\\s-]+off\\b/gi",
+        "/\\b(?:a\\s+)?(?:half|quarter|third|fourth|fifth)[\\s-]+off\\b/gi",
+        "/\\bhalf[\\s-]?price\\b/gi",
+        "/\\b(?:pay|pays|paying|paid)\\s+(?:you|each|every|our|all)\\b/gi",
+        "/\\bwe(?:['’]ll| will| can)?\\s+pay\\b/gi",
+        "/\\bpayments?\\b/gi",
+        "/\\bcompensat(?:e|es|ed|ing|ion)\\b/gi",
+        "/\\breimburs(?:e|es|ed|ing|ement)\\b/gi",
+        "/\\b(?:venmo|paypal|zelle|cash app)\\b/gi",
+        "/\\$\\s*\\d/gi",
+        "/\\b\\d+\\s*(?:dollars?|bucks?|euros?|pounds?)\\b/gi",
+        "/\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)\\s+(?:dollars?|bucks?|euros?|pounds?)\\b/gi",
+        "/\\bin (?:exchange|return) for\\b/gi",
+        "/\\bfor your trouble\\b/gi"
       ]
     },
     {
@@ -114,7 +124,7 @@
         "max_1_exclamation_mark",
         "not_all_caps",
         "max_1_emoji",
-        "no_digit_run_of_7_plus_ignoring_phone_separators",
+        "no_phone_shaped_run_of_7_plus_digits_across_any_punctuation",
         "no_disallowed_interpolated_value_in_subject",
         "no_note_derived_content_token_in_subject"
       ],
@@ -367,10 +377,8 @@
         "/https?:\\/\\//i",
         "/\\bwww\\./i",
         "/\\b[a-z0-9-]+\\.(?:com|net|org|io|co|us|info|biz|app|dev)\\b/i",
-        "/@/"
-      ],
-      "separatorStrippedPatterns": [
-        "/\\d{7,}/"
+        "/@/",
+        "/\\d(?:[\\s\\p{P}\\p{S}]*\\d){6,}/u"
       ]
     },
     {

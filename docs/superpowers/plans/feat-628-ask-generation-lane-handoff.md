@@ -1,9 +1,56 @@
 # Handoff — feat-628-ask-generation-lane
 
-**Phase:** `gate_green`, rounds 1–4 ALL FIXED (`0d0fd1b0`, `e54f99fa`,
-`5d12e403`, and the round-4 commit below). **Next step: the OWNER runs
-`/codex:adversarial-review` round 5.** After APPROVED: step 8 (high-risk
+**Phase:** `gate_green`, rounds 1–5 ALL FIXED (`0d0fd1b0`, `e54f99fa`,
+`5d12e403`, `5d46353d`, and the round-5 commit below). **Next step: the OWNER
+runs `/codex:adversarial-review` round 6.** After APPROVED: step 8 (high-risk
 lane: staging ride first, flag-off no-op smoke only pre-#627).
+
+## OWNER DECISIONS OUTSTANDING (do not let these ride silently)
+
+1. **Intake amendment 5** — `allowed_edit_surface` gained
+   `worker/background/pollers/health-alert/checks.ts` + its test (round-5
+   self-triage finding 1). Amendments 1–4 are also still pending retroactive
+   sign-off.
+2. **`reclassify` WARN** — actual diff is now ~10.4k lines vs the 3200
+   estimate (~3.3×, test- and doc-dominated). The workflow's re-classification
+   trigger has fired every gate run since round 3; waive or re-classify.
+3. **Deterministic lint vs #631 semantic judge** — Codex has recommended a
+   semantic verifier in rounds 3, 4 AND 5. Kept deterministic (locked intake
+   non-goal), but three rounds of patterns losing to paraphrases is evidence
+   about the instrument. Make it an explicit decision.
+4. **#625 rebase has NOT happened** — PR 640 (`feat(#625)`) is still OPEN;
+   this branch is meant to rebase over it before review lands. Six files
+   collide (`batch-builder.ts`, `batch-view.ts`, `batch-report.test.tsx` +
+   tests). No round-5 fix touches them.
+
+## Codex round-5 fixes (full rationale in the deviations file, 2026-07-31)
+
+1. **[high] Parentless batch could never close → FIXED.** `closeBatchIfSettled`
+   now tallies BEFORE looking up the send parent, and closes a settled
+   parentless batch under a new `closed_without_parent` result — gated on the
+   caller declaring a `failure`, so an ordinary built batch awaiting approval
+   is still left alone.
+2. **[high] Terminal settlement was not durable → FIXED.**
+   `grantSettlementRedrive` raises `max_attempts`, moving the row from the
+   watchdog's terminalize arm to its recover arm, so recovery survives an
+   outage instead of a 400 ms retry window. Bounded by
+   `SETTLEMENT_REDRIVE_CEILING = 20`; only a refused grant concedes.
+3. **[high] Cash compensation linted CLEAN → FIXED.** pay/payment/compensate/
+   reimburse, payment rails, any currency amount, `in return for`,
+   `for your trouble`.
+4. **[high] Phone PII allowlist still bypassable → FIXED.** Now matches digits
+   across ARBITRARY punctuation (`\p{P}`/`\p{S}`), covering slashes and
+   Unicode dashes by construction.
+
+Plus two self-triage findings: the lane's failed-outbox topic was missing from
+health alerting (which had voided the whole dead-letter rationale), and
+`a quarter off` / `twenty percent-off` were still passing.
+
+`ASK_LINT_VERSION` → `ask_lint_2026-07-31.4`, golden regenerated.
+Verification at this commit: all solicitation + worker-lane + health-alert unit
+suites (379), the five live-DB integration suites 39/39 plus
+`outreach-close.integration.test.ts` 13/13 with `TEST_DATABASE_POOL_URL`
+exported, lint, typecheck, and the full gate.
 
 ## Codex round-4 fixes (full rationale in the deviations file, 2026-07-31)
 

@@ -59,6 +59,12 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
 // failed publish/notify jobs are customer-visible stalls, terminal response
 // generation drops a paid draft, and terminal solicitation batch construction
 // leaves the batch owner-hidden. Not transient blips.
+//
+// This is a CLOSED allowlist, so a new owner-impacting topic stays invisible
+// until it is added here. `generate_solicitation_asks` shipped without it
+// (#628 round 5), which silently voided that lane's dead-letter rationale:
+// its terminal handler concedes the batch to "an operator will see the failed
+// row", and nothing was watching the row.
 export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding[]> {
   // Window on completed_at: markOutboxFailed sets completed_at = NOW() when a row
   // terminates, so a watchdog-terminated long-dispatched row (old dispatched_at)
@@ -72,7 +78,8 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
         ${QUEUE_NAMES.PUBLISH_RESPONSE},
         ${QUEUE_NAMES.SEND_NOTIFICATION},
         ${QUEUE_NAMES.GENERATE_RESPONSE},
-        ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH}
+        ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH},
+        ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
       )
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic
