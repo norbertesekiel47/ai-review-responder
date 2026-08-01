@@ -1,14 +1,15 @@
 # Handoff — feat-628-ask-generation-lane
 
-**Phase:** `gate_green`. Codex round-1 findings (needs-attention, thread
-`019fb9be-13ac-7352-b506-81f0bc2d3699`) are **ALL FIXED** in commit
-`0d0fd1b0` (2026-07-31); full `verify-gate.sh --review` GREEN at that
-commit, and the five changed live-DB integration suites ran 39/39 with
-`TEST_DATABASE_POOL_URL` exported (`.feature/logs/integration-explicit-round1.log`).
-**Next step: the OWNER runs `/codex:adversarial-review` round 2 against the
-SAME codex thread** (`019fb9be-13ac-7352-b506-81f0bc2d3699`) — the command
-is user-invocable only. Loop until APPROVED, then step 8 (high-risk lane:
-staging ride first, flag-off no-op smoke only pre-#627).
+**Phase:** `gate_green`. Codex adversarial rounds so far: round 1
+(3 findings — fixed in `0d0fd1b0`), round 2 (4 findings, new thread
+`019fba46-97a1-7db0-a92d-2caabcbb8836` — fixed in the round-2 fix commit;
+see the deviations file's four round-2 entries for design rationale and the
+two DOCUMENTED residual gaps: the mixed structured-fail+provider-error
+spend edge, and watchdog max_attempts exhaustion having no domain hook
+because OutboxPoller is out of surface).
+**Next step: the OWNER runs `/codex:adversarial-review` round 3** — the
+command is user-invocable only. Loop until APPROVED, then step 8 (high-risk
+lane: staging ride first, flag-off no-op smoke only pre-#627).
 
 ## Codex round-1 fixes (full rationale in the deviations file, entries dated 2026-07-31)
 

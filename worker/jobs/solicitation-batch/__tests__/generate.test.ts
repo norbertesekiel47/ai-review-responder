@@ -45,6 +45,7 @@ import { TransientLLMError } from '@/lib/llm/error-classifier';
 import {
   generateAsksForBatch,
   regenerateAsk,
+  settleGenerationExhaustion,
 } from '@/lib/solicitation/ask-generation';
 import { handleGenerateSolicitationAsks } from '../generate';
 import { handleGenerateSolicitationAsksFailed } from '../generate-failed-hook';
@@ -175,10 +176,10 @@ describe('handleGenerateSolicitationAsksFailed', () => {
     expect(mocks.markOutboxFailed).not.toHaveBeenCalled();
   });
 
-  it('marks the owned outbox attempt failed on exhaustion', async () => {
+  it('marks the owned outbox attempt failed on regeneration exhaustion — parent and render stay healthy', async () => {
     await handleGenerateSolicitationAsksFailed(
       fakeSql,
-      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      makeJob({ ask_id: 'ask-1' }, { attemptsMade: 3, attempts: 3 }),
       new Error('boom'),
     );
 
@@ -188,9 +189,59 @@ describe('handleGenerateSolicitationAsksFailed', () => {
       'generate_solicitation_asks_exhausted:Error',
       4,
     );
+    expect(settleGenerationExhaustion).not.toHaveBeenCalled();
     expect(mocks.logger.error).toHaveBeenCalledWith(
       'ask generation exhausted',
       expect.objectContaining({ status: 'terminalized', outbox_attempt: 4 }),
+    );
+  });
+
+  it('whole-batch terminal exhaustion runs the coupled dead-letter settlement', async () => {
+    vi.mocked(settleGenerationExhaustion).mockResolvedValueOnce({
+      status: 'settled',
+      filled: 2,
+      close: { status: 'closed' },
+    } as Awaited<ReturnType<typeof settleGenerationExhaustion>>);
+
+    await handleGenerateSolicitationAsksFailed(
+      fakeSql,
+      makeJob({}, { attemptsMade: 3, attempts: 3 }),
+      new Error('boom'),
+    );
+
+    expect(settleGenerationExhaustion).toHaveBeenCalledWith(fakeSql, {
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      outboxHandle: { outboxId: 'outbox-1', attempt: 4 },
+      errorClass: 'Error',
+    });
+    // The domain owns the CAS inside its coupled transaction — the hook must
+    // not race it with a second bare CAS.
+    expect(mocks.markOutboxFailed).not.toHaveBeenCalled();
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({
+        status: 'terminalized_and_settled',
+        filled: 2,
+        close_status: 'closed',
+      }),
+    );
+  });
+
+  it('a dead-letter settlement failure leaves the row dispatched for the watchdog', async () => {
+    vi.mocked(settleGenerationExhaustion).mockRejectedValueOnce(new Error('db down'));
+
+    await expect(
+      handleGenerateSolicitationAsksFailed(
+        fakeSql,
+        makeJob({}, { attemptsMade: 3, attempts: 3 }),
+        new Error('boom'),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      'ask generation exhausted',
+      expect.objectContaining({ status: 'terminal_checkpoint_failed' }),
     );
   });
 

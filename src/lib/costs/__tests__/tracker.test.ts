@@ -381,6 +381,32 @@ describe('checkAskRegenBudget', () => {
     );
     expect(mockRedis.del).toHaveBeenCalledWith('regen:ask:ask-001:charge:ob-9');
   });
+
+  it('wraps a marker-claim transport failure as retryable CostInfraUnavailableError', async () => {
+    mockRedis.set.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    const { checkAskRegenBudget } = await import('../tracker');
+    const { CostInfraUnavailableError } = await import('../errors');
+
+    await expect(checkAskRegenBudget('ask-001', 'ob-1')).rejects.toThrow(
+      CostInfraUnavailableError,
+    );
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+
+  it('wraps a budget-Lua transport failure as retryable CostInfraUnavailableError', async () => {
+    // A raw Redis transport rejection from the INCR-with-cap Lua must never
+    // surface as a permanent failure — the failed hook keeps
+    // CostInfraUnavailableError watchdog-eligible.
+    mockRedis.eval.mockRejectedValueOnce(new Error('connect ETIMEDOUT'));
+
+    const { checkAskRegenBudget } = await import('../tracker');
+    const { CostInfraUnavailableError } = await import('../errors');
+
+    await expect(checkAskRegenBudget('ask-001', 'ob-1')).rejects.toThrow(
+      CostInfraUnavailableError,
+    );
+  });
 });
 
 describe('peekRegenBudget', () => {

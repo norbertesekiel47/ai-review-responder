@@ -37,6 +37,7 @@ import type { Fragment, Sql, TransactionSql } from 'postgres';
 import {
   lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned,
+  markOutboxFailed,
 } from '@/lib/shared/outbox';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
@@ -87,6 +88,7 @@ import {
   supersedeLiveRender,
   type BatchLifecycleRow,
   type BatchState,
+  type CloseBatchIfSettledResult,
   type InsertOutreachRenderInput,
   type OutreachModerationStatus,
   type RenderWithholdReason,
@@ -394,8 +396,14 @@ interface ChildRenderShared {
   moderationStatus: OutreachModerationStatus;
   moderationDetail: Record<string, unknown>;
   interpolationInputs: AskInterpolationInputs | Record<string, never>;
-  /** null when the LLM never returned usable usage (never ran, or failed). */
-  llm: ChildLlmMeta | null;
+  /**
+   * Every provider completion the child was BILLED for — one api_costs row
+   * each. A successful render carries exactly one; a structured-output
+   * failure carries one per validation-failed attempt (primary + fallback);
+   * empty when no provider ever returned tokens (never ran, transport
+   * failure, budget stop).
+   */
+  llmAttempts: readonly ChildLlmMeta[];
 }
 
 type ChildRenderOutcome = ChildRenderShared &
@@ -418,7 +426,7 @@ type ChildRenderOutcome = ChildRenderShared &
  */
 function renderFailedOutcome(
   inputs: AskInterpolationInputs | Record<string, never>,
-  llm: ChildLlmMeta | null = null,
+  llmAttempts: readonly ChildLlmMeta[] = [],
 ): ChildRenderOutcome {
   return {
     status: 'withheld',
@@ -429,7 +437,7 @@ function renderFailedOutcome(
     moderationStatus: 'error',
     moderationDetail: {},
     interpolationInputs: inputs,
-    llm,
+    llmAttempts,
   };
 }
 
@@ -460,25 +468,26 @@ async function generateChildRender(
 ): Promise<ChildRenderOutcome> {
   const prompt = buildAskPrompt(assembled.inputs);
 
-  let llm: LLMCallResult;
-  let costUsd: number;
-  let latencyMs: number;
-  try {
-    const guarded = await withCostGuard(
-      {
-        businessId: ctx.businessId,
-        subscriptionTier: ctx.subscriptionTier,
-        // SPEC §7.3: children are sequential inside one job — never contend
-        // for the latency-critical reply-generation concurrency slots.
-        withConcurrency: false,
-        estimateCents: SOLICITATION_ASK_ESTIMATE_CENTS,
-        // SPEC §7.5: the render is produced and about to be persisted; a
-        // finalize flake must not discard it (a retry would re-spend). The
-        // reservation ages out via the 24h TTL.
-        onFinalizeError: 'log-and-return-value',
-      },
-      async () => {
-        const startedAt = Date.now();
+  type GuardedLlm =
+    | { kind: 'ok'; result: LLMCallResult; usd: number; ms: number }
+    | { kind: 'structured_failure'; attempts: readonly ChildLlmMeta[] };
+
+  const guarded = await withCostGuard<GuardedLlm>(
+    {
+      businessId: ctx.businessId,
+      subscriptionTier: ctx.subscriptionTier,
+      // SPEC §7.3: children are sequential inside one job — never contend
+      // for the latency-critical reply-generation concurrency slots.
+      withConcurrency: false,
+      estimateCents: SOLICITATION_ASK_ESTIMATE_CENTS,
+      // SPEC §7.5: the render is produced and about to be persisted; a
+      // finalize flake must not discard it (a retry would re-spend). The
+      // reservation ages out via the 24h TTL.
+      onFinalizeError: 'log-and-return-value',
+    },
+    async () => {
+      const startedAt = Date.now();
+      try {
         const result = await runLlmTask('solicitation_ask', prompt);
         const usd = calculateCostUsd(
           result.model,
@@ -486,28 +495,52 @@ async function generateChildRender(
           result.usage.completionTokens,
         );
         return {
-          value: { result, usd, ms: Date.now() - startedAt },
+          value: { kind: 'ok' as const, result, usd, ms: Date.now() - startedAt },
           actualCostCents: Math.ceil(usd * 100),
         };
-      },
-    );
-    llm = guarded.result;
-    costUsd = guarded.usd;
-    latencyMs = guarded.ms;
-  } catch (err) {
-    if (err instanceof LLMStructuredOutputError) {
-      // Terminal for THIS child (SPEC §7.5): the batch continues.
-      return renderFailedOutcome(assembled.inputs);
-    }
-    throw err;
+      } catch (err) {
+        if (err instanceof LLMStructuredOutputError) {
+          // Terminal for THIS child (SPEC §7.5), but the providers BILLED the
+          // invalid completions — return through the guard (not throw past
+          // it) so the real spend is FINALIZED against the reservation
+          // instead of released, and each billed attempt gets its api_costs
+          // audit row (codex round-2 finding 1). latencyMs is the whole
+          // guarded call — per-attempt timing is not carried on the error.
+          const ms = Date.now() - startedAt;
+          const attempts: ChildLlmMeta[] = err.billedAttempts.map((attempt) => ({
+            provider: attempt.provider,
+            model: attempt.model,
+            usage: attempt.usage,
+            costUsd: calculateCostUsd(
+              attempt.model,
+              attempt.usage.promptTokens,
+              attempt.usage.completionTokens,
+            ),
+            latencyMs: ms,
+          }));
+          const totalUsd = attempts.reduce((sum, attempt) => sum + attempt.costUsd, 0);
+          return {
+            value: { kind: 'structured_failure' as const, attempts },
+            actualCostCents: Math.ceil(totalUsd * 100),
+          };
+        }
+        throw err;
+      }
+    },
+  );
+
+  if (guarded.kind === 'structured_failure') {
+    // The batch continues; the withheld row rides with the billed attempts.
+    return renderFailedOutcome(assembled.inputs, guarded.attempts);
   }
+  const llm = guarded.result;
 
   const llmMeta: ChildLlmMeta = {
     provider: llm.provider,
     model: llm.model,
     usage: llm.usage,
-    costUsd,
-    latencyMs,
+    costUsd: guarded.usd,
+    latencyMs: guarded.ms,
   };
 
   const parsed = SolicitationAskOutputSchema.safeParse(llm.structured);
@@ -515,7 +548,7 @@ async function generateChildRender(
   // gap), so effectively-empty structured output is treated here as
   // LLMStructuredOutputError-equivalent: withheld render_failed.
   if (!parsed.success || parsed.data.body.trim().length === 0) {
-    return renderFailedOutcome(assembled.inputs, llmMeta);
+    return renderFailedOutcome(assembled.inputs, [llmMeta]);
   }
   const { subject, body: llmBody } = parsed.data;
 
@@ -537,7 +570,7 @@ async function generateChildRender(
       moderationStatus: 'error',
       moderationDetail: {},
       interpolationInputs: assembled.inputs,
-      llm: llmMeta,
+      llmAttempts: [llmMeta],
     };
   }
 
@@ -560,7 +593,7 @@ async function generateChildRender(
       moderationStatus: 'error',
       moderationDetail: {},
       interpolationInputs: assembled.inputs,
-      llm: llmMeta,
+      llmAttempts: [llmMeta],
     };
   }
 
@@ -581,7 +614,7 @@ async function generateChildRender(
       moderationStatus: 'flagged',
       moderationDetail,
       interpolationInputs: assembled.inputs,
-      llm: llmMeta,
+      llmAttempts: [llmMeta],
     };
   }
 
@@ -605,7 +638,7 @@ async function generateChildRender(
     moderationStatus,
     moderationDetail,
     interpolationInputs: assembled.inputs,
-    llm: llmMeta,
+    llmAttempts: [llmMeta],
   };
 }
 
@@ -656,6 +689,24 @@ function toInsertInput(
       };
 }
 
+type PersistChildResult =
+  | { kind: 'inserted'; outreachId: string }
+  | { kind: 'stale_attempt' }
+  | { kind: 'stopped'; state: BatchState };
+
+/**
+ * Persist one child render behind the full revalidation ladder (codex round-2
+ * finding 2), all in the SAME transaction as the insert: outbox attempt
+ * ownership → advisory lock → batch row lock → lifecycle re-check. A halt,
+ * expiry or close that commits while this child's LLM call was in flight must
+ * not gain a live row afterward — the closer already evaluated the settled
+ * predicate, and a resurrected `rendered` row would wedge the batch behind it
+ * with no writer left to join. Only `built` admits an insert: every other
+ * state either forbids new renders outright (halted/closed/expired) or cannot
+ * legitimately coexist with in-flight generation (approved/veto_window/
+ * sending arrive via #629/#630 after generation settles — refusing them here
+ * is the fail-closed arm, not a supported flow).
+ */
 async function persistChildRender(
   sql: Sql,
   ctx: BatchGenerationContext,
@@ -663,10 +714,38 @@ async function persistChildRender(
   outcome: ChildRenderOutcome,
   attemptNo: number,
   parentRunId: string,
-): Promise<string> {
-  return sql.begin(async (tx) =>
-    insertOutreachRender(tx, toInsertInput(ctx, child, outcome, attemptNo, parentRunId)),
-  );
+  handle: { outboxId: string; attempt: number },
+): Promise<PersistChildResult> {
+  return sql.begin(async (tx) => {
+    const owns = await lockDispatchedOutboxAttemptIfOwned(
+      tx,
+      handle.outboxId,
+      handle.attempt,
+    );
+    if (!owns) return { kind: 'stale_attempt' as const };
+
+    await acquireSolicitationBatchLock(tx, ctx.businessId);
+    const [batch] = await tx<BatchLifecycleRow[]>`
+      SELECT built_at, approved_at, veto_deadline_at,
+             sending_started_at, send_closed_at, halted_at
+      FROM solicitation_batches
+      WHERE id = ${ctx.batchId}::uuid
+        AND account_id = ${ctx.accountId}::uuid
+        AND business_id = ${ctx.businessId}::uuid
+      FOR UPDATE
+    `;
+    if (!batch) {
+      throw new Error(`ask generation: batch ${ctx.batchId} vanished before child persist`);
+    }
+    const state = deriveBatchState(batch, new Date());
+    if (state !== 'built') return { kind: 'stopped' as const, state };
+
+    const outreachId = await insertOutreachRender(
+      tx,
+      toInsertInput(ctx, child, outcome, attemptNo, parentRunId),
+    );
+    return { kind: 'inserted' as const, outreachId };
+  });
 }
 
 type AskGenerationLogger = ReturnType<typeof createWorkerLogger>;
@@ -680,29 +759,30 @@ type AskGenerationLogger = ReturnType<typeof createWorkerLogger>;
 async function recordChildApiCost(
   sql: Sql,
   ctx: BatchGenerationContext,
-  llm: ChildLlmMeta | null,
+  llmAttempts: readonly ChildLlmMeta[],
   logger: AskGenerationLogger,
 ): Promise<void> {
-  if (llm === null) return;
-  try {
-    await recordApiCost(sql, {
-      businessId: ctx.businessId,
-      accountId: ctx.accountId,
-      provider: llm.provider,
-      endpoint: llm.provider === 'openai' ? 'chat.completions' : 'messages',
-      inputTokens: llm.usage.promptTokens,
-      outputTokens: llm.usage.completionTokens,
-      costUsd: llm.costUsd,
-      responseId: null,
-      systemPromptHash: solicitationAskPromptHash(),
-      promptVersion: SOLICITATION_ASK_PROMPT_VERSION,
-      latencyMs: llm.latencyMs,
-    });
-  } catch (err) {
-    logger.warn('api_costs write failed after render persistence — swallowing', {
-      business_id: ctx.businessId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  for (const llm of llmAttempts) {
+    try {
+      await recordApiCost(sql, {
+        businessId: ctx.businessId,
+        accountId: ctx.accountId,
+        provider: llm.provider,
+        endpoint: llm.provider === 'openai' ? 'chat.completions' : 'messages',
+        inputTokens: llm.usage.promptTokens,
+        outputTokens: llm.usage.completionTokens,
+        costUsd: llm.costUsd,
+        responseId: null,
+        systemPromptHash: solicitationAskPromptHash(),
+        promptVersion: SOLICITATION_ASK_PROMPT_VERSION,
+        latencyMs: llm.latencyMs,
+      });
+    } catch (err) {
+      logger.warn('api_costs write failed after render persistence — swallowing', {
+        business_id: ctx.businessId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
@@ -755,7 +835,8 @@ async function settleBudgetStop(
   currentInputs: AskInterpolationInputs,
   parentRunId: string,
   result: GenerateAsksResult,
-): Promise<void> {
+  handle: { outboxId: string; attempt: number },
+): Promise<{ kind: 'settled' } | Exclude<PersistChildResult, { kind: 'inserted' }>> {
   for (const [index, ask] of remaining.entries()) {
     const probe = await probeExistingRenders(sql, ctx, ask.ask_id);
     if (probe.nonCancelled > 0) {
@@ -767,16 +848,50 @@ async function settleBudgetStop(
       continue;
     }
     const outcome = renderFailedOutcome(index === 0 ? currentInputs : {});
-    await persistChildRender(
+    const persisted = await persistChildRender(
       sql,
       ctx,
       { askId: ask.ask_id, contactId: ask.contact_id },
       outcome,
       probe.maxAttempt + 1,
       parentRunId,
+      handle,
     );
+    if (persisted.kind !== 'inserted') return persisted;
     result.failed += 1;
   }
+  return { kind: 'settled' as const };
+}
+
+interface RenderTally {
+  alive: number;
+  failed_count: number;
+  withheld_count: number;
+}
+
+/** One snapshot answering both "anything live?" and the failure's two counts. */
+async function readRenderTally(
+  tx: TransactionSql,
+  ids: { batchId: string; accountId: string; businessId: string },
+): Promise<RenderTally> {
+  const [tally] = await tx<RenderTally[]>`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE delivery_status IN ('rendered', 'queued', 'sending', 'sent')
+      )::int AS alive,
+      COUNT(*) FILTER (
+        WHERE delivery_status = 'withheld' AND disposition_reason = 'render_failed'
+      )::int AS failed_count,
+      COUNT(*) FILTER (
+        WHERE delivery_status = 'withheld'
+          AND disposition_reason IN ('lint_failed', 'moderation_high')
+      )::int AS withheld_count
+    FROM solicitation_outreach
+    WHERE batch_id = ${ids.batchId}::uuid
+      AND account_id = ${ids.accountId}::uuid
+      AND business_id = ${ids.businessId}::uuid
+  `;
+  return tally ?? { alive: 0, failed_count: 0, withheld_count: 0 };
 }
 
 export async function generateAsksForBatch(
@@ -881,14 +996,28 @@ export async function generateAsksForBatch(
             ask_id: ask.ask_id,
             scope: err instanceof GlobalCostLimitExceededError ? 'global' : 'account',
           });
-          await settleBudgetStop(
+          const settled = await settleBudgetStop(
             sql,
             ctx,
             asks.slice(index),
             assembled.inputs,
             parentRunId,
             result,
+            { outboxId, attempt },
           );
+          if (settled.kind === 'stale_attempt') {
+            logger.warn('ask generation: stale outbox attempt during budget settle', {
+              batch_id: ctx.batchId,
+              outbox_id: outboxId,
+              outbox_attempt: attempt,
+            });
+            return result;
+          }
+          if (settled.kind === 'stopped') {
+            return noop('ask generation stopped mid-settle: batch left generatable state', {
+              batch_state: settled.state,
+            });
+          }
           break;
         }
         // TransientLLMError / CostInfraUnavailableError (and anything
@@ -899,18 +1028,41 @@ export async function generateAsksForBatch(
       }
     }
 
-    await persistChildRender(
+    const persisted = await persistChildRender(
       sql,
       ctx,
       { askId: ask.ask_id, contactId: ask.contact_id },
       outcome,
       probe.maxAttempt + 1,
       parentRunId,
+      { outboxId, attempt },
     );
+    if (persisted.kind === 'stale_attempt') {
+      // A newer dispatch owns the batch: audit this child's spend, write
+      // nothing else, and leave the outbox row to its new owner.
+      await recordChildApiCost(sql, ctx, outcome.llmAttempts, logger);
+      logger.warn('ask generation: stale outbox attempt at child persist — stopping', {
+        batch_id: ctx.batchId,
+        ask_id: ask.ask_id,
+        outbox_id: outboxId,
+        outbox_attempt: attempt,
+      });
+      return result;
+    }
+    if (persisted.kind === 'stopped') {
+      // Halt/expiry/close won the race (codex round-2 finding 2): the render
+      // is discarded — residual exposure is this one child's LLM call, the
+      // same contract the halt latch documents — but its spend is audited.
+      await recordChildApiCost(sql, ctx, outcome.llmAttempts, logger);
+      return noop('ask generation stopped: batch left generatable state mid-run', {
+        ask_id: ask.ask_id,
+        batch_state: persisted.state,
+      });
+    }
     if (outcome.status === 'rendered') result.rendered += 1;
     else if (outcome.dispositionReason === 'render_failed') result.failed += 1;
     else result.withheld += 1;
-    await recordChildApiCost(sql, ctx, outcome.llm, logger);
+    await recordChildApiCost(sql, ctx, outcome.llmAttempts, logger);
   }
 
   // Finale — ONE transaction (decisions 8+9).
@@ -950,25 +1102,7 @@ export async function generateAsksForBatch(
     // failed or was withheld — the send parent terminalizes
     // `generation_failed`. Derived from the DB, not the in-memory tallies, so
     // a resumed retry over prior partial progress still decides correctly.
-    const [tally] = await tx<
-      { alive: number; failed_count: number; withheld_count: number }[]
-    >`
-      SELECT
-        COUNT(*) FILTER (
-          WHERE delivery_status IN ('rendered', 'queued', 'sending', 'sent')
-        )::int AS alive,
-        COUNT(*) FILTER (
-          WHERE delivery_status = 'withheld' AND disposition_reason = 'render_failed'
-        )::int AS failed_count,
-        COUNT(*) FILTER (
-          WHERE delivery_status = 'withheld'
-            AND disposition_reason IN ('lint_failed', 'moderation_high')
-        )::int AS withheld_count
-      FROM solicitation_outreach
-      WHERE batch_id = ${ctx.batchId}::uuid
-        AND account_id = ${ctx.accountId}::uuid
-        AND business_id = ${ctx.businessId}::uuid
-    `;
+    const tally = await readRenderTally(tx, ctx);
 
     // Decision 8: closeBatchIfSettled is called ALONE — it owns the failure
     // transition internally; never call failSolicitationBatchRun for the send
@@ -977,12 +1111,12 @@ export async function generateAsksForBatch(
       batchId: ctx.batchId,
       accountId: ctx.accountId,
       businessId: ctx.businessId,
-      ...((tally?.alive ?? 0) === 0
+      ...(tally.alive === 0
         ? {
             failure: {
               code: 'generation_failed' as const,
-              failedCount: tally?.failed_count ?? 0,
-              withheldCount: tally?.withheld_count ?? 0,
+              failedCount: tally.failed_count,
+              withheldCount: tally.withheld_count,
             },
           }
         : {}),
@@ -1298,7 +1432,7 @@ export async function regenerateAsk(
 
   // The LLM spend happened whether or not the swap survived — audit it either
   // way (best-effort, SPEC §7.6).
-  await recordChildApiCost(sql, ctx, outcome.llm, logger);
+  await recordChildApiCost(sql, ctx, outcome.llmAttempts, logger);
 
   if (swapped !== null) {
     logger.log('ask regenerated', {
@@ -1310,4 +1444,171 @@ export async function regenerateAsk(
       disposition_reason: outcome.dispositionReason ?? null,
     });
   }
+}
+
+// ── Dead-letter settlement (codex round-2 finding 4) ─────────────────────────
+
+export interface SettleGenerationExhaustionInput {
+  batchId: string;
+  businessId: string;
+  outboxHandle: OutboxHandle;
+  /** Bounded constructor name of the exhausting error (failed-hook supplied). */
+  errorClass: string;
+}
+
+export type SettleGenerationExhaustionResult =
+  | { status: 'stale' }
+  | { status: 'batch_missing' }
+  | { status: 'settled'; filled: number; close: CloseBatchIfSettledResult };
+
+/**
+ * Terminal-exhaustion settlement for a WHOLE-BATCH generation job (codex
+ * round-2 finding 4): when every in-band BullMQ attempt failed on a
+ * non-retryable class, marking only the outbox row failed leaves a partially
+ * generated batch — send asks with no outreach row — behind a running send
+ * parent with no automatic re-driver. One transaction restores a consistent
+ * state: outbox ownership CAS FIRST (build failed-hook precedent), then the
+ * B11 lock order, then a withheld `render_failed` row for every send ask that
+ * has no non-cancelled row (the budget-stop fills), generation steps on the
+ * spine when a send parent exists, and `closeBatchIfSettled` with the
+ * `generation_failed` failure.
+ *
+ * Deliberately NOT a halt: rows that DID render stay live — they are real,
+ * approvable copy, so the parent then legitimately keeps running toward
+ * approval or expiry (partial generation is a degraded batch, not a poisoned
+ * one). Only when nothing is live does the batch close `generation_failed`.
+ *
+ * REGENERATION exhaustion must never come here: its batch has a healthy live
+ * render and a healthy parent; filling "holes" would fabricate failures for
+ * asks the whole-batch pass already handled.
+ */
+export async function settleGenerationExhaustion(
+  sql: Sql,
+  input: SettleGenerationExhaustionInput,
+): Promise<SettleGenerationExhaustionResult> {
+  const attempt = requireAttempt(
+    input.outboxHandle,
+    'generate_solicitation_asks dead-letter',
+  );
+  return sql.begin(async (tx) => {
+    // CAS FIRST — only the owner of the exact dispatched attempt may settle;
+    // a stale hook (the watchdog already re-dispatched) writes nothing.
+    const owns = await markOutboxFailed(
+      tx,
+      input.outboxHandle.outboxId,
+      `generate_solicitation_asks_exhausted:${input.errorClass}`,
+      attempt,
+    );
+    if (!owns) return { status: 'stale' as const };
+
+    await acquireSolicitationBatchLock(tx, input.businessId);
+    const [batch] = await tx<{ account_id: string }[]>`
+      SELECT account_id
+      FROM solicitation_batches
+      WHERE id = ${input.batchId}::uuid
+        AND business_id = ${input.businessId}::uuid
+      FOR UPDATE
+    `;
+    // Missing batch: keep the committed outbox CAS (operators still get the
+    // failed row to diagnose) and skip domain writes — there is nothing to
+    // settle.
+    if (!batch) return { status: 'batch_missing' as const };
+    const accountId = batch.account_id;
+
+    // Send asks with NO non-cancelled outreach row — the holes terminal
+    // exhaustion left. MAX(attempt_no) runs over ALL rows (attempt numbers
+    // are never reused, cancelled included).
+    const holes = await tx<
+      { ask_id: string; contact_id: string; next_attempt: number }[]
+    >`
+      SELECT
+        ask.id AS ask_id,
+        ask.contact_id,
+        (COALESCE(MAX(o.attempt_no), 0) + 1)::int AS next_attempt
+      FROM solicitation_asks ask
+      LEFT JOIN solicitation_outreach o
+        ON o.ask_id = ask.id
+       AND o.account_id = ${accountId}::uuid
+       AND o.business_id = ${input.businessId}::uuid
+      WHERE ask.batch_id = ${input.batchId}::uuid
+        AND ask.account_id = ${accountId}::uuid
+        AND ask.business_id = ${input.businessId}::uuid
+        AND ask.status = 'send'
+      GROUP BY ask.id, ask.contact_id
+      HAVING COUNT(*) FILTER (WHERE o.delivery_status <> 'cancelled') = 0
+    `;
+
+    // The send parent may not exist (the job can die before minting it);
+    // batch row is already locked, so this keeps the lane's batch → run order.
+    const [parent] = await tx<{ id: string }[]>`
+      SELECT id FROM agent_runs
+      WHERE kind = 'solicitation_send_batch'
+        AND subject_type = 'solicitation_batch'
+        AND subject_id = ${input.batchId}
+        AND account_id = ${accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+      ORDER BY started_at DESC
+      LIMIT 1
+    `;
+
+    for (const hole of holes) {
+      // The decision-2 never-produced fills (renderFailedOutcome shape);
+      // interpolation snapshot {} — these asks were never assembled.
+      await insertOutreachRender(tx, {
+        accountId,
+        businessId: input.businessId,
+        batchId: input.batchId,
+        askId: hole.ask_id,
+        contactId: hole.contact_id,
+        attemptNo: hole.next_attempt,
+        promptVersion: SOLICITATION_ASK_PROMPT_VERSION,
+        promptHash: solicitationAskPromptHash(),
+        askLintVersion: ASK_LINT_VERSION,
+        lintDetail: [],
+        moderationStatus: 'error',
+        moderationDetail: {},
+        interpolationInputs: {},
+        renderedAt: new Date(),
+        agentRunId: parent?.id ?? null,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'render_failed',
+        renderedSubject: null,
+        renderedBody: null,
+      });
+    }
+
+    if (parent) {
+      // Receipt for everything the lane actually did (prior partial renders +
+      // these fills) — safe here because the outbox CAS above is this
+      // transaction's idempotency guard, same as the finale's.
+      await recordGenerationSteps(tx, {
+        parentRunId: parent.id,
+        accountId,
+        businessId: input.businessId,
+        batchId: input.batchId,
+      });
+    }
+
+    const tally = await readRenderTally(tx, {
+      batchId: input.batchId,
+      accountId,
+      businessId: input.businessId,
+    });
+    const close = await closeBatchIfSettled(tx, {
+      batchId: input.batchId,
+      accountId,
+      businessId: input.businessId,
+      ...(tally.alive === 0
+        ? {
+            failure: {
+              code: 'generation_failed' as const,
+              failedCount: tally.failed_count,
+              withheldCount: tally.withheld_count,
+            },
+          }
+        : {}),
+    });
+
+    return { status: 'settled' as const, filled: holes.length, close };
+  });
 }

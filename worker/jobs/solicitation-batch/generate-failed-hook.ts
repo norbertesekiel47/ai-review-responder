@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { CostInfraUnavailableError } from '@/lib/costs/errors';
 import { TransientLLMError } from '@/lib/llm/error-classifier';
+import { settleGenerationExhaustion } from '@/lib/solicitation/ask-generation';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import {
   extractOutboxHandle,
@@ -55,20 +56,21 @@ function logFailureSafely(
 }
 
 /**
- * Exhausted-attempt handler for generate_solicitation_asks. Terminal failure
- * classes: an attempt-guarded CAS marks the dispatched outbox row failed, so
- * the watchdog stops re-driving it and operators keep a diagnosis/re-drive
- * surface. Retryable classes (isRetryableExhaustion) instead leave the row
- * dispatched — the watchdog is the out-of-band re-driver once in-band BullMQ
- * attempts run out.
+ * Exhausted-attempt handler for generate_solicitation_asks.
  *
- * Deliberately NO send-parent terminalization, unlike the sibling build
- * failed-hook: `closeBatchIfSettled` owns every send-parent terminal
- * transition (the batch → run single-join contract in outreach.ts), only the
- * domain finale can know whether the batch settled, and on the regeneration
- * path the parent is healthy — the existing render stays live. An operator
- * re-drive resumes idempotently (SPEC §7.4): every ask holding any
- * non-cancelled outreach row is skipped before a cent is reserved.
+ * Retryable classes (isRetryableExhaustion) leave the row dispatched — the
+ * watchdog is the out-of-band re-driver once in-band BullMQ attempts run out.
+ *
+ * Terminal classes split by payload:
+ * - WHOLE-BATCH job: `settleGenerationExhaustion` — one transaction couples
+ *   the outbox-failed CAS with the domain settlement (withheld render_failed
+ *   fills for un-rendered send asks + closeBatchIfSettled(generation_failed)),
+ *   so a permanent failure cannot strand a running send parent behind missing
+ *   rows (codex round-2 finding 4).
+ * - REGENERATION job: the bare attempt-guarded CAS only. The batch's parent
+ *   and existing render are healthy — the failed regeneration changes nothing
+ *   an operator cannot re-drive, and `closeBatchIfSettled` keeps its single
+ *   set of legitimate callers.
  */
 export async function handleGenerateSolicitationAsksFailed(
   sql: Sql,
@@ -113,6 +115,38 @@ export async function handleGenerateSolicitationAsksFailed(
       outbox_attempt: attempt,
       error_class: errorClass,
     });
+    return;
+  }
+
+  if (job.data.ask_id === undefined) {
+    // Whole-batch dead-letter: coupled CAS + settlement, committed or rolled
+    // back as one unit.
+    try {
+      const settled = await settleGenerationExhaustion(sql, {
+        batchId: job.data.batch_id,
+        businessId: job.data.business_id,
+        outboxHandle: { outboxId, attempt },
+        errorClass,
+      });
+      logFailureSafely({
+        status: settled.status === 'settled' ? 'terminalized_and_settled' : settled.status,
+        ...jobFields,
+        outbox_attempt: attempt,
+        error_class: errorClass,
+        ...(settled.status === 'settled'
+          ? { filled: settled.filled, close_status: settled.close.status }
+          : {}),
+      });
+    } catch (hookErr) {
+      // The coupled transaction rolled back: leave the row dispatched for
+      // watchdog recovery rather than retrying inside a bare failed listener.
+      logFailureSafely({
+        status: 'terminal_checkpoint_failed',
+        ...jobFields,
+        outbox_attempt: attempt,
+        error_class: boundedErrorClass(hookErr),
+      });
+    }
     return;
   }
 

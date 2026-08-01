@@ -10,6 +10,7 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
 const mocks = vi.hoisted(() => ({
   lockDispatchedOutboxAttemptIfOwned: vi.fn(),
   markOutboxCompletedIfOwned: vi.fn(),
+  markOutboxFailed: vi.fn(),
   startOrGetSolicitationSendBatchRun: vi.fn(),
   recordGenerationSteps: vi.fn(),
   recordStep: vi.fn(),
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/shared/outbox', () => ({
   lockDispatchedOutboxAttemptIfOwned: mocks.lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned: mocks.markOutboxCompletedIfOwned,
+  markOutboxFailed: mocks.markOutboxFailed,
 }));
 vi.mock('@/lib/agents/run-spine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/agents/run-spine')>()),
@@ -90,9 +92,11 @@ import {
 } from '@/lib/costs/tracker';
 import { TransientLLMError } from '@/lib/llm/error-classifier';
 import { OPENAI_MODEL } from '@/lib/llm/tasks';
+import { ANTHROPIC_MODEL } from '@/lib/llm/tasks';
 import {
   generateAsksForBatch,
   regenerateAsk,
+  settleGenerationExhaustion,
   SOLICITATION_ASK_ESTIMATE_CENTS,
 } from '../ask-generation';
 
@@ -157,6 +161,10 @@ function askRow(n: number, overrides: Record<string, unknown> = {}) {
 const probeRow = (nonCancelled: number, maxAttempt = nonCancelled) =>
   mkTaggedResult([{ non_cancelled: nonCancelled, max_attempt: maxAttempt }]);
 
+/** The per-child persist tx re-reads the batch lifecycle FOR UPDATE (round-2 finding 2). */
+const lifecycleRow = (overrides: Record<string, unknown> = {}) =>
+  mkTaggedResult([contextRow(overrides)]);
+
 const tallyRow = (alive: number, failedCount = 0, withheldCount = 0) =>
   mkTaggedResult([{ alive, failed_count: failedCount, withheld_count: withheldCount }]);
 
@@ -218,6 +226,7 @@ describe('generateAsksForBatch', () => {
       mkTaggedResult([askRow(1), askRow(2)]),
       probeRow(1), // ask-1 already holds a live render
       probeRow(0), // ask-2 is un-generated
+      lifecycleRow(), // ask-2 persist revalidation
     );
     enqueueFinale();
 
@@ -259,9 +268,12 @@ describe('generateAsksForBatch', () => {
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1), askRow(2), askRow(3)]),
       probeRow(0), // ask-1: renders
+      lifecycleRow(), // ask-1 persist revalidation
       probeRow(0), // ask-2: reserve throws
       probeRow(0), // ask-2 re-probe inside the budget-stop settle
+      lifecycleRow(), // ask-2 persist revalidation
       probeRow(0), // ask-3 probe inside the budget-stop settle
+      lifecycleRow(), // ask-3 persist revalidation
     );
     enqueueFinale();
 
@@ -312,6 +324,7 @@ describe('generateAsksForBatch', () => {
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
         probeRow(0),
+        lifecycleRow(),
       );
       enqueueFinale();
       return generateAsksForBatch(sql, GENERATE_INPUT);
@@ -397,6 +410,7 @@ describe('generateAsksForBatch', () => {
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
         probeRow(0),
+        lifecycleRow(),
       );
       enqueueFinale(tallyRow(0, 1, 0));
       return generateAsksForBatch(sql, GENERATE_INPUT);
@@ -455,6 +469,7 @@ describe('generateAsksForBatch', () => {
         mkTaggedResult([contextRow()]),
         mkTaggedResult([askRow(1)]),
         probeRow(0),
+        lifecycleRow(),
       );
       enqueueFinale(tallyRow(0, 0, 1));
       return generateAsksForBatch(sql, GENERATE_INPUT);
@@ -465,6 +480,7 @@ describe('generateAsksForBatch', () => {
         mkTaggedResult([contextRow({ postal_address: null })]),
         mkTaggedResult([askRow(1)]),
         probeRow(0),
+        lifecycleRow(),
       );
       enqueueFinale(tallyRow(0, 0, 1));
       const result = await generateAsksForBatch(sql, GENERATE_INPUT);
@@ -507,7 +523,9 @@ describe('generateAsksForBatch', () => {
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1), askRow(2)]),
       probeRow(0),
+      lifecycleRow(),
       probeRow(0),
+      lifecycleRow(),
     );
     enqueueFinale();
 
@@ -584,6 +602,7 @@ describe('generateAsksForBatch', () => {
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
       probeRow(0),
+      lifecycleRow(),
     );
     // The finale CAS loses (watchdog re-dispatched while we generated).
     mocks.markOutboxCompletedIfOwned.mockResolvedValue(false);
@@ -593,7 +612,9 @@ describe('generateAsksForBatch', () => {
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
     expect(mocks.recordGenerationSteps).not.toHaveBeenCalled();
     expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
-    expect(mocks.acquireSolicitationBatchLock).not.toHaveBeenCalled();
+    // Exactly the one advisory acquisition from the child persist tx — the
+    // stale finale itself must never reach its own advisory lock.
+    expect(mocks.acquireSolicitationBatchLock).toHaveBeenCalledTimes(1);
   });
 
   it('an owned finale orders CAS → advisory lock → batch row → steps → close', async () => {
@@ -601,6 +622,7 @@ describe('generateAsksForBatch', () => {
       mkTaggedResult([contextRow()]),
       mkTaggedResult([askRow(1)]),
       probeRow(0),
+      lifecycleRow(),
     );
     enqueueFinale();
     const order: string[] = [];
@@ -622,7 +644,207 @@ describe('generateAsksForBatch', () => {
 
     await generateAsksForBatch(sql, GENERATE_INPUT);
 
-    expect(order).toEqual(['cas', 'advisory', 'steps', 'close']);
+    // The leading 'advisory' is the child persist tx's own B11 acquisition
+    // (round-2 finding 2); the finale's ladder follows unchanged.
+    expect(order).toEqual(['advisory', 'cas', 'advisory', 'steps', 'close']);
+  });
+
+  describe('child persist revalidation (codex round-2 finding 2)', () => {
+    it('a halt that lands mid-generation stops the lane: no insert, spend audited, outbox completed', async () => {
+      sqlReturnQueue.push(
+        mkTaggedResult([contextRow()]),
+        mkTaggedResult([askRow(1)]),
+        probeRow(0),
+        lifecycleRow({ halted_at: new Date() }),
+      );
+
+      const result = await generateAsksForBatch(sql, GENERATE_INPUT);
+
+      expect(result).toEqual({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 0 });
+      expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+      // The discarded render's spend is still audited (regen-door precedent).
+      expect(mocks.recordApiCost).toHaveBeenCalledTimes(1);
+      // The stop is a SUCCESS no-op: outbox completes, finale never runs.
+      expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.recordGenerationSteps).not.toHaveBeenCalled();
+      expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
+      expect(mocks.logger.log).toHaveBeenCalledWith(
+        'ask generation stopped: batch left generatable state mid-run',
+        expect.objectContaining({ batch_state: 'halted' }),
+      );
+    });
+
+    it('an expired batch refuses new renders on a late re-drive', async () => {
+      sqlReturnQueue.push(
+        mkTaggedResult([contextRow()]),
+        mkTaggedResult([askRow(1)]),
+        probeRow(0),
+        lifecycleRow({ built_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) }),
+      );
+
+      const result = await generateAsksForBatch(sql, GENERATE_INPUT);
+
+      expect(result).toEqual({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 0 });
+      expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+      expect(mocks.logger.log).toHaveBeenCalledWith(
+        'ask generation stopped: batch left generatable state mid-run',
+        expect.objectContaining({ batch_state: 'expired' }),
+      );
+    });
+
+    it('a stale outbox attempt at child persist stops writing and leaves the outbox to its new owner', async () => {
+      sqlReturnQueue.push(
+        mkTaggedResult([contextRow()]),
+        mkTaggedResult([askRow(1)]),
+        probeRow(0),
+      );
+      // Parent-run gate owns the attempt; the watchdog re-dispatches before
+      // the child persists.
+      mocks.lockDispatchedOutboxAttemptIfOwned
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+
+      const result = await generateAsksForBatch(sql, GENERATE_INPUT);
+
+      expect(result).toEqual({ rendered: 0, withheld: 0, failed: 0, skippedExisting: 0 });
+      expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+      expect(mocks.recordApiCost).toHaveBeenCalledTimes(1);
+      expect(mocks.markOutboxCompletedIfOwned).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a structured-output failure finalizes the billed spend and audits every attempt (codex round-2 finding 1)', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow()]),
+      mkTaggedResult([askRow(1)]),
+      probeRow(0),
+      lifecycleRow(),
+    );
+    enqueueFinale(tallyRow(0, 1, 0));
+    mocks.runLlmTask.mockRejectedValue(
+      new LLMStructuredOutputError('solicitation_ask', 'anthropic', new Error('bad json'), [
+        {
+          provider: 'openai',
+          model: OPENAI_MODEL,
+          usage: { promptTokens: 500, completionTokens: 120 },
+        },
+        {
+          provider: 'anthropic',
+          model: ANTHROPIC_MODEL,
+          usage: { promptTokens: 500, completionTokens: 110 },
+        },
+      ]),
+    );
+
+    const result = await generateAsksForBatch(sql, GENERATE_INPUT);
+
+    expect(result).toEqual({ rendered: 0, withheld: 0, failed: 1, skippedExisting: 0 });
+    // The reservation is FINALIZED against the billed completions, never
+    // released as if nothing ran.
+    expect(mocks.finalizeCost).toHaveBeenCalledTimes(1);
+    expect(mocks.releaseCost).not.toHaveBeenCalled();
+    // One api_costs audit row per billed attempt, each under its own model.
+    expect(mocks.recordApiCost).toHaveBeenCalledTimes(2);
+    const audited = mocks.recordApiCost.mock.calls.map(
+      (call) => (call[1] as { provider: string; costUsd: number }),
+    );
+    expect(audited[0]).toMatchObject({ provider: 'openai' });
+    expect(audited[1]).toMatchObject({ provider: 'anthropic' });
+    for (const row of audited) expect(row.costUsd).toBeGreaterThan(0);
+    // The child itself is still the locked render_failed shape.
+    expect(mocks.insertOutreachRender.mock.calls[0]![1]).toMatchObject({
+      deliveryStatus: 'withheld',
+      dispositionReason: 'render_failed',
+    });
+  });
+});
+
+describe('settleGenerationExhaustion (codex round-2 finding 4)', () => {
+  const DEAD_LETTER_INPUT = {
+    batchId: BATCH_ID,
+    businessId: BUSINESS_ID,
+    outboxHandle: OUTBOX,
+    errorClass: 'Error',
+  };
+
+  it('fills withheld render_failed rows for un-rendered send asks and closes generation_failed', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([{ account_id: ACCOUNT_ID }]), // batch FOR UPDATE
+      mkTaggedResult([
+        { ask_id: 'ask-2', contact_id: 'contact-2', next_attempt: 1 },
+        { ask_id: 'ask-3', contact_id: 'contact-3', next_attempt: 1 },
+      ]), // holes
+      mkTaggedResult([{ id: 'parent-run-1' }]), // send parent
+      tallyRow(0, 3, 0), // nothing live after the fills
+    );
+    mocks.markOutboxFailed.mockResolvedValue(true);
+    mocks.closeBatchIfSettled.mockResolvedValue({
+      status: 'closed',
+      parentRunId: 'parent-run-1',
+      disposition: 'generation_failed',
+      parentStatus: 'failed',
+      counts: {},
+    });
+
+    const settled = await settleGenerationExhaustion(sql, DEAD_LETTER_INPUT);
+
+    expect(settled.status).toBe('settled');
+    if (settled.status !== 'settled') throw new Error('unreachable');
+    expect(settled.filled).toBe(2);
+    expect(mocks.markOutboxFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      OUTBOX.outboxId,
+      'generate_solicitation_asks_exhausted:Error',
+      OUTBOX.attempt,
+    );
+    expect(mocks.insertOutreachRender).toHaveBeenCalledTimes(2);
+    expect(mocks.insertOutreachRender.mock.calls[0]![1]).toMatchObject({
+      askId: 'ask-2',
+      deliveryStatus: 'withheld',
+      dispositionReason: 'render_failed',
+      interpolationInputs: {},
+      agentRunId: 'parent-run-1',
+      attemptNo: 1,
+    });
+    expect(mocks.recordGenerationSteps).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ parentRunId: 'parent-run-1', batchId: BATCH_ID }),
+    );
+    expect(mocks.closeBatchIfSettled).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        batchId: BATCH_ID,
+        failure: { code: 'generation_failed', failedCount: 3, withheldCount: 0 },
+      }),
+    );
+  });
+
+  it('keeps genuinely rendered rows live: no failure handed over while something is alive', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([{ account_id: ACCOUNT_ID }]),
+      mkTaggedResult([{ ask_id: 'ask-3', contact_id: 'contact-3', next_attempt: 1 }]),
+      mkTaggedResult([{ id: 'parent-run-1' }]),
+      tallyRow(2, 1, 0), // two rendered rows stay approvable
+    );
+    mocks.markOutboxFailed.mockResolvedValue(true);
+    mocks.closeBatchIfSettled.mockResolvedValue({ status: 'not_settled', liveCount: 2 });
+
+    const settled = await settleGenerationExhaustion(sql, DEAD_LETTER_INPUT);
+
+    expect(settled.status).toBe('settled');
+    const closeArgs = mocks.closeBatchIfSettled.mock.calls[0]![1] as Record<string, unknown>;
+    expect(closeArgs.failure).toBeUndefined();
+  });
+
+  it('a stale attempt writes nothing', async () => {
+    mocks.markOutboxFailed.mockResolvedValue(false);
+
+    const settled = await settleGenerationExhaustion(sql, DEAD_LETTER_INPUT);
+
+    expect(settled).toEqual({ status: 'stale' });
+    expect(mocks.acquireSolicitationBatchLock).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
   });
 });
 

@@ -321,7 +321,18 @@ export async function checkAskRegenBudget(
 ): Promise<void> {
   const redis = getCacheRedis();
   const chargeKey = askRegenChargeKey(askId, outboxId);
-  const claimed = await redis.set(chargeKey, '1', 'EX', CACHE_TTL_SECONDS, 'NX');
+
+  // Transport failures on either round-trip are RETRYABLE infrastructure
+  // outages, not budget decisions: wrap as CostInfraUnavailableError so the
+  // worker rethrows for BullMQ retry and the failed hook keeps the attempt
+  // watchdog-eligible. Only RegenBudgetExceededError stays terminal (#255:
+  // never reclassify a budget decision as infra, and vice versa).
+  let claimed: string | null;
+  try {
+    claimed = await redis.set(chargeKey, '1', 'EX', CACHE_TTL_SECONDS, 'NX');
+  } catch (err) {
+    throw new CostInfraUnavailableError('checkAskRegenBudget', { cause: err });
+  }
   if (claimed === null) return; // this logical regeneration already paid
 
   try {
@@ -333,8 +344,9 @@ export async function checkAskRegenBudget(
       // refusal completes the outbox row (no retry reads a stale marker) and
       // the marker ages out via TTL regardless.
       await redis.del(chargeKey).catch(() => undefined);
+      throw err;
     }
-    throw err;
+    throw new CostInfraUnavailableError('checkAskRegenBudget', { cause: err });
   }
 }
 

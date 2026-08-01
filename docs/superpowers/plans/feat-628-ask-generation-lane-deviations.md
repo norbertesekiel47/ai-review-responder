@@ -421,3 +421,64 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   unit" test), where a Lua-internal branch would be invisible to the unit
   suite. The marker-claimed-then-charge-crashed race UNDERCHARGES by design —
   the cost-guard's documented fail-open direction.
+- [2026-07-31] **Codex adversarial review round 2: needs-attention (4
+  findings, all fixed same-day).** (1) high — structured-output failures
+  released the reservation and skipped api_costs despite billed completions;
+  (2) high — the whole-batch path could insert live renders after a
+  halt/expiry/close committed mid-generation; (3) high — checkAskRegenBudget
+  transport errors surfaced raw and the failed hook terminalized them;
+  (4) high — terminal whole-batch exhaustion marked only the outbox failed,
+  stranding a running send parent behind missing outreach rows.
+- [2026-07-31] **Codex round-2 fix (finding 1): billed structured-output
+  spend is finalized and audited.** `LLMStructuredOutputError` now carries
+  `billedAttempts` (provider/model/usage per validation-failed completion;
+  `throwExhaustedAttempts` merges the primary's into the rethrown fallback
+  error), and `generateChildRender` catches it INSIDE the cost-guarded
+  callback — returning `actualCostCents` from the billed attempts so the
+  guard FINALIZES instead of releasing. `ChildRenderShared.llm` became
+  `llmAttempts: readonly ChildLlmMeta[]` — one api_costs row per billed
+  attempt (summing usage across two models into one row would misattribute
+  tokens in margin data). Residual documented gaps: a structured-fail
+  attempt followed by a transient/terminal PROVIDER error on the other
+  provider still escapes finalization (needs both failure modes in one job
+  attempt — rare², bounded by the small structured-task maxTokens), and a
+  failover-after-invalid-primary SUCCESS still under-reports by one attempt
+  (pre-existing seam note, unchanged).
+- [2026-07-31] **Codex round-2 fix (finding 2): per-child persist
+  revalidation.** `persistChildRender` now runs the regen swap's exact
+  ladder in the child-insert transaction: outbox attempt ownership
+  (`lockDispatchedOutboxAttemptIfOwned`) → advisory lock → batch row FOR
+  UPDATE → `deriveBatchState` re-check; only `built` admits an insert
+  (stopped states return a discriminated result — halt/expiry/close wins the
+  race, the render is discarded, its spend audited, the outbox completed as
+  a no-op SUCCESS; a stale attempt writes nothing and leaves the outbox to
+  its new owner). `settleBudgetStop` threads the same guard. The finale's
+  post-persist window (stop landing between last child and finale) is
+  tolerated: the finale is CAS-gated and `closeBatchIfSettled` no-ops on an
+  already-closed batch.
+- [2026-07-31] **Codex round-2 fix (finding 3): regen-budget transport
+  errors are retryable.** `checkAskRegenBudget` wraps SET/EVAL transport
+  failures as `CostInfraUnavailableError` (new touchpoint member
+  `checkAskRegenBudget`); `RegenBudgetExceededError` stays terminal (#255
+  boundary in both directions). With the round-1 fix, exhaustion on an
+  Upstash outage now stays watchdog-eligible instead of silently losing the
+  owner's regeneration.
+- [2026-07-31] **Codex round-2 fix (finding 4): whole-batch dead-letter
+  settlement.** New `settleGenerationExhaustion` (ask-generation.ts owns the
+  lane's failure behavior; the hook stays an orchestrator): ONE transaction
+  couples the `markOutboxFailed` CAS (first statement, build failed-hook
+  precedent) with the domain settlement — withheld `render_failed` fills for
+  every send ask holding no non-cancelled row (the budget-stop shape; 091's
+  closed `cancelled` vocabulary has no generation-failure member, so
+  cancelling live rows was not an option), generation steps when a send
+  parent exists, then `closeBatchIfSettled` handed `generation_failed` only
+  when nothing is live. DELIBERATE: genuinely rendered rows stay live —
+  partial generation is a degraded batch, not a poisoned one; the parent
+  legitimately runs toward approval or expiry. Regeneration exhaustion keeps
+  the bare CAS (its parent/render are healthy). Residual documented gap:
+  watchdog `max_attempts` exhaustion (the OutboxPoller terminalizes the row
+  itself) has no domain hook — OutboxPoller is OUT of this intake's surface;
+  the failed row pages via the existing failed-outbox alerting, and an
+  operator re-drive is now SAFE because the finding-2 revalidation refuses
+  stale inserts. Candidate follow-up ticket alongside the sibling-hook
+  audit.
