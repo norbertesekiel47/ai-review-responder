@@ -995,10 +995,11 @@ Revisit triggers:
   — text-only (it never calls `assertSchemaReady`) and the new owner of the live
   CHECK ⟺ `ANALYTICS_EVENT_NAMES` drift guard, handed off from 094's suite,
   which now pins its own historical 21-name list (the 089 → 094 precedent).
-  **Applied and verified only against the local test container so far; not
-  applied to staging or production.** At promotion the user applies it
-  immediately after 096, staging first, then production, both Supabase projects
-  in lockstep.
+  **Applied to STAGING 2026-08-02** (immediately after 096, same change window),
+  verified by schema introspection: the live
+  `analytics_events_event_name_check` carries both `solicitation_suppressed` and
+  `solicitation_suppressed_at_dispatch`. **NOT yet applied to production** —
+  applied there in lockstep at PR promotion, 096 first, then 097.
 
 - **096** — `solicitation_suppressions`: the **Suppression ledger** and the
   **Unsubscribe token** table (#643, split from #626; locked spec
@@ -1066,12 +1067,16 @@ Revisit triggers:
   hex, off-by-one lengths and hex-length non-hex all rejected, a real digest
   accepted — exact FK set including the no-FK absences, both
   partial uniques, RLS-with-zero-policies); schema-ready entry
-  `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied and verified only against
-  the local test container so far; not applied to staging or production.** At
-  promotion the user applies 096 then 097, in order, staging first, then
-  production, both Supabase projects in lockstep — verified by schema
-  introspection (`information_schema.columns` / `pg_indexes` /
-  RLS-with-zero-policies / CHECK contents), never the Supabase migration ledger.
+  `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied to STAGING 2026-08-02**,
+  verified by schema introspection (never the Supabase migration ledger, which
+  does not track RepWorth's `0xx` migrations): both tables present; all 8 indexes
+  present (2 PKs, the 2 partial uniques, the 2 account-leading lookups, the
+  partial `outreach_id` unique, the `token_hash` UNIQUE); `relrowsecurity=true`
+  on both with **0** rows in `pg_policies`; and
+  `solicitation_unsubscribe_tokens_token_hash_sha256_hex` live as
+  `CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text))`. **NOT yet applied to
+  production** — applied there in lockstep at PR promotion, 096 then 097, in
+  order, verified the same way.
 
 - **095** — `consent_business_index`: one business-leading index
   `idx_solicitation_consent_business_handle` on
