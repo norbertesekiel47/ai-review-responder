@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 411;
+export const ALLOWLIST_BASELINE = 413;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2517,6 +2517,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "DELETE FROM notification_deliveries nd WHERE nd.account_id = ${row.account_id}::uuid OR nd.business_id IN ( SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid )",
     category: 'tenant-root-lookup',
     reason: "Purge deletes the account's notification deliveries; the businesses reference is the account-scoped business_id IN-subquery, which the scanner strips before predicate analysis.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "solicitation_unsubscribe_tokens",
+    sqlSnippet: "UPDATE solicitation_unsubscribe_tokens SET account_id = NULL, business_id = NULL, ask_id = NULL WHERE account_id = ${row.account_id}::uuid OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)",
+    category: 'tenant-root-lookup',
+    reason: "Purge scrubs the account's Unsubscribe token provenance (#643 spec §6.3); both branches are account-scoped (direct account_id, or business_id IN the account's businesses), but the scanner rejects OR predicates and strips the subquery.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "businesses",
+    sqlSnippet: "UPDATE solicitation_unsubscribe_tokens SET account_id = NULL, business_id = NULL, ask_id = NULL WHERE account_id = ${row.account_id}::uuid OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)",
+    category: 'tenant-root-lookup',
+    reason: "Purge scrubs the account's Unsubscribe token provenance (#643 spec §6.3); the businesses reference is the account-scoped business_id IN-subquery, which the scanner strips before predicate analysis.",
   },
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",

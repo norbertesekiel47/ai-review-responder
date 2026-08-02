@@ -318,6 +318,37 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     // backstops this. Runs under the same csv-ingest/batch advisory locks
     // acquired above, after the upload delete so it sweeps post-SET-NULL rows.
     await deleteByBusiness(tx, 'solicitation_consent', row.account_id);
+    // Suppression ledger (migration 096, #643) — spec §6.3. Retention splits on
+    // the Suppression scope axis (D7). Account-scoped (owner_manual) rows are
+    // the account's own preference about their own customer: once purged, no
+    // path exists to mail that person through this account, so nothing is
+    // protected by keeping them. GLOBAL rows are deliberately untouched — they
+    // are the recipient's revocation against our one shared sending identity
+    // and survive with account_id intact, pointing at the already-tombstoned
+    // accounts row (096 gives that FK no ON DELETE action on purpose).
+    await tx`
+      DELETE FROM solicitation_suppressions
+      WHERE scope = 'account' AND account_id = ${row.account_id}::uuid
+    `;
+    // Unsubscribe token (migration 096, #643) — spec §6.3: scrub the
+    // provenance, keep the mechanism. Redemption after the sender is gone still
+    // writes a ledger row (§5.2); honouring the opt-out matters, knowing which
+    // dead account minted the token does not.
+    //
+    // G12's implication CHECK means nulling account_id obliges business_id and
+    // ask_id to be null too, so these three MUST go in ONE statement — nulling
+    // account_id alone throws. outreach_id is deliberately absent: its own
+    // ON DELETE SET NULL (G1) nulls it when the outreach row cascades away with
+    // the upload deleted above, and it is excluded from the CHECK precisely so
+    // that can happen independently.
+    await tx`
+      UPDATE solicitation_unsubscribe_tokens
+      SET account_id = NULL,
+          business_id = NULL,
+          ask_id = NULL
+      WHERE account_id = ${row.account_id}::uuid
+         OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)
+    `;
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
     // Guardian escalations (migration 073): review_id FK has no cascade, so

@@ -93,13 +93,22 @@ import {
   closeSeedDb,
   getE2eSql,
   seedOwnerOffboardingAccount,
+  type OwnerOffboardingSeedData,
 } from '../../../../e2e/seed';
 import { describeWithDb } from '../../../../src/__tests__/helpers/describe-with-db';
 import {
   assertSchemaReady,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
+  MIGRATION_096_SOLICITATION_SUPPRESSIONS,
 } from '../../../../src/lib/shared/__tests__/helpers/schema-ready';
+import { verifyAccountOffboardingPurge } from '../../../../src/lib/account-offboarding/purge-verification';
+// Type-only: the closed enums are owned by suppression.ts, so no source or
+// Suppression scope value is re-spelled as a bare literal in this file.
+import type {
+  SuppressionScope,
+  SuppressionSource,
+} from '../../../../src/lib/solicitation/suppression';
 
 // The hoisted block above already parsed .env.local and set DATABASE_POOL_URL,
 // so `RUN` is the authoritative gate — passed to describeWithDb as `enabled`.
@@ -122,6 +131,7 @@ beforeAll(async () => {
   await assertSchemaReady(getE2eSql(), [
     MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
     MIGRATION_093_SOLICITATION_CONSENT,
+    MIGRATION_096_SOLICITATION_SUPPRESSIONS,
   ]);
 });
 
@@ -164,6 +174,278 @@ function parsePayload(
 ): Record<string, unknown> | undefined {
   if (typeof value === 'string') return JSON.parse(value) as Record<string, unknown>;
   return value;
+}
+
+// ── Suppression ledger / Unsubscribe token fixtures (#643, spec §6.3) ────────
+
+/** A fresh Normalized handle per test, so no two tests contend on one key. */
+function freshSuppressionHandle(): string {
+  return `offboarding-suppression-${randomUUID()}@test.local`;
+}
+
+/**
+ * Seeds one Suppression ledger row directly. A raw INSERT on purpose: these
+ * tests are about what the offboarding purge does to rows that ALREADY exist,
+ * and `recordSuppression`'s own first-write-wins contract is proven against the
+ * partial unique indexes by
+ * `src/lib/solicitation/__tests__/suppression.integration.test.ts`.
+ */
+async function seedSuppressionRow(input: {
+  scope: SuppressionScope;
+  handle: string;
+  accountId: string | null;
+  source: SuppressionSource;
+  createdByUserId?: string | null;
+}): Promise<string> {
+  const sql = getE2eSql();
+  const id = randomUUID();
+  await sql`
+    INSERT INTO solicitation_suppressions (
+      id, channel, normalized_handle, scope, account_id, source, created_by_user_id
+    ) VALUES (
+      ${id}::uuid, 'email', ${input.handle}, ${input.scope},
+      ${input.accountId}::uuid, ${input.source},
+      ${input.createdByUserId ?? null}::uuid
+    )
+  `;
+  return id;
+}
+
+async function readSuppressionRows(
+  handle: string,
+): Promise<{ scope: string; account_id: string | null; source: string }[]> {
+  const sql = getE2eSql();
+  return sql<{ scope: string; account_id: string | null; source: string }[]>`
+    SELECT scope, account_id, source
+    FROM solicitation_suppressions
+    WHERE normalized_handle = ${handle}
+    ORDER BY scope
+  `;
+}
+
+/**
+ * `solicitation_suppressions.account_id` is a NO-ACTION FK to `accounts`, and
+ * `cleanupOwnerOffboardingSeed` DELETEs the accounts row — so a RETAINED global
+ * row wedges teardown unless it goes first. Retention is the whole point of
+ * these tests, so every one of them leaves exactly such a row behind. Keyed on
+ * the handle rather than the account so it also sweeps rows whose `account_id`
+ * is NULL.
+ */
+async function cleanupSuppressionFixtures(handles: readonly string[]): Promise<void> {
+  const sql = getE2eSql();
+  await sql`DELETE FROM solicitation_suppressions WHERE normalized_handle = ANY(${[...handles]}::text[])`;
+  await sql`DELETE FROM solicitation_unsubscribe_tokens WHERE normalized_handle = ANY(${[...handles]}::text[])`;
+}
+
+interface UnsubscribeTokenFixture {
+  tokenId: string;
+  outreachId: string;
+  askId: string;
+  handle: string;
+  tokenHash: string;
+  sentAt: string;
+}
+
+/**
+ * Seeds the whole provenance chain an Unsubscribe token is minted from —
+ * upload → contact → batch → ask → outreach → token — so the purge exercises
+ * both mechanisms at once: the explicit provenance scrub, and `outreach_id`'s
+ * ON DELETE SET NULL firing as the outreach row cascades away with the upload.
+ */
+async function seedUnsubscribeTokenFixture(
+  seed: OwnerOffboardingSeedData,
+): Promise<UnsubscribeTokenFixture> {
+  const sql = getE2eSql();
+  const uploadId = randomUUID();
+  const contactId = randomUUID();
+  const batchId = randomUUID();
+  const askId = randomUUID();
+  const outreachId = randomUUID();
+  const tokenId = randomUUID();
+  const handle = freshSuppressionHandle();
+  const tokenHash = createHash('sha256').update(tokenId).digest('hex');
+
+  await sql.begin(async (tx) => {
+    await tx`
+      INSERT INTO contact_csv_uploads (
+        id, account_id, business_id, filename, byte_size, content_sha256,
+        raw_csv, status, report, attested_by_user_id, attested_at,
+        attestation_version, completed_at
+      ) VALUES (
+        ${uploadId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+        'token-fixture.csv', 42, ${'d'.repeat(64)}, NULL, 'completed',
+        ${tx.json({
+          contactsCreated: 1,
+          contactsMerged: 0,
+          visitsAdded: 0,
+          duplicateVisits: 0,
+          rejectedRows: [],
+        } as never)},
+        ${seed.userId}::uuid, NOW(), 'v1', NOW()
+      )
+    `;
+    await tx`
+      INSERT INTO solicitation_contacts (
+        id, business_id, name, email, created_by_upload_id
+      ) VALUES (
+        ${contactId}::uuid, ${seed.businessId}::uuid, 'Token Fixture Contact',
+        ${handle}, ${uploadId}::uuid
+      )
+    `;
+    await tx`
+      INSERT INTO solicitation_batches (
+        id, account_id, business_id, source_upload_id, built_at
+      ) VALUES (
+        ${batchId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+        ${uploadId}::uuid, NOW()
+      )
+    `;
+    await tx`
+      INSERT INTO solicitation_asks (
+        id, account_id, business_id, batch_id, contact_id, status, evidence, decided_at
+      ) VALUES (
+        ${askId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+        ${batchId}::uuid, ${contactId}::uuid, 'send',
+        ${tx.json({
+          contact_id: contactId,
+          policy_version: 'token-fixture',
+          decided_at: '2026-08-01T00:00:00.000Z',
+          decision: 'send',
+        } as never)},
+        NOW()
+      )
+    `;
+    await tx`
+      INSERT INTO solicitation_outreach (
+        id, account_id, business_id, batch_id, ask_id, contact_id,
+        rendered_subject, rendered_body, prompt_version, prompt_hash,
+        interpolation_inputs, rendered_at, ask_lint_version, lint_detail,
+        moderation_status, moderation_detail, delivery_status,
+        queued_at, sending_at, sent_at
+      ) VALUES (
+        ${outreachId}::uuid, ${seed.accountId}::uuid, ${seed.businessId}::uuid,
+        ${batchId}::uuid, ${askId}::uuid, ${contactId}::uuid,
+        'Token fixture subject', 'Token fixture body',
+        'solicitation_ask_v1', ${'0'.repeat(64)},
+        ${tx.json({} as never)}, NOW(), 'ask_lint_v1', ${tx.json([] as never)},
+        'clean', ${tx.json({} as never)}, 'sent',
+        NOW(), NOW(), NOW()
+      )
+    `;
+    await tx`
+      INSERT INTO solicitation_unsubscribe_tokens (
+        id, token_hash, normalized_handle, channel,
+        account_id, business_id, ask_id, outreach_id, sent_at
+      ) VALUES (
+        ${tokenId}::uuid, ${tokenHash}, ${handle}, 'email',
+        ${seed.accountId}::uuid, ${seed.businessId}::uuid, ${askId}::uuid,
+        ${outreachId}::uuid, NOW()
+      )
+    `;
+  });
+
+  // `::text` end-to-end: postgres.js truncates timestamptz MICROSECONDS into a
+  // JS Date, so a Date round-trip could report "kept" for a value that moved.
+  const [row] = await sql<{ sent_at: string }[]>`
+    SELECT sent_at::text AS sent_at FROM solicitation_unsubscribe_tokens WHERE id = ${tokenId}::uuid
+  `;
+  return { tokenId, outreachId, askId, handle, tokenHash, sentAt: row!.sent_at };
+}
+
+/**
+ * Drives the FULL production purge path — poller, then outbox dispatch, then
+ * the worker — and reports the offboarding's terminal state.
+ * `finalizePurgeInTransaction` runs `verifyAccountOffboardingPurge` inside its
+ * own transaction and refuses to stamp `purged` on any violation, so a
+ * `'purged'` status is the assertion that purge verification passed.
+ */
+async function runFullProductionPurge(
+  seed: OwnerOffboardingSeedData,
+): Promise<{ status: string; failed_step: string | null; last_error: string | null }> {
+  const sql = getE2eSql();
+  const offboardingId = randomUUID();
+  await sql`
+    INSERT INTO account_offboardings (
+      id, account_id, mode, status, teardown_completed_at, purge_after,
+      location_ids, recipient_email, stripe_customer_id, stripe_subscription_id
+    ) VALUES (
+      ${offboardingId}::uuid, ${seed.accountId}::uuid, 'delete_data',
+      'purge_scheduled', NOW(), NOW() + INTERVAL '1 hour',
+      ${[seed.businessId]}::uuid[], ${seed.ownerEmail},
+      ${seed.stripeCustomerId}, ${seed.stripeSubscriptionId}
+    )
+  `;
+
+  await runAccountOffboardingPurgeOnce();
+
+  const [outbox] = await sql<{ id: string; payload: Record<string, unknown> | string }[]>`
+    SELECT id, payload
+    FROM job_outbox
+    WHERE aggregate_id = ${offboardingId}::uuid
+      AND topic = 'account_offboarding_purge'
+      AND status = 'pending'
+  `;
+  expect(outbox?.id).toBeTruthy();
+
+  await sql`
+    UPDATE job_outbox
+    SET status = 'dispatched', dispatched_at = NOW(), attempts = 1
+    WHERE id = ${outbox!.id}::uuid
+  `;
+
+  await handleAccountOffboardingPurge(sql, supabaseServerBounded, {
+    id: outbox!.id,
+    data: {
+      ...parsePayload(outbox!.payload),
+      outbox_id: outbox!.id,
+      outbox_attempt: 1,
+    },
+    attemptsMade: 0,
+    opts: { attempts: 3 },
+  } as Parameters<typeof handleAccountOffboardingPurge>[2]);
+
+  const [row] = await sql<
+    { status: string; failed_step: string | null; last_error: string | null }[]
+  >`
+    SELECT status, failed_step, last_error
+    FROM account_offboardings
+    WHERE id = ${offboardingId}::uuid
+  `;
+  return row!;
+}
+
+async function readUnsubscribeToken(tokenId: string): Promise<
+  | {
+      token_hash: string;
+      normalized_handle: string;
+      channel: string;
+      sent_at: string;
+      account_id: string | null;
+      business_id: string | null;
+      ask_id: string | null;
+      outreach_id: string | null;
+    }
+  | undefined
+> {
+  const sql = getE2eSql();
+  const [row] = await sql<
+    {
+      token_hash: string;
+      normalized_handle: string;
+      channel: string;
+      sent_at: string;
+      account_id: string | null;
+      business_id: string | null;
+      ask_id: string | null;
+      outreach_id: string | null;
+    }[]
+  >`
+    SELECT token_hash, normalized_handle, channel, sent_at::text AS sent_at,
+           account_id, business_id, ask_id, outreach_id
+    FROM solicitation_unsubscribe_tokens
+    WHERE id = ${tokenId}::uuid
+  `;
+  return row;
 }
 
 // 30s per test: TEST_DATABASE_POOL_URL may be a remote Supabase pooler where
@@ -842,6 +1124,233 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
     } finally {
       releaseBuild?.();
       await sql`DELETE FROM businesses WHERE id = ${secondBusinessId}::uuid`;
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // ── #643 Suppression ledger retention + Unsubscribe token scrub (§6.3) ─────
+  //
+  // Retention splits on the Suppression scope axis (D7): global rows are the
+  // RECIPIENT's revocation against our one shared sending identity and survive
+  // with account_id intact; account rows are the owner's own preference and are
+  // deleted. G13 is why the survival half is proven HERE and nowhere else —
+  // `verifyAccountOffboardingPurge` counts violations, so "correctly retained"
+  // and "every row wrongly deleted" both return 0 and it structurally cannot
+  // tell them apart. The runtime arm's job is narrowed to what it can do: catch
+  // surviving account-scoped rows, and an invalid retained global row that
+  // named one of this account's users as its actor.
+
+  it('purge verification fails when an account-scoped suppression row survives', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const handle = freshSuppressionHandle();
+    try {
+      await seedSuppressionRow({
+        scope: 'account',
+        handle,
+        accountId: seed.accountId,
+        source: 'owner_manual',
+        createdByUserId: seed.userId,
+      });
+
+      const result = await verifyAccountOffboardingPurge(
+        { accountId: seed.accountId, offboardingId: randomUUID() },
+        getE2eSql(),
+      );
+
+      // The whole sweep is failing here (the account is not purged at all), so
+      // the load-bearing assertion is the SPECIFIC issue and its exact count.
+      expect(result.ok).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          table: 'solicitation_suppressions',
+          disposition: 'retain_compliance_limited_pii',
+          purgeVerification: 'allowed_limited_retention',
+          violationCount: 1,
+        }),
+      );
+    } finally {
+      await cleanupSuppressionFixtures([handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it("purge verification fails when a retained global row still references one of the account's users", async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const handle = freshSuppressionHandle();
+    try {
+      // account_id is NULL on purpose: the ONLY thing that can detect this row
+      // is created_by_user_id, so the branch under test is the one that fires.
+      // G14 types the actor as a plain string and cannot prove it belongs to an
+      // admin, which is exactly the caller mistake this branch exists to catch.
+      await seedSuppressionRow({
+        scope: 'global',
+        handle,
+        accountId: null,
+        source: 'admin_manual',
+        createdByUserId: seed.userId,
+      });
+
+      const result = await verifyAccountOffboardingPurge(
+        { accountId: seed.accountId, offboardingId: randomUUID() },
+        getE2eSql(),
+      );
+
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          table: 'solicitation_suppressions',
+          violationCount: 1,
+        }),
+      );
+    } finally {
+      await cleanupSuppressionFixtures([handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('purge verification passes when a global suppression row survives with its account_id intact', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const handle = freshSuppressionHandle();
+    try {
+      await seedSuppressionRow({
+        scope: 'global',
+        handle,
+        accountId: seed.accountId,
+        source: 'complaint',
+      });
+
+      const purged = await runFullProductionPurge(seed);
+
+      // `finalizePurgeInTransaction` runs verification inside its transaction
+      // and refuses to stamp `purged` on any violation, so this status IS the
+      // "verification passed" assertion.
+      expect(purged.last_error).toBeNull();
+      expect(purged.status).toBe('purged');
+
+      // …and, per G13, verification passing is NOT evidence of retention: a
+      // purge that deleted every row would also report zero violations. Read
+      // the row back.
+      const rows = await readSuppressionRows(handle);
+      expect(rows).toEqual([
+        expect.objectContaining({
+          scope: 'global',
+          source: 'complaint',
+          account_id: seed.accountId,
+        }),
+      ]);
+    } finally {
+      await cleanupSuppressionFixtures([handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('a global suppression row survives the purge with its account_id intact', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    // ONE handle, BOTH Suppression scopes: the two rows are indistinguishable
+    // to any sweep keyed on the handle or on account_id alone, so only a delete
+    // that discriminates on `scope` can pass this.
+    const handle = freshSuppressionHandle();
+    try {
+      await seedSuppressionRow({
+        scope: 'global',
+        handle,
+        accountId: seed.accountId,
+        source: 'unsubscribe_one_click',
+      });
+      await seedSuppressionRow({
+        scope: 'account',
+        handle,
+        accountId: seed.accountId,
+        source: 'owner_manual',
+        createdByUserId: seed.userId,
+      });
+
+      await runContentPurgeStage(
+        getE2eSql(),
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      const rows = await readSuppressionRows(handle);
+      expect(rows).toEqual([
+        expect.objectContaining({
+          scope: 'global',
+          source: 'unsubscribe_one_click',
+          // Intact, pointing at the accounts row the purge only tombstones —
+          // 096 gives that FK no ON DELETE action for exactly this reason.
+          account_id: seed.accountId,
+        }),
+      ]);
+    } finally {
+      await cleanupSuppressionFixtures([handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('the purge scrubs account_id, business_id, ask_id and outreach_id from token rows and keeps token_hash, normalized_handle, channel and sent_at', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    let fixture: UnsubscribeTokenFixture | undefined;
+    try {
+      fixture = await seedUnsubscribeTokenFixture(seed);
+
+      await runContentPurgeStage(
+        getE2eSql(),
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      const token = await readUnsubscribeToken(fixture.tokenId);
+      expect(token).toBeDefined();
+      // Provenance gone — all four columns. G12's implication CHECK is what
+      // makes the first three inseparable: nulling account_id alone throws.
+      expect(token).toMatchObject({
+        account_id: null,
+        business_id: null,
+        ask_id: null,
+        outreach_id: null,
+      });
+      // Mechanism kept: redemption after the sender is gone still has to work
+      // (§5.2), and every field it needs is here.
+      expect(token).toMatchObject({
+        token_hash: fixture.tokenHash,
+        normalized_handle: fixture.handle,
+        channel: 'email',
+        sent_at: fixture.sentAt,
+      });
+    } finally {
+      if (fixture) await cleanupSuppressionFixtures([fixture.handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('a token row survives the purge that deletes its outreach row', async () => {
+    // The regression test for G1. A CASCADE FK from solicitation_outreach would
+    // delete the retained token through the
+    // outreach -> batches -> contact_csv_uploads chain and silently break §5.2;
+    // no FK at all would leave the row carrying a stale pointer nothing could
+    // detect. ON DELETE SET NULL is the only shape that passes this.
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    let fixture: UnsubscribeTokenFixture | undefined;
+    try {
+      fixture = await seedUnsubscribeTokenFixture(seed);
+      const sql = getE2eSql();
+
+      await runContentPurgeStage(
+        sql,
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      const [outreachRemaining] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM solicitation_outreach WHERE id = ${fixture.outreachId}::uuid
+      `;
+      expect(Number(outreachRemaining?.count ?? 0)).toBe(0);
+
+      const token = await readUnsubscribeToken(fixture.tokenId);
+      expect(token).toBeDefined();
+      // Nulled by the FK's SET NULL as the outreach row cascaded away, not by
+      // the explicit provenance scrub — outreach_id is deliberately absent from
+      // that UPDATE and from G12's CHECK.
+      expect(token?.outreach_id).toBeNull();
+      expect(token?.token_hash).toBe(fixture.tokenHash);
+    } finally {
+      if (fixture) await cleanupSuppressionFixtures([fixture.handle]);
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

@@ -143,6 +143,62 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   sender identity — scoping it would silently resume sending to someone who opted
   out. The three `recordSuppression` INSERTs drew no finding.
 
+## Task 3 — offboarding purge retention
+
+- [2026-08-02] **Step 1's ordering claim is wrong: `TABLE_DISPOSITIONS` is NOT
+  asserted alphabetically sorted.** `table-disposition.test.ts:107` is
+  `expect(unique(classified)).toEqual(classified.slice().sort())`, and `unique()`
+  itself sorts — so the assertion is **uniqueness**, not ordering. The live list has
+  never been alphabetical (it opens `accounts, businesses, users, reviews, …`). The
+  real constraint is `:108`: the classified **set** must equal
+  `TENANT_TABLES ∪ explicit ∪ spec-only` exactly, which T1 had already satisfied by
+  registering both tables in `scripts/ci/tenant-tables.ts`. Both entries were
+  appended after `solicitation_consent` as the plan intended; the position is a
+  readability choice, not a gate. The prompt's instruction to *verify rather than
+  trust the sentence* is what caught this.
+
+- [2026-08-02] **All six tests went to the live-DB suite, not to the mocked-`sql`
+  unit suite the plan's Files list named.** `purge-verification.test.ts` drives
+  `verificationQuery` through a `vi.hoisted` fake tag, which can assert SQL *text*
+  and nothing else — it cannot distinguish the arm's two branches, and by G13's own
+  argument it cannot prove survival. All six therefore live in
+  `worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts`,
+  the existing live-DB purge suite: no new file (repworth.md's default), and it
+  reuses that suite's `vi.hoisted` `DATABASE_POOL_URL` override, which is the fiddly
+  part of standing up a second one. The unit suite still gates the arms' existence
+  through its `has explicit verification SQL for every disposition table` case.
+  Both required verbatim titles about retention are present and BOTH fail against a
+  mutated purge that drops the `scope = 'account'` predicate — verified by running
+  the mutation, which is the only evidence that G13's guarantee is actually held by
+  a test rather than asserted in a comment.
+
+- [2026-08-02] **`ci:tenant-scope` fired twice, exactly as T1/T2 predicted for T3.**
+  Both findings come from the token-scrub `UPDATE`
+  (`solicitation_unsubscribe_tokens` and `businesses`) and are the same shape the
+  audit already allowlists for the `notification_deliveries` DELETE two entries
+  above: an `OR` predicate whose second branch is a `business_id IN (SELECT …)`
+  subquery the scanner strips before predicate analysis. Two `tenant-root-lookup`
+  entries added, `ALLOWLIST_BASELINE` 411 → 413. The
+  `DELETE FROM solicitation_suppressions` drew no finding (direct `account_id`), and
+  neither did either new `purge-verification.ts` arm.
+
+- [2026-08-02] **Fixture correction the plan could not have known:**
+  `contact_csv_uploads_terminal_consistency` (migration 086) requires
+  `report IS NOT NULL AND completed_at IS NOT NULL AND raw_csv IS NULL` for a
+  `completed` upload. The Unsubscribe token fixture's chain seeds a completed
+  upload and initially omitted `report`.
+
+- [2026-08-02] **The plan's extra retention title was kept alongside the intake's
+  five.** Step 4 names five verbatim titles and then adds a sixth
+  (`a global suppression row survives the purge with its account_id intact`). Both
+  the intake title (`purge verification passes when a global suppression row
+  survives with its account_id intact`) and the plan's are present, with distinct
+  subjects rather than duplicated bodies: the intake one drives the FULL production
+  purge (poller → outbox → worker) so that `finalizePurgeInTransaction`'s own
+  verification call is the "passes" assertion, then reads the row back; the plan's
+  drives `runContentPurgeStage` with a global AND an account row on ONE handle, so
+  only a delete that discriminates on `scope` can pass it.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward
