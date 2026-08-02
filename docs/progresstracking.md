@@ -1105,3 +1105,62 @@ Owner SSO smoke pending (upload → batch → funnel + verbatim withhold chips).
 engagement signal.
 
 ---
+
+## 2026-07-30 → 2026-08-01 — Consent ledger #625 (send-mode map #617, ticket #620's primary implementation) — PR #640
+
+**What shipped** (44 files, +3,124/−82; squash `7316383f`): the
+`solicitation_consent` ledger and its ingest wiring, killing the
+`consent_attested` tautology and the spec §1.2 re-upload trap. Full /feature
+pipeline (RISK=high): 3-round adversarial plan review → 16 branch commits →
+verify-gate `--review` green → Codex adversarial + dual step-7 review (all
+findings fixed/triaged) → staging ride → owner-approved merge → prod lockstep.
+
+- **Migrations** (staging `kubdiqdhqbhwmqfditeg` 2026-07-31; prod
+  `udeyaqnvpojbwgoaxwdg` 2026-08-01; both verified by schema introspection):
+  **093** ledger table — one current-state row per `(channel, normalized_handle,
+  business_id)`, email-only + `owner_attested` CHECKs, NO account_id (§3.2), NO
+  user FK (§3.4 — 086's staff cascade must not reach it), RLS deny-all, UUIDv7;
+  **094** `analytics_events.event_name` CHECK gains
+  `solicitation_consent_recorded`/`_upgraded` (089's lesson — TS-allowlist-only
+  registration rolls back every emitting tx); **095** business-leading index for
+  compliance deletes (Codex finding — PG16 has no skip scan; 093's scope unique
+  leads with channel).
+- **Attestation v2** (`attestation.ts`): text names email sending, opt-outs,
+  the sender-agent relationship; `SEND_ELIGIBLE_ATTESTATION_VERSIONS = [v2]` —
+  v1 deliberately absent, which is the tautology kill.
+- **Ingest** (`ingest.ts`): `upsertConsent` — §4.2 guarded monotone upsert
+  (`WHERE EXCLUDED.attested_at > attested_at`; replays are no-ops, in-flight v1
+  jobs cannot downgrade v2), the ledger's ONLY writer, in the advisory-locked
+  csv_ingest tx; `consentEligibleEmail` — §7.1 deletability guard, consent only
+  for the resolved contact's RETAINED email (Codex HIGH: orphaned-PII fix);
+  events idempotent on `event_key`, never carrying the handle.
+- **Derivation** (`batch-builder.ts`/`restraint-policy.ts`): ledger lookup with
+  `no_consent` case (a) no-row / case (b) ineligible-version evidence;
+  `RESTRAINT_POLICY_VERSION` → `.3`. Legacy cohort reads case (a) — **no
+  backfill by decision**; #629's case-(a) copy must be self-sufficient.
+- **Compliance deletes**: contact hard-delete sweeps consent by handle in-tx
+  (`contacts-repo.ts`); offboarding purge got an explicit
+  `deleteByBusiness('solicitation_consent')` sweep — **spec §7.2's cascade
+  assumption was WRONG** (businesses are tombstoned on purge; corrected in the
+  spec at ship) — plus `TABLE_DISPOSITIONS`/`TENANT_TABLES`/rls-inventory rows.
+- **Staging proof** (evidence on PR #640): 14-point smoke — attestation
+  blocking, v2 rows minted with visits deduping (§1.2 remedy), DR3 phone-only
+  zero rows, 40-contact legacy cohort withholding no_consent, seeded-v1 case
+  (b), one genuine v1→v2 `upgraded` event, monotone same-version bumps with
+  zero event churn, in-tx delete sweep.
+- **Ship-lane fixes** (post-review, re-gated): `consentEligibleEmail` extracted
+  to clear fallow's changed-code cognitive threshold (house precedent: extract
+  new logic, waivers are for pre-existing complexity); 5000-contact suite body
+  timeout 90s→180s (parallel-gate contention, completing the earlier
+  hook-timeout fix).
+- **Gotchas promoted to lab notes (2026-08-01)**: event-name CHECK pairing;
+  abandoned-not-cancelled vitest timeouts poisoning following tests; "a new
+  table/event is never wiring-only — budget the registry ripples."
+
+**Deviations**: 7 entries, all ACCEPT (5 owner-approved surface amendments;
+~2500 actual vs ~1200 estimated diff — lane already heaviest). **Merge order
+honored: #625 before #628** — feat-628 must rebase over main before its
+gate/review rounds. #630 owns spec §10 test 7 +
+`solicitation_consent_missing_at_dispatch`.
+
+---

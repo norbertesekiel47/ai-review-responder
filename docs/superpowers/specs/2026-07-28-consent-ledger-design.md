@@ -572,9 +572,29 @@ Every member already exists in `src/lib/account-offboarding/table-disposition.ts
 needs no new enum values (unlike #621, which is the first caller of
 `retain_compliance_limited_pii` / `compliance_handle_hash` / `allowed_limited_retention`).
 
-`business_id` is a real FK with `ON DELETE CASCADE`, so the rows leave with the business.
-#625 still adds the explicit `TABLE_DISPOSITIONS` entry and the purge-verification predicate
-— a cascade that no inventory records is a table the verifier cannot assert on.
+> **CORRECTED AS BUILT (2026-08-01, #625 ship).** The locked text below said the rows
+> "leave with the business" via the `businesses(id)` cascade — that assumption is WRONG on
+> the offboarding purge path: `worker/jobs/account-offboarding/purge-stages.ts` TOMBSTONES
+> `businesses` (`retain_deidentified` — UPDATE, never DELETE), so the cascade never fires
+> during purge, and nothing else sweeps the ledger (`source_upload_id` is `SET NULL`;
+> consent has no FK to contacts). As built, the content-purge stage runs an explicit
+> `deleteByBusiness(tx, 'solicitation_consent', account_id)` sweep (the
+> flagged_responses/agent_runs precedent), pinned by `PurgeWorker.test.ts` and a live-DB
+> absent-vs-bystander assertion pair. The cascade fires only on real location deletion.
+> Either way `must_be_absent` fails closed.
+
+`business_id` is a real FK with `ON DELETE CASCADE`, so the rows leave with a genuinely
+deleted location. #625 adds the explicit `TABLE_DISPOSITIONS` entry, the purge-stage sweep
+(see the correction above), and the purge-verification predicate — a delete that no
+inventory records is a table the verifier cannot assert on.
+
+**Legacy cohort — decision recorded at ship (2026-08-01): no backfill.** Pre-#625 contacts
+have no `solicitation_consent` rows and get none: they read as `no_consent` case (a) —
+both evidence fields null — **by design** (Codex adversarial M2, accepted alternative).
+The owner remedy "upload under the current attestation" is truthful and sufficient for
+that cohort, so **#629's case (a) copy must be self-sufficient** (an owner seeing it needs
+no other context to act). Pinned by the batch-builder integration test "legacy pre-ledger
+contacts read as no_consent case (a): visits without a ledger row yield null evidence".
 
 **The purge receipt says nothing about consent rows.** They are gone; there is nothing to
 disclose. Contrast #621 §6.3, whose receipt *must* report retained suppression rows in
@@ -597,7 +617,7 @@ Durable server-side events (never client-postable), idempotent on `event_key`:
 | Event | Emitted when | Properties |
 |---|---|---|
 | `solicitation_consent_recorded` | A consent row is inserted | `channel`, `basis`, `attestation_version` — **never the handle** |
-| `solicitation_consent_upgraded` | The §4.2 `DO UPDATE` branch fires | `channel`, `from_version`, `to_version` |
+| `solicitation_consent_upgraded` | The §4.2 `DO UPDATE` branch fires **and the version changed** (as built: a same-version re-attestation bumps `attested_at` silently — no event; verified in the 2026-07-31 staging smoke, PR #640) | `channel`, `from_version`, `to_version` |
 | `solicitation_consent_missing_at_dispatch` | The §6.3 gate fires | `channel`, `ask_id` |
 
 `solicitation_consent_upgraded` is the metric that tells us whether the v1→v2 re-upload

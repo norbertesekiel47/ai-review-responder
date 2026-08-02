@@ -978,8 +978,11 @@ Revisit triggers:
   deletes were full-table scans on a no-TTL table. Index-only: no data change,
   no new relation → no retention-policy row. Shape suite:
   `src/lib/shared/__tests__/migration-095-consent-business-index.integration.test.ts`;
-  schema-ready entry `MIGRATION_095_CONSENT_BUSINESS_INDEX`. Ships to staging +
-  prod in the normal lockstep alongside 093/094.
+  schema-ready entry `MIGRATION_095_CONSENT_BUSINESS_INDEX`.
+  **Applied with 093+094, in order, to staging Supabase (`kubdiqdhqbhwmqfditeg`)
+  2026-07-31 and production (`udeyaqnvpojbwgoaxwdg`) 2026-08-01 at the PR #640
+  promotion** — both verified by schema introspection (columns / pg_indexes /
+  RLS-with-zero-policies / CHECK contents), never the Supabase migration ledger.
 
 - **094** — `consent_analytics_events`: extends the `analytics_events.event_name`
   DB CHECK allowlist with `solicitation_consent_recorded` +
