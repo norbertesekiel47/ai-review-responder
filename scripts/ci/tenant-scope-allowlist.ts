@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 410;
+export const ALLOWLIST_BASELINE = 411;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -3116,5 +3116,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT status FROM agent_runs WHERE id = ${runId}",
     category: 'worker-job-scoped',
     reason: "Run-spine writers execute inside ingest/persist/publish transactions that already carry businessId from source connection resolution; runs are keyed by id/subject within that scoped tx (migration 071).",
+  },
+  {
+    file: "src/lib/solicitation/suppression.ts",
+    table: "solicitation_suppressions",
+    sqlSnippet: "SELECT s.source, s.suppressed_at FROM solicitation_suppressions s WHERE s.channel = 'email' AND s.normalized_handle = ${handleColumn} AND ( s.scope = 'global' OR (s.scope = 'account' AND s.account_id = ${accountId}::uuid) ) ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC LIMIT 1",
+    category: 'tenant-root-lookup',
+    reason: "suppressionMatchSql is the single owner of the Suppression ledger's §1.2 lookup and takes accountId as a required parameter — the caller has already established owner scope, and that id IS the tenant boundary for the `account` arm. The `global` arm is deliberately unscoped and cannot be account-filtered: a global row records what the RECIPIENT (or the mail ecosystem on their behalf) revoked against the one shared sender identity, so it must match for every tenant. Scoping it would silently resume sending to someone who opted out. Read-only, returns only source + suppressed_at — never the account_id provenance §7.4 forbids surfacing.",
   },
 ];

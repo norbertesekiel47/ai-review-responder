@@ -102,6 +102,47 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   ships none (the writer is T2, the purge stages are T3). Expect it at T2/T3
   instead; the Task 4 allowlist work is still needed, just not yet.
 
+## Task 2 — `suppression.ts`, the authoritative module
+
+- [2026-08-01] **Step 5's predicted fallow `unused-export` finding for
+  `recordSuppression` did not occur — and writing the suppression preemptively
+  created a REAL failure.** With the marker in place `pnpm ci:fallow` reported
+  `stale suppression … (no unused-export issue found on the next line)`. fallow
+  counts `suppression.integration.test.ts` as a consumer, and G6 deliberately made
+  that suite the writer's consumer, so the export is never unreferenced. The marker
+  was removed; its five-line rationale was kept as an ordinary comment, because the
+  *reason* the writer ships ahead of #644/#645/#627 is still the non-obvious fact a
+  reader needs. **Carry forward:** a "write the suppression now" step is only safe
+  when the finding has been observed — for `unused-export` specifically, a live-DB
+  suite that exercises the export is enough to prevent it ever firing.
+
+- [2026-08-01] **fallow instead flagged `SuppressionScope` as an unused TYPE
+  export.** Spec §3.1 mandates all three `as const` arrays "with derived types", so
+  deleting it was not an option and neither was a second speculative suppression.
+  Resolved with coverage rather than a marker: the unit suite gained
+  `derives a closed union type from each array, not a widened string`, which asserts
+  through all three derived types and uses `@ts-expect-error` to pin that each
+  rejects a non-member. That is the assertion that was missing anyway — nothing
+  else proved the arrays had not widened to `string[]`.
+
+- [2026-08-01] **T1's Step 5 carry-forward discharged.** Both matrices in
+  `migration-096-solicitation-suppressions.integration.test.ts` now import
+  `SUPPRESSION_SCOPES` / `SUPPRESSION_SOURCES` from `suppression.ts`; the migration-
+  text parser (`parseColumnCheckValues`) is deleted and the live
+  `pg_get_constraintdef()` pin is unchanged, so the three-way cross-check is now
+  TS module ⟺ deployed constraint (the migration text is still asserted separately
+  by the checked-in-SQL contract tests). 47/47 still pass.
+
+- [2026-08-01] **`ci:tenant-scope` fired exactly where T1 predicted it would.**
+  One finding — `src/lib/solicitation/suppression.ts: solicitation_suppressions:
+  missing account_id or business_id scope` — for `suppressionMatchSql`'s statement.
+  Allowlisted as `tenant-root-lookup` with `ALLOWLIST_BASELINE` 410 → 411. The
+  reason states the asymmetry plainly: the `account` arm IS tenant-scoped by the
+  required `accountId` parameter, and the `global` arm is deliberately unscoped
+  because a global row records what the recipient revoked against the one shared
+  sender identity — scoping it would silently resume sending to someone who opted
+  out. The three `recordSuppression` INSERTs drew no finding.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward

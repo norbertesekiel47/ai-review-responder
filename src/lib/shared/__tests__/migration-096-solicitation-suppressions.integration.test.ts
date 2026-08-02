@@ -17,6 +17,7 @@ import {
   MIGRATION_096_SOLICITATION_SUPPRESSIONS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { cleanupTenantAccount, seedTenantAccount } from '@/lib/shared/__tests__/live-db-tenant';
+import { SUPPRESSION_SCOPES, SUPPRESSION_SOURCES } from '@/lib/solicitation/suppression';
 
 // Shape suite for migration 096 — the Suppression ledger
 // (`solicitation_suppressions`) and the Unsubscribe token table
@@ -66,23 +67,13 @@ const statements = rawSql
   .filter((line) => !line.trimStart().startsWith('--'))
   .join('\n');
 
-/**
- * The closed value sets, read out of the migration's own column CHECKs rather
- * than re-typed here. Re-typing is what lets a future source be added to the
- * schema while the matrix silently keeps testing six of seven; parsing means
- * the Cartesian product below grows with the schema. A live test further down
- * asserts these agree with `pg_get_constraintdef()` on the database, so a
- * parse that quietly matched nothing cannot pass as an empty matrix.
- */
-function parseColumnCheckValues(column: string): readonly string[] {
-  const pattern = new RegExp(`${column} TEXT NOT NULL CHECK \\(${column} IN \\(([^)]*)\\)`);
-  const match = pattern.exec(statements);
-  if (!match) throw new Error(`096 has no CHECK list for column "${column}"`);
-  return [...match[1]!.matchAll(/'([^']+)'/g)].map((literal) => literal[1]!);
-}
-
-const SUPPRESSION_SCOPES = parseColumnCheckValues('scope');
-const SUPPRESSION_SOURCES = parseColumnCheckValues('source');
+// The closed value sets come from `src/lib/solicitation/suppression.ts`, the
+// single authoritative owner of the §3.1 enums (#643 T2). Re-typing them here
+// is what would let a future source be added while the matrix silently keeps
+// testing seven of eight; importing means the Cartesian product below grows
+// with the domain. A live test further down asserts the imported sets agree
+// with `pg_get_constraintdef()` on the database, so the module and the deployed
+// CHECK cannot drift apart in either direction.
 
 interface ScopeSourceCase {
   label: string;
@@ -333,10 +324,11 @@ describeWithDb(
     // ── the matrices' source of truth ────────────────────────────────────────
 
     it('drives both matrices from the value sets the DATABASE actually enforces', async () => {
-      // The matrices are parsed from the migration file. If that parse ever
-      // drifts from the deployed CHECK — a widened source list in a later
-      // migration, a typo'd literal — the Cartesian products above would keep
-      // passing while testing the wrong world. This is the pin.
+      // The matrices come from suppression.ts's `as const` arrays. If the
+      // module ever drifts from the deployed CHECK — a widened source list in a
+      // later migration, a member added to one side only — the Cartesian
+      // products above would keep passing while testing the wrong world. This
+      // is the pin.
       const constraints = await db!<{ conname: string; definition: string }[]>`
         SELECT conname, pg_get_constraintdef(oid) AS definition
         FROM pg_constraint
