@@ -22,8 +22,11 @@
 
 | # | Decision | Rationale |
 |---|---|---|
-| G1 | `outreach_id` is a **plain UUID with a partial UNIQUE index and NO FK** | `solicitation_outreach` cascades from `solicitation_batches` from `contact_csv_uploads` (`purge-verification.ts:596-599`). A CASCADE FK would delete retained token rows, breaking the post-purge redemption §5.2 guarantees. Matches §2.2's existing treatment of `ask_id`. **Amends B9.** |
-| G2 | `solicitation_suppressions` gets **ONE** disposition entry, not two | `TABLE_DISPOSITIONS` is keyed by table name and `verificationQuery` is a `switch (table)` — two entries hit the same arm twice. The single `allowed_limited_retention` arm asserts **both** facts so it can actually fail. **Amends §6.3's two-row table.** |
+| G1 | `outreach_id` is `REFERENCES solicitation_outreach(id) **ON DELETE SET NULL**` with a partial UNIQUE index | **REVISED in review round 1 (findings 4+6).** The cascade chain is real — `solicitation_outreach` cascades from `solicitation_batches` from `contact_csv_uploads` — so a CASCADE FK would delete retained token rows and break §5.2. But the original no-FK choice left a hole: once `account_id`/`business_id` are scrubbed, nothing can detect a row still carrying a stale `outreach_id`. SET NULL preserves the token, nulls `outreach_id` in the DB for free, and satisfies B9 as literally written. |
+| G2 | `solicitation_suppressions` gets **ONE** disposition entry, not two | `TABLE_DISPOSITIONS` is keyed by table name and `verificationQuery` is a `switch (table)` — two entries hit the same arm twice. **Amends §6.3's two-row table.** |
+| G11 | Source and scope are paired by a **DB CHECK** | **Added in review round 1 (finding 3).** Without it `owner_manual + global` inserts cleanly, letting one owner suppress a recipient across every tenant — the exact cross-tenant write §1.2 exists to prevent. The enum mapping in §3.1 is total: `owner_manual` is the only `account` source. |
+| G12 | Token provenance is **all-set or all-null** for `account_id`/`business_id`/`ask_id`, enforced by CHECK | **Added in review round 1 (finding 6).** Makes a partially-scrubbed row impossible, so the verifier can prove scrub completeness from any one column. Deliberately **excludes** `outreach_id`, which SET NULL may null independently while the account is still live. |
+| G13 | Retention is proven by **test**, not by the runtime verifier | **Added in review round 1 (finding 1 — CRITICAL).** `verifyAccountOffboardingPurge` counts violations, so "correctly retained" and "all rows accidentally deleted" both return 0 — it structurally cannot prove survival. The retention guarantee therefore lives in a live-DB test that asserts global rows survive with `account_id` intact. The runtime arm's job is narrowed to what it can actually do: catch surviving `account`-scoped rows. |
 | G3 | **Global wins** when a handle matches both a global row and this account's `owner_manual` row | Reporting the account row would let an owner clear it under §7.6, watch the contact stay suppressed, and have no idea why. |
 | G4 | 096 ships **`account_id`-leading indexes** on both tables | Both partial uniques lead with `(channel, normalized_handle)`, but the purge delete, retained count and token scrub all filter account-first. PG16 has no skip scan. This is migration 095's lesson applied up front. |
 | G5 | Retained-count is **global suppression rows only**, snapshotted at purge time and threaded through the outbox payload | Token rows are opt-out *mechanisms*, not opt-out *records*, and their `account_id` is scrubbed by then. Threading (vs. querying at send) matches the existing row-less `purge_receipt` posture, keeps the email worker ignorant of the solicitation domain, and makes a retried send render a stable number. |
@@ -126,11 +129,14 @@ T2 and T3 are independent of each other and may run in parallel once T1 lands.
 -- * No time-window comparison is ever made against suppressed_at (§2.1) — both
 --   evaluation points are existence checks, which deliberately sidesteps the
 --   postgres.js microsecond-truncation class.
--- * outreach_id on the token table is a PLAIN UUID with NO FK (#643 grilling
---   G1, amending amendments B9). solicitation_outreach cascades from
+-- * outreach_id on the token table is ON DELETE SET NULL (#643 grilling G1,
+--   revised in review round 1). solicitation_outreach cascades from
 --   solicitation_batches from contact_csv_uploads, so a CASCADE FK would delete
---   the retained token rows that §5.2 exists to guarantee. Same posture §2.2
---   already applies to ask_id.
+--   the retained token rows that §5.2 exists to guarantee. SET NULL keeps the
+--   token, nulls the provenance in the DB, and satisfies B9's referential
+--   requirement as literally written. ask_id keeps §2.2's NO-FK posture because
+--   solicitation_asks has no column we could hang a SET NULL on without the
+--   same cascade problem.
 -- * account_id-leading indexes on BOTH tables (G4): the partial uniques lead
 --   with (channel, normalized_handle), but the purge delete, the retained-row
 --   count and the token scrub all filter account-first, and PG16 has no skip
@@ -163,7 +169,18 @@ CREATE TABLE IF NOT EXISTS solicitation_suppressions (
   note TEXT,                           -- manual entries; the §7.5 originating message reference
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT solicitation_suppressions_account_scope_pairing
-    CHECK (scope <> 'account' OR account_id IS NOT NULL)
+    CHECK (scope <> 'account' OR account_id IS NOT NULL),
+  -- G11: §3.1's source->scope mapping is TOTAL, so enforce it in the DB.
+  -- Without this, `owner_manual` + `global` inserts cleanly and one owner can
+  -- suppress a recipient across EVERY tenant with no recipient having spoken —
+  -- the precise cross-tenant write §1.2 exists to prevent. `owner_manual` is
+  -- the only account-scoped source; every other source is recipient- or
+  -- ecosystem-authored and therefore global.
+  CONSTRAINT solicitation_suppressions_source_scope_pairing
+    CHECK (
+      (scope = 'account' AND source = 'owner_manual')
+      OR (scope = 'global' AND source <> 'owner_manual')
+    )
 );
 
 -- §1.2's two key shapes. PARTIAL — every ON CONFLICT re-spells the predicate
@@ -193,10 +210,19 @@ CREATE TABLE IF NOT EXISTS solicitation_unsubscribe_tokens (
   account_id UUID,                     -- provenance; scrubbed to NULL on purge (§6.3). Plain UUID, NO FK.
   business_id UUID,                    -- provenance; scrubbed on purge. Plain UUID, NO FK.
   ask_id UUID,                         -- provenance; scrubbed on purge. NO FK — referent is hard-deleted (§2.2).
-  outreach_id UUID,                    -- provenance + idempotent mint key (B4). NO FK — see header (G1).
+  outreach_id UUID REFERENCES solicitation_outreach(id) ON DELETE SET NULL,  -- provenance + idempotent mint key (B4); G1
   sent_at TIMESTAMPTZ NOT NULL,
   redeemed_at TIMESTAMPTZ,             -- first redemption; a second is a no-op success
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- G12: a partially-scrubbed row must be impossible, so the purge verifier can
+  -- prove scrub completeness from ANY ONE column. Deliberately EXCLUDES
+  -- outreach_id: SET NULL may null it independently, while the account is still
+  -- live, the moment its outreach row is deleted for unrelated reasons.
+  CONSTRAINT solicitation_unsubscribe_tokens_provenance_all_or_none
+    CHECK (
+      (account_id IS NULL AND business_id IS NULL AND ask_id IS NULL)
+      OR (account_id IS NOT NULL AND business_id IS NOT NULL)
+    )
 );
 
 -- B4's idempotent mint key: a #630 dispatch retry re-uses the existing token
@@ -264,7 +290,12 @@ pnpm test:db:setup
 ```
 Expected: completes without error, applying bootstrap + every migration through 097.
 
-Write `migration-096-solicitation-suppressions.integration.test.ts` and `migration-097-suppression-analytics-events.integration.test.ts`, following `migration-094-consent-analytics-events.integration.test.ts` **exactly**. These are migration-**shape** suites — the sanctioned exception to the no-DDL rule — so they MUST hold the cross-process lock (`acquireLiveDbLock`, `helpers/live-db-lock.ts`) and roll back any unconditional re-apply. A committed re-apply of an old migration silently reverts a later one on the shared DB.
+Write two suites with **different shapes** — the earlier draft of this plan conflated them, which `ci:live-db-suites` would have rejected (review round 1, finding 7). **Neither suite re-applies migration SQL at runtime.**
+
+- `migration-096-solicitation-suppressions.integration.test.ts` — model on **093/095**: provision once via `pnpm test:db:setup`, take the cross-process lock (`acquireLiveDbLock`, `helpers/live-db-lock.ts`), call `assertSchemaReady`, then **introspect** `pg_indexes` / `information_schema` to assert both partial uniques exist with their exact predicates and both CHECK constraints are present. Introspection is a read; it takes no DDL lock.
+- `migration-097-suppression-analytics-events.integration.test.ts` — model on **094**: pure SQL-**text** inspection of the migration file. Read `migration-094-consent-analytics-events.integration.test.ts:1-18` first and copy its shape.
+
+`scripts/ci/live-db-suites-audit.ts:59-69,118-142` allowlists which suites may run DDL, and that file is **outside** `allowed_edit_surface` — so a suite needing an allowlist entry cannot ship in this ticket. Both suites above avoid it by construction.
 
 Required test (verbatim title):
 - `migration 097 admits solicitation_suppressed and solicitation_suppressed_at_dispatch into the analytics_events CHECK`
@@ -301,7 +332,7 @@ git commit -m "feat(#643): suppression ledger schema (migrations 096-097) + regi
 ```typescript
 import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import type postgres from 'postgres';
-import { enqueueAnalyticsEvent } from '@/lib/analytics/events';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue'; // NOT analytics/events — that module owns the NAME allowlist, not the writer
 
 /**
  * The Suppression ledger's domain core (#643; locked spec
@@ -320,9 +351,10 @@ import { enqueueAnalyticsEvent } from '@/lib/analytics/events';
 
 type SqlExecutor = postgres.Sql | postgres.TransactionSql;
 
+// Order is §3.1's table order, verbatim — the unit test asserts it.
 export const SUPPRESSION_SOURCES = [
-  'unsubscribe_link',
   'unsubscribe_one_click',
+  'unsubscribe_link',
   'bounce_permanent',
   'complaint',
   'provider_suppressed',
@@ -371,15 +403,33 @@ export function suppressionMatchSql(
   `;
 }
 
-export interface RecordSuppressionInput {
-  channel: SuppressionChannel;
-  normalizedHandle: string;
-  scope: SuppressionScope;
-  accountId: string | null;
-  source: SuppressionSource;
-  createdByUserId?: string | null;
-  note?: string | null;
-}
+/**
+ * A discriminated union, not a bag of independent fields (G11). The DB CHECK is
+ * the last line of defence; this makes the illegal combination unrepresentable
+ * at the call site, so `owner_manual` + `global` cannot even be typed.
+ */
+export type RecordSuppressionInput =
+  | {
+      scope: 'global';
+      channel: SuppressionChannel;
+      normalizedHandle: string;
+      /** Provenance only — which account's send produced this. Retained through purge (§6.3). */
+      accountId: string | null;
+      source: Exclude<SuppressionSource, 'owner_manual'>;
+      /** Required for admin_manual (§7.3), absent for machine sources. */
+      createdByUserId?: string | null;
+      note?: string | null;
+    }
+  | {
+      scope: 'account';
+      channel: SuppressionChannel;
+      normalizedHandle: string;
+      /** The SCOPE, not provenance — non-null by construction (§1.2). */
+      accountId: string;
+      source: 'owner_manual';
+      createdByUserId: string;
+      note?: string | null;
+    };
 
 /**
  * First-write-wins (§2.1). A complaint arriving after an unsubscribe does NOT
@@ -458,8 +508,9 @@ export async function recordSuppression(
 
 - [ ] **Step 2: Write the unit suite** (`suppression.test.ts`)
 
-Contract-only, no DB. Required tests (verbatim titles):
-- `a global row may carry account_id as provenance` — assert `RecordSuppressionInput` accepts `scope: 'global'` with a non-null `accountId` at the type level and that `SUPPRESSION_SOURCES` contains all seven §3.1 members in spec order.
+Contract-only, no DB. Assert `SUPPRESSION_SOURCES` contains all seven §3.1 members **in §3.1's table order** (`unsubscribe_one_click` first, then `unsubscribe_link` — review round 1, finding 11), and that `SUPPRESSION_SCOPES` / `SUPPRESSION_CHANNELS` match the spec.
+
+The title `a global row may carry account_id as provenance` does **not** live here — it moved to the live-DB suite (review round 1, finding 9). A type-level assertion cannot catch a reversed or two-directional DB CHECK, which is the failure it exists to detect.
 
 - [ ] **Step 3: Write the live-DB suite** (`suppression.integration.test.ts`)
 
@@ -472,8 +523,14 @@ Name it `*.integration.test.ts` — the name is what puts it in vitest's seriali
 - `recordSuppression writes the solicitation_suppressed analytics row in the same transaction`
 - `a repeat recordSuppression mints no duplicate analytics event`
 - `the CHECK pairing rejects scope='account' with a NULL account_id`
+- `a global row may carry account_id as provenance` — moved here from the unit suite (finding 9). Insert a REAL row with `scope='global'` and a non-null `accountId` and assert it succeeds; this is what catches a reversed CHECK.
 - `isSuppressed returns the global row when both a global and an account row match`
 - `isSuppressed ignores an account row belonging to a different account`
+
+Add one more, not in the intake but required by G11 (finding 3) — it is new coverage for a new constraint, not a promised-test substitution:
+- `the source-scope CHECK rejects owner_manual at global scope`
+
+**Fixture cleanup order (finding 13):** `solicitation_suppressions.account_id` is a NO-ACTION FK to `accounts`, and `live-db-tenant.ts:71-83`'s `cleanupTenantAccount` deletes accounts directly. Every suite that retains a global row MUST delete its suppression fixtures **before** calling that helper, or teardown throws a FK violation.
 
 > The last two titles are fixed by the intake contract and the gate matches them **verbatim**. G7 removed the `isSuppressed` function, so these two exercise `suppressionMatchSql` — keep the titles exactly as written (they name the *behavior*, which is unchanged) and assert against the fragment composed into a probe query.
 
@@ -487,7 +544,23 @@ pnpm test src/lib/solicitation/__tests__/suppression.integration.test.ts
 ```
 Expected: both PASS. If the `ON CONFLICT` tests throw `there is no unique or exclusion constraint matching the ON CONFLICT specification`, the predicate is not byte-for-byte identical to the index — diff them character by character, do not "fix" by dropping the predicate.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write the fallow suppression for `recordSuppression`**
+
+G6 accepted that this export has no production caller until #644. That is a **known** fallow `unused-export` finding, so write the justified suppression now rather than discovering it in CI (review round 1, finding 8):
+
+```typescript
+// fallow-ignore-next-line unused-export — G6: this is the single owner of the
+// byte-for-byte ON CONFLICT predicates for both partial unique indexes. It
+// ships ahead of its callers (#644 redemption, #645 manual paths, #627 webhook
+// sources) so the predicates are proven against the real indexes the moment
+// they are created, not three tickets later. Remove this suppression when #644
+// lands the first production caller.
+export async function recordSuppression(
+```
+
+Place the marker **immediately adjacent** to the declaration — #628 proved a marker separated by intervening lines is not applied. Then run `pnpm ci:fallow` and confirm the finding is gone.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/lib/solicitation/suppression.ts src/lib/solicitation/__tests__/suppression*.ts
@@ -535,32 +608,30 @@ Both are the first-ever users of `retain_compliance_limited_pii` and `compliance
 In `purge-verification.ts`, before the fail-closed `default:`. No input widening (G9) — derive the account's users by subquery exactly as the `analytics_events` arm does at `:351`.
 
 ```typescript
-    // Retained by compliance basis (§6.3), so this arm cannot be "count rows
-    // that exist". It asserts the TWO things that must be true post-purge:
-    // (a) no account-scoped (owner_manual) row survives — those are the
-    //     account's own data and are deleted; and
-    // (b) no RETAINED global row still carries an identifier linking back to
-    //     one of this account's users. account_id itself is deliberately KEPT
-    //     on global rows (§6.3) and so is never a violation.
+    // SCOPE NOTE (G13): this verifier counts VIOLATIONS, so it structurally
+    // cannot prove retention — "correctly retained" and "every row wrongly
+    // deleted" both return 0. The retention guarantee is therefore a TEST
+    // obligation (Task 3 Step 4), not a runtime check. This arm's job is
+    // narrowed to the one thing it CAN prove: that no account-scoped row
+    // survived. A `created_by_user_id IN (account's users)` clause was
+    // considered and REJECTED as decorative — admin users carry
+    // users.account_id IS NULL (migration 039), so on valid data it can never
+    // fire (review round 1, finding 2).
     // One arm rather than two entries: TABLE_DISPOSITIONS is keyed by table
-    // name (#643 grilling G2, amending §6.3's two-row table).
+    // name (G2, amending §6.3's two-row table).
     case 'solicitation_suppressions':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
         FROM solicitation_suppressions
-        WHERE (scope = 'account' AND account_id = ${accountId}::uuid)
-           OR (
-             scope = 'global'
-             AND created_by_user_id IN (
-               SELECT id FROM users WHERE account_id = ${accountId}::uuid
-             )
-           )
+        WHERE scope = 'account' AND account_id = ${accountId}::uuid
       `;
 
-    // Retained so post-purge redemption still works (§5.2). The violation is a
-    // surviving row that still carries ANY provenance identifier — the scope
-    // predicate cannot be account_id, because account_id is exactly what gets
-    // scrubbed. This is what compliance_handle_hash scope evidence is for.
+    // Retained so post-purge redemption still works (§5.2). G12's all-or-none
+    // CHECK makes a partially-scrubbed row impossible, so checking account_id
+    // and business_id is sufficient to prove ask_id was scrubbed too — without
+    // it, a row with account_id NULL but ask_id set would be invisible here
+    // (review round 1, finding 6). outreach_id is excluded from that CHECK and
+    // is nulled by its own ON DELETE SET NULL (G1).
     case 'solicitation_unsubscribe_tokens':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
@@ -591,12 +662,16 @@ Add, after the existing `deleteByBusiness(tx, 'solicitation_consent', row.accoun
     // §6.3: scrub provenance, keep the mechanism. Redemption after the sender
     // is gone still writes a ledger row (§5.2) — honoring the opt-out matters;
     // knowing which dead account sent it does not.
+    // G12's all-or-none CHECK covers account_id/business_id/ask_id, so these
+    // three MUST be nulled in one statement — nulling a subset throws. Note
+    // outreach_id is deliberately absent: its own ON DELETE SET NULL (G1) nulls
+    // it when the outreach row cascades away, and it is excluded from the
+    // CHECK precisely so that can happen independently.
     await tx`
       UPDATE solicitation_unsubscribe_tokens
       SET account_id = NULL,
           business_id = NULL,
-          ask_id = NULL,
-          outreach_id = NULL
+          ask_id = NULL
       WHERE account_id = ${row.account_id}::uuid
          OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)
     `;
@@ -611,7 +686,13 @@ Required (verbatim titles):
 - `the purge scrubs account_id, business_id, ask_id and outreach_id from token rows and keeps token_hash, normalized_handle, channel and sent_at`
 - `a token row survives the purge that deletes its outreach row`
 
-The last one is the regression test for G1 — it is the test that would have caught a CASCADE FK. Seed an outreach row, a token row referencing it, run the purge, assert the outreach row is gone **and** the token row is present with `outreach_id IS NULL`.
+The last one is the regression test for G1 — it is the test that would have caught a CASCADE FK. Seed an outreach row, a token row referencing it, run the purge, assert the outreach row is gone **and** the token row is present with `outreach_id IS NULL` (nulled by the FK's SET NULL, not by the explicit scrub).
+
+**Plus the G13 retention proof — the single most important test in this ticket.** The runtime verifier cannot prove retention (it counts violations, so total deletion also reads as 0), so this test carries the guarantee alone:
+
+- `a global suppression row survives the purge with its account_id intact`
+
+Seed one `global` row and one `account` row for the same handle under the purging account, run the **full production purge path**, then assert: the `account` row is gone, the `global` row is present, and its `account_id` still equals the purged account's id. A test that only asserts "no violations" would pass against a purge that deleted everything.
 
 - [ ] **Step 5: Run**
 
@@ -667,7 +748,13 @@ Replace `suppression: null,` at `:335`:
 
 - [ ] **Step 3: Allowlist the deliberately-unscoped global arm**
 
-`pnpm ci:tenant-scope` will flag the new query with `missing account_id or business_id scope`, because the `scope = 'global'` arm matches rows belonging to no account **by design** (§1.1). Add an allowlist entry recording exactly that reason, and bump `ALLOWLIST_BASELINE` in the same change — `tenant-scope-audit.ts:515-517` requires the baseline move so the change is an explicit, reviewed decision.
+`pnpm ci:tenant-scope` flags the deliberately-unscoped `scope = 'global'` arm with `missing account_id or business_id scope`, because that arm matches rows belonging to no account **by design** (§1.1). Add an allowlist entry recording exactly that reason, and bump `ALLOWLIST_BASELINE` in the same change — `tenant-scope-audit.ts:515-517` requires the baseline move so the change is an explicit, reviewed decision.
+
+**The entry targets `src/lib/solicitation/suppression.ts`, NOT `batch-builder.ts`** (review round 1, finding 5). The audit reads SQL template *text*: `batch-builder`'s outer template contains only the `${suppressionMatchSql(...)}` interpolation, so `solicitation_suppressions` never appears there — the literal `FROM solicitation_suppressions` lives in the fragment's own template. An entry pointed at `batch-builder.ts` would match nothing and then fail the audit's own `unused tenant scope allowlist entry` check (`tenant-scope-audit.ts:31`).
+
+Keep the fragment's executor parameter named `exec`. `SQL_TAG_NAMES` is `{'sql','tx','db','exec'}` (`scripts/ci/lib/sql-tag-scan.ts:40`) and `exec` is what `primaryTrackedKeywordSql` uses — no rename is needed or wanted.
+
+**Run `pnpm ci:tenant-scope` and read the actual finding before writing the entry.** Do not pre-write it from this plan's prediction; match the audit's reported file/snippet exactly.
 
 The entry's reason must say: global suppression is cross-account by design — every account sends from one shared identity, so a recipient's revocation is not any single account's property. Scoping it would silently reintroduce per-account suppression, contradicting locked spec §1.1/D1.
 
@@ -725,6 +812,12 @@ In `finalizePurgeInTransaction`, after the `verifyAccountOffboardingPurge` block
 ```
 
 Pass `retainedSuppressionCount` into the existing `enqueueAccountOffboardingEmail` call.
+
+**Concurrency contract, stated because it is not enforced (review round 1, finding 12).** Content purge, tombstone and finalize are separate transactions (`PurgeWorker.ts:72-89`); finalize locks only the outbox row. A `recordSuppression` landing between the purge stage and this count would be omitted from the receipt, and one landing after verification could leave post-purge residue. **This is not reachable today** — `recordSuppression` has zero production callers (G6) — so the fix is a documented contract, not machinery:
+
+> A suppression writer MUST NOT write a `scope='account'` row for an account in a terminal offboarding state. #644/#645/#627 own honouring this when they land the first callers.
+
+Record it as a comment at the count site and add it to the ticket's deviations file so it reaches the sibling tickets. **Do NOT add a third advisory lock** — an unordered one reintroduces the ABBA class the existing lock order guards against.
 
 - [ ] **Step 2: Thread through the payload**
 
