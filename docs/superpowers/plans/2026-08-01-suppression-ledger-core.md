@@ -26,6 +26,7 @@
 | G2 | `solicitation_suppressions` gets **ONE** disposition entry, not two | `TABLE_DISPOSITIONS` is keyed by table name and `verificationQuery` is a `switch (table)` — two entries hit the same arm twice. **Amends §6.3's two-row table.** |
 | G11 | Source and scope are paired by a **DB CHECK** | **Added in review round 1 (finding 3).** Without it `owner_manual + global` inserts cleanly, letting one owner suppress a recipient across every tenant — the exact cross-tenant write §1.2 exists to prevent. The enum mapping in §3.1 is total: `owner_manual` is the only `account` source. |
 | G12 | Token provenance is **all-set or all-null** for `account_id`/`business_id`/`ask_id`, enforced by CHECK | **Added in review round 1 (finding 6).** Makes a partially-scrubbed row impossible, so the verifier can prove scrub completeness from any one column. Deliberately **excludes** `outreach_id`, which SET NULL may null independently while the account is still live. |
+| G14 | The global input variant splits into **`admin_manual`** (actor + note required) and **machine sources** (`createdByUserId?: never`) | **Added in review round 2 (finding 16).** §7.3 requires an actor and note for admin entry, and the purge verifier's global branch only means anything if a global row's actor is provably not an owner. One flat global variant let both be omitted. |
 | G13 | Retention is proven by **test**, not by the runtime verifier | **Added in review round 1 (finding 1 — CRITICAL).** `verifyAccountOffboardingPurge` counts violations, so "correctly retained" and "all rows accidentally deleted" both return 0 — it structurally cannot prove survival. The retention guarantee therefore lives in a live-DB test that asserts global rows survive with `account_id` intact. The runtime arm's job is narrowed to what it can actually do: catch surviving `account`-scoped rows. |
 | G3 | **Global wins** when a handle matches both a global row and this account's `owner_manual` row | Reporting the account row would let an owner clear it under §7.6, watch the contact stay suppressed, and have no idea why. |
 | G4 | 096 ships **`account_id`-leading indexes** on both tables | Both partial uniques lead with `(channel, normalized_handle)`, but the purge delete, retained count and token scrub all filter account-first. PG16 has no skip scan. This is migration 095's lesson applied up front. |
@@ -218,11 +219,18 @@ CREATE TABLE IF NOT EXISTS solicitation_unsubscribe_tokens (
   -- prove scrub completeness from ANY ONE column. Deliberately EXCLUDES
   -- outreach_id: SET NULL may null it independently, while the account is still
   -- live, the moment its outreach row is deleted for unrelated reasons.
-  CONSTRAINT solicitation_unsubscribe_tokens_provenance_all_or_none
-    CHECK (
-      (account_id IS NULL AND business_id IS NULL AND ask_id IS NULL)
-      OR (account_id IS NOT NULL AND business_id IS NOT NULL)
-    )
+  -- Stated as an IMPLICATION, not a symmetric all-or-none (review round 2,
+  -- finding 14): the earlier `(all null) OR (account_id AND business_id set)`
+  -- form left `ask_id` unconstrained on the live arm, so
+  -- (account set, business set, ask NULL) passed and the constraint did not
+  -- mean what its name claimed. A symmetric form would ALSO be wrong here — it
+  -- would force ask_id NOT NULL on every live row, which over-constrains a
+  -- provenance column the spec lists as optional. What purge verification
+  -- actually needs is the one-way guarantee below: scrubbing account_id
+  -- implies the rest are scrubbed, so checking account_id/business_id is
+  -- sufficient to prove ask_id was scrubbed too.
+  CONSTRAINT solicitation_unsubscribe_tokens_provenance_scrub_implication
+    CHECK (account_id IS NOT NULL OR (business_id IS NULL AND ask_id IS NULL))
 );
 
 -- B4's idempotent mint key: a #630 dispatch retry re-uses the existing token
@@ -292,7 +300,9 @@ Expected: completes without error, applying bootstrap + every migration through 
 
 Write two suites with **different shapes** — the earlier draft of this plan conflated them, which `ci:live-db-suites` would have rejected (review round 1, finding 7). **Neither suite re-applies migration SQL at runtime.**
 
-- `migration-096-solicitation-suppressions.integration.test.ts` — model on **093/095**: provision once via `pnpm test:db:setup`, take the cross-process lock (`acquireLiveDbLock`, `helpers/live-db-lock.ts`), call `assertSchemaReady`, then **introspect** `pg_indexes` / `information_schema` to assert both partial uniques exist with their exact predicates and both CHECK constraints are present. Introspection is a read; it takes no DDL lock.
+- `migration-096-solicitation-suppressions.integration.test.ts` — model on **093/095**: provision once via `pnpm test:db:setup`, take the cross-process lock (`acquireLiveDbLock`, `helpers/live-db-lock.ts`), call `assertSchemaReady`, then **introspect** `pg_indexes` / `information_schema` to assert both partial uniques exist with their exact predicates.
+
+For the CHECK constraints, asserting mere **presence is not enough** (review round 2, finding 19) — a malformed predicate is present and wrong, which is exactly the defect finding 14 caught in this plan's own first revision. Assert `pg_get_constraintdef()` semantics, **and** behaviourally exercise the tuples: for `solicitation_suppressions`, every `(scope, source)` pair in §3.1 accepted and `owner_manual + global` / `complaint + account` rejected; for `solicitation_unsubscribe_tokens`, every provenance permutation of `(account_id, business_id, ask_id)` — a rejected `(NULL, set, NULL)` and `(NULL, NULL, set)`, an accepted `(set, set, NULL)` and `(NULL, NULL, NULL)`. Introspection and inserts inside a rolled-back transaction are reads/writes, not DDL — no lock issue.
 - `migration-097-suppression-analytics-events.integration.test.ts` — model on **094**: pure SQL-**text** inspection of the migration file. Read `migration-094-consent-analytics-events.integration.test.ts:1-18` first and copy its shape.
 
 `scripts/ci/live-db-suites-audit.ts:59-69,118-142` allowlists which suites may run DDL, and that file is **outside** `allowed_edit_surface` — so a suite needing an allowlist entry cannot ship in this ticket. Both suites above avoid it by construction.
@@ -385,11 +395,11 @@ export type SuppressionChannel = (typeof SUPPRESSION_CHANNELS)[number];
  * Returns at most one row of { source, suppressed_at }, or none.
  */
 export function suppressionMatchSql(
-  exec: SqlExecutor,
+  db: SqlExecutor, // MUST be named `db` — see the tag-name note below
   handleColumn: postgres.PendingQuery<never> | postgres.Fragment,
   accountId: string,
 ) {
-  return exec`
+  return db`
     SELECT s.source, s.suppressed_at
     FROM solicitation_suppressions s
     WHERE s.channel = 'email'
@@ -410,15 +420,29 @@ export function suppressionMatchSql(
  */
 export type RecordSuppressionInput =
   | {
+      // G14: admin_manual is its own variant because §7.3 REQUIRES an actor and
+      // a note, and §6.3's verification branch (b) only means anything if a
+      // global row's actor is provably an admin. Folding it in with the machine
+      // sources let a global row omit both (review round 2, finding 16).
+      scope: 'global';
+      channel: SuppressionChannel;
+      normalizedHandle: string;
+      accountId: string | null;
+      source: 'admin_manual';
+      createdByUserId: string;
+      note: string;
+    }
+  | {
+      // Machine-authored: no human actor exists, so `?: never` makes claiming
+      // one a type error rather than a silently-accepted field.
       scope: 'global';
       channel: SuppressionChannel;
       normalizedHandle: string;
       /** Provenance only — which account's send produced this. Retained through purge (§6.3). */
       accountId: string | null;
-      source: Exclude<SuppressionSource, 'owner_manual'>;
-      /** Required for admin_manual (§7.3), absent for machine sources. */
-      createdByUserId?: string | null;
-      note?: string | null;
+      source: Exclude<SuppressionSource, 'owner_manual' | 'admin_manual'>;
+      createdByUserId?: never;
+      note?: never;
     }
   | {
       scope: 'account';
@@ -502,7 +526,7 @@ export async function recordSuppression(
 }
 ```
 
-> **Check `enqueueAnalyticsEvent`'s real signature** in `src/lib/analytics/events.ts` before finalizing — match its parameter names and nullability exactly rather than trusting the shape above. If `businessId`/`distinctId` are optional, omit rather than passing `null`.
+> **Check `enqueueAnalyticsEvent`'s real signature** in `src/lib/analytics/enqueue.ts:8-23` before finalizing — match its parameter names and nullability exactly rather than trusting the shape above. If `businessId`/`distinctId` are optional, omit rather than passing `null`.
 
 > **`postgres.Fragment` may not be the exported type name.** Read the `postgres` types and use whatever `primary-tracked-keyword-sql.ts` uses for the same purpose; if that file returns an untyped fragment, do the same and let inference work.
 
@@ -548,17 +572,19 @@ Expected: both PASS. If the `ON CONFLICT` tests throw `there is no unique or exc
 
 G6 accepted that this export has no production caller until #644. That is a **known** fallow `unused-export` finding, so write the justified suppression now rather than discovering it in CI (review round 1, finding 8):
 
+`fallow-ignore-next-line` means literally the next line, so the rationale goes **above** the marker and the marker sits alone directly on top of the declaration. An earlier revision of this plan put five rationale lines between the two, contradicting its own adjacency rule (review round 2, finding 8):
+
 ```typescript
-// fallow-ignore-next-line unused-export — G6: this is the single owner of the
-// byte-for-byte ON CONFLICT predicates for both partial unique indexes. It
-// ships ahead of its callers (#644 redemption, #645 manual paths, #627 webhook
-// sources) so the predicates are proven against the real indexes the moment
-// they are created, not three tickets later. Remove this suppression when #644
-// lands the first production caller.
+// G6: this is the single owner of the byte-for-byte ON CONFLICT predicates for
+// both partial unique indexes. It ships ahead of its callers (#644 redemption,
+// #645 manual paths, #627 webhook sources) so the predicates are proven against
+// the real indexes the moment they are created, not three tickets later.
+// Remove this suppression when #644 lands the first production caller.
+// fallow-ignore-next-line unused-export
 export async function recordSuppression(
 ```
 
-Place the marker **immediately adjacent** to the declaration — #628 proved a marker separated by intervening lines is not applied. Then run `pnpm ci:fallow` and confirm the finding is gone.
+Cross-check the exact placement against a working in-repo example (`src/lib/config/worker.ts:265-266`) before committing. Then run `pnpm ci:fallow` and confirm the finding is gone — #628 burned a round on markers that looked right and were not applied.
 
 - [ ] **Step 6: Commit**
 
@@ -609,21 +635,36 @@ In `purge-verification.ts`, before the fail-closed `default:`. No input widening
 
 ```typescript
     // SCOPE NOTE (G13): this verifier counts VIOLATIONS, so it structurally
-    // cannot prove retention — "correctly retained" and "every row wrongly
+    // cannot prove RETENTION — "correctly retained" and "every row wrongly
     // deleted" both return 0. The retention guarantee is therefore a TEST
-    // obligation (Task 3 Step 4), not a runtime check. This arm's job is
-    // narrowed to the one thing it CAN prove: that no account-scoped row
-    // survived. A `created_by_user_id IN (account's users)` clause was
-    // considered and REJECTED as decorative — admin users carry
-    // users.account_id IS NULL (migration 039), so on valid data it can never
-    // fire (review round 1, finding 2).
+    // obligation (Task 3 Step 4), never a runtime check.
+    //
+    // TWO branches, both of which CAN fire:
+    // (a) a surviving account-scoped row — the account's own data, must be gone;
+    // (b) a retained global row still naming one of this account's users.
+    //
+    // Branch (b) is vacuous for VALID data — admin users carry
+    // users.account_id IS NULL (migration 039), so an admin_manual row never
+    // matches — and review round 1 (finding 2) was right that it proves
+    // nothing about retention. It is retained anyway (review round 2, finding
+    // 15) because it is the only detector for an INVALID row that named an
+    // owner as the actor on a global suppression, and because the intake
+    // promises a test for exactly that case. Defence-in-depth against a state
+    // the type layer now also forbids (G14) is not the same as decoration.
+    //
     // One arm rather than two entries: TABLE_DISPOSITIONS is keyed by table
     // name (G2, amending §6.3's two-row table).
     case 'solicitation_suppressions':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
         FROM solicitation_suppressions
-        WHERE scope = 'account' AND account_id = ${accountId}::uuid
+        WHERE (scope = 'account' AND account_id = ${accountId}::uuid)
+           OR (
+             scope = 'global'
+             AND created_by_user_id IN (
+               SELECT id FROM users WHERE account_id = ${accountId}::uuid
+             )
+           )
       `;
 
     // Retained so post-purge redemption still works (§5.2). G12's all-or-none
@@ -752,7 +793,7 @@ Replace `suppression: null,` at `:335`:
 
 **The entry targets `src/lib/solicitation/suppression.ts`, NOT `batch-builder.ts`** (review round 1, finding 5). The audit reads SQL template *text*: `batch-builder`'s outer template contains only the `${suppressionMatchSql(...)}` interpolation, so `solicitation_suppressions` never appears there — the literal `FROM solicitation_suppressions` lives in the fragment's own template. An entry pointed at `batch-builder.ts` would match nothing and then fail the audit's own `unused tenant scope allowlist entry` check (`tenant-scope-audit.ts:31`).
 
-Keep the fragment's executor parameter named `exec`. `SQL_TAG_NAMES` is `{'sql','tx','db','exec'}` (`scripts/ci/lib/sql-tag-scan.ts:40`) and `exec` is what `primaryTrackedKeywordSql` uses — no rename is needed or wanted.
+**The fragment's executor parameter MUST be named `db`, not `exec`** (review round 2, finding 5). `ci:tenant-scope` does **not** use `scripts/ci/lib/sql-tag-scan.ts` — it never imports it. It has its own extractor, `extractSqlTagNames` (`tenant-scope-audit.ts:711`), seeded with `new Set(['sql', 'tx', 'db'])` and extended only by names imported from db-server. `exec` is absent, so a template tagged `exec` is **silently skipped**: no violation is reported, and the allowlist entry then fails the unused-entry check. `primaryTrackedKeywordSql` uses `exec` and is invisible to this audit for the same reason — it is not a counter-example, it is the same blind spot. An earlier revision of this plan asserted the opposite; that assertion was wrong.
 
 **Run `pnpm ci:tenant-scope` and read the actual finding before writing the entry.** Do not pre-write it from this plan's prediction; match the audit's reported file/snippet exactly.
 
@@ -815,7 +856,9 @@ Pass `retainedSuppressionCount` into the existing `enqueueAccountOffboardingEmai
 
 **Concurrency contract, stated because it is not enforced (review round 1, finding 12).** Content purge, tombstone and finalize are separate transactions (`PurgeWorker.ts:72-89`); finalize locks only the outbox row. A `recordSuppression` landing between the purge stage and this count would be omitted from the receipt, and one landing after verification could leave post-purge residue. **This is not reachable today** — `recordSuppression` has zero production callers (G6) — so the fix is a documented contract, not machinery:
 
-> A suppression writer MUST NOT write a `scope='account'` row for an account in a terminal offboarding state. #644/#645/#627 own honouring this when they land the first callers.
+> **Boundary states, named explicitly.** A suppression writer MUST NOT write a `scope='account'` row for an account whose `account_offboardings.status` is any **active teardown** state — `purge_scheduled` included — not merely a terminal one. `purge_scheduled` is precisely the window in which purge runs, and verification completes *before* the transition to `purged`, so a writer gated on "terminal" would sail straight through it. A global row written after the boundary MUST carry `accountId: null`, so it is retained without re-introducing account provenance the purge just removed.
+
+That wording is the fix for review round 2, finding 12 — the earlier "terminal state" phrasing did not serialize anything, because the state that matters is an active one. #644/#645/#627 own honouring this when they land the first callers; this ticket owns stating it.
 
 Record it as a comment at the count site and add it to the ticket's deviations file so it reaches the sibling tickets. **Do NOT add a third advisory lock** — an unordered one reintroduces the ABBA class the existing lock order guards against.
 
