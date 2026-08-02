@@ -296,6 +296,41 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   count's predicate is a direct `account_id = …`, which is exactly the shape the
   audit is looking for. No allowlist entry and no baseline bump belong to T5.
 
+## Task 6 — spec amendments + migrations log
+
+- [2026-08-02] **The spec has no SECTION-level amendment convention; the document-level
+  one was extended down a level.** `2026-07-28-suppression-unsubscribe-design.md:3` and its
+  four sibling send-mode specs all carry the same shape — a `> **AMENDED <date> — …**`
+  blockquote banner at the very top, pointing at the authority. Nothing in the family
+  amends a single section in place. Both notes therefore use that banner verbatim,
+  placed immediately under the `### 2.2` / `### 6.3` headings so they are read before the
+  text they qualify, and each names precisely what it supersedes ("this section's no-FK
+  posture for `outreach_id` only"; "the row count of the table below, not its content").
+  No locked text was edited or deleted.
+
+- [2026-08-02] **Step 2 says "add 096 and 097 entries and move the head"; the
+  `new-migration` skill also requires retention-policy rows, so two were added.** Its
+  step 3 makes a retention-policy row mandatory for a new table ("or note why exempt"),
+  and 096 ships the first two solicitation tables that are NOT `hard_delete`-on-purge —
+  precisely the case the table exists to record. `solicitation_suppressions` and
+  `solicitation_unsubscribe_tokens` rows now sit after `solicitation_outreach`. The
+  **Key Tables Reference** section further down was deliberately NOT touched: it stops at
+  migration 088's `solicitation_asks`, and neither 091's `solicitation_outreach` nor 093's
+  `solicitation_consent` was ever added to it, so appending only these two would have
+  implied a completeness that section does not have.
+
+- [2026-08-02] **T1's Step 4 deviation is now folded into the log itself.** 097's entry
+  states in prose that it has **no `SchemaRequirement` export and no `assertSchemaReady`
+  entry**, and why (constraint-only; the constraint name predates it by 50 migrations, so a
+  presence check would pass against a 094-era database; 094, the same shape, has none
+  either). Recorded in the log rather than only in this file because the absence is the
+  kind of thing a later reader would otherwise "fix".
+
+- [2026-08-02] **Both entries record the migrations as LOCAL-ONLY.** They are applied and
+  verified against the local test container; staging and production application rides the
+  PR promotion, 096 then 097, staging first. Phrasing follows migration 075's precedent
+  rather than 095's, which was written after its promotion.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward

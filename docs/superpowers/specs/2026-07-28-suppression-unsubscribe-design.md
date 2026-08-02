@@ -178,6 +178,26 @@ gotcha) — there is no anchor derived from the row and compared back against it
 
 ### 2.2 `solicitation_unsubscribe_tokens`
 
+> **AMENDED 2026-08-02 — #643 grilling decision G1 (revised in that ticket's adversarial
+> review round 1, findings 4+6). Supersedes this section's no-FK posture for `outreach_id`
+> only.** The `outreach_id` column that B9
+> (`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`) adds to this
+> table ships as `UUID REFERENCES solicitation_outreach(id) **ON DELETE SET NULL**`, with a
+> **partial** unique index (`WHERE outreach_id IS NOT NULL`) rather than a plain column
+> `UNIQUE`. B9 asked for a referential guarantee, and both obvious ways to give it were
+> wrong. **CASCADE** would have deleted retained **Unsubscribe token** rows: `solicitation_outreach`
+> cascades from `solicitation_batches`, which cascades from `contact_csv_uploads`, so the
+> token would die with the upload and §5.2 would break. **No FK at all** — the posture the
+> table below takes for `ask_id` — was wrong in the other direction: once §6.3 scrubs
+> `account_id`/`business_id`, nothing could detect a row still carrying a stale
+> `outreach_id`. `ON DELETE SET NULL` preserves the token, nulls the provenance in the DB for
+> free, and satisfies B9 as literally written; the index is partial so purge-scrubbed NULLs
+> never collide. `ask_id` keeps its no-FK posture unchanged — `solicitation_asks` is
+> hard-deleted, so there is no column to hang a SET NULL on without the same cascade problem.
+> Shipped in migration 096. (Migration 096 also excludes `outreach_id` from the
+> provenance-scrub CHECK, since SET NULL may null it independently while the account is still
+> live — see G12.)
+
 See §5.2 for why this is a separate table and not a column on `solicitation_asks`.
 
 | Column | Type | Notes |
@@ -470,6 +490,18 @@ and re-checked per child, suppression correctness is **independent of drip durat
 invents a "the drip must finish within 10 business days" rule that does not exist.
 
 ### 6.3 Offboarding purge
+
+> **AMENDED 2026-08-02 — #643 grilling decision G2. Supersedes the row count of the table
+> below, not its content.** The table lists `solicitation_suppressions` twice, one row per
+> **Suppression scope**. `TABLE_DISPOSITIONS`
+> (`src/lib/account-offboarding/table-disposition.ts`) ships **ONE** entry for that table,
+> not two: the inventory is keyed by table name and `verificationQuery` is a
+> `switch (table)`, so a second entry would only route to the same arm twice. The single
+> entry is `retain_compliance_limited_pii` / `allowed_limited_retention` /
+> `compliance_handle_hash`, and its one verification arm carries both facts the two rows
+> below describe — `scope='global'` rows survive with `account_id` intact, `scope='account'`
+> rows must be absent. `solicitation_unsubscribe_tokens` keeps its own separate entry.
+> Everything else in this section stands as written, including the dispositions themselves.
 
 Every existing solicitation table is `hard_delete` and cascades. **The ledger cannot be** —
 deleting a suppression row un-suppresses an opted-out person, which is the #535 §6 failure
