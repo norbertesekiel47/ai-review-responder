@@ -30,7 +30,7 @@ real strings, and a 6-case `it.each` plus a `pg_get_constraintdef()` assertion c
 | # | Path | Why |
 |---|---|---|
 | 1 | `docs/superpowers/plans/feat-643-suppression-ledger-core-deviations.md` | **Start here.** The step-6.5 triage table is at the top: 33 entries, 33 ACCEPT, 0 RE-PLAN, plus the four entries flagged for the step-7 reviewers. |
-| 2 | `.feature/intake.json` | The binding contract. `allowed_edit_surface`, the 19 `tests_to_add` titles (all present verbatim — `promised-tests` PASS), `rollback_plan`, `observability`. The audit copy in `docs/superpowers/plans/` is byte-identical (sha256 `5078c6d6…`). |
+| 2 | `.feature/intake.json` | The binding contract. `allowed_edit_surface`, the 19 `tests_to_add` titles (all present verbatim — `promised-tests` PASS), `rollback_plan`, `observability`. The audit copy in `docs/superpowers/plans/` is byte-identical (sha256 `91786a3d…` — **amended at step 7**, two `tests_to_add` titles renamed off the forbidden `isSuppressed`; the pre-amendment hash was `5078c6d6…`). **Amendment budget is now 2 of 2 — exhausted.** |
 | 3 | `docs/superpowers/plans/2026-08-01-suppression-ledger-core.md` | The plan. G1–G14 decision table first, then the task graph. |
 | 4 | `CONTEXT.md` → "Solicitation suppression & unsubscribe" | Glossary. Five terms used verbatim throughout; re-read before writing any prompt or commit. |
 | 5 | `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` | Locked spec, now carrying the G1 (§2.2) and G2 (§6.3) amendment banners T6 added. |

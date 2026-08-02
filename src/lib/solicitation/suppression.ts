@@ -55,12 +55,25 @@ export type SuppressionChannel = (typeof SUPPRESSION_CHANNELS)[number];
  * Returns at most one row of { source, suppressed_at }, or none — an existence
  * check, never a comparison against suppressed_at (§2.1), which sidesteps the
  * postgres.js microsecond-truncation class entirely.
+ *
+ * `channel` is a PARAMETER rather than the literal 'email' this fragment used to
+ * hardcode, because `recordSuppression` has always taken one: with the reader
+ * pinned and the writer open, the day SUPPRESSION_CHANNELS gains a member the
+ * writer would mint rows this lookup could never see, and an opt-out that the
+ * ledger holds but the gate cannot find fails OPEN — the recipient gets
+ * contacted. One owner for the channel dimension, on both sides. (#643 step-7
+ * review.)
  */
-export function suppressionMatchSql(db: SqlExecutor, handleColumn: Fragment, accountId: string) {
+export function suppressionMatchSql(
+  db: SqlExecutor,
+  handleColumn: Fragment,
+  accountId: string,
+  channel: SuppressionChannel,
+) {
   return db`
     SELECT s.source, s.suppressed_at
     FROM solicitation_suppressions s
-    WHERE s.channel = 'email'
+    WHERE s.channel = ${channel}
       AND s.normalized_handle = ${handleColumn}
       AND (
         s.scope = 'global'

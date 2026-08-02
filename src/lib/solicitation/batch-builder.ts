@@ -444,7 +444,7 @@ async function loadCandidateWindow(
     -- c.email already holds the Normalized handle — the consent join above is
     -- the standing proof — so nothing is re-normalized here.
     LEFT JOIN LATERAL (
-      ${suppressionMatchSql(tx, tx`c.email`, accountId)}
+      ${suppressionMatchSql(tx, tx`c.email`, accountId, 'email')}
     ) suppression ON TRUE
     LEFT JOIN solicitation_asks latest_evaluation
       ON latest_evaluation.contact_id = c.id

@@ -529,6 +529,116 @@ or G1–G14 decision**, so the abort criteria are not reached. Verdicts by secti
   documentation commits in between. Still an estimate error, not a lane error: production
   code is unchanged at 435 lines, and this fix touched no production file at all.
 
+## Step 7 dual review — triage verdicts
+
+Two fresh parallel agents on the branch diff. **Spec & correctness**: 3 findings, all
+`low`, nothing at critical/high/medium; it verified all 37 paths in-surface, both intake
+copies byte-identical, 19/19 `tests_to_add` verbatim (eight bodies read and confirmed
+two-sided), 4/4 `user_visible_behavior` shipped with nothing unauthorised, and 13/13
+`edge_cases` handled. **Standards & maintainability**: 6 findings (3 medium, 3 low), a
+clean glossary sweep, and independent confirmation that the relocated live-DB suites DO
+run in CI and that zero new fallow/eslint/ts suppression markers exist. Both agents
+independently reviewed the four escalated deviations and concurred with all four ACCEPTs.
+Full reports: `docs/reviews/feat-643-suppression-ledger-core/step7-*.md`.
+
+Every finding was verified against the code before triage; none was taken on the
+reviewer's word.
+
+**ACCEPTED — 6:**
+
+- [2026-08-02] **`suppressionMatchSql` hardcoded `channel = 'email'` while
+  `recordSuppression` parameterised it** (medium). Two owners for one dimension, and the
+  failure mode is fail-OPEN: the day `SUPPRESSION_CHANNELS` gains a member, the writer
+  mints rows the reader can never see and a recipient who opted out gets contacted. No
+  live divergence today (the enum has one member), so this is a latent trap, not a bug.
+  **Fixed** — `channel: SuppressionChannel` is now a required parameter; both call sites
+  (`batch-builder.ts` LATERAL, the suite's `matchSuppression` probe) pass `'email'`.
+
+- [2026-08-02] **The token scrub's `OR business_id IN (SELECT … FROM businesses …)`
+  defeated the index added for it** (low, spec agent, EXPLAIN-confirmed). `edge_cases[4]`
+  says 096 ships `idx_solicitation_unsubscribe_tokens_account` expressly because the
+  scrub filters account-first; the `OR` made it unusable and forced a seq scan on that
+  exact statement, while the scrub holds the per-business advisory locks. The branch was
+  also redundant: G12's CHECK gives `business_id NOT NULL ⟹ account_id NOT NULL`, so no
+  row of the account's can hide behind a NULL `account_id`. **Fixed, asymmetrically and
+  on purpose** — the `OR` is gone from the scrub (hot path) and **kept in the verifier**
+  (`purge-verification.ts`, cold path, runs once). The one shape the branch could still
+  have caught is a token stamped with account Y while pointing at account X's business —
+  a cross-account writer bug — and silently scrubbing it would HIDE it. Now it fails the
+  purge loudly instead. Owner-approved at the triage checkpoint.
+
+- [2026-08-02] **`solicitation_suppressed` distinct-ID doc drift** (low, flagged
+  independently by BOTH agents). `docs/analytics/events.md` said "Distinct ID: account
+  ID"; the code is `input.accountId ?? row.id`. The `accountId: null` path is
+  spec-mandated (§5.2 post-purge redemption, unresolvable webhook sources) and
+  `analytics_events.distinct_id` is NOT NULL, so the fallback is correct — **the doc was
+  wrong**. Fixed the doc rather than the code, and named the consequence it was hiding:
+  an accountless global suppression mints a one-off PostHog person per row. Harmless at
+  today's zero callers; picking a stable sentinel is explicitly handed to #644/#645/#627
+  rather than decided here.
+
+- [2026-08-02] **Two test titles named `isSuppressed`, which G7 forbids** (low, spec
+  agent). `CONTEXT.md`'s **Suppression scope** entry rules the helper out by name ("no
+  `isSuppressed()` helper, because the second consumer does not exist yet"), so the suite
+  advertised an API the branch's own locked glossary forbids. The titles were verbatim in
+  `tests_to_add` and gate-matched by `promised-tests`, so this could not be fixed in the
+  test alone. **Fixed via an INTAKE AMENDMENT — the 2nd and last of 2, owner-approved at
+  the triage checkpoint.** Both titles now name `suppressionMatchSql`; both intake copies
+  updated in lockstep and re-verified byte-identical (sha256 now `91786a3d…`, was
+  `5078c6d6…` — **the handoff's old hash is superseded**). `allowed_edit_surface` was NOT
+  touched; the amendment is to `tests_to_add` only. **Budget is now exhausted: any further
+  amendment trips the abort criteria.**
+
+- [2026-08-02] **The purge-boundary suppression contract has no documented remediation**
+  (medium, standards agent — accepted in part). The reviewer is right about the mechanism
+  and I verified it: `users` rows are **tombstoned, not deleted**
+  (`purge-stages.ts` parent-tombstone stage), so the verifier's
+  `created_by_user_id IN (SELECT id FROM users WHERE account_id = …)` subquery keeps
+  matching after purge, and the content stage deletes only `scope='account'` rows — so a
+  `global` row authored by one of the account's own users is never cleaned and the purge
+  fails verification on every retry. **Rejected the "this is an oversight" framing:** that
+  arm is a deliberate tripwire, documented at `suppression.ts:81-86` — the type layer
+  cannot prove an actor is an admin rather than an owner, and an owner-authored global row
+  is a cross-tenant write that MUST NOT be silently absorbed. Failing loudly is correct.
+  **Accepted the real residue** — there is no written remediation path. Recorded here as
+  the operator answer, and handed to #645 (which owns the **Correction path**, the
+  admin-only audited removal this needs): *if a purge wedges at
+  `account_offboarding_purge_verification_failed` with a non-zero
+  `solicitation_suppressions` violation count, the row to inspect is a `scope='global'`
+  row whose `created_by_user_id` belongs to the purged account. It must not be deleted as
+  routine cleanup — it is evidence of a writer authorization bug. Remove it only through
+  the Correction path, with the audit record, then re-run the purge.* No code change: the
+  contract comment is already in the right file, and inventing enforcement machinery for
+  a writer that does not exist yet is exactly the speculative generality the plan avoided.
+
+**REJECTED — 3, with reasoning:**
+
+- [2026-08-02] **"Make `suppressionMatchSql` self-normalize with `lower(btrim(…))`"**
+  (medium, standards agent). Rejected on two independent grounds. (1) It is not the
+  equivalence the finding claims: `normalizeEmail` (`handles.ts:12-16`) is
+  `trim().toLowerCase()` **plus** a length bound and a plausibility regex, and returns
+  `null` on failure — `lower(btrim(…))` reproduces the transformation and drops the
+  validation, so it is a different function wearing the same name. (2) It contradicts a
+  locked intake decision: `edge_cases[9]` states that `solicitation_contacts.email`
+  already stores the Normalized handle, with the consent LEFT JOIN as the standing proof,
+  *"so the suppression lookup joins on c.email with no re-normalization."* On data that
+  is already normalized the extra call is a no-op that would MASK an upstream integrity
+  bug rather than surface it — the opposite of the posture repworth.md requires. The
+  prose-only precondition is a real observation; this remedy is the wrong answer to it.
+
+- [2026-08-02] **"Extract the duplicated INSERT column/VALUES head in `recordSuppression`"**
+  (low). Rejected. The two branches sit either side of the one construct in this codebase
+  that is documented as byte-for-byte fragile — the `ON CONFLICT … WHERE` predicate that
+  Postgres must match exactly to infer the partial index. Splicing a shared fragment into
+  both statements buys ~8 duplicated lines and puts a layer of indirection between a
+  reader and the two predicates they most need to read literally. Two complete, readable
+  statements is the better trade here.
+
+- [2026-08-02] **"`offboarding-lifecycle.integration.test.ts` crossed 1,000 lines"** (low).
+  Rejected; the reviewer conceded the counter-argument in the same breath. The
+  suppression-retention block reuses that file's existing `vi.hoisted` DB bootstrap, and a
+  new file would duplicate the bootstrap to satisfy a line count. Recorded, not acted on.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward

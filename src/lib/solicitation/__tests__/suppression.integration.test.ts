@@ -150,7 +150,7 @@ async function matchSuppression(
     SELECT hit.source, hit.suppressed_at
     FROM (SELECT ${handle}::text AS handle) AS probe
     LEFT JOIN LATERAL (
-      ${suppressionMatchSql(tx, tx`probe.handle`, forAccountId)}
+      ${suppressionMatchSql(tx, tx`probe.handle`, forAccountId, 'email')}
     ) AS hit ON TRUE
   `;
   expect(rows).toHaveLength(1);
@@ -500,7 +500,7 @@ describeWithDb(
 
     // ── §1.2 lookup contract, through suppressionMatchSql ────────────────────
 
-    it('isSuppressed returns the global row when both a global and an account row match', async () => {
+    it('suppressionMatchSql returns the global row when both a global and an account row match', async () => {
       // G3 — global wins. The account row is aged BACKWARDS a day first, so a
       // fragment that ordered by suppressed_at alone would return it: the test
       // fails unless scope precedence is doing the work.
@@ -532,7 +532,7 @@ describeWithDb(
       expect(hit.source).toBe('complaint');
     });
 
-    it('isSuppressed ignores an account row belonging to a different account', async () => {
+    it('suppressionMatchSql ignores an account row belonging to a different account', async () => {
       // An account row is the OWNER's do-not-contact — no recipient spoke — so
       // it must not reach across the tenant boundary. If it did, Owner A could
       // silently degrade Owner B's reach.

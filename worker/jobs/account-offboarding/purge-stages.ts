@@ -337,7 +337,21 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     //
     // G12's implication CHECK means nulling account_id obliges business_id and
     // ask_id to be null too, so these three MUST go in ONE statement — nulling
-    // account_id alone throws. outreach_id is deliberately absent: its own
+    // account_id alone throws.
+    //
+    // Matched on account_id ALONE (#643 step-7 review). The predicate used to
+    // carry `OR business_id IN (SELECT id FROM businesses WHERE account_id=…)`,
+    // which made idx_solicitation_unsubscribe_tokens_account unusable and forced
+    // a seq scan on the one statement 096 added that index for. The OR was also
+    // redundant: G12's CHECK gives `business_id NOT NULL ⟹ account_id NOT NULL`,
+    // so no row of this account's can hide behind a NULL account_id. The one
+    // shape it could still have caught — a token stamped with account Y while
+    // pointing at account X's business — is a cross-account writer bug, and
+    // silently scrubbing it here would HIDE that bug. The purge verifier keeps
+    // its business_id arm precisely so that row fails the purge loudly instead
+    // (cold path, runs once, seq scan is fine there).
+    //
+    // outreach_id is deliberately absent: its own
     // ON DELETE SET NULL (G1) nulls it when the outreach row cascades away with
     // the upload deleted above, and it is excluded from the CHECK precisely so
     // that can happen independently.
@@ -347,7 +361,6 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
           business_id = NULL,
           ask_id = NULL
       WHERE account_id = ${row.account_id}::uuid
-         OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)
     `;
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
