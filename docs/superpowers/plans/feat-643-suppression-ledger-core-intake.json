@@ -110,7 +110,6 @@
     "migration 097 admits solicitation_suppressed and solicitation_suppressed_at_dispatch into the analytics_events CHECK"
   ],
   "verification_commands": [
-    "pnpm test:db:setup",
     "pnpm test src/lib/solicitation/__tests__/suppression.integration.test.ts",
     "pnpm test src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts",
     "pnpm test src/lib/shared/__tests__/migration-097-suppression-analytics-events.integration.test.ts",

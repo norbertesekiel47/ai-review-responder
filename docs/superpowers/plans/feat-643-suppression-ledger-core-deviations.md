@@ -331,6 +331,70 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   PR promotion, 096 then 097, staging first. Phrasing follows migration 075's precedent
   rather than 095's, which was written after its promotion.
 
+## Step 5 gate — two owner-approved corrections
+
+- [2026-08-02] **`pnpm test:db:setup` was a `verification_command` and it raced the
+  parallel gate.** `scripts/verify-gate.sh` runs its checks concurrently, and
+  `test:db:setup` **drops schema `public`** before re-applying bootstrap + every
+  migration. On the first full gate run it demolished the schema underneath its own
+  parallel peers: `suppression.integration.test.ts` failed with *"test database is
+  behind head — missing schema objects: 096_solicitation_suppressions: table
+  solicitation_suppressions, …"*, and the whole-repo `test` row reported 27 failed
+  files — every one an `src/app/api/**` route test, every one a 5000ms timeout, all
+  passing in isolation. The `migration-097` row passed precisely because it is pure
+  SQL-**text** inspection and never opens a connection. Post-run introspection
+  confirmed the diagnosis: both tables were present and the schema had 49 tables, so
+  provisioning had *succeeded* — it simply finished after its victims.
+
+  **Resolution (owner-approved):** `pnpm test:db:setup` removed from
+  `verification_commands` in **both** intake copies (re-verified byte-identical,
+  sha256 `5078c6d6…`). Provisioning is a **precondition, not a verification** — a
+  command that drops a shared schema can never be a safe parallel peer to the suites
+  reading it. It is now run manually before each gate run. This is a
+  `verification_commands` edit, **not** an `allowed_edit_surface` amendment, so the
+  budget stays at **1 of 2 used**.
+
+  **Candidate workflow improvement, out of scope here** (the fix would live in
+  `scripts/verify-gate.sh`, outside this branch's edit surface): the gate should run
+  DB provisioning serially *before* the parallel fan-out, so no future intake can
+  reintroduce this by listing a destructive command. Related: the gate did not export
+  `TEST_DATABASE_POOL_URL` (it lives at `.env.local:301`), so `integration-suites`
+  reported SKIP — which the gate itself declares not-review-ready for DB-touching
+  work. Both are the same underlying gap: the gate does not own its DB precondition.
+
+- [2026-08-02] **The `reclassify` trigger fired at 2.77× and was an estimate error,
+  not a lane error.** Actual 4,989 changed lines against `estimated_diff_size`
+  `+1800 / -60 across ~24 files`. The breakdown is the point:
+
+  | Area | Changed lines |
+  |---|---|
+  | Production code | 435 |
+  | Migrations | 207 |
+  | Tests | 2,644 |
+  | Real docs (migrations-log, spec, CONTEXT.md, analytics, RLS inventory) | 165 |
+  | Workflow artifacts (948-line plan, this file, intake, handoff) | 1,537 |
+
+  Excluding workflow artifacts the diff is 3,452 (1.9× — under the trigger).
+  Production code landed at **435 lines across exactly the files the plan's file-structure
+  table named**, with 37/37 files in-surface and zero scope creep. The overrun is almost
+  entirely **test volume the plan itself mandated**: the exhaustive 14-row
+  `SUPPRESSION_SCOPES × SUPPRESSION_SOURCES` Cartesian matrix, the 8-row token
+  nullability permutations, six live-DB suites, and mutation-verified retention proofs.
+
+  **Resolution (owner-approved): continue, do not re-run step 0.** Re-classifying with
+  the real numbers lands on the same lane — RISK was already `high` (the heaviest), the
+  work decomposed into 6 tracer tasks (under the ~8 epic threshold), and the single
+  surface amendment was spent during *planning*, not execution.
+
+  **Durable lesson for the post-merge lab-notes sweep:** `estimated_diff_size` must be
+  estimated as **production + test volume separately**, and a plan that mandates
+  exhaustive data-driven matrices should carry a test-line estimate of its own. A
+  4:1 test-to-code ratio is a *designed* property of a DB-contract feature, not
+  overrun — but an estimate that silently assumes 1:1 will fire the abort criteria on
+  exactly the features whose test rigour is most worth having. Consider excluding
+  `docs/superpowers/plans/**` from the reclassify computation: counting the plan
+  document against the implementation it describes is not a meaningful ratio.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward
