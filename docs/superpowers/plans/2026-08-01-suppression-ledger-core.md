@@ -25,8 +25,8 @@
 | G1 | `outreach_id` is `REFERENCES solicitation_outreach(id) **ON DELETE SET NULL**` with a partial UNIQUE index | **REVISED in review round 1 (findings 4+6).** The cascade chain is real — `solicitation_outreach` cascades from `solicitation_batches` from `contact_csv_uploads` — so a CASCADE FK would delete retained token rows and break §5.2. But the original no-FK choice left a hole: once `account_id`/`business_id` are scrubbed, nothing can detect a row still carrying a stale `outreach_id`. SET NULL preserves the token, nulls `outreach_id` in the DB for free, and satisfies B9 as literally written. |
 | G2 | `solicitation_suppressions` gets **ONE** disposition entry, not two | `TABLE_DISPOSITIONS` is keyed by table name and `verificationQuery` is a `switch (table)` — two entries hit the same arm twice. **Amends §6.3's two-row table.** |
 | G11 | Source and scope are paired by a **DB CHECK** | **Added in review round 1 (finding 3).** Without it `owner_manual + global` inserts cleanly, letting one owner suppress a recipient across every tenant — the exact cross-tenant write §1.2 exists to prevent. The enum mapping in §3.1 is total: `owner_manual` is the only `account` source. |
-| G12 | Token provenance is **all-set or all-null** for `account_id`/`business_id`/`ask_id`, enforced by CHECK | **Added in review round 1 (finding 6).** Makes a partially-scrubbed row impossible, so the verifier can prove scrub completeness from any one column. Deliberately **excludes** `outreach_id`, which SET NULL may null independently while the account is still live. |
-| G14 | The global input variant splits into **`admin_manual`** (actor + note required) and **machine sources** (`createdByUserId?: never`) | **Added in review round 2 (finding 16).** §7.3 requires an actor and note for admin entry, and the purge verifier's global branch only means anything if a global row's actor is provably not an owner. One flat global variant let both be omitted. |
+| G12 | Token provenance obeys a **one-way implication**: `account_id IS NULL` implies `business_id` and `ask_id` are null | **Added round 1 (finding 6), corrected round 2 (finding 14) and round 3 (finding 10).** NOT a symmetric all-or-none — that form would force `ask_id NOT NULL` on every live row, over-constraining an optional provenance column. The implication is exactly what purge verification needs: scrubbing `account_id` guarantees the rest are scrubbed, so checking `account_id`/`business_id` proves `ask_id` went too. Deliberately **excludes** `outreach_id`, which SET NULL may null independently while the account is still live. |
+| G14 | The global input variant splits into **`admin_manual`** (actor + note required) and **machine sources** (`createdByUserId?: never`) | **Added round 2 (finding 16), scoped round 3 (finding 11).** §7.3 requires an actor and note for admin entry. G14 enforces **field presence per source**, nothing more — it types the actor as a plain string, so it cannot prove the actor is an admin. Establishing admin identity is #645's caller-side authorization concern. This is why the purge verifier's global owner-actor branch stays live: it is the detector for a caller that got that wrong. |
 | G13 | Retention is proven by **test**, not by the runtime verifier | **Added in review round 1 (finding 1 — CRITICAL).** `verifyAccountOffboardingPurge` counts violations, so "correctly retained" and "all rows accidentally deleted" both return 0 — it structurally cannot prove survival. The retention guarantee therefore lives in a live-DB test that asserts global rows survive with `account_id` intact. The runtime arm's job is narrowed to what it can actually do: catch surviving `account`-scoped rows. |
 | G3 | **Global wins** when a handle matches both a global row and this account's `owner_manual` row | Reporting the account row would let an owner clear it under §7.6, watch the contact stay suppressed, and have no idea why. |
 | G4 | 096 ships **`account_id`-leading indexes** on both tables | Both partial uniques lead with `(channel, normalized_handle)`, but the purge delete, retained count and token scrub all filter account-first. PG16 has no skip scan. This is migration 095's lesson applied up front. |
@@ -302,7 +302,14 @@ Write two suites with **different shapes** — the earlier draft of this plan co
 
 - `migration-096-solicitation-suppressions.integration.test.ts` — model on **093/095**: provision once via `pnpm test:db:setup`, take the cross-process lock (`acquireLiveDbLock`, `helpers/live-db-lock.ts`), call `assertSchemaReady`, then **introspect** `pg_indexes` / `information_schema` to assert both partial uniques exist with their exact predicates.
 
-For the CHECK constraints, asserting mere **presence is not enough** (review round 2, finding 19) — a malformed predicate is present and wrong, which is exactly the defect finding 14 caught in this plan's own first revision. Assert `pg_get_constraintdef()` semantics, **and** behaviourally exercise the tuples: for `solicitation_suppressions`, every `(scope, source)` pair in §3.1 accepted and `owner_manual + global` / `complaint + account` rejected; for `solicitation_unsubscribe_tokens`, every provenance permutation of `(account_id, business_id, ask_id)` — a rejected `(NULL, set, NULL)` and `(NULL, NULL, set)`, an accepted `(set, set, NULL)` and `(NULL, NULL, NULL)`. Introspection and inserts inside a rolled-back transaction are reads/writes, not DDL — no lock issue.
+For the CHECK constraints, asserting mere **presence is not enough** (round 2, finding 19) — a malformed predicate is present and wrong, which is exactly the defect finding 14 caught in this plan's own first revision. Assert `pg_get_constraintdef()` semantics, **and** behaviourally exercise the tuples.
+
+Make both matrices **exhaustive and data-driven**, not a hand-picked sample — an earlier draft said "every" while listing four of eight and two of fourteen, which is the ambiguity that lets a gap ship (round 3, finding 19):
+
+- **`solicitation_suppressions`** — the full `SUPPRESSION_SCOPES × SUPPRESSION_SOURCES` Cartesian product, **14 rows**. Drive it from the exported `as const` arrays so a future source cannot be added without the matrix growing. Expected: accept exactly `('global', s)` for every `s ≠ 'owner_manual'` and `('account', 'owner_manual')` — 7 accepted, 7 rejected.
+- **`solicitation_unsubscribe_tokens`** — all **8** nullability permutations of `(account_id, business_id, ask_id)`. Expected under G12's implication: all 4 permutations with `account_id` set are accepted; with `account_id` NULL, only `(NULL, NULL, NULL)` is accepted and the other 3 rejected.
+
+Use `it.each` over a generated table so the counts are visible in the test output. Introspection and inserts inside a rolled-back transaction are reads/writes, not DDL — no lock issue.
 - `migration-097-suppression-analytics-events.integration.test.ts` — model on **094**: pure SQL-**text** inspection of the migration file. Read `migration-094-consent-analytics-events.integration.test.ts:1-18` first and copy its shape.
 
 `scripts/ci/live-db-suites-audit.ts:59-69,118-142` allowlists which suites may run DDL, and that file is **outside** `allowed_edit_surface` — so a suite needing an allowlist entry cannot ship in this ticket. Both suites above avoid it by construction.
@@ -421,9 +428,12 @@ export function suppressionMatchSql(
 export type RecordSuppressionInput =
   | {
       // G14: admin_manual is its own variant because §7.3 REQUIRES an actor and
-      // a note, and §6.3's verification branch (b) only means anything if a
-      // global row's actor is provably an admin. Folding it in with the machine
-      // sources let a global row omit both (review round 2, finding 16).
+      // a note; folding it in with the machine sources let a global row omit
+      // both (round 2, finding 16). NOTE the limit of what this proves: the
+      // actor is a plain string, so the type CANNOT establish that it is an
+      // admin rather than an owner — #645's caller owns that authorization
+      // (round 3, finding 11). That gap is precisely why the purge verifier's
+      // global owner-actor branch stays live.
       scope: 'global';
       channel: SuppressionChannel;
       normalizedHandle: string;
@@ -667,12 +677,14 @@ In `purge-verification.ts`, before the fail-closed `default:`. No input widening
            )
       `;
 
-    // Retained so post-purge redemption still works (§5.2). G12's all-or-none
-    // CHECK makes a partially-scrubbed row impossible, so checking account_id
-    // and business_id is sufficient to prove ask_id was scrubbed too — without
-    // it, a row with account_id NULL but ask_id set would be invisible here
-    // (review round 1, finding 6). outreach_id is excluded from that CHECK and
-    // is nulled by its own ON DELETE SET NULL (G1).
+    // Retained so post-purge redemption still works (§5.2). G12's implication
+    // CHECK — account_id IS NULL implies business_id and ask_id are null —
+    // makes a partially-scrubbed row impossible in the post-scrub direction, so
+    // checking account_id and business_id is sufficient to prove ask_id was
+    // scrubbed too. Without it, a row with account_id NULL but ask_id set would
+    // be invisible here (round 1 finding 6; wording corrected round 3 finding
+    // 10). outreach_id is excluded from that CHECK and is nulled by its own
+    // ON DELETE SET NULL (G1).
     case 'solicitation_unsubscribe_tokens':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count
@@ -703,8 +715,9 @@ Add, after the existing `deleteByBusiness(tx, 'solicitation_consent', row.accoun
     // §6.3: scrub provenance, keep the mechanism. Redemption after the sender
     // is gone still writes a ledger row (§5.2) — honoring the opt-out matters;
     // knowing which dead account sent it does not.
-    // G12's all-or-none CHECK covers account_id/business_id/ask_id, so these
-    // three MUST be nulled in one statement — nulling a subset throws. Note
+    // G12's implication CHECK means nulling account_id obliges business_id and
+    // ask_id to be null too, so these three MUST go in ONE statement — nulling
+    // account_id alone throws. Note
     // outreach_id is deliberately absent: its own ON DELETE SET NULL (G1) nulls
     // it when the outreach row cascades away, and it is excluded from the
     // CHECK precisely so that can happen independently.
