@@ -160,6 +160,29 @@ describe('health-alert checks', () => {
       expect(template.join(' ')).toContain('FROM job_outbox');
       expect(values).toContain(QUEUE_NAMES.BUILD_SOLICITATION_BATCH);
     });
+
+    // #628 round 5: the ask-generation lane's dead-letter concedes a stranded
+    // batch to operator recovery, which is only honest if the failed row is
+    // actually watched. It was not — the topic was missing from the allowlist.
+    it('health alerts include terminal generate_solicitation_asks outbox failures', async () => {
+      sqlReturnQueue.push([{ topic: QUEUE_NAMES.GENERATE_SOLICITATION_ASKS, count: 1 }]);
+
+      const findings = await checkFailedOutboxByTopic(mockSql, CFG);
+
+      expect(findings).toEqual([
+        expect.objectContaining({
+          key: `outbox_failed:${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}`,
+          level: 'error',
+          detail: {
+            topic: QUEUE_NAMES.GENERATE_SOLICITATION_ASKS,
+            count: 1,
+            window_s: CFG.failedWindowS,
+          },
+        }),
+      ]);
+      const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      expect(values).toContain(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS);
+    });
   });
 
   describe('checkFailedInboundEvents', () => {

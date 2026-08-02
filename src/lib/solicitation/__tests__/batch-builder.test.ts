@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from '../attestation';
 import { MAX_DATA_ROWS } from '../contacts-csv';
 
-const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, isInTransaction, mkTaggedResult } =
   await vi.hoisted(async () => {
     const helpers = await import('../../../../worker/__tests__/helpers/mock-sql');
     return {
@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   completeSolicitationBatchRun: vi.fn(),
   failSolicitationBatchRun: vi.fn(),
   solicitationWatchEnabled: vi.fn(),
+  solicitationSendEnabled: vi.fn(),
+  enqueueGenerateSolicitationAsks: vi.fn(),
   lockAccountBeforeOffboardingProjection: vi.fn(),
   getOffboardingState: vi.fn(),
   isProcessingBlocked: vi.fn(),
@@ -31,6 +33,9 @@ vi.mock('@/lib/shared/outbox', () => ({
   lockDispatchedOutboxAttemptIfOwned: mocks.lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned: mocks.markOutboxCompletedIfOwned,
 }));
+vi.mock('@/lib/shared/job-outbox-helpers', () => ({
+  enqueueGenerateSolicitationAsks: mocks.enqueueGenerateSolicitationAsks,
+}));
 vi.mock('@/lib/agents/run-spine', () => ({
   startOrGetSolicitationBatchRun: mocks.startOrGetSolicitationBatchRun,
   recordCompletedChildRuns: mocks.recordCompletedChildRuns,
@@ -39,6 +44,7 @@ vi.mock('@/lib/agents/run-spine', () => ({
 }));
 vi.mock('../flags', () => ({
   solicitationWatchEnabled: mocks.solicitationWatchEnabled,
+  solicitationSendEnabled: mocks.solicitationSendEnabled,
 }));
 vi.mock('@/lib/account-offboarding/gate', () => ({
   lockAccountBeforeOffboardingProjection:
@@ -66,6 +72,9 @@ beforeEach(() => {
   mocks.completeSolicitationBatchRun.mockResolvedValue(undefined);
   mocks.failSolicitationBatchRun.mockResolvedValue(undefined);
   mocks.solicitationWatchEnabled.mockReturnValue(true);
+  // Mirrors production: the send flag exists in no environment yet.
+  mocks.solicitationSendEnabled.mockReturnValue(false);
+  mocks.enqueueGenerateSolicitationAsks.mockResolvedValue('generation-outbox-1');
   mocks.lockAccountBeforeOffboardingProjection.mockResolvedValue(true);
   mocks.getOffboardingState.mockResolvedValue(null);
   mocks.isProcessingBlocked.mockReturnValue(false);
@@ -543,6 +552,141 @@ describe('solicitation batch candidate loader', () => {
           velocity_banked: 0,
         },
       },
+    );
+  });
+});
+
+describe('send-mode generation enqueue (EXEC D21)', () => {
+  // A candidate that passes every per-candidate restraint gate: attested
+  // consent, no suppression/review/prior send, visited today (inside every
+  // vertical's freshness window regardless of when the suite runs).
+  const todayUtcDate = new Date().toISOString().slice(0, 10);
+
+  /** prepareBatch results: batch row lock, gate account read, activeParent. */
+  function pushPreparationResults(): void {
+    sqlReturnQueue.push(
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([]),
+    );
+  }
+
+  /** constructBatch results up to the candidate window (advisory lock first). */
+  function pushConstructionPreamble(): void {
+    sqlReturnQueue.push(
+      mkTaggedResult([]),
+      mkTaggedResult([{
+        id: 'batch-1',
+        account_id: 'account-1',
+        business_id: 'business-1',
+        built_at: null,
+      }]),
+      mkTaggedResult([{ subscription_status: 'active' }]),
+      mkTaggedResult([{ category: 'automotive' }]),
+    );
+  }
+
+  /** One send-decision candidate: window row, pool, prior sends, ask insert,
+   *  run link, built_at CAS. */
+  function pushSendCandidateResults(): void {
+    sqlReturnQueue.push(
+      mkTaggedResult([{
+        contact_id: 'contact-1',
+        last_visit_date: todayUtcDate,
+        upload_id: 'upload-1',
+        consent_attested: true,
+      }]),
+      mkTaggedResult([{ pool_count: 1 }]),
+      mkTaggedResult([]),
+      mkTaggedResult([{ id: 'ask-1' }]),
+      mkTaggedResult([{ id: 'ask-1' }]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+  }
+
+  it('does not enqueue generation when the batch has zero send asks', async () => {
+    mocks.solicitationSendEnabled.mockReturnValue(true);
+    pushPreparationResults();
+    pushConstructionPreamble();
+    sqlReturnQueue.push(
+      mkTaggedResult([]),
+      mkTaggedResult([{ pool_count: 0 }]),
+      mkTaggedResult([{ id: 'batch-1' }]),
+    );
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toMatchObject({ status: 'built', sendCount: 0 });
+
+    // Zero send asks ⇒ no enqueue, no send parent — the watch-mode report is
+    // the whole outcome.
+    expect(mocks.enqueueGenerateSolicitationAsks).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue generation while SOLICITATION_SEND_ENABLED is off even when the batch has send asks', async () => {
+    // beforeEach default: solicitationSendEnabled() === false (no env has the
+    // flag yet) — the built path must stay byte-identical to today's.
+    pushPreparationResults();
+    pushConstructionPreamble();
+    pushSendCandidateResults();
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toMatchObject({ status: 'built', sendCount: 1 });
+
+    expect(mocks.solicitationSendEnabled).toHaveBeenCalled();
+    expect(mocks.enqueueGenerateSolicitationAsks).not.toHaveBeenCalled();
+  });
+
+  it('enqueues generate_solicitation_asks inside the built_at transaction after the CAS when the flag is on', async () => {
+    mocks.solicitationSendEnabled.mockReturnValue(true);
+    let enqueuedInTransaction: boolean | null = null;
+    mocks.enqueueGenerateSolicitationAsks.mockImplementation(async () => {
+      enqueuedInTransaction = isInTransaction();
+      return 'generation-outbox-1';
+    });
+    pushPreparationResults();
+    pushConstructionPreamble();
+    pushSendCandidateResults();
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+        correlationId: 'corr-1',
+      }),
+    ).resolves.toMatchObject({ status: 'built', sendCount: 1 });
+
+    expect(mocks.enqueueGenerateSolicitationAsks).toHaveBeenCalledExactlyOnceWith(
+      mockSql,
+      { batchId: 'batch-1', businessId: 'business-1', correlationId: 'corr-1' },
+    );
+    // Same transaction as the batch build (invariant #2), and strictly after
+    // the built_at CAS — the enqueue rides the transition, never precedes it.
+    expect(enqueuedInTransaction).toBe(true);
+    const builtCasIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('UPDATE solicitation_batches'),
+    );
+    expect(builtCasIndex).toBeGreaterThanOrEqual(0);
+    expect(mockSql.mock.invocationCallOrder[builtCasIndex]!).toBeLessThan(
+      mocks.enqueueGenerateSolicitationAsks.mock.invocationCallOrder[0]!,
     );
   });
 });

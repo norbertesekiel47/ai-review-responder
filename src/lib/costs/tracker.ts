@@ -24,8 +24,9 @@ export class GlobalCostLimitExceededError extends Error {
 }
 
 export class RegenBudgetExceededError extends Error {
-  constructor(public readonly reviewId: string) {
-    super(`Regeneration budget exceeded for review ${reviewId}`);
+  /** The budgeted subject — a reviewId (reply door) or askId (ask door). */
+  constructor(public readonly subjectId: string) {
+    super(`Regeneration budget exceeded for ${subjectId}`);
     this.name = 'RegenBudgetExceededError';
   }
 }
@@ -33,7 +34,7 @@ export class RegenBudgetExceededError extends Error {
 // ── Constants ────────────────────────────────────────────────────────
 
 const PESSIMISTIC_ESTIMATE_CENTS = 15;
-const MAX_REGEN_PER_REVIEW_PER_DAY = 3;
+const MAX_REGEN_PER_SUBJECT_PER_DAY = 3;
 const CACHE_TTL_SECONDS = 86_400;
 
 // ── Redis key helpers ────────────────────────────────────────────────
@@ -56,6 +57,19 @@ function idempotentCacheKey(reviewId: string, version: number): string {
 
 function regenBudgetKey(reviewId: string): string {
   return `regen:${reviewId}:${todayDateStr()}`;
+}
+
+/**
+ * Per-logical-request charge marker for the ask regen door. Deliberately NOT
+ * date-scoped: a retry that crosses UTC midnight is still the same paid
+ * request.
+ */
+function askRegenChargeKey(askId: string, outboxId: string): string {
+  return `regen:ask:${askId}:charge:${outboxId}`;
+}
+
+function askRegenBudgetKey(askId: string): string {
+  return `regen:ask:${askId}:${todayDateStr()}`;
 }
 
 // ── Tier limit resolution ────────────────────────────────────────────
@@ -124,10 +138,17 @@ return {'ok', biz, glob}
  * Reserves pessimistic cost against daily budgets.
  * Returns the date string used for the keys — callers MUST pass this
  * same date to finalizeCost/releaseCost to avoid midnight boundary bugs.
+ *
+ * `estimateCents` (integer cents) defaults to the 15¢ reply-generation
+ * pessimistic estimate; cheaper task lanes (e.g. solicitation asks, SPEC
+ * 2026-07-28 §7.1) pass their own. Callers MUST pass the SAME estimate to
+ * finalizeCost/releaseCost — a reserve/finalize mismatch silently leaks
+ * daily budget (SPEC §7.2). withCostGuard carries it via its closure.
  */
 export async function reserveCost(
   businessId: string,
   subscriptionTier: SubscriptionTierValue,
+  estimateCents: number = PESSIMISTIC_ESTIMATE_CENTS,
 ): Promise<string> {
   const redis = getCacheRedis();
   const dateStr = todayDateStr();
@@ -146,7 +167,7 @@ export async function reserveCost(
       2,
       bizKey,
       globalKey,
-      String(PESSIMISTIC_ESTIMATE_CENTS),
+      String(estimateCents),
       String(bizLimit),
       String(globalLimit),
       String(CACHE_TTL_SECONDS),
@@ -182,9 +203,10 @@ export async function finalizeCost(
   businessId: string,
   actualCostCents: number,
   reservationDate: string,
+  estimateCents: number = PESSIMISTIC_ESTIMATE_CENTS,
 ): Promise<void> {
   const redis = getCacheRedis();
-  const adjustment = actualCostCents - PESSIMISTIC_ESTIMATE_CENTS;
+  const adjustment = actualCostCents - estimateCents;
 
   await redis.eval(
     ADJUST_COST_LUA,
@@ -223,16 +245,17 @@ export async function clearCachedGeneration(
 export async function releaseCost(
   businessId: string,
   reservationDate: string,
+  estimateCents: number = PESSIMISTIC_ESTIMATE_CENTS,
 ): Promise<void> {
   const redis = getCacheRedis();
-  // Release = negative adjustment equal to the pessimistic reservation,
+  // Release = negative adjustment equal to the reservation's estimate,
   // routed through the same atomic Lua script as finalizeCost.
   await redis.eval(
     ADJUST_COST_LUA,
     2,
     dailyBusinessKey(businessId, reservationDate),
     dailyGlobalKey(reservationDate),
-    String(-PESSIMISTIC_ESTIMATE_CENTS),
+    String(-estimateCents),
     String(CACHE_TTL_SECONDS),
   );
 }
@@ -253,26 +276,84 @@ end
 return {'ok', cur}
 `;
 
-export async function checkRegenBudget(reviewId: string): Promise<void> {
+/**
+ * Shared INCR-with-cap primitive behind both regen-budget doors. One
+ * mechanism, two named entry points (the moderation/flags.ts precedent) —
+ * the key alone decides which per-subject daily counter is charged.
+ */
+async function enforceRegenBudget(key: string, subjectId: string): Promise<void> {
   const redis = getCacheRedis();
-  const key = regenBudgetKey(reviewId);
   const raw = (await redis.eval(
     REGEN_BUDGET_LUA,
     1,
     key,
-    String(MAX_REGEN_PER_REVIEW_PER_DAY),
+    String(MAX_REGEN_PER_SUBJECT_PER_DAY),
     String(CACHE_TTL_SECONDS),
   )) as [string, number];
 
   if (raw[0] === 'exceeded') {
-    throw new RegenBudgetExceededError(reviewId);
+    throw new RegenBudgetExceededError(subjectId);
+  }
+}
+
+export async function checkRegenBudget(reviewId: string): Promise<void> {
+  await enforceRegenBudget(regenBudgetKey(reviewId), reviewId);
+}
+
+/**
+ * Per-ask daily regeneration cap for the solicitation ask lane (#628).
+ * Same 3-per-day limit and terminal RegenBudgetExceededError as the review
+ * door; the counter is keyed `regen:ask:{askId}:{date}` so review and ask
+ * budgets never collide.
+ *
+ * Charged IDEMPOTENTLY per logical regeneration request: `outboxId` is the
+ * request identity (BullMQ retries and watchdog re-drives replay the same
+ * outbox row; a new owner-triggered regen is a new row), and a SET NX marker
+ * makes every replay after the first free — N transient attempts consume one
+ * unit, not N. The marker is claimed BEFORE the counter so two concurrent
+ * processors of one outbox row cannot double-charge; the losing side of that
+ * race (or a crash between marker and charge) undercharges by one, which is
+ * the cost-guard's documented fail-open direction — never fail-closed.
+ */
+export async function checkAskRegenBudget(
+  askId: string,
+  outboxId: string,
+): Promise<void> {
+  const redis = getCacheRedis();
+  const chargeKey = askRegenChargeKey(askId, outboxId);
+
+  // Transport failures on either round-trip are RETRYABLE infrastructure
+  // outages, not budget decisions: wrap as CostInfraUnavailableError so the
+  // worker rethrows for BullMQ retry and the failed hook keeps the attempt
+  // watchdog-eligible. Only RegenBudgetExceededError stays terminal (#255:
+  // never reclassify a budget decision as infra, and vice versa).
+  let claimed: string | null;
+  try {
+    claimed = await redis.set(chargeKey, '1', 'EX', CACHE_TTL_SECONDS, 'NX');
+  } catch (err) {
+    throw new CostInfraUnavailableError('checkAskRegenBudget', { cause: err });
+  }
+  if (claimed === null) return; // this logical regeneration already paid
+
+  try {
+    await enforceRegenBudget(askRegenBudgetKey(askId), askId);
+  } catch (err) {
+    if (err instanceof RegenBudgetExceededError) {
+      // A refused claim must not stay marked as paid: release the marker so a
+      // replay re-checks the budget instead of bypassing it. Best-effort — a
+      // refusal completes the outbox row (no retry reads a stale marker) and
+      // the marker ages out via TTL regardless.
+      await redis.del(chargeKey).catch(() => undefined);
+      throw err;
+    }
+    throw new CostInfraUnavailableError('checkAskRegenBudget', { cause: err });
   }
 }
 
 export interface RegenBudgetStatus {
   /** Regenerations already consumed for this review today (UTC). */
   used: number;
-  /** Per-review daily cap (MAX_REGEN_PER_REVIEW_PER_DAY). */
+  /** Per-review daily cap (MAX_REGEN_PER_SUBJECT_PER_DAY). */
   limit: number;
   /** Regenerations still available today; 0 once the cap is reached. */
   remaining: number;
@@ -290,6 +371,6 @@ export async function peekRegenBudget(reviewId: string): Promise<RegenBudgetStat
   const raw = await redis.get(regenBudgetKey(reviewId));
   const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
   const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  const limit = MAX_REGEN_PER_REVIEW_PER_DAY;
+  const limit = MAX_REGEN_PER_SUBJECT_PER_DAY;
   return { used, limit, remaining: Math.max(0, limit - used) };
 }

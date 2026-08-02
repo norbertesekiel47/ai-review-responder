@@ -137,17 +137,23 @@ export function assertSingleConcurrencyWorker(
 
 const SUMMED_LLM_WORKER_SLOT_CAP = 9;
 const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
+const FLAG_ON_LLM_ENVELOPE_CAP = 11;
 
 /**
  * Boot-time guard for the per-process LLM worker-slot cap (ADR 0005 addendum,
  * amended 2026-07-20). The summed BullMQ concurrency across the LLM-calling
  * queues is a per-process worker-slot budget — the de-facto GLOBAL LLM
  * concurrency bound ONLY under single-replica deployment (ADR 0005). Effective
- * slots per entry = opts.concurrency ?? 1 (BullMQ's default — five of the six
+ * slots per entry = opts.concurrency ?? 1 (BullMQ's default — most of the
  * LLM workers register with bare workerOpts). Non-flag-gated entries must sum
- * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict) is
- * capped separately at FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag
- * ON never trips the sum. Raising the sum past ~10 requires building the
+ * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict,
+ * generate_solicitation_asks) is capped separately at
+ * FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag ON never trips the
+ * sum. The all-flags-on worst case (non-gated sum + every flag-gated slot) is
+ * additionally bounded by FLAG_ON_LLM_ENVELOPE_CAP — the ADR 0005 flag-on
+ * envelope, 9+1+1 = 11 today — so a third flag-gated lane cannot silently
+ * widen the worst case; adding one forces the global-semaphore conversation.
+ * Raising the sum past ~10 requires building the
  * global Redis semaphore first (ADR 0005 deferral trigger).
  *
  * Scope note: per-job LLM fan-out (the demo Promise.allSettled over ≤15
@@ -191,6 +197,21 @@ export function assertSummedLlmWorkerSlots(
           + `sum past ~10 requires building the global Redis semaphore first.`,
       );
     }
+  }
+
+  const flagGatedSlots = entries
+    .filter((entry) => entry.flagGated)
+    .reduce((total, entry) => total + effectiveSlots(entry.opts), 0);
+  const flagOnWorstCase = summedSlots + flagGatedSlots;
+  if (flagOnWorstCase > FLAG_ON_LLM_ENVELOPE_CAP) {
+    const inventory = entries
+      .map((entry) => `${entry.queueName}=${effectiveSlots(entry.opts)}${entry.flagGated ? ' (flag-gated)' : ''}`)
+      .join(', ');
+    throw new Error(
+      `[startup] All-flags-on LLM worker slots (${inventory}) total ${flagOnWorstCase}, `
+        + `exceeding the ADR 0005 flag-on envelope of ${FLAG_ON_LLM_ENVELOPE_CAP}. Per ADR 0005, `
+        + `widening the worst case past ~10 requires building the global Redis semaphore first.`,
+    );
   }
 }
 

@@ -1,0 +1,155 @@
+# Handoff — feat-628-ask-generation-lane
+
+**Phase:** `gate_green`, rounds 1–5 ALL FIXED (`0d0fd1b0`, `e54f99fa`,
+`5d12e403`, `5d46353d`, and the round-5 commit below). **Next step: the OWNER
+runs `/codex:adversarial-review` round 6.** After APPROVED: step 8 (high-risk
+lane: staging ride first, flag-off no-op smoke only pre-#627).
+
+## OWNER DECISIONS OUTSTANDING (do not let these ride silently)
+
+1. **Intake amendment 5** — `allowed_edit_surface` gained
+   `worker/background/pollers/health-alert/checks.ts` + its test (round-5
+   self-triage finding 1). Amendments 1–4 are also still pending retroactive
+   sign-off.
+2. **`reclassify` WARN** — actual diff is now ~10.4k lines vs the 3200
+   estimate (~3.3×, test- and doc-dominated). The workflow's re-classification
+   trigger has fired every gate run since round 3; waive or re-classify.
+3. **Deterministic lint vs #631 semantic judge** — Codex has recommended a
+   semantic verifier in rounds 3, 4 AND 5. Kept deterministic (locked intake
+   non-goal), but three rounds of patterns losing to paraphrases is evidence
+   about the instrument. Make it an explicit decision.
+4. **#625 rebase has NOT happened** — PR 640 (`feat(#625)`) is still OPEN;
+   this branch is meant to rebase over it before review lands. Six files
+   collide (`batch-builder.ts`, `batch-view.ts`, `batch-report.test.tsx` +
+   tests). No round-5 fix touches them.
+
+## Codex round-5 fixes (full rationale in the deviations file, 2026-07-31)
+
+1. **[high] Parentless batch could never close → FIXED.** `closeBatchIfSettled`
+   now tallies BEFORE looking up the send parent, and closes a settled
+   parentless batch under a new `closed_without_parent` result — gated on the
+   caller declaring a `failure`, so an ordinary built batch awaiting approval
+   is still left alone.
+2. **[high] Terminal settlement was not durable → FIXED.**
+   `grantSettlementRedrive` raises `max_attempts`, moving the row from the
+   watchdog's terminalize arm to its recover arm, so recovery survives an
+   outage instead of a 400 ms retry window. Bounded by
+   `SETTLEMENT_REDRIVE_CEILING = 20`; only a refused grant concedes.
+3. **[high] Cash compensation linted CLEAN → FIXED.** pay/payment/compensate/
+   reimburse, payment rails, any currency amount, `in return for`,
+   `for your trouble`.
+4. **[high] Phone PII allowlist still bypassable → FIXED.** Now matches digits
+   across ARBITRARY punctuation (`\p{P}`/`\p{S}`), covering slashes and
+   Unicode dashes by construction.
+
+Plus two self-triage findings: the lane's failed-outbox topic was missing from
+health alerting (which had voided the whole dead-letter rationale), and
+`a quarter off` / `twenty percent-off` were still passing.
+
+`ASK_LINT_VERSION` → `ask_lint_2026-07-31.4`, golden regenerated.
+Verification at this commit: all solicitation + worker-lane + health-alert unit
+suites (379), the five live-DB integration suites 39/39 plus
+`outreach-close.integration.test.ts` 13/13 with `TEST_DATABASE_POOL_URL`
+exported, lint, typecheck, and the full gate.
+
+## Codex round-4 fixes (full rationale in the deviations file, 2026-07-31)
+
+1. **[high] Final-attempt settlement failure stranded the batch → FIXED.**
+   The whole-batch dead-letter is now `deadLetterWholeBatch`, which splits
+   the two cases the single catch could not tell apart: watchdog budget
+   REMAINS → leave the row dispatched (unchanged, the watchdog owns the
+   re-drive); budget EXHAUSTED → retry the settlement itself, bounded (2
+   retries, 200 ms), then concede under a NEW distinct status
+   `terminal_settlement_abandoned` — the only one that means nothing will
+   retry, so the only one worth paging on. Three tests. The round-3 residual
+   is unchanged and still open: a worker that CRASHES mid-job on its final
+   attempt runs no failed hook and still reaches the generic terminalizer
+   (OutboxPoller is out of surface — follow-up ticket).
+2. **[high] Separator-formatted phone numbers were admitted → FIXED.**
+   `PII_DIGIT_RUN_PATTERN` + a new `stripPhoneSeparators` moved into a
+   shared phone-PII block (one owner for the fact, used by note
+   admissibility AND class 5); `contact_channel` gained a
+   `separatorStrippedPatterns` arm carrying the digit run, while the domain
+   patterns stay on the raw note. Class 5 now calls the shared helper, which
+   adds `+` to its separator set. Five formatted-phone regressions plus a
+   short-digit note that must still be admitted.
+3. **[high] Written-out percentages passed the incentive lint → FIXED.**
+   Class 1 gains `percent|per cent + off` and `half off|half price`, matching
+   the shape rather than enumerating written numbers. Codex's exact sentence
+   is a regression case. Its re-recommendation of a semantic verifier is
+   unchanged from round-3 finding 4 — #631's decision, a locked intake
+   non-goal; OWNER should still confirm that boundary at triage.
+
+`ASK_LINT_VERSION` → `ask_lint_2026-07-31.3`, golden file regenerated.
+Verification at this commit: both changed unit suites (83), all solicitation
++ worker-lane suites (294), the five live-DB integration suites 39/39 with
+`TEST_DATABASE_POOL_URL` exported, typecheck, and the full gate.
+
+## Codex round-1 fixes (full rationale in the deviations file, entries dated 2026-07-31)
+
+1. **[high] Subject lint partial PII → FIXED.** Fragment-level detection in
+   `deceptiveSubject`: any content token of a disallowed value blocks the
+   subject (possessive+plural folded, shared class-6 tokenizer). Exemptions:
+   golden-filed `SUBJECT_NOTE_TOKEN_ALLOWLIST` (function words + ask-copy
+   scaffolding) and tokens also present in a subject-safe interpolation
+   value. Whole-value check retained. `ASK_LINT_VERSION` →
+   `ask_lint_2026-07-31.1`, golden file updated, 6 regression cases added.
+2. **[high] Transient exhaustion killed watchdog recovery → FIXED.**
+   `generate-failed-hook` classifies before terminalizing:
+   `TransientLLMError`/`CostInfraUnavailableError` leave the row
+   `dispatched` (watchdog re-pends, bounded by `max_attempts`;
+   `recordOutboxTransientError` stamps `last_error`); all other classes keep
+   the terminal CAS. Deliberately lane-local; csv-ingest/judge sibling audit
+   flagged as follow-up (out of surface).
+3. **[medium] Regen budget burned per retry → FIXED.**
+   `checkAskRegenBudget(askId, outboxId)`: SET-NX charge marker keyed by
+   outbox id (the logical request); replays are free; refusal releases the
+   marker; shared Lua untouched. Tests prove one unit per logical regen.
+
+## Bootstrap order (read in this order, nothing else needed)
+
+1. **Intake (drift detector):** `docs/superpowers/plans/feat-628-ask-generation-lane-intake.json`
+   — amended 4× during execution (all recorded in the deviations file,
+   ALL PENDING OWNER RETROACTIVE SIGN-OFF): worker/queues.ts (Task 9);
+   two requests-UI fixtures (Task 11); startup-assertion.test.ts (Task 12);
+   four gate-tripwire/assertion test files + runnable verification_commands
+   (Task 12 gate round).
+2. **Plan:** `docs/superpowers/plans/2026-07-30-628-ask-generation-lane.md`
+3. **Deviations (now the primary review artifact):**
+   `docs/superpowers/plans/feat-628-ask-generation-lane-deviations.md` —
+   every task's deviations were adjudicated inline by per-task spec reviewers
+   (all ACCEPT); step 6.5 owner triage should confirm the verdicts, especially
+   the four intake amendments and the Task 8 interface deviation
+   (`business_id` in `GenerateSolicitationAsksPayload` — #629's enqueue must
+   pass it).
+4. Governing specs as before (banner: §5 table superseded; AMEND wins).
+
+## Session facts
+
+- Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-628-ask-generation-lane`,
+  branch `feat-628-ask-generation-lane`, based on main @ 44de0a79; 13 commits
+  (intake, plan, handoff, Tasks 1–12; Task 8 = two commits).
+- **Merge order (owner-approved): #625 merges first; this branch REBASES over
+  it before its review rounds land** — collision file `batch-builder.ts`.
+  #625 had NOT merged as of this checkpoint (main still 44de0a79).
+- Gate mechanics learned this run: the gate flakes under its own load on this
+  machine at default `MAX_PARALLEL=4`/`VITEST_WORKERS=4` (arbitrary timeouts
+  in untouched suites; three distinct false-red runs). `MAX_PARALLEL=2
+  VITEST_WORKERS=6` runs clean. The 5 changed live-DB integration suites run
+  GREEN via the gate's "extra" verification row (39/39) — the
+  `integration-suites SKIP` warning row is redundant with it.
+- `reclassify WARN` is real: actual diff 8262 lines vs 3200 estimate (~2.6×,
+  test-dominated). The workflow's re-classification trigger fired; owner may
+  waive or re-classify at review.
+- Remaining post-review steps: step 8 rides staging first (flag-off no-op
+  smoke ONLY pre-#627 — the postal-address column doesn't exist; full-path
+  proof belongs to the #633 runbook campaign). `SOLICITATION_SEND_ENABLED`
+  must not be set anywhere before #627 lands.
+
+## Glossary anchors (use verbatim)
+
+Solicitation (never "Solicitor") · ask · render/outreach row · attempt ·
+supersede · withheld vs cancelled vs failed (091 vocab) · lint_failed folding
+(AMEND B1) · blocked-is-terminal · generate-then-approve · byte-for-byte
+stored bytes · placeholders (B4) · send parent (`solicitation_send_batch`) ·
+releasable.

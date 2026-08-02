@@ -6,3 +6,12 @@ import { readFlag } from '@/lib/config/flags';
 export function solicitationWatchEnabled(): boolean {
   return readFlag('SOLICITATION_WATCH_ENABLED');
 }
+
+/** Solicitation send-mode master switch (#628 decision 7): masters the whole
+ *  send surface including ask generation. Default off; the flag exists in no
+ *  environment yet, so the generation lane lands inert. Do NOT flip anywhere
+ *  before #627's postal-address migration lands (see the #628 deviations
+ *  file). Server-authoritative, invariant #13. */
+export function solicitationSendEnabled(): boolean {
+  return readFlag('SOLICITATION_SEND_ENABLED');
+}

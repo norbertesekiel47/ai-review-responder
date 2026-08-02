@@ -7,7 +7,8 @@
 export type CostInfraTouchpoint =
   | 'reserveCost'
   | 'checkIdempotentCache'
-  | 'acquireConcurrencySlot';
+  | 'acquireConcurrencySlot'
+  | 'checkAskRegenBudget';
 
 /**
  * A pre-LLM cost-guard Redis (Upstash) round-trip failed as a

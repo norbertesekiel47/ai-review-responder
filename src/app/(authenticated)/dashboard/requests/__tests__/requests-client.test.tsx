@@ -67,6 +67,7 @@ function builtView(overrides: Partial<Extract<BatchView, { state: 'built' }>> = 
     queued: 0,
     held: 0,
     groups: WITHHOLD_REASONS.map((reason) => ({ reason, total: 0, sample: [] })),
+    attempts: [],
     ...overrides,
   } satisfies BatchView;
 }

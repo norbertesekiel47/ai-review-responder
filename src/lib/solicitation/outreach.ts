@@ -1,7 +1,8 @@
 /**
- * Send-mode batch lifecycle (#624; executor design 2026-07-28 §2 D2, §5 D11/D14).
+ * Send-mode batch lifecycle (#624; executor design 2026-07-28 §2 D2, §5 D11/D14)
+ * and the Outreach render persistence seam (#628 §5-as-amended).
  *
- * Two things live here and nothing else:
+ * What lives here and nothing else:
  *
  *  - `deriveBatchState` — the read-time answer to "what is my batch doing".
  *    `solicitation_batches` deliberately has no `status` column: the monotone
@@ -12,6 +13,9 @@
  *    Outreach row calls it in the SAME transaction, so there is no window
  *    between terminalizing and joining; the releaser tick calls the same
  *    function as a backstop. One implementation, two callers, no join poller.
+ *  - `insertOutreachRender` / `supersedeLiveRender` — the ONLY writers of a
+ *    render-lane `solicitation_outreach` row, plus the three read-boundary
+ *    parsers for its JSONB columns.
  *
  * Domain module: the caller supplies the transaction (invariant #15) and the
  * tenant ids (invariant #8). A batch id is a bare UUID carrying no tenant
@@ -19,9 +23,12 @@
  * to call from a worker that read its batch id off a queue payload.
  */
 
+import { v7 as uuidv7 } from 'uuid';
 import type { TransactionSql } from 'postgres';
 import { completeRun, failSolicitationBatchRun, recordStep } from '@/lib/agents/run-spine';
 import type { SolicitationBatchRunFailure } from '@/lib/agents/run-spine';
+import { ASK_LINT_CLASSES, type AskLintClass } from './ask-compliance-lint';
+import type { AskInterpolationInputs } from './ask-prompt-policy';
 
 /**
  * Approval window, anchored on `built_at`. Past it, neither lane may approve.
@@ -183,6 +190,14 @@ export interface CloseBatchIfSettledInput {
 
 export type CloseBatchIfSettledResult =
   | { status: 'no_send_parent' }
+  /**
+   * Settled and closed with no send parent to terminalize — generation died
+   * before minting one and never will, so the batch would otherwise stay open
+   * forever with nothing left to close it (#628 round 5). Reachable ONLY when
+   * the caller declares a `failure`: without one, a parentless batch is an
+   * ordinary built batch awaiting approval and must be left alone.
+   */
+  | { status: 'closed_without_parent'; disposition: BatchDisposition; counts: OutreachStatusCounts }
   | { status: 'not_settled'; liveCount: number }
   | { status: 'already_closed' }
   | {
@@ -323,6 +338,25 @@ export async function closeBatchIfSettled(
     );
   }
 
+  // One grouped read answers the join condition AND carries the receipt's
+  // evidence, so the decision and the counts come from one snapshot.
+  //
+  // Settledness is asked of the DOMAIN table before `agent_runs` is consulted
+  // at all — the glossary's definition of a settled batch is "no outreach row
+  // left in rendered/queued/sending", which does not mention runs. The parent
+  // lookup used to run first and short-circuit, which is what made a
+  // parentless batch permanently unclosable (#628 round 5).
+  const tallyRows = await tx<OutreachTallyRow[]>`
+    SELECT delivery_status, disposition_reason, COUNT(*)::int AS total
+    FROM solicitation_outreach
+    WHERE batch_id = ${input.batchId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+    GROUP BY delivery_status, disposition_reason
+  `;
+  const { liveCount, counts } = tallyOutreach(tallyRows, input.batchId);
+  if (liveCount > 0) return { status: 'not_settled', liveCount };
+
   // subject_id is TEXT (migration 071) — a polymorphic subject key, not a uuid
   // column. The send parent is the sibling of the build parent: same subject,
   // different kind.
@@ -337,20 +371,33 @@ export async function closeBatchIfSettled(
     ORDER BY started_at DESC
     LIMIT 1
   `;
-  if (!parent) return { status: 'no_send_parent' };
+  if (!parent) {
+    // No failure declared: an ordinary batch that has not entered the send
+    // lane. It has no rows to be live and no parent to terminalize, and
+    // closing it here would slam the door on a batch still awaiting approval.
+    if (!input.failure) return { status: 'no_send_parent' };
 
-  // One grouped read answers the join condition AND carries the receipt's
-  // evidence, so the decision and the counts come from one snapshot.
-  const tallyRows = await tx<OutreachTallyRow[]>`
-    SELECT delivery_status, disposition_reason, COUNT(*)::int AS total
-    FROM solicitation_outreach
-    WHERE batch_id = ${input.batchId}::uuid
-      AND account_id = ${input.accountId}::uuid
-      AND business_id = ${input.businessId}::uuid
-    GROUP BY delivery_status, disposition_reason
-  `;
-  const { liveCount, counts } = tallyOutreach(tallyRows, input.batchId);
-  if (liveCount > 0) return { status: 'not_settled', liveCount };
+    // Failure declared and settled: generation died before minting a parent,
+    // so nothing will ever mint one and no later writer will call back in.
+    // Close the batch on its own — there is no run to terminalize and no
+    // receipt step to record, which is exactly why this cannot reuse the
+    // path below.
+    const closedParentless = await tx<{ id: string }[]>`
+      UPDATE solicitation_batches
+      SET send_closed_at = NOW()
+      WHERE id = ${input.batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND send_closed_at IS NULL
+      RETURNING id
+    `;
+    if (closedParentless.count === 0) return { status: 'already_closed' };
+    return {
+      status: 'closed_without_parent',
+      disposition: deriveDisposition(batch, input.failure),
+      counts,
+    };
+  }
 
   const closed = await tx<{ id: string }[]>`
     UPDATE solicitation_batches
@@ -398,4 +445,210 @@ export async function closeBatchIfSettled(
   }
 
   return { status: 'closed', parentRunId: parent.id, disposition, parentStatus, counts };
+}
+
+// ── Render persistence (#628) ────────────────────────────────────────────────
+
+/**
+ * The three reasons the RENDER lane can withhold with. A subset of 091's
+ * withheld vocabulary on purpose: `no_consent` / `suppressed` / `unsubscribed`
+ * are dispatch-time facts and belong to #630's send lane, so this type refuses
+ * to let a render writer spell them.
+ */
+export type RenderWithholdReason = 'moderation_high' | 'render_failed' | 'lint_failed';
+
+export type OutreachModerationStatus = 'clean' | 'flagged' | 'error' | 'disabled';
+
+interface InsertOutreachRenderBase {
+  accountId: string;
+  businessId: string;
+  batchId: string;
+  askId: string;
+  contactId: string;
+  /** Starts at 1; a supersede inserts `priorAttemptNo + 1` (B2). */
+  attemptNo: number;
+  promptVersion: string;
+  promptHash: string;
+  askLintVersion: string;
+  /** The matched lint classes; `[]` for clean and `render_failed` rows. */
+  lintDetail: readonly AskLintClass[];
+  moderationStatus: OutreachModerationStatus;
+  /** Provider category map, or `{}` when moderation never ran cleanly. */
+  moderationDetail: Record<string, unknown>;
+  /**
+   * The §5.3 snapshot the prompt actually saw, or `{}` for an ask that was
+   * never assembled (budget-stop `render_failed` rows — locked decision 6).
+   */
+  interpolationInputs: AskInterpolationInputs | Record<string, never>;
+  renderedAt: Date;
+  /** The send parent run, when the caller has one (ON DELETE SET NULL later). */
+  agentRunId: string | null;
+}
+
+/**
+ * Discriminated on `deliveryStatus` so 091's CHECKs are unrepresentable to
+ * violate in TS: a rendered row cannot carry a reason and MUST carry both
+ * bodies (a bodyless `rendered` input is uncompilable, not a runtime 23514);
+ * a withheld row must carry one of the render lane's three reasons and may be
+ * bodied (`moderation_high` / `lint_failed`) or bodyless (`render_failed`) —
+ * there the subject/body PAIR rule stays DB-enforced by 091's body-presence
+ * CHECK.
+ */
+export type InsertOutreachRenderInput = InsertOutreachRenderBase &
+  (
+    | {
+        deliveryStatus: 'rendered';
+        dispositionReason?: null;
+        renderedSubject: string;
+        renderedBody: string;
+      }
+    | {
+        deliveryStatus: 'withheld';
+        dispositionReason: RenderWithholdReason;
+        renderedSubject: string | null;
+        renderedBody: string | null;
+      }
+  );
+
+/**
+ * Persist one render attempt. Deliberately UNCONDITIONAL — no `ON CONFLICT`
+ * against `solicitation_outreach_one_live_per_ask` (spec §5.2 note): the
+ * existence check happens upstream in the generation lane, the worker is
+ * single-replica by invariant, and a second live insert racing past both is a
+ * bug that must surface as 23505, not be silently absorbed.
+ *
+ * Returns the new row's id (UUIDv7, time-ordered PK convention).
+ */
+export async function insertOutreachRender(
+  tx: TransactionSql,
+  input: InsertOutreachRenderInput,
+): Promise<string> {
+  const outreachId = uuidv7();
+  await tx`
+    INSERT INTO solicitation_outreach (
+      id, account_id, business_id, batch_id, ask_id, contact_id,
+      attempt_no, rendered_subject, rendered_body,
+      prompt_version, prompt_hash, interpolation_inputs, rendered_at,
+      ask_lint_version, lint_detail, moderation_status, moderation_detail,
+      delivery_status, disposition_reason, agent_run_id
+    ) VALUES (
+      ${outreachId}::uuid, ${input.accountId}::uuid, ${input.businessId}::uuid,
+      ${input.batchId}::uuid, ${input.askId}::uuid, ${input.contactId}::uuid,
+      ${input.attemptNo}, ${input.renderedSubject}, ${input.renderedBody},
+      ${input.promptVersion}, ${input.promptHash},
+      ${tx.json(input.interpolationInputs as never)}, ${input.renderedAt},
+      ${input.askLintVersion}, ${tx.json(input.lintDetail as never)},
+      ${input.moderationStatus}, ${tx.json(input.moderationDetail as never)},
+      ${input.deliveryStatus}, ${input.dispositionReason ?? null},
+      ${input.agentRunId}::uuid
+    )
+  `;
+  return outreachId;
+}
+
+export interface SupersedeLiveRenderInput {
+  askId: string;
+  accountId: string;
+  businessId: string;
+}
+
+/**
+ * Cancel the ask's live RENDERED attempt so a regenerate can insert
+ * `priorAttemptNo + 1` in the same transaction (B2's update-then-insert
+ * contract). `delivery_status = 'rendered'` only — a released row (`queued` /
+ * `sending`) is never superseded (AMEND B2), and a terminal row has nothing to
+ * supersede. Returns null when no live rendered row exists, which the caller
+ * must treat as a refusal; at most one row can match, guaranteed by
+ * `solicitation_outreach_one_live_per_ask`.
+ */
+export async function supersedeLiveRender(
+  tx: TransactionSql,
+  input: SupersedeLiveRenderInput,
+): Promise<{ priorAttemptNo: number } | null> {
+  const [superseded] = await tx<{ attempt_no: number }[]>`
+    UPDATE solicitation_outreach
+    SET delivery_status = 'cancelled',
+        disposition_reason = 'superseded',
+        updated_at = NOW()
+    WHERE ask_id = ${input.askId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+      AND delivery_status = 'rendered'
+    RETURNING attempt_no
+  `;
+  return superseded ? { priorAttemptNo: superseded.attempt_no } : null;
+}
+
+// ── JSONB read boundary (#628) ───────────────────────────────────────────────
+//
+// Postgres.js behind PgBouncer can hand back JSONB as a string (CLAUDE.md
+// allowlist), so each parser starts with the sanctioned string guard and then
+// NARROWS, throwing on a shape the writer above cannot have produced — the
+// `parseEvidence` posture (batch-view.ts): a loud failure at the parse boundary
+// beats a quietly wrong read model.
+
+const LINT_CLASS_VOCABULARY: ReadonlySet<string> = new Set(ASK_LINT_CLASSES);
+
+/** `solicitation_outreach.lint_detail`: the matched lint-class array. */
+export function parseOutreachLintDetail(
+  value: unknown,
+  outreachId: string,
+): AskLintClass[] {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `solicitation_outreach.lint_detail is not an array (outreach ${outreachId})`,
+    );
+  }
+  for (const entry of parsed) {
+    if (typeof entry !== 'string' || !LINT_CLASS_VOCABULARY.has(entry)) {
+      throw new Error(
+        `solicitation_outreach.lint_detail carries a non-lint-class entry (outreach ${outreachId})`,
+      );
+    }
+  }
+  return parsed as AskLintClass[];
+}
+
+/** `solicitation_outreach.moderation_detail`: provider category map or `{}`. */
+export function parseOutreachModerationDetail(
+  value: unknown,
+  outreachId: string,
+): Record<string, unknown> {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `solicitation_outreach.moderation_detail is not an object (outreach ${outreachId})`,
+    );
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * `solicitation_outreach.interpolation_inputs`: the §5.3 snapshot, or null for
+ * the two legal empty-object states — a never-assembled `render_failed` row
+ * (locked decision 6) and a redacted row (092 empties the snapshot with the
+ * prose). Anything else without the snapshot's discriminant fields throws.
+ */
+export function parseOutreachInterpolationInputs(
+  value: unknown,
+  outreachId: string,
+): AskInterpolationInputs | null {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `solicitation_outreach.interpolation_inputs is not an object (outreach ${outreachId})`,
+    );
+  }
+  if (Object.keys(parsed).length === 0) return null;
+  const candidate = parsed as { contact_first_name?: unknown; note_disposition?: unknown };
+  if (
+    typeof candidate.contact_first_name !== 'string'
+    || typeof candidate.note_disposition !== 'string'
+  ) {
+    throw new Error(
+      `solicitation_outreach.interpolation_inputs has no snapshot discriminant (outreach ${outreachId})`,
+    );
+  }
+  return parsed as AskInterpolationInputs;
 }

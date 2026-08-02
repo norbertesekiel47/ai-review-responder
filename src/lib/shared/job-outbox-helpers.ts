@@ -13,6 +13,7 @@ import {
   type CsvIngestPayload,
   type EscalationNoticePayload,
   type GenerateResponsePayload,
+  type GenerateSolicitationAsksPayload,
   type JudgeVerdictPayload,
   type PendingPostNoticePayload,
   type PublishResponsePayload,
@@ -133,6 +134,17 @@ export interface EnqueueBuildSolicitationBatchInput {
   outboxId?: string;
   batchId: string;
   businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueGenerateSolicitationAsksInput {
+  outboxId?: string;
+  batchId: string;
+  /** Tenant proof for the generation module's queries (invariant #8). */
+  businessId: string;
+  /** Present only for a single-ask regeneration (#629); omitted for the
+   *  whole-batch generation the build transaction enqueues. */
+  askId?: string;
   correlationId?: string;
 }
 
@@ -613,6 +625,56 @@ export async function enqueueBuildSolicitationBatch(
     )
   `;
   return outboxId;
+}
+
+/**
+ * Enqueues ask generation for a built Solicitation batch — whole-batch when
+ * `askId` is omitted (the build transaction, EXEC D21), single-ask
+ * regeneration when present (#629's route). `aggregate_id = batchId` per the
+ * migration 091 comment contract, and the ON CONFLICT predicate below is
+ * spelled byte-for-byte against 091's partial unique index
+ * `job_outbox_generate_solicitation_asks_inflight`.
+ *
+ * Returns the outbox id when a row was inserted, or `null` when an in-flight
+ * generation row already exists for this batch — the atomic, exception-free
+ * form of the "regeneration already in progress" contract
+ * (`enqueueValidatePlaceId` is the dedup-variant precedent). The build-tx
+ * caller treats `null` as fine (idempotent build retry); #629's route
+ * surfaces it as 409.
+ */
+export async function enqueueGenerateSolicitationAsks(
+  tx: TxClient,
+  input: EnqueueGenerateSolicitationAsksInput,
+): Promise<string | null> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: GenerateSolicitationAsksPayload = {
+    batch_id: input.batchId,
+    business_id: input.businessId,
+  };
+  if (input.askId !== undefined) {
+    payload.ask_id = input.askId;
+  }
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  const rows = await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS},
+      ${AGGREGATE_TYPE_SOLICITATION_BATCH},
+      ${input.batchId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'generate_solicitation_asks' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+    RETURNING id
+  `;
+  return rows.length > 0 ? outboxId : null;
 }
 
 /**

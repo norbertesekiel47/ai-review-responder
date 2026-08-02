@@ -29,6 +29,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/escalations/transitions.ts', // in-file reviews FOR UPDATE as tx statement #1
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
+  'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
@@ -87,7 +88,20 @@ const LOCK_HELD_BY_CALLER = new Set([
 // reviews/businesses lock later without leaving this carve-out and re-entering
 // the global reviews → businesses → child rows → agent_runs order — and it must
 // not reintroduce any path that locks the send parent before the batch.
+//
+// solicitation/ask-generation.ts (#628) is the generation lane for the SAME
+// solicitation_send_batch subject. Its documented lock order (file header,
+// AMEND B11 + the closeBatchIfSettled contract) is outbox CAS → per-business
+// advisory lock → batch row FOR UPDATE → spine (agent_runs) locks — batch →
+// run is the sole order in the lane, the same single order the outreach.ts
+// carve-out above rests on, so no ABBA pair exists between the two files.
+// recordGenerationSteps / recordStep lock only the send parent's own run row;
+// reviews are never touched and no businesses/accounts exclusive lock is
+// taken. Same forward-looking warning: growing a reviews/businesses lock, or
+// any path that locks the send parent before the batch, requires leaving this
+// carve-out and re-entering the global order.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
+  'src/lib/solicitation/ask-generation.ts',
   'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
 ]);
@@ -138,6 +152,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
 
   it('pins the non-review-subject carve-out to exactly the weekly account_week and solicitation send-batch callers', () => {
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
+      'src/lib/solicitation/ask-generation.ts',
       'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
     ]);

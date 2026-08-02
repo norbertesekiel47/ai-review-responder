@@ -29,10 +29,33 @@ const PROVIDERS: Record<LLMProviderId, LLMProvider> = {
  * debugging and passes through redactProviderError in the failover log.
  */
 export class LLMStructuredOutputError extends Error {
-  constructor(taskId: LLMTaskId, provider: LLMProviderId, cause: unknown) {
+  /**
+   * Every provider completion that was BILLED before validation failed —
+   * the provider returned tokens; only the shape was wrong. Carried on the
+   * error so cost-guarded callers can finalize the real spend and write the
+   * api_costs audit row instead of releasing the reservation as if nothing
+   * ran. Reassigned (not readonly) by throwExhaustedAttempts, which merges
+   * the primary attempt's billed spend into the rethrown fallback error.
+   */
+  billedAttempts: readonly BilledLlmAttempt[];
+
+  constructor(
+    taskId: LLMTaskId,
+    provider: LLMProviderId,
+    cause: unknown,
+    billedAttempts: readonly BilledLlmAttempt[] = [],
+  ) {
     super(`llm: structured output invalid for task ${taskId} from ${provider}`, { cause });
     this.name = 'LLMStructuredOutputError';
+    this.billedAttempts = billedAttempts;
   }
+}
+
+/** One billed-but-invalid provider completion: enough to price and audit it. */
+export interface BilledLlmAttempt {
+  provider: LLMProviderId;
+  model: string;
+  usage: LLMCallResult['usage'];
 }
 
 function stripCodeFences(text: string): string {
@@ -58,11 +81,14 @@ function validateStructured(
       taskId,
       result.provider,
       new Error(`JSON.parse failed: ${err instanceof Error ? err.name : 'unknown'}`),
+      [{ provider: result.provider, model: result.model, usage: result.usage }],
     );
   }
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
-    throw new LLMStructuredOutputError(taskId, result.provider, validated.error);
+    throw new LLMStructuredOutputError(taskId, result.provider, validated.error, [
+      { provider: result.provider, model: result.model, usage: result.usage },
+    ]);
   }
   return { ...result, structured: validated.data };
 }
@@ -92,7 +118,18 @@ async function completeAttempt(
 function throwExhaustedAttempts(attemptErrors: readonly unknown[]): never {
   const transientCause = [...attemptErrors].reverse().find(isTransientLLMError);
   if (transientCause !== undefined) throw new TransientLLMError(transientCause);
-  throw attemptErrors[attemptErrors.length - 1];
+  const last = attemptErrors[attemptErrors.length - 1];
+  // All-invalid terminal: the rethrown (fallback) error must carry EVERY
+  // billed completion, or the primary attempt's spend silently escapes the
+  // caller's cost finalization.
+  if (last instanceof LLMStructuredOutputError) {
+    last.billedAttempts = attemptErrors
+      .filter(
+        (err): err is LLMStructuredOutputError => err instanceof LLMStructuredOutputError,
+      )
+      .flatMap((err) => err.billedAttempts);
+  }
+  throw last;
 }
 
 /**
@@ -159,10 +196,12 @@ async function attemptProvider(
  * types.ts header.
  *
  * USAGE ACCOUNTING (structured tasks): a validation-failed attempt's token
- * spend is NOT accumulated into the returned usage — finalizeCost under-reports
- * on failover, and on all-invalid terminal the reservation is released.
- * Bounded by the pessimistic reserve + small structured-task maxTokens;
- * revisit if margin data shows it matters.
+ * spend is not accumulated into a SUCCESSFUL result's usage (failover after an
+ * invalid primary under-reports finalizeCost by one attempt — bounded by the
+ * small structured-task maxTokens). On the ALL-INVALID terminal, the thrown
+ * LLMStructuredOutputError carries every billed completion in
+ * `billedAttempts` so cost-guarded callers finalize the real spend instead of
+ * releasing the reservation (codex #628 round-2 finding 1).
  */
 export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise<LLMCallResult> {
   const task = getLlmTask(taskId);

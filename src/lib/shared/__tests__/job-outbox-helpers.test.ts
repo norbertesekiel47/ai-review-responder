@@ -14,6 +14,7 @@ import {
   enqueueCsvIngest,
   enqueueEscalationNotice,
   enqueueGenerateResponse,
+  enqueueGenerateSolicitationAsks,
   enqueueJudgeVerdict,
   enqueuePendingPostNotice,
   enqueuePublishResponse,
@@ -542,6 +543,64 @@ describe('job outbox helpers', () => {
       business_id: 'business-1',
       correlation_id: 'corr-1',
     });
+  });
+
+  it('enqueues generate_solicitation_asks with the migration-091 in-flight predicate and returns the outbox id', async () => {
+    const tx = createMockTx();
+    tx.mockResolvedValueOnce([{ id: 'outbox-uuid' }]);
+
+    const outboxId = await enqueueGenerateSolicitationAsks(tx, {
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(tx).toHaveBeenCalledOnce();
+    const text = sqlText(tx.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    // Byte-for-byte the predicate of
+    // job_outbox_generate_solicitation_asks_inflight (migration 091).
+    expect(text).toContain(
+      "WHERE topic = 'generate_solicitation_asks' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING RETURNING id",
+    );
+    expect(tx.mock.calls[0]).toContain(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS);
+    // 091 comment contract: aggregate_id stores the batch id.
+    expect(tx.mock.calls[0]).toContain('solicitation_batch');
+    expect(tx.mock.calls[0]).toContain('batch-1');
+    const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1', correlation_id: 'corr-1' });
+  });
+
+  it('returns null when an in-flight generate_solicitation_asks row already exists for the batch', async () => {
+    // ON CONFLICT ... DO NOTHING suppressed the insert → no RETURNING row —
+    // the atomic, exception-free "generation already in progress" signal. The
+    // build-tx caller treats it as fine; #629's route surfaces it as 409.
+    const tx = createMockTx(); // resolves []
+
+    const outboxId = await enqueueGenerateSolicitationAsks(tx, { batchId: 'batch-1', businessId: 'business-1' });
+
+    expect(outboxId).toBeNull();
+    const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1' });
+  });
+
+  it('carries ask_id for a single-ask regeneration and honors a supplied outboxId', async () => {
+    const tx = createMockTx();
+    tx.mockResolvedValueOnce([{ id: 'caller-supplied-id' }]);
+
+    const outboxId = await enqueueGenerateSolicitationAsks(tx, {
+      outboxId: 'caller-supplied-id',
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      askId: 'ask-1',
+    });
+
+    expect(outboxId).toBe('caller-supplied-id');
+    expect(tx.mock.calls[0]).toContain('caller-supplied-id');
+    const payload = objectArgs(tx).find((arg) => arg.batch_id === 'batch-1');
+    expect(payload).toEqual({ batch_id: 'batch-1', business_id: 'business-1', ask_id: 'ask-1' });
   });
 
   it('enqueues a dedicated account-scoped Stripe subscription mirror sync', async () => {

@@ -205,9 +205,10 @@ describe('generateReviewSummary', () => {
     const generateReviewSummary = await getSut();
     await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
-    // Default tier is 'copilot' when not specified
-    expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'copilot');
-    expect(mockFinalizeCost).toHaveBeenCalledWith('biz-001', expect.any(Number), '2026-04-14');
+    // Default tier is 'copilot' when not specified; trailing undefined =
+    // estimateCents omitted, the 15¢ default (#628).
+    expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'copilot', undefined);
+    expect(mockFinalizeCost).toHaveBeenCalledWith('biz-001', expect.any(Number), '2026-04-14', undefined);
     expect(mockReleaseCost).not.toHaveBeenCalled();
   });
 
@@ -219,7 +220,7 @@ describe('generateReviewSummary', () => {
     const result = await generateReviewSummary(mockSql, makeReviews(3), 'biz-001', 'copilot');
 
     expect(result).toBeNull();
-    expect(mockReleaseCost).toHaveBeenCalledWith('biz-001', '2026-04-14');
+    expect(mockReleaseCost).toHaveBeenCalledWith('biz-001', '2026-04-14', undefined);
     expect(mockFinalizeCost).not.toHaveBeenCalled();
   });
 

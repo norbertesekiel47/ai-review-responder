@@ -82,6 +82,7 @@ export const queues = {
   autonomyAdminAlert: new Queue(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT, { connection: opts, defaultJobOptions }),
   csvIngest: new Queue(QUEUE_NAMES.CSV_INGEST, { connection: opts, defaultJobOptions }),
   buildSolicitationBatch: new Queue(QUEUE_NAMES.BUILD_SOLICITATION_BATCH, { connection: opts, defaultJobOptions }),
+  generateSolicitationAsks: new Queue(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS, { connection: opts, defaultJobOptions: llmJobOptions }),
 } as const;
 
 // Queues emit 'error' on Redis connection failures; without a listener that
@@ -130,4 +131,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: queues.autonomyAdminAlert,
   [QUEUE_NAMES.CSV_INGEST]: queues.csvIngest,
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: queues.buildSolicitationBatch,
+  [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: queues.generateSolicitationAsks,
 };

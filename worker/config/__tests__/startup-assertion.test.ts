@@ -1040,4 +1040,25 @@ describe('assertSummedLlmWorkerSlots', () => {
       /generate_response.*10.*9/,
     );
   });
+
+  it('passes the ADR 0005 flag-on envelope at exactly 11 (sum 9 + two flag-gated lanes)', () => {
+    const entries = [
+      ...nonGatedAtNine,
+      { queueName: 'judge_verdict', opts: { concurrency: 1 }, flagGated: true },
+      { queueName: 'generate_solicitation_asks', opts: { concurrency: 1 }, flagGated: true },
+    ];
+    expect(() => assertSummedLlmWorkerSlots(entries)).not.toThrow();
+  });
+
+  it('fails boot when a third flag-gated lane pushes the flag-on envelope to 12', () => {
+    const entries = [
+      ...nonGatedAtNine,
+      { queueName: 'judge_verdict', opts: { concurrency: 1 }, flagGated: true },
+      { queueName: 'generate_solicitation_asks', opts: { concurrency: 1 }, flagGated: true },
+      { queueName: 'third_gated_lane', opts: {}, flagGated: true },
+    ];
+    expect(() => assertSummedLlmWorkerSlots(entries)).toThrow(
+      /third_gated_lane.*flag-gated.*12.*flag-on envelope of 11/,
+    );
+  });
 });

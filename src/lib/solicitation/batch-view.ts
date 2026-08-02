@@ -1,6 +1,8 @@
 /**
  * Read model for the owner-facing Requests screen (#544): the most recent
- * Solicitation batch for one location, as a funnel plus its spoilage report.
+ * Solicitation batch for one location, as a funnel plus its spoilage report,
+ * plus each send-ask's current outreach attempt (#628) with app-enforced
+ * `moderation_high` redaction (SPEC §3.3 — see AskAttemptView).
  *
  * Domain module — receives its DB client explicitly (invariant #15); it never
  * imports the singleton. Every query carries BOTH account_id and business_id
@@ -16,6 +18,15 @@
  */
 
 import type { Sql, TransactionSql } from 'postgres';
+import type { AskLintClass } from './ask-compliance-lint';
+import type { AskInterpolationInputs } from './ask-prompt-policy';
+import {
+  parseOutreachInterpolationInputs,
+  parseOutreachLintDetail,
+  parseOutreachModerationDetail,
+  type OutreachModerationStatus,
+  type RenderWithholdReason,
+} from './outreach';
 import {
   WITHHOLD_REASONS,
   type AskDecision,
@@ -51,6 +62,67 @@ export interface WithholdGroup {
   sample: AskRow[];
 }
 
+/**
+ * The redaction sentinel (SPEC §3.3). Typed against the render lane's reason
+ * union so the literal cannot drift from `RenderWithholdReason` (outreach.ts).
+ */
+const MODERATION_HIGH = 'moderation_high' satisfies RenderWithholdReason;
+
+/**
+ * Every `delivery_status` the attempts join can surface — migration 091's
+ * CHECK vocabulary (the owner of this fact) minus the `cancelled` rows the
+ * join excludes.
+ */
+type AskAttemptStatus =
+  | 'rendered'
+  | 'queued'
+  | 'sending'
+  | 'sent'
+  | 'withheld'
+  | 'failed'
+  | 'unknown';
+
+interface AskAttemptBase {
+  outreachId: string;
+  askId: string;
+  contactId: string;
+  /** Truncated to CONTACT_NAME_MAX server-side, like AskRow. */
+  contactName: string;
+  /** 1-based; a regenerate supersedes and inserts prior + 1. */
+  attemptNo: number;
+  deliveryStatus: AskAttemptStatus;
+  /** 091's status↔reason CHECK owns the vocabulary; NULL for undispatched/sent rows. */
+  dispositionReason: string | null;
+  renderedAt: string;
+}
+
+/**
+ * The ask's current outreach attempt as the OWNER may see it.
+ *
+ * `redacted: true` is the `disposition_reason = 'moderation_high'` arm
+ * (SPEC §3.3): the owner sees the row's existence and reason only — subject,
+ * body, moderation detail, and interpolation inputs (which carry the visit
+ * note's prose) never ride the view. App-enforced here because server reads
+ * bypass RLS; 091's owner-SELECT carve-out is the second layer.
+ *
+ * Every other attempt exposes its bytes: a withheld `lint_failed` row keeps
+ * its text and matched classes on purpose — the block teaches the owner
+ * (SPEC §5.2).
+ */
+export type AskAttemptView =
+  | (AskAttemptBase & { redacted: true; dispositionReason: typeof MODERATION_HIGH })
+  | (AskAttemptBase & {
+      redacted: false;
+      /** NULL only for bodyless rows (`render_failed`, retention-redacted). */
+      subject: string | null;
+      body: string | null;
+      lintClasses: AskLintClass[];
+      moderationStatus: OutreachModerationStatus;
+      moderationDetail: Record<string, unknown>;
+      /** NULL when never assembled (`render_failed`) or retention-emptied (092). */
+      interpolationInputs: AskInterpolationInputs | null;
+    });
+
 export type BatchView =
   | { state: 'no_batch'; contactsOnFile: number }
   | { state: 'building'; batchId: string; createdAt: string; contactsOnFile: number }
@@ -64,6 +136,12 @@ export type BatchView =
       held: number;
       /** ALWAYS all six reasons in precedence order, zero-total groups included. */
       groups: WithholdGroup[];
+      /**
+       * Each send-ask's current outreach attempt (#628), at most one per ask.
+       * Bounded by the batch builder's send cap; asks not yet generated have
+       * no entry.
+       */
+      attempts: AskAttemptView[];
     };
 
 interface LatestBatchRow {
@@ -113,6 +191,72 @@ function parseEvidence(value: unknown, askId: string): AskDecision {
     throw new Error(`solicitation_asks.evidence has no decision discriminant (ask ${askId})`);
   }
   return parsed as AskDecision;
+}
+
+interface AskAttemptDbRow {
+  outreachId: string;
+  askId: string;
+  contactId: string;
+  contactName: string;
+  attemptNo: number;
+  deliveryStatus: AskAttemptStatus;
+  dispositionReason: string | null;
+  renderedAt: string;
+  subject: string | null;
+  body: string | null;
+  lintDetail: unknown;
+  moderationStatus: OutreachModerationStatus;
+  moderationDetail: unknown;
+  interpolationInputs: unknown;
+}
+
+/**
+ * Second redaction layer, after the SQL CASE: a `moderation_high` row maps to
+ * the bare marker without ever TOUCHING its content columns, so even a
+ * regression in the SQL layer cannot leak bytes into the view. The JSONB
+ * parses run only on the unredacted arm — they are Task 7's shared PgBouncer
+ * carve-out sites (outreach.ts), not new inline parsers.
+ */
+function toAttempts(rows: AskAttemptDbRow[]): AskAttemptView[] {
+  const seenAskIds = new Set<string>();
+  return rows.map((row): AskAttemptView => {
+    // The non-cancelled predicate leans on domain invariants (withheld ends
+    // the attempt line; supersede swaps atomically), not on an index — so a
+    // second row is corruption and must fail loudly, not render twice.
+    if (seenAskIds.has(row.askId)) {
+      throw new Error(
+        `ask ${row.askId} has more than one non-cancelled outreach attempt`,
+      );
+    }
+    seenAskIds.add(row.askId);
+
+    const base: AskAttemptBase = {
+      outreachId: row.outreachId,
+      askId: row.askId,
+      contactId: row.contactId,
+      contactName: row.contactName,
+      attemptNo: row.attemptNo,
+      deliveryStatus: row.deliveryStatus,
+      dispositionReason: row.dispositionReason,
+      renderedAt: row.renderedAt,
+    };
+    if (row.dispositionReason === MODERATION_HIGH) {
+      return { ...base, redacted: true, dispositionReason: MODERATION_HIGH };
+    }
+    return {
+      ...base,
+      redacted: false,
+      subject: row.subject,
+      body: row.body,
+      lintClasses: parseOutreachLintDetail(row.lintDetail, row.outreachId),
+      moderationStatus: row.moderationStatus,
+      moderationDetail: parseOutreachModerationDetail(row.moderationDetail, row.outreachId),
+      interpolationInputs: parseOutreachInterpolationInputs(
+        row.interpolationInputs,
+        row.outreachId,
+      ),
+    };
+  });
 }
 
 /** Zero-fills the closed enum so the UI can never branch on a missing group. */
@@ -209,6 +353,49 @@ async function readBuiltBatch(
      ORDER BY a.withheld_reason, r.rn
   `;
 
+  // Each send-ask's current outreach attempt (#628). `delivery_status !=
+  // 'cancelled'` deliberately, NOT the live-only set: `withheld` rows are
+  // terminal yet owner-visible — a lint block teaches the owner (SPEC §5.2).
+  // At most one such row exists per ask (withheld ends the attempt line —
+  // no regen, rule 6 — and a rendered row is only replaced via the atomic
+  // supersede swap), so the result is bounded by the batch's send-ask count.
+  //
+  // The CASE redaction is the first of two in-process-leak guards: for a
+  // `moderation_high` row the content columns (subject, body, lint detail,
+  // moderation detail, interpolation inputs — the last carries the visit
+  // note's prose) never leave the database (SPEC §3.3). toAttempts() is the
+  // second; 091's owner-SELECT RLS carve-out backstops direct client reads.
+  // Same snapshot as the funnel numbers — same REPEATABLE READ transaction.
+  const attemptRows = await tx<AskAttemptDbRow[]>`
+    SELECT o.id                 AS "outreachId",
+           o.ask_id             AS "askId",
+           o.contact_id         AS "contactId",
+           LEFT(c.name, ${CONTACT_NAME_MAX}) AS "contactName",
+           o.attempt_no         AS "attemptNo",
+           o.delivery_status    AS "deliveryStatus",
+           o.disposition_reason AS "dispositionReason",
+           o.rendered_at::text  AS "renderedAt",
+           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                THEN NULL ELSE o.rendered_subject END      AS "subject",
+           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                THEN NULL ELSE o.rendered_body END         AS "body",
+           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                THEN NULL ELSE o.lint_detail END           AS "lintDetail",
+           o.moderation_status  AS "moderationStatus",
+           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                THEN NULL ELSE o.moderation_detail END     AS "moderationDetail",
+           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                THEN NULL ELSE o.interpolation_inputs END  AS "interpolationInputs"
+      FROM solicitation_outreach o
+      JOIN solicitation_contacts c
+        ON c.id = o.contact_id AND c.business_id = ${businessId}
+     WHERE o.account_id = ${accountId}
+       AND o.business_id = ${businessId}
+       AND o.batch_id = ${batch.id}
+       AND o.delivery_status <> 'cancelled'
+     ORDER BY o.rendered_at, o.id
+  `;
+
   // `totals` is an unfiltered aggregate, so the LEFT JOIN always yields >= 1
   // row and every row repeats the same funnel numbers.
   const totals = rows[0];
@@ -225,6 +412,7 @@ async function readBuiltBatch(
     queued,
     held,
     groups: toGroups(rows),
+    attempts: toAttempts(attemptRows),
   };
 }
 

@@ -119,6 +119,7 @@ function builtBatch(overrides: Partial<BuiltBatch> = {}): BuiltBatch {
     queued: 25,
     held: 21,
     groups: groups(),
+    attempts: [],
     ...overrides,
   };
 }

@@ -11,7 +11,12 @@
 // Demo/eval callers are the sanctioned unguarded exceptions.
 import type { z } from 'zod';
 
-export type LLMTaskId = 'reply_generation' | 'triage' | 'judge' | 'insights';
+export type LLMTaskId =
+  | 'reply_generation'
+  | 'triage'
+  | 'judge'
+  | 'insights'
+  | 'solicitation_ask';
 
 export type LLMProviderId = 'openai' | 'anthropic';
 
@@ -45,8 +50,8 @@ export interface LLMTaskDescriptor {
   primary: { provider: LLMProviderId; model: string };
   fallback?: { provider: LLMProviderId; model: string };
   maxTokens: number;
-  /** Honored by the openai provider; NOT forwarded by anthropic today — see
-   *  anthropic-provider.ts. */
+  /** Honored by both providers (anthropic forwarding landed with #628 — see
+   *  anthropic-provider.ts). Undefined leaves each SDK's default in force. */
   temperature?: number;
   /** Structured-output contract for classification/judge tasks. Enforced by
    *  runLlmTask: the completion is fence-stripped, JSON.parsed, and validated;
