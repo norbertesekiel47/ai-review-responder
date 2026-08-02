@@ -3,6 +3,48 @@
 Entries are appended by implementation subagents when reality diverges from the
 plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
 
+## Step 6.5 triage — 33 entries, 33 ACCEPT, 0 RE-PLAN
+
+Read end to end at gate-green (`fe675af0`). **No entry invalidates a locked intake
+or G1–G14 decision**, so the abort criteria are not reached. Verdicts by section:
+
+| Section | Entries | Verdict | Note |
+|---|---|---|---|
+| Pre-implementation | 2 | ACCEPT ×2 | T0 glossary written before dispatch; the pre-T1 gate-evidence gap is now discharged. |
+| T1 schema + registries | 5 | ACCEPT ×5 | Two are *plan factual errors* correctly caught (097 needs no `SchemaRequirement`; the `as const` matrices could not exist yet). One was my own dispatch-prompt error, not a surface breach. |
+| T2 `suppression.ts` | 4 | ACCEPT ×4 | The fallow reversal is the highest-value entry on the branch — see below. |
+| T3 purge retention | 5 | ACCEPT ×5 | Includes a second plan factual error (`TABLE_DISPOSITIONS` is asserted *unique*, never *sorted*). |
+| T4 populate seam | 5 | ACCEPT ×5 | Step 3's allowlist work was already discharged by T2 — timing wrong, placement reasoning right. |
+| T5 purge receipt | 6 | ACCEPT ×6 | Owner-facing copy gained a singular branch the plan did not write. |
+| T6 spec + log | 4 | ACCEPT ×4 | Section-level amendment convention invented by extending the document-level one. |
+| Step 5 gate | 2 | ACCEPT ×2 | Both owner-approved: the `test:db:setup` race and the reclassify estimate error. |
+
+**Four entries the step-7 reviewers must look at specifically** (carried into their briefs):
+
+1. **Planned unit tests were relocated to live-DB suites in T3, T4 *and* T5** — three
+   independent tasks, each with a sound local justification (a `vi.hoisted` fake `sql`
+   tag can assert SQL text but cannot distinguish a branch, prove row survival, or
+   produce a real count). Individually correct; **collectively a pattern worth
+   checking**, because `pnpm test:integration` hard-gates only the publisher
+   edit-existing-reply suite, and "an existing-but-not-run suite" is precisely how #520
+   shipped. Reviewers: confirm these suites actually execute in CI's `test` job rather
+   than self-skipping, and that unit-level coverage did not thin where it still had value.
+2. **`retained_suppression_count` is optional on the `purge_receipt` payload** with the
+   reader defaulting to 0. This brushes the anti-slop "no backwards-compatibility shims"
+   rule, and the justification must be judged, not assumed: outbox rows enqueued *before*
+   this deploys are genuinely in flight and their receipts must still render. That is a
+   rollout invariant, not a speculative shim — ACCEPT — but it is the one interface
+   widening in the whole feature and deserves a second opinion.
+3. **The receipt's owner-facing copy diverged from the plan** — the plan wrote the plural
+   sentence out in full and it renders "1 opt-out records are retained" at the most likely
+   non-zero count. A singular branch was added. Copy the plan specified verbatim is exactly
+   the kind of change that should not pass unreviewed.
+4. **T2's fallow reversal.** Writing the plan-mandated `unused-export` suppression for
+   `recordSuppression` *created* a failure (`stale suppression`) because G6 made the
+   live-DB suite a real consumer. The marker was removed and the rationale kept as a plain
+   comment. Reviewers: confirm no other preemptive suppression survived anywhere on the
+   branch — a suppression written from a prediction is a defect class, not a one-off.
+
 ## Pre-implementation coordination notes
 
 - [2026-08-01] **T0 added: the mandated `CONTEXT.md` glossary section did not exist.**
