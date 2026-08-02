@@ -61,15 +61,13 @@ export function solicitationAskPromptHash(): string {
  * `today` is locked decision 10: the spec's table starts at 1 day; the day-0
  * gap was resolved at adversarial review (deviations file).
  */
-const DAYS_SINCE_VISIT_BUCKETS = [
-  'today',
-  'yesterday',
-  'a few days ago',
-  'last week',
-  'a couple of weeks ago',
-  'recently',
-] as const;
-export type DaysSinceVisitBucket = (typeof DAYS_SINCE_VISIT_BUCKETS)[number];
+export type DaysSinceVisitBucket =
+  | 'today'
+  | 'yesterday'
+  | 'a few days ago'
+  | 'last week'
+  | 'a couple of weeks ago'
+  | 'recently';
 
 function utcCalendarDayNumber(date: Date): number {
   return (

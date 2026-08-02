@@ -455,12 +455,7 @@ export async function closeBatchIfSettled(
  * are dispatch-time facts and belong to #630's send lane, so this type refuses
  * to let a render writer spell them.
  */
-const RENDER_WITHHOLD_REASONS = [
-  'moderation_high',
-  'render_failed',
-  'lint_failed',
-] as const;
-export type RenderWithholdReason = (typeof RENDER_WITHHOLD_REASONS)[number];
+export type RenderWithholdReason = 'moderation_high' | 'render_failed' | 'lint_failed';
 
 export type OutreachModerationStatus = 'clean' | 'flagged' | 'error' | 'disabled';
 

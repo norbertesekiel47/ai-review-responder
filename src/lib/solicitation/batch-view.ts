@@ -64,7 +64,7 @@ export interface WithholdGroup {
 
 /**
  * The redaction sentinel (SPEC §3.3). Typed against the render lane's reason
- * union so the literal cannot drift from `RENDER_WITHHOLD_REASONS` (outreach.ts).
+ * union so the literal cannot drift from `RenderWithholdReason` (outreach.ts).
  */
 const MODERATION_HIGH = 'moderation_high' satisfies RenderWithholdReason;
 
