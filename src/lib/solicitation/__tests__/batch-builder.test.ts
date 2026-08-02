@@ -430,6 +430,10 @@ describe('solicitation batch candidate loader', () => {
         consent_attested: true,
         consent_upload_id: 'upload-1',
         consent_attestation_version: 'consent_attestation_v2',
+        // Postgres always returns the selected columns; a handle with no ledger
+        // row yields nulls from the LATERAL, never absent keys.
+        suppression_source: null,
+        suppressed_at: null,
       }]),
       mkTaggedResult([{ pool_count: 1 }]),
       mkTaggedResult([{
@@ -600,6 +604,8 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
         last_visit_date: todayUtcDate,
         upload_id: 'upload-1',
         consent_attested: true,
+        suppression_source: null,
+        suppressed_at: null,
       }]),
       mkTaggedResult([{ pool_count: 1 }]),
       mkTaggedResult([]),

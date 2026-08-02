@@ -199,6 +199,56 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   drives `runContentPurgeStage` with a global AND an account row on ONE handle, so
   only a delete that discriminates on `scope` can pass it.
 
+## Task 4 — build-time populate seam
+
+- [2026-08-02] **Step 3 was already discharged by T2 — no allowlist entry and no
+  baseline bump belong to T4.** `pnpm ci:tenant-scope` is green at 413/413 both
+  before and after the LATERAL join, because T2 shipped the
+  `src/lib/solicitation/suppression.ts` / `solicitation_suppressions` entry when it
+  created the fragment (410 → 411). The plan's *placement* reasoning was exactly
+  right — the literal `FROM solicitation_suppressions` lives in the fragment's own
+  template, never in `batch-builder`'s, so an entry pointed at `batch-builder.ts`
+  would have matched nothing and then failed the unused-entry check — but its
+  *timing* was wrong: the finding fires the moment the fragment exists, not the
+  moment it gains a caller. Nothing was written from the plan's prediction.
+
+- [2026-08-02] **The nested `tx\`c.email\`` interpolation could have blinded the
+  audit, so that was proven rather than assumed.** `parseTemplateLiteral`
+  (`tenant-scope-audit.ts:738`) tracks `${…}` depth and treats backticks inside an
+  interpolation as text, so the outer template still parses — but a silent parse
+  failure would have read as a green audit while hiding every finding in the file.
+  Verified by mutation: replacing `WHERE c.business_id = ${businessId}::uuid` with
+  an unscoped predicate makes the audit report
+  `batch-builder.ts: solicitation_contacts: missing account_id or business_id
+  scope`, which proves the template is still being scanned after the change.
+
+- [2026-08-02] **The mocked candidate-window rows in `batch-builder.test.ts` had to
+  gain the two new columns.** `toCandidate` gates on `!== null`, and a mock row
+  that simply omits the keys yields `undefined !== null` → a candidate with no
+  ledger row reads as suppressed with `undefined` evidence. Real Postgres always
+  returns a selected column, so the fixtures were made faithful rather than the
+  production mapping made defensive.
+
+- [2026-08-02] **Both required titles went to the live-DB suite, and the BATCH_CAP
+  one is mutation-verified.** The populate-not-pre-filter property is a property of
+  the SQL, invisible to the mocked-`sql` unit suite. Adding
+  `AND suppression.source IS NULL` to `loadCandidateWindow` fails
+  `a withheld-suppressed candidate does not consume BATCH_CAP` on
+  `candidateCount` (25 vs 26) and `withheldByReason.suppressed` (0 vs 1) — the
+  suppressed contact vanishes from the window instead of being withheld. The
+  companion mutation (a suppressed row counted as eligible) is caught by the same
+  test's `velocity_banked: 0`: it would push `eligible` to `BATCH_CAP + 1` and bank
+  one real send.
+
+- [2026-08-02] **Suppression fixtures need their own sweep, in two places.**
+  Nothing in the suite's existing teardown reaches them — a ledger row hangs off no
+  business, only off the Normalized handle — and `account_id` is a NO-ACTION FK to
+  `accounts`, which `cleanupTenantAccount` deletes directly. `sweepSuppressionFixtures`
+  runs in `afterEach` and again in `afterAll` before that helper, so a row leaked by
+  a failed `afterEach` cannot turn teardown into an FK error. Fixtures are written
+  through the real `recordSuppression`, so its `solicitation_suppressed` analytics
+  row is swept alongside them.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward
