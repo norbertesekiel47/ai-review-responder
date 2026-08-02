@@ -46,6 +46,62 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   the doc audits and skips `promised-tests` when the diff touches no `src/`,
   `worker/`, `scripts/` or `supabase/` path.
 
+## Task 1 — schema + registry ripple
+
+- [2026-08-01] **Step 3 breaks `src/lib/analytics/__tests__/events.test.ts`; the plan
+  does not mention it.** Its first case pins `ANALYTICS_EVENT_NAMES` to a 21-entry
+  array literal with `toEqual`, so registering `solicitation_suppressed` and
+  `solicitation_suppressed_at_dispatch` makes it fail. Both names were appended in
+  the same order/placement as in the allowlist, keeping the `toEqual` a genuine
+  drift-guard rather than a sorted set. **Resolved; no amendment required** —
+  `src/lib/analytics/__tests__/**` is inside the feature's `allowed_edit_surface`
+  per `.feature/intake.json`, so the budget stays at 1 of 2 used.
+
+  Recorded because T1 initially halted here: the surface list in the dispatch prompt
+  had been trimmed to what T1 was thought to need and omitted that glob, so the edit
+  looked out-of-surface. Halting was correct given what the subagent could see, but
+  it cost a round-trip. **Carry into future dispatches:** when a surface entry names
+  an implementation file, its `__tests__` sibling has to travel with it — a pinned
+  allowlist literal is a guaranteed second edit site, not a possible one.
+
+- [2026-08-01] **Analytics CHECK drift-guard handed off 094 → 097; not in the plan.**
+  `migration-094-…integration.test.ts` owned the "every `ANALYTICS_EVENT_NAMES`
+  entry is in the re-added CHECK list" guard, which by construction breaks the
+  moment a NEWER constraint-swap migration lands. The repo already has the pattern
+  (089 handed the guard to 094 and kept a pinned literal of its own historical
+  list), so T1 applied it verbatim: 097 now owns the drift-guard, 094 pins its own
+  21-name list, and 094's now-unused `ANALYTICS_EVENT_NAMES` import is dropped.
+  In-surface (`src/lib/shared/__tests__/**`), no amendment. Worth adding to the plan
+  template: every analytics-CHECK migration carries this handoff as a mandatory
+  step.
+
+- [2026-08-01] **Step 4 asks for "two `SchemaRequirement` exports"; only one is
+  correct.** `MIGRATION_096_SOLICITATION_SUPPRESSIONS` was added as specified. 097
+  did NOT get one: it creates no relation, column or index, and its constraint NAME
+  has existed since migration 046 — a presence check would pass against a 094
+  database and prove nothing. 094, the exact analogue, likewise has no entry, and
+  097's suite is text-only and never calls `assertSchemaReady`. The reasoning is
+  recorded in the doc comment above the 096 export so the absence is not read as an
+  oversight.
+
+- [2026-08-01] **Step 5's "drive the matrix from the exported `as const` arrays" is
+  not yet possible.** Those arrays live in `src/lib/solicitation/suppression.ts`,
+  which T2 creates and which is outside T1's edit surface — T1 is the blocking edge,
+  so it cannot import from its own dependent. Both matrices are instead parsed from
+  migration 096's own column `CHECK` lists (14 = scope x source, 8 = provenance
+  nullability), and a live test pins that parse against `pg_get_constraintdef()` on
+  the database, so a parse that silently matched nothing cannot masquerade as an
+  empty matrix. Same property the plan wanted — the matrix cannot stay the same size
+  while the schema's closed sets grow. **T2 should re-point both matrices at the
+  `as const` arrays once `suppression.ts` exists**, keeping the DB pin as the
+  three-way cross-check (TS allowlist ⟺ migration text ⟺ deployed constraint).
+
+- [2026-08-01] **Step 6's predicted `ci:tenant-scope` failure did not occur** —
+  it passed at 410/410 entries. The `missing account_id or business_id scope`
+  finding the plan anticipated needs a SQL touchpoint on the new tables, and T1
+  ships none (the writer is T2, the purge stages are T3). Expect it at T2/T3
+  instead; the Task 4 allowlist work is still needed, just not yet.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward

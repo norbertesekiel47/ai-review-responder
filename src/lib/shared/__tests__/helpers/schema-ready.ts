@@ -296,6 +296,30 @@ export const MIGRATION_095_CONSENT_BUSINESS_INDEX: SchemaRequirement = {
 };
 
 /**
+ * 096 creates the Suppression ledger and the Unsubscribe token table. The two
+ * PARTIAL uniques are what every first-write-wins `ON CONFLICT` infers
+ * byte-for-byte, so a database missing one turns the writer's DO NOTHING into a
+ * duplicate-key error rather than a no-op; the account-leading index is the
+ * migration's LAST object, so its presence implies the whole file ran.
+ *
+ * 097 (the analytics CHECK swap) gets no requirement of its own: it adds no
+ * relation, column or index, and its constraint NAME has existed since 046 —
+ * presence would prove nothing. Its suite inspects the migration SQL text
+ * instead, exactly as 094's does.
+ */
+export const MIGRATION_096_SOLICITATION_SUPPRESSIONS: SchemaRequirement = {
+  migration: '096_solicitation_suppressions',
+  tables: ['solicitation_suppressions', 'solicitation_unsubscribe_tokens'],
+  indexes: [
+    'solicitation_suppressions_global_uniq',
+    'solicitation_suppressions_account_uniq',
+    'idx_solicitation_suppressions_account',
+    'solicitation_unsubscribe_tokens_outreach_uniq',
+    'idx_solicitation_unsubscribe_tokens_account',
+  ],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.
