@@ -79,6 +79,7 @@
     "src/lib/analytics/events.ts",
     "src/lib/analytics/__tests__/**",
     "scripts/ci/tenant-tables.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "docs/analytics/events.md",
     "docs/security/rls-inventory.md",
     "docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md",
