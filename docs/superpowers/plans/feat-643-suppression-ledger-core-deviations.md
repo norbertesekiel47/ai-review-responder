@@ -437,6 +437,65 @@ or G1–G14 decision**, so the abort criteria are not reached. Verdicts by secti
   `docs/superpowers/plans/**` from the reclassify computation: counting the plan
   document against the implementation it describes is not a meaningful ratio.
 
+## Step 6 adversarial review — verdict and accepted finding
+
+- [2026-08-02] **Codex verdict: `needs-attention`. One [high] finding, ACCEPTED, fix
+  pending.** `solicitation_unsubscribe_tokens.token_hash` is `TEXT NOT NULL UNIQUE` with
+  **no format constraint**, while the column comment asserts *"SHA-256, node:crypto
+  (invariant #10); raw token NEVER stored (invariant #5)"*. Nothing enforces it. Because
+  this table is deliberately a **retention** table whose rows outlive the account that
+  minted them, a raw **Unsubscribe token** written by a future #644 minting regression
+  would persist indefinitely — through purge, backups and exports.
+
+  **Accepted on two grounds, both verified rather than taken on the reviewer's word:**
+  (a) the intake contract declares the invariant in its own words — *"Invariant #5: raw
+  unsubscribe tokens exist only in memory and in the sent message — never in Postgres,
+  outbox payloads, or logs. This ticket stores hashes only."* — so this is an in-contract
+  gap, not scope creep; (b) there is an exact in-repo precedent at
+  `supabase/migrations/056_account_offboarding.sql:135-136`,
+  `token_hash TEXT NOT NULL CHECK (token_hash ~ '^[a-f0-9]{64}$')`. Note `approval_links`
+  (001) and `channel_enrollments` (021) carry no such CHECK — 056 is the newer, deliberate
+  precedent for a *new* token table, and is the one to mirror. Node's
+  `createHash('sha256').digest('hex')` emits lowercase, so the lowercase-only class is right.
+
+  **Blast radius: nil today.** No production writer of the table exists on this branch
+  (minting is #644). The only touchpoints are a read (`purge-verification.ts:657`) and the
+  provenance scrub (`purge-stages.ts:345`), which sets `account_id`/`business_id`/`ask_id`
+  and never `token_hash`. All three test fixtures already emit valid 64-char lowercase hex
+  — `offboarding-lifecycle.integration.test.ts:282` uses a real
+  `createHash('sha256')…digest('hex')`; the two 096-suite sites (`:227`, `:753`) use
+  `randomUUID().replaceAll('-','').padEnd(64,'0')`, which satisfies the class but should be
+  converted to real digests for honesty, not for the constraint.
+
+- [2026-08-02] **The fix is blocked by `.claude/hooks/migration-immutability-guard.sh`,
+  and the workaround is owner-approved but needs a process-env change.** The hook refuses
+  any Edit/Write to a `supabase/migrations/*.sql` whose number is `<=` the
+  `Current head: **097**` line in `.claude/reference/migrations-log.md` — which T6 bumped
+  *on this branch*, before promotion. Its escape hatch is the process env var
+  `MIGRATION_GUARD_DISABLE=1`, and its own header names this exact case: *"amending an
+  unapplied file after a premature log bump"*.
+
+  **Amending 096 in place is the correct call, not merely the convenient one.** The
+  decisive constraint is the intake: `allowed_edit_surface` contains
+  `supabase/migrations/096_*.sql` and `097_*.sql` and **no 098 glob**, so shipping the CHECK
+  as a new migration would require a **2nd surface amendment and trip the abort criteria**
+  (post-mortem, tear down, restart at step 1) — a disproportionate price for a one-line
+  constraint. Meanwhile 096 has never been applied outside a rebuildable local container
+  (its own migrations-log entry records it as local-only), so it is not yet immutable in
+  the sense the guard is protecting. The guard is firing on its proxy (recorded head)
+  rather than the real condition (applied to staging/prod).
+
+  Neither `.claude/settings.json` nor `.claude/settings.local.json` is inside
+  `allowed_edit_surface`, so the agent cannot set the var itself — the edit-surface guard
+  correctly blocks that too. **Unblock recipe:** relaunch with
+  `MIGRATION_GUARD_DISABLE=1 claude`, then `/feature-resume feat-643-suppression-ledger-core`.
+
+  **Candidate guard improvement, out of scope here:** the hook conflates "highest migration
+  recorded in the log" with "applied to staging/prod". Every in-place amendment of a
+  local-only migration is a false positive, and this workflow produces exactly that shape
+  whenever the migrations-log task (T6) runs before the ship lane. A truer signal would be
+  a per-entry applied marker in the log rather than the head number alone.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward

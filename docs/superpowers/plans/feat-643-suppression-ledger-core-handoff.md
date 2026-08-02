@@ -3,17 +3,56 @@
 **Resume with:** `/feature-resume feat-643-suppression-ledger-core` from
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core`.
 
-**Phase:** `gate_green` (`.feature/state.json`). **Step 4 EXECUTE is complete** —
-all six tasks landed, the verify gate is GREEN, and step 6.5 deviations triage is done.
-**Next step:** 6 — REVIEW 0 (adversarial), which is **user-invocable only**.
+**Phase:** `gate_green` (`.feature/state.json`). **Steps 4, 6 and 6.5 are complete** —
+all six tasks landed, the verify gate is GREEN, the adversarial review has run, and its
+one finding is triaged and ACCEPTED. **Next action: apply that accepted fix**, then step 7.
 
-> ### FIRST ACTION: re-arm
+> ### FIRST ACTION: relaunch with the migration guard disabled, then re-arm
+> The pending fix edits `supabase/migrations/096_solicitation_suppressions.sql`, which
+> `.claude/hooks/migration-immutability-guard.sh` blocks because T6 already bumped the
+> recorded head to 097. The escape hatch is a **process env var**, so it must be set at
+> launch — no in-session edit can do it (`.claude/settings*.json` is outside
+> `allowed_edit_surface`, and the edit-surface guard correctly refuses).
+>
 > ```bash
 > cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core
+> MIGRATION_GUARD_DISABLE=1 claude
+> # then: /feature-resume feat-643-suppression-ledger-core
 > bash scripts/arm-check.sh   # must print ARMED before any edit
 > ```
-> The worktree is NOT parked this time — the gate is green, so the session could end
-> cleanly. If `arm-check.sh` does not print ARMED, STOP and report.
+> If `arm-check.sh` does not print ARMED, STOP and report.
+>
+> **Why amend 096 rather than write 098:** the intake surface contains only
+> `096_*.sql` and `097_*.sql`. A new migration needs a **2nd surface amendment**, which
+> trips the abort criteria. 096 has never been applied outside a rebuildable local
+> container. Full reasoning in the deviations file under "Step 6 adversarial review".
+
+## THE PENDING FIX — do this first
+
+Codex verdict `needs-attention`, one [high] finding, **ACCEPTED**:
+`solicitation_unsubscribe_tokens.token_hash` is `TEXT NOT NULL UNIQUE` with no format
+constraint, while its comment claims invariant #5. Mirror
+`supabase/migrations/056_account_offboarding.sql:135-136`.
+
+1. Amend 096: add a **named** table-level constraint (096's others are named, and the
+   suite asserts `pg_get_constraintdef()` by name) —
+   `CONSTRAINT solicitation_unsubscribe_tokens_token_hash_sha256_hex CHECK (token_hash ~ '^[a-f0-9]{64}$')`,
+   placed before the G12 provenance implication, with a rationale comment in the file's
+   dense, rationale-first style.
+2. Convert the two `randomUUID().replaceAll('-','').padEnd(64,'0')` fixtures
+   (`migration-096-…integration.test.ts:227` and `:753`) to real
+   `createHash('sha256')…digest('hex')` digests. They already satisfy the class, so this
+   is for honesty, not to pass the constraint.
+3. Add an `it.each` matrix to the 096 suite proving rejection of: a raw human-readable
+   token, uppercase hex, too-short and too-long hex — plus at least one **accepted**
+   64-char lowercase digest, so the test cannot pass by rejecting everything.
+4. Update 096's entry in `.claude/reference/migrations-log.md` to describe the CHECK.
+   **Head stays 097.**
+5. Re-provision (`pnpm test:db:setup`, serially) and **mutation-check**: remove the CHECK,
+   re-provision, confirm the new test FAILS, restore, re-provision.
+6. Re-run the full gate (recipe below), then proceed to step 7.
+
+`ALLOWLIST_BASELINE` stays 413 — a CHECK adds no SQL touchpoint.
 
 ---
 
@@ -73,10 +112,10 @@ in the deviations file.
 
 ## Remaining steps
 
-- **Step 6 — REVIEW 0, adversarial (RISK=high).** User must run
-  `/codex:adversarial-review` on the branch; it is not agent-invocable. Triage with
-  `superpowers:receiving-code-review`. An approach-level finding may mean revisiting the
-  plan, not just patching code. Re-run the gate after any change.
+- **Step 6 — DONE.** `/codex:adversarial-review` ran against the branch diff; verdict
+  `needs-attention`, one [high] finding, triaged ACCEPTED via
+  `superpowers:receiving-code-review`. Not approach-level — no return to step 3 required.
+  The fix is the pending item above. Re-run the gate after it lands.
 - **Step 6.5 — DONE** (triage table at the top of the deviations file).
 - **Step 7 — dual review.** Run `bash scripts/blast-radius.sh` first, then two parallel
   fresh agents (spec & correctness; standards & maintainability via
