@@ -61,7 +61,7 @@ export function solicitationAskPromptHash(): string {
  * `today` is locked decision 10: the spec's table starts at 1 day; the day-0
  * gap was resolved at adversarial review (deviations file).
  */
-export const DAYS_SINCE_VISIT_BUCKETS = [
+const DAYS_SINCE_VISIT_BUCKETS = [
   'today',
   'yesterday',
   'a few days ago',

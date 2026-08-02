@@ -11,8 +11,10 @@ import {
   recordOutboxTransientError,
 } from '@/lib/shared/outbox';
 import type { GenerateSolicitationAsksPayload } from '@/lib/shared/worker-types';
+import { boundedErrorClass, isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
 
 const logger = createWorkerLogger('[GenerateSolicitationAsksWorker.failed]');
+const logFailureSafely = makeFailureLogger(logger, 'ask generation exhausted');
 
 /**
  * The exhaustion classes that stay WATCHDOG-ELIGIBLE: exactly the two the
@@ -114,6 +116,37 @@ const FINAL_SETTLEMENT_RETRIES = 2;
 const FINAL_SETTLEMENT_BACKOFF_MS = 200;
 
 /**
+ * What to do about a settlement that just failed, in precedence order. Split
+ * out of the catch arm so the retry loop reads as "settle, or recover" rather
+ * than as four interleaved branches.
+ */
+type SettlementRecovery =
+  /** The watchdog still has budget: leave the row dispatched, it re-drives. */
+  | 'watchdog_will_redrive'
+  /** In-hook retries remain and nothing else will: try again immediately. */
+  | 'retry_in_hook'
+  /** In-hook retries spent; budget granted, so the watchdog now owns it. */
+  | 'deferred'
+  /** Grant refused. Nothing will retry — the only status worth paging on. */
+  | 'abandoned';
+
+const SETTLEMENT_FAILURE_STATUS: Record<Exclude<SettlementRecovery, 'retry_in_hook'>, string> = {
+  watchdog_will_redrive: 'terminal_checkpoint_failed',
+  deferred: 'settlement_deferred_to_watchdog',
+  abandoned: 'terminal_settlement_abandoned',
+};
+
+async function classifySettlementFailure(
+  sql: Sql,
+  outboxId: string,
+  retriesLeft: number,
+): Promise<Exclude<SettlementRecovery, never>> {
+  if (await watchdogRetryRemaining(sql, outboxId)) return 'watchdog_will_redrive';
+  if (retriesLeft > 0) return 'retry_in_hook';
+  return (await grantSettlementRedrive(sql, outboxId)) ? 'deferred' : 'abandoned';
+}
+
+/**
  * Whole-batch dead-letter: the coupled CAS + domain settlement, committed or
  * rolled back as one unit.
  *
@@ -160,56 +193,19 @@ async function deadLetterWholeBatch(
       });
       return;
     } catch (hookErr) {
-      const settlementErrorClass = boundedErrorClass(hookErr);
-      if (await watchdogRetryRemaining(sql, outboxHandle.outboxId)) {
-        logFailureSafely({
-          status: 'terminal_checkpoint_failed',
-          ...jobFields,
-          outbox_attempt: outboxHandle.attempt,
-          error_class: settlementErrorClass,
-        });
-        return;
+      const recovery = await classifySettlementFailure(sql, outboxHandle.outboxId, retriesLeft);
+      if (recovery === 'retry_in_hook') {
+        await delay(FINAL_SETTLEMENT_BACKOFF_MS);
+        continue;
       }
-      if (retriesLeft === 0) {
-        const deferred = await grantSettlementRedrive(sql, outboxHandle.outboxId);
-        logFailureSafely({
-          status: deferred ? 'settlement_deferred_to_watchdog' : 'terminal_settlement_abandoned',
-          ...jobFields,
-          outbox_attempt: outboxHandle.attempt,
-          error_class: settlementErrorClass,
-        });
-        return;
-      }
-      await delay(FINAL_SETTLEMENT_BACKOFF_MS);
+      logFailureSafely({
+        status: SETTLEMENT_FAILURE_STATUS[recovery],
+        ...jobFields,
+        outbox_attempt: outboxHandle.attempt,
+        error_class: boundedErrorClass(hookErr),
+      });
+      return;
     }
-  }
-}
-
-function isExhausted(job: Job<GenerateSolicitationAsksPayload>): boolean {
-  const maxAttempts =
-    typeof job.opts.attempts === 'number' && job.opts.attempts > 0
-      ? job.opts.attempts
-      : 1;
-  return job.attemptsMade >= maxAttempts;
-}
-
-function boundedErrorClass(err: unknown): string {
-  if (!(err instanceof Error)) return 'UnknownError';
-  const constructorName = err.constructor.name;
-  return /^[A-Za-z][A-Za-z0-9_$]{0,99}$/.test(constructorName)
-    ? constructorName
-    : 'UnknownError';
-}
-
-function logFailureSafely(
-  details: Record<string, string | number | boolean>,
-): void {
-  try {
-    logger.error('ask generation exhausted', details);
-  } catch {
-    // Terminal state is already durable (or the row stayed dispatched for the
-    // watchdog). Logging is observability-only and must never escape a bare
-    // BullMQ failed listener.
   }
 }
 
@@ -235,7 +231,7 @@ export async function handleGenerateSolicitationAsksFailed(
   job: Job<GenerateSolicitationAsksPayload> | undefined,
   err: unknown,
 ): Promise<void> {
-  if (!job || !isExhausted(job)) return;
+  if (!job || !isExhaustedJob(job)) return;
 
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
   const errorClass = boundedErrorClass(err);

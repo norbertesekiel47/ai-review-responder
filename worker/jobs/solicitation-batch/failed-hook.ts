@@ -4,35 +4,10 @@ import { failSolicitationBatchRun } from '@/lib/agents/run-spine';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
+import { boundedErrorClass, isExhaustedJob, makeFailureLogger } from './failed-hook-shared';
 
 const logger = createWorkerLogger('[SolicitationBatchWorker.failed]');
-
-function isExhausted(job: Job<BuildSolicitationBatchPayload>): boolean {
-  const maxAttempts =
-    typeof job.opts.attempts === 'number' && job.opts.attempts > 0
-      ? job.opts.attempts
-      : 1;
-  return job.attemptsMade >= maxAttempts;
-}
-
-function boundedErrorClass(err: unknown): string {
-  if (!(err instanceof Error)) return 'UnknownError';
-  const constructorName = err.constructor.name;
-  return /^[A-Za-z][A-Za-z0-9_$]{0,99}$/.test(constructorName)
-    ? constructorName
-    : 'UnknownError';
-}
-
-function logFailureSafely(
-  details: Record<string, string | number | boolean>,
-): void {
-  try {
-    logger.error('solicitation batch build exhausted', details);
-  } catch {
-    // Terminal state already committed (or rolled back as a unit). Logging is
-    // observability-only and must never escape a bare BullMQ failed listener.
-  }
-}
+const logFailureSafely = makeFailureLogger(logger, 'solicitation batch build exhausted');
 
 interface TerminalTransitionOutcome {
   ownsAttempt: boolean;
@@ -118,7 +93,7 @@ export async function handleSolicitationBatchFailed(
   job: Job<BuildSolicitationBatchPayload> | undefined,
   err: unknown,
 ): Promise<void> {
-  if (!job || !isExhausted(job)) return;
+  if (!job || !isExhaustedJob(job)) return;
 
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
   const errorClass = boundedErrorClass(err);

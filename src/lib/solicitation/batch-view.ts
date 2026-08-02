@@ -73,7 +73,7 @@ const MODERATION_HIGH = 'moderation_high' satisfies RenderWithholdReason;
  * CHECK vocabulary (the owner of this fact) minus the `cancelled` rows the
  * join excludes.
  */
-export type AskAttemptStatus =
+type AskAttemptStatus =
   | 'rendered'
   | 'queued'
   | 'sending'
