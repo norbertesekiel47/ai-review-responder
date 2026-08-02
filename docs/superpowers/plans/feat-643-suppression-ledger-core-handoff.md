@@ -3,58 +3,27 @@
 **Resume with:** `/feature-resume feat-643-suppression-ledger-core` from
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core`.
 
-**Phase:** `gate_green` (`.feature/state.json`). **Steps 4, 6 and 6.5 are complete** —
-all six tasks landed, the verify gate is GREEN, the adversarial review has run, and its
-one finding is triaged and ACCEPTED. **Next action: apply that accepted fix**, then step 7.
+**Phase:** `gate_green` (`.feature/state.json`). **Steps 4, 6 and 6.5 are complete, and
+the one accepted review finding is FIXED** — all six tasks landed, the adversarial review
+ran, its single [high] finding was triaged ACCEPTED and applied at `cd861e6b`, and the
+verify gate is GREEN (`--review` mode) at that same commit. **Next action: step 7, dual
+review.**
 
-> ### FIRST ACTION: relaunch with the migration guard disabled, then re-arm
-> The pending fix edits `supabase/migrations/096_solicitation_suppressions.sql`, which
-> `.claude/hooks/migration-immutability-guard.sh` blocks because T6 already bumped the
-> recorded head to 097. The escape hatch is a **process env var**, so it must be set at
-> launch — no in-session edit can do it (`.claude/settings*.json` is outside
-> `allowed_edit_surface`, and the edit-surface guard correctly refuses).
->
-> ```bash
-> cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core
-> MIGRATION_GUARD_DISABLE=1 claude
-> # then: /feature-resume feat-643-suppression-ledger-core
-> bash scripts/arm-check.sh   # must print ARMED before any edit
-> ```
-> If `arm-check.sh` does not print ARMED, STOP and report.
->
-> **Why amend 096 rather than write 098:** the intake surface contains only
-> `096_*.sql` and `097_*.sql`. A new migration needs a **2nd surface amendment**, which
-> trips the abort criteria. 096 has never been applied outside a rebuildable local
-> container. Full reasoning in the deviations file under "Step 6 adversarial review".
+## The step-6 fix — APPLIED at `cd861e6b`, gate GREEN
 
-## THE PENDING FIX — do this first
+The accepted [high] finding is fixed and verified. `token_hash` now carries a named
+`CHECK (token_hash ~ '^[a-f0-9]{64}$')` in migration 096, the two dishonest fixtures hash
+real strings, and a 6-case `it.each` plus a `pg_get_constraintdef()` assertion cover it.
+**Mutation-checked**: removing the CHECK fails 6 of the 7 new assertions. Head stayed 097;
+`ALLOWLIST_BASELINE` stayed 413. Full record in the deviations file under
+"Step 6 adversarial review".
 
-Codex verdict `needs-attention`, one [high] finding, **ACCEPTED**:
-`solicitation_unsubscribe_tokens.token_hash` is `TEXT NOT NULL UNIQUE` with no format
-constraint, while its comment claims invariant #5. Mirror
-`supabase/migrations/056_account_offboarding.sql:135-136`.
-
-1. Amend 096: add a **named** table-level constraint (096's others are named, and the
-   suite asserts `pg_get_constraintdef()` by name) —
-   `CONSTRAINT solicitation_unsubscribe_tokens_token_hash_sha256_hex CHECK (token_hash ~ '^[a-f0-9]{64}$')`,
-   placed before the G12 provenance implication, with a rationale comment in the file's
-   dense, rationale-first style.
-2. Convert the two `randomUUID().replaceAll('-','').padEnd(64,'0')` fixtures
-   (`migration-096-…integration.test.ts:227` and `:753`) to real
-   `createHash('sha256')…digest('hex')` digests. They already satisfy the class, so this
-   is for honesty, not to pass the constraint.
-3. Add an `it.each` matrix to the 096 suite proving rejection of: a raw human-readable
-   token, uppercase hex, too-short and too-long hex — plus at least one **accepted**
-   64-char lowercase digest, so the test cannot pass by rejecting everything.
-4. Update 096's entry in `.claude/reference/migrations-log.md` to describe the CHECK.
-   **Head stays 097.**
-5. Re-provision (`pnpm test:db:setup`, serially) and **mutation-check**: remove the CHECK,
-   re-provision, confirm the new test FAILS, restore, re-provision.
-6. Re-run the full gate (recipe below), then proceed to step 7.
-
-`ALLOWLIST_BASELINE` stays 413 — a CHECK adds no SQL touchpoint.
+> The `MIGRATION_GUARD_DISABLE=1` relaunch that unblocked it is **spent** — it was needed
+> only to amend 096. Nothing downstream needs it, so a normal `claude` relaunch is fine
+> from here.
 
 ---
+
 
 ## Read these, in this order — do NOT reconstruct from any transcript
 
@@ -79,22 +48,23 @@ constraint, while its comment claims invariant #5. Mirror
 | `3a6d0794` | T5 | Aggregate purge receipt — retained global count threaded through the outbox payload to the template |
 | `230054d5` | T6 | G1/G2 spec amendment banners; migrations-log head → 097 + retention-policy rows |
 | `fe675af0` | gate | `test:db:setup` dropped from `verification_commands`; gate deviations recorded |
+| `cd861e6b` | step 6 fix | 096 `token_hash` format CHECK + honest fixtures + 6-case rejection matrix; migrations-log entry. No production file touched. |
 
-**Diff:** 37 files, 5,052 changed lines — 435 production, 207 migrations, 2,644 tests,
-165 real docs, 1,537 workflow artifacts. All 37 in-surface. **Amendment budget: 1 of 2
+**Diff:** 37 files, 5,299 changed lines — 435 production (unchanged by the fix), 218
+migrations, 2,757 tests, 172 real docs, 1,717 workflow artifacts. All 37 in-surface. **Amendment budget: 1 of 2
 used**, spent during planning (`scripts/ci/tenant-scope-allowlist.ts`).
 
 **`ALLOWLIST_BASELINE` walked 410 → 413**: T2 +1 (`suppressionMatchSql`'s deliberately
 unscoped `global` arm), T3 +2 (the token-scrub `UPDATE`'s `OR` + stripped subquery, same
 shape as the existing `notification_deliveries` pair). T4 and T5 added none.
 
-## Gate status — GREEN at `fe675af0`
+## Gate status — GREEN at `cd861e6b`
 
-All 32 rows PASS: lint, typecheck, whole-repo `test`, all 17 `ci:*` audits, five
-`verification_commands`, all six changed integration suites, and `promised-tests`
-(19/19 verbatim).
+All 34 rows PASS: lint, typecheck, whole-repo `test`, all 17 `ci:*` audits, five
+`verification_commands`, all six changed integration suites, `promised-tests`
+(19/19 verbatim), plus `--review`'s `merge-coverage` and `diff-coverage`.
 
-**One standing WARN, owner-approved:** `reclassify` fires at 2.77× (5,052 vs 1,800
+**One standing WARN, owner-approved:** `reclassify` fires at 2.94× (5,299 vs 1,800
 estimated). Adjudicated as an **estimate error, not a lane error** — production code is
 435 lines across exactly the files the plan named. Do not re-run step 0. Full reasoning
 in the deviations file.
@@ -112,17 +82,18 @@ in the deviations file.
 
 ## Remaining steps
 
-- **Step 6 — DONE.** `/codex:adversarial-review` ran against the branch diff; verdict
-  `needs-attention`, one [high] finding, triaged ACCEPTED via
+- **Step 6 — DONE, fix landed.** `/codex:adversarial-review` ran against the branch diff;
+  verdict `needs-attention`, one [high] finding, triaged ACCEPTED via
   `superpowers:receiving-code-review`. Not approach-level — no return to step 3 required.
-  The fix is the pending item above. Re-run the gate after it lands.
+  The fix shipped at `cd861e6b` and the gate was re-run GREEN after it.
 - **Step 6.5 — DONE** (triage table at the top of the deviations file).
 - **Step 7 — dual review.** Run `bash scripts/blast-radius.sh` first, then two parallel
   fresh agents (spec & correctness; standards & maintainability via
   `/thermo-nuclear-code-quality-review`). Both get the triaged deviations file; the spec
   agent also gets `blast-radius.md`. Full reports to `docs/reviews/<branch>/`, findings
-  tables only in context. **Commit the reports + triage verdicts.** Last gate run before
-  this is `verify-gate.sh --review` (adds coverage + a changed-line `diff-coverage` row).
+  tables only in context. **Commit the reports + triage verdicts.** The
+  `verify-gate.sh --review` run this step requires is **already done** at `cd861e6b`
+  (`merge-coverage` + `diff-coverage` both PASS) — re-run it only if step 7 changes code.
 - **Step 8 — SHIP, RISK=high lane.** Staging ride first, then PR to `main`, then PAUSE
   for explicit merge approval. Migrations apply staging-first, 096 then 097.
 

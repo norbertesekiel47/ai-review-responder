@@ -496,6 +496,39 @@ or G1–G14 decision**, so the abort criteria are not reached. Verdicts by secti
   whenever the migrations-log task (T6) runs before the ship lane. A truer signal would be
   a per-entry applied marker in the log rather than the head number alone.
 
+- [2026-08-02] **FIX APPLIED — `cd861e6b`, gate GREEN.** The owner relaunched with
+  `MIGRATION_GUARD_DISABLE=1`; `arm-check.sh` printed ARMED, and reconciliation was clean
+  (phase `gate_green`, `headSha` == HEAD, tree clean, 0 behind `origin/main`, both intake
+  copies byte-identical). Three files, all in-surface:
+
+  1. `096_solicitation_suppressions.sql` — named
+     `CONSTRAINT solicitation_unsubscribe_tokens_token_hash_sha256_hex CHECK (token_hash ~ '^[a-f0-9]{64}$')`,
+     placed before the G12 provenance implication, with a rationale comment in the file's
+     style. Named because 096's other table-level constraints are and the suite asserts
+     `pg_get_constraintdef()` by name.
+  2. The 096 suite — a `sha256Hex()` helper replaces both
+     `randomUUID().replaceAll('-','').padEnd(64,'0')` fixtures (`:227`, `:753`) with real
+     digests, `insertToken` gained an optional `tokenHash` override used only by the new
+     matrix, and two tests were added: a `pg_get_constraintdef()` assertion and a 6-case
+     `it.each` — raw token, uppercase hex, 63-char, 65-char, hex-length non-hex all
+     rejected with SQLSTATE `23514` and the constraint named, plus **one accepted real
+     digest** so the matrix cannot pass by rejecting everything.
+  3. `migrations-log.md` — 096's entry now describes the CHECK and the lowercase-only
+     rationale. **Head stayed 097.**
+
+  **Mutation-checked as the handoff required:** with the CHECK removed and the DB
+  re-provisioned, 6 of the 7 new assertions FAIL (the definition test + all 5 rejections);
+  the accepted case still passes, which is correct — a constraint-free table accepts
+  everything. Restored, re-provisioned, 54/54 green.
+
+  `ALLOWLIST_BASELINE` stayed 413 as predicted — a CHECK adds no SQL touchpoint. Gate
+  re-run with `--review` at `cd861e6b`: all 34 rows PASS including `merge-coverage` and
+  `diff-coverage`; the standing owner-approved `reclassify` WARN now reads 5,299 lines,
+  up from the 5,052 measured at `fe675af0` — **130 of that from this fix** (3 constraint
+  lines, the rest test matrix, helper and rationale comments) and 117 from the two step-6
+  documentation commits in between. Still an estimate error, not a lane error: production
+  code is unchanged at 435 lines, and this fix touched no production file at all.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward
