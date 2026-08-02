@@ -54,9 +54,11 @@ real strings, and a 6-case `it.each` plus a `pg_get_constraintdef()` assertion c
 migrations, 2,757 tests, 172 real docs, 1,717 workflow artifacts. All 37 in-surface. **Amendment budget: 1 of 2
 used**, spent during planning (`scripts/ci/tenant-scope-allowlist.ts`).
 
-**`ALLOWLIST_BASELINE` walked 410 → 413**: T2 +1 (`suppressionMatchSql`'s deliberately
-unscoped `global` arm), T3 +2 (the token-scrub `UPDATE`'s `OR` + stripped subquery, same
-shape as the existing `notification_deliveries` pair). T4 and T5 added none.
+**`ALLOWLIST_BASELINE` walked 410 → 413 → 411**: T2 +1 (`suppressionMatchSql`'s
+deliberately unscoped `global` arm), T3 +2 (the token-scrub `UPDATE`'s `OR` + stripped
+subquery). T4 and T5 added none. **Step 7 gave back both of T3's**: dropping the
+redundant `OR business_id IN (…)` left a plain account-scoped predicate the scanner
+accepts natively, so the two entries were deleted, not retuned. Net for this branch: +1.
 
 ## Gate status — GREEN at `cd861e6b`
 

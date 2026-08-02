@@ -567,6 +567,17 @@ reviewer's word.
   a cross-account writer bug — and silently scrubbing it would HIDE it. Now it fails the
   purge loudly instead. Owner-approved at the triage checkpoint.
 
+  **`ALLOWLIST_BASELINE` walked BACK, 413 → 411.** The scrub's two tenant-scope allowlist
+  entries — T3's "+2", one for `solicitation_unsubscribe_tokens` and its `businesses`
+  twin for the stripped subquery — existed *only* because the scanner rejects `OR`
+  predicates. With the `OR` gone the statement is a plain
+  `WHERE account_id = ${row.account_id}::uuid`, which the scanner accepts natively, so
+  both entries were deleted rather than retuned. A fix that removes two cross-tenant
+  exemptions is a better outcome than the performance one it was aimed at. The
+  `suppressionMatchSql` entry was retuned in place (its `sqlSnippet` is byte-matched and
+  now spells `s.channel = ${channel}`); T2's "+1" for the deliberately-unscoped `global`
+  arm stands.
+
 - [2026-08-02] **`solicitation_suppressed` distinct-ID doc drift** (low, flagged
   independently by BOTH agents). `docs/analytics/events.md` said "Distinct ID: account
   ID"; the code is `input.accountId ?? row.id`. The `accountId: null` path is
