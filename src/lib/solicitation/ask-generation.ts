@@ -913,6 +913,15 @@ async function readRenderTally(
   return tally ?? { alive: 0, failed_count: 0, withheld_count: 0 };
 }
 
+// ACKNOWLEDGED DEBT (#628 → refactor ticket): 294 lines / 43 cognitive is over
+// threshold and fallow is right about it. Suppressed rather than decomposed
+// because this is the lane's transaction-ordered orchestrator — mint →
+// per-child render → finale, each arm carrying its own lock order and
+// idempotency contract — and it is the exact code five rounds of adversarial
+// review examined arm by arm. Splitting it to satisfy a metric would reopen
+// validated concurrency handling for no behavioural gain. Decompose it behind
+// its own tests in its own change, never as a gate-clearing edit.
+// fallow-ignore-next-line complexity
 export async function generateAsksForBatch(
   sql: Sql,
   input: GenerateAsksForBatchInput,
@@ -1277,6 +1286,12 @@ async function loadCurrentOutreach(
  *     re-verification rolls the domain writes back but still completes the
  *     outbox row, logging the discarded spend (accepted rare waste).
  */
+// ACKNOWLEDGED DEBT (#628 → refactor ticket): same reasoning as
+// generateAsksForBatch above. The swap is a single ordered transaction —
+// attempt CAS, lifecycle revalidation, terminalize prior attempt, insert
+// attempt_no + 1, join — whose steps cannot be reordered or separated without
+// re-deriving the ordering proof the review rounds already checked.
+// fallow-ignore-next-line complexity
 export async function regenerateAsk(
   sql: Sql,
   input: RegenerateAskInput,
