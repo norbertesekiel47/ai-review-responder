@@ -1030,7 +1030,14 @@ Revisit triggers:
   compliance record.
 
   **`solicitation_unsubscribe_tokens`** — SHA-256 `token_hash` only (invariants
-  #5/#10); `account_id`, `business_id` and `ask_id` are plain UUIDs with no FK,
+  #5/#10), and that is **enforced, not merely asserted in a comment**: a named
+  CHECK `token_hash ~ '^[a-f0-9]{64}$'` (mirroring 056's
+  `account_offboarding_tokens`), because `TEXT NOT NULL UNIQUE` on its own would
+  have stored a raw token as readily as a digest and every reader downstream
+  would still have worked. Lowercase-only is deliberate — it is what
+  `node:crypto`'s `digest('hex')` emits, and admitting uppercase would let two
+  spellings of one digest past the UNIQUE index. `account_id`, `business_id`
+  and `ask_id` are plain UUIDs with no FK,
   scrubbed to NULL by the purge. `outreach_id` is
   `REFERENCES solicitation_outreach(id) ON DELETE SET NULL` with a PARTIAL
   unique index (`WHERE outreach_id IS NOT NULL`, so purge-scrubbed NULLs never
@@ -1055,7 +1062,9 @@ Revisit triggers:
   `src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts`
   (columns/nullability, both CHECK matrices driven from the `as const` arrays in
   `src/lib/solicitation/suppression.ts` and pinned against
-  `pg_get_constraintdef()`, exact FK set including the no-FK absences, both
+  `pg_get_constraintdef()`, the token_hash format matrix — raw token, uppercase
+  hex, off-by-one lengths and hex-length non-hex all rejected, a real digest
+  accepted — exact FK set including the no-FK absences, both
   partial uniques, RLS-with-zero-policies); schema-ready entry
   `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied and verified only against
   the local test container so far; not applied to staging or production.** At

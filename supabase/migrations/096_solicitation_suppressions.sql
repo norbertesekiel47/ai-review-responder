@@ -116,6 +116,17 @@ CREATE TABLE IF NOT EXISTS solicitation_unsubscribe_tokens (
   sent_at TIMESTAMPTZ NOT NULL,
   redeemed_at TIMESTAMPTZ,             -- first redemption; a second is a no-op success
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Invariant #5 is asserted by the token_hash comment above but was, until this
+  -- constraint, enforced nowhere: TEXT NOT NULL UNIQUE accepts a raw token as
+  -- readily as a digest, so a single call site that forgot to hash would store
+  -- plaintext and every reader downstream would still work. Mirrors migration
+  -- 056's account_offboarding_tokens.token_hash, the same pattern for the same
+  -- invariant. Named (096's other table-level constraints are, and the migration
+  -- suite asserts pg_get_constraintdef() by name). Lowercase hex only, because
+  -- that is what node:crypto's digest('hex') emits — accepting uppercase would
+  -- admit a second spelling of the same digest and defeat the UNIQUE index.
+  CONSTRAINT solicitation_unsubscribe_tokens_token_hash_sha256_hex
+    CHECK (token_hash ~ '^[a-f0-9]{64}$'),
   -- G12: a partially-scrubbed row must be impossible, so the purge verifier can
   -- prove scrub completeness from ANY ONE column. Deliberately EXCLUDES
   -- outreach_id: SET NULL may null it independently, while the account is still

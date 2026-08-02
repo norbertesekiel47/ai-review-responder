@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -133,6 +133,62 @@ const PROVENANCE_MATRIX: readonly ProvenanceCase[] = [false, true].flatMap((acco
   ),
 );
 
+/**
+ * The digest the minting call site is required to produce (invariant #10:
+ * `node:crypto`, never `crypto-js`). Fixtures hash a real string rather than
+ * dressing a UUID up as 64 hex chars, so a fixture cannot satisfy the format
+ * CHECK while misrepresenting how a token_hash is actually made.
+ */
+function sha256Hex(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+interface TokenHashCase {
+  label: string;
+  tokenHash: string;
+  accepted: boolean;
+}
+
+/**
+ * The token_hash format CHECK. Every rejected case is a shape that
+ * `TEXT NOT NULL UNIQUE` alone would have stored happily — a raw token above
+ * all, which is the invariant #5 breach the constraint exists to make
+ * impossible. The accepted case is load-bearing: without it the matrix would
+ * still pass if the constraint rejected everything, including real digests.
+ */
+const TOKEN_HASH_MATRIX: readonly TokenHashCase[] = [
+  {
+    label: 'accepts a real node:crypto sha256 hex digest',
+    tokenHash: sha256Hex('the-raw-token'),
+    accepted: true,
+  },
+  {
+    label: 'rejects a raw human-readable token — the invariant #5 breach',
+    tokenHash: 'unsub_live_7Hq2LmXpR4vTzKd9',
+    accepted: false,
+  },
+  {
+    label: 'rejects an uppercase-hex digest — a second spelling of one digest',
+    tokenHash: sha256Hex('the-raw-token').toUpperCase(),
+    accepted: false,
+  },
+  {
+    label: 'rejects a 63-char digest — one hex char short',
+    tokenHash: sha256Hex('the-raw-token').slice(0, 63),
+    accepted: false,
+  },
+  {
+    label: 'rejects a 65-char digest — one hex char long',
+    tokenHash: `${sha256Hex('the-raw-token')}a`,
+    accepted: false,
+  },
+  {
+    label: 'rejects hex-length non-hex — 64 chars is not the whole rule',
+    tokenHash: 'z'.repeat(64),
+    accepted: false,
+  },
+];
+
 let db: postgresType.Sql | undefined;
 let featureDatabaseLock: LiveDbLock | undefined;
 let accountId: string | undefined;
@@ -217,14 +273,20 @@ function insertSuppression(
 
 function insertToken(
   tx: postgresType.TransactionSql,
-  row: { accountId: string | null; businessId: string | null; askId: string | null },
+  row: {
+    accountId: string | null;
+    businessId: string | null;
+    askId: string | null;
+    /** Only the token_hash matrix overrides this; every other caller wants a real digest. */
+    tokenHash?: string;
+  },
 ): Promise<unknown> {
   return tx`
     INSERT INTO solicitation_unsubscribe_tokens
       (id, token_hash, normalized_handle, channel, account_id, business_id, ask_id, sent_at)
     VALUES (
       ${randomUUID()}::uuid,
-      ${randomUUID().replaceAll('-', '').padEnd(64, '0')},
+      ${row.tokenHash ?? sha256Hex(`raw-token-${randomUUID()}`)},
       ${`token-${randomUUID()}@test.local`},
       'email',
       ${row.accountId}::uuid,
@@ -483,6 +545,21 @@ describeWithDb(
       // outreach_id is deliberately OUT: ON DELETE SET NULL may null it on its
       // own while the account is still live.
       expect(row!.definition).not.toContain('outreach_id');
+    });
+
+    it('constrains token_hash to a lowercase sha256 hex digest', async () => {
+      const [row] = await db!<{ definition: string }[]>`
+        SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conrelid = 'public.solicitation_unsubscribe_tokens'::regclass
+          AND conname = 'solicitation_unsubscribe_tokens_token_hash_sha256_hex'
+      `;
+      expect(row).toBeDefined();
+      // Anchored at both ends and lowercase-only: an unanchored pattern would
+      // accept a raw token that merely CONTAINS 64 hex chars, and a
+      // case-insensitive one would admit two spellings of one digest past the
+      // UNIQUE index.
+      expect(row!.definition).toContain("'^[a-f0-9]{64}$'");
     });
 
     it('has one FK on the ledger — accounts(id) with NO referential action', async () => {
@@ -746,11 +823,32 @@ describeWithDb(
       }
     });
 
+    // ── behaviour: the token_hash format matrix ──────────────────────────────
+
+    it.each(TOKEN_HASH_MATRIX)('$label', async ({ tokenHash, accepted }) => {
+      const outcome = await probeWrite((tx) =>
+        insertToken(tx, {
+          accountId: accountId!,
+          businessId: null,
+          askId: null,
+          tokenHash,
+        }),
+      );
+
+      expect(outcome.accepted).toBe(accepted);
+      if (!accepted) {
+        expect(outcome.code).toBe('23514');
+        expect(outcome.constraint).toBe(
+          'solicitation_unsubscribe_tokens_token_hash_sha256_hex',
+        );
+      }
+    });
+
     it('accepts the fully scrubbed shape the offboarding purge leaves behind', async () => {
       // The row an owner-offboarding purge produces: provenance gone, the
       // redemption facts kept. If the implication CHECK rejected this, the
       // purge itself could not run.
-      const tokenHash = randomUUID().replaceAll('-', '').padEnd(64, '0');
+      const tokenHash = sha256Hex(`raw-token-${randomUUID()}`);
       const handle = `scrubbed-${randomUUID()}@test.local`;
       const rows = await inRolledBackTx(async (tx) => {
         await tx`
