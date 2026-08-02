@@ -3,9 +3,23 @@
 **Resume with:** `/feature-resume feat-643-suppression-ledger-core` from
 `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core`.
 
-**Phase:** `plan_approved` (`.feature/state.json`, head `0f098cf2`). Enforcement **ARMED**.
+**Phase:** `plan_approved` (`.feature/state.json`). **Zero implementation exists** —
+every commit so far is docs.
 **Next step:** 4 — EXECUTE, via `superpowers:subagent-driven-development`.
-**Zero implementation exists.** Every commit so far is docs.
+
+> ### FIRST ACTION: re-arm
+> The worktree is deliberately **PARKED** — `.feature/intake.json` is renamed to
+> `.feature/intake.parked.json`, so `arm-check.sh` reports DISARMED. This is the
+> documented way to end a session mid-feature (the stop gate demands green gate
+> evidence, and there is nothing to verify before step 4 starts). Undo it first:
+>
+> ```bash
+> cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-643-suppression-ledger-core
+> mv .feature/intake.parked.json .feature/intake.json
+> bash scripts/arm-check.sh   # must print ARMED before any edit
+> ```
+>
+> If `arm-check.sh` does not print ARMED, STOP and report — do not implement.
 
 ---
 
