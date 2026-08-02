@@ -747,6 +747,35 @@ export async function finalizePurgeInTransaction(
       throw new Error('account_offboarding_purge_finalize_precondition_failed');
     }
 
+    // §6.3: silently retaining PII through a purge you told the owner was
+    // complete turns a defensible retention basis into a credibility problem.
+    // Global Suppression ledger rows keep account_id, so they are countable
+    // here, after the scrub. Unsubscribe token rows are deliberately NOT
+    // counted: they are opt-out MECHANISMS rather than opt-out records, and
+    // their account_id is already NULL by this point (#643 grilling G5).
+    //
+    // Boundary states, named explicitly — this is a CONTRACT on suppression
+    // writers, not machinery. Content purge, tombstone and finalize are separate
+    // transactions and finalize locks only the outbox row, so a write landing
+    // between the purge stage and this count would be omitted from the receipt,
+    // and one landing after verification would leave post-purge residue. No
+    // third advisory lock guards it (an unordered one reintroduces the ABBA
+    // class the existing lock order avoids). Instead: a suppression writer MUST
+    // NOT write a scope='account' row for an account whose
+    // account_offboardings.status is any ACTIVE teardown state —
+    // 'purge_scheduled' included, since that is precisely the window purge runs
+    // in and verification completes BEFORE the transition to 'purged'. A global
+    // row written after the boundary MUST carry accountId: null, so it is
+    // retained without re-introducing the account provenance the purge just
+    // removed. Unreachable today (recordSuppression has zero production callers,
+    // G6); #644/#645/#627 own honouring it when they land the first ones.
+    const [retained] = await tx<{ retained_count: number }[]>`
+      SELECT COUNT(*)::int AS retained_count
+      FROM solicitation_suppressions
+      WHERE scope = 'global' AND account_id = ${row.account_id}::uuid
+    `;
+    const retainedSuppressionCount = retained?.retained_count ?? 0;
+
     await enqueueOffboardingPurged(tx, {
       offboardingId: row.id,
     });
@@ -774,6 +803,7 @@ export async function finalizePurgeInTransaction(
         emailType: 'purge_receipt',
         recipientEmail: recipient,
         purgedAt: new Date().toISOString(),
+        retainedSuppressionCount,
       });
     }
 

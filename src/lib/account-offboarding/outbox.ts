@@ -45,6 +45,9 @@ export interface EnqueueAccountOffboardingEmailInput {
   // purge_receipt only: carried in the payload because the row is scrubbed by then.
   recipientEmail?: string;
   purgedAt?: string;
+  // purge_receipt only: the aggregate retained-row count snapshotted by the
+  // finalize transaction (#643 G5). A count, never a handle.
+  retainedSuppressionCount?: number;
 }
 
 export interface EnqueueAccountOffboardingReactivationInput {
@@ -126,6 +129,9 @@ export async function enqueueAccountOffboardingEmail(
   }
   if (input.purgedAt !== undefined) {
     payload.purged_at = input.purgedAt;
+  }
+  if (input.retainedSuppressionCount !== undefined) {
+    payload.retained_suppression_count = input.retainedSuppressionCount;
   }
 
   await tx`

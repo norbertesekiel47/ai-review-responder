@@ -75,6 +75,21 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
   return { testDbUrl, originalEnv };
 });
 
+// The purge receipt is the ONE place this suite needs the rendered email rather
+// than the row it came from (#643 §6.3), so the transport is stubbed and every
+// other export — `buildAccountOffboardingEmailHtml` included — stays real. No
+// other scenario here sends: they all enqueue.
+const { mockSendInternalEmail } = vi.hoisted(() => ({
+  mockSendInternalEmail: vi.fn(
+    async (_input: { to: string; subject: string; bodyHtml: string }) =>
+      ({ messageId: 'integration-purge-receipt' }),
+  ),
+}));
+vi.mock('../../../../src/lib/notifications/email', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/notifications/email')>();
+  return { ...actual, sendInternalEmail: mockSendInternalEmail };
+});
+
 import {
   confirmCancelOnlyOffboarding,
   confirmDeleteDataOffboarding,
@@ -84,6 +99,7 @@ import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/kee
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
+import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
 import { runContentPurgeStage, type AccountOffboardingPurgeRow } from '../purge-stages';
 import { acquireCsvIngestLock } from '../../../../src/lib/solicitation/ingest';
 import { acquireSolicitationBatchLock } from '../../../../src/lib/solicitation/batch-builder';
@@ -361,7 +377,12 @@ async function seedUnsubscribeTokenFixture(
  */
 async function runFullProductionPurge(
   seed: OwnerOffboardingSeedData,
-): Promise<{ status: string; failed_step: string | null; last_error: string | null }> {
+): Promise<{
+  offboardingId: string;
+  status: string;
+  failed_step: string | null;
+  last_error: string | null;
+}> {
   const sql = getE2eSql();
   const offboardingId = randomUUID();
   await sql`
@@ -411,7 +432,46 @@ async function runFullProductionPurge(
     FROM account_offboardings
     WHERE id = ${offboardingId}::uuid
   `;
-  return row!;
+  return { offboardingId, ...row! };
+}
+
+/**
+ * Drives the REAL receipt path — read the enqueued outbox row, hand it to
+ * `handleAccountOffboardingEmail`, capture what the transport was given. The
+ * claim under test is a privacy one, and only the RENDERED body can carry it: a
+ * payload holding nothing but a clean aggregate still fails if the template
+ * prints a handle from anywhere else.
+ */
+async function renderPurgeReceipt(offboardingId: string): Promise<{
+  bodyHtml: string;
+  payload: Record<string, unknown>;
+}> {
+  const sql = getE2eSql();
+  const [outbox] = await sql<{ id: string; payload: Record<string, unknown> | string }[]>`
+    SELECT id, payload
+    FROM job_outbox
+    WHERE aggregate_id = ${offboardingId}::uuid
+      AND topic = 'account_offboarding_email'
+      AND status = 'pending'
+  `;
+  expect(outbox?.id).toBeTruthy();
+  const payload = parsePayload(outbox!.payload)!;
+
+  await sql`
+    UPDATE job_outbox
+    SET status = 'dispatched', dispatched_at = NOW(), attempts = 1
+    WHERE id = ${outbox!.id}::uuid
+  `;
+
+  mockSendInternalEmail.mockClear();
+  await handleAccountOffboardingEmail(sql, {
+    id: outbox!.id,
+    data: { ...payload, outbox_id: outbox!.id, outbox_attempt: 1 },
+  } as Parameters<typeof handleAccountOffboardingEmail>[1]);
+
+  const [sent] = mockSendInternalEmail.mock.calls;
+  expect(sent).toBeDefined();
+  return { bodyHtml: sent![0].bodyHtml, payload };
 }
 
 async function readUnsubscribeToken(tokenId: string): Promise<
@@ -1351,6 +1411,72 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       expect(token?.token_hash).toBe(fixture.tokenHash);
     } finally {
       if (fixture) await cleanupSuppressionFixtures([fixture.handle]);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // #643 G5 / spec §6.3. Silently retaining PII through a purge you told the
+  // owner was complete turns a defensible retention basis into a credibility
+  // problem — so the receipt reports HOW MANY rows outlived the purge. It
+  // reports an aggregate and nothing else: printing a handle would re-disclose
+  // the recipient PII the retention basis exists to protect.
+  //
+  // The seeded set is chosen so a wrong count is a DIFFERENT number, not the
+  // same one by luck: two global rows (counted), one account-scoped row the
+  // purge deletes (a count taken before the purge stage reads 3), and one
+  // Unsubscribe token row (an opt-out MECHANISM, not a record — a count that
+  // included tokens reads 3 too, and its account_id is already NULL by now).
+  it('the purge receipt reports the retained global suppression count and lists no addresses', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const globalHandles = [freshSuppressionHandle(), freshSuppressionHandle()];
+    const accountHandle = freshSuppressionHandle();
+    let tokenFixture: UnsubscribeTokenFixture | undefined;
+    try {
+      for (const handle of globalHandles) {
+        await seedSuppressionRow({
+          scope: 'global',
+          handle,
+          accountId: seed.accountId,
+          source: 'complaint',
+        });
+      }
+      await seedSuppressionRow({
+        scope: 'account',
+        handle: accountHandle,
+        accountId: seed.accountId,
+        source: 'owner_manual',
+        createdByUserId: seed.userId,
+      });
+      tokenFixture = await seedUnsubscribeTokenFixture(seed);
+
+      const purged = await runFullProductionPurge(seed);
+      expect(purged.last_error).toBeNull();
+      expect(purged.status).toBe('purged');
+
+      const { bodyHtml, payload } = await renderPurgeReceipt(purged.offboardingId);
+
+      // Half one: the right N. Snapshotted by the finalize transaction, so the
+      // number in the payload is the number the owner reads.
+      expect(payload.retained_suppression_count).toBe(2);
+      expect(bodyHtml).toContain(
+        '2 opt-out records are retained so those opt-outs continue to be honored.',
+      );
+
+      // Half two: not one Normalized handle, from any of the four seeded rows.
+      for (const handle of [...globalHandles, accountHandle, tokenFixture.handle]) {
+        expect(bodyHtml).not.toContain(handle);
+      }
+      // …nor a fragment of one. Every fixture handle shares this domain, so a
+      // template that leaked any part of an address trips here even if the
+      // exact-string checks above were seeded wrong.
+      expect(bodyHtml).not.toContain('@test.local');
+      expect(bodyHtml).not.toContain(seed.ownerEmail);
+    } finally {
+      await cleanupSuppressionFixtures([
+        ...globalHandles,
+        accountHandle,
+        ...(tokenFixture ? [tokenFixture.handle] : []),
+      ]);
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

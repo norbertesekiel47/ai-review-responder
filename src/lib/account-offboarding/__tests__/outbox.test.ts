@@ -81,6 +81,47 @@ describe('account offboarding outbox helpers', () => {
     });
   });
 
+  // #643 G5: the retained count is snapshotted by the finalize transaction and
+  // travels in the payload, so the email worker never queries the Suppression
+  // ledger and a retried send renders the same number.
+  it('carries the purge receipt retained-count snapshot in the outbox payload', async () => {
+    const tx = createMockTx();
+
+    await enqueueAccountOffboardingEmail(tx, {
+      accountOffboardingId: 'offboarding-2',
+      accountId: 'account-2',
+      emailType: 'purge_receipt',
+      recipientEmail: 'owner@example.com',
+      purgedAt: '2026-08-01T00:00:00.000Z',
+      retainedSuppressionCount: 2,
+    });
+
+    expect(objectArgs(tx)).toContainEqual({
+      account_offboarding_id: 'offboarding-2',
+      account_id: 'account-2',
+      email_type: 'purge_receipt',
+      recipient_email: 'owner@example.com',
+      purged_at: '2026-08-01T00:00:00.000Z',
+      retained_suppression_count: 2,
+    });
+  });
+
+  it('omits the retained-count field for email types that have no purge receipt', async () => {
+    const tx = createMockTx();
+
+    await enqueueAccountOffboardingEmail(tx, {
+      accountOffboardingId: 'offboarding-3',
+      accountId: 'account-3',
+      emailType: 'cancel_only_confirmation',
+    });
+
+    expect(objectArgs(tx)).toContainEqual({
+      account_offboarding_id: 'offboarding-3',
+      account_id: 'account-3',
+      email_type: 'cancel_only_confirmation',
+    });
+  });
+
   it('dedupes account offboarding reactivation outbox rows by offboarding id and idempotency hash', async () => {
     const tx = createMockTx();
 

@@ -249,6 +249,53 @@ plan; each gets an ACCEPT / RE-PLAN verdict at step 6.5.
   through the real `recordSuppression`, so its `solicitation_suppressed` analytics
   row is swept alongside them.
 
+## Task 5 — aggregate purge receipt
+
+- [2026-08-02] **The receipt sentence is pluralised; the plan specified only the
+  plural form.** Step 3's copy ("N opt-out records are retained so those opt-outs
+  continue to be honored.") reads "1 opt-out records are retained" at the most
+  likely non-zero count there is. The singular branch renders "1 opt-out record is
+  retained so that opt-out continues to be honored."; the plural wording is
+  verbatim from the plan. One ternary in `formatRetainedSuppressions`, one test per
+  branch. Recorded because it changes owner-facing copy the plan wrote out in full.
+
+- [2026-08-02] **The required verbatim title went to the live-DB suite, and the
+  plan's Files list named the template unit suite.** Same shape as T3's deviation
+  and for a sharper reason here: `email-templates.test.ts` cannot assert "the right
+  N" at all — the template is handed a number, so a count assertion there tests the
+  test's own fixture. The title lives in
+  `worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts`,
+  where the count comes from a real purge over four seeded rows and the body comes
+  from driving the real `handleAccountOffboardingEmail`. Mutation-verified: adding
+  `AND account_id IS NULL` to the count query fails it at 0 vs 2.
+  `email-templates.test.ts` still gained three cases (plural, singular, and zero
+  rendering nothing), and `AccountOffboardingEmailWorker.test.ts` gained the
+  retry-stability case, which is where "renders the same number twice and never
+  queries the ledger" actually belongs.
+
+- [2026-08-02] **The integration suite gained its first module mock.** Only the
+  transport (`sendInternalEmail`) is stubbed — `importOriginal` keeps
+  `buildAccountOffboardingEmailHtml` and every other export real, so the assertion
+  runs against the genuinely rendered body. No other scenario in that suite sends;
+  they all enqueue. `runFullProductionPurge` also now returns its `offboardingId`,
+  which the receipt lookup needs; its existing caller is unaffected.
+
+- [2026-08-02] **The count sits after the `SET status = 'purged'` UPDATE, not
+  immediately after the verification block.** Both positions are inside the window
+  the plan specifies (after verification, before `enqueueAccountOffboardingEmail`);
+  this one counts only once the finalize preconditions have actually held, so a
+  purge that is about to throw `…finalize_precondition_failed` never spends a query.
+
+- [2026-08-02] **`retained_suppression_count` is optional on the payload, and the
+  reader defaults it to 0.** Not defensive habit: outbox rows enqueued before this
+  ships are in flight with no such field, and their receipts still have to render.
+  Covered by `renders no retained count for a purge receipt enqueued before the
+  count existed`.
+
+- [2026-08-02] **`ci:tenant-scope` drew no new finding** — green at 413/413. The
+  count's predicate is a direct `account_id = …`, which is exactly the shape the
+  audit is looking for. No allowlist entry and no baseline bump belong to T5.
+
 ## Carried forward from the handoff — address at step 8
 
 - **`origin/staging` is 1 commit behind `origin/main`** (the post-#642 fast-forward
