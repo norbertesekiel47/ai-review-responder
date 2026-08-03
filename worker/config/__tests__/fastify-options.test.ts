@@ -209,6 +209,29 @@ describe('buildFastifyOptions', () => {
     expect(JSON.stringify(lines)).not.toContain('SECRET_TOK');
   });
 
+  it('redacts the token from an aggregate error at the production warn level', async () => {
+    // pino-std-serializers emits aggregated errors as a SEPARATE recursive array
+    // (lib/err.js), which `err.message` / `err.stack` never reach — so the
+    // enumerated redact path list needs its own entry for them.
+    const { lines } = await injectWithLogCapture({
+      productionConfigRequired: true,
+      method: 'GET',
+      url: '/u/SECRET_TOK',
+      register: (app) => {
+        app.get('/u/:token', async (request) => {
+          throw new AggregateError(
+            [new Error(`inner failure at ${request.url}`)],
+            'every attempt failed',
+          );
+        });
+      },
+    });
+
+    const errorLine = lines.find((line) => line.err !== undefined);
+    expect(errorLine?.err?.aggregateErrors).toBeDefined();
+    expect(JSON.stringify(lines)).not.toContain('SECRET_TOK');
+  });
+
   // Options-only assertions can pass while the wiring is dead. Prove the
   // options take effect on a real (non-listening) instance via initialConfig
   // and an injected oversized body.

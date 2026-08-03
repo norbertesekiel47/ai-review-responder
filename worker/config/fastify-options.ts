@@ -41,7 +41,22 @@ export function buildFastifyOptions(productionConfigRequired: boolean): FastifyS
       // serializer, and every other field it emits (type, code, statusCode,
       // aggregateErrors), completely untouched.
       redact: {
-        paths: ['msg', 'err.message', 'err.stack'],
+        // ENUMERATED, NOT STRUCTURAL — this list is a contract, not a complete
+        // defence. Anything logged outside these paths is written RAW, so code
+        // on this path MUST NOT put a raw token or URL into a custom property on
+        // an Error, and MUST NOT log an error under any key other than `err`.
+        // Both gaps are deliberately left open rather than guessed at; see
+        // docs/superpowers/plans/feat-644-unsubscribe-opt-out-deviations.md → D7.
+        // `aggregateErrors` needs its own pair because pino-std-serializers
+        // emits aggregated errors as a separate recursive array that
+        // `err.message`/`err.stack` never reach.
+        paths: [
+          'msg',
+          'err.message',
+          'err.stack',
+          'err.aggregateErrors[*].message',
+          'err.aggregateErrors[*].stack',
+        ],
         censor: (value: unknown) =>
           typeof value === 'string' ? redactSensitivePathsAndQueries(value) : value,
       },
