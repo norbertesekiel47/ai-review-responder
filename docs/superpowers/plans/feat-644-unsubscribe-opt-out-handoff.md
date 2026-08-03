@@ -3,12 +3,20 @@
 **Branch** `feat-644-unsubscribe-opt-out` · **Worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-644-unsubscribe-opt-out`
 **Phase at handoff:** `worktree_ready` — step 3 (plan). The plan file's own header is the
 authoritative revision label; do not restate it here.
-**BLOCKED ON THE OWNER:** five adversarial passes have run — three programmatic codex
-rounds, then two owner-run `/codex:adversarial-review` passes after the programmatic path
-failed four consecutive ways (see Sharp edges). **Every one returned REVISE /
-needs-attention, and every finding has been folded in.** The next action is another
-owner-run pass against the current revision. **Do not implement until a pass comes back
-clean and the owner signs off.**
+**CLEARED TO IMPLEMENT — owner decision 2026-08-03.** Six adversarial passes ran (three
+programmatic codex rounds, then three owner-run `/codex:adversarial-review` passes after the
+programmatic path failed four consecutive ways). Every one returned REVISE / needs-attention
+and **every finding is folded into plan revision 7**.
+
+The owner has **declined a seventh review pass** and directed that implementation start.
+Rationale, recorded because it reverses this document's previous instruction: four of the
+six rounds were triggered by defects introduced in the *preceding revision*, not by new
+ground; revision 7 is the first revision that made the design smaller (it deleted the
+bulkhead and dissolved two findings with one structural change); and the remaining risk is
+better surfaced by real code against 70 promised tests, the live-DB gate, and step 7's two
+independent reviewers than by a seventh prose review.
+
+**Start at step 4.** Do not open another plan-review round.
 **Mutable facts are NOT restated here** — they drifted twice and were flagged twice by
 review. Read them from their one authoritative source instead:
 
@@ -164,14 +172,20 @@ Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
 
 ## Next actions
 
-1. **Owner re-runs `/codex:adversarial-review`** against revision 5. The programmatic codex
-   path is unreliable here (4 consecutive failures — see Sharp edges); the user-invocable
-   command is the working route.
-2. Triage the verdict into `docs/reviews/feat-644-unsubscribe-opt-out/`. If clean, present
-   revision 5 to the owner for sign-off.
-3. On sign-off: `set-phase plan_approved` → `set-phase executing` → run T1/T2/T3 via
-   `superpowers:subagent-driven-development`.
-4. **First-task spot check is mandatory** (see below).
+1. `bash scripts/feature-state.sh set-phase executing`, then run **T1** (domain module +
+   Railway ingress, end to end) via `superpowers:subagent-driven-development`, TDD, against
+   the live test DB.
+2. **First-task spot check is MANDATORY**: after T1's first subagent returns, diff
+   `git status --porcelain` against `allowed_edit_surface`. An out-of-surface file means
+   enforcement did not bind for subagent tool calls — STOP and report, do not dispatch more.
+3. Then T2 (landing path) and T3 (registry/runbook/glossary).
+4. `scripts/verify-gate.sh` must be fully green before any review; `--review` for the last
+   run before step 7.
+
+**§1.4a is new in revision 7 and has never been reviewed.** Treat it as the highest-risk
+slice of T1: verify empirically that a forged token opens no DB connection on *both*
+surfaces, and confirm whether a `SESSION_COOKIE_SECRET` rotation would invalidate delivered
+links (tokens must operate ≥30 days by statute — if it would, that needs a runbook note).
 
 ### Superseded next-actions from earlier rounds
 3. `bash scripts/feature-state.sh set-phase plan_approved`, then `set-phase executing`, and
