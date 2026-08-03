@@ -77,6 +77,12 @@ const UNSUBSCRIBE_TOKEN_PATH_RE = /(\/ingress\/unsubscribe\/|\/api\/u\/|\/u\/)[^
  *
  * Pure + total: never throws (no `new URL()`, which rejects relative inputs),
  * handles absolute and relative URLs, and returns non-matching input unchanged.
+ *
+ * The input is assumed URL-SHAPED. The Fastify ingress logger also routes `msg`
+ * and `err.message`/`err.stack` through here, and for free prose the `?` split
+ * over-redacts (`"Is this ok? key=v"` loses the value) — safe, but do not rely
+ * on this function to leave prose intact. Token redaction itself is applied to
+ * the fragment too, precisely so free text after a `#` is not a blind spot.
  */
 export function redactSensitivePathsAndQueries(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -89,10 +95,20 @@ export function redactSensitivePathsAndQueries(url: string): string {
   const path = qIdx === -1 ? beforeHash : beforeHash.slice(0, qIdx);
   const query = qIdx === -1 ? '' : beforeHash.slice(qIdx + 1);
 
-  const redactedPath = redactUnsubscribeToken(path.replace(APPROVE_TOKEN_PATH_RE, '$1[REDACTED]'));
   const redactedQuery = query ? `?${redactQueryString(query)}` : '';
 
-  return `${redactedPath}${redactedQuery}${fragment}`;
+  return `${redactTokenPaths(path)}${redactedQuery}${redactTokenPaths(fragment)}`;
+}
+
+/**
+ * Both token rules over one span. Applying it to the fragment as well as the
+ * path is purely additive: a real URL fragment never reaches a server, so it
+ * cannot carry a live token, and neither shipped fragment contract
+ * (`/approve/tok#section`, `/u/tok#done`) contains a redactable prefix.
+ */
+function redactTokenPaths(span: string): string {
+  if (span.length === 0) return span;
+  return redactUnsubscribeToken(span.replace(APPROVE_TOKEN_PATH_RE, '$1[REDACTED]'));
 }
 
 /**
@@ -101,6 +117,10 @@ export function redactSensitivePathsAndQueries(url: string): string {
  * copy and redacting the raw string would be wrong — the offsets don't
  * correspond — so the decoded form is what gets returned when only it matches.
  * That is safe precisely because the token is replaced in the same step.
+ *
+ * The decode pass is single-depth by design: a doubly-encoded prefix
+ * (`/ingress/%2575nsubscribe/…`) cannot route, so no genuine token can arrive
+ * in that shape.
  */
 function redactUnsubscribeToken(path: string): string {
   const redacted = path.replace(UNSUBSCRIBE_TOKEN_PATH_RE, '$1[REDACTED]');

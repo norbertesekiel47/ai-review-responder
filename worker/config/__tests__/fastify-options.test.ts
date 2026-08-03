@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
-import type { FastifyInstance, FastifyLoggerOptions, FastifyServerOptions } from 'fastify';
+import type {
+  FastifyInstance,
+  FastifyLoggerOptions,
+  FastifyRequest,
+  FastifyServerOptions,
+} from 'fastify';
 import { requiresProductionConfig } from '../../../src/lib/config/deployment-lane';
 import { buildFastifyOptions } from '../fastify-options';
 
@@ -15,20 +20,31 @@ function loggerOptions(options: FastifyServerOptions): FastifyLoggerOptions {
   return logger as FastifyLoggerOptions;
 }
 
-type CapturedLogLine = { msg?: string; req?: Record<string, unknown> };
+type CapturedLogLine = {
+  level?: number;
+  msg?: string;
+  req?: Record<string, unknown>;
+  err?: Record<string, unknown>;
+};
 
 /**
- * Drive a real (non-listening) Fastify instance built from the production
- * options, with request logging left ON — the prod default of `warn` hides this
- * whole class, which is what let the leak survive three reviews.
+ * Drive a real (non-listening) Fastify instance with request logging left ON.
+ *
+ * `productionConfigRequired` is a REQUIRED input, never defaulted: the two log
+ * levels see disjoint sets of lines. `incoming request` and the 404 message are
+ * level 30 and vanish in production, while Fastify's own
+ * FST_ERR_REP_ALREADY_SENT (40) and the default 5xx handler (50) are the shapes
+ * production actually emits. A harness pinned to one lane can only ever prove
+ * half the redaction.
  */
-async function injectWithLogCapture(
-  method: 'GET' | 'POST',
-  url: string,
-  register?: (app: FastifyInstance) => void,
-): Promise<{ statusCode: number; lines: CapturedLogLine[] }> {
+async function injectWithLogCapture(input: {
+  productionConfigRequired: boolean;
+  method: 'GET' | 'POST';
+  url: string;
+  register?: (app: FastifyInstance) => void;
+}): Promise<{ statusCode: number; lines: CapturedLogLine[] }> {
   const raw: string[] = [];
-  const options = buildFastifyOptions(false);
+  const options = buildFastifyOptions(input.productionConfigRequired);
   const app = Fastify({
     ...options,
     logger: {
@@ -40,10 +56,10 @@ async function injectWithLogCapture(
       },
     },
   });
-  register?.(app);
+  input.register?.(app);
 
   try {
-    const res = await app.inject({ method, url });
+    const res = await app.inject({ method: input.method, url: input.url });
     return { statusCode: res.statusCode, lines: raw.map((line) => JSON.parse(line) as CapturedLogLine) };
   } finally {
     await app.close();
@@ -83,10 +99,11 @@ describe('buildFastifyOptions', () => {
     // Deliberately unmatched: Fastify emits `incoming request` before routing,
     // so a 404 under the unsubscribe prefix is exactly the case a route-level
     // `logLevel: 'silent'` can never reach (invariant #5).
-    const { statusCode, lines } = await injectWithLogCapture(
-      'GET',
-      '/ingress/unsubscribe/SECRET_TOK/extra',
-    );
+    const { statusCode, lines } = await injectWithLogCapture({
+      productionConfigRequired: false,
+      method: 'GET',
+      url: '/ingress/unsubscribe/SECRET_TOK/extra',
+    });
     expect(statusCode).toBe(404);
 
     // Two distinct shapes carry the URL on this path and BOTH must be covered:
@@ -100,14 +117,96 @@ describe('buildFastifyOptions', () => {
   });
 
   it('keeps the ordinary ingress url and request fields in the serialized log', async () => {
-    const { lines } = await injectWithLogCapture('GET', '/ingress/resend', (app) => {
-      app.get('/ingress/resend', async () => 'ok');
+    const { lines } = await injectWithLogCapture({
+      productionConfigRequired: false,
+      method: 'GET',
+      url: '/ingress/resend',
+      register: (app) => {
+        app.get('/ingress/resend', async () => 'ok');
+      },
     });
 
     const requestLine = lines.find((line) => line.req !== undefined);
     expect(requestLine?.req).toMatchObject({ method: 'GET', url: '/ingress/resend' });
     expect(requestLine?.req).toHaveProperty('remoteAddress');
     expect(requestLine?.req).toHaveProperty('host');
+  });
+
+  it('emits every field fastify\'s own request serializer emits', () => {
+    // Field parity has to be asserted against the serializer directly: under
+    // app.inject() there is no real socket and no accept-version header, so
+    // `remotePort` and `version` serialize to undefined and JSON drops the keys.
+    const serializeRequest = loggerOptions(buildFastifyOptions(true)).serializers?.req;
+    if (serializeRequest === undefined) throw new Error('expected a req serializer');
+
+    const serialized = serializeRequest({
+      method: 'POST',
+      url: '/ingress/stripe',
+      headers: { 'accept-version': '1.2.3' },
+      host: 'worker.example.com',
+      ip: '10.0.0.4',
+      socket: { remotePort: 54_321 },
+      // Only the six fields the serializer reads; the rest of FastifyRequest is
+      // irrelevant to it.
+    } as unknown as FastifyRequest);
+
+    // Field-for-field against fastify/lib/logger-pino.js. A redaction change must
+    // not narrow ingress diagnostics for Stripe/Resend/Twilio/Telegram/Zernio.
+    expect(serialized).toEqual({
+      method: 'POST',
+      url: '/ingress/stripe',
+      version: '1.2.3',
+      host: 'worker.example.com',
+      remoteAddress: '10.0.0.4',
+      remotePort: 54_321,
+    });
+  });
+
+  it('redacts the token from a 5xx error logged at the production warn level', async () => {
+    // The production lane. `incoming request` (30) and the 404 message (30) are
+    // BELOW this threshold — the shapes production actually writes are Fastify's
+    // default 5xx handler (50) and its double-send warning (40), and both carry
+    // the URL inside the error, where no string hook and no `req` serializer can
+    // reach it.
+    const { statusCode, lines } = await injectWithLogCapture({
+      productionConfigRequired: true,
+      method: 'GET',
+      url: '/u/SECRET_TOK',
+      register: (app) => {
+        app.get('/u/:token', async (request) => {
+          throw new Error(`boom handling ${request.url}`);
+        });
+      },
+    });
+
+    expect(statusCode).toBe(500);
+    const errorLine = lines.find((line) => line.err !== undefined);
+    expect(errorLine?.err?.message).toBe('boom handling /u/[REDACTED]');
+    expect(String(errorLine?.err?.stack)).toContain('/u/[REDACTED]');
+    expect(JSON.stringify(lines)).not.toContain('SECRET_TOK');
+  });
+
+  it("redacts the token from fastify's own double-send warning", async () => {
+    // FST_ERR_REP_ALREADY_SENT interpolates request.url into its message
+    // (fastify/lib/reply.js:145) and logs `{ err }` at warn with NO string
+    // argument — so this needs no application bug in the message itself and is
+    // unreachable by a string-only hook.
+    const { lines } = await injectWithLogCapture({
+      productionConfigRequired: true,
+      method: 'GET',
+      url: '/u/SECRET_TOK',
+      register: (app) => {
+        app.get('/u/:token', (_request, reply) => {
+          reply.send('ok');
+          reply.send('again');
+        });
+      },
+    });
+
+    const warnLine = lines.find((line) => line.err !== undefined);
+    expect(warnLine?.level).toBe(40);
+    expect(String(warnLine?.err?.message)).toContain('/u/[REDACTED]');
+    expect(JSON.stringify(lines)).not.toContain('SECRET_TOK');
   });
 
   // Options-only assertions can pass while the wiring is dead. Prove the

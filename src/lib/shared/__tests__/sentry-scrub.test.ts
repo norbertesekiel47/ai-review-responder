@@ -272,6 +272,23 @@ describe('redactSensitivePathsAndQueries', () => {
     expect(redactSensitivePathsAndQueries('/u/tok#done')).toBe('/u/[REDACTED]#done');
   });
 
+  it('redacts a token that follows a hash in a non-url log string', () => {
+    // The Fastify ingress logger feeds `msg` and `err.message` through this
+    // function, and in free text a `#` is not a fragment delimiter. Redacting
+    // past it must not disturb the shipped URL-fragment contract, so both are
+    // asserted together.
+    expect(redactSensitivePathsAndQueries('note #1 see /u/TOK')).toBe(
+      'note #1 see /u/[REDACTED]',
+    );
+    expect(redactSensitivePathsAndQueries('Error #42 at /ingress/unsubscribe/TOK')).toBe(
+      'Error #42 at /ingress/unsubscribe/[REDACTED]',
+    );
+    expect(redactSensitivePathsAndQueries('/approve/tok#section')).toBe(
+      '/approve/[REDACTED]#section',
+    );
+    expect(redactSensitivePathsAndQueries('/u/tok#done')).toBe('/u/[REDACTED]#done');
+  });
+
   it('does not treat /users/ as the /u/ unsubscribe prefix', () => {
     expect(redactSensitivePathsAndQueries('/users/123')).toBe('/users/123');
     expect(redactSensitivePathsAndQueries('/admin/users/123/detail')).toBe(
