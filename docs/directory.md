@@ -132,7 +132,8 @@ Next.js App Router pages, grouped by access level.
 |------|--------------|
 | `layout.tsx` | Role-checks session; renders `AdminSidebar`. |
 | `providers.tsx` | React context providers wrapping the admin layout. |
-| `overview/page.tsx` | Admin dashboard overview stats. |
+| `overview/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminOverview` + `getAdminNavCounts` server-side (`PAGE_SIZE` owned by `OverviewClient.tsx`), renders `OverviewClient` with the server-rendered first page as `initialData`. |
+| `overview/OverviewClient.tsx` | **(Phase 2)** Client island: dashboard overview stats + per-business churn table (`DataTable`, server-paginated), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
 | `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). |
 | `forgot-password/page.tsx` | Admin forgot-password. |
 | `reset-password/page.tsx` | Admin reset-password. |
@@ -155,13 +156,18 @@ Next.js App Router pages, grouped by access level.
 | `businesses/[id]/components/ReviewsList.tsx` | Reviews + responses list for the admin detail view. |
 | `businesses/[id]/components/TrackedKeywordsSection.tsx` | Add/remove ranking keywords. |
 | `businesses/[id]/components/ZernioConnectionPanel.tsx` | Displays Zernio connection status; lets admin disconnect. |
-| `jobs/page.tsx` | BullMQ queue health and counts. |
-| `costs/page.tsx` | API cost tracking and usage. |
+| `jobs/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminJobsData` + `fetchQueueHealth` server-side (`PAGE_SIZE` owned by `JobsClient.tsx`), renders `JobsClient` with the server-rendered first page as `initialData`. |
+| `jobs/JobsClient.tsx` | **(Phase 2)** Client island: outbox summary tiles + failed-jobs table (`DataTable`, server-paginated) + per-queue depth/pool-wait, refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
+| `costs/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getCostReport` + `getMarginReport` server-side (`PAGE_SIZE` owned by `CostsClient.tsx`), renders `CostsClient` with the server-rendered first page as `initialData`. |
+| `costs/CostsClient.tsx` | **(Phase 2)** Client island: API cost report + margin mini-tables (`DataTable`, server-paginated), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
 | `demos/page.tsx` | Demo requests list. |
-| `notifications/page.tsx` | Notification delivery logs. |
+| `notifications/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminNotifications` server-side (`PAGE_SIZE` owned by `NotificationsClient.tsx`), renders `NotificationsClient` with the server-rendered first page as `initialData`. |
+| `notifications/NotificationsClient.tsx` | **(Phase 2)** Client island: notification delivery log (`DataTable`, server-paginated) + businesses filter dropdown, refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
+| `flagged/FlaggedClient.tsx` | **(Phase 2)** Client island for `flagged/page.tsx`'s open flagged-response queue: per-item disposition actions (approve/dismiss/regenerate), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
 | `autonomy/page.tsx` | **(WS6)** Admin-only server shell for the suspended-autonomy queue; loads the branded `AutonomySuspensionsClient`. |
 | `autonomy/AutonomySuspensionsClient.tsx` | **(WS6)** Lists account suspensions with governor rates and recent flag verdicts, collects a required operator note, and POSTs the manual unsuspend action with truthful success/conflict states. |
 | `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
+| `security/AdminSecurityClient.tsx` | **(Phase 2)** Client island for `security/page.tsx`: admin's own MFA enrollment UI (`useMfaEnrollment`) — enroll/verify/unenroll an authenticator factor for step-up (AAL2) access to the rest of the admin control plane. |
 | `impersonate/page.tsx` | **(Wave 2)** Admin support entry for starting an audited read-only view-as session. |
 | `impersonate/ImpersonationStartClient.tsx` | **(Wave 2)** Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
 | `impersonate/[sessionId]/view/page.tsx` | **(Wave 2)** Admin-owned read-only impersonation shell. Validates the signed cookie + active DB session; does not mount owner routes. |
@@ -335,6 +341,7 @@ Reusable React components imported by multiple pages.
 | `PlaceAutocomplete.tsx` | Google Places autocomplete input (uses `PlaceAutocompleteElement`; guarded for SSR with `typeof window !== 'undefined'`). |
 | `admin/AdminSidebar.tsx` | Grouped dark sidebar shell for the admin console — desktop `<aside>` + mobile fixed top bar/drawer, nav groups from `nav-config.ts`, live badge counts via `/api/admin/nav-counts`. Returns `null` on `/admin/login`, `/admin/forgot-password`, `/admin/reset-password`. |
 | `admin/nav-config.ts` | Admin nav IA as data — `ADMIN_NAV_GROUPS` (grouped nav items + optional badge key) and `ADMIN_AUTH_ROUTES` (routes where the sidebar hides). |
+| `admin/nav-counts-query.ts` | **(Phase 2)** Single owner of the admin nav-badge counts fetch (`GET /api/admin/nav-counts`) + its react-query wiring (`navCountsQueryOptions`) — `AdminSidebar` and `OverviewClient`'s needs-attention strip read the same cache entry (same query key, fetcher, poll cadence) so the two can't disagree on screen at once. |
 | `admin/ChannelsSection.tsx` | Admin panel section showing all three channel widgets side-by-side. |
 | `admin/TelegramEnrollmentWidget.tsx` | 8-state machine UI for Telegram enrollment. Shows QR code (server-rendered data URL). 3s polling + 1h TTL countdown. |
 | `admin/WhatsAppEnrollmentWidget.tsx` | 8-state machine UI for WhatsApp enrollment. Masked phone `+15•••4567`. Same polling pattern as Telegram. |
@@ -462,6 +469,7 @@ Cross-cutting utilities imported by both Next.js and worker.
 | `route-helpers.ts` | Route wrappers for rate limiting, same-origin checks, and Supabase session reads. |
 | `mfa.ts` | **(Wave 2)** Supabase AAL helper functions used by proxy and sensitive routes. |
 | `require-owner-access.ts` | Server-component guard for owner-only pages. Resolves auth user → `users` row → validates role + subscription_status; redirects on failure. Returns `{ authId, businessId, email }` when all checks pass. |
+| `page-gate.ts` | **(Phase 2)** `requireAdminPage(sql, {from, aal2})` — server-component admin gate. Resolves auth user → `users` row → admin role, optional AAL2 step-up; redirects to login/MFA-challenge on failure (fail-closed even if the AAL2 check itself throws). Defense-in-depth behind `src/proxy.ts`'s `/admin` gate; every migrated admin `page.tsx` calls it. |
 
 ### `approval/`
 
@@ -669,6 +677,10 @@ Admin-side domain helpers.
 | `impersonation/view.ts` | Resolves an admin-owned impersonation view session and loads account-scoped location data. |
 | `impersonation/guard.ts` | Non-destructive action allowlist for impersonation surfaces. |
 | `nav-counts-service.ts` | `getAdminNavCounts(sql)` — the two cross-tenant aggregate COUNT queries (flagged_responses open, job_outbox failed) behind the sidebar's badge counts. Used by `GET /api/admin/nav-counts`. |
+| `jobs-service.ts` | **(Phase 2)** `getAdminJobsData(sql, {limit, offset})` — the outbox status summary (incl. `dispatching`), a page of failed jobs, and the failed total. Single owner shared by `GET /api/admin/jobs` and `jobs/page.tsx`. |
+| `queue-health.ts` | **(Phase 2)** `fetchQueueHealth()` — per-queue BullMQ depth + shared-pool wait, fetched from the Railway worker's authed internal endpoint; degrades to `{unavailable: true}` / `null` on any failure (missing config, non-200, timeout). Single owner shared by `GET /api/admin/jobs` and `jobs/page.tsx`. |
+| `notifications-service.ts` | **(Phase 2)** `getAdminNotifications(sql, filters)` — the notification delivery log page (dynamic `sql.unsafe()` WHERE builder) + the businesses filter dropdown. Single owner shared by `GET /api/admin/notifications` and `notifications/page.tsx`. |
+| `flagged-service.ts` | **(Phase 2)** `listOpenFlaggedResponses(sql, {limit, offset})` — a page of the open flagged-response queue (joined to response/review/business) + the open total. Single owner shared by `GET /api/admin/flagged` and `flagged/page.tsx` (the POST disposition transaction stays in the route). |
 
 ### `onboarding/`
 

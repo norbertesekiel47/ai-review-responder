@@ -55,11 +55,11 @@ Binding conventions for every task:
 
 The helper mirrors the ONE existing server-page auth pattern — read `src/app/admin/impersonate/[sessionId]/view/page.tsx` first and reuse its exact Supabase client construction and MFA imports (`requireCurrentAal2FromSupabase`, `mfaChallengePath` from `src/lib/auth/mfa.ts`). The proxy already gates `/admin/*`; this is defense-in-depth plus "give the page the user".
 
-- [ ] **Step 1: Read the reference pattern**
+- [x] **Step 1: Read the reference pattern**
 
 Read `src/app/admin/impersonate/[sessionId]/view/page.tsx` and note: how it builds the cookie-store-backed `createServerClient` (env var names, `getAll`/no-op `setAll`), how it calls `requireCurrentAal2FromSupabase`, and the exact redirect targets (`/admin/login`, `mfaChallengePath(...)`).
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```ts
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -151,10 +151,10 @@ describe('requireAdminPage', () => {
 
 IMPORTANT: before finalizing the test, check the REAL return shape of `requireCurrentAal2FromSupabase` in `src/lib/auth/mfa.ts` and the REAL signature of `mfaChallengePath`, and adjust the mock + assertions to match them exactly (the shapes above are a sketch). Same for the env var names the Supabase client needs — set them via `vi.stubEnv` if the module reads them at call time.
 
-- [ ] **Step 3: Run it, expect failure** (`../page-gate` not found):
+- [x] **Step 3: Run it, expect failure** (`../page-gate` not found):
 `pnpm vitest run src/lib/auth/__tests__/page-gate.test.ts`
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 ```ts
 import { cookies } from 'next/headers';
@@ -222,9 +222,9 @@ export async function requireAdminPage(
 
 Adjust the exact `createServerClient` construction, env var names, and the AAL2 result handling to mirror `impersonate/[sessionId]/view/page.tsx` — that file is the authority; if it differs from this sketch, follow it and keep the test in sync.
 
-- [ ] **Step 5: Run the test, expect PASS (5 tests).** Also run `pnpm typecheck` and `pnpm ci:db-imports` (the helper must NOT trip it — it takes `sql` as a param and imports nothing from `@/lib/db/server`).
+- [x] **Step 5: Run the test, expect PASS (5 tests).** Also run `pnpm typecheck` and `pnpm ci:db-imports` (the helper must NOT trip it — it takes `sql` as a param and imports nothing from `@/lib/db/server`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/auth/page-gate.ts src/lib/auth/__tests__/page-gate.test.ts
@@ -242,7 +242,7 @@ git commit -m "feat(admin): requireAdminPage server-component gate"
 - Modify: `src/components/admin/ui/StatusBadge.tsx`
 - Test: `src/components/admin/ui/__tests__/DataTable.test.tsx` (extend), `src/components/admin/ui/__tests__/StatusBadge.test.tsx` (extend)
 
-- [ ] **Step 1: Write the failing DataTable tests** (append to the existing describe block):
+- [x] **Step 1: Write the failing DataTable tests** (append to the existing describe block):
 
 ```tsx
   it('server pagination: renders given rows as-is with Showing footer and controlled navigation', async () => {
@@ -296,9 +296,9 @@ New StatusBadge assertion (append inside the outbox describe): extend the covera
   });
 ```
 
-- [ ] **Step 2: Run both test files, expect the new cases to FAIL.**
+- [x] **Step 2: Run both test files, expect the new cases to FAIL.**
 
-- [ ] **Step 3: Implement DataTable `serverPagination`**
+- [x] **Step 3: Implement DataTable `serverPagination`**
 
 Add to the props:
 
@@ -326,7 +326,7 @@ Behavior changes inside the component (keep the uncontrolled path byte-identical
 - When `serverPagination` is set: skip slicing (`visible = sorted`), compute `pageCount = Math.max(1, Math.ceil(totalRows / serverPagination.pageSize))` and `currentPage = serverPagination.page`; footer renders `Showing ${start}–${end} of ${totalRows}` where `start = currentPage * pageSize + 1`, `end = Math.min(start + rows.length - 1, totalRows)`; Previous/Next call `onPageChange(currentPage ∓ 1)` with the same disabled logic; `toggleSort` does NOT reset the page (sort is within the current server page).
 - Footer visibility: in server mode render the footer whenever `totalRows > rows.length || pageCount > 1` (so "Showing 1–8 of 8" single-page case stays hidden, same as uncontrolled).
 
-- [ ] **Step 4: Implement the AdminPage group union**
+- [x] **Step 4: Implement the AdminPage group union**
 
 `src/components/admin/nav-config.ts`: change the array declaration to
 
@@ -347,11 +347,11 @@ import type { AdminNavGroupLabel } from '../nav-config';
 // group: AdminNavGroupLabel  (was string)
 ```
 
-- [ ] **Step 5: Add StatusBadge `delivered`** — one entry in `STATUS_BADGE_STYLES`: `delivered: 'bg-green-100 text-green-800',` placed with the other literal keys, comment updated to mention the notification-delivery derived statuses (`delivered` literal; `pending`/`failed` already exist).
+- [x] **Step 5: Add StatusBadge `delivered`** — one entry in `STATUS_BADGE_STYLES`: `delivered: 'bg-green-100 text-green-800',` placed with the other literal keys, comment updated to mention the notification-delivery derived statuses (`delivered` literal; `pending`/`failed` already exist).
 
-- [ ] **Step 6: Run all ui tests + typecheck + lint; expect green** (`pnpm vitest run src/components/admin`).
+- [x] **Step 6: Run all ui tests + typecheck + lint; expect green** (`pnpm vitest run src/components/admin`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/admin
@@ -368,9 +368,9 @@ git commit -m "feat(admin): DataTable server pagination, AdminPage group union, 
 - Modify: `src/app/api/admin/jobs/route.ts`
 - Test: `src/lib/admin/__tests__/jobs-service.test.ts` (new); `src/app/api/admin/jobs/__tests__/route.test.ts` (must stay green, updated mocks only if import paths change)
 
-- [ ] **Step 1: Move `fetchQueueHealth` verbatim** from `route.ts` into `src/lib/admin/queue-health.ts` (exported), including `QUEUE_HEALTH_TIMEOUT_MS`, the `PoolWaitPayload` mirror type, and every degrade branch (missing secret → no fetch, bad URL, non-200, missing `queues`, throw/timeout → `{ queueHealth: { unavailable: true }, pool: null }`). No logic changes — the 11 existing route tests define its contract.
+- [x] **Step 1: Move `fetchQueueHealth` verbatim** from `route.ts` into `src/lib/admin/queue-health.ts` (exported), including `QUEUE_HEALTH_TIMEOUT_MS`, the `PoolWaitPayload` mirror type, and every degrade branch (missing secret → no fetch, bad URL, non-200, missing `queues`, throw/timeout → `{ queueHealth: { unavailable: true }, pool: null }`). No logic changes — the 11 existing route tests define its contract.
 
-- [ ] **Step 2: Create `jobs-service.ts`** — move the route's three SQL queries verbatim:
+- [x] **Step 2: Create `jobs-service.ts`** — move the route's three SQL queries verbatim:
 
 ```ts
 import type { Sql } from 'postgres';
@@ -390,13 +390,13 @@ export async function getAdminJobsData(sql: Sql, { limit, offset }: { limit: num
 
 Match the exact field names the route currently returns (read the route's response shaping first — the interface above must be corrected to whatever the route actually sends, because the client page consumes it).
 
-- [ ] **Step 3: Refactor `route.ts`** to: auth → parse limit/offset (unchanged clamping) → `Promise.all([getAdminJobsData(sql, {limit, offset}), fetchQueueHealth()])` → assemble the identical JSON shape. Delete the moved code. The route response must be byte-compatible.
+- [x] **Step 3: Refactor `route.ts`** to: auth → parse limit/offset (unchanged clamping) → `Promise.all([getAdminJobsData(sql, {limit, offset}), fetchQueueHealth()])` → assemble the identical JSON shape. Delete the moved code. The route response must be byte-compatible.
 
-- [ ] **Step 4: Write `jobs-service.test.ts`** with the mock-sql harness (same pattern as `nav-counts-service.test.ts`): one test pushing three result sets and asserting the DTO shape + that the three queries hit `job_outbox` with the expected predicates; one empty-results test.
+- [x] **Step 4: Write `jobs-service.test.ts`** with the mock-sql harness (same pattern as `nav-counts-service.test.ts`): one test pushing three result sets and asserting the DTO shape + that the three queries hit `job_outbox` with the expected predicates; one empty-results test.
 
-- [ ] **Step 5: Run** `pnpm vitest run src/lib/admin/__tests__/jobs-service.test.ts src/app/api/admin/jobs/__tests__/route.test.ts` — service tests green AND all 11 existing route tests green (update only their mock import paths if `fetchQueueHealth` moved out; the behavioral assertions must not change).
+- [x] **Step 5: Run** `pnpm vitest run src/lib/admin/__tests__/jobs-service.test.ts src/app/api/admin/jobs/__tests__/route.test.ts` — service tests green AND all 11 existing route tests green (update only their mock import paths if `fetchQueueHealth` moved out; the behavioral assertions must not change).
 
-- [ ] **Step 6: Commit** — `git add src/lib/admin src/app/api/admin/jobs && git commit -m "refactor(admin): extract jobs + queue-health services from route"`
+- [x] **Step 6: Commit** — `git add src/lib/admin src/app/api/admin/jobs && git commit -m "refactor(admin): extract jobs + queue-health services from route"`
 
 ---
 
@@ -407,7 +407,7 @@ Match the exact field names the route currently returns (read the route's respon
 - Create: `src/app/admin/jobs/JobsClient.tsx`
 - Test: `src/app/admin/jobs/__tests__/JobsClient.test.tsx` (new)
 
-- [ ] **Step 1: Write the server page** (complete file):
+- [x] **Step 1: Write the server page** (complete file):
 
 ```tsx
 import { sql } from '@/lib/db/server';
@@ -434,7 +434,7 @@ export default async function AdminJobsPage() {
 
 (Adjust the spread to build EXACTLY the shape `GET /api/admin/jobs` returns — the client's `initialData` must be assignable to the query's data type.)
 
-- [ ] **Step 2: Write `JobsClient.tsx`** — move the current page body, with these changes and nothing else:
+- [x] **Step 2: Write `JobsClient.tsx`** — move the current page body, with these changes and nothing else:
   - `'use client'`; props `{ initialData: JobsData }`; `useQuery({ queryKey: ['admin-jobs', page], queryFn, refetchInterval: 30_000, staleTime: 30_000, initialData: page === 0 ? initialData : undefined })`.
   - Wrap everything in `<AdminPage group="Operate" title="Jobs" description="Outbox, queue depth, and failed jobs">` and DELETE the old header + `min-h-screen bg-gray-50` + `mx-auto max-w-*` wrappers (AdminPage owns chrome).
   - The 5 outbox tiles become `StatTile`s: Pending (`alert` when > 10), Dispatching, Dispatched, Failed (`alert` when > 0), Completed Today — delete the local `COLOR_CLASSES` map.
@@ -452,11 +452,11 @@ const columns: DataTableColumn<FailedJob>[] = [
   - `emptyState={<EmptyState title="No failed jobs" detail="Nothing is stuck right now." />}`; loading (only when no data) → `<TableSkeleton />`. Error is non-blanking: full-screen `ErrorState` only when there's no cached data yet (`isError && !data`) — `<ErrorState title="Couldn't load jobs" detail="GET /api/admin/jobs failed" onRetry={() => refetch()} />`; when a background refetch fails but cached data is still on screen (`isError && data`), do NOT blank the page — render the normal content with a slim inline notice above it, reusing the same component: `<ErrorState title="Last refresh failed" detail="GET /api/admin/jobs failed — showing the last loaded data." onRetry={() => refetch()} />`. This three-way split (skeleton / full-screen error / inline "last refresh failed" + content) is the pattern every later Operate/Safety page copies — see Tasks 5–7.
   - Per-queue depth cards and the pool-wait pill keep their existing markup (they are not DataTable-shaped) but swap the `STATE_STYLES` color literals for neutral grays + the red/yellow they already use — no `rw-*`, no amber (use `yellow` classes already present).
 
-- [ ] **Step 3: Write `JobsClient.test.tsx`** (jsdom, QueryClientProvider, stub fetch): render with a fixture `initialData` and assert — the five StatTile labels render with their values; the failed-jobs table shows a row's topic and `Showing 1–1 of 1`-style footer math is NOT shown for a single short page; the empty fixture renders "No failed jobs". (3 tests.)
+- [x] **Step 3: Write `JobsClient.test.tsx`** (jsdom, QueryClientProvider, stub fetch): render with a fixture `initialData` and assert — the five StatTile labels render with their values; the failed-jobs table shows a row's topic and `Showing 1–1 of 1`-style footer math is NOT shown for a single short page; the empty fixture renders "No failed jobs". (3 tests.)
 
-- [ ] **Step 4: Run** the new test + `pnpm typecheck && pnpm lint`. Then delete nothing else — confirm `git status` shows only the three files.
+- [x] **Step 4: Run** the new test + `pnpm typecheck && pnpm lint`. Then delete nothing else — confirm `git status` shows only the three files.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(admin): jobs page server-first on shared primitives"`
+- [x] **Step 5: Commit** — `git commit -m "feat(admin): jobs page server-first on shared primitives"`
 
 ---
 
@@ -468,7 +468,7 @@ const columns: DataTableColumn<FailedJob>[] = [
 - Modify: `src/__tests__/console-admin-palette.test.ts` (SWEPT_FILES: replace `overview/page.tsx` with `overview/OverviewClient.tsx`)
 - Test: `src/app/admin/overview/__tests__/OverviewClient.test.tsx` (new)
 
-- [ ] **Step 1: Server page** (complete):
+- [x] **Step 1: Server page** (complete):
 
 ```tsx
 import { sql } from '@/lib/db/server';
@@ -493,7 +493,7 @@ export default async function AdminOverviewPage() {
 }
 ```
 
-- [ ] **Step 2: `OverviewClient.tsx`** — move the body; changes:
+- [x] **Step 2: `OverviewClient.tsx`** — move the body; changes:
   - Props `{ initialData: OverviewData; flaggedOpen: number }`; `useQuery(['admin-overview', page], …, initialData: page === 0 ? initialData : undefined)`, keep `refetchInterval: 30_000`.
   - `<AdminPage group="Operate" title="Overview" description="System health and every business at a glance" actions={…existing header links as small buttons…}>`.
   - DELETE the local `StatusBadge`, `STATUS_BADGE_CLASSES`, `STATUS_BADGE_LABELS` — use the shared `StatusBadge` (`<StatusBadge status={b.subscriptionStatus} />`). The label styling differences die here deliberately (single owner).
@@ -529,13 +529,13 @@ const columns: DataTableColumn<BusinessRow>[] = [
   - Shared states: `EmptyState` ("No businesses found"); `TableSkeleton` while loading with no data; error follows the Task 4 non-blanking pattern — full-screen `ErrorState` naming `GET /api/admin/overview` only when `isError && !data`, otherwise an inline "Last refresh failed" `ErrorState` above the still-rendered content.
   - Palette: neutral grays only (the palette sweep test now targets this file — no amber/orange/stone).
 
-- [ ] **Step 3: Update `console-admin-palette.test.ts`** SWEPT_FILES entry to the new client path. Run it.
+- [x] **Step 3: Update `console-admin-palette.test.ts`** SWEPT_FILES entry to the new client path. Run it.
 
-- [ ] **Step 4: `OverviewClient.test.tsx`** (3 tests): tiles render from fixture; needs-attention shows the failed-jobs link when `failedJobs > 0` and is absent when all clear; businesses table renders a row with shared StatusBadge text.
+- [x] **Step 4: `OverviewClient.test.tsx`** (3 tests): tiles render from fixture; needs-attention shows the failed-jobs link when `failedJobs > 0` and is absent when all clear; businesses table renders a row with shared StatusBadge text.
 
-- [ ] **Step 5: Run** new tests + palette test + `pnpm typecheck && pnpm lint`.
+- [x] **Step 5: Run** new tests + palette test + `pnpm typecheck && pnpm lint`.
 
-- [ ] **Step 6: Commit** — `git commit -m "feat(admin): overview server-first landing with needs-attention strip"`
+- [x] **Step 6: Commit** — `git commit -m "feat(admin): overview server-first landing with needs-attention strip"`
 
 ---
 
@@ -545,7 +545,7 @@ const columns: DataTableColumn<BusinessRow>[] = [
 - Rewrite: `src/app/admin/costs/page.tsx` (server); Create: `src/app/admin/costs/CostsClient.tsx`
 - Test: `src/app/admin/costs/__tests__/CostsClient.test.tsx` (new)
 
-- [ ] **Step 1: Server page** — same pattern as Task 4/5, calling the existing services with the page's defaults:
+- [x] **Step 1: Server page** — same pattern as Task 4/5, calling the existing services with the page's defaults:
 
 ```tsx
 import { sql } from '@/lib/db/server';
@@ -571,7 +571,7 @@ export default async function AdminCostsPage() {
 
 (Check `parseCostQuery`'s actual parameter type first — if it takes the route's `searchParams` object rather than `URLSearchParams`, build what it expects. The default `days` must match the client's initial state — 30.)
 
-- [ ] **Step 2: `CostsClient.tsx`** — move the body; changes:
+- [x] **Step 2: `CostsClient.tsx`** — move the body; changes:
   - Props/useQuery wiring as in Task 4 (`initialData` only when `days === 30 && page === 0`).
   - `<AdminPage group="Operate" title="Costs" description="LLM + API spend and margin by account">`.
   - Day-range pills stay (they are a filter, not FilterBar's search — keep the existing pill markup, restyled neutral).
@@ -580,11 +580,11 @@ export default async function AdminCostsPage() {
   - Margin section: keep structure; `RiskBadge` stays (risk levels aren't shared statuses); platform KPI numbers become three `StatTile`s; Top Accounts table keeps custom markup (9 cols with row tinting — move unchanged, neutralize palette).
   - Shared Empty/Error/Skeleton states follow the Task 4 non-blanking error pattern (full-screen `ErrorState` only when `isError && !data`; otherwise an inline "Last refresh failed" notice above the still-rendered content) — unlike Task 4, the `ErrorState` detail interpolates the active query params instead of a static string, e.g. `` `GET /api/admin/costs?days=${days} failed` ``.
 
-- [ ] **Step 3: `CostsClient.test.tsx`** (2 tests): renders period totals + a business row from fixture; `margin: null` fixture renders the page without the margin section (no crash).
+- [x] **Step 3: `CostsClient.test.tsx`** (2 tests): renders period totals + a business row from fixture; `margin: null` fixture renders the page without the margin section (no crash).
 
-- [ ] **Step 4: Run** new tests + the costs route tests (`pnpm vitest run src/app/api/admin/costs/__tests__/route.test.ts` — untouched, must stay green) + typecheck + lint.
+- [x] **Step 4: Run** new tests + the costs route tests (`pnpm vitest run src/app/api/admin/costs/__tests__/route.test.ts` — untouched, must stay green) + typecheck + lint.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(admin): costs page server-first on shared primitives"`
+- [x] **Step 5: Commit** — `git commit -m "feat(admin): costs page server-first on shared primitives"`
 
 ---
 
@@ -595,13 +595,13 @@ export default async function AdminCostsPage() {
 - Rewrite: `src/app/admin/notifications/page.tsx`; Create: `src/app/admin/notifications/NotificationsClient.tsx`
 - Test: `src/lib/admin/__tests__/notifications-service.test.ts`, `src/app/admin/notifications/__tests__/NotificationsClient.test.tsx` (new)
 
-- [ ] **Step 1: Extract the service** — move the route's dynamic-WHERE data query, count query, and businesses-dropdown query verbatim into `getAdminNotifications(sql, filters)` where `filters = { limit, offset, businessId?, accountId?, channel?, status? }`, returning the route's exact current JSON shape. Route becomes auth → parse → service → JSON. Keep `sql.unsafe` usage as-is (it is parameterized — do not rewrite the query builder).
+- [x] **Step 1: Extract the service** — move the route's dynamic-WHERE data query, count query, and businesses-dropdown query verbatim into `getAdminNotifications(sql, filters)` where `filters = { limit, offset, businessId?, accountId?, channel?, status? }`, returning the route's exact current JSON shape. Route becomes auth → parse → service → JSON. Keep `sql.unsafe` usage as-is (it is parameterized — do not rewrite the query builder).
 
-- [ ] **Step 2: Service test** (mock-sql harness): filters produce WHERE fragments (assert `sqlCalls` text contains `business_id` when businessId passed); empty results → `{ deliveries: [], total: 0, businesses: [] }`-shaped zeros (match real field names from the route).
+- [x] **Step 2: Service test** (mock-sql harness): filters produce WHERE fragments (assert `sqlCalls` text contains `business_id` when businessId passed); empty results → `{ deliveries: [], total: 0, businesses: [] }`-shaped zeros (match real field names from the route).
 
-- [ ] **Step 3: Server page** — pattern as before; initial fetch with `{ limit: 20, offset: 0 }`, no filters.
+- [x] **Step 3: Server page** — pattern as before; initial fetch with `{ limit: 20, offset: 0 }`, no filters.
 
-- [ ] **Step 4: `NotificationsClient.tsx`** — move the body; changes: AdminPage chrome (`group="Operate"`, title "Notifications", description "Delivery log across channels"); keep the three `<select>` filters + Reset in a toolbar row above the table (FilterBar's search box doesn't fit selects — do NOT force it); table → `DataTable` with `serverPagination`; the status pill derives a string then uses the shared badge:
+- [x] **Step 4: `NotificationsClient.tsx`** — move the body; changes: AdminPage chrome (`group="Operate"`, title "Notifications", description "Delivery log across channels"); keep the three `<select>` filters + Reset in a toolbar row above the table (FilterBar's search box doesn't fit selects — do NOT force it); table → `DataTable` with `serverPagination`; the status pill derives a string then uses the shared badge:
 
 ```tsx
 function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {
@@ -614,9 +614,9 @@ function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {
 
 Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Status. Shared Empty/Error/Skeleton states follow the Task 4 non-blanking error pattern (full-screen `ErrorState` only when `isError && !data`; otherwise an inline "Last refresh failed" notice above the still-rendered content), error naming `GET /api/admin/notifications`.
 
-- [ ] **Step 5: Client test** (2 tests): a delivered row renders the `delivered` badge; a failed row's status cell carries `title` = failureReason.
+- [x] **Step 5: Client test** (2 tests): a delivered row renders the `delivered` badge; a failed row's status cell carries `title` = failureReason.
 
-- [ ] **Step 6: Run** all new tests + typecheck + lint. **Step 7: Commit** — `git commit -m "feat(admin): notifications server-first with extracted service"`
+- [x] **Step 6: Run** all new tests + typecheck + lint. **Step 7: Commit** — `git commit -m "feat(admin): notifications server-first with extracted service"`
 
 ---
 
@@ -626,9 +626,9 @@ Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Stat
 - Modify: `src/app/admin/runbook/page.tsx`
 - Modify: `src/__tests__/runbook-empty-polish.test.ts`
 
-- [ ] **Step 1:** Remove `'use client'` (the page has zero hooks). Wrap content in `<AdminPage group="Operate" title="Runbook" description="First-response playbook for support scenarios">`; delete the old header + `min-h-screen` wrapper. Keep `SCENARIOS`, the table markup, the `DocRef` URL guard, and the callout card unchanged. Turn the plain-text `/admin/notifications` and `/admin/jobs` references in the prose into `<Link>`s (spec §5 cross-linking).
-- [ ] **Step 2:** Update `runbook-empty-polish.test.ts` — it asserts the root wrapper carries `min-h-screen`, which the shell now owns. Change the assertion to what the polish rule actually protects: the page renders inside `AdminPage` (assert the source contains `<AdminPage` and does NOT contain `min-h-screen`). Keep the file's other assertions.
-- [ ] **Step 3:** Run that test + typecheck + lint. **Step 4: Commit** — `git commit -m "feat(admin): runbook server component with shared chrome"`
+- [x] **Step 1:** Remove `'use client'` (the page has zero hooks). Wrap content in `<AdminPage group="Operate" title="Runbook" description="First-response playbook for support scenarios">`; delete the old header + `min-h-screen` wrapper. Keep `SCENARIOS`, the table markup, the `DocRef` URL guard, and the callout card unchanged. Turn the plain-text `/admin/notifications` and `/admin/jobs` references in the prose into `<Link>`s (spec §5 cross-linking).
+- [x] **Step 2:** Update `runbook-empty-polish.test.ts` — it asserts the root wrapper carries `min-h-screen`, which the shell now owns. Change the assertion to what the polish rule actually protects: the page renders inside `AdminPage` (assert the source contains `<AdminPage` and does NOT contain `min-h-screen`). Keep the file's other assertions.
+- [x] **Step 3:** Run that test + typecheck + lint. **Step 4: Commit** — `git commit -m "feat(admin): runbook server component with shared chrome"`
 
 ---
 
@@ -639,15 +639,15 @@ Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Stat
 - Rewrite: `src/app/admin/flagged/page.tsx`; Create: `src/app/admin/flagged/FlaggedClient.tsx`
 - Test: `src/lib/admin/__tests__/flagged-service.test.ts` (new); `src/app/api/admin/flagged/__tests__/route.test.ts` must stay green
 
-- [ ] **Step 1: Extract GET query** — `listOpenFlaggedResponses(sql, { limit, offset })` moves the join + count verbatim, returning the route's display shape. The POST disposition transaction STAYS in the route (it is a mutation orchestrator; nothing else calls it). Route GET delegates; all existing route tests stay green (update mocks' import paths only).
+- [x] **Step 1: Extract GET query** — `listOpenFlaggedResponses(sql, { limit, offset })` moves the join + count verbatim, returning the route's display shape. The POST disposition transaction STAYS in the route (it is a mutation orchestrator; nothing else calls it). Route GET delegates; all existing route tests stay green (update mocks' import paths only).
 
-- [ ] **Step 2: Server page** — `await requireAdminPage(sql, { from: '/admin/flagged', aal2: true })` (flagged content is the AAL2-gated surface — the page gate must match the route gate), then initial fetch `{ limit: 50, offset: 0 }`, render `<FlaggedClient initialData={…} />`.
+- [x] **Step 2: Server page** — `await requireAdminPage(sql, { from: '/admin/flagged', aal2: true })` (flagged content is the AAL2-gated surface — the page gate must match the route gate), then initial fetch `{ limit: 50, offset: 0 }`, render `<FlaggedClient initialData={…} />`.
 
-- [ ] **Step 3: `FlaggedClient.tsx`** — move the body; changes: AdminPage chrome (`group="Safety"`, title "Flagged responses", description "Held drafts awaiting your disposition"); KEEP the card list layout, the three-action mutation flow, `LiveRegion`, and the offset pagination exactly as they are (swap the footer buttons' styling to match DataTable's footer buttons for consistency); severity pill stays local (severity is not a shared status); shared `EmptyState` ("No open flagged responses", detail "Every held draft has been dispositioned.") + `ErrorState` naming `GET /api/admin/flagged` + `TableSkeleton`; neutral palette sweep.
+- [x] **Step 3: `FlaggedClient.tsx`** — move the body; changes: AdminPage chrome (`group="Safety"`, title "Flagged responses", description "Held drafts awaiting your disposition"); KEEP the card list layout, the three-action mutation flow, `LiveRegion`, and the offset pagination exactly as they are (swap the footer buttons' styling to match DataTable's footer buttons for consistency); severity pill stays local (severity is not a shared status); shared `EmptyState` ("No open flagged responses", detail "Every held draft has been dispositioned.") + `ErrorState` naming `GET /api/admin/flagged` + `TableSkeleton`; neutral palette sweep.
 
-- [ ] **Step 4: Service test** (mock-sql): asserts `status = 'open'` predicate + limit/offset binding; empty → `{ flagged: [], total: 0 }` (match real field names).
+- [x] **Step 4: Service test** (mock-sql): asserts `status = 'open'` predicate + limit/offset binding; empty → `{ flagged: [], total: 0 }` (match real field names).
 
-- [ ] **Step 5: Run** service test + all flagged route tests + typecheck + lint. **Step 6: Commit** — `git commit -m "feat(admin): flagged queue server-first (AAL2 page gate) with extracted read service"`
+- [x] **Step 5: Run** service test + all flagged route tests + typecheck + lint. **Step 6: Commit** — `git commit -m "feat(admin): flagged queue server-first (AAL2 page gate) with extracted read service"`
 
 ---
 
@@ -657,10 +657,10 @@ Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Stat
 - Modify: `src/app/admin/autonomy/page.tsx`, `src/app/admin/autonomy/AutonomySuspensionsClient.tsx`
 - Tests that must stay green (update only styling assertions if they break): `page-source.test.ts`, `AutonomySuspensionsClient.test.tsx`
 
-- [ ] **Step 1: Server page** — already a server component. Add: `await requireAdminPage(sql, { from: '/admin/autonomy', aal2: true })`; fetch `listSuspendedPolicies(sql)` (already a service in `src/lib/auto-approval/suspension.ts`); replace the page's own header block with `<AdminPage group="Safety" title="Autonomy suspensions" description="Accounts the Governor has pulled out of Autopilot">` wrapping `<AutonomySuspensionsClient initialData={suspensions} />`. Page keeps zero `'use client'` (page-source test).
-- [ ] **Step 2: Client** — accept `initialData`, wire into the existing `useQuery(['admin-autonomy-suspensions'])` (`initialData`, keep `refetchInterval: 30_000`). Restyle: every `rw-cream`/`rw-teal-strong`/`rw-sage`/`rw-blush`/`rw-danger` class → the neutral Pro Tool equivalents used by the other migrated pages (white cards, gray borders, red for danger, green for success). Keep ALL behavior the existing client test asserts: trimmed-note POST, `role="status"` toast, disabled-until-nonempty button, exact aria-labels/names. Empty state → shared `EmptyState`; error banner → shared `ErrorState`.
-- [ ] **Step 3: Run** `pnpm vitest run src/app/admin/autonomy` — all green (fix styling-only assertion breaks by updating the test to the new classes; behavioral assertions must not change). Typecheck + lint.
-- [ ] **Step 4: Commit** — `git commit -m "feat(admin): autonomy page server initialData + pro-tool restyle"`
+- [x] **Step 1: Server page** — already a server component. Add: `await requireAdminPage(sql, { from: '/admin/autonomy', aal2: true })`; fetch `listSuspendedPolicies(sql)` (already a service in `src/lib/auto-approval/suspension.ts`); replace the page's own header block with `<AdminPage group="Safety" title="Autonomy suspensions" description="Accounts the Governor has pulled out of Autopilot">` wrapping `<AutonomySuspensionsClient initialData={suspensions} />`. Page keeps zero `'use client'` (page-source test).
+- [x] **Step 2: Client** — accept `initialData`, wire into the existing `useQuery(['admin-autonomy-suspensions'])` (`initialData`, keep `refetchInterval: 30_000`). Restyle: every `rw-cream`/`rw-teal-strong`/`rw-sage`/`rw-blush`/`rw-danger` class → the neutral Pro Tool equivalents used by the other migrated pages (white cards, gray borders, red for danger, green for success). Keep ALL behavior the existing client test asserts: trimmed-note POST, `role="status"` toast, disabled-until-nonempty button, exact aria-labels/names. Empty state → shared `EmptyState`; error banner → shared `ErrorState`.
+- [x] **Step 3: Run** `pnpm vitest run src/app/admin/autonomy` — all green (fix styling-only assertion breaks by updating the test to the new classes; behavioral assertions must not change). Typecheck + lint.
+- [x] **Step 4: Commit** — `git commit -m "feat(admin): autonomy page server initialData + pro-tool restyle"`
 
 ---
 
@@ -670,17 +670,17 @@ Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Stat
 - Modify: `src/app/admin/security/page.tsx`
 - Test: `src/app/admin/security/__tests__/page-source.test.ts` must stay green
 
-- [ ] **Step 1:** Wrap `<AdminSecurityClient />` in `<AdminPage group="Safety" title="Security" description="Your admin account's MFA enrollment">`, replacing the page's own header block. No auth-gate addition (the page renders only the caller's own MFA state via the Supabase client — nothing to server-fetch), no client changes. Page stays server, no gradients/hex (page-source test).
-- [ ] **Step 2:** Run the page-source test + typecheck + lint. **Step 3: Commit** — `git commit -m "feat(admin): security page shared chrome"`
+- [x] **Step 1:** Wrap `<AdminSecurityClient />` in `<AdminPage group="Safety" title="Security" description="Your admin account's MFA enrollment">`, replacing the page's own header block. No auth-gate addition (the page renders only the caller's own MFA state via the Supabase client — nothing to server-fetch), no client changes. Page stays server, no gradients/hex (page-source test).
+- [x] **Step 2:** Run the page-source test + typecheck + lint. **Step 3: Commit** — `git commit -m "feat(admin): security page shared chrome"`
 
 ---
 
 ### Task 12: Full gates + final review + PR
 
-- [ ] **Step 1:** `pnpm lint && pnpm typecheck && REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm test` — all green; investigate any failure against the branch diff (no "unrelated" dismissals without evidence).
-- [ ] **Step 2:** `pnpm ci:tenant-scope && pnpm ci:rls-audit && pnpm ci:db-imports && pnpm ci:fallow` — the three extracted services contain moved (not new) cross-tenant admin queries; if `ci:tenant-scope` flags the moved sites (file paths changed!), move/adjust the existing allowlist entries for those queries to the new service paths — entry COUNT must stay identical (baseline unchanged) unless a genuinely new query appeared (there should be none).
-- [ ] **Step 3:** `pnpm build` — must succeed (server pages + client splits are new build surface).
-- [ ] **Step 4:** Final whole-branch review (controller dispatches it — integration concerns: initialData shape mismatches between server pages and clients; gate parity between page and route on Safety pages; palette consistency; anything the per-task reviews missed).
+- [x] **Step 1:** `pnpm lint && pnpm typecheck && REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm test` — all green; investigate any failure against the branch diff (no "unrelated" dismissals without evidence).
+- [x] **Step 2:** `pnpm ci:tenant-scope && pnpm ci:rls-audit && pnpm ci:db-imports && pnpm ci:fallow` — the three extracted services contain moved (not new) cross-tenant admin queries; if `ci:tenant-scope` flags the moved sites (file paths changed!), move/adjust the existing allowlist entries for those queries to the new service paths — entry COUNT must stay identical (baseline unchanged) unless a genuinely new query appeared (there should be none).
+- [x] **Step 3:** `pnpm build` — must succeed (server pages + client splits are new build surface).
+- [x] **Step 4:** Final whole-branch review (controller dispatches it — integration concerns: initialData shape mismatches between server pages and clients; gate parity between page and route on Safety pages; palette consistency; anything the per-task reviews missed).
 - [ ] **Step 5:** Push + PR to `main` titled `feat(admin): console Phase 2 — Operate + Safety pages server-first on shared primitives`, body summarizing per-page changes, gates, and the deferred items (partial index, Phase 3 Businesses/Growth + the STATUS_BADGE_STYLES collision note). Tick this plan's remaining checkboxes in the same push.
 - [ ] **Step 6:** Verify the Vercel preview: `/admin/overview` (tiles + needs-attention + table), `/admin/jobs`, `/admin/flagged` (AAL2 → MFA challenge if not stepped up), `/admin/autonomy` (neutral restyle), mobile viewport spot-check.
 
