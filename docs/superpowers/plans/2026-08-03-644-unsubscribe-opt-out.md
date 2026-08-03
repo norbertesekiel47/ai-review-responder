@@ -7,7 +7,17 @@
 **Depends on** #643 (migration 096/097 + `src/lib/solicitation/suppression.ts`) — merged, `4186cefa`
 **Hands off to** #630 (imports `hashUnsubscribeToken`), #622 (shares `SOLICITATION_UNSUBSCRIBE_MAILTO`)
 
-**Revision 4** — supersedes revision 3 after adversarial round 3
+**Revision 5** — supersedes revision 4 after the **owner-run `/codex:adversarial-review`**
+(verdict: needs-attention, 3 high findings), which ran because the programmatic codex
+reviewer failed four consecutive ways. All three accepted:
+**(1)** the success view was renderable from a bare `?done=1`, so `/u/bogus?done=1` claimed
+a successful opt-out with no suppression written — now bound to a signed receipt (§1.8);
+**(2)** revision 4's per-request unknown-token log was justified by a false equivalence with
+other ingress routes, which are all rate-limited while this one is deliberately not — now a
+hard-bounded, replica-tagged windowed aggregate (§1.6); **(3)** the handoff and
+`.feature/state.json` had drifted to a superseded revision — reconciled.
+
+**Revision 4** — superseded. Followed adversarial round 3
 (`plan-adversarial-round3.md`, VERDICT: REVISE, 5 findings). Round 3 **closed** findings 3
 (raw logging, independently reproduced), 9 (types), and the GET/HEAD half of 2, and
 corrected one of my own claims: retaining non-null provenance *before* a purge is
@@ -297,21 +307,41 @@ An unknown token is *expected* traffic on a public endpoint; treating it as an *
 is what creates the amplification, because Sentry is the quota-bounded sink with no error
 sampling or dedup configured (`worker/sentry.ts:6`). Abstaining there is the whole fix.
 
-**Revision 4 drops revision 3's in-process 60-second counter** (round-3 finding 5). Two
-reasons, and the second is the one that matters:
+**Unknown tokens emit NO per-request log line either** (owner-run review, finding 2).
+Revision 4 kept one `warn` per unknown request and justified it as "bounded by request
+volume, like every other ingress route". **That comparison was false**: every other ingress
+route sits behind the global limiter, and this one is deliberately exempt by §9.2. Under a
+scanner sweep, hostile traffic, or a provider retry storm there is *no* bound — and the
+flood would drown the very mint-race signal the line exists to surface.
 
-1. Its justification was **factually wrong about this project**. I wrote "single-replica by
-   invariant"; CLAUDE.md is explicit that single-replica operation is **detected, not
-   enforced**, and that cross-deployment replica overlap is *expected* during a normal
-   zero-downtime deploy. A per-process counter silently under-reports across that overlap.
-2. It would need window-emission, reset, and shutdown-flush semantics — none of which the
-   47 promised tests cover — to replace something a log line already does. That is a
-   subsystem in exchange for nothing.
+Revision 4 over-corrected in the other direction too: round 3's finding was that the
+counter's *single-replica premise* was false, **not** that aggregation was wrong. Revision 5
+keeps the aggregate and fixes the premise:
 
-One `warn` line per unknown request is bounded by request volume exactly as the route's own
-DB query already is, and it is what every other ingress route does. The mint-race signal is
-a **rate**, which the existing log pipeline aggregates without new machinery. If volume ever
-justifies sampling, that is a follow-up with evidence, not a guess now.
+```
+window = 60s, per process
+on unknown token: count++
+on window expiry OR graceful shutdown:
+  logger.warn({ event: 'unsubscribe_unknown_token_window',
+                count, window_start, window_end, replica_id })
+  reset
+```
+
+- **Hard bound: at most one line per 60s per process**, regardless of traffic volume. That
+  is a real bound, not an appeal to traffic shape.
+- **Summable across replicas** — every line carries `replica_id` from
+  `worker/config/replica-identity.ts`, so a cross-deployment overlap during a
+  zero-downtime deploy produces two tagged series that add up, rather than one series that
+  silently under-reports. This is the round-3 premise defect, fixed rather than dodged.
+- **Restart semantics, stated:** a partial window is flushed by the existing graceful
+  shutdown sequence in `worker/index.ts`. An ungraceful crash loses at most one partial
+  window (≤60s of counts) — acceptable for a rate signal, and explicitly not a
+  correctness input to anything.
+- Per-request lines are retained for `redeemed`, `already_suppressed`, and `failed`, which
+  are bounded by real minted tokens and by genuine infra failure rates.
+
+**Test required:** hostile unknown-token traffic (many requests inside one window) must
+produce **at most one** warning, and the emitted count must equal the number of requests.
 
 ### 1.7 What 503 does and does not buy (finding 1)
 
@@ -329,7 +359,45 @@ implementation commits before delivery and the race should not arise at all.
 No Railway health-check collision: Railway probes `/api/health` (`railway.toml:20`), a
 dependency-free 200 route (`worker/index.ts:548`).
 
-### 1.8 The §5.5 / §5.4 conflict
+### 1.8 The success view is bound to a signed receipt, not a bare flag
+
+**Owner-run adversarial review, finding 1.** Revisions 1–4 rendered the success copy from
+`?done=1` alone, explicitly without consulting redemption state. So `/u/bogus?done=1`
+tells a visitor "You're unsubscribed" when **no token resolved and no suppression was
+written** — it bypasses §5.4's neutral-page rule entirely and can leave someone believing
+they opted out when they did not. On a CAN-SPAM path that is the failure this whole ticket
+exists to prevent. (I raised this during grilling and judged it "bounded — nobody does
+that". That was wrong: the cost of being wrong is a recipient who stops watching for mail
+that keeps coming.)
+
+**Revision 5 binds the success view to server-minted evidence**, keeping the no-JS
+progressive-enhancement flow intact:
+
+```ts
+// src/lib/solicitation/unsubscribe.ts — HMAC precedent: account-offboarding/tokens.ts
+export function mintUnsubscribeReceipt(tokenHash: string, issuedAtMs: number): string;
+export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): boolean;
+```
+
+- Receipt = `<issuedAtMs>.<base64url HMAC-SHA256(secret, "repworth:unsubscribe-receipt:v1:<tokenHash>:<issuedAtMs>")>`,
+  keyed on `getSessionCookieSecret()` — the same trust boundary
+  `src/lib/account-offboarding/tokens.ts` already uses for its keep-my-data token.
+- `POST /api/u/<token>` mints one **only** for `redeemed` and `already_suppressed`
+  (§5.4: already-suppressed is success from the recipient's point of view) and redirects to
+  `/u/<enc(token)>?ok=<receipt>`. For `unknown_token` it mints nothing and redirects to
+  `/u/<enc(token)>` bare — which lands on the neutral page.
+- The page renders success **only** when `ok` verifies against
+  `hashUnsubscribeToken(token)` via `timingSafeEqual` **and** is within a 10-minute TTL.
+  Otherwise it falls through to ordinary token evaluation — so a crafted or expired `ok`,
+  or a bare `?done=1`, gets the button page or the neutral page, never a false success.
+- No cookie, so a cookie-blocking browser still sees success after a real opt-out; no JS,
+  so the flow still works with scripting disabled.
+
+The receipt is not an authorisation token — it authorises nothing and grants no access. It
+is a claim check proving *this server just wrote that suppression*, which is precisely what
+the success sentence asserts.
+
+### 1.9 The §5.5 / §5.4 conflict
 
 §5.4 wins (owner sign-off): the **button** page names the business, the **success** page
 uses the generic sentence. One exported lookup, no "display" variant, no leak.
@@ -365,11 +433,14 @@ purge-race tests need real concurrent transactions, not sequential calls.
 
 ### T2 — The human landing path, end to end
 
-**Blocking edges:** T1. Unchanged from revision 2 except that unknown-token POSTs redirect
-to the neutral page (never `?done=1`), and all path construction uses `encodeURIComponent`.
+**Blocking edges:** T1. Unknown-token POSTs redirect to the bare neutral-page URL with no
+receipt minted; the success view is bound to a signed receipt (§1.8); all path construction
+uses `encodeURIComponent`.
 
-1. Three render states, one lookup: `?done=1` → success copy (no lookup, no write); token
-   resolves → button page naming the business; otherwise → neutral page.
+1. Three render states: a **verified** `?ok=<receipt>` → success copy (no write, no lookup
+   beyond hashing the token); token resolves → button page naming the business; otherwise →
+   neutral page. An absent, malformed, forged, or expired receipt falls through to the
+   latter two — **never** to success.
 2. Plain `<form method="post">`; no `'use client'`, no `fetch`; works with JS disabled.
 3. Cross-account fail-closed name resolution (§1.2).
 4. `export const dynamic = 'force-dynamic'`; `robots: { index: false, follow: false }`;

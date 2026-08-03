@@ -7,7 +7,10 @@ not be run because the codex tooling failed four consecutive ways (see Sharp edg
 owner elected to run `/codex:adversarial-review` themselves — it is user-invocable only,
 which is likely why every programmatic attempt failed. **Do not implement until that
 verdict is triaged and the owner signs off.**
-**HEAD** `d8373026`
+**HEAD** `c468bc90` (6 commits, all documentation — no implementation code exists)
+**Worktree is PARKED between sessions:** `.feature/intake.json` may be renamed to
+`.feature/intake.parked.json`. If `arm-check.sh` reports DISARMED, rename it back before
+doing anything else — `/feature-resume` depends on it.
 
 Resume with `/feature-resume feat-644-unsubscribe-opt-out`. Everything needed is on disk;
 the grilling transcript is not required.
@@ -28,21 +31,26 @@ the grilling transcript is not required.
 
 - **Steps 0–2 complete.** RISK=high / SURFACE=mixed / db_touching=true. Worktree armed
   (`scripts/arm-check.sh` clean), no cross-worktree surface overlap.
-- **Step 3 in progress.** Plan at revision 2. Round 1 returned **REVISE** with 7 findings;
-  all 7 are folded in. Round 2 (fresh codex rescue agent) was in flight at handoff — its
-  verdict must be recorded in `docs/reviews/feat-644-unsubscribe-opt-out/` before step 4.
-- **Nothing implemented.** No source file has been created or modified. The only commit on
-  the branch is `d8373026` (docs only).
+- **Step 3 in progress.** Plan at **revision 5**. Four adversarial passes ran (3 codex
+  rounds + one owner-run `/codex:adversarial-review`); every one returned REVISE /
+  needs-attention and every finding is folded in. See the review-history table below.
+- **Nothing implemented.** No source file has been created or modified. All six commits are
+  documentation.
 
 ## Owner decisions locked so far
 
-1. Success state uses a plain form POST → 303 → `/u/<token>?done=1`; no client component
-   (works with JS disabled).
+1. Success state uses a plain form POST → 303 → success page; no client component (works
+   with JS disabled). **Amended after the owner-run review:** the redirect carries a
+   **signed receipt**, not a bare `?done=1` — a hand-crafted `?done=1` would otherwise
+   claim "You're unsubscribed" with no suppression written.
 2. Business name falls back to "the business that contacted you" when provenance is gone.
 3. `SOLICITATION_UNSUBSCRIBE_MAILTO` is introduced by this ticket, dual-lane.
-4. **Reversed after round 1:** unknown tokens fail honestly — `503` + Sentry at the
-   ingress (so a #630 mint-race is recoverable via provider retry), and the human POST
+4. **Reversed after round 1, refined twice since:** unknown tokens fail honestly — `503` at
+   the ingress (so a #630 mint-race is recoverable via provider retry), and the human POST
    redirects to the neutral page rather than claiming a success that did not happen.
+   **There is deliberately NO Sentry event for an unknown token** (round-3 finding 8): the
+   route is unauthenticated and unrate-limited, and worker Sentry has no error sampling or
+   dedup. Telemetry is a replica-tagged windowed aggregate — see plan §1.6.
 5. §5.5 vs §5.4 conflict: §5.4 wins. The **button** page names the business; the
    **success** page uses the generic sentence. Deliberate deviation from §5.5's quoted copy.
 
@@ -60,7 +68,7 @@ the grilling transcript is not required.
 Last run was a pre-implementation baseline: **RED**, correctly. Everything that can pass
 does — lint, typecheck, full test suite, `pnpm build`, and every `ci:*` audit including
 `rls-audit`, `tenant-scope`, `static-policy`. The only red rows are `promised-tests`
-(40 titles, none written yet) and the declared integration-suite command (file does not
+(**54** titles, none written yet) and the declared integration-suite command (file does not
 exist yet). Both resolve on completion of step 4.
 
 `TEST_DATABASE_POOL_URL` is present in `.env.local` and the DB is at migrations head
@@ -91,7 +99,8 @@ rather than self-skip.
 | 1 | REVISE, 7 findings | Rate-limit exclusion was broken by URL decoding; "propagate → Sentry" leaked the raw token; `redeemed_at` racy. All folded into rev 2. |
 | 2 | REVISE, 7 | Closed 5/6/7. Showed rev 2's log fix was **false** (Fastify logs before the handler) and its ordering let a spent token undo an audited Correction path removal. → rev 3. |
 | 3 | REVISE, 5 | Closed 3/9 + GET/HEAD. Found rev 3's `SELECT 1` **recreated the mint race**, its scrub broke two shipped `/approve/` contracts, and its counter rested on a false single-replica premise. → rev 4. |
-| 4 | **not run** | Codex tooling failed 4×. Owner runs `/codex:adversarial-review` instead. |
+| 4 | **not run** | Codex tooling failed 4×. Replaced by the owner-run pass below. |
+| owner-run `/codex:adversarial-review` | **needs-attention**, 3 high | `?done=1` could render a **false unsubscribe success**; unknown-token logging was an unbounded amplification path (my "like every other ingress route" justification was a false equivalence — they keep the limiter, this route does not); handoff/state drifted to a superseded revision. All 3 accepted → **rev 5**. Report: `plan-adversarial-owner-run.md`. |
 
 **Empirically verified in place of round 4** (commit `ae28c6e5`) — the two riskiest claims,
 measured rather than argued:
@@ -133,10 +142,16 @@ Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
 
 ## Next actions
 
-1. Revise the plan to revision 3 against the seven items above; re-submit for round 3.
-   **That is the last round** — if it does not come back APPROVED, escalate the
-   disagreement to the owner rather than looping.
-2. On APPROVED, present the plan to the owner for sign-off.
+1. **Owner re-runs `/codex:adversarial-review`** against revision 5. The programmatic codex
+   path is unreliable here (4 consecutive failures — see Sharp edges); the user-invocable
+   command is the working route.
+2. Triage the verdict into `docs/reviews/feat-644-unsubscribe-opt-out/`. If clean, present
+   revision 5 to the owner for sign-off.
+3. On sign-off: `set-phase plan_approved` → `set-phase executing` → run T1/T2/T3 via
+   `superpowers:subagent-driven-development`.
+4. **First-task spot check is mandatory** (see below).
+
+### Superseded next-actions from earlier rounds
 3. `bash scripts/feature-state.sh set-phase plan_approved`, then `set-phase executing`, and
    run step 4 as three tracer tickets (T1 ingress path, T2 landing path, T3 docs) via
    `superpowers:subagent-driven-development`.

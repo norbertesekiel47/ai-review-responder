@@ -17,10 +17,10 @@
     "POST /ingress/unsubscribe/<token> on Railway writes a global Suppression ledger row with source='unsubscribe_one_click' and returns 200 only after the transaction commits",
     "GET /ingress/unsubscribe/<token> 302s to ${NEXT_PUBLIC_APP_URL}/u/<token> for clients that treat the List-Unsubscribe header as a link",
     "GET /u/<token> renders a no-login, no-fee, no-form-fields page with one prominent button, naming the originating business, and writes nothing",
-    "Submitting that button POSTs to /api/u/<token>, which writes source='unsubscribe_link' and 303s to /u/<token>?done=1",
-    "GET /u/<token>?done=1 renders the success copy — the generic 'the business that contacted you' sentence, naming NO business — and writes nothing",
+    "Submitting that button POSTs to /api/u/<token>, which writes source='unsubscribe_link' and 303s to /u/<token>?ok=<signed receipt> — the receipt is minted server-side only after the write commits",
+    "GET /u/<token>?ok=<receipt> renders the success copy — the generic 'the business that contacted you' sentence, naming NO business — only when the receipt verifies against the token hash and is within its 10-minute TTL; it writes nothing. An absent, malformed, forged or expired receipt (including a hand-crafted ?done=1) falls through to the button page or the neutral page and NEVER renders success",
     "Unknown, malformed, and already-redeemed tokens all render one identical neutral page carrying the mailto: fallback",
-    "An unknown or malformed token at the ingress returns 503 with a warn log carrying only a token_hash prefix and deliberately NO Sentry event, so the provider retries and a #630 mint-race can still be recovered without turning scanner traffic into unbounded Sentry volume; an unknown token at POST /api/u/<token> 303s to the neutral page rather than claiming a success that did not happen",
+    "An unknown or malformed token at the ingress returns 503 with deliberately NO Sentry event and NO per-request log line — it is counted into a 60s aggregate — so the provider retries and a #630 mint-race is still recoverable without giving scanner traffic an unbounded telemetry path; an unknown token at POST /api/u/<token> 303s to the bare neutral page rather than claiming a success that did not happen",
     "Every path above keeps working with SOLICITATION_SEND_ENABLED off (DR1)"
   ],
   "invariants": [
@@ -43,8 +43,8 @@
     "A provider re-POSTs the same token: 200 no-op, no duplicate row, no error",
     "The handle is already suppressed by a different source (e.g. complaint): first-write-wins leaves the earlier row alone and redemption still reports success",
     "The token's account was purged: account_id/business_id/ask_id are NULL, the ledger row is still written with account_id NULL, and the page falls back to generic copy",
-    "Unknown or malformed token at the ingress: 503 plus a Sentry report and a log carrying only a token_hash prefix — the provider retries, so a token minted in a transaction that commits after the ask is delivered is still redeemable (adversarial review round 1, finding 1)",
-    "Unknown token at POST /api/u/<token>: 303s to the neutral page, never to ?done=1 — a compliance page must not claim an opt-out that did not happen",
+    "Unknown or malformed token at the ingress: 503, NO Sentry event and NO per-request log line (counted into the 60s aggregate instead) — the provider retries, so a token minted in a transaction that commits after the ask is delivered is still redeemable (round-1 finding 1; telemetry bounded per owner-run review finding 2)",
+    "Unknown token at POST /api/u/<token>: 303s to the bare neutral-page URL with NO receipt minted — a compliance page must not claim an opt-out that did not happen",
     "A percent-encoded ingress path (/ingress/%75nsubscribe/<token>) resolves to the unsubscribe route and must ALSO escape the rate limiter — a raw-string prefix test fails this, so the exclusion keys on resolved route config, not on URL text (finding 2)",
     "An unmatched path under the unsubscribe prefix (/ingress/unsubscribe/x/extra) 404s and must STAY rate-limited, so the exclusion cannot open an unthrottled flood namespace (finding 2)",
     "The ledger write throws: the adapter catches it, reports a sanitized exception to Sentry, and returns 503 itself — the raw token must never reach Fastify's default error handler, whose pino serializer logs request.url (finding 3, invariant #5)",
@@ -55,11 +55,14 @@
     "SOLICITATION_UNSUBSCRIBE_MAILTO unset: the neutral page omits the mailto line rather than rendering a broken one",
     "SOLICITATION_SEND_ENABLED off: ingress, landing page, and every ledger write stay fully live (DR1)",
     "Provider POST carries application/x-www-form-urlencoded body 'List-Unsubscribe=One-Click': parsed by the existing app-wide parser, contents ignored and never required",
-    "The global /ingress/ rate-limit onRequest hook must not fire for /ingress/unsubscribe/ while still firing for every other ingress path AND for near-miss paths that share the prefix without the separator",
-    "The ledger write throws: 5xx plus Sentry, never a 2xx",
+    "The global /ingress/ rate-limit onRequest hook must not fire for the resolved unsubscribe routes (POST, GET and inherited HEAD) while still firing for every other ingress path — including percent-encoded spellings of the ingress root such as /%69ngress/resend, which resolve correctly but defeat a raw-URL prefix test — and for unmatched 404 paths under the prefix",
+    "The ledger write throws: 503 plus a sanitized Sentry event, never a 2xx — Sentry is reserved for genuine infra failure, which is rare and self-bounding, unlike unknown-token traffic",
     "Cross-site form POST to /api/u/<token>: accepted by design — a token can only suppress the handle it already belongs to (§9.2)",
     "business_id is non-null but the businesses row is gone: generic fallback copy, not an error",
-    "§5.5 vs §5.4 conflict, resolved at plan time: rendering §5.5's named-business sentence on the ?done=1 success page would require resolving a now-redeemed token, making it distinguishable from an unknown one on that URL. §5.4 wins — the button page carries the business name, the success page uses the generic sentence, and the module exports ONE lookup that collapses unknown/malformed/redeemed to null"
+    "§5.5 vs §5.4 conflict, resolved at plan time: rendering §5.5's named-business sentence on the ?done=1 success page would require resolving a now-redeemed token, making it distinguishable from an unknown one on that URL. §5.4 wins — the button page carries the business name, the success page uses the generic sentence, and the module exports ONE lookup that collapses unknown/malformed/redeemed to null",
+    "A hand-crafted /u/<anything>?done=1 or a forged/expired ?ok= receipt: renders the button page or the neutral page, NEVER the success copy — the success view is bound to a server-minted HMAC receipt, not to the presence of a query parameter (owner-run adversarial review, finding 1)",
+    "Hostile or scanner traffic hammering unknown tokens: at most ONE aggregated warn line per 60-second window per process, never one per request (owner-run adversarial review, finding 2)",
+    "Worker restarts mid-window: the partial unknown-token count is flushed by the graceful shutdown sequence; an ungraceful crash loses at most one 60s window, which is acceptable for a rate signal and feeds no correctness decision"
   ],
   "existing_patterns_to_follow": [
     "src/app/(public)/approve/[token]/page.tsx — hash-on-read, GET reads and renders, every mutation a separate POST (the same link-prefetcher threat, already answered)",
@@ -142,10 +145,16 @@
     "unknown malformed and already-redeemed tokens render the identical neutral page",
     "the neutral page surfaces the mailto fallback when the address is configured",
     "the neutral page omits the mailto line when the address is unset",
-    "done renders the success copy without writing",
     "the success page names no business",
     "the landing page renders exactly one main content landmark",
-    "robots disallows the unsubscribe landing path"
+    "robots disallows the unsubscribe landing path",
+    "a crafted done query parameter never renders the success copy",
+    "a forged receipt never renders the success copy",
+    "an expired receipt never renders the success copy",
+    "the success copy renders only for a receipt minted after a committed write",
+    "hostile unknown token traffic emits at most one warning per window",
+    "the aggregated unknown token line carries the replica id and an accurate count",
+    "a partial unknown token window is flushed on graceful shutdown"
   ],
   "verification_commands": [
     "pnpm test src/lib/solicitation/__tests__/unsubscribe.integration.test.ts"
@@ -154,7 +163,7 @@
   "dependencies_added": [],
   "rollback_plan": "Revert the PR. There is no migration to reverse — 096 created both tables and 097 registered both analytics event names, and this ticket adds neither. Suppression ledger rows written before the revert are recipient opt-outs and MUST be kept; nothing in the rollback deletes them. SOLICITATION_UNSUBSCRIBE_MAILTO can be left set or unset with no effect once the code is gone. The real cost of a revert is that already-delivered asks advertise URLs that would 404, which is why this rides staging first and the revert window must be short.",
   "observability": [
-    "One structured [ingress/unsubscribe] log line per request carrying a token_hash prefix and an outcome of redeemed | already_suppressed | unknown | failed — never the handle, never the raw token. Deliberately one line per request and NOT an aggregated counter: a per-process counter would silently under-report across the cross-deployment replica overlap that CLAUDE.md says to expect, and log volume here is already bounded by the same request rate as the route's own DB query",
+    "One structured [ingress/unsubscribe] log line per request for outcomes redeemed | already_suppressed | failed, carrying a token_hash prefix — never the handle, never the raw token. UNKNOWN tokens are deliberately EXCLUDED from per-request logging: the route is exempt from the global ingress limiter (§9.2), so a scanner sweep or provider retry storm would otherwise be an unbounded log-ingestion path. They are counted instead and emitted as at most ONE line per 60s per process, tagged with replica_id so counts sum correctly across a cross-deployment replica overlap, flushed on graceful shutdown",
     "A loud Sentry error on ledger write failure ONLY — the §9.1 signal. Unknown tokens deliberately emit NO Sentry event: the route is unauthenticated and unrate-limited by §9.2, worker Sentry has no error sampling or dedup, and scanner traffic would otherwise become unbounded event volume",
     "The solicitation_suppressed analytics event already emitted by recordSuppression, whose source property splits unsubscribe_one_click (RFC 8058, unattended) from unsubscribe_link (human click) so the two channels are measurable separately",
     "A rising unknown-outcome rate at the ingress is the earliest evidence that #630's token minting is broken — a token we advertised but cannot resolve"
