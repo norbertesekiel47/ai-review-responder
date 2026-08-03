@@ -184,7 +184,8 @@ parallel dispatch would conflict.
 | Slice | Scope | Files | State |
 |---|---|---|---|
 | **T1a** | Crypto primitives + redaction. Zero DB, zero routes. `hashUnsubscribeToken`, `mintUnsubscribeRawToken`, `isWellFormedUnsubscribeToken`, `mint`/`verifyUnsubscribeReceipt` (§1.4a, §1.8) · scrub generalisation (§1.5, finding 10) · log redaction (§1.5) | `src/lib/solicitation/unsubscribe.ts`, `src/lib/shared/sentry-scrub.ts`, `worker/config/fastify-options.ts` + tests | ✅ **DONE** — `2e181fc0` + fix `8efd2b8d`. Spec ✅, quality **Approved** after one Critical. One touch-up queued (below). |
-| **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | **implemented** `de937391`, 16 titles + a `fast-check` property; spec review in flight |
+| **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | ✅ **DONE** — `de937391` + fixes `669cc21c`. Spec ✅, quality Approved, all 8 follow-ups closed. |
+| **T2** | The `/u/<token>` landing path on Vercel. Three render states (§1.8 receipt **+ render-time ledger read**), plain form POST → 303, `robots.ts`, the mailto config reader | `src/app/(public)/u/**`, `src/app/api/u/**`, `src/app/robots.ts`, `src/lib/config/server.ts` + tests | **in flight** — the last 20 titles |
 | **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6), **and the D4 boot gate** | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started — call sites located, see below |
 
 ### T1c call sites (located 2026-08-03, so a resumed session need not re-derive them)
@@ -220,7 +221,25 @@ Two items came out of its sub-threshold notes, plus whatever the quality review 
 `failClosed` reporting before it replies was also noted sub-threshold; fold it in only if the
 quality review independently raises it.
 
-### Queued T1b fix batch — MUST land before T2 is dispatched
+### T1b fix batch — ✅ ALL EIGHT CLOSED in `669cc21c`
+
+Landed before T2 was dispatched, as required, so T2 was written against the corrected
+interface rather than patched afterwards. Two outcomes better than specified:
+
+- **Item 1** shipped as `redemptionConfirmsSuppression(outcome)` backed by a **total
+  `Record<UnsubscribeRedemptionStatus, boolean>`** — not a `switch`. So it is
+  order-independent *and* a future fifth outcome without an answer is a **`tsc` error**, not a
+  silent omission. The failure mode moved from runtime to compile time.
+- **Item 8** factored the ledger query into one private `hasLiveGlobalSuppression` shared by
+  the spent branch and the new `hasLiveGlobalSuppressionForToken`, **mutation-verified**:
+  deleting `AND scope = 'global'` once reddens **both** consumers. That is the actual proof of
+  single ownership, as opposed to two copies that happen to agree today. Allowlist baseline
+  stayed **416** — the two snippets were edited in place, no new statements.
+
+Original items, for the record:
+
+| # | Sev | What |
+|---|---|---|
 
 T1b passed spec (✅) and quality (Approved), but with two **interface-contract** gaps the
 quality reviewer explicitly wanted closed "before T1c is written against this surface". They
