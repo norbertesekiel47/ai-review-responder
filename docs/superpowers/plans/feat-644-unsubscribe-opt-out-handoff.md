@@ -185,7 +185,27 @@ parallel dispatch would conflict.
 |---|---|---|---|
 | **T1a** | Crypto primitives + redaction. Zero DB, zero routes. `hashUnsubscribeToken`, `mintUnsubscribeRawToken`, `isWellFormedUnsubscribeToken`, `mint`/`verifyUnsubscribeReceipt` (§1.4a, §1.8) · scrub generalisation (§1.5, finding 10) · log redaction (§1.5) | `src/lib/solicitation/unsubscribe.ts`, `src/lib/shared/sentry-scrub.ts`, `worker/config/fastify-options.ts` + tests | ✅ **DONE** — `2e181fc0` + fix `8efd2b8d`. Spec ✅, quality **Approved** after one Critical. One touch-up queued (below). |
 | **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | **implemented** `de937391`, 16 titles + a `fast-check` property; spec review in flight |
-| **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6), **and the D4 boot gate** | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started |
+| **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6), **and the D4 boot gate** | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started — call sites located, see below |
+
+### T1c call sites (located 2026-08-03, so a resumed session need not re-derive them)
+
+- **The hook to replace** — `worker/index.ts:510-512`. Confirmed to be exactly the defect
+  §1.4 describes: it gates on raw `request.url.startsWith('/ingress/')`, so
+  `/%69ngress/resend` resolves to the real route while failing that test and escaping the
+  limiter entirely. **This is a live pre-existing bypass affecting every ingress provider**
+  (Stripe, Resend, Telegram, Twilio, Zernio), not one #644 introduces — fixing it here is
+  in-surface and owner-approved (plan §1.4).
+- **Route registration block** — `worker/index.ts:617-630`, all `app.post('/ingress/…', { config: { rawBody: true } }, handler)`.
+  The unsubscribe routes take **no** `rawBody`, no signature, no `claimInboundEvent`.
+- **Boot assertion block** — `worker/index.ts:523-529`, seven `assert*Env()` calls in sequence.
+  The D4 gate goes here, calling a new `assertUnsubscribeTokenSecretConfigured()` exported from
+  `src/lib/solicitation/unsubscribe.ts` (precedent: `assertKeepMyDataTokenSecretConfigured`
+  in `src/lib/account-offboarding/tokens.ts:29`). **In-surface — no third surface amendment.**
+- **Limiter** — `worker/ingress/rate-limit.ts` exports `enforceIngressRateLimit(request, reply)`
+  and `ingressClientIp`. It fails **open** on a Redis error by design. The
+  `FastifyContextConfig` module augmentation for `skipIngressRateLimit` belongs in this file,
+  beside the rule it governs (§1.4, finding 9).
+- **Handler shape precedent** — `worker/ingress/resend.ts`.
 
 ### Queued T1a touch-up (do NOT lose — it is the one open thread on a closed slice)
 
