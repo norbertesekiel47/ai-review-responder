@@ -155,11 +155,14 @@ function postUnsubscribe(token: string) {
   });
 }
 
-/** The receipt a real POST handed back, read off its redirect. */
+/**
+ * The receipt a real POST handed back, read off its redirect. The Location is
+ * relative on purpose, so it is resolved against a throwaway base here.
+ */
 function receiptFrom(response: Response): string | null {
   const location = response.headers.get('location');
   if (location === null) return null;
-  return new URL(location).searchParams.get('ok');
+  return new URL(location, APP_ORIGIN).searchParams.get('ok');
 }
 
 describe('/u/<token> unsubscribe landing', () => {
@@ -193,7 +196,9 @@ describe('/u/<token> unsubscribe landing', () => {
     const response = await postUnsubscribe(token);
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${APP_ORIGIN}/u/${encodeURIComponent(token)}`);
+    // Relative on purpose: the browser resolves it against the origin that
+    // served the POST, so a spoofed Host cannot move the recipient off-site.
+    expect(response.headers.get('location')).toBe(`/u/${encodeURIComponent(token)}`);
     expect(receiptFrom(response)).toBeNull();
     expect(ledger.redemptionWrites()).toBe(0);
   });
@@ -208,7 +213,7 @@ describe('/u/<token> unsubscribe landing', () => {
     expect(container.querySelector('form')).toHaveAttribute('action', '/api/u/a%2Fb');
 
     const response = await postUnsubscribe(token);
-    expect(response.headers.get('location')).toBe(`${APP_ORIGIN}/u/a%2Fb`);
+    expect(response.headers.get('location')).toBe('/u/a%2Fb');
     // A malformed token never reaches the database.
     expect(mockBegin).not.toHaveBeenCalled();
   });
