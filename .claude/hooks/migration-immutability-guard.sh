@@ -46,11 +46,30 @@ HEAD_NUM=$(sed -n 's/^Current head: \*\*\([0-9][0-9]*\)\*\*.*/\1/p' "$LOG" | hea
 [ -n "$HEAD_NUM" ] || exit 0
 
 if [ "$((10#$NUM))" -le "$((10#$HEAD_NUM))" ]; then
+  # The head number is a PROXY for "applied to staging/prod", and it goes
+  # stale in one direction: a feature branch that bumps the log before its
+  # promotion (#643's T6) makes every in-place amendment of its own
+  # still-local migration a false positive. The truer signal is the
+  # migration's OWN log entry: one carrying LOCAL-ONLY has not ridden a
+  # promotion, so amending it in place is legitimate. Promotion replaces the
+  # marker with the "Applied to STAGING/PRODUCTION …" sentence (convention
+  # in the log header), which re-arms this guard for that migration.
+  MARKER="- **${NUM}**"
+  ENTRY=$(awk -v marker="$MARKER" '
+    !grab && index($0, marker) == 1 { grab = 1; print; next }
+    grab && (/^- \*\*[0-9]/ || /^#/) { exit }
+    grab { print }
+  ' "$LOG")
+  if [ -n "$ENTRY" ] && printf '%s\n' "$ENTRY" | grep -q 'LOCAL-ONLY'; then
+    exit 0
+  fi
+
   NEXT=$(printf '%03d' "$((10#$HEAD_NUM + 1))")
   echo "BLOCKED: $BASE is at or below the applied migration head ($HEAD_NUM per migrations-log.md)." >&2
   echo "Applied migrations are immutable — write a NEW migration (${NEXT}_*.sql) instead," >&2
   echo "and update migrations-log.md in the same change." >&2
-  echo "Escape hatch if this file is genuinely unapplied: MIGRATION_GUARD_DISABLE=1." >&2
+  echo "If this file is genuinely unapplied (local container only), mark its migrations-log" >&2
+  echo "entry LOCAL-ONLY — the guard unblocks exactly those. Last resort: MIGRATION_GUARD_DISABLE=1." >&2
   exit 2
 fi
 
