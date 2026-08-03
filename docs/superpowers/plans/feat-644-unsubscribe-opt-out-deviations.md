@@ -59,12 +59,36 @@ pino serializers bind only to the `req`/`res`/`err` objects — never to the mes
 exact case §1.5 was written for still leaked the raw Unsubscribe token, violating
 invariant #5.
 
-Fastify writes the URL in **two distinct shapes**, and the plan only knew about one:
+Fastify writes the URL in **three distinct shapes**, and the plan knew about one:
 
-| Shape | Emitted by | Reached by |
-|---|---|---|
-| serialized request object | `incoming request`, before `onRequest` and before routing | `serializers.req` |
-| plain message string | the default 404 handler | `hooks.logMethod` |
+| Shape | Emitted by | Level | Reached by |
+|---|---|---|---|
+| serialized request object | `incoming request`, before `onRequest` and before routing | `info` | `serializers.req` |
+| plain message string | the default 404 handler | `info` | `hooks.logMethod` |
+| serialized **error** object | `FST_ERR_REP_ALREADY_SENT` (`reply.js:145`); any 5xx | `warn` / `error` | `serializers.err` |
+
+**The third shape is the one that mattered, and it was found last** (T1a quality review,
+Critical). `hooks.logMethod` rewrites only **string** arguments, so an `Error` argument passes
+through untouched and `err.message` / `err.stack` keep the raw URL — and the raw token.
+
+The sting is in the levels. Production runs the ingress logger at **`warn`**
+(`buildFastifyOptions(productionConfigRequired)`), so the two shapes the first fix closed are
+`info` and **are never emitted in production at all**. The error shape logs at `warn` and
+`error` — above the threshold. The first fix therefore closed exactly the shapes prod does not
+emit and left open the one it does, while the deviations entry below claimed the leak was
+shut. Invariant #5 was unsatisfied on the worker the whole time.
+
+Compounding it, the test harness pinned `buildFastifyOptions(false)` — the `info` lane — and
+drove no error path, so the suite was structurally incapable of failing for this, despite
+carrying a comment naming the prod `warn` level as what let the class survive three reviews.
+
+**Fix in flight:** wrap pino's `stdSerializers.err` with the same single rule, and restructure
+the suite to assert against the **production `warn` lane** with a real error path. One rule,
+now four sinks (Sentry, `req`, message strings, `err`).
+
+**Lesson worth promoting at merge:** every previous instance of this bug was found by
+*measuring* Fastify rather than reasoning about it — but measurement at the wrong log level is
+just a slower way to be wrong. Redaction tests must run at the level production runs at.
 
 **Closed in the same file** with a pino `hooks.logMethod` applying the *same single rule*
 (`redactSensitivePathsAndQueries`) to every string argument. One rule, now three sinks
@@ -77,7 +101,12 @@ only; `createWorkerLogger` (`src/lib/shared/logger.ts`) is a separate logger and
 so CLAUDE.md's "string args are logged verbatim" note still holds for the worker's own
 structured logging.
 
-**Verdict: ACCEPT — confirmed empirically, not argued.** The T1a spec reviewer stood up four
+**Verdict: ACCEPT, but necessary-not-sufficient — see the third shape above.** Both mechanisms
+below are load-bearing and neither is redundant; they were simply not the whole set, and the
+missing one was the only member of it production emits. The empirical confirmation that
+follows is sound as far as it goes — its limit was the log level it ran at, not its method.
+
+The T1a spec reviewer stood up four
 real Fastify 5.8.5 instances from `buildFastifyOptions` with pino's stream captured and
 injected `GET /ingress/unsubscribe/SECRET_TOK_ABC123/extra`. With the hook removed the 404
 line reads `"msg":"Route GET:/ingress/unsubscribe/SECRET_TOK_ABC123/extra not found"` — raw
