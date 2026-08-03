@@ -20,7 +20,7 @@
     "Submitting that button POSTs to /api/u/<token>, which writes source='unsubscribe_link' and 303s to /u/<token>?done=1",
     "GET /u/<token>?done=1 renders the success copy — the generic 'the business that contacted you' sentence, naming NO business — and writes nothing",
     "Unknown, malformed, and already-redeemed tokens all render one identical neutral page carrying the mailto: fallback",
-    "An unknown or malformed token at the ingress returns 503 plus a Sentry report so the provider retries and a #630 mint-race can still be recovered; an unknown token at POST /api/u/<token> 303s to that neutral page rather than claiming a success that did not happen",
+    "An unknown or malformed token at the ingress returns 503 with a warn log carrying only a token_hash prefix and deliberately NO Sentry event, so the provider retries and a #630 mint-race can still be recovered without turning scanner traffic into unbounded Sentry volume; an unknown token at POST /api/u/<token> 303s to the neutral page rather than claiming a success that did not happen",
     "Every path above keeps working with SOLICITATION_SEND_ENABLED off (DR1)"
   ],
   "invariants": [
@@ -109,6 +109,10 @@
     "redacts a percent-encoded unsubscribe path from Sentry",
     "redacts a token containing an encoded slash to the end of the path",
     "does not report an unknown token to Sentry",
+    "a token minted after the claim snapshot reports unknown rather than already suppressed",
+    "still enforces the ingress rate limit on a percent-encoded ingress root path",
+    "still enforces the ingress rate limit on an unmatched percent-encoded ingress path",
+    "leaves approve path redaction segment-bounded",
     "stamps redeemed_at even when an existing suppression row wins first-write-wins",
     "two overlapping redemptions write exactly one ledger row and one redeemed_at",
     "encodes reserved characters when building the landing page redirect",
@@ -150,8 +154,8 @@
   "dependencies_added": [],
   "rollback_plan": "Revert the PR. There is no migration to reverse — 096 created both tables and 097 registered both analytics event names, and this ticket adds neither. Suppression ledger rows written before the revert are recipient opt-outs and MUST be kept; nothing in the rollback deletes them. SOLICITATION_UNSUBSCRIBE_MAILTO can be left set or unset with no effect once the code is gone. The real cost of a revert is that already-delivered asks advertise URLs that would 404, which is why this rides staging first and the revert window must be short.",
   "observability": [
-    "One structured [ingress/unsubscribe] log line per request carrying a token_hash prefix and an outcome of redeemed | noop | unknown | failed — never the handle, never the raw token",
-    "A loud Sentry error on ledger write failure — the §9.1 signal; its absence plus a 5xx rate is the alarm",
+    "One structured [ingress/unsubscribe] log line per request carrying a token_hash prefix and an outcome of redeemed | already_suppressed | unknown | failed — never the handle, never the raw token. Deliberately one line per request and NOT an aggregated counter: a per-process counter would silently under-report across the cross-deployment replica overlap that CLAUDE.md says to expect, and log volume here is already bounded by the same request rate as the route's own DB query",
+    "A loud Sentry error on ledger write failure ONLY — the §9.1 signal. Unknown tokens deliberately emit NO Sentry event: the route is unauthenticated and unrate-limited by §9.2, worker Sentry has no error sampling or dedup, and scanner traffic would otherwise become unbounded event volume",
     "The solicitation_suppressed analytics event already emitted by recordSuppression, whose source property splits unsubscribe_one_click (RFC 8058, unattended) from unsubscribe_link (human click) so the two channels are measurable separately",
     "A rising unknown-outcome rate at the ingress is the earliest evidence that #630's token minting is broken — a token we advertised but cannot resolve"
   ],

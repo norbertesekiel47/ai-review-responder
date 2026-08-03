@@ -7,7 +7,16 @@
 **Depends on** #643 (migration 096/097 + `src/lib/solicitation/suppression.ts`) — merged, `4186cefa`
 **Hands off to** #630 (imports `hashUnsubscribeToken`), #622 (shares `SOLICITATION_UNSUBSCRIBE_MAILTO`)
 
-**Revision 3** — supersedes revision 2 after adversarial round 2
+**Revision 4** — supersedes revision 3 after adversarial round 3
+(`plan-adversarial-round3.md`, VERDICT: REVISE, 5 findings). Round 3 **closed** findings 3
+(raw logging, independently reproduced), 9 (types), and the GET/HEAD half of 2, and
+corrected one of my own claims: retaining non-null provenance *before* a purge is
+legitimate per §6.3, so revision 3's "stale provenance" framing was partly wrong. Revision 4
+fixes the three defects revision 3 *introduced* — the `SELECT 1` mint-race, the `/approve/`
+scrub over-redaction, and the intake contradiction — plus the raw-URL hook scoping and the
+counter's false replica premise.
+
+**Revision 3** — superseded. Followed adversarial round 2
 (`docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round2.md`, VERDICT: REVISE).
 Round 2 closed findings 5/6/7 and cleared the crash-net interaction and the `suppressionId`
 removal. Revision 3 addresses findings 1, 2, 3, 4 (reopened) and the new 8, 9, 10.
@@ -92,10 +101,24 @@ UPDATE solicitation_unsubscribe_tokens
   committed first, those columns are already NULL and the suppression row correctly carries
   `account_id = NULL` (§5.2). If we commit first, the purge scrubs afterwards. Either
   interleaving is correct. → `status: 'redeemed'`.
-- **No row returned** → disambiguate with a separate read:
-  `SELECT 1 FROM solicitation_unsubscribe_tokens WHERE token_hash = $1`.
-  Exists → `already_suppressed` (no write at all, so a Correction path removal stands).
-  Absent → `unknown_token`.
+- **No row returned** → disambiguate by reading **`redeemed_at`**, never by a bare
+  existence check:
+  `SELECT redeemed_at FROM solicitation_unsubscribe_tokens WHERE token_hash = $1`.
+  - Row with `redeemed_at IS NOT NULL` → `already_suppressed`. No write at all, so a
+    Correction path removal stands.
+  - Row with `redeemed_at IS NULL` → **the token was minted after our UPDATE's snapshot.**
+    Report `unknown_token` (→ 503), so the provider retries and succeeds once the mint is
+    visible. Reporting success here is exactly the mint-race lost opt-out this ticket
+    exists to prevent.
+  - No row → `unknown_token`.
+
+> **Why a bare `SELECT 1` is wrong** (round-3 finding 1). The shared client sends a plain
+> `BEGIN` with no isolation override (`src/lib/db/server.ts:40`), so this runs at **Read
+> Committed** against PostgreSQL 16. Interleaving: our `UPDATE` matches nothing; the #630
+> mint transaction commits; our follow-up read — taking a *fresh* snapshot — sees the new,
+> **unredeemed** token and would report `already_suppressed`. `recordSuppression` never
+> runs and the provider receives a success-shaped no-op with no suppression in existence.
+> Branching on `redeemed_at` converts that interleaving into a retryable 503.
 
 `recordSuppression` is never reached on the already-spent path. That is the whole point.
 
@@ -127,11 +150,47 @@ app.post('/ingress/unsubscribe/:token', UNSUBSCRIBE_ROUTE_OPTS, handleUnsubscrib
 app.get('/ingress/unsubscribe/:token',  UNSUBSCRIBE_ROUTE_OPTS, handleUnsubscribeGet);
 
 app.addHook('onRequest', async (request, reply) => {
-  if (!request.url.startsWith('/ingress/')) return;
+  // Scope: a request is "ingress" if EITHER the resolved route is (encoding-proof for
+  // matched routes) OR the decoded raw path looks like it (so 404s under /ingress/ stay
+  // throttled). Both arms are needed — see the two notes below.
+  const isIngress =
+    request.routeOptions.url?.startsWith('/ingress/') === true ||
+    decodeIngressPath(request.url).startsWith('/ingress/');
+  if (!isIngress) return;
+
+  // Exemption: keyed STRICTLY on resolved route config, so an unmatched path can never
+  // inherit it.
   if (request.routeOptions.config?.skipIngressRateLimit === true) return;
+
   await enforceIngressRateLimit(request, reply);
 });
 ```
+
+**Round-3 finding 2 — the scoping test had the same disease as the exemption.** Revision 3
+still gated enforcement on raw `request.url.startsWith('/ingress/')`. Reproduced on 5.8.5:
+`/%69ngress/resend` **resolves to** `/ingress/resend` but fails that raw check, so it
+escapes the limiter entirely. Revision 4 derives *both* the scope and the exemption from
+`request.routeOptions.url`, the decoded route pattern.
+
+> This is a **pre-existing bypass affecting every `/ingress/` route**, not one this ticket
+> introduces — but the intake promises a test asserting the limiter still fires for every
+> other ingress path, and that promise is false today. Fixing it here is in-surface
+> (`worker/index.ts`) and closes the gap for Stripe/Resend/Telegram/Twilio/Zernio at the
+> same time. Flagged to the owner as a scope question: it is defensible as its own ticket.
+
+**Why both arms are required.** Unmatched paths yield `routeOptions.url === undefined`, so
+a resolved-route-only test would drop every 404 out of the hook — reopening precisely the
+unthrottled flood namespace round 2 flagged. The decoded-raw arm keeps
+`/ingress/unsubscribe/x/extra` and `/%69ngress/bogus` throttled. Conversely a raw-only test
+misses `/%69ngress/resend`. Neither arm alone is correct.
+
+`decodeIngressPath` is a local total helper: strip query/fragment, `decodeURIComponent` in
+a `try/catch`, fall back to the raw path on malformed input.
+
+**Test matrix (via `app.inject()`):** matched unsubscribe POST/GET/HEAD exempt ·
+`/ingress/%75nsubscribe/<t>` exempt · `/ingress/resend` limited · `/%69ngress/resend`
+limited · `/ingress/unsubscribe/x/extra` (404) limited · `/%69ngress/bogus` (404) limited ·
+non-ingress route untouched.
 
 **Finding 9 — the typed seam.** `fastify-raw-body` augments `FastifyContextConfig` with
 only `rawBody` (`plugin.d.ts:3`) and Fastify's base interface is otherwise empty
@@ -171,15 +230,23 @@ prefix `/ingress/%75nsubscribe/…` routes correctly but misses a literal regex,
 containing `%2F` would decode to a second path segment that `[^/?#\s]+` leaves partly
 exposed. Revision 3 therefore:
 
-1. Percent-decodes the path **for matching only** (`try/catch`, malformed input falls back
-   to the raw path).
-2. Redacts **everything after the prefix to the end of the path**, not one segment — a
-   token is always terminal, so this is strictly more conservative and immune to `%2F`.
-3. Returns the original path unchanged when nothing matches, so non-token URLs are not
-   silently rewritten.
-4. Covers `/approve/`, `/u/`, `/api/u/`, `/ingress/unsubscribe/`.
+1. **Leaves the existing `/approve/` rule completely alone.** Revision 3 proposed applying
+   tail redaction to it as well; round-3 finding 3 showed that breaks two shipped
+   contracts — `/api/approve/<token>/edit` must keep `/edit`
+   (`sentry-scrub.test.ts:175`) and the console-message form `GET /approve/tok 200` must
+   keep the status (`sentry-scrub.test.ts:201`). `/approve/` stays segment-bounded,
+   byte-for-byte as today.
+2. Adds a **second, separate rule** for the three new prefixes only —
+   `/u/`, `/api/u/`, `/ingress/unsubscribe/` — which redacts across `/` (so a `%2F`-bearing
+   token cannot half-escape) but still **stops at `?`, `#`, or whitespace**, preserving the
+   console-message contract.
+3. Percent-decodes **for matching only** (`try/catch`; malformed input falls back to the
+   raw path), so the router-equivalent `/ingress/%75nsubscribe/…` spelling is covered.
+4. Returns the input unchanged when nothing matches.
 
-Test matrix must include the router-equivalent encoded spelling and a `%2F`-bearing token.
+**Test matrix must pin the regressions, not just the new paths:** the two existing
+`/approve/` contracts above, plus the encoded route spelling, a `%2F`-bearing token, and
+`/users/123` (which must NOT match the `/u/` prefix).
 
 ### 1.6 Bounded observability on an unrate-limited route (finding 8)
 
@@ -192,13 +259,28 @@ per request.
 
 | Cause | Sentry | Log |
 |---|---|---|
-| Ledger write / infra failure | **Yes** — genuinely exceptional, inherently rare, already alarm-worthy | per occurrence |
-| Unknown token | **No** — it is attacker- and scanner-reachable input, not an exception | aggregated: one line per 60s window carrying a count, not one per request |
+| Ledger write / infra failure | **Yes** — genuinely exceptional, inherently rare, already alarm-worthy | one line per occurrence |
+| Unknown token | **No** — attacker- and scanner-reachable input, not an exception | one line per occurrence, `warn`, `token_hash` prefix only |
 
-An unknown token is *expected* traffic on a public endpoint; treating it as an exception is
-what creates the amplification. The mint-race signal the observability plan wants is a
-**rate**, which the windowed counter serves better than N individual events. The counter is
-in-process, which is sound because the worker is single-replica by invariant.
+An unknown token is *expected* traffic on a public endpoint; treating it as an **exception**
+is what creates the amplification, because Sentry is the quota-bounded sink with no error
+sampling or dedup configured (`worker/sentry.ts:6`). Abstaining there is the whole fix.
+
+**Revision 4 drops revision 3's in-process 60-second counter** (round-3 finding 5). Two
+reasons, and the second is the one that matters:
+
+1. Its justification was **factually wrong about this project**. I wrote "single-replica by
+   invariant"; CLAUDE.md is explicit that single-replica operation is **detected, not
+   enforced**, and that cross-deployment replica overlap is *expected* during a normal
+   zero-downtime deploy. A per-process counter silently under-reports across that overlap.
+2. It would need window-emission, reset, and shutdown-flush semantics — none of which the
+   47 promised tests cover — to replace something a log line already does. That is a
+   subsystem in exchange for nothing.
+
+One `warn` line per unknown request is bounded by request volume exactly as the route's own
+DB query already is, and it is what every other ingress route does. The mint-race signal is
+a **rate**, which the existing log pipeline aggregates without new machinery. If volume ever
+justifies sampling, that is a follow-up with evidence, not a guess now.
 
 ### 1.7 What 503 does and does not buy (finding 1)
 
