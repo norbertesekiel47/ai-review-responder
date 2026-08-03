@@ -77,10 +77,18 @@ only; `createWorkerLogger` (`src/lib/shared/logger.ts`) is a separate logger and
 so CLAUDE.md's "string args are logged verbatim" note still holds for the worker's own
 structured logging.
 
-**Verdict: pending** — held until the T1a spec reviewer's empirical confirmation that the
-raw token really does appear without the hook and really does not with it. The plan has twice
-been wrong about Fastify logging behaviour when reasoned about rather than measured, so this
-one is being measured.
+**Verdict: ACCEPT — confirmed empirically, not argued.** The T1a spec reviewer stood up four
+real Fastify 5.8.5 instances from `buildFastifyOptions` with pino's stream captured and
+injected `GET /ingress/unsubscribe/SECRET_TOK_ABC123/extra`. With the hook removed the 404
+line reads `"msg":"Route GET:/ingress/unsubscribe/SECRET_TOK_ABC123/extra not found"` — raw
+token present. With it shipped, `[REDACTED]`. Removing the serializer instead leaks via
+`req.url`, so **both mechanisms are load-bearing** and neither is redundant. Cost measured at
+465 ns/call, and pino skips `logMethod` entirely below level (2 hook fires for 4 calls at
+`level:'warn'`), so the prod default is unaffected. `createWorkerLogger` is `console.*`-based
+rather than pino, so it is genuinely untouched.
+
+This was measured rather than reasoned about precisely because the plan had been wrong about
+Fastify logging behaviour twice before.
 
 ---
 
@@ -111,11 +119,63 @@ The error is reachable only by misconfiguration, never by hostile input.
 
 **Carried as a constraint into T1c and T2** (not a defect):
 
-- The worker asserts `SESSION_COOKIE_SECRET` at boot (`worker/config/startup-assert.ts:449`),
-  so the ingress cannot hit this in practice; its adapter still catches and returns 503 with a
-  Sentry event, per §9.1.
+- The ingress adapter catches it and returns 503 with a Sentry event, per §9.1.
 - **Vercel does not assert it** — `src/lib/config/server.ts:104` reads it as optional. The
   landing page must therefore let this error **propagate loudly** (500) and must NOT swallow
   it into the neutral page. Rendering "we couldn't find that" when the real cause is a missing
   secret would make every opt-out fail invisibly — the precise failure mode §1.8 exists to
   prevent.
+
+### D4 correction — the worker does NOT assert this secret at boot
+
+My original D4 claimed "the worker asserts `SESSION_COOKIE_SECRET` at boot
+(`worker/config/startup-assert.ts:449`), so the ingress cannot hit this in practice."
+**That is false**, caught by the T1a spec reviewer and verified directly.
+
+`startup-assert.ts:447` returns early unless `ACCOUNT_OFFBOARDING_ENABLED === 'true'`, and
+:448 skips again under `MOCK_EXTERNAL_APIS=true`. That flag is documented **Off**
+(`env-vars.md:517` — "leave off until the full 7-PR sequence lands"), so in production today
+`SESSION_COOKIE_SECRET` is **never asserted at worker boot at all**. The assertion is scoped
+to the delete_data flow, not to the secret in general.
+
+**Consequence, which #644 introduces.** Before §1.4a the ingress had no need of this secret.
+Now a worker deployed without it boots perfectly clean, then throws inside
+`isWellFormedUnsubscribeToken` for **every well-formed token**, 503s each one, and the
+provider retries forever — a statutory opt-out silently lost, with no boot signal and no
+distinguishable symptom (§5.4 makes 503 the correct answer for a genuine unknown token too).
+
+**Required in T1c, and it needs no surface amendment.** The shipped precedent is
+`src/lib/account-offboarding/tokens.ts:29`, where the token module exports its own
+`assertKeepMyDataTokenSecretConfigured()` and a composition root calls it. T1c does the same:
+export `assertUnsubscribeTokenSecretConfigured()` from `src/lib/solicitation/unsubscribe.ts`
+and call it from `worker/index.ts` at boot, alongside the seven existing `assert*Env()` calls
+(`worker/index.ts:528`). Both files are already in `allowed_edit_surface`.
+
+Deliberately NOT placed in `worker/config/startup-assert.ts`, despite that being the
+conventional home for boot-time env assertions: that file is outside the edit surface and
+would cost a **third** surface amendment, which the owner has to authorise explicitly. The
+tokens.ts precedent achieves the same guarantee in-surface, and arguably hides information
+better — callers never learn *which* secret the module needs.
+
+---
+
+## D5 — the `/u/` redaction rule over-redacts, and that is the accepted trade
+
+**Raised** 2026-08-03 by the T1a spec reviewer (severity: low).
+
+The `/u/` alternative in `redactSensitivePathsAndQueries` is unanchored, because the shipped
+console-message contract (`GET /u/tok 200`) puts the path mid-string. So any logged string
+containing `/u/` is truncated to the next whitespace — a Sentry breadcrumb
+`https://www.google.com/maps/u/0/contrib/12345` becomes `…/maps/u/[REDACTED]`. In a codebase
+that handles Google Business Profile and Maps URLs, that is a real diagnostics cost.
+
+**ACCEPT.** The rule fails **safe**: over-redaction loses debugging detail, under-redaction
+leaks a statutory token and violates invariant #5. Making the match precise (anchoring to the
+first path segment, so `://host/u/…` and `^/u/…` match while `/maps/u/…` does not) is a
+tighter regex in a code path that has already been got wrong twice across three review
+rounds — and each attempt to make it cleverer is what produced those defects. The asymmetry
+of the two failure modes does not justify the risk.
+
+If it bites in practice, the scoped follow-up is anchoring the `/u/` and `/api/u/`
+alternatives to a path-start boundary; `/ingress/unsubscribe/` is distinctive enough to need
+nothing.
