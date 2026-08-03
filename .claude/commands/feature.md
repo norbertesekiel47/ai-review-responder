@@ -445,14 +445,18 @@ the changed semantics):
   `/code-review` at high effort. Covers repo standards, the
   `codebase-design` deep-module discipline, a Fowler smell baseline, and
   glossary violations (code that renames a `CONTEXT.md` concept).
-- **Adversarial approach agent (RISK = high only)**: the codex rescue
-  agent (read-only, direct `codex exec`) against the branch diff + the
-  intake + the triaged deviations file: challenge the chosen approach,
-  design choices, and assumptions — not line-level defects (the other two
-  agents own those). This replaces the old sequential step 6 pass —
-  running it in parallel with the other axes removes a full review phase
-  from the wall clock. A valid approach-level finding may mean revisiting
-  the plan (step 3), not just patching code.
+- **Adversarial approach agent (RISK = high only)**: invoke
+  `/codex:adversarial-review` directly — it is model-invocable, no owner
+  pause needed. Use `--background --base <fork-point>` so it runs while
+  the other two agents work, and hand it the intake + triaged deviations
+  file paths as focus context. If the plugin runtime errors (it has lost
+  task ids before), fall back to the codex rescue agent via direct
+  `codex exec`. It challenges the chosen approach, design choices, and
+  assumptions — not line-level defects (the other two agents own those).
+  This replaces the old sequential step 6 pass — running it in parallel
+  with the other axes removes a full review phase from the wall clock. A
+  valid approach-level finding may mean revisiting the plan (step 3), not
+  just patching code.
 
 **Round protocol (counter-enforced)**: before dispatching ANY review wave,
 run `bash scripts/feature-state.sh incr-round branch` — the counter lives
