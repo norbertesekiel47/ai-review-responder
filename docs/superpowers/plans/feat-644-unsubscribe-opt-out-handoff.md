@@ -183,9 +183,37 @@ parallel dispatch would conflict.
 
 | Slice | Scope | Files | State |
 |---|---|---|---|
-| **T1a** | Crypto primitives + redaction. Zero DB, zero routes. `hashUnsubscribeToken`, `mintUnsubscribeRawToken`, `isWellFormedUnsubscribeToken`, `mint`/`verifyUnsubscribeReceipt` (§1.4a, §1.8) · scrub generalisation (§1.5, finding 10) · pino serializer (§1.5) | `src/lib/solicitation/unsubscribe.ts`, `src/lib/shared/sentry-scrub.ts`, `worker/config/fastify-options.ts` + tests | **implemented** `2e181fc0`; spec review in flight |
-| **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | not started |
-| **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6) | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started |
+| **T1a** | Crypto primitives + redaction. Zero DB, zero routes. `hashUnsubscribeToken`, `mintUnsubscribeRawToken`, `isWellFormedUnsubscribeToken`, `mint`/`verifyUnsubscribeReceipt` (§1.4a, §1.8) · scrub generalisation (§1.5, finding 10) · log redaction (§1.5) | `src/lib/solicitation/unsubscribe.ts`, `src/lib/shared/sentry-scrub.ts`, `worker/config/fastify-options.ts` + tests | ✅ **DONE** — `2e181fc0` + fix `8efd2b8d`. Spec ✅, quality **Approved** after one Critical. One touch-up queued (below). |
+| **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | **in flight** — 16 verbatim titles |
+| **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6), **and the D4 boot gate** | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started |
+
+### Queued T1a touch-up (do NOT lose — it is the one open thread on a closed slice)
+
+Add `err.aggregateErrors[*].message` to the `redact.paths` in
+`worker/config/fastify-options.ts`, with a test. Deliberately deferred so two agents were
+never committing to one branch at once. Rationale and the two residuals that enumeration
+**cannot** close are D7 in the deviations file; those two are contracts carried into the T1c
+and T2 prompts, not code.
+
+### T1a review outcome — what a resumed session needs to know
+
+Three passes ran (spec, quality, scoped re-review). Reports in `docs/reviews/<branch>/`:
+`t1a-spec-review.md`, `t1a-quality-review.md` (with a "Re-review of 8efd2b8d" section).
+
+- **One Critical, found by the quality pass and genuinely serious.** The first implementation
+  closed two log shapes, both level `info`; production runs the ingress logger at `warn`, so
+  it had closed the shapes prod never emits and left open the one it does. Invariant #5 was
+  unsatisfied on the worker, and the test harness pinned the `info` lane so it could not have
+  failed. Fixed, and the harness now takes `productionConfigRequired` as a **required**
+  parameter — that flaw is what let this class survive four rounds.
+- **Two reviewer claims were wrong and were corrected by measurement**, not argument: the
+  prescribed `stdSerializers.err` fix would have been a phantom dependency (`pino` is not a
+  direct dep and resolves only transitively), and the reviewer's `msg`-already-redacted repro
+  did not reproduce — pre-fix that line leaked three fields, not two. Do not re-trust either
+  claim from the report text; both are annotated in place.
+- **One suggestion rejected on the record:** renaming `isWellFormedUnsubscribeToken`. The name
+  reveals the admissibility abstraction and hides the HMAC mechanism, and it is the symbol
+  #630 imports. Do not re-open.
 
 **First-task enforcement spot check: DONE and PASSED** after T1a — all six committed files
 landed inside `allowed_edit_surface`. Enforcement binds for subagent tool calls in this
