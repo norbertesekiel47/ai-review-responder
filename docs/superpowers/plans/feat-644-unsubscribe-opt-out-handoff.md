@@ -207,6 +207,24 @@ parallel dispatch would conflict.
   beside the rule it governs (§1.4, finding 9).
 - **Handler shape precedent** — `worker/ingress/resend.ts`.
 
+### Queued T1b fix batch — MUST land before T2 is dispatched
+
+T1b passed spec (✅) and quality (Approved), but with two **interface-contract** gaps the
+quality reviewer explicitly wanted closed "before T1c is written against this surface". They
+are batched here rather than fixed piecemeal, and T2 must be written against the **corrected**
+interface. Reports: `t1b-spec-review.md`, `t1b-quality-review.md`.
+
+| # | Sev | What |
+|---|---|---|
+| 1 | **Important** | The success/failure partition of `UnsubscribeRedemption` exists only in prose, referenced **positionally** ("only the first two may claim success"). Reordering the union silently invalidates it, and both callers must re-derive it. Nothing stops `status !== 'unknown_token'` → success, which renders "you have been unsubscribed" for `already_redeemed_not_suppressed` — **the exact false-success class this ticket exists to eliminate**. Fix by pulling it downward: export the predicate from the module so neither caller derives it. |
+| 2 | **Important** | `redeemUnsubscribeToken`'s doc comment omits two caller obligations: (a) it is correct only at **READ COMMITTED** — under REPEATABLE READ the claim raises `40001` instead of blocking, breaking "domain outcomes are returned, not thrown", and this repo already builds REPEATABLE READ txs (`escalations/list.ts:43`, `batch-view.ts:437` — both read-only today, but the precedent exists); (b) the caller's tx holds the token row lock until commit, so no remote call may sit inside it (`production.md`). |
+| 3 | Minor | `business_id` is in the claim's `RETURNING` and on `ClaimedTokenRow` but never read — `recordSuppression` has no field for it. |
+| 4 | Minor | The malformed branch SHA-256s the **unbounded** raw input, reachable exactly when the gate rejected it for exceeding `MAX_SIGNED_INPUT_LENGTH` — whose own comment justifies the bound as avoiding that. `findRedeemableUnsubscribeToken:175` gets it right. |
+| 5 | Minor | Test cleanup: `handlesInPlay.clear()` runs **before** the DELETEs, so a throw leaves handles unrecoverable and `afterAll`'s `account_id`-scoped net cannot reach NULL-`account_id` rows — a silent leak into the shared test DB. |
+| 6 | Low | `waitForTokenRowLockWaiter` throwing never resolves `firstMayCommit`/`purgeMayCommit`, so the parked tx stays open and `afterEach` blocks on the same row lock — measured **wedging >280s instead of failing in 15s**. Needs `try/finally`. |
+| 7 | Low | The Proxy keys injection on "statement 1", silently assuming the claim `UPDATE` is first. Assert the intercepted query text to pin it. |
+| 8 | — | **D8**: add `hasLiveGlobalSuppressionForToken` and factor the spent-branch ledger query into a shared private helper so the compliance predicate has one owner. See deviations D8. |
+
 ### Queued T1a touch-up (do NOT lose — it is the one open thread on a closed slice)
 
 Add `err.aggregateErrors[*].message` to the `redact.paths` in
