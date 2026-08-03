@@ -27,6 +27,7 @@ const SWEPT_FILES = [
   'src/app/admin/overview/OverviewClient.tsx',
   'src/app/admin/jobs/JobsClient.tsx',
   'src/app/admin/costs/CostsClient.tsx',
+  'src/app/admin/notifications/NotificationsClient.tsx',
   'src/app/admin/businesses/[id]/page.tsx',
   'src/app/admin/businesses/[id]/_components/PastDueExtensionPanel.tsx',
   'src/app/admin/businesses/[id]/_components/ReviewsList.tsx',
