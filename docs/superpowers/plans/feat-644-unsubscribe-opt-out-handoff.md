@@ -1,8 +1,12 @@
 # #644 handoff — unsubscribe opt-out path
 
 **Branch** `feat-644-unsubscribe-opt-out` · **Worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-644-unsubscribe-opt-out`
-**Phase at handoff:** `worktree_ready` — step 3 (plan). **Round 2 returned REVISE; plan
-revision 3 is the next action.** One review round remains of the 3-round budget.
+**Phase at handoff:** `worktree_ready` — step 3 (plan), **revision 4**.
+**BLOCKED ON THE OWNER:** rounds 1–3 all returned REVISE and were addressed; round 4 could
+not be run because the codex tooling failed four consecutive ways (see Sharp edges). The
+owner elected to run `/codex:adversarial-review` themselves — it is user-invocable only,
+which is likely why every programmatic attempt failed. **Do not implement until that
+verdict is triaged and the owner signs off.**
 **HEAD** `d8373026`
 
 Resume with `/feature-resume feat-644-unsubscribe-opt-out`. Everything needed is on disk;
@@ -80,7 +84,26 @@ rather than self-skip.
   `TaskList` showing nothing does not mean a codex job died. Use
   `codex-companion status --all`.
 
-## Required for plan revision 3 (round 2's open findings)
+## Review history (all reports in `docs/reviews/feat-644-unsubscribe-opt-out/`)
+
+| Round | Verdict | Outcome |
+|---|---|---|
+| 1 | REVISE, 7 findings | Rate-limit exclusion was broken by URL decoding; "propagate → Sentry" leaked the raw token; `redeemed_at` racy. All folded into rev 2. |
+| 2 | REVISE, 7 | Closed 5/6/7. Showed rev 2's log fix was **false** (Fastify logs before the handler) and its ordering let a spent token undo an audited Correction path removal. → rev 3. |
+| 3 | REVISE, 5 | Closed 3/9 + GET/HEAD. Found rev 3's `SELECT 1` **recreated the mint race**, its scrub broke two shipped `/approve/` contracts, and its counter rested on a false single-replica premise. → rev 4. |
+| 4 | **not run** | Codex tooling failed 4×. Owner runs `/codex:adversarial-review` instead. |
+
+**Empirically verified in place of round 4** (commit `ae28c6e5`) — the two riskiest claims,
+measured rather than argued:
+- **Mint-race branch** against the live test DB (PG16, Read Committed, real concurrent
+  connections): 6/6 pass, including a mint landing *inside* the race window → 503 → the
+  provider's retry succeeds. No permanent-503 trap; a rolled-back redemption leaves the
+  token claimable.
+- **Sentry scrub**: 12/12, all four shipped `/approve/` contracts byte-for-byte intact
+  while the new prefixes cover encoded spellings and `%2F` tokens. Rule order is pinned in
+  plan §1.5 because "decode for matching, redact the raw string" corrupts offsets.
+
+## Superseded — required for revision 3 (round 2's findings, now addressed)
 
 Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
 `suppressionId` removal. Still open:

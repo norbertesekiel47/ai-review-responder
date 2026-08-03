@@ -188,7 +188,13 @@ escapes the limiter entirely. Revision 4 derives *both* the scope and the exempt
 > introduces — but the intake promises a test asserting the limiter still fires for every
 > other ingress path, and that promise is false today. Fixing it here is in-surface
 > (`worker/index.ts`) and closes the gap for Stripe/Resend/Telegram/Twilio/Zernio at the
-> same time. Flagged to the owner as a scope question: it is defensible as its own ticket.
+> same time.
+>
+> **Owner decision 2026-08-03: keep the fix in this branch** rather than splitting it out.
+> Rationale accepted: it closes a live production hole now instead of whenever a separate
+> ticket is scheduled, and the two promised tests that assert it are already in the intake.
+> Reviewers should read the `worker/index.ts` hook change as deliberate in-scope work, not
+> as drift outside the ticket.
 
 **Why both arms are required.** Unmatched paths yield `routeOptions.url === undefined`, so
 a resolved-route-only test would drop every 404 out of the hook — reopening precisely the
