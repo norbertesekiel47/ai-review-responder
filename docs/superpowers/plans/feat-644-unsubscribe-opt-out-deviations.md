@@ -274,7 +274,27 @@ dual step-7 review, staging ride before `main`). There is no heavier lane to esc
 The two amendment-based abort criteria already fired earlier and were explicitly superseded by
 the owner's direction to resolve all findings in-ticket.
 
-**Disposition:** flag the real number to the owner once T1c lands and it is measured rather
-than projected, and amend `estimated_diff_size` in **both** intake copies with sign-off at
-that point. Recorded here now so the overrun is a tracked, explained fact at review time
-rather than a surprise a reviewer has to rediscover.
+**RESOLVED — owner decision 2026-08-03: amend the estimate and continue.**
+
+Raised with the measured number rather than the projection: at T1a + T1b the branch stood at
+**+1612 / -12** across 8 files, with T1c, T2 and T3 outstanding. `estimated_diff_size` is
+amended in **both** intake copies from `+900 / -10` to **`+2900 / -50`**, and
+`state.json.intakeSha256` re-derived (`76f19e0c…`) so the resume drift-check stays honest.
+
+Options weighed and rejected:
+
+- **Stop and re-plan** (the literal abort-criteria reading). Rejected: it discards two
+  reviewed, tested slices — 24 of 70 promised tests, one Critical already found and fixed —
+  and the most probable post-mortem finding is "the estimate was stale", which is already
+  known. Restarting would re-derive the same design.
+- **Split T2 into a follow-up ticket** to bring the number down. Rejected as actively unsafe:
+  T1c's `GET` 302s to `/u/<token>`, so without T2 that redirect 404s, and the intake's own
+  rollback plan names "delivered asks advertising URLs that 404" as the principal revert risk.
+  It would ship a knowingly broken statutory path to satisfy a metric.
+
+The reasoning that decided it: the trigger exists to catch work routed into too **light** a
+lane. This ticket already sits in the heaviest lane available, so re-running step 0 re-derives
+the same routing and buys nothing. The growth is traceable to accepted review findings —
+§1.4a, the receipt, the windowed aggregate, dual-sink redaction, the D4 boot gate — not to
+drift. A metric that would have us ship a broken opt-out path to stay under a number is being
+read wrongly.

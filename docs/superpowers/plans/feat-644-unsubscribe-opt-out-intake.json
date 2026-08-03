@@ -181,7 +181,7 @@
   "verification_commands": [
     "pnpm test src/lib/solicitation/__tests__/unsubscribe.integration.test.ts"
   ],
-  "estimated_diff_size": "+900 / -10",
+  "estimated_diff_size": "+2900 / -50",
   "dependencies_added": [],
   "rollback_plan": "Revert the PR. There is no migration to reverse — 096 created both tables and 097 registered both analytics event names, and this ticket adds neither. Suppression ledger rows written before the revert are recipient opt-outs and MUST be kept; nothing in the rollback deletes them. SOLICITATION_UNSUBSCRIBE_MAILTO can be left set or unset with no effect once the code is gone. The real cost of a revert is that already-delivered asks advertise URLs that would 404, which is why this rides staging first and the revert window must be short.",
   "observability": [
