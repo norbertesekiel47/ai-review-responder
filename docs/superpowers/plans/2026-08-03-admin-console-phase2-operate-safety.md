@@ -449,7 +449,7 @@ const columns: DataTableColumn<FailedJob>[] = [
 ];
 ```
 
-  - `emptyState={<EmptyState title="No failed jobs" detail="Nothing is stuck right now." />}`; query error → `<ErrorState title="Couldn't load jobs" detail={\`GET /api/admin/jobs failed\`} onRetry={() => refetch()} />`; loading (only when no data) → `<TableSkeleton />`.
+  - `emptyState={<EmptyState title="No failed jobs" detail="Nothing is stuck right now." />}`; loading (only when no data) → `<TableSkeleton />`. Error is non-blanking: full-screen `ErrorState` only when there's no cached data yet (`isError && !data`) — `<ErrorState title="Couldn't load jobs" detail="GET /api/admin/jobs failed" onRetry={() => refetch()} />`; when a background refetch fails but cached data is still on screen (`isError && data`), do NOT blank the page — render the normal content with a slim inline notice above it, reusing the same component: `<ErrorState title="Last refresh failed" detail="GET /api/admin/jobs failed — showing the last loaded data." onRetry={() => refetch()} />`. This three-way split (skeleton / full-screen error / inline "last refresh failed" + content) is the pattern every later Operate/Safety page copies — see Tasks 5–7.
   - Per-queue depth cards and the pool-wait pill keep their existing markup (they are not DataTable-shaped) but swap the `STATE_STYLES` color literals for neutral grays + the red/yellow they already use — no `rw-*`, no amber (use `yellow` classes already present).
 
 - [ ] **Step 3: Write `JobsClient.test.tsx`** (jsdom, QueryClientProvider, stub fetch): render with a fixture `initialData` and assert — the five StatTile labels render with their values; the failed-jobs table shows a row's topic and `Showing 1–1 of 1`-style footer math is NOT shown for a single short page; the empty fixture renders "No failed jobs". (3 tests.)
@@ -526,7 +526,7 @@ const columns: DataTableColumn<BusinessRow>[] = [
 ```
 
 (“keep” cells: move the existing JSX for that cell into the render function unchanged — the explorer map lists them; do not redesign cell content.)
-  - Shared states: `EmptyState` ("No businesses found"), `ErrorState` naming `GET /api/admin/overview`, `TableSkeleton` while loading with no data.
+  - Shared states: `EmptyState` ("No businesses found"); `TableSkeleton` while loading with no data; error follows the Task 4 non-blanking pattern — full-screen `ErrorState` naming `GET /api/admin/overview` only when `isError && !data`, otherwise an inline "Last refresh failed" `ErrorState` above the still-rendered content.
   - Palette: neutral grays only (the palette sweep test now targets this file — no amber/orange/stone).
 
 - [ ] **Step 3: Update `console-admin-palette.test.ts`** SWEPT_FILES entry to the new client path. Run it.
@@ -578,7 +578,7 @@ export default async function AdminCostsPage() {
   - Global spend bar, By Provider and By Day mini-tables: keep custom markup (3-col minis, not worth DataTable) but strip `rw-*` tokens → neutral grays; red states stay red.
   - By Business table → `DataTable` with `serverPagination`; columns complete (7 existing: Business/Tier/Period Total/Calls/Today/Daily Limit/% of Limit with the red-badge ≥80% rendered inside the render function as today).
   - Margin section: keep structure; `RiskBadge` stays (risk levels aren't shared statuses); platform KPI numbers become three `StatTile`s; Top Accounts table keeps custom markup (9 cols with row tinting — move unchanged, neutralize palette).
-  - Shared Empty/Error/Skeleton states as in Task 4, error naming `GET /api/admin/costs`.
+  - Shared Empty/Error/Skeleton states follow the Task 4 non-blanking error pattern (full-screen `ErrorState` only when `isError && !data`; otherwise an inline "Last refresh failed" notice above the still-rendered content) — unlike Task 4, the `ErrorState` detail interpolates the active query params instead of a static string, e.g. `` `GET /api/admin/costs?days=${days} failed` ``.
 
 - [ ] **Step 3: `CostsClient.test.tsx`** (2 tests): renders period totals + a business row from fixture; `margin: null` fixture renders the page without the margin section (no crash).
 
@@ -612,7 +612,7 @@ function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {
 // column: { key: 'status', header: 'Status', render: (d) => <span title={d.failureReason ?? undefined}><StatusBadge status={deliveryStatus(d)} /></span> }
 ```
 
-Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Status. Shared Empty/Error/Skeleton, error naming `GET /api/admin/notifications`.
+Columns complete: Business / Channel / Recipient (mono) / Template / Sent / Status. Shared Empty/Error/Skeleton states follow the Task 4 non-blanking error pattern (full-screen `ErrorState` only when `isError && !data`; otherwise an inline "Last refresh failed" notice above the still-rendered content), error naming `GET /api/admin/notifications`.
 
 - [ ] **Step 5: Client test** (2 tests): a delivered row renders the `delivered` badge; a failed row's status cell carries `title` = failureReason.
 

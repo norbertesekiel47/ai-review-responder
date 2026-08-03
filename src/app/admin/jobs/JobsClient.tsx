@@ -200,15 +200,26 @@ export function JobsClient({ initialData }: { initialData: JobsData }) {
     <AdminPage group="Operate" title="Jobs" description="Outbox, queue depth, and failed jobs">
       {isLoading && !data ? (
         <TableSkeleton />
-      ) : isError || !data ? (
+      ) : isError && !data ? (
         <ErrorState
           title="Couldn't load jobs"
           detail="GET /api/admin/jobs failed"
           onRetry={() => void refetch()}
         />
-      ) : (
-        <JobsContent data={data} page={page} onPageChange={setPage} />
-      )}
+      ) : data ? (
+        <>
+          {isError && (
+            <div className="mb-4">
+              <ErrorState
+                title="Last refresh failed"
+                detail="GET /api/admin/jobs failed — showing the last loaded data."
+                onRetry={() => void refetch()}
+              />
+            </div>
+          )}
+          <JobsContent data={data} page={page} onPageChange={setPage} />
+        </>
+      ) : null}
     </AdminPage>
   );
 }

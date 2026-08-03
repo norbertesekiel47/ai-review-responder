@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobsClient } from '../JobsClient';
 
@@ -73,5 +73,29 @@ describe('JobsClient', () => {
 
     expect(screen.getByText('No failed jobs')).toBeInTheDocument();
     expect(screen.getByText('Nothing is stuck right now.')).toBeInTheDocument();
+  });
+
+  it('keeps the cached failed-jobs table visible and adds a last-refresh-failed notice when a background refetch fails', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <JobsClient initialData={baseData} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('send_notification')).toBeInTheDocument();
+
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('network down');
+    }));
+    await client.invalidateQueries({ queryKey: ['admin-jobs', 0] });
+
+    await waitFor(() => {
+      expect(screen.getByText('Last refresh failed')).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('GET /api/admin/jobs failed — showing the last loaded data.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('send_notification')).toBeInTheDocument();
   });
 });
