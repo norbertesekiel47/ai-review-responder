@@ -24,6 +24,7 @@ import { recordSuppression } from '../suppression';
 import {
   findRedeemableUnsubscribeToken,
   hashUnsubscribeToken,
+  hasLiveGlobalSuppressionForToken,
   mintUnsubscribeRawToken,
   redeemUnsubscribeToken,
   type UnsubscribeRedemption,
@@ -227,12 +228,17 @@ function commitBetweenStatements(
   let statements = 0;
   const handler: ProxyHandler<postgresType.TransactionSql> = {
     apply(target, thisArg, argArray) {
+      statements += 1;
+      // Pinned, not assumed: the window only exists between the claim UPDATE and
+      // the follow-up read, so a statement inserted ahead of the claim must fail
+      // loudly here rather than silently move the injection point somewhere the
+      // race no longer means anything.
+      if (statements === 1) assertClaimUpdate(argArray);
       const query = Reflect.apply(
         target as unknown as (...args: unknown[]) => Promise<unknown>,
         thisArg,
         argArray,
       );
-      statements += 1;
       if (statements !== 1) return query;
       return (async () => {
         const rows = await query;
@@ -242,6 +248,16 @@ function commitBetweenStatements(
     },
   };
   return new Proxy(tx, handler);
+}
+
+function assertClaimUpdate(argArray: unknown[]): void {
+  const [strings] = argArray;
+  const text = Array.isArray(strings) ? strings.join(' ') : '';
+  if (!/UPDATE\s+solicitation_unsubscribe_tokens/i.test(text)) {
+    throw new Error(
+      `expected the claim UPDATE as the first statement, got: ${text.replace(/\s+/g, ' ').trim().slice(0, 90)}`,
+    );
+  }
 }
 
 describeWithDb(
@@ -277,7 +293,6 @@ describeWithDb(
     afterEach(async () => {
       if (!db || handlesInPlay.size === 0) return;
       const handles = [...handlesInPlay];
-      handlesInPlay.clear();
       // Ledger rows first, and their analytics events by the id just deleted —
       // sweeping analytics by account would miss the purge-scrubbed rows, whose
       // account_id is NULL by construction.
@@ -295,6 +310,10 @@ describeWithDb(
       await db`
         DELETE FROM solicitation_unsubscribe_tokens WHERE normalized_handle IN ${db(handles)}
       `;
+      // Only once every delete has committed. Clearing first would make a
+      // mid-sweep throw unrecoverable: afterAll's net is scoped by account_id
+      // and cannot reach the rows whose account_id is NULL by construction.
+      handlesInPlay.clear();
     }, 60_000);
 
     afterAll(async () => {
@@ -512,8 +531,13 @@ describeWithDb(
         });
 
       // The second must be BLOCKED on the first's row lock, not merely slow.
-      await waitForTokenRowLockWaiter();
-      firstMayCommit.resolve();
+      // `finally`, so a probe failure fails this test in seconds instead of
+      // stranding the parked transaction and wedging afterEach behind its lock.
+      try {
+        await waitForTokenRowLockWaiter();
+      } finally {
+        firstMayCommit.resolve();
+      }
       await Promise.all([first, second]);
 
       expect(order).toEqual(['first', 'second']);
@@ -577,9 +601,12 @@ describeWithDb(
       });
 
       // The claim parks behind the purge's row lock, then re-evaluates against
-      // the scrubbed row version.
-      await waitForTokenRowLockWaiter();
-      purgeMayCommit.resolve();
+      // the scrubbed row version. `finally` for the same reason as above.
+      try {
+        await waitForTokenRowLockWaiter();
+      } finally {
+        purgeMayCommit.resolve();
+      }
       await Promise.all([purge, redemption]);
 
       expect(outcome?.status).toBe('redeemed');
@@ -653,6 +680,52 @@ describeWithDb(
       expect(await findRedeemableUnsubscribeToken(sql(), foreign.rawToken)).toEqual({
         businessName: null,
       });
+    });
+
+    // ── hasLiveGlobalSuppressionForToken (§1.8 render-time check) ────────────
+
+    it('confirms a live global suppression for a token that is already spent', async () => {
+      const seeded = await seedToken();
+      await redeem(seeded.rawToken, 'unsubscribe_one_click');
+
+      // findRedeemableUnsubscribeToken cannot answer this — on the success page
+      // the token is redeemed by definition, so it filters itself out.
+      expect(await findRedeemableUnsubscribeToken(sql(), seeded.rawToken)).toBeNull();
+      expect(await hasLiveGlobalSuppressionForToken(sql(), seeded.rawToken)).toBe(true);
+    });
+
+    it('reports no live global suppression once the correction path removes the row', async () => {
+      const seeded = await seedToken();
+      await redeem(seeded.rawToken, 'unsubscribe_link');
+      expect(await hasLiveGlobalSuppressionForToken(sql(), seeded.rawToken)).toBe(true);
+
+      await removeGlobalSuppressionByCorrection(seeded.handle);
+
+      // The whole point of re-reading at render time: a receipt minted before
+      // the removal must not still render "you're unsubscribed".
+      expect(await hasLiveGlobalSuppressionForToken(sql(), seeded.rawToken)).toBe(false);
+    });
+
+    it('does not treat an account scoped row as a live global suppression', async () => {
+      const seeded = await seedToken();
+      await sql().begin((tx) =>
+        recordSuppression(tx, {
+          scope: 'account',
+          channel: 'email',
+          normalizedHandle: seeded.handle,
+          accountId: accountId(),
+          source: 'owner_manual',
+          createdByUserId: tenant!.userId,
+        }),
+      );
+
+      // Same exclusion the spent branch makes, through the same shared query —
+      // an owner's do-not-contact does not make the §5.5 sentence true.
+      expect(await hasLiveGlobalSuppressionForToken(sql(), seeded.rawToken)).toBe(false);
+    });
+
+    it('reports no live global suppression for an unknown token', async () => {
+      expect(await hasLiveGlobalSuppressionForToken(sql(), mintUnsubscribeRawToken())).toBe(false);
     });
 
     it('resolves nothing for an unknown token or one already redeemed', async () => {

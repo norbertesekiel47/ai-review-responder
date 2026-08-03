@@ -163,14 +163,53 @@ export type UnsubscribeRedemptionSource = Extract<
  * The four closed outcomes of a redemption. `already_redeemed_not_suppressed`
  * is deliberately distinct from `already_suppressed`: a spent token proves only
  * that it was ONCE redeemed, and the audited Correction path (§8.2) can have
- * removed the suppression since. Only the first two may claim success to the
- * recipient.
+ * removed the suppression since.
+ *
+ * Which of these may face the recipient as success is NOT encoded in this
+ * union's order — ask `redemptionConfirmsSuppression`.
  */
 export type UnsubscribeRedemption =
   | { status: 'redeemed'; tokenHashPrefix: string }
   | { status: 'already_suppressed'; tokenHashPrefix: string }
   | { status: 'already_redeemed_not_suppressed'; tokenHashPrefix: string }
   | { status: 'unknown_token'; tokenHashPrefix: string };
+
+/** Derived from the union above, which stays the single owner of the outcome set. */
+export type UnsubscribeRedemptionStatus = UnsubscribeRedemption['status'];
+
+/**
+ * Total by construction: `Record<UnsubscribeRedemptionStatus, …>` makes adding a
+ * fifth outcome without deciding this question a COMPILE error, and makes the
+ * answer independent of the union's order.
+ */
+const STATUS_CONFIRMS_SUPPRESSION: Readonly<Record<UnsubscribeRedemptionStatus, boolean>> = {
+  // We just wrote the row, in this transaction.
+  redeemed: true,
+  // The spent branch read the live ledger and found the recipient's global row.
+  already_suppressed: true,
+  // DELIBERATELY FALSE. The token is spent but the audited Correction path
+  // removed the suppression, so no global row exists to be truthful about.
+  // Telling this recipient "you are unsubscribed" is precisely the false-success
+  // class this ticket exists to eliminate.
+  already_redeemed_not_suppressed: false,
+  unknown_token: false,
+};
+
+/**
+ * Whether this outcome may back a "you have been unsubscribed" claim — the only
+ * sanctioned way to ask. Both callers (the RFC 8058 ingress and the Vercel POST)
+ * MUST use it rather than testing statuses themselves: `status !== 'unknown_token'`
+ * reads as a reasonable success test and is wrong for exactly one outcome, which
+ * is the one that matters.
+ *
+ * True means a `scope='global'` Suppression ledger row existed for this handle
+ * when the redemption committed. It is NOT a promise that one exists *now* —
+ * §1.8's success page re-reads the ledger at render time via
+ * `hasLiveGlobalSuppressionForToken`.
+ */
+export function redemptionConfirmsSuppression(outcome: UnsubscribeRedemption): boolean {
+  return STATUS_CONFIRMS_SUPPRESSION[outcome.status];
+}
 
 // The only loggable form of a token (invariant #5, §9.5): enough digest to
 // correlate a provider retry with its first attempt, far too little to be worth
@@ -183,8 +222,14 @@ function logPrefix(tokenHash: string): string {
 
 interface ClaimedTokenRow {
   account_id: string | null;
-  business_id: string | null;
   normalized_handle: string;
+  channel: string;
+}
+
+/** The redemption target a token resolves to, plus the claim state. */
+interface UnsubscribeTokenTarget {
+  redeemedAt: Date | null;
+  normalizedHandle: string;
   channel: string;
 }
 
@@ -234,17 +279,36 @@ export async function findRedeemableUnsubscribeToken(
  *
  * No ABBA deadlock: `recordSuppression` only inserts into the ledger, and this
  * holds the token row lock before that insert — consistently in one direction.
+ *
+ * CALLER OBLIGATIONS — both are contracts, not preferences:
+ *
+ *  1. `tx` MUST be a READ COMMITTED transaction, which is what a plain
+ *     `sql.begin()` gives you. Do NOT call this inside a REPEATABLE READ
+ *     transaction (`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, as
+ *     `src/lib/solicitation/batch-view.ts` builds for its read-only snapshot).
+ *     Under REPEATABLE READ the claim raises a 40001 serialization failure
+ *     instead of blocking on the row lock, which breaks this function's "domain
+ *     outcomes are returned, not thrown" contract; and because the snapshot is
+ *     pinned at the transaction's FIRST statement, a caller that read anything
+ *     beforehand gets `unknown_token` for a token that was in fact redeemed —
+ *     an "invalid link" shown to someone who successfully opted out.
+ *  2. The claim takes a ROW LOCK the caller's transaction holds until it
+ *     commits. No remote call — provider HTTP, Sentry, analytics flush — may sit
+ *     between this call and the commit (production.md: never hold a lock across
+ *     a remote call). Commit, then do the remote work.
  */
 export async function redeemUnsubscribeToken(
   tx: TransactionSql,
   input: { rawToken: string; source: UnsubscribeRedemptionSource },
 ): Promise<UnsubscribeRedemption> {
   if (!isWellFormedUnsubscribeToken(input.rawToken)) {
-    // Indistinguishable from a genuine miss, with ZERO database work.
-    return {
-      status: 'unknown_token',
-      tokenHashPrefix: logPrefix(hashUnsubscribeToken(input.rawToken)),
-    };
+    // Indistinguishable from a genuine miss, with ZERO database work — and no
+    // hashing either: this branch is reachable precisely when the gate rejected
+    // the input for exceeding MAX_SIGNED_INPUT_LENGTH, so digesting it here
+    // would restore the unbounded work that bound exists to prevent. There is
+    // also nothing to correlate: a token that was never minted has no prior
+    // attempt and no row.
+    return { status: 'unknown_token', tokenHashPrefix: '' };
   }
 
   const tokenHash = hashUnsubscribeToken(input.rawToken);
@@ -254,7 +318,7 @@ export async function redeemUnsubscribeToken(
     UPDATE solicitation_unsubscribe_tokens
        SET redeemed_at = NOW()
      WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL
-     RETURNING account_id, business_id, normalized_handle, channel
+     RETURNING account_id, normalized_handle, channel
   `;
 
   if (claimed !== undefined) {
@@ -280,38 +344,92 @@ export async function redeemUnsubscribeToken(
   // UPDATE's snapshot surfaces here UNREDEEMED. Calling that success would be
   // exactly the mint-race lost opt-out this path exists to prevent; reporting it
   // as unknown lets the caller fail retryably instead.
-  const [existing] = await tx<
+  const target = await loadTokenTarget(tx, tokenHash);
+  if (target === undefined || target.redeemedAt === null) {
+    return { status: 'unknown_token', tokenHashPrefix };
+  }
+
+  // Spent — which proves only that it was once redeemed, not that a suppression
+  // exists NOW. Ask the ledger; there is NO write on this path either way, so a
+  // Correction path removal stands.
+  return {
+    status: (await hasLiveGlobalSuppression(tx, target))
+      ? 'already_suppressed'
+      : 'already_redeemed_not_suppressed',
+    tokenHashPrefix,
+  };
+}
+
+/**
+ * §1.8's render-time check: does the recipient's own global opt-out stand RIGHT
+ * NOW for this token's handle? The success page must ask this rather than trust
+ * a receipt, because the audited Correction path (§8.2) can remove the row
+ * between the redemption and the render.
+ *
+ * Read-only, and deliberately indifferent to `redeemed_at`: on the success page
+ * the token is spent by definition, which is exactly why
+ * `findRedeemableUnsubscribeToken` cannot answer this. `false` for an unknown
+ * token, so an unmintable claim is never rendered.
+ */
+export async function hasLiveGlobalSuppressionForToken(
+  db: SqlExecutor,
+  rawToken: string,
+): Promise<boolean> {
+  if (!isWellFormedUnsubscribeToken(rawToken)) return false;
+
+  const target = await loadTokenTarget(db, hashUnsubscribeToken(rawToken));
+  if (target === undefined) return false;
+  return hasLiveGlobalSuppression(db, target);
+}
+
+/** Resolves a token to its redemption target. One owner of this read. */
+async function loadTokenTarget(
+  db: SqlExecutor,
+  tokenHash: string,
+): Promise<UnsubscribeTokenTarget | undefined> {
+  const [row] = await db<
     { redeemed_at: Date | null; normalized_handle: string; channel: string }[]
   >`
     SELECT redeemed_at, normalized_handle, channel
     FROM solicitation_unsubscribe_tokens
     WHERE token_hash = ${tokenHash}
   `;
-  if (existing === undefined || existing.redeemed_at === null) {
-    return { status: 'unknown_token', tokenHashPrefix };
-  }
+  if (row === undefined) return undefined;
+  return {
+    redeemedAt: row.redeemed_at,
+    normalizedHandle: row.normalized_handle,
+    channel: row.channel,
+  };
+}
 
-  // Spent — which proves only that it was once redeemed, not that a suppression
-  // exists NOW. Ask the ledger. Deliberately not `suppressionMatchSql`: that
-  // fragment answers the send-time gate question (global OR this account's own
-  // row), while the success sentence asserts the recipient's own GLOBAL opt-out
-  // still stands — an account-scoped row would satisfy the former and falsify
-  // the latter. Either way there is NO write here, so a Correction path removal
-  // stands.
-  const [ledger] = await tx<{ suppressed: boolean }[]>`
+/**
+ * THE single owner of "does the recipient's own global opt-out stand?" — asked
+ * by the spent branch above and by §1.8's render-time check, which must never
+ * disagree. A second hand-maintained copy of a compliance predicate is how the
+ * two answers drift apart.
+ *
+ * Deliberately NOT `suppressionMatchSql`: that fragment answers the send-time
+ * gate question ("may we contact this handle FOR THIS ACCOUNT?") and matches
+ * `global` OR that account's `account`-scoped row. The §5.5 success sentence
+ * asserts something stronger — that the recipient is opted out of every business
+ * using RepWorth — so an owner's do-not-contact row would satisfy that fragment
+ * while making the sentence false. Distinct question, distinct query.
+ */
+async function hasLiveGlobalSuppression(
+  db: SqlExecutor,
+  target: Pick<UnsubscribeTokenTarget, 'channel' | 'normalizedHandle'>,
+): Promise<boolean> {
+  const [ledger] = await db<{ suppressed: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM solicitation_suppressions
-      WHERE channel = ${existing.channel}
-        AND normalized_handle = ${existing.normalized_handle}
+      WHERE channel = ${target.channel}
+        AND normalized_handle = ${target.normalizedHandle}
         AND scope = 'global'
     ) AS suppressed
   `;
-  return {
-    // Defaulting the (unreachable) undefined row to the neutral outcome keeps
-    // the conservative direction: never claim success we cannot evidence.
-    status: ledger?.suppressed === true ? 'already_suppressed' : 'already_redeemed_not_suppressed',
-    tokenHashPrefix,
-  };
+  // The (unreachable) missing row defaults to false — the conservative
+  // direction: never claim an opt-out we cannot evidence.
+  return ledger?.suppressed === true;
 }
 
 /**

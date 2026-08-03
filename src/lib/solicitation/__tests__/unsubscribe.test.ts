@@ -92,7 +92,7 @@ describe('unsubscribe token', () => {
   it('a forged token is rejected without opening a database connection', async () => {
     const {
       findRedeemableUnsubscribeToken,
-      hashUnsubscribeToken,
+      hasLiveGlobalSuppressionForToken,
       mintUnsubscribeRawToken,
       redeemUnsubscribeToken,
     } = await freshUnsubscribe();
@@ -111,14 +111,37 @@ describe('unsubscribe token', () => {
       get: refuseToBeUsed,
     }) as unknown as TransactionSql;
 
+    // Every entry point, not just the mutating one.
     await expect(findRedeemableUnsubscribeToken(executor, forged)).resolves.toBeNull();
+    await expect(hasLiveGlobalSuppressionForToken(executor, forged)).resolves.toBe(false);
     await expect(
       redeemUnsubscribeToken(executor, { rawToken: forged, source: 'unsubscribe_one_click' }),
     ).resolves.toEqual({
       status: 'unknown_token',
-      // Never the raw token, and never the whole digest (invariant #5, §9.5).
-      tokenHashPrefix: hashUnsubscribeToken(forged).slice(0, 12),
+      // Empty rather than a digest: this branch is reachable for input the gate
+      // rejected on LENGTH, so hashing it would restore the unbounded work the
+      // bound exists to prevent — and a never-minted token has nothing to
+      // correlate with anyway.
+      tokenHashPrefix: '',
     });
+  });
+
+  it('reports no token hash prefix for input the gate rejected on length', async () => {
+    const { redeemUnsubscribeToken } = await freshUnsubscribe();
+    const refuse = () => {
+      throw new Error('the database must not be touched for a forged token');
+    };
+    const executor = new Proxy(() => undefined, {
+      apply: refuse,
+      get: refuse,
+    }) as unknown as TransactionSql;
+
+    const outcome = await redeemUnsubscribeToken(executor, {
+      rawToken: 'x'.repeat(2_000_000),
+      source: 'unsubscribe_link',
+    });
+
+    expect(outcome).toEqual({ status: 'unknown_token', tokenHashPrefix: '' });
   });
 
   it('fails loudly rather than rejecting every token when the signing secret is missing', async () => {
@@ -134,6 +157,45 @@ describe('unsubscribe token', () => {
     expect(() => isWellFormedUnsubscribeToken('AAAAAAAAAAAAAAAAAAAAAA.BBBB')).toThrow(
       /SESSION_COOKIE_SECRET/,
     );
+  });
+});
+
+describe('redemptionConfirmsSuppression', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('SESSION_COOKIE_SECRET', TEST_SECRET);
+  });
+
+  // The success/failure partition must be asked for BY NAME, never derived from
+  // the union's order or from `status !== 'unknown_token'` — which reads as a
+  // reasonable success test and is wrong for exactly the one outcome that
+  // matters. Adding a fifth outcome without answering this question is a tsc
+  // error (the mapping is a total Record), not something this test has to catch.
+  it.each([
+    ['redeemed', true],
+    ['already_suppressed', true],
+    // A spent token whose suppression the audited Correction path removed. If
+    // this ever flips to true, a recipient who is NOT suppressed is told they
+    // are — the false-success class #644 exists to eliminate.
+    ['already_redeemed_not_suppressed', false],
+    ['unknown_token', false],
+  ] as const)('%s may back an unsubscribed claim: %s', async (status, expected) => {
+    const { redemptionConfirmsSuppression } = await freshUnsubscribe();
+
+    expect(redemptionConfirmsSuppression({ status, tokenHashPrefix: 'abc123abc123' })).toBe(
+      expected,
+    );
+  });
+
+  it('rejects the naive not-unknown success test on the outcome that matters', async () => {
+    const { redemptionConfirmsSuppression } = await freshUnsubscribe();
+    const outcome = {
+      status: 'already_redeemed_not_suppressed',
+      tokenHashPrefix: 'abc123abc123',
+    } as const;
+
+    expect(outcome.status).not.toBe('unknown_token');
+    expect(redemptionConfirmsSuppression(outcome)).toBe(false);
   });
 });
 

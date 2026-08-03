@@ -3141,7 +3141,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/solicitation/unsubscribe.ts",
     table: "solicitation_unsubscribe_tokens",
-    sqlSnippet: "UPDATE solicitation_unsubscribe_tokens SET redeemed_at = NOW() WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL RETURNING account_id, business_id, normalized_handle, channel",
+    sqlSnippet: "UPDATE solicitation_unsubscribe_tokens SET redeemed_at = NOW() WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL RETURNING account_id, normalized_handle, channel",
     category: 'pre-auth-token',
     reason: "The redemption claim (#644 §1.3). Keyed on the unique token_hash, which is the credential; the account_id it would be scoped by is what this statement RETURNS, and after an offboarding purge that column is NULL by design — scoping on it would make a purged account's token unredeemable, breaking a statutory opt-out.",
   },
@@ -3150,13 +3150,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "solicitation_unsubscribe_tokens",
     sqlSnippet: "SELECT redeemed_at, normalized_handle, channel FROM solicitation_unsubscribe_tokens WHERE token_hash = ${tokenHash}",
     category: 'pre-auth-token',
-    reason: "The claim's disambiguating read (#644 §1.3): distinguishes a spent token from one minted after the claim's Read Committed snapshot. Same token credential, same absent tenant context, and it reads no provenance — only redeemed_at plus the redemption target the ledger check needs.",
+    reason: "loadTokenTarget — the single owner of the token→redemption-target read, shared by the claim's disambiguating branch (#644 §1.3) and the §1.8 render-time check. Same token credential, same absent tenant context, and it reads no provenance: only redeemed_at plus the handle/channel the ledger check needs.",
   },
   {
     file: "src/lib/solicitation/unsubscribe.ts",
     table: "solicitation_suppressions",
-    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM solicitation_suppressions WHERE channel = ${existing.channel} AND normalized_handle = ${existing.normalized_handle} AND scope = 'global' ) AS suppressed",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM solicitation_suppressions WHERE channel = ${target.channel} AND normalized_handle = ${target.normalizedHandle} AND scope = 'global' ) AS suppressed",
     category: 'pre-auth-token',
-    reason: "Cross-tenant BY DESIGN, and narrower than suppressionMatchSql on purpose: it asks whether the RECIPIENT's own global opt-out still stands, which is precisely what the §5.5 success sentence asserts. scope='global' rows key on (channel, normalized_handle) across every tenant, so an account filter would be meaningless here; the account-scoped arm is deliberately excluded because an owner's do-not-contact would satisfy the match while falsifying the sentence. Read-only existence check, returns one boolean and no provenance.",
+    reason: "hasLiveGlobalSuppression — the single owner of \"does the recipient's own global opt-out stand?\", shared by the spent branch and the §1.8 render-time check so the two can never disagree. Cross-tenant BY DESIGN and narrower than suppressionMatchSql on purpose: scope='global' rows key on (channel, normalized_handle) across every tenant, so an account filter would be meaningless, and the account-scoped arm is deliberately excluded because an owner's do-not-contact would satisfy that fragment while falsifying the §5.5 sentence. Read-only existence check, returns one boolean and no provenance.",
   },
 ];
