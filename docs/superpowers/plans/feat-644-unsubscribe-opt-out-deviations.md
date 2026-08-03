@@ -247,6 +247,63 @@ branch's reports as a hypothesis until re-measured.**
 
 ---
 
+## D8 — §1.8 requires a capability §1.2's interface never exposed
+
+**Raised** 2026-08-03 while scoping T2, before dispatch. **This is a gap in the plan itself,
+not in any slice's execution.**
+
+§1.8 states the corrected invariant that revision 7 was built around:
+
+> *A page may claim "you are unsubscribed" only from a ledger read taken during that render.*
+
+So `GET /u/<token>?ok=<receipt>` must confirm a live `scope='global'` row **at render time**.
+But §1.2's interface list — and therefore T1a's and T1b's implemented exports — contains no
+function that can answer that question:
+
+| Existing export | Why it cannot serve the render-time read |
+|---|---|
+| `findRedeemableUnsubscribeToken` | Filters on `redeemed_at IS NULL` by design. On the success page the token is **by definition** already redeemed, so this always returns `null`. |
+| `redeemUnsubscribeToken` | Writes, and takes a `TransactionSql`. A `GET` render must write nothing (§5.3). |
+
+The ledger existence check does exist, but only as **logic internal to
+`redeemUnsubscribeToken`'s spent branch** — unreachable from a read-only render path.
+
+**Consequence if unnoticed.** T2 would have had no way to satisfy §1.8's render-time rule and
+would most likely have fallen back to trusting the verified receipt alone — which is exactly
+the **third false-success vector** (owner-run #3, finding 4) that revision 7 called the root
+cause of the whole class. The plan closed that vector in prose and left no seam to implement
+it through.
+
+**Resolution — scoped into T2, no surface amendment.** Add one read-only export to
+`src/lib/solicitation/unsubscribe.ts` (already in `allowed_edit_surface`):
+
+```ts
+/** §1.8 render-time check. Read-only, scope='global' only. */
+export async function hasLiveGlobalSuppressionForToken(
+  db: SqlExecutor, rawToken: string,
+): Promise<boolean>;
+```
+
+Constraints carried into T2's brief:
+
+- Gates on `isWellFormedUnsubscribeToken` first — **zero DB work** on a forged token, same as
+  every other entry point (§1.4a).
+- Resolves the token by `token_hash` **regardless of `redeemed_at`**, then tests
+  `scope='global'` existence on `(channel, normalized_handle)`. Returns `false` when no token
+  row exists — an unknown token is not a suppression.
+- **`scope='global'` only**, never `suppressionMatchSql`: an `account`-scoped row satisfies
+  that fragment while falsifying the §5.5 success sentence.
+- **One authoritative owner.** `redeemUnsubscribeToken`'s spent branch already performs this
+  query. T2 must factor the existing check into a shared private helper and have **both** call
+  it — not copy the SQL. Two hand-maintained copies of a compliance predicate is precisely the
+  duplication `engineering.md` forbids.
+- Needs its own `pre-auth-token` tenant-scope allowlist entries with a baseline bump.
+
+**Sequencing:** T2 cannot be dispatched in parallel with T1c — both edit
+`src/lib/solicitation/unsubscribe.ts` (T1c adds the D4 boot-gate export). T2 waits.
+
+---
+
 ## D5 — the `/u/` redaction rule over-redacts, and that is the accepted trade
 
 **Raised** 2026-08-03 by the T1a spec reviewer (severity: low).
