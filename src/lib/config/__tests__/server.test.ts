@@ -396,4 +396,22 @@ describe('config/server', () => {
       expect(cfg[v]).toBe('   ');
     }
   });
+
+  // ── #644 SOLICITATION_UNSUBSCRIBE_MAILTO — NEW optional config on the
+  //    COLLAPSING optionalVar. The unsubscribe Neutral page renders the mailto
+  //    line only when this is defined, so a blank or whitespace value MUST
+  //    arrive as undefined: `mailto:` with nothing behind it turns "no
+  //    alternative offered" into "an alternative that silently fails" (§5.4).
+  it.each([
+    ['unset', undefined, undefined],
+    ['set', 'unsubscribe@feedback.repworth.net', 'unsubscribe@feedback.repworth.net'],
+    ['empty', '', undefined],
+    ['whitespace-only', '   ', undefined],
+  ])('reads SOLICITATION_UNSUBSCRIBE_MAILTO as %s', async (_label, raw, expected) => {
+    Object.assign(process.env, CORE);
+    if (raw === undefined) delete process.env.SOLICITATION_UNSUBSCRIBE_MAILTO;
+    else process.env.SOLICITATION_UNSUBSCRIBE_MAILTO = raw;
+    const { getServerConfig } = await import('../server');
+    expect(getServerConfig().SOLICITATION_UNSUBSCRIBE_MAILTO).toBe(expected);
+  });
 });
