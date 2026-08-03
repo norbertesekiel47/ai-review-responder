@@ -88,6 +88,16 @@ describe('requireAdminPage', () => {
     );
   });
 
+  it('fails closed to the MFA challenge when the AAL2 check throws unexpectedly', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
+    sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
+    mockAal2.mockRejectedValue(new Error('network blip'));
+
+    await expect(requireAdminPage(sql, { from: '/admin/flagged', aal2: true })).rejects.toThrow(
+      'REDIRECT:/mfa/challenge?next=%2Fadmin%2Fflagged',
+    );
+  });
+
   it('passes AAL2 when the check returns ok', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);

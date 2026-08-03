@@ -3,11 +3,9 @@ import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getCostReport, type CostQuery } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { CostsClient } from './CostsClient';
+import { CostsClient, PAGE_SIZE } from './CostsClient';
 
 export const dynamic = 'force-dynamic';
-
-const PAGE_SIZE = 20;
 
 // Must match CostsClient's default state (days=30, page=0) — the client only
 // trusts server-rendered initialData for that exact combination, so this

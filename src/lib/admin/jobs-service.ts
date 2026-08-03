@@ -26,7 +26,7 @@ interface FailedJobRow {
   last_error: string | null;
   attempts: number;
   max_attempts: number;
-  created_at: string;
+  created_at: Date;
 }
 
 interface FailedCountRow {
@@ -101,7 +101,7 @@ export async function getAdminJobsData(
       lastError: row.last_error,
       attempts: row.attempts,
       maxAttempts: row.max_attempts,
-      createdAt: row.created_at,
+      createdAt: row.created_at.toISOString(),
     })),
     failedTotal,
   };

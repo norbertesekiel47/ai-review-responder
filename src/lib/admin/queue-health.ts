@@ -59,7 +59,7 @@ export async function fetchQueueHealth(): Promise<QueueHealthResult> {
       cache: 'no-store',
     });
     if (!response.ok) {
-      console.warn(`[api/admin/jobs] worker queue-health returned ${response.status}; queue health unavailable`);
+      console.warn(`[admin/queue-health] worker queue-health returned ${response.status}; queue health unavailable`);
       return unavailable;
     }
     const body = (await response.json()) as {
@@ -67,12 +67,12 @@ export async function fetchQueueHealth(): Promise<QueueHealthResult> {
       pool?: PoolWaitPayload | null;
     };
     if (!body.queues) {
-      console.warn('[api/admin/jobs] worker queue-health response missing queues; queue health unavailable');
+      console.warn('[admin/queue-health] worker queue-health response missing queues; queue health unavailable');
       return unavailable;
     }
     return { queueHealth: body.queues, pool: body.pool ?? null };
   } catch (error) {
-    console.warn('[api/admin/jobs] worker queue-health fetch failed; queue health unavailable:', error);
+    console.warn('[admin/queue-health] worker queue-health fetch failed; queue health unavailable:', error);
     return unavailable;
   }
 }

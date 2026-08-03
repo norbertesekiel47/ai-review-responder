@@ -22,7 +22,7 @@ describe('listOpenFlaggedResponses', () => {
         reason: 'refund_discount',
         severity: 'high',
         status: 'open',
-        created_at: '2026-05-26T00:00:00.000Z',
+        created_at: new Date('2026-05-26T00:00:00.000Z'),
         response_text: 'Here is a full refund.',
         version: 1,
         reviewer_name: 'Jane',

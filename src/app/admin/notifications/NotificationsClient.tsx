@@ -16,7 +16,7 @@ type NotifData = AdminNotificationsData & { limit: number; offset: number };
 
 type Delivery = NotifData['notifications'][number];
 
-const PAGE_SIZE = 20 as const;
+export const PAGE_SIZE = 20 as const;
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';

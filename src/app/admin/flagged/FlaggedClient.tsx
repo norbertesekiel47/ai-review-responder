@@ -20,7 +20,7 @@ const ACTION_LABELS: Record<DispositionAction, string> = {
   requires_regeneration: 'Needs regeneration',
 };
 
-const PAGE_SIZE = 50 as const;
+export const PAGE_SIZE = 50 as const;
 
 function FlaggedContent({
   data,

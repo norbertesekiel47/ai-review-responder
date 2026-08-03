@@ -11,7 +11,7 @@ import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 const DEFAULT_DAYS = 30;
 
 interface CostData extends CostReportData {

@@ -1,11 +1,9 @@
 import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { listOpenFlaggedResponses } from '@/lib/admin/flagged-service';
-import { FlaggedClient } from './FlaggedClient';
+import { FlaggedClient, PAGE_SIZE } from './FlaggedClient';
 
 export const dynamic = 'force-dynamic';
-
-const PAGE_SIZE = 50;
 
 export default async function AdminFlaggedPage() {
   // Flagged draft text + reviewer/business identity is the same sensitivity

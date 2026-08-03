@@ -19,7 +19,7 @@ describe('getAdminJobsData', () => {
         last_error: 'boom',
         attempts: 2,
         max_attempts: 5,
-        created_at: '2026-08-01T00:00:00.000Z',
+        created_at: new Date('2026-08-01T00:00:00.000Z'),
       },
     ]);
     sqlReturnQueue.push([{ total: 4 }]);

@@ -2,11 +2,9 @@ import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getAdminOverview } from '@/lib/admin/overview-service';
 import { getAdminNavCounts } from '@/lib/admin/nav-counts-service';
-import { OverviewClient } from './OverviewClient';
+import { OverviewClient, PAGE_SIZE } from './OverviewClient';
 
 export const dynamic = 'force-dynamic';
-
-const PAGE_SIZE = 20;
 
 export default async function AdminOverviewPage() {
   await requireAdminPage(sql, { from: '/admin/overview' });

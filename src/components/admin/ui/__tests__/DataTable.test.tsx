@@ -110,4 +110,37 @@ describe('DataTable', () => {
     );
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
   });
+
+  it('server pagination: a shrunk page (rows empty, totalRows > 0) still shows the empty state with a reachable Previous', async () => {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="No rows yet" />}
+        serverPagination={{ page: 2, pageSize: 3, totalRows: 8, onPageChange }}
+      />,
+    );
+    expect(screen.getByText('No rows yet')).toBeInTheDocument();
+    const previous = screen.getByRole('button', { name: 'Previous' });
+    expect(previous).toBeEnabled();
+    await userEvent.click(previous);
+    expect(onPageChange).toHaveBeenCalledWith(1);
+  });
+
+  it('server pagination: a true-empty result (totalRows === 0) renders the bare empty state with no footer', () => {
+    render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="No rows yet" />}
+        serverPagination={{ page: 0, pageSize: 3, totalRows: 0, onPageChange: () => {} }}
+      />,
+    );
+    expect(screen.getByText('No rows yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+  });
 });

@@ -27,9 +27,11 @@ interface RequireAdminPageOptions {
 /**
  * Server-component admin gate (spec §4). Defense-in-depth behind src/proxy.ts's
  * /admin gate — its real job is giving the page the authenticated admin user.
- * Mirrors the cookie-store-backed Supabase client construction and MFA
- * handling from src/app/admin/impersonate/[sessionId]/view/page.tsx, the one
- * existing server-page auth pattern.
+ * Follows the same cookie-store-backed Supabase client construction + AAL2
+ * check shape first used by src/app/admin/impersonate/[sessionId]/view/page.tsx
+ * — that page has a genuinely different auth shape (no users-role lookup; feeds
+ * a 5-way session discriminant incl. `notFound()`) and stays its own thing, not
+ * a caller of this helper.
  *
  * Takes `sql` explicitly (invariant #15) — pages are composition roots and
  * pass their own `sql` import through.
@@ -68,7 +70,16 @@ export async function requireAdminPage(
   if (!appUser || appUser.role !== 'admin') redirect(loginRedirect);
 
   if (aal2) {
-    const aal = await requireCurrentAal2FromSupabase(supabase as unknown as SupabaseMfaAalClient);
+    let aal: Awaited<ReturnType<typeof requireCurrentAal2FromSupabase>>;
+    try {
+      aal = await requireCurrentAal2FromSupabase(supabase as unknown as SupabaseMfaAalClient);
+    } catch {
+      // Fail closed, same posture as the route gate's clean 500
+      // (src/lib/auth/admin-mfa-gate.ts): an unexpected throw here (network
+      // blip, Supabase misconfig) must not surface a raw Next error page —
+      // send the admin to the MFA challenge, same as a real mfa_required.
+      redirect(mfaChallengePath(from));
+    }
     if (!aal.ok) redirect(mfaChallengePath(from));
   }
 

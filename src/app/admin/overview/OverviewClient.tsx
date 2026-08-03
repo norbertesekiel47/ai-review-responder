@@ -13,7 +13,7 @@ import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
 type BusinessRow = OverviewData['businesses'][number];
 

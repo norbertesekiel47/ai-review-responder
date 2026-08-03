@@ -19,7 +19,7 @@ interface FlaggedRow {
   reason: string | null;
   severity: string;
   status: string;
-  created_at: string;
+  created_at: Date;
   response_text: string;
   version: number;
   reviewer_name: string;
@@ -97,7 +97,7 @@ export async function listOpenFlaggedResponses(
       reason: row.reason,
       severity: row.severity,
       status: row.status,
-      createdAt: row.created_at,
+      createdAt: row.created_at.toISOString(),
       responseText: row.response_text,
       version: row.version,
       reviewerName: row.reviewer_name,
