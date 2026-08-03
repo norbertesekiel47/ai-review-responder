@@ -14,7 +14,11 @@ export interface AdminPageUser {
 }
 
 interface RequireAdminPageOptions {
-  /** The current page path, used as the `/admin/login` `?from=` redirect target. */
+  /**
+   * The current page path, used as the `/admin/login` `?from=` redirect target.
+   * Must be a static internal page path (e.g. '/admin/jobs'); never thread
+   * unvalidated request input through this — it feeds the login/MFA redirect query.
+   */
   from: string;
   /** Require an AAL2 (MFA step-up) session — Safety pages reading sensitive content. */
   aal2?: boolean;

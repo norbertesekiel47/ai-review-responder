@@ -59,6 +59,15 @@ describe('requireAdminPage', () => {
     );
   });
 
+  it('redirects to /admin/login when the users row is missing (deprovisioned admin)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
+    sqlReturnQueue.push([]);
+
+    await expect(requireAdminPage(sql, { from: '/admin/jobs' })).rejects.toThrow(
+      'REDIRECT:/admin/login?from=%2Fadmin%2Fjobs',
+    );
+  });
+
   it('returns the admin user when the session is valid', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
