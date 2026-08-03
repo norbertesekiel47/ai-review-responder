@@ -207,6 +207,19 @@ parallel dispatch would conflict.
   beside the rule it governs (§1.4, finding 9).
 - **Handler shape precedent** — `worker/ingress/resend.ts`.
 
+### Queued T1c fix batch
+
+T1c passed spec review with **zero findings at ≥80% confidence** (`t1c-spec-review.md`).
+Two items came out of its sub-threshold notes, plus whatever the quality review adds.
+
+| # | What | Why it is not sub-threshold |
+|---|---|---|
+| 1 | The `failed` structured log line carries no `hash_prefix`. | The spec reviewer scored this ~40% against §9.5's permissive wording ("when correlation is needed"). But `.feature/intake.json` → `observability[0]` is **explicit**: one line for `redeemed \| already_suppressed \| failed`, *carrying a token_hash prefix*. **The intake is the drift-detector contract for this workflow, not the spec prose.** As shipped, an infra failure cannot be correlated to the provider's retry — exactly the case that most needs it. |
+| 2 | Arm 1 of the two-arm ingress-scope test (`request.routeOptions.url`) may be **dead logic**. | Deleting it fails **zero** tests — the decoded-raw arm subsumes the matrix. Plan §1.4 asserted both arms were required, but its justification compared against a **raw** check, not the **decoded** one it actually specified; if `decodeIngressPath` handles `/%69ngress/resend`, arm 1 earns nothing. Referred to the quality reviewer to settle: construct the input only arm 1 catches, or confirm none exists. A branch that reads as load-bearing but cannot fail is a maintenance trap, and worse on a security-adjacent path. **Do not delete it on this reasoning alone** — get the reviewer's verdict first. |
+
+`failClosed` reporting before it replies was also noted sub-threshold; fold it in only if the
+quality review independently raises it.
+
 ### Queued T1b fix batch — MUST land before T2 is dispatched
 
 T1b passed spec (✅) and quality (Approved), but with two **interface-contract** gaps the
