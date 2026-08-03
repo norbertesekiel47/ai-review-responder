@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 
-const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlReturnQueue, sqlCalls, isInTransaction, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
@@ -11,12 +11,16 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
 // count queries — the shared harness only models tagged-template calls, so
 // unsafe() is added here, sharing the same queue/call-log, recording the
 // real query text + params (unlike the route-level test's placeholder stub)
-// so WHERE-fragment assertions below can inspect it directly.
+// so WHERE-fragment assertions below can inspect it directly. inTransaction
+// is wired to the harness's isInTransaction() rather than hardcoded false —
+// getAdminNotifications is read-only and never called inside sql.begin()
+// today, but a future transactional service copying this pattern gets a
+// correct signal instead of a silently wrong one.
 (mockSql as unknown as { unsafe: (text: string, params: unknown[]) => Promise<unknown> }).unsafe = (
   text: string,
   params: unknown[],
 ) => {
-  sqlCalls.push({ text, values: params, inTransaction: false });
+  sqlCalls.push({ text, values: params, inTransaction: isInTransaction() });
   const result = sqlReturnQueue.shift() ?? [];
   return Promise.resolve(result);
 };
