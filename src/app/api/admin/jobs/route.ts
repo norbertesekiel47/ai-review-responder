@@ -2,33 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { getAdminJobsData } from '@/lib/admin/jobs-service';
+import { getAdminJobsData, type AdminJobsData } from '@/lib/admin/jobs-service';
 import { fetchQueueHealth, type PoolWaitPayload } from '@/lib/admin/queue-health';
 
 export const dynamic = 'force-dynamic';
 
-interface JobsData {
-  outbox: {
-    pending: number;
-    dispatching: number;
-    dispatched: number;
-    failed: number;
-    completedToday: number;
-  };
-  failedJobs: {
-    id: string;
-    topic: string;
-    lastError: string | null;
-    attempts: number;
-    maxAttempts: number;
-    createdAt: string;
-  }[];
-  failedTotal: number;
+type JobsData = AdminJobsData & {
   limit: number;
   offset: number;
   queueHealth: Record<string, Record<string, number>> | { unavailable: true };
   pool: PoolWaitPayload | null;
-}
+};
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireRoleOr401(request, 'admin');
@@ -46,9 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ]);
 
     const data: JobsData = {
-      outbox: jobs.outbox,
-      failedJobs: jobs.failedJobs,
-      failedTotal: jobs.failedTotal,
+      ...jobs,
       limit,
       offset,
       queueHealth,
