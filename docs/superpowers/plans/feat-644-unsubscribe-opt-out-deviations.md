@@ -212,9 +212,12 @@ at runtime on Railway. Structural-looking is not the same as structural.
 
 **Two actions, split by what enumeration can and cannot fix:**
 
-- **Closeable by enumeration → do it.** Add `err.aggregateErrors[*].message` to the redact
-  paths, with a test. Verified by the reviewer to close that case. Queued as a T1a touch-up
-  behind T1b, to avoid two agents racing `git` on one branch.
+- **Closeable by enumeration → DONE** (`11f19966`). **The reviewer's prescribed path was
+  insufficient and measurement caught it.** `err.aggregateErrors[*].message` alone does not
+  close the case: an `Error`'s stack always begins with its message, so the inner entry leaks
+  through `stack` independently — `"stack":"Error: inner failure at /u/SECRET_TOK\n at …"` —
+  and the whole-output assertion still failed. Both `…[*].message` **and** `…[*].stack` are
+  required, mirroring the existing top-level pair. Red-before-green demonstrated.
 - **NOT closeable by enumeration → becomes a stated contract on T1c and T2.** No handler on
   the unsubscribe path may put a raw token or raw URL into a custom error property, or log an
   error under a non-`err` key. The §9.5 structured line goes through `createWorkerLogger` with
@@ -224,7 +227,23 @@ at runtime on Railway. Structural-looking is not the same as structural.
 **The general lesson, worth promoting at merge:** a redaction seam that enumerates paths is
 only as good as the list, and the list is invisible to the caller. Where the seam cannot be
 made structural, the residual must become an explicit contract rather than an assumption —
-this entry *is* that contract.
+this entry *is* that contract. The `.stack` miss above is the same lesson eating its own tail:
+even the enumerated fix was under-enumerated on first attempt.
+
+**Meta-lesson, and the strongest signal on this branch.** Reviewer claims about pino/Fastify
+internals have now been **wrong three times**, each caught by an implementer who measured
+instead of complying:
+
+1. the prescribed `stdSerializers.err` import would have been a phantom dependency (`pino` is
+   not a direct dep and resolves only transitively);
+2. the `msg`-already-redacted repro did not reproduce — pre-fix that line leaked three fields,
+   not two, so the Critical understated itself;
+3. `err.aggregateErrors[*].message` alone was reported sufficient and is not.
+
+Every one of these came from reasoning about framework behaviour that looked obvious. The
+review reports are on disk and will be read as settled fact by whoever comes next, so the
+corrections are annotated in place. **Treat any claim about pino or Fastify internals in this
+branch's reports as a hypothesis until re-measured.**
 
 ---
 
