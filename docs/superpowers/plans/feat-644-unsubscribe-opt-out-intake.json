@@ -21,7 +21,9 @@
     "GET /u/<token>?ok=<receipt> renders the success copy — the generic 'the business that contacted you' sentence, naming NO business — only when the receipt verifies against the token hash and is within its 10-minute TTL; it writes nothing. An absent, malformed, forged or expired receipt (including a hand-crafted ?done=1) falls through to the button page or the neutral page and NEVER renders success",
     "Unknown, malformed, and already-redeemed tokens all render one identical neutral page carrying the mailto: fallback",
     "An unknown or malformed token at the ingress returns 503 with deliberately NO Sentry event and NO per-request log line — it is counted into a 60s aggregate — so the provider retries and a #630 mint-race is still recoverable without giving scanner traffic an unbounded telemetry path; an unknown token at POST /api/u/<token> 303s to the bare neutral page rather than claiming a success that did not happen",
-    "Every path above keeps working with SOLICITATION_SEND_ENABLED off (DR1)"
+    "Every path above keeps working with SOLICITATION_SEND_ENABLED off (DR1)",
+    "Every entry point validates the token's HMAC before any database work: a forged or random token is rejected with zero DB connections, so anonymous traffic cannot induce database load on either surface",
+    "GET /u/<token>?ok=<receipt> renders success ONLY when the receipt verifies AND a global suppression row for that handle exists at render time — a correction landing between POST and GET yields the neutral state, never a stale success claim"
   ],
   "invariants": [
     "Invariant #5 — the raw Unsubscribe token is never persisted or logged; only its SHA-256 hash is compared",
@@ -64,7 +66,10 @@
     "Hostile or scanner traffic hammering unknown tokens: at most ONE aggregated warn line per 60-second window per process, never one per request (owner-run adversarial review, finding 2)",
     "Worker restarts mid-window: the partial unknown-token count is flushed by the graceful shutdown sequence; an ungraceful crash loses at most one 60s window, which is acceptable for a rate signal and feeds no correctness decision",
     "A spent token replayed AFTER an audited Correction-path removal: redeemed_at IS NOT NULL proves only that it was once redeemed, NOT that a suppression exists. The ledger is checked explicitly; with no live global row the outcome is already_redeemed_not_suppressed -> no receipt, neutral page, and deliberately NO re-suppression (owner-run review round 2, finding 1)",
-    "Hostile traffic against the limiter-exempt route: a 1 KB per-route body limit and a bounded-concurrency bulkhead returning 503 + Retry-After keep it from saturating the shared worker/DB pool. A bulkhead DEFERS with a retryable status; a rate limiter DROPS -- only the latter is forbidden by 9.2 (owner-run review round 2, finding 2)"
+    "Hostile traffic against the limiter-exempt route: a 1 KB per-route body limit and a bounded-concurrency bulkhead returning 503 + Retry-After keep it from saturating the shared worker/DB pool. A bulkhead DEFERS with a retryable status; a rate limiter DROPS -- only the latter is forbidden by 9.2 (owner-run review round 2, finding 2)",
+    "A forged/random token at any entry point: rejected by the constant-time HMAC gate with NO database connection — this is what removes the need for admission control, and therefore removes the loss path a bulkhead would have created (owner-run #3, findings 2+3)",
+    "An unmatched path carrying a real token (/ingress/unsubscribe/<token>/extra): 404s WITHOUT the route's logLevel:'silent', so the raw token must be redacted by the GLOBAL Fastify request serializer — route-level silencing alone is insufficient (owner-run #3, finding 1)",
+    "The Correction path removes the suppression between POST and GET, or races a replay: the verified receipt is NOT sufficient — the render-time ledger read governs, and the page shows the neutral state (owner-run #3, finding 4)"
   ],
   "existing_patterns_to_follow": [
     "src/app/(public)/approve/[token]/page.tsx — hash-on-read, GET reads and renders, every mutation a separate POST (the same link-prefetcher threat, already answered)",
@@ -97,7 +102,9 @@
     "docs/runbooks/vercel-waf-rate-limiting.md",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "worker/config/fastify-options.ts",
+    "worker/config/__tests__/**"
   ],
   "tests_to_add": [
     "returns 200 only after the suppression row commits",
@@ -162,8 +169,14 @@
     "a spent token with a live global suppression still mints a receipt",
     "an account scoped suppression alone does not justify the global success sentence",
     "an oversized request body is rejected before the handler runs",
-    "concurrency beyond the bulkhead cap returns 503 with retry after",
-    "the bulkhead never applies a per-recipient rate limit"
+    "a forged token is rejected without opening a database connection",
+    "a well formed token passes the hmac gate",
+    "the minted raw token round trips through the hmac gate",
+    "an unmatched path carrying a real token never logs the raw token",
+    "a trailing segment url is redacted by the global request serializer",
+    "request logging enabled still never emits a raw unsubscribe token",
+    "a correction landing between POST and GET renders the neutral state",
+    "a verified receipt with no live suppression renders the neutral state"
   ],
   "verification_commands": [
     "pnpm test src/lib/solicitation/__tests__/unsubscribe.integration.test.ts"

@@ -77,7 +77,11 @@ the grilling transcript is not required.
 | — | behavior only | §5.5/§5.4 resolution: `user_visible_behavior`, `invariants`, `edge_cases`, `tests_to_add`. **Not** a surface amendment. |
 | **1** | **surface** | Added `src/lib/shared/sentry-scrub.ts` + `src/lib/shared/__tests__/**` (round-1 finding 3 — the raw token reaches Sentry otherwise). |
 
-**One surface amendment remains before the workflow's abort criteria fire.**
+| **2** | **surface** | Added `worker/config/fastify-options.ts` + `worker/config/__tests__/**` (owner-run #3 finding 1 — route-level silencing cannot reach unmatched 404s). |
+
+**Both surface amendments are spent.** A third would normally force a re-plan; the owner has
+directed that all findings be resolved in this ticket, which supersedes that stop. Any
+further surface need must be raised with the owner explicitly.
 
 ## Gate status
 
@@ -116,6 +120,7 @@ rather than self-skip.
 | 2 | REVISE, 7 | Closed 5/6/7. Showed rev 2's log fix was **false** (Fastify logs before the handler) and its ordering let a spent token undo an audited Correction path removal. → rev 3. |
 | 3 | REVISE, 5 | Closed 3/9 + GET/HEAD. Found rev 3's `SELECT 1` **recreated the mint race**, its scrub broke two shipped `/approve/` contracts, and its counter rested on a false single-replica premise. → rev 4. |
 | 4 | **not run** | Codex tooling failed 4×. Replaced by the owner-run pass below. |
+| owner-run #3 | **needs-attention**, 4 high | Raw token logged on unmatched 404s (route-level silencing is post-routing); Vercel DB path unbounded; the bulkhead was an intentional loss path contradicting §1.7; a receipt could outlive its suppression — the **3rd** false-success vector. Triggered a post-mortem, then lifted by owner decision. → **rev 7**: self-authenticating tokens, global request serializer, render-time ledger read. |
 | owner-run #2 | **needs-attention**, 3 high + 1 med | Spent-token replay after a Correction-path removal still minted a success receipt; the limiter-exempt route had unbounded body/DB workload; **test titles** still contradicted the revised behaviour (same drift class as owner-run #1, in the field I had not swept); handoff drifted a 3rd time → now fixed structurally. → **rev 6**. Report: `plan-adversarial-owner-run-2.md`. |
 | owner-run #1 | **needs-attention**, 3 high | `?done=1` could render a **false unsubscribe success**; unknown-token logging was an unbounded amplification path (my "like every other ingress route" justification was a false equivalence — they keep the limiter, this route does not); handoff/state drifted to a superseded revision. All 3 accepted → **rev 5**. Report: `plan-adversarial-owner-run.md`. |
 

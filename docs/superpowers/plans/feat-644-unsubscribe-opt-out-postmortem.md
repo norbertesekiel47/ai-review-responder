@@ -1,5 +1,14 @@
 # #644 — post-mortem at step 3 (plan), after six revisions and six adversarial passes
 
+> **SUPERSEDED 2026-08-03 — the stop was lifted by owner decision.** The owner directed that
+> every finding be resolved inside this ticket. On re-examination the "locked-decision
+> conflict" below was **not** one: §9.2 forbids refusing a *legitimate* opt-out, not
+> rejecting a *forged* token, and self-authenticating tokens (plan §1.4a) remove the
+> unbounded DB path without any admission control. Surface amendment #2 was granted by the
+> same decision. This document is retained as the record of the reasoning — its root-cause
+> analysis is still the authoritative explanation of the false-success class, and plan
+> revision 7 implements the fix it identifies.
+
 **Written because two workflow abort criteria fired simultaneously**, not because the work
 is unsalvageable. No implementation code was ever written; the branch is 11 documentation
 commits. Nothing is lost by stopping here — that is the point of stopping here.

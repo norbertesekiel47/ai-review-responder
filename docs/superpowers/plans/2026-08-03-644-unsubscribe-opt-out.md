@@ -7,7 +7,21 @@
 **Depends on** #643 (migration 096/097 + `src/lib/solicitation/suppression.ts`) — merged, `4186cefa`
 **Hands off to** #630 (imports `hashUnsubscribeToken`), #622 (shares `SOLICITATION_UNSUBSCRIBE_MAILTO`)
 
-**Revision 6** — supersedes revision 5 after **owner-run `/codex:adversarial-review` #2**
+**Revision 7** — supersedes revision 6 after **owner-run `/codex:adversarial-review` #3**
+(needs-attention, 4 high; report `plan-adversarial-owner-run-3.md`). The post-mortem
+recommended escalating findings 2/3 to map level as a locked-decision conflict; **the owner
+directed that everything be solved in this ticket**, and on re-examination the conflict
+dissolves rather than needing escalation — see §1.4a. All four accepted:
+**(1)** unmatched `/ingress/unsubscribe/<t>/extra` logged the raw token because
+`logLevel:'silent'` only applies post-routing → global request serializer (§1.5,
+**surface amendment #2**);
+**(2)+(3)** the unbounded public DB path and the loss-inducing bulkhead both came from
+treating every arriving string as possibly-valid → **self-authenticating tokens** (§1.4a):
+forged tokens never reach the database, the bulkhead is deleted, and the loss path with it;
+**(4)** a receipt could outlive the suppression it claimed → the success page now reads the
+ledger **at render time** (§1.8), fixing the root cause of all three false-success vectors.
+
+**Revision 6** — superseded. Followed **owner-run `/codex:adversarial-review` #2**
 (needs-attention, 3 high + 1 medium; report `plan-adversarial-owner-run-2.md`). All four
 accepted: **(1)** a spent token whose suppression was later removed by the audited
 Correction path still minted a success receipt — the display side of a hole whose write side
@@ -42,8 +56,10 @@ Round 2 closed findings 5/6/7 and cleared the crash-net interaction and the `sup
 removal. Revision 3 addresses findings 1, 2, 3, 4 (reopened) and the new 8, 9, 10.
 Owner authorised continuing past the workflow's 3-round review budget.
 
-Surface amendments used: **1 of 2** (`sentry-scrub.ts`, round 1). Revision 3 deliberately
-keeps every new fix inside the existing surface — see §1.6.
+Surface amendments used: **2 of 2** — `sentry-scrub.ts` (round 1) and
+`worker/config/fastify-options.ts` (revision 7, owner-run #3 finding 1). The second would
+normally trip the workflow's abort criteria; the owner explicitly directed that all findings
+be resolved within this ticket, which supersedes that stop.
 
 ---
 
@@ -57,8 +73,9 @@ keeps every new fix inside the existing surface — see §1.6.
 | `src/lib/solicitation/unsubscribe.ts` (NEW) | **The one new interface.** Two real adapters. |
 | `worker/index.ts` | Route registration + the hook now delegates to resolved route config. |
 | `worker/ingress/rate-limit.ts` | Hosts the `FastifyContextConfig` module augmentation (finding 9). |
-| `src/lib/shared/sentry-scrub.ts` | **Deepened, interface unchanged.** Path redaction generalised (findings 3, 10). |
-| ingress handler / route handler / page | **Adapters, not modules.** |
+| `src/lib/shared/sentry-scrub.ts` | **Deepened, interface unchanged.** Path redaction generalised (findings 3, 10), and now the single rule behind BOTH sinks (Sentry + the pino request serializer). |
+| `worker/config/fastify-options.ts` | **Surface amendment #2.** Gains a `logger.serializers.req` that redacts token paths before anything is written — covers unmatched 404s, which route-level config cannot reach (§1.5). |
+| ingress handler / route handler / page | **Adapters, not modules.** Each calls `isWellFormedUnsubscribeToken` first (§1.4a). |
 
 ### 1.2 The new interface
 
@@ -67,6 +84,20 @@ keeps every new fix inside the existing surface — see §1.6.
 
 /** Invariant #5/#10. Exported for #630's minting so one function owns the digest. */
 export function hashUnsubscribeToken(rawToken: string): string;
+
+/**
+ * §1.4a. Mints `<nonce>.<HMAC-SHA256(secret, nonce)>`. #630 MUST call this rather
+ * than rolling its own random string — exporting the minter, not just the format,
+ * is what makes the constraint unbreakable.
+ */
+export function mintUnsubscribeRawToken(): string;
+
+/**
+ * §1.4a admission gate. Constant-time, stateless, ZERO database work. Every entry
+ * point calls this FIRST, so a forged token never reaches Postgres. This is what
+ * lets both surfaces stay unrate-limited (§9.2) without an unbounded DB path.
+ */
+export function isWellFormedUnsubscribeToken(rawToken: string): boolean;
 
 /**
  * §5.4's enumeration rule, enforced STRUCTURALLY: unknown, malformed, and
@@ -288,6 +319,59 @@ declare module 'fastify' {
 Tests go through real `app.inject()` — a unit test of a string predicate would have passed
 while production failed.
 
+### 1.4a The token is self-authenticating — forged tokens never reach the database
+
+**This is the structural answer to owner-run #3 findings 2 and 3**, which the post-mortem
+called a locked-decision conflict. It is not: the conflict dissolves once the right question
+is asked.
+
+§9.2 forbids rate limiting because **a legitimate opt-out must never be refused**. It does
+not require us to *serve* forged tokens. Revisions 1–6 treated every arriving string as
+possibly-valid and therefore worth a database round trip — which is what made an
+unauthenticated public DB path unbounded, which is what forced a bulkhead, which
+re-introduced the loss §9.2 exists to prevent. Break the first link and the whole chain goes.
+
+**The raw token becomes `<nonce>.<HMAC-SHA256(secret, nonce)>`**, base64url, keyed on
+`getSessionCookieSecret()` — verified available on **both** surfaces (Vercel:
+`approval/cookies.ts`, `zernio/connect-session-cookie.ts`; worker:
+`account-offboarding/tokens.ts`).
+
+```ts
+/** Minted by #630. Exported HERE so the format has exactly one owner. */
+export function mintUnsubscribeRawToken(): string;
+
+/** Constant-time, stateless, ZERO database work. The admission gate. */
+export function isWellFormedUnsubscribeToken(rawToken: string): boolean;
+```
+
+Every entry point — Railway ingress, `GET /u/<token>`, `POST /api/u/<token>` — calls
+`isWellFormedUnsubscribeToken` **first**. A failure short-circuits to the neutral page (or
+503 at the ingress) having touched nothing.
+
+What this buys:
+
+| Concern | Before | After |
+|---|---|---|
+| Anonymous random-token flood → DB (finding 2) | Unbounded, fans out across serverless instances | **Never reaches the DB.** One HMAC compare, no connection, no Supavisor budget |
+| Bulkhead sheds a valid opt-out (finding 3) | Real loss path, admitted by §1.7 | **Bulkhead deleted.** Nothing to shed, so nothing to lose |
+| Vercel has no in-process bound | Fatal — each instance has its own | **Irrelevant** — the gate is stateless, so it works identically on every instance |
+| §5.4 enumeration | DB read distinguishes nothing | Strengthened: a forged token is rejected without a lookup |
+
+Compatible with the spec's rejection of "a self-describing signed token" (§5.2): that was
+rejected for putting the **recipient's address** in a URL. This encodes **no PII** — just a
+random nonce and a MAC over it.
+
+**Residual, stated honestly:** someone holding a token we genuinely sent can still replay it
+and induce one indexed lookup per request. That population is exactly the one §9.2 exists to
+serve, the work is a single unique-index probe already bounded by `statement_timeout`, and
+it is no worse than any other public page. No admission control, so no loss path.
+
+**Constraint hand-off to #630:** minting **must** call `mintUnsubscribeRawToken()` rather
+than generating its own random string, or every unsubscribe link fails the gate. Exporting
+the minter (not just a format description) is what makes that impossible to get wrong. No
+live tokens exist yet — `SOLICITATION_SEND_ENABLED` is off everywhere — so there is no
+back-compatibility window.
+
 ### 1.4b Exempt from the limiter is not exempt from bounds (owner-run round 2, finding 2)
 
 Removing the rate limiter removed the only thing bounding this route's *workload*. Each
@@ -306,16 +390,20 @@ per-caller quota; a bulkhead *defers* it with a retryable status.
 1. **Per-route body limit — 1 KB.** RFC 8058 §3.1's body is `List-Unsubscribe=One-Click`,
    about 30 bytes. Fastify's per-route `bodyLimit` yields 413 above it. Nothing legitimate
    approaches this.
-2. **Bounded concurrency bulkhead.** A small in-process semaphore caps simultaneous
-   in-flight redemptions; over the cap, respond **503 with `Retry-After`** rather than
-   queueing on the shared pool. This is deliberately the *same* retryable shape already used
-   for `unknown_token` (§1.7), so provider behaviour is uniform and no opt-out is lost —
-   only deferred. Sized well above any plausible legitimate burst, since even a large send
-   produces opt-outs spread over hours.
+2. ~~**Bounded concurrency bulkhead.**~~ **WITHDRAWN in revision 7** (owner-run #3,
+   finding 3). Revision 6 claimed it "defers, never loses" while §1.7 simultaneously
+   conceded there is **no evidence providers retry a 503** — the plan contradicted itself,
+   and the honest reading is that the bulkhead was an intentional silent-loss path for a
+   statutory opt-out. It is deleted rather than justified. §1.4a removes the pressure that
+   motivated it: forged traffic never reaches the database, so there is nothing to shed.
 
-Tests: an oversized body is rejected without reaching the handler; concurrency beyond the
-cap yields 503 + `Retry-After` rather than pool exhaustion; and neither path is a
-per-recipient rate limit (§9.2 stays intact).
+**The no-loss claim is withdrawn wherever it rested on provider retry.** The only place a
+503 is still returned for a *well-formed* token is `unknown_token` (§1.7), and that case is
+explicitly documented as "enables recovery, does not guarantee it".
+
+Tests: an oversized body is rejected without reaching the handler; a forged token induces
+**no database connection at all**; and no path applies a per-recipient rate limit (§9.2
+stays intact).
 
 ### 1.5 Raw-token logging: silence the route, generalise the scrub (findings 3, 10)
 
@@ -329,6 +417,37 @@ handler, and the pino serializer copies the URL verbatim.
 > **Trap for the implementer:** `logLevel: 'silent'` also silences `request.log`. The
 > adapter's own §9.5 structured line must go through `createWorkerLogger`, which is
 > independent of the Fastify child logger. Do not use `request.log` in this handler.
+
+**`logLevel: 'silent'` is NOT sufficient on its own** (owner-run #3, finding 1). It applies
+only **after the exact route resolves** — and revision 4 deliberately requires
+`/ingress/unsubscribe/<token>/extra` to stay a rate-limited **404**, which resolves to *no*
+route and therefore carries no silent config. Fastify logs the raw URL before `onRequest`,
+so a valid token plus a trailing segment lands in logs: **invariant #5 violated by a rule I
+added myself.**
+
+Round 2's reviewer offered two fixes — silence the route **or** install a token-redacting
+request serializer — and I took the cheaper one, which only ever covered matched routes.
+Revision 7 does **both**:
+
+```ts
+// worker/config/fastify-options.ts  — SURFACE AMENDMENT #2
+logger: {
+  serializers: {
+    req: (request) => ({
+      method: request.method,
+      url: redactSensitivePathsAndQueries(request.url),  // §1.5's shared rule
+      host: request.host,
+      remoteAddress: request.ip,
+    }),
+  },
+}
+```
+
+One redaction rule, two sinks (pino + Sentry), covering matched routes, unmatched 404s,
+trailing segments, malformed input, and percent-encoded spellings alike. The route-level
+`logLevel: 'silent'` stays as defence in depth. **Test with request logging explicitly
+enabled** — the prod default of `warn` hides this class, which is what let it survive three
+reviews.
 
 **Finding 10 — the Sentry scrub must survive encoded spellings.** `redactSensitivePathsAndQueries`
 currently applies `/(\/approve\/)[^/?#\s]+/gi` directly to the raw URL
@@ -474,9 +593,31 @@ export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): bo
 - No cookie, so a cookie-blocking browser still sees success after a real opt-out; no JS,
   so the flow still works with scripting disabled.
 
-The receipt is not an authorisation token — it authorises nothing and grants no access. It
-is a claim check proving *this server just wrote that suppression*, which is precisely what
-the success sentence asserts.
+The receipt is not an authorisation token — it authorises nothing and grants no access.
+
+**A receipt is necessary but NOT sufficient** (owner-run #3, finding 4 — the *third*
+false-success vector). Verification proves only that a suppression existed **when the
+receipt was minted**; the audited Correction path can remove it during the 10-minute TTL, or
+race the spent-token check. Revision 6 stated the invariant "a receipt is never issued
+without a live suppression" but bound it to the **minting** moment, which is exactly why
+this vector survived it.
+
+> **The corrected invariant, bound to the rendering moment:**
+> *A page may claim "you are unsubscribed" only from a ledger read taken during that render.*
+> The receipt gates **whether we are permitted to show** the success state (§5.4 enumeration
+> resistance). The live ledger read establishes **whether the claim is true**. Both are
+> required; neither substitutes for the other.
+
+So `GET /u/<token>?ok=<receipt>` renders success only when the receipt verifies **and** a
+`scope='global'` row for the token's handle exists *at render time*. If the receipt verifies
+but the row is gone, render the neutral state — the correction happened, and the honest
+answer is that they are not currently suppressed. Tests must cover a correction landing
+between POST and GET, and a correction racing a replay.
+
+This is the root-cause fix for a class that produced three vectors (`?done=1`, spent-token
+replay, stale receipt): all three asserted a fact about **mutable** ledger state from
+evidence **decoupled in time** from that state. No carried proof can ever be sufficient,
+because §8.2 makes the ledger mutable by design.
 
 ### 1.9 The §5.5 / §5.4 conflict
 
