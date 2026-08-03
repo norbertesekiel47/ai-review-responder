@@ -3,6 +3,33 @@
 Entries are things plan revision 7 did not anticipate. Each gets a triage verdict
 (ACCEPT / RE-PLAN) at step 6.5, before any review agent sees this file.
 
+## Step 6.5 triage — completed 2026-08-03, gate GREEN at `5599382b`
+
+**All eleven ACCEPT. None invalidates a locked intake decision, so the abort criteria do not
+fire.** Read this table first; the entries below carry the reasoning.
+
+| # | Verdict | One line |
+|---|---|---|
+| D1 | **ACCEPT** | Owner decision: `SESSION_COOKIE_SECRET` rotation is a document-only constraint. Shipped as a registry entry; **an operational check is still owed before merge** (see below). |
+| D2 | **ACCEPT** | §1.5 knew one of three log shapes. Fixed and *measured* on real Fastify, not argued. |
+| D3 | **ACCEPT** | Single-sided receipt TTL: a future-dated receipt is mintable only by a secret-holder, and §1.8 makes a receipt never sufficient alone. |
+| D4 | **ACCEPT** | Became the T1c boot gate. My original premise was false and is corrected in place. |
+| D5 | **ACCEPT** | `/u/` over-redaction fails **safe**; precision was not worth the risk in a rule already got wrong twice. |
+| D6 | **ACCEPT** | Owner amended the estimate. The gate's residual WARN is a measurement artifact — see the addendum in D6. |
+| D7 | **ACCEPT** | Enumerated redaction: the closeable path was closed, the rest is a stated caller contract carried into T1c and T2. |
+| D8 | **ACCEPT** | Plan gap — §1.8 needed a seam §1.2 never exposed. Closed with a **shared** helper, mutation-verified to have one owner. |
+| D9 | **ACCEPT** | Owner declined surface amendment #3; the counter stays in-file. Amendments remain **2 of 2**. |
+| D10 | **ACCEPT** | `createWorkerLogger` drops keys containing `token`. Fixed. **Promote to lab-notes at merge.** |
+| D11 | **ACCEPT** | Absolute-form request targets bypass the limiter for **every** ingress provider. Closed with a real-socket test. **Promote to lab-notes at merge.** |
+
+**Two carry obligations past merge, and neither is discharged by this branch:**
+
+1. **D1 —** confirm `SESSION_COOKIE_SECRET` is set on the Railway **staging and prod** workers
+   before anything ships the boot gate. It is a hard boot failure by design; a deployed worker
+   without it will crash-loop. Owner-verified, not automatable from here.
+2. **D10 + D11 —** promote both to `.claude/reference/lab-notes.md` in the post-merge sweep.
+   That file is outside `allowed_edit_surface`, so it cannot be done on this branch.
+
 ---
 
 ## D1 — `SESSION_COOKIE_SECRET` rotation invalidates delivered unsubscribe links
@@ -476,6 +503,29 @@ Options weighed and rejected:
   T1c's `GET` 302s to `/u/<token>`, so without T2 that redirect 404s, and the intake's own
   rollback plan names "delivered asks advertising URLs that 404" as the principal revert risk.
   It would ship a knowingly broken statutory path to satisfy a metric.
+
+### D6 addendum — the gate's residual WARN is a measurement artifact
+
+At gate-green the `reclassify` row still WARNs: *9119 changed lines > 2× 2900*. Measured
+against what the estimate actually describes, it is not a scope overrun:
+
+| Surface | Lines |
+|---|---|
+| **Feature code** (`src`, `worker`, `scripts`, `.claude`) | **4366** |
+| Workflow docs (plan, deviations, glossary, runbook, handoff) | 1852 |
+| **Review reports produced by this workflow** | 2880 |
+
+Code came in at **4366 against a 2900 estimate — 1.5×**, comfortably inside the 2× trigger.
+The check counts *total* changed lines, so this branch's own audit trail — eleven deviations
+and twelve review reports, most of them written because the reviews found real defects —
+trips a threshold meant to detect feature scope creep.
+
+**Deliberately NOT re-amending the estimate to chase the number.** Inflating it to ~9500 would
+silence the row while destroying the field's meaning as a code-scope signal, and the next
+feature would inherit a useless benchmark. The honest record is: the estimate is a code
+estimate, code landed at 1.5×, and the WARN is explained here so a step-7 reviewer does not
+have to rediscover it. If the check should exclude `docs/**` that is a workflow-level fix,
+not a #644 one.
 
 The reasoning that decided it: the trigger exists to catch work routed into too **light** a
 lane. This ticket already sits in the heaviest lane available, so re-running step 0 re-derives
