@@ -179,3 +179,33 @@ of the two failure modes does not justify the risk.
 If it bites in practice, the scoped follow-up is anchoring the `/u/` and `/api/u/`
 alternatives to a path-start boundary; `/ingress/unsubscribe/` is distinctive enough to need
 nothing.
+
+---
+
+## D6 — `estimated_diff_size` is stale and the branch will overrun it
+
+**Raised** 2026-08-03, tracking only — no action required yet.
+
+The intake locks `estimated_diff_size` at `+900 / -10`. **T1a alone is +533 / -10** across
+seven files, with T1b, T1c, T2 and T3 still to land. A rough projection puts the finished
+branch near +2000, which crosses step 5's re-classification trigger (actual > ~2× estimate =
++1800).
+
+**Why the estimate is stale rather than wrong.** It was written against plan revision 2. Six
+review rounds later, revision 7 had added: the self-authenticating token scheme and its
+admission gate (§1.4a), the signed success receipt and its render-time ledger read (§1.8),
+the 60-second unknown-token aggregate with replica tagging and shutdown flush (§1.6), the
+dual-sink redaction rule (§1.5), and now a boot gate (D4). Each was a review finding accepted
+on merit. The scope grew because the design got more correct, not because it drifted.
+
+**Why re-running step 0 would change nothing.** The trigger exists to catch
+*under-classification* — work routed into a lane too light for its risk. This ticket is
+already in the heaviest lane available (RISK=high, full pipeline, adversarial plan review,
+dual step-7 review, staging ride before `main`). There is no heavier lane to escalate into.
+The two amendment-based abort criteria already fired earlier and were explicitly superseded by
+the owner's direction to resolve all findings in-ticket.
+
+**Disposition:** flag the real number to the owner once T1c lands and it is measured rather
+than projected, and amend `estimated_diff_size` in **both** intake copies with sign-off at
+that point. Recorded here now so the overrun is a tracked, explained fact at review time
+rather than a surprise a reviewer has to rediscover.
