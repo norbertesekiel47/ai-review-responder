@@ -304,6 +304,53 @@ Constraints carried into T2's brief:
 
 ---
 
+## D9 — the edit-surface guard blocked a new file; owner declined amendment #3
+
+**Raised** 2026-08-03 by the T1c implementer. **The enforcement worked as designed** — this
+entry exists because the guard stopped something, not because something slipped through.
+
+T1c wanted `worker/ingress/unknown-token-window.ts` for the §1.6 counter. `allowed_edit_surface`
+enumerates files, and that path is not among them, so the pre-edit hook refused it. The
+counter therefore lives as a clearly-banded section inside `worker/ingress/unsubscribe.ts`
+(315 lines), with the injectable-clock factory still exported so the window tests stay
+deterministic rather than waiting 60 real seconds.
+
+**Owner decision 2026-08-03: leave it in-file. Amendment #3 declined.** At 315 lines the file
+is not unreasonable, both concerns belong to the same route, and splitting a file at the end
+of a slice costs a re-review for a structural preference rather than a defect. Revisit only if
+a step-7 reviewer independently flags the file as doing two jobs — the split is mechanical and
+can ride a follow-up.
+
+**Surface amendment count stands at 2 of 2.** Everything since has been resolved in-surface,
+including the D4 boot gate (via the `tokens.ts` precedent) and D8's render-time seam.
+
+---
+
+## D10 — `createWorkerLogger` silently DROPS any key containing `token`
+
+**Raised** 2026-08-03 by the T1c implementer. **Promote to `.claude/reference/lab-notes.md` at
+merge — this generalises well beyond #644.**
+
+`createWorkerLogger`'s object arguments pass through the analytics **blocked-key sanitizer**,
+which strips any key whose name contains `token`. The §9.5 structured line was going to carry
+`token_hash_prefix` — the one field that makes a redemption correlatable across retries — and
+it would have been **silently removed from every log line**. No error, no warning: the field
+simply would not be there, and the omission would only ever be noticed while debugging a
+production incident, which is exactly when it is needed.
+
+Renamed to `hash_prefix`, which the sanitizer passes.
+
+The trap is that the sanitizer is doing its job: a key called `*token*` is overwhelmingly
+likely to hold a secret, and dropping it is right. The collision is that a **hash prefix of** a
+token is safe by construction and reads as a token by name. Invariant #5 says never log the
+raw token; it does not say never log a name containing the word.
+
+**Lab-note form:** *any deliberately-safe derived value — a hash prefix, a masked suffix, a
+key id — must be NAMED so it does not collide with the blocked-key sanitizer, or
+`createWorkerLogger` will drop it without a sound.*
+
+---
+
 ## D5 — the `/u/` redaction rule over-redacts, and that is the accepted trade
 
 **Raised** 2026-08-03 by the T1a spec reviewer (severity: low).
