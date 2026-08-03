@@ -53,16 +53,39 @@ function RiskBadge({ level }: { level: MarginRiskLevel }) {
   );
 }
 
-function ByProviderTable({ rows, days }: { rows: CostData['byProvider']; days: number }) {
+// Shared shape of the By-Provider and By-Day mini tables — same three columns
+// (name, cost, calls), differing only in the row identity/label and the
+// first-column styling. Kept local: single file, two call sites below.
+function CostMiniTable<T>({
+  title,
+  columnLabel,
+  days,
+  rows,
+  rowKey,
+  primaryLabel,
+  primaryClassName,
+  totalUsd,
+  callCount,
+}: {
+  title: string;
+  columnLabel: string;
+  days: number;
+  rows: T[];
+  rowKey: (row: T) => string;
+  primaryLabel: (row: T) => string;
+  primaryClassName: string;
+  totalUsd: (row: T) => number;
+  callCount: (row: T) => number;
+}) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white">
       <div className="border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-700">By Provider ({days}d)</h2>
+        <h2 className="text-sm font-semibold text-gray-700">{title} ({days}d)</h2>
       </div>
       <table className="min-w-full divide-y divide-gray-100 text-sm">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-4 py-2 text-left font-medium text-gray-500">Provider</th>
+            <th className="px-4 py-2 text-left font-medium text-gray-500">{columnLabel}</th>
             <th className="px-4 py-2 text-right font-medium text-gray-500">Cost</th>
             <th className="px-4 py-2 text-right font-medium text-gray-500">Calls</th>
           </tr>
@@ -76,45 +99,10 @@ function ByProviderTable({ rows, days }: { rows: CostData['byProvider']; days: n
             </tr>
           )}
           {rows.map((row) => (
-            <tr key={row.provider} className="hover:bg-gray-50">
-              <td className="px-4 py-2 font-medium text-gray-800 capitalize">{row.provider}</td>
-              <td className="px-4 py-2 text-right text-gray-700">${row.totalUsd.toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-gray-500">{row.callCount.toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ByDayTable({ rows, days }: { rows: CostData['byDay']; days: number }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white">
-      <div className="border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-700">By Day ({days}d)</h2>
-      </div>
-      <table className="min-w-full divide-y divide-gray-100 text-sm">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
-            <th className="px-4 py-2 text-right font-medium text-gray-500">Cost</th>
-            <th className="px-4 py-2 text-right font-medium text-gray-500">Calls</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={3} className="p-4 text-center text-gray-400">
-                No data
-              </td>
-            </tr>
-          )}
-          {rows.map((row) => (
-            <tr key={row.day} className="hover:bg-gray-50">
-              <td className="px-4 py-2 text-gray-700">{row.day}</td>
-              <td className="px-4 py-2 text-right text-gray-700">${row.totalUsd.toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-gray-500">{row.callCount.toLocaleString()}</td>
+            <tr key={rowKey(row)} className="hover:bg-gray-50">
+              <td className={`px-4 py-2 ${primaryClassName}`}>{primaryLabel(row)}</td>
+              <td className="px-4 py-2 text-right text-gray-700">${totalUsd(row).toFixed(4)}</td>
+              <td className="px-4 py-2 text-right text-gray-500">{callCount(row).toLocaleString()}</td>
             </tr>
           ))}
         </tbody>
@@ -357,8 +345,28 @@ function CostsContent({
 
       {/* By Provider + By Day side by side */}
       <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <ByProviderTable rows={data.byProvider} days={days} />
-        <ByDayTable rows={data.byDay} days={days} />
+        <CostMiniTable
+          title="By Provider"
+          columnLabel="Provider"
+          days={days}
+          rows={data.byProvider}
+          rowKey={(row) => row.provider}
+          primaryLabel={(row) => row.provider}
+          primaryClassName="font-medium text-gray-800 capitalize"
+          totalUsd={(row) => row.totalUsd}
+          callCount={(row) => row.callCount}
+        />
+        <CostMiniTable
+          title="By Day"
+          columnLabel="Date"
+          days={days}
+          rows={data.byDay}
+          rowKey={(row) => row.day}
+          primaryLabel={(row) => row.day}
+          primaryClassName="text-gray-700"
+          totalUsd={(row) => row.totalUsd}
+          callCount={(row) => row.callCount}
+        />
       </div>
 
       {/* By Business */}

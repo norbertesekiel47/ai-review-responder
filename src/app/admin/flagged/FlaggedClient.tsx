@@ -2,34 +2,12 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AdminFlaggedData } from '@/lib/admin/flagged-service';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
-interface FlaggedItem {
-  id: string;
-  responseId: string;
-  businessId: string;
-  accountId: string;
-  reviewId: string;
-  source: string;
-  reason: string | null;
-  severity: string;
-  status: string;
-  createdAt: string;
-  responseText: string;
-  version: number;
-  reviewerName: string;
-  starRating: number;
-  businessName: string;
-}
-
-interface FlaggedData {
-  flagged: FlaggedItem[];
-  total: number;
-  limit: number;
-  offset: number;
-}
+type FlaggedData = AdminFlaggedData & { limit: number; offset: number };
 
 type DispositionAction =
   | 'approved_for_owner_review'

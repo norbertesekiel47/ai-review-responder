@@ -13,7 +13,7 @@ import { getWorkerPublicUrl } from '@/lib/shared/worker-public-url';
 // IPv6-only network). This fetches the worker's authed internal endpoint
 // server-side with a short, explicit timeout and NO retry — an admin read that
 // degrades to {unavailable:true} on any failure rather than blocking the panel.
-export const QUEUE_HEALTH_TIMEOUT_MS = 5_000;
+const QUEUE_HEALTH_TIMEOUT_MS = 5_000;
 
 // Local HTTP-boundary mirror of the PoolWait shape, whose canonical owner is
 // src/lib/shared/pool-wait.ts (a type-only import would be invariant-#1-legal,

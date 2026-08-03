@@ -5,7 +5,7 @@ export interface AdminNavItem {
   readonly badge?: 'flaggedOpen' | 'failedJobs';
 }
 
-export interface AdminNavGroup {
+interface AdminNavGroup {
   readonly label: string;
   readonly items: readonly AdminNavItem[];
 }

@@ -2,29 +2,17 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { AdminNotificationsData } from '@/lib/admin/notifications-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
-interface NotifData {
-  notifications: {
-    id: string;
-    businessName: string;
-    channel: string;
-    recipient: string;
-    template: string;
-    sentAt: string | null;
-    deliveredAt: string | null;
-    failedAt: string | null;
-    failureReason: string | null;
-    createdAt: string;
-  }[];
-  total: number;
-  limit: number;
-  offset: number;
-  businesses: { id: string; name: string }[];
-}
+// Mirrors src/app/api/admin/notifications/route.ts's NotifData exactly: the
+// delivery log + businesses dropdown come from AdminNotificationsData (single
+// owner: notifications-service.ts); limit/offset are request-echo fields the
+// route adds on top.
+type NotifData = AdminNotificationsData & { limit: number; offset: number };
 
 type Delivery = NotifData['notifications'][number];
 

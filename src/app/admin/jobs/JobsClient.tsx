@@ -8,36 +8,25 @@ import {
   QUEUE_HEALTH_JOB_STATES,
   type QueueHealthJobState,
 } from '@/lib/shared/queue-health-states';
+import type { AdminJobsData } from '@/lib/admin/jobs-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
-interface JobsData {
-  outbox: {
-    pending: number;
-    dispatching: number;
-    dispatched: number;
-    failed: number;
-    completedToday: number;
-  };
-  failedJobs: {
-    id: string;
-    topic: string;
-    lastError: string | null;
-    attempts: number;
-    maxAttempts: number;
-    createdAt: string;
-  }[];
-  failedTotal: number;
+// Local HTTP-boundary mirror; canonical owner is src/lib/shared/pool-wait.ts (PoolWait).
+type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
+
+// Mirrors src/app/api/admin/jobs/route.ts's JobsData exactly: the outbox
+// summary + failed-jobs page come from AdminJobsData (single owner:
+// jobs-service.ts); queueHealth/pool/limit/offset are request-echo fields the
+// route adds on top, not part of the service's DTO.
+type JobsData = AdminJobsData & {
   limit: number;
   offset: number;
   queueHealth: Record<string, Record<string, number>> | { unavailable: true };
   pool: PoolWaitPayload | null;
-}
-
-// Local HTTP-boundary mirror; canonical owner is src/lib/shared/pool-wait.ts (PoolWait).
-type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
+};
 
 type FailedJob = JobsData['failedJobs'][number];
 

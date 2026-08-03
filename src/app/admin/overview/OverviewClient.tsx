@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import type { OverviewData } from '@/lib/admin/overview-service';
+import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
@@ -13,62 +15,7 @@ import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/sta
 
 const PAGE_SIZE = 20;
 
-interface OverviewData {
-  systemHealth: {
-    pendingOutbox: number;
-    failedJobs: number;
-    todayCostUsd: number;
-    notificationFailures24h: number;
-    emailHealth: {
-      sent24h: number;
-      delivered24h: number;
-      bounces7d: number;
-      hardBounces7d: number;
-      complaints7d: number;
-      deliveryRate24h: number;
-      redState: boolean;
-    };
-  };
-  totalBusinesses: number;
-  limit: number;
-  offset: number;
-  responseMetricsWindowDays: number;
-  businesses: BusinessRow[];
-}
-
-interface NavCounts {
-  flaggedOpen: number;
-  failedJobs: number;
-}
-
-// Mirrors src/components/admin/AdminSidebar.tsx's fetchNavCounts + query
-// exactly (same queryKey, same fetcher, same poll cadence) so the sidebar's
-// Flagged badge and this page's needs-attention line share ONE react-query
-// cache entry instead of drifting out of sync on their own timers.
-async function fetchNavCounts(): Promise<NavCounts> {
-  const response = await fetch('/api/admin/nav-counts');
-  if (!response.ok) throw new Error(`nav-counts failed (${response.status})`);
-  return response.json();
-}
-
-interface BusinessRow {
-  id: string;
-  name: string;
-  subscriptionStatus: string;
-  lastSyncAt: string | null;
-  pendingApprovalCount: number;
-  pendingReconnectCount: number;
-  totalResponses: number;
-  completedResponses: number;
-  responseRate: number;
-  avgResponseTimeHours: number | null;
-  lastActivity: string | null;
-  churnScore: {
-    score: number;
-    level: 'healthy' | 'watch' | 'at_risk';
-    breakdown: Array<{ signal: string; value: string; contribution: number }>;
-  };
-}
+type BusinessRow = OverviewData['businesses'][number];
 
 function formatRelative(isoString: string | null): string {
   if (!isoString) return '—';
@@ -290,18 +237,14 @@ export function OverviewClient({
     initialData: page === 0 ? initialData : undefined,
   });
 
-  // Same cache entry the sidebar's Flagged badge reads (queryKey, fetcher,
-  // and poll cadence mirrored from AdminSidebar.tsx) — the needs-attention
-  // strip's flagged-response line must never disagree with the sidebar badge
-  // on screen at once. Seeded from the server-provided flaggedOpen prop plus
-  // this page's already-fetched failedJobs so the tile never flashes 0 before
-  // the shared query resolves.
-  const { data: navCounts } = useQuery<NavCounts>({
-    queryKey: ['admin', 'nav-counts'],
-    queryFn: fetchNavCounts,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-    retry: 1,
+  // Same cache entry the sidebar's Flagged badge reads (navCountsQueryOptions
+  // is the single owner of the queryKey/fetcher/poll cadence) — the
+  // needs-attention strip's flagged-response line must never disagree with
+  // the sidebar badge on screen at once. Seeded from the server-provided
+  // flaggedOpen prop plus this page's already-fetched failedJobs so the tile
+  // never flashes 0 before the shared query resolves.
+  const { data: navCounts } = useQuery({
+    ...navCountsQueryOptions,
     initialData: { flaggedOpen, failedJobs: initialData.systemHealth.failedJobs },
   });
 
