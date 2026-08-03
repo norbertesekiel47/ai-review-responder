@@ -1,7 +1,8 @@
 # #644 handoff — unsubscribe opt-out path
 
 **Branch** `feat-644-unsubscribe-opt-out` · **Worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-644-unsubscribe-opt-out`
-**Phase at handoff:** `worktree_ready` — step 3 (plan), adversarial round 2 in flight.
+**Phase at handoff:** `worktree_ready` — step 3 (plan). **Round 2 returned REVISE; plan
+revision 3 is the next action.** One review round remains of the 3-round budget.
 **HEAD** `d8373026`
 
 Resume with `/feature-resume feat-644-unsubscribe-opt-out`. Everything needed is on disk;
@@ -14,6 +15,7 @@ the grilling transcript is not required.
 | Intake contract (drift detector, authoritative) | `.feature/intake.json` (audit copy in `docs/superpowers/plans/feat-644-unsubscribe-opt-out-intake.json`) |
 | Plan, revision 2 | `docs/superpowers/plans/2026-08-03-644-unsubscribe-opt-out.md` |
 | Adversarial review round 1 + triage | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round1.md` |
+| **Adversarial review round 2 (REVISE — read this before touching the plan)** | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round2.md` |
 | Locked spec | `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §5.1–5.5, §9.1–9.5, §10, DR1 |
 | Glossary | `CONTEXT.md` → "Solicitation suppression & unsubscribe" |
 | Ticket | `gh issue view 644` |
@@ -78,10 +80,39 @@ rather than self-skip.
   `TaskList` showing nothing does not mean a codex job died. Use
   `codex-companion status --all`.
 
+## Required for plan revision 3 (round 2's open findings)
+
+Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
+`suppressionId` removal. Still open:
+
+1. **Finding 3 — reopened and harder than revision 2 assumed.** Fastify logs
+   `incoming request` **before** `onRequest` and before the handler, so *catching does not
+   prevent the raw token being logged*. Revision 2's claim is false. Fix = disable request
+   logging for this route or install a token-redacting request serializer. The fact that
+   prod runs at `warn` (which happens to suppress it) is a coincidence, not an invariant.
+2. **Finding 4 — reorder the transaction.** `recordSuppression` must NOT run before the
+   claim. Ordering it first lets a spent token silently undo an audited **Correction path**
+   removal, and lets a concurrent purge produce a suppression row with stale non-null
+   provenance (violating §5.2's `account_id = NULL`). Make the claim serialize first and
+   return the provenance it locked, then feed `recordSuppression` from that row.
+3. **Finding 2 — exempt the GET route too.** The flag is on `app.post` only; the worker GET
+   redirect is a separate route and its inherited HEAD route is still rate-limited.
+4. **Finding 9 — add the TypeScript module augmentation** for
+   `FastifyContextConfig.skipIngressRateLimit`, or a typed seam. Without it the plan does
+   not typecheck.
+5. **Finding 10 — the Sentry scrub must match encoded route spellings**, not just literal
+   `/ingress/unsubscribe`, or an event retains the raw token.
+6. **Finding 8 — design bounded observability** for unknown tokens: the route is
+   deliberately unrate-limited, so per-request Sentry events plus one log line each is an
+   amplification vector. Needs aggregation, dedup, or sampling.
+7. **Finding 1 — soften the claim.** 503 makes mint-race recovery *possible*, not
+   guaranteed; no provider retry contract exists in-repo. State it honestly.
+
 ## Next actions
 
-1. Read round 2's verdict; if REVISE, triage and revise (max 3 rounds, then escalate to
-   the owner instead of looping).
+1. Revise the plan to revision 3 against the seven items above; re-submit for round 3.
+   **That is the last round** — if it does not come back APPROVED, escalate the
+   disagreement to the owner rather than looping.
 2. On APPROVED, present the plan to the owner for sign-off.
 3. `bash scripts/feature-state.sh set-phase plan_approved`, then `set-phase executing`, and
    run step 4 as three tracer tickets (T1 ingress path, T2 landing path, T3 docs) via
