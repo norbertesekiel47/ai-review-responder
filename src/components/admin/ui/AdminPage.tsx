@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
+import type { AdminNavGroupLabel } from '../nav-config';
 
 interface AdminPageProps {
   /** Sidebar group name, shown as breadcrumb (Operate · Businesses · Safety · Growth). */
-  group: string;
+  group: AdminNavGroupLabel;
   title: string;
   description?: string;
   actions?: ReactNode;

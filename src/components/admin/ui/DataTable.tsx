@@ -13,6 +13,13 @@ export interface DataTableColumn<T> {
   className?: string;
 }
 
+interface ServerPagination {
+  page: number;
+  pageSize: number;
+  totalRows: number;
+  onPageChange: (page: number) => void;
+}
+
 interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   rows: T[];
@@ -21,6 +28,8 @@ interface DataTableProps<T> {
   rowHref?: (row: T) => string;
   pageSize?: number;
   emptyState: ReactNode;
+  /** Controlled mode: rows are ONE server page; the caller owns fetching. Client-side sort stays within the page. */
+  serverPagination?: ServerPagination;
 }
 
 interface SortState {
@@ -28,7 +37,7 @@ interface SortState {
   dir: 'asc' | 'desc';
 }
 
-export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState, serverPagination }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(0);
 
@@ -45,15 +54,25 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
     });
   }, [rows, sort, columns]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(page, pageCount - 1);
-  const visible = sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const pageCount = serverPagination
+    ? Math.max(1, Math.ceil(serverPagination.totalRows / serverPagination.pageSize))
+    : Math.max(1, Math.ceil(sorted.length / pageSize));
+  const currentPage = serverPagination ? serverPagination.page : Math.min(page, pageCount - 1);
+  const visible = serverPagination ? sorted : sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
 
   function toggleSort(key: string) {
-    setPage(0);
+    if (!serverPagination) setPage(0);
     setSort((prev) =>
       prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' },
     );
+  }
+
+  function goToPage(nextPage: number) {
+    if (serverPagination) {
+      serverPagination.onPageChange(nextPage);
+    } else {
+      setPage(nextPage);
+    }
   }
 
   if (rows.length === 0) return <>{emptyState}</>;
@@ -113,14 +132,24 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
           </tbody>
         </table>
       </div>
-      {pageCount > 1 && (
+      {(serverPagination
+        ? serverPagination.totalRows > rows.length || pageCount > 1
+        : pageCount > 1) && (
         <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2 text-xs text-gray-500">
-          <span>{`Page ${currentPage + 1} of ${pageCount}`}</span>
+          <span>
+            {serverPagination
+              ? (() => {
+                  const start = currentPage * serverPagination.pageSize + 1;
+                  const end = Math.min(start + rows.length - 1, serverPagination.totalRows);
+                  return `Showing ${start}–${end} of ${serverPagination.totalRows}`;
+                })()
+              : `Page ${currentPage + 1} of ${pageCount}`}
+          </span>
           <div className="flex gap-1">
             <button
               type="button"
               disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
+              onClick={() => goToPage(currentPage - 1)}
               className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
             >
               Previous
@@ -128,7 +157,7 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
             <button
               type="button"
               disabled={currentPage >= pageCount - 1}
-              onClick={() => setPage(currentPage + 1)}
+              onClick={() => goToPage(currentPage + 1)}
               className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
             >
               Next
