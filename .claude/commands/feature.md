@@ -142,6 +142,13 @@ cases the ticket doesn't cover, and anything that changed since the map
 was drawn. Do not re-litigate decisions the map already made — if one
 looks wrong now, surface it to me as a map-level question instead.
 
+**Proportionality (RISK = normal)**: grill only until the intake fields
+are answerable — batch related questions, lead each with a recommended
+answer, and never ask what the code, docs, or design of record already
+answer. The relentless full-decision-tree interview is reserved for
+RISK = high; for everything else the intake contract IS the deliverable,
+not the interview.
+
 **Prototype escape hatch**: if grilling surfaces a design question that
 discussion cannot resolve (state-machine behavior, UI feel, library fit),
 invoke the `prototype` skill to build a throwaway answer before locking the
@@ -237,8 +244,15 @@ deepening an existing module or forced to add a new interface. If the plan
 would widen an interface or scatter logic across seams, redesign before
 proceeding.
 
-Then invoke `superpowers:writing-plans`, but structure the tasks per the
+Then invoke `writing-plans`, but structure the tasks per the
 `to-tickets` discipline:
+- **The FIRST task is the eval task**: author the `tests_to_add` bodies as
+  failing tests (slices not yet buildable may use `.todo`/`.fails`
+  markers), committed before any implementation task — the spec in
+  executable form. Each implementation task then names the failing tests
+  it turns green. Prefer code-shaped spec over prose everywhere: a test
+  suite, an HTML mockup, or a precedent file `@`-referenced beats a
+  paragraph describing the same thing.
 - Each task is a **tracer bullet**: a thin vertical slice that runs
   end-to-end, not a horizontal layer.
 - Each task declares its **blocking edges** (which tasks must land first).
@@ -256,9 +270,13 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
    incr-round plan`. The counter lives in `.feature/state.json`, so a
    resumed session CONTINUES the count — uncounted rounds are how #628
    reached a round-5 review under a "max 3" cap.
-2. **Round 1 (full)**: dispatch the codex rescue agent (read-only) to
-   adversarially review the plan document: challenge assumptions, missing
-   failure modes, and simpler alternatives; require an explicit
+2. **Round 1 (full, eval-first)**: the primary review target is the
+   failable definition of done, not the plan prose. Dispatch the codex
+   rescue agent (read-only) to adversarially review the plan + the eval
+   task, leading with: **can this eval pass while the feature is still
+   wrong?** — every missing failure mode must be named as a missing
+   failing test, not as a prose objection. Plan-level findings
+   (assumptions, simpler alternatives) are secondary. Require an explicit
    `VERDICT: APPROVED` or `REVISE` with reasons. The brief MUST include the
    **cited-artifact check**: verify every file/section the plan cites
    actually exists on disk (three #643 plan rounds each re-reviewed
@@ -295,12 +313,15 @@ plan, ticket files, and glossary excerpt by path — not restate them. Then:
 ## 4. EXECUTE — delegated
 
 Set the phase first (`bash scripts/feature-state.sh set-phase executing`),
-then invoke `superpowers:subagent-driven-development` FROM this session:
+then invoke `subagent-driven-development` FROM this session:
 dispatch fresh per-task subagents against the worktree. Each subagent's
 task prompt MUST include:
 - The relevant `CONTEXT.md` glossary excerpt (so it names things in the
   shared language, not its own invented jargon).
 - The task's spec slice and its blocking-edge context.
+- The precedent file paths from `existing_patterns_to_follow` and the
+  failing eval tests this task turns green — code references, not prose
+  descriptions of them.
 
 TDD per the `tdd` skill discipline where behavior is specifiable up front:
 red-green-refactor, one vertical slice at a time. Commit per completed task
@@ -481,7 +502,7 @@ applies to ALL reviews in this workflow (steps 3 and 7): full report on
 disk, findings table in context. Open the full report only for findings
 you are actively triaging.
 
-Triage the tables with `superpowers:receiving-code-review`: fix what is
+Triage the tables with `receiving-code-review`: fix what is
 real, reject the rest with stated reasoning. Log accepted/rejected verdicts
 as one-liners in the report file (so a resumed session inherits triage
 state). **COMMIT the review reports + triage verdicts on the branch** —
