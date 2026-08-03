@@ -188,6 +188,46 @@ better — callers never learn *which* secret the module needs.
 
 ---
 
+## D7 — worker log redaction is **enumerated**, so it carries a caller contract
+
+**Raised** 2026-08-03 by the T1a quality re-review of `8efd2b8d` (Important, approved with
+this residual).
+
+The fix redacts via pino's `redact: { paths: ['msg', 'err.message', 'err.stack'], censor }`.
+That is **path-based and therefore enumerated** — any string logged outside those paths is
+written raw. Three misses measured at the production `warn` lane:
+
+1. `err.aggregateErrors[*].message` — `pino-std-serializers` emits a separate recursive array
+   (`lib/err.js:24`) that the listed paths do not reach.
+2. A **custom enumerable property** on an Error — the serializer's `for (const key in err)`
+   copies it verbatim.
+3. An error logged under **any key other than `err`**.
+
+**Not a regression, and not a reason to revert.** The reviewer verified that its own
+originally-prescribed fix — wrapping `stdSerializers.err` — redacts exactly the same two
+fields and would have leaked all three identically. So the substitution is **equal on
+coverage and better on dependency hygiene**: `pino` is not a direct dependency and resolves
+only transitively (`.pnpm/pino@10.3.1`), so importing it would have been a phantom dep failing
+at runtime on Railway. Structural-looking is not the same as structural.
+
+**Two actions, split by what enumeration can and cannot fix:**
+
+- **Closeable by enumeration → do it.** Add `err.aggregateErrors[*].message` to the redact
+  paths, with a test. Verified by the reviewer to close that case. Queued as a T1a touch-up
+  behind T1b, to avoid two agents racing `git` on one branch.
+- **NOT closeable by enumeration → becomes a stated contract on T1c and T2.** No handler on
+  the unsubscribe path may put a raw token or raw URL into a custom error property, or log an
+  error under a non-`err` key. The §9.5 structured line goes through `createWorkerLogger` with
+  a `token_hash` prefix only — never the raw token, never the raw handle. Carried verbatim
+  into both prompts.
+
+**The general lesson, worth promoting at merge:** a redaction seam that enumerates paths is
+only as good as the list, and the list is invisible to the caller. Where the seam cannot be
+made structural, the residual must become an explicit contract rather than an assumption —
+this entry *is* that contract.
+
+---
+
 ## D5 — the `/u/` redaction rule over-redacts, and that is the accepted trade
 
 **Raised** 2026-08-03 by the T1a spec reviewer (severity: low).
