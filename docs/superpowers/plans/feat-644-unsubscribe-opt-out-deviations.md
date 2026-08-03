@@ -10,7 +10,8 @@ fire.** Read this table first; the entries below carry the reasoning.
 
 | # | Verdict | One line |
 |---|---|---|
-| D1 | **ACCEPT** | Owner decision: `SESSION_COOKIE_SECRET` rotation is a document-only constraint. Shipped as a registry entry; **an operational check is still owed before merge** (see below). |
+| D1 | **SUPERSEDED** | Was document-only. **Step 6 overturned it on new information** — a compromise makes rotation *forced*, not optional. Current-plus-previous key rollover now implemented (`24da3528`); see D12. |
+| D12 | **ACCEPT** | Step 6 adversarial review, both [high] findings. Rollover shipped; single-flight bounds valid-token replay. **One residual needs an owner decision — a dedicated DB pool.** |
 | D2 | **ACCEPT** | §1.5 knew one of three log shapes. Fixed and *measured* on real Fastify, not argued. |
 | D3 | **ACCEPT** | Single-sided receipt TTL: a future-dated receipt is mintable only by a secret-holder, and §1.8 makes a receipt never sufficient alone. |
 | D4 | **ACCEPT** | Became the T1c boot gate. My original premise was false and is corrected in place. |
