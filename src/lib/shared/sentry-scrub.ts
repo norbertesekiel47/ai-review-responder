@@ -53,10 +53,26 @@ function redactQueryString(query: string): string {
   return `${leading}${redacted}`;
 }
 
+// Approval tokens are one path segment and the surrounding contracts depend on
+// it: `/api/approve/<token>/edit` must keep `/edit`, and the console-message
+// form `GET /approve/tok 200` must keep the status. Segment-bounded, and it
+// stays that way.
+const APPROVE_TOKEN_PATH_RE = /(\/approve\/)[^/?#\s]+/gi;
+
+// Unsubscribe tokens get their own rule because they must be redacted ACROSS
+// `/`: a token carrying `%2F` decodes into a second path segment, which a
+// segment-bounded rule would leave half-exposed. Longest prefix first so
+// `/api/u/` matches as a whole rather than via the `/u/` alternative. Still
+// stops at `?`, `#` and whitespace, preserving the console-message contract.
+const UNSUBSCRIBE_TOKEN_PATH_RE = /(\/ingress\/unsubscribe\/|\/api\/u\/|\/u\/)[^?#\s]+/gi;
+
 /**
- * Mask sensitive values inside a URL string before it reaches Sentry. The
- * key-based object scrubber can't reach these because they are VALUES, not keys:
- *   - the path segment after `/approve/` (single-use approval tokens), and
+ * Mask sensitive values inside a URL string before it reaches Sentry or the
+ * Fastify request logger. The key-based object scrubber can't reach these
+ * because they are VALUES, not keys:
+ *   - the path segment after `/approve/` (single-use approval tokens),
+ *   - everything after an unsubscribe prefix (#644 Unsubscribe tokens,
+ *     invariant #5), and
  *   - query-param values whose key looks sensitive (token/code/otp/…).
  *
  * Pure + total: never throws (no `new URL()`, which rejects relative inputs),
@@ -73,10 +89,32 @@ export function redactSensitivePathsAndQueries(url: string): string {
   const path = qIdx === -1 ? beforeHash : beforeHash.slice(0, qIdx);
   const query = qIdx === -1 ? '' : beforeHash.slice(qIdx + 1);
 
-  const redactedPath = path.replace(/(\/approve\/)[^/?#\s]+/gi, '$1[REDACTED]');
+  const redactedPath = redactUnsubscribeToken(path.replace(APPROVE_TOKEN_PATH_RE, '$1[REDACTED]'));
   const redactedQuery = query ? `?${redactQueryString(query)}` : '';
 
   return `${redactedPath}${redactedQuery}${fragment}`;
+}
+
+/**
+ * An encoded prefix (`/ingress/%75nsubscribe/…`) routes correctly but misses a
+ * literal regex, so the raw spelling alone is not enough. Matching on a decoded
+ * copy and redacting the raw string would be wrong — the offsets don't
+ * correspond — so the decoded form is what gets returned when only it matches.
+ * That is safe precisely because the token is replaced in the same step.
+ */
+function redactUnsubscribeToken(path: string): string {
+  const redacted = path.replace(UNSUBSCRIBE_TOKEN_PATH_RE, '$1[REDACTED]');
+  if (redacted !== path) return redacted;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return path; // malformed percent-encoding — nothing more we can match on
+  }
+
+  const decodedRedacted = decoded.replace(UNSUBSCRIBE_TOKEN_PATH_RE, '$1[REDACTED]');
+  return decodedRedacted === decoded ? path : decodedRedacted;
 }
 
 // Array-of-[key,value]-pairs form of query_string: rebuild with the value masked

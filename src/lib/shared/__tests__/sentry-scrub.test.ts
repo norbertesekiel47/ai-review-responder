@@ -165,6 +165,27 @@ describe('scrubSentryEvent', () => {
     expect(() => scrubSentryEvent(event)).not.toThrow();
     expect((event.request.query_string as string[][])[0]).toEqual(['code', '[REDACTED]']);
   });
+
+  it('redacts the unsubscribe token from Sentry event paths', () => {
+    const event = {
+      request: { url: 'https://worker.example.com/ingress/unsubscribe/SECRET_TOK' },
+      transaction: 'POST /ingress/unsubscribe/SECRET_TOK',
+      breadcrumbs: [{ category: 'navigation', data: { to: '/u/SECRET_TOK' } }],
+    };
+    scrubSentryEvent(event, { scrubRequestData: true });
+
+    expect(event.request.url).toBe('https://worker.example.com/ingress/unsubscribe/[REDACTED]');
+    expect(event.transaction).toBe('POST /ingress/unsubscribe/[REDACTED]');
+    expect(event.breadcrumbs[0]!.data.to).toBe('/u/[REDACTED]');
+    expect(JSON.stringify(event)).not.toContain('SECRET_TOK');
+  });
+
+  it('redacts a percent-encoded unsubscribe path from Sentry', () => {
+    const event = { request: { url: '/ingress/%75nsubscribe/SECRET_TOK' } };
+    scrubSentryEvent(event, { scrubRequestData: true });
+
+    expect(event.request.url).toBe('/ingress/unsubscribe/[REDACTED]');
+  });
 });
 
 describe('redactSensitivePathsAndQueries', () => {
@@ -211,5 +232,55 @@ describe('redactSensitivePathsAndQueries', () => {
     const once = redactSensitivePathsAndQueries('/approve/tok?code=secret');
     expect(once).toBe('/approve/[REDACTED]?code=[REDACTED]');
     expect(redactSensitivePathsAndQueries(once)).toBe(once);
+  });
+
+  it('masks the token under each unsubscribe prefix', () => {
+    expect(redactSensitivePathsAndQueries('/u/tok')).toBe('/u/[REDACTED]');
+    expect(redactSensitivePathsAndQueries('/api/u/tok')).toBe('/api/u/[REDACTED]');
+    expect(redactSensitivePathsAndQueries('/ingress/unsubscribe/tok')).toBe(
+      '/ingress/unsubscribe/[REDACTED]',
+    );
+  });
+
+  it('redacts a token containing an encoded slash to the end of the path', () => {
+    // Fastify hands us the raw URL, but Next.js and any intermediary may have
+    // already decoded %2F — the token then spans a second path segment, which a
+    // segment-bounded rule would leave half-exposed.
+    expect(redactSensitivePathsAndQueries('/u/abc%2Fdef')).toBe('/u/[REDACTED]');
+    expect(redactSensitivePathsAndQueries('/u/abc/def')).toBe('/u/[REDACTED]');
+    expect(redactSensitivePathsAndQueries('/ingress/unsubscribe/abc/def/ghi')).toBe(
+      '/ingress/unsubscribe/[REDACTED]',
+    );
+  });
+
+  it('leaves approve path redaction segment-bounded', () => {
+    // The two shipped /approve/ contracts the new cross-slash rule must not
+    // touch: the trailing /edit segment and the console-message status code.
+    expect(redactSensitivePathsAndQueries('/api/approve/abc123/edit')).toBe(
+      '/api/approve/[REDACTED]/edit',
+    );
+    expect(redactSensitivePathsAndQueries('GET /approve/tok 200')).toBe(
+      'GET /approve/[REDACTED] 200',
+    );
+  });
+
+  it('stops unsubscribe redaction at whitespace, query and fragment', () => {
+    expect(redactSensitivePathsAndQueries('GET /u/tok 200')).toBe('GET /u/[REDACTED] 200');
+    expect(redactSensitivePathsAndQueries('/u/tok?code=secret')).toBe(
+      '/u/[REDACTED]?code=[REDACTED]',
+    );
+    expect(redactSensitivePathsAndQueries('/u/tok#done')).toBe('/u/[REDACTED]#done');
+  });
+
+  it('does not treat /users/ as the /u/ unsubscribe prefix', () => {
+    expect(redactSensitivePathsAndQueries('/users/123')).toBe('/users/123');
+    expect(redactSensitivePathsAndQueries('/admin/users/123/detail')).toBe(
+      '/admin/users/123/detail',
+    );
+  });
+
+  it('returns malformed percent-encoding unchanged instead of throwing', () => {
+    expect(() => redactSensitivePathsAndQueries('/dashboard/%E0%A4%A')).not.toThrow();
+    expect(redactSensitivePathsAndQueries('/dashboard/%E0%A4%A')).toBe('/dashboard/%E0%A4%A');
   });
 });
