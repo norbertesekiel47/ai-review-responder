@@ -112,6 +112,18 @@ UPDATE solicitation_unsubscribe_tokens
     exists to prevent.
   - No row → `unknown_token`.
 
+**Verified 2026-08-03 against the live test database** (PostgreSQL 16, Read Committed, real
+concurrent connections — not reasoning). Six cases, all pass:
+
+| Scenario | Outcome | Why it matters |
+|---|---|---|
+| Mint commits **inside** the race window (between our UPDATE and the follow-up read) | `unknown_token` → 503 | The exact interleaving round 3 flagged |
+| Provider retry immediately after that 503 | `redeemed` | **Proves no permanent 503** — the opt-out lands on retry |
+| Mint commits before the UPDATE | `redeemed` | Ordinary path |
+| Second redemption of a spent token | `already_suppressed` | Idempotent, no second row |
+| Redemption after a concurrent transaction **rolled back** | `redeemed` | A rollback must not strand the token |
+| Never-minted token | `unknown_token` | Genuine unknown |
+
 > **Why a bare `SELECT 1` is wrong** (round-3 finding 1). The shared client sends a plain
 > `BEGIN` with no isolation override (`src/lib/db/server.ts:40`), so this runs at **Read
 > Committed** against PostgreSQL 16. Interleaving: our `UPDATE` matches nothing; the #630
@@ -240,9 +252,22 @@ exposed. Revision 3 therefore:
    `/u/`, `/api/u/`, `/ingress/unsubscribe/` — which redacts across `/` (so a `%2F`-bearing
    token cannot half-escape) but still **stops at `?`, `#`, or whitespace**, preserving the
    console-message contract.
-3. Percent-decodes **for matching only** (`try/catch`; malformed input falls back to the
-   raw path), so the router-equivalent `/ingress/%75nsubscribe/…` spelling is covered.
+3. Handles encoded spellings **without corrupting output offsets**. "Decode for matching,
+   redact the raw string" is *wrong* — the offsets do not correspond. The exact order,
+   verified below, is:
+   1. apply the `/approve/` rule to the **raw** string;
+   2. if the new-prefix rule matches that result, redact it and return — raw spelling
+      preserved;
+   3. otherwise percent-decode (`try/catch`) and retest; if **that** matches, redact and
+      return the **decoded** form. Returning the decoded form is safe precisely because the
+      token is being replaced with `[REDACTED]` in the same step;
+   4. otherwise return the result of step 1 unchanged.
 4. Returns the input unchanged when nothing matches.
+
+**Verified 2026-08-03** with a standalone prototype over 12 cases — all four shipped
+`/approve/` contracts (`/approve/<t>`, `/api/approve/<t>/edit`, `GET /approve/tok 200`,
+`/approve/tok#section`) preserved byte-for-byte, plus the encoded spelling, a `%2F` token,
+console-message form for the new paths, and `/users/123` correctly NOT matching `/u/`.
 
 **Test matrix must pin the regressions, not just the new paths:** the two existing
 `/approve/` contracts above, plus the encoded route spelling, a `%2F`-bearing token, and
