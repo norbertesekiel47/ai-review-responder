@@ -172,15 +172,36 @@ Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
 
 ## Next actions
 
-1. `bash scripts/feature-state.sh set-phase executing`, then run **T1** (domain module +
-   Railway ingress, end to end) via `superpowers:subagent-driven-development`, TDD, against
-   the live test DB.
-2. **First-task spot check is MANDATORY**: after T1's first subagent returns, diff
-   `git status --porcelain` against `allowed_edit_surface`. An out-of-surface file means
-   enforcement did not bind for subagent tool calls — STOP and report, do not dispatch more.
-3. Then T2 (landing path) and T3 (registry/runbook/glossary).
-4. `scripts/verify-gate.sh` must be fully green before any review; `--review` for the last
-   run before step 7.
+**Step 4 is under way.** Phase, HEAD and commit count come from `state.json` as always —
+not restated here.
+
+T1 is being executed as **three subagent slices**, because one subagent covering seven files
+and ~45 promised tests is not reviewable. Each slice is implementer → spec review → quality
+review before the next starts (`superpowers:subagent-driven-development`). Slices are
+**strictly sequential**: T1b and T1c both edit `src/lib/solicitation/unsubscribe.ts`, so
+parallel dispatch would conflict.
+
+| Slice | Scope | Files | State |
+|---|---|---|---|
+| **T1a** | Crypto primitives + redaction. Zero DB, zero routes. `hashUnsubscribeToken`, `mintUnsubscribeRawToken`, `isWellFormedUnsubscribeToken`, `mint`/`verifyUnsubscribeReceipt` (§1.4a, §1.8) · scrub generalisation (§1.5, finding 10) · pino serializer (§1.5) | `src/lib/solicitation/unsubscribe.ts`, `src/lib/shared/sentry-scrub.ts`, `worker/config/fastify-options.ts` + tests | **implemented** `2e181fc0`; spec review in flight |
+| **T1b** | Redemption core against the live test DB. `findRedeemableUnsubscribeToken`, `redeemUnsubscribeToken` (§1.3 claim-first ordering + the spent-token ledger check) · tenant-scope allowlist entry | `src/lib/solicitation/unsubscribe.ts`, `scripts/ci/tenant-scope-allowlist.ts` + a `*.integration.test.ts` suite | not started |
+| **T1c** | Railway ingress adapter, end to end. Route registration + both hook arms (§1.4), type augmentation, 60s unknown-token aggregate + shutdown flush (§1.6) | `worker/ingress/unsubscribe.ts`, `worker/index.ts`, `worker/ingress/rate-limit.ts` + tests | not started |
+
+**First-task enforcement spot check: DONE and PASSED** after T1a — all six committed files
+landed inside `allowed_edit_surface`. Enforcement binds for subagent tool calls in this
+harness; no need to repeat it per slice.
+
+Then T2 (landing path) and T3 (registry/runbook/glossary — which now also owns the D1
+`SESSION_COOKIE_SECRET` registry note).
+
+`scripts/verify-gate.sh` must be fully green before any review; `--review` for the last run
+before step 7. It stays RED until the 70 promised tests exist and
+`src/lib/solicitation/__tests__/unsubscribe.integration.test.ts` (T1b) is created — that is
+expected, not a regression.
+
+**Read `…-deviations.md` before reviewing anything.** Four entries already: D1 (owner
+decision on `SESSION_COOKIE_SECRET` rotation — statutory, document-only), D2 (§1.5's fix was
+incomplete; Fastify logs the 404 URL as a message string no serializer can reach), D3, D4.
 
 **§1.4a is new in revision 7 and has never been reviewed.** Treat it as the highest-risk
 slice of T1: verify empirically that a forged token opens no DB connection on *both*
