@@ -36,7 +36,7 @@ function fmtPct(value: number | null): string {
 
 const RISK_BADGE_STYLES: Record<MarginRiskLevel, string> = {
   action: 'bg-red-100 text-red-700',
-  warning: 'bg-amber-100 text-amber-800',
+  warning: 'bg-yellow-100 text-yellow-800',
   none: 'bg-green-100 text-green-800',
 };
 const RISK_BADGE_LABELS: Record<MarginRiskLevel, string> = {
@@ -266,7 +266,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
                 <tr
                   key={row.accountId}
                   className={`hover:bg-gray-50 ${
-                    row.riskLevel === 'action' ? 'bg-red-50' : row.riskLevel === 'warning' ? 'bg-amber-50' : ''
+                    row.riskLevel === 'action' ? 'bg-red-50' : row.riskLevel === 'warning' ? 'bg-yellow-50' : ''
                   }`}
                 >
                   <td className="px-4 py-3 font-medium text-gray-800">{row.displayName}</td>
@@ -278,7 +278,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
                       row.riskLevel === 'action'
                         ? 'text-red-700'
                         : row.riskLevel === 'warning'
-                          ? 'text-amber-700'
+                          ? 'text-yellow-700'
                           : 'text-gray-700'
                     }`}
                   >

@@ -2,6 +2,7 @@ import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getCostReport, type CostQuery } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { CostsClient } from './CostsClient';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,10 @@ export default async function AdminCostsPage() {
 
   const [report, margin] = await Promise.all([
     getCostReport(sql, INITIAL_QUERY),
-    getMarginReport(sql, { limit: 20 }).catch(() => null),
+    getMarginReport(sql, { limit: 20 }).catch((err) => {
+      reportCaughtError('admin/costs/page', err);
+      return null;
+    }),
   ]);
 
   return <CostsClient initialData={{ ...report, margin }} />;

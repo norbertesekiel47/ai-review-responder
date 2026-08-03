@@ -25,6 +25,8 @@ const SWEPT_FILES = [
   'src/components/dashboard/reviews/edit-reply/ReviewChangedPanel.tsx',
   // Admin tool
   'src/app/admin/overview/OverviewClient.tsx',
+  'src/app/admin/jobs/JobsClient.tsx',
+  'src/app/admin/costs/CostsClient.tsx',
   'src/app/admin/businesses/[id]/page.tsx',
   'src/app/admin/businesses/[id]/_components/PastDueExtensionPanel.tsx',
   'src/app/admin/businesses/[id]/_components/ReviewsList.tsx',
@@ -33,6 +35,13 @@ const SWEPT_FILES = [
   'src/app/admin/impersonate/[sessionId]/view/page.tsx',
   'src/components/admin/TelegramEnrollmentWidget.tsx',
   'src/components/admin/WhatsAppEnrollmentWidget.tsx',
+  // Admin tool — shared UI primitives (Phase 2 console migration)
+  'src/components/admin/ui/AdminPage.tsx',
+  'src/components/admin/ui/DataTable.tsx',
+  'src/components/admin/ui/FilterBar.tsx',
+  'src/components/admin/ui/StatTile.tsx',
+  'src/components/admin/ui/StatusBadge.tsx',
+  'src/components/admin/ui/states.tsx',
 ];
 
 // Class-name / token-name patterns only (not raw hexes) — this avoids colliding
