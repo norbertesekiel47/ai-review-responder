@@ -208,7 +208,39 @@ parallel dispatch would conflict.
   beside the rule it governs (§1.4, finding 9).
 - **Handler shape precedent** — `worker/ingress/resend.ts`.
 
-### Queued T1c fix batch
+### T1c fix batch — ✅ ALL EIGHT CLOSED in `40092a47`
+
+Two deliberate deviations from the brief, both improvements, both to be read as intentional at
+review time:
+
+- **Item 2 — composed instead of merged.** `assertUnsubscribeIngressConfigured()` lives in
+  `worker/ingress/unsubscribe.ts` and calls the token module's
+  `assertUnsubscribeTokenSecretConfigured()`, then checks the origin itself. I had asked for
+  the two vars folded into one shared-lib assertion; the implementer declined because the
+  secret spans **both** surfaces (D4's precedent) while the origin is consumed **only** by the
+  worker redirect via `getWorkerConfig()` — asserting it in the shared module would have read
+  it through `getServerConfig()`, a *different accessor from the one the runtime uses*, giving
+  one config fact two owners. Correct call. Both now route through one `resolveAppUrl()`, so
+  `landingPageUrl`'s throw is unreachable on a deployed lane by construction. Side benefit:
+  `src/lib/solicitation/unsubscribe.ts` needed **no** edit, so zero collision with T2.
+- **Item 4 — went further than asked.** Moving the success log outside the transaction `try`
+  still leaves a logger throw able to turn a committed redemption into a 500. The 200 is now
+  sent **first**, then the log runs through a swallow — so telemetry cannot alter the
+  provider's proof of commit at all. Verified with a throwing `console.log`.
+
+**Item 8 landed with a real-socket test** (`enforces the ingress rate limit on an absolute-form
+request target`), plus the exemption's mirror case so absolute form cannot accidentally
+re-throttle a statutory opt-out. Deleting arm 1 now fails that test. See deviations D11.
+
+**One open residual — one line, whenever `src/lib/solicitation/unsubscribe.ts` is next open:**
+the adapter's `hash_prefix` needs the 12-char prefix length, which is module-private in the
+token module, so it is currently **mirrored** as an adapter constant. It is pinned by a test
+comparing against a prefix the **real** core produced for the same token, so drift breaks a
+test rather than silently emitting two incomparable prefixes — but the clean fix is to export
+`TOKEN_HASH_LOG_PREFIX_LENGTH` and delete the mirror. Two owners for one fact is exactly what
+`engineering.md` forbids; the test is a guard, not a resolution.
+
+### Original T1c fix batch (for the record)
 
 T1c passed spec review with **zero findings at ≥80% confidence** (`t1c-spec-review.md`).
 Two items came out of its sub-threshold notes, plus whatever the quality review adds.

@@ -68,10 +68,10 @@ import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
 import { registerIngressRateLimitHook } from './ingress/rate-limit';
 import {
+  assertUnsubscribeIngressConfigured,
   registerUnsubscribeRoutes,
   stopUnknownUnsubscribeTokenWindow,
 } from './ingress/unsubscribe';
-import { assertUnsubscribeTokenSecretConfigured } from '../src/lib/solicitation/unsubscribe';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
@@ -528,11 +528,13 @@ async function main(): Promise<void> {
     assertSelfServeSignupEnv();
     assertZernioPublishingEnv();
     assertAccountOffboardingEnv();
-    // #644 / deviations D4. Nothing else asserts SESSION_COOKIE_SECRET on a
-    // deployed lane today (assertAccountOffboardingEnv returns early while
-    // ACCOUNT_OFFBOARDING_ENABLED is off), so without this a worker missing it
-    // boots clean and then 503s every well-formed opt-out forever.
-    assertUnsubscribeTokenSecretConfigured();
+    // #644 / deviations D4. Neither var the opt-out path needs is asserted on a
+    // deployed lane today — assertAccountOffboardingEnv returns early while
+    // ACCOUNT_OFFBOARDING_ENABLED is off, and every existing NEXT_PUBLIC_APP_URL
+    // check sits behind some other flag — so without this a worker missing either
+    // boots clean and then fails every opt-out forever, loudly to Sentry and
+    // silently to the recipient.
+    assertUnsubscribeIngressConfigured();
     warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +

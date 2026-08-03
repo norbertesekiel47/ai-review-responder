@@ -26,7 +26,10 @@ vi.mock('../../../src/lib/solicitation/unsubscribe', async (importOriginal) => {
 
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
-import { mintUnsubscribeRawToken } from '../../../src/lib/solicitation/unsubscribe';
+import {
+  hashUnsubscribeToken,
+  mintUnsubscribeRawToken,
+} from '../../../src/lib/solicitation/unsubscribe';
 import { buildUnsubscribeTestApp, type UnsubscribeTestApp } from './helpers/unsubscribe-app';
 
 const SESSION_SECRET = 'test-session-cookie-secret-at-least-32-chars';
@@ -132,8 +135,68 @@ describe('unsubscribe ingress — POST', () => {
       expect(mockCaptureException).toHaveBeenCalledTimes(1);
       const [reported] = mockCaptureException.mock.calls[0] as [Error];
       expect(reported.message).toContain('ledger write exploded');
+
+      // The failure line is the one that MOST needs correlating — an infra failure
+      // is exactly when a provider retries and someone must match the retry to its
+      // first attempt (intake observability[0]).
+      const records = workerLogRecords(sink);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.data).toMatchObject({
+        outcome: 'failed',
+        stage: 'redeem',
+        hash_prefix: hashUnsubscribeToken(validToken).slice(0, 12),
+      });
+      expect(sink.lines()).not.toContain(validToken);
     } finally {
       sink.restore();
+    }
+  });
+
+  it('the failed line hash prefix matches the one the redemption core produces', async () => {
+    // Pins the adapter-local prefix LENGTH to the token module's private
+    // TOKEN_HASH_LOG_PREFIX_LENGTH by comparing against a prefix the real core
+    // emitted for the same token — so a drift breaks this test rather than
+    // silently producing two incomparable prefixes in one log stream.
+    const core = await vi.importActual<typeof import('../../../src/lib/solicitation/unsubscribe')>(
+      '../../../src/lib/solicitation/unsubscribe',
+    );
+    const emptyTx = (() => Promise.resolve([])) as never;
+    const fromCore = await core.redeemUnsubscribeToken(emptyTx, {
+      rawToken: validToken,
+      source: 'unsubscribe_one_click',
+    });
+
+    const sink = captureWorkerLog();
+    try {
+      mockRedeem.mockRejectedValue(new Error('boom'));
+      await postToken(validToken);
+      const records = workerLogRecords(sink);
+      expect((records[0]?.data as { hash_prefix?: string }).hash_prefix).toBe(
+        fromCore.tokenHashPrefix,
+      );
+    } finally {
+      sink.restore();
+    }
+  });
+
+  it('a throwing telemetry sink cannot turn a committed redemption into a 503', async () => {
+    // The reply is sent BEFORE the §9.5 line and the line carries its own swallow,
+    // so a log failure after COMMIT cannot flip a legally-effective opt-out into a
+    // 5xx the provider retries, nor manufacture a Sentry event for it (M1).
+    const spies = [
+      vi.spyOn(console, 'log').mockImplementation(() => {
+        throw new Error('EPIPE: broken pipe');
+      }),
+      vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      vi.spyOn(console, 'error').mockImplementation(() => {}),
+    ];
+    try {
+      const response = await postToken(validToken);
+
+      expect(response.statusCode).toBe(200);
+      expect(mockCaptureException).not.toHaveBeenCalled();
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
     }
   });
 

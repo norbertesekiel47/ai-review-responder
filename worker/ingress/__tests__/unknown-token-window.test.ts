@@ -73,7 +73,10 @@ describe('unknown unsubscribe token window', () => {
   it('hostile unknown token traffic emits at most one warning per window', () => {
     const rig = buildRig();
 
-    for (let index = 0; index < 5_000; index += 1) rig.reporter.record();
+    // Both causes, interleaved: dimensioning the counter must not buy a second line.
+    for (let index = 0; index < 5_000; index += 1) {
+      rig.reporter.record(index % 2 === 0 ? 'gate' : 'ledger');
+    }
     rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
     rig.expire();
 
@@ -89,7 +92,8 @@ describe('unknown unsubscribe token window', () => {
     vi.stubEnv('RAILWAY_DEPLOYMENT_ID', 'deploy-42');
     const rig = buildRig();
 
-    for (let index = 0; index < 17; index += 1) rig.reporter.record();
+    for (let index = 0; index < 17; index += 1) rig.reporter.record('gate');
+    for (let index = 0; index < 3; index += 1) rig.reporter.record('ledger');
     rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
     rig.expire();
 
@@ -97,7 +101,8 @@ describe('unknown unsubscribe token window', () => {
     const [, fields] = rig.warn.mock.calls[0] as [string, Record<string, unknown>];
     expect(fields).toMatchObject({
       event: 'unsubscribe_unknown_token_window',
-      count: 17,
+      gate_count: 17,
+      ledger_count: 3,
       window_start: new Date(START_MS).toISOString(),
       window_end: new Date(START_MS + UNKNOWN_TOKEN_WINDOW_MS).toISOString(),
       replica_id: 'replica-7',
@@ -105,19 +110,33 @@ describe('unknown unsubscribe token window', () => {
     });
   });
 
+  it('counts a gate rejection and a ledger miss in separate buckets', () => {
+    // The whole point of the split: `gate` is a string we never minted (scanner
+    // noise), `ledger` is a token that passed our own HMAC and still failed to
+    // resolve — the mint race. A responder must be able to tell them apart.
+    const rig = buildRig();
+
+    rig.reporter.record('ledger');
+    rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
+    rig.expire();
+
+    const [, fields] = rig.warn.mock.calls[0] as [string, Record<string, unknown>];
+    expect(fields).toMatchObject({ gate_count: 0, ledger_count: 1 });
+  });
+
   it('opens a fresh window after one expires', () => {
     const rig = buildRig();
 
-    rig.reporter.record();
+    rig.reporter.record('gate');
     rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
     rig.expire();
-    rig.reporter.record();
-    rig.reporter.record();
+    rig.reporter.record('gate');
+    rig.reporter.record('gate');
     rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
     rig.expire();
 
     expect(rig.warn).toHaveBeenCalledTimes(2);
-    expect((rig.warn.mock.calls[1] as [string, { count: number }])[1].count).toBe(2);
+    expect((rig.warn.mock.calls[1] as [string, { gate_count: number }])[1].gate_count).toBe(2);
   });
 
   it('emits nothing at all when no unknown token arrives', () => {
@@ -129,6 +148,40 @@ describe('unknown unsubscribe token window', () => {
     expect(rig.warn).not.toHaveBeenCalled();
   });
 
+  it('a throwing sink cannot escape the timer callback', () => {
+    // The scheduled emit runs from a bare timer callback, where an escaping throw
+    // is an uncaughtException — which worker/index.ts treats as ALWAYS fatal. The
+    // realistic trigger is an EPIPE on console.warn during Railway log-stream
+    // teardown, i.e. exactly when the container is already unhappy.
+    const rig = buildRig();
+    rig.warn.mockImplementation(() => {
+      throw new Error('EPIPE: broken pipe');
+    });
+
+    rig.reporter.record('gate');
+    rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
+    expect(() => rig.expire()).not.toThrow();
+    // And the same swallow protects the shutdown flush.
+    rig.reporter.record('gate');
+    expect(() => rig.reporter.stop()).not.toThrow();
+  });
+
+  it('stop disarms the counter so a drain-window token cannot arm a dead timer', () => {
+    // stopBackgroundLoops runs BEFORE closeServer, so requests keep arriving after
+    // the flush. Re-arming there would leave an unref'd 60s window that can never
+    // fire before process.exit — counts lost AND the "final" flush not final.
+    const rig = buildRig();
+
+    rig.reporter.record('gate');
+    rig.reporter.stop();
+    expect(rig.warn).toHaveBeenCalledTimes(1);
+
+    rig.reporter.record('gate');
+    rig.advance(UNKNOWN_TOKEN_WINDOW_MS);
+    rig.expire();
+    expect(rig.warn).toHaveBeenCalledTimes(1);
+  });
+
   it('a partial unknown token window is flushed on graceful shutdown', async () => {
     // Drives the REAL module-level reporter through the REAL shutdown
     // orchestrator, then pins that worker/index.ts actually wires it in — an
@@ -138,9 +191,9 @@ describe('unknown unsubscribe token window', () => {
       warned.push(String(line));
     });
 
-    recordUnknownUnsubscribeToken();
-    recordUnknownUnsubscribeToken();
-    recordUnknownUnsubscribeToken();
+    recordUnknownUnsubscribeToken('gate');
+    recordUnknownUnsubscribeToken('gate');
+    recordUnknownUnsubscribeToken('ledger');
 
     const noop = async (): Promise<void> => {};
     const deps: GracefulShutdownDeps = {
@@ -165,7 +218,10 @@ describe('unknown unsubscribe token window', () => {
 
     const line = warned.find((entry) => entry.includes('unsubscribe_unknown_token_window'));
     expect(line).toBeDefined();
-    expect((JSON.parse(line ?? '{}') as { data?: { count?: number } }).data?.count).toBe(3);
+    const parsed = JSON.parse(line ?? '{}') as {
+      data?: { gate_count?: number; ledger_count?: number };
+    };
+    expect(parsed.data).toMatchObject({ gate_count: 2, ledger_count: 1 });
 
     const indexSource = readFileSync(path.join(REPO_ROOT, 'worker/index.ts'), 'utf8');
     expect(indexSource).toContain('stopUnknownUnsubscribeTokenWindow()');

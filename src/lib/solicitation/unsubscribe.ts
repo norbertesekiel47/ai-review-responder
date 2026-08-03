@@ -220,6 +220,16 @@ function logPrefix(tokenHash: string): string {
   return tokenHash.slice(0, TOKEN_HASH_LOG_PREFIX_LENGTH);
 }
 
+/**
+ * The loggable form of a raw token, for callers that hold the raw value rather
+ * than a redemption outcome (the ingress failure line). Exported as the
+ * operation, not the length: an adapter needs "give me the safe prefix", never
+ * "how long is it" — so the digest and its width keep exactly one owner here.
+ */
+export function unsubscribeTokenLogPrefix(rawToken: string): string {
+  return logPrefix(hashUnsubscribeToken(rawToken));
+}
+
 interface ClaimedTokenRow {
   account_id: string | null;
   normalized_handle: string;
