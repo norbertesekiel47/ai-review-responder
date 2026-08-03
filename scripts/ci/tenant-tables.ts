@@ -44,6 +44,23 @@ export const TENANT_TABLES = [
   // business_id; deliberately carries NO account_id (spec §3.2), so
   // account-level sweeps join through businesses.
   'solicitation_consent',
+  // Deny-all RLS (migration 096, #643 Suppression ledger) — zero policies, the
+  // auto_approval_policies posture (invariant #14). Not decorative here: a
+  // direct client read of a `global` row would expose the account_id
+  // provenance the spec forbids surfacing.
+  //
+  // solicitation_suppressions carries account_id as the Suppression scope, NOT
+  // as a denormalization: the row does not hang off a business, so there is
+  // nothing for it to drift from. Its `global` arm is deliberately
+  // cross-account — a recipient-authored opt-out applies to every tenant — and
+  // is exempted in tenant-scope-allowlist.ts.
+  //
+  // solicitation_unsubscribe_tokens carries account_id as provenance only, and
+  // the offboarding purge scrubs it to NULL while keeping the row: an
+  // Unsubscribe token must still redeem after the account that minted it is
+  // gone.
+  'solicitation_suppressions',
+  'solicitation_unsubscribe_tokens',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints

@@ -6,7 +6,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANALYTICS_EVENT_NAMES } from '@/lib/analytics/events';
 
 const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/094_consent_analytics_events.sql'),
@@ -40,20 +39,37 @@ describe('migration 094 - consent ledger analytics events', () => {
     expect(executableSql).toMatch(/'solicitation_consent_upgraded'/);
   });
 
-  it('keeps every ANALYTICS_EVENT_NAMES entry in the re-added CHECK list (drift-guard)', () => {
-    // 094 is the LATEST migration that replaces the constraint, so it owns
-    // this guard (handed off from migration-089's suite). Subset (not
-    // toEqual) in this direction: the CHECK list may lead the TS allowlist
-    // while a name is being introduced, but a name that the app can emit and
-    // the DB would reject is a production rollback — that is what fails here.
+  // The live "effective CHECK list ⟺ ANALYTICS_EVENT_NAMES" drift-guard moved
+  // to migration-097 (the LATEST migration that replaces the constraint,
+  // adding the Suppression ledger events). 094 is no longer the head of this
+  // constraint, and its SQL is immutable — so its list can never grow again.
+  // What remains here is 094's own historical list, pinned as a literal.
+  it('pins 094 own historical event_name CHECK list', () => {
     const checkMatch = executableSql.match(/event_name IN\s*\(([^)]*)\)/i);
     expect(checkMatch).not.toBeNull();
-    const namesInCheck = new Set(
-      [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]),
-    );
-    const missingFromCheck = ANALYTICS_EVENT_NAMES.filter(
-      (name) => !namesInCheck.has(name),
-    );
-    expect(missingFromCheck).toEqual([]);
+    const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(namesInCheck).toEqual([
+      'signup_started',
+      'email_verified',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'gbp_connect_started',
+      'gbp_connect_failed',
+      'gbp_connected',
+      'first_review_ingested',
+      'first_response_drafted',
+      'activation_completed',
+      'offboarding_started',
+      'offboarding_reactivated',
+      'offboarding_teardown_completed',
+      'offboarding_purged',
+      'trial_started',
+      'trial_converted',
+      'trial_payment_failed',
+      'trial_cancelled',
+      'competitor_rival_picked',
+      'solicitation_consent_recorded',
+      'solicitation_consent_upgraded',
+    ]);
   });
 });

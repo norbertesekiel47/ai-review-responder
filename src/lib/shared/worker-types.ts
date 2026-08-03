@@ -270,6 +270,12 @@ export interface AccountOffboardingEmailPayload extends BasePayload {
   // longer exist on the offboarding row. Scrubbed from the payload after send.
   recipient_email?: string;
   purged_at?: string;
+  // How many global Suppression ledger rows the purge retained (#643 G5, spec
+  // §6.3). Snapshotted inside the finalize transaction rather than queried at
+  // send time, for the same reason as the two fields above plus one more: a
+  // retried send has to render the SAME number, and it keeps the email worker
+  // ignorant of the solicitation domain. An aggregate only — never handles.
+  retained_suppression_count?: number;
 }
 
 export interface AccountOffboardingReactivationPayload extends BasePayload {

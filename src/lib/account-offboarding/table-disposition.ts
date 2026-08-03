@@ -385,6 +385,20 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'must_be_absent',
     reason: 'Consent fails closed (DR1): ledger rows are residual records of owner-uploaded customers and leave with the business via the businesses(id) cascade.',
   },
+  {
+    table: 'solicitation_suppressions',
+    disposition: 'retain_compliance_limited_pii',
+    scopeEvidence: 'compliance_handle_hash',
+    purgeVerification: 'allowed_limited_retention',
+    reason: "Suppression ledger rows at global Suppression scope are the RECIPIENT's revocation against our one shared sending identity, not the account's data — deleting one would let us mail a person who opted out (#535 §6 through a different door), so they survive with account_id intact. Account-scoped (owner_manual) rows are the account's own preference and are deleted. ONE entry, not two: the inventory is keyed by table name (#643 grilling G2), so a single verification arm asserts both facts.",
+  },
+  {
+    table: 'solicitation_unsubscribe_tokens',
+    disposition: 'retain_compliance_limited_pii',
+    scopeEvidence: 'compliance_handle_hash',
+    purgeVerification: 'allowed_limited_retention',
+    reason: 'Redemption must still work after the sender is gone (spec §5.2): an Unsubscribe token operates >=30 days past send while the asks it referenced are hard-deleted. Provenance (account_id, business_id, ask_id, outreach_id) is scrubbed; token_hash, normalized_handle, channel and sent_at are kept.',
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(

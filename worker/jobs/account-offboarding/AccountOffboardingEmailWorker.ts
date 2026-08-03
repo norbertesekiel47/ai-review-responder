@@ -418,6 +418,10 @@ async function handlePurgeReceipt(
       emailType: 'purge_receipt',
       accessEndsAt: null,
       purgedAt: job.data.purged_at ?? null,
+      // Read straight off the payload snapshot the finalize transaction took
+      // (#643 G5). Never re-counted here: a retry has to render the same number,
+      // and this worker stays ignorant of the solicitation domain.
+      retainedSuppressionCount: job.data.retained_suppression_count ?? 0,
     }),
     category: 'transactional',
     idempotencyKey: emailSendIdempotencyKey(deliveryId),

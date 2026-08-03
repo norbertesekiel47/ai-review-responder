@@ -318,6 +318,50 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     // backstops this. Runs under the same csv-ingest/batch advisory locks
     // acquired above, after the upload delete so it sweeps post-SET-NULL rows.
     await deleteByBusiness(tx, 'solicitation_consent', row.account_id);
+    // Suppression ledger (migration 096, #643) — spec §6.3. Retention splits on
+    // the Suppression scope axis (D7). Account-scoped (owner_manual) rows are
+    // the account's own preference about their own customer: once purged, no
+    // path exists to mail that person through this account, so nothing is
+    // protected by keeping them. GLOBAL rows are deliberately untouched — they
+    // are the recipient's revocation against our one shared sending identity
+    // and survive with account_id intact, pointing at the already-tombstoned
+    // accounts row (096 gives that FK no ON DELETE action on purpose).
+    await tx`
+      DELETE FROM solicitation_suppressions
+      WHERE scope = 'account' AND account_id = ${row.account_id}::uuid
+    `;
+    // Unsubscribe token (migration 096, #643) — spec §6.3: scrub the
+    // provenance, keep the mechanism. Redemption after the sender is gone still
+    // writes a ledger row (§5.2); honouring the opt-out matters, knowing which
+    // dead account minted the token does not.
+    //
+    // G12's implication CHECK means nulling account_id obliges business_id and
+    // ask_id to be null too, so these three MUST go in ONE statement — nulling
+    // account_id alone throws.
+    //
+    // Matched on account_id ALONE (#643 step-7 review). The predicate used to
+    // carry `OR business_id IN (SELECT id FROM businesses WHERE account_id=…)`,
+    // which made idx_solicitation_unsubscribe_tokens_account unusable and forced
+    // a seq scan on the one statement 096 added that index for. The OR was also
+    // redundant: G12's CHECK gives `business_id NOT NULL ⟹ account_id NOT NULL`,
+    // so no row of this account's can hide behind a NULL account_id. The one
+    // shape it could still have caught — a token stamped with account Y while
+    // pointing at account X's business — is a cross-account writer bug, and
+    // silently scrubbing it here would HIDE that bug. The purge verifier keeps
+    // its business_id arm precisely so that row fails the purge loudly instead
+    // (cold path, runs once, seq scan is fine there).
+    //
+    // outreach_id is deliberately absent: its own
+    // ON DELETE SET NULL (G1) nulls it when the outreach row cascades away with
+    // the upload deleted above, and it is excluded from the CHECK precisely so
+    // that can happen independently.
+    await tx`
+      UPDATE solicitation_unsubscribe_tokens
+      SET account_id = NULL,
+          business_id = NULL,
+          ask_id = NULL
+      WHERE account_id = ${row.account_id}::uuid
+    `;
     await deleteByBusiness(tx, 'approval_links', row.account_id);
     await deleteByBusiness(tx, 'responses', row.account_id);
     // Guardian escalations (migration 073): review_id FK has no cascade, so
@@ -716,6 +760,35 @@ export async function finalizePurgeInTransaction(
       throw new Error('account_offboarding_purge_finalize_precondition_failed');
     }
 
+    // §6.3: silently retaining PII through a purge you told the owner was
+    // complete turns a defensible retention basis into a credibility problem.
+    // Global Suppression ledger rows keep account_id, so they are countable
+    // here, after the scrub. Unsubscribe token rows are deliberately NOT
+    // counted: they are opt-out MECHANISMS rather than opt-out records, and
+    // their account_id is already NULL by this point (#643 grilling G5).
+    //
+    // Boundary states, named explicitly — this is a CONTRACT on suppression
+    // writers, not machinery. Content purge, tombstone and finalize are separate
+    // transactions and finalize locks only the outbox row, so a write landing
+    // between the purge stage and this count would be omitted from the receipt,
+    // and one landing after verification would leave post-purge residue. No
+    // third advisory lock guards it (an unordered one reintroduces the ABBA
+    // class the existing lock order avoids). Instead: a suppression writer MUST
+    // NOT write a scope='account' row for an account whose
+    // account_offboardings.status is any ACTIVE teardown state —
+    // 'purge_scheduled' included, since that is precisely the window purge runs
+    // in and verification completes BEFORE the transition to 'purged'. A global
+    // row written after the boundary MUST carry accountId: null, so it is
+    // retained without re-introducing the account provenance the purge just
+    // removed. Unreachable today (recordSuppression has zero production callers,
+    // G6); #644/#645/#627 own honouring it when they land the first ones.
+    const [retained] = await tx<{ retained_count: number }[]>`
+      SELECT COUNT(*)::int AS retained_count
+      FROM solicitation_suppressions
+      WHERE scope = 'global' AND account_id = ${row.account_id}::uuid
+    `;
+    const retainedSuppressionCount = retained?.retained_count ?? 0;
+
     await enqueueOffboardingPurged(tx, {
       offboardingId: row.id,
     });
@@ -743,6 +816,7 @@ export async function finalizePurgeInTransaction(
         emailType: 'purge_receipt',
         recipientEmail: recipient,
         purgedAt: new Date().toISOString(),
+        retainedSuppressionCount,
       });
     }
 

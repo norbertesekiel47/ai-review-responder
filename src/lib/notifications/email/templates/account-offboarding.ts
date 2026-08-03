@@ -14,6 +14,12 @@ export interface AccountOffboardingEmailParams {
   purgeAfter?: Date | string | null;
   purgedAt?: Date | string | null;
   keepMyDataUrl?: string;
+  /**
+   * purge_receipt only: how many global Suppression ledger rows the purge
+   * retained (#643 G5, spec §6.3). An AGGREGATE — the receipt never lists the
+   * handles those rows hold. Zero (or absent) renders no sentence at all.
+   */
+  retainedSuppressionCount?: number;
 }
 
 export function buildAccountOffboardingEmailHtml(
@@ -43,6 +49,7 @@ export function buildAccountOffboardingEmailHtml(
   if (params.emailType === 'purge_receipt') {
     return buildPurgeReceiptEmailHtml({
       purgedAt: params.purgedAt ?? null,
+      retainedSuppressionCount: params.retainedSuppressionCount ?? 0,
     });
   }
 
@@ -157,8 +164,10 @@ function buildKeepMyDataConfirmationEmailHtml(): string {
 
 function buildPurgeReceiptEmailHtml(params: {
   purgedAt: Date | string | null;
+  retainedSuppressionCount: number;
 }): string {
   const purgedAtLabel = formatPurgedAt(params.purgedAt);
+  const retentionSentence = formatRetainedSuppressions(params.retainedSuppressionCount);
 
   return `<!DOCTYPE html>
 <html>
@@ -169,7 +178,7 @@ function buildPurgeReceiptEmailHtml(params: {
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
         <tr><td style="padding:32px 24px 8px;">
           <h2 style="margin:0 0 12px;font-size:18px;color:#111;">Your RepWorth data has been deleted</h2>
-          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">RepWorth completed the account deletion process on <strong>${escapeHtml(purgedAtLabel)}</strong>.</p>
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">RepWorth completed the account deletion process on <strong>${escapeHtml(purgedAtLabel)}</strong>.</p>${retentionSentence}
           <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.5;">If you have questions about this deletion, contact RepWorth support.</p>
         </td></tr>
         <tr><td style="padding:24px;">
@@ -244,6 +253,25 @@ function formatPurgeAfter(value: Date | string | null): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '30 days from your deletion request';
   return OFFBOARDING_DATE_FORMAT.format(date);
+}
+
+/**
+ * The purge receipt's retention disclosure (#643 spec §6.3): tell the departing
+ * owner HOW MANY opt-out records outlived the purge, and never WHICH — printing
+ * a handle would re-disclose the recipient PII the retention basis exists to
+ * protect. Zero renders nothing at all: "0 opt-out records are retained" is
+ * noise that invites a question with no answer behind it.
+ *
+ * Returns a full `<p>` element (or the empty string) so the caller interpolates
+ * one value and the paragraph disappears cleanly with it.
+ */
+function formatRetainedSuppressions(count: number): string {
+  if (!Number.isInteger(count) || count <= 0) return '';
+  const sentence = count === 1
+    ? '1 opt-out record is retained so that opt-out continues to be honored.'
+    : `${count} opt-out records are retained so those opt-outs continue to be honored.`;
+  return `
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">${escapeHtml(sentence)}</p>`;
 }
 
 function formatPurgedAt(value: Date | string | null): string {

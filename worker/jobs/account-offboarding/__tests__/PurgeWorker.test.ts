@@ -54,6 +54,8 @@ const {
     offboarding: null as MockOffboardingRow | null,
     authRevalidationPasses: true,
     authAlreadyDetached: false,
+    /** Rows the #643 retained-count query finds (spec §6.3, G5). */
+    retainedGlobalSuppressions: 0,
   };
 
   const execute = async (
@@ -89,6 +91,10 @@ const {
 
     if (text.includes('FROM job_outbox') && text.includes('FOR UPDATE')) {
       return [{ id: OUTBOX_ID }];
+    }
+
+    if (text.includes('AS retained_count') && text.includes('FROM solicitation_suppressions')) {
+      return [{ retained_count: mockState.retainedGlobalSuppressions }];
     }
 
     if (text.includes('UPDATE job_outbox') && text.includes("status = 'completed'")) {
@@ -222,6 +228,7 @@ describe('AccountOffboarding PurgeWorker', () => {
     mockSendInternalEmail.mockResolvedValue({ messageId: 'email-purge-receipt-1' });
     mockState.authRevalidationPasses = true;
     mockState.authAlreadyDetached = false;
+    mockState.retainedGlobalSuppressions = 0;
     mockState.offboarding = {
       id: OFFBOARDING_ID,
       account_id: ACCOUNT_ID,
@@ -423,6 +430,49 @@ describe('AccountOffboarding PurgeWorker', () => {
       )
     )).toBe(true);
     expect(sqlText).not.toContain("status = 'purging'");
+  });
+
+  // #643 G5 / spec §6.3. The count has to be taken in the SAME transaction as the
+  // state change and the receipt enqueue (invariant #2): counting outside it would
+  // report a number the committed purge never agreed to.
+  it('counts retained global suppression rows inside the finalize transaction and threads the count into the purge receipt', async () => {
+    mockState.retainedGlobalSuppressions = 2;
+
+    await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
+
+    // Not merely "touches the table" — the content-purge stage's account-scoped
+    // DELETE hits it too, and that one must not be mistaken for the count.
+    const countIdx = calls.findIndex(
+      (call) => call.text.includes('AS retained_count')
+        && call.text.includes('FROM solicitation_suppressions'),
+    );
+    expect(countIdx).toBeGreaterThanOrEqual(0);
+    expect(calls[countIdx]!.scope).toBe('tx');
+    expect(calls[countIdx]!.text).toContain("scope = 'global'");
+    expect(calls[countIdx]!.text).toContain('account_id =');
+    expect(calls[countIdx]!.values).toContain(ACCOUNT_ID);
+    // Unsubscribe token rows are opt-out MECHANISMS, not opt-out records, and
+    // their account_id is already NULL by now — never countable, never counted.
+    expect(calls[countIdx]!.text).not.toContain('solicitation_unsubscribe_tokens');
+
+    // Same transaction as the finalize: after the outbox row is locked FOR UPDATE
+    // and before the receipt is enqueued on it.
+    const lockIdx = calls.findIndex(
+      (call) => call.text.includes('FROM job_outbox') && call.text.includes('FOR UPDATE'),
+    );
+    const receiptIdx = calls.findIndex(
+      (call) => call.text.includes('INSERT INTO job_outbox')
+        && call.values.includes('account_offboarding_email'),
+    );
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(countIdx).toBeGreaterThan(lockIdx);
+    expect(receiptIdx).toBeGreaterThan(countIdx);
+
+    const receiptPayload = calls[receiptIdx]!.values.find(
+      (value) => value !== null && typeof value === 'object'
+        && (value as { email_type?: string }).email_type === 'purge_receipt',
+    ) as { retained_suppression_count?: number } | undefined;
+    expect(receiptPayload?.retained_suppression_count).toBe(2);
   });
 
   it('does not call deleteUser when immediate auth revalidation fails', async () => {

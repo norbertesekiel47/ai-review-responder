@@ -135,6 +135,49 @@ describe('buildAccountOffboardingEmailHtml', () => {
     expect(html).not.toContain('zernio');
     expect(html).not.toContain('cus_');
     expect(html).not.toContain('sub_');
+    // No count supplied → no retention sentence at all (#643 G5).
+    expect(html).not.toContain('opt-out');
+  });
+
+  // #643 spec §6.3: the receipt discloses HOW MANY opt-out records outlived the
+  // purge, never WHICH. The count is an aggregate the finalize transaction
+  // snapshotted; this template only knows the number.
+  it('renders the retained opt-out count as an aggregate on the purge receipt', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 3,
+    });
+
+    expect(html).toContain('3 opt-out records are retained so those opt-outs continue to be honored.');
+    expect(html).toContain('contact RepWorth support');
+  });
+
+  it('renders the retained opt-out sentence in the singular for a count of one', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 1,
+    });
+
+    expect(html).toContain('1 opt-out record is retained so that opt-out continues to be honored.');
+    expect(html).not.toContain('records are retained');
+  });
+
+  it('renders no retention sentence when the purge retained nothing', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 0,
+    });
+
+    // "0 opt-out records are retained" is noise that invites a question with no
+    // answer behind it — the sentence has to vanish, not read zero.
+    expect(html).not.toContain('opt-out');
+    expect(html).not.toContain('retained');
   });
 });
 

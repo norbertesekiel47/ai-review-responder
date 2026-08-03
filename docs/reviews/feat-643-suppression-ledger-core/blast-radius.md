@@ -1,0 +1,246 @@
+# Blast radius — importers of changed files (`feat-643-suppression-ledger-core`)
+
+Heuristic import-text search; verify semantic impact per caller.
+
+## `src/lib/account-offboarding/outbox.ts` — 67 importer(s)
+- src/lib/account-offboarding/__tests__/outbox.test.ts
+- src/lib/account-offboarding/__tests__/reactivation-request.test.ts
+- src/lib/account-offboarding/__tests__/retry-billing.test.ts
+- src/lib/account-offboarding/confirm.ts
+- src/lib/account-offboarding/keep-my-data.ts
+- src/lib/account-offboarding/reactivate.ts
+- src/lib/account-offboarding/reactivation-request.ts
+- src/lib/account-offboarding/retry-billing.ts
+- src/lib/demos/lifecycle.ts
+- src/lib/shared/__tests__/outbox.test.ts
+- src/lib/solicitation/ask-generation.ts
+- src/lib/solicitation/batch-builder.ts
+- worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts
+- worker/background/pollers/AccountOffboardingAccessEndPoller.ts
+- worker/background/pollers/AccountOffboardingPurgePoller.ts
+- worker/background/pollers/AccountOffboardingPurgeReminderPoller.ts
+- worker/background/pollers/AccountOffboardingTeardownRetryPoller.ts
+- worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts
+- worker/jobs/account-offboarding/BillingScheduleWorker.ts
+- worker/jobs/account-offboarding/purge-stages.ts
+- worker/jobs/account-offboarding/PurgeWorker.ts
+- worker/jobs/account-offboarding/ReactivationWorker.ts
+- worker/jobs/account-offboarding/TeardownWorker.ts
+- worker/jobs/AdminExceptionWorker.ts
+- worker/jobs/auto-post-notice/AutoPostNoticeWorker.ts
+- worker/jobs/autonomy-suspended-notice/AutonomySuspendedNoticeWorker.ts
+- worker/jobs/AutonomyAdminAlertWorker.ts
+- worker/jobs/billing/StripeCheckoutReconcileWorker.ts
+- worker/jobs/billing/StripeSubscriptionMirrorSyncWorker.ts
+- worker/jobs/billing/UpdateStripeOverageWorker.ts
+- worker/jobs/csv-ingest/failed-hook.ts
+- worker/jobs/csv-ingest/index.ts
+- worker/jobs/DemoGenerationWorker.ts
+- worker/jobs/DrainOwnerConnectWorker.ts
+- worker/jobs/EngagementAlertWorker.ts
+- worker/jobs/escalation-notice/EscalationNoticeWorker.ts
+- worker/jobs/judge/failed-hook.ts
+- worker/jobs/judge/JudgeWorker.ts
+- worker/jobs/MonthlyImpactWorker.ts
+- worker/jobs/notification/NotificationWorker.ts
+- worker/jobs/OnboardingDemoWorker.ts
+- worker/jobs/OnboardingDripWorker.ts
+- worker/jobs/OwnerEmailWorker.ts
+- worker/jobs/pending-post-notice/PendingPostNoticeWorker.ts
+- worker/jobs/PlaceIdValidationWorker.ts
+- worker/jobs/publisher/auto-policy-downgrade.ts
+- worker/jobs/publisher/auto-policy-publish.ts
+- worker/jobs/publisher/failed-hook.ts
+- worker/jobs/publisher/load-context.ts
+- worker/jobs/publisher/no-connection.ts
+- worker/jobs/publisher/publisher-error-handlers.ts
+- worker/jobs/publisher/ResponsePublisherWorker.ts
+- worker/jobs/publisher/review-lookup.ts
+- worker/jobs/publisher/veto-window-gate.ts
+- worker/jobs/RankingTrackingWorker.ts
+- worker/jobs/ResponseGeneratorWorker.ts
+- worker/jobs/solicitation-batch/failed-hook.ts
+- worker/jobs/solicitation-batch/generate-failed-hook.ts
+- worker/jobs/solicitation-batch/generate.ts
+- worker/jobs/solicitation-batch/index.ts
+- worker/jobs/summary-report-helpers.ts
+- worker/jobs/WeeklySummaryWorker.ts
+- worker/jobs/zernio/ingest-failed-hook.ts
+- worker/jobs/zernio/job-eligibility.ts
+- worker/jobs/zernio/zernio-ingest-shared.ts
+- worker/jobs/zernio/ZernioBackfillWorker.ts
+- worker/jobs/zernio/ZernioReviewIngestWorker.ts
+
+## `src/lib/account-offboarding/purge-verification.ts` — 3 importer(s)
+- src/lib/account-offboarding/__tests__/purge-verification.test.ts
+- worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts
+- worker/jobs/account-offboarding/purge-stages.ts
+
+## `src/lib/account-offboarding/table-disposition.ts` — 3 importer(s)
+- src/lib/account-offboarding/__tests__/purge-verification.test.ts
+- src/lib/account-offboarding/__tests__/table-disposition.test.ts
+- src/lib/account-offboarding/purge-verification.ts
+
+## `src/lib/analytics/events.ts` — 15 importer(s)
+- scripts/ci/analytics-events-audit.ts
+- src/app/api/analytics/enqueue/route.ts
+- src/app/api/auth/verify-otp/route.ts
+- src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts
+- src/app/api/zernio/connect/start/route.ts
+- src/lib/account-offboarding/analytics.ts
+- src/lib/analytics/__tests__/events.test.ts
+- src/lib/analytics/activation-event.ts
+- src/lib/analytics/enqueue.ts
+- src/lib/analytics/trial-events.ts
+- src/lib/competitors/named-rival.ts
+- src/lib/reviews/process-review.ts
+- src/lib/shared/__tests__/migration-097-suppression-analytics-events.integration.test.ts
+- src/lib/shared/logger.ts
+- worker/jobs/response-generation/analytics.ts
+
+## `src/lib/notifications/email/templates/account-offboarding.ts` — 1 importer(s)
+- src/lib/notifications/email.ts
+
+## `src/lib/shared/worker-types.ts` — 113 importer(s)
+- scripts/ws8-staging-smoke.ts
+- src/app/api/admin/flagged/route.ts
+- src/app/api/dashboard/past-replies/draft/route.ts
+- src/app/api/feedback/route.ts
+- src/app/api/onboarding/business/route.ts
+- src/app/api/onboarding/start/route.ts
+- src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts
+- src/lib/account-offboarding/email-dedup.ts
+- src/lib/account-offboarding/outbox.ts
+- src/lib/approval/__tests__/service.test.ts
+- src/lib/approval/audit.ts
+- src/lib/approval/callback-mode.ts
+- src/lib/approval/errors.ts
+- src/lib/approval/session-mode.ts
+- src/lib/approval/token-mode.ts
+- src/lib/auto-approval/governor.ts
+- src/lib/auto-approval/suspension.ts
+- src/lib/demos/types.ts
+- src/lib/locations/archive-location-tx.ts
+- src/lib/reviews/process-review.ts
+- src/lib/shared/job-outbox-helpers.ts
+- src/lib/solicitation/__tests__/batch-builder.integration.test.ts
+- src/lib/zernio/auth-error-fallback.ts
+- worker/__tests__/correlation-chain.test.ts
+- worker/background/pollers/EngagementMonitorPoller.ts
+- worker/background/pollers/NotificationFailoverPoller.ts
+- worker/background/schedulers/OnboardingDripScheduler.ts
+- worker/index.ts
+- worker/ingress/stripe/shared.ts
+- worker/ingress/zernio/__tests__/zernio-fanout-archived.integration.test.ts
+- worker/ingress/zernio/__tests__/zernio-webhook.test.ts
+- worker/ingress/zernio/zernio.ts
+- worker/jobs/__tests__/AdminExceptionWorker.test.ts
+- worker/jobs/__tests__/AutonomyAdminAlertWorker.test.ts
+- worker/jobs/__tests__/EngagementAlertWorker.test.ts
+- worker/jobs/__tests__/MonthlyImpactWorker.test.ts
+- worker/jobs/__tests__/OnboardingDripWorker.test.ts
+- worker/jobs/__tests__/PlaceIdValidationWorker.test.ts
+- worker/jobs/__tests__/RankingTrackingWorker.test.ts
+- worker/jobs/__tests__/ResponseGeneratorWorker.test.ts
+- worker/jobs/__tests__/summary-report-helpers.test.ts
+- worker/jobs/__tests__/terminal-failure-checkpoints.integration.test.ts
+- worker/jobs/__tests__/WeeklySummaryWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/AccountOffboardingEmailWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/BillingScheduleWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/ReactivationWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/TeardownWorker.test.ts
+- worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts
+- worker/jobs/account-offboarding/BillingScheduleWorker.ts
+- worker/jobs/account-offboarding/PurgeWorker.ts
+- worker/jobs/account-offboarding/ReactivationWorker.ts
+- worker/jobs/account-offboarding/TeardownWorker.ts
+- worker/jobs/AdminExceptionWorker.ts
+- worker/jobs/auto-post-notice/AutoPostNoticeWorker.ts
+- worker/jobs/autonomy-suspended-notice/__tests__/AutonomySuspendedNoticeWorker.test.ts
+- worker/jobs/autonomy-suspended-notice/AutonomySuspendedNoticeWorker.ts
+- worker/jobs/autonomy-suspended-notice/context.ts
+- worker/jobs/AutonomyAdminAlertWorker.ts
+- worker/jobs/billing/__tests__/StripeSubscriptionMirrorSyncWorker.test.ts
+- worker/jobs/billing/StripeCheckoutReconcileWorker.ts
+- worker/jobs/billing/StripeSubscriptionMirrorSyncWorker.ts
+- worker/jobs/csv-ingest/__tests__/index.test.ts
+- worker/jobs/csv-ingest/failed-hook.ts
+- worker/jobs/csv-ingest/index.ts
+- worker/jobs/DrainOwnerConnectWorker.ts
+- worker/jobs/EngagementAlertWorker.ts
+- worker/jobs/escalation-notice/__tests__/EscalationNoticeWorker.test.ts
+- worker/jobs/escalation-notice/EscalationNoticeWorker.ts
+- worker/jobs/judge/__tests__/failed-hook.test.ts
+- worker/jobs/judge/__tests__/JudgeWorker.test.ts
+- worker/jobs/judge/failed-hook.ts
+- worker/jobs/judge/JudgeWorker.ts
+- worker/jobs/MonthlyImpactWorker.ts
+- worker/jobs/notification/__tests__/NotificationWorker-telegram.test.ts
+- worker/jobs/notification/__tests__/NotificationWorker.test.ts
+- worker/jobs/notification/NotificationWorker.ts
+- worker/jobs/OnboardingDemoWorker.ts
+- worker/jobs/OnboardingDripWorker.ts
+- worker/jobs/OwnerEmailWorker.ts
+- worker/jobs/pending-post-notice/__tests__/PendingPostNoticeWorker.test.ts
+- worker/jobs/pending-post-notice/PendingPostNoticeWorker.ts
+- worker/jobs/PlaceIdValidationWorker.ts
+- worker/jobs/publisher/__tests__/edit-existing-reply.integration.test.ts
+- worker/jobs/publisher/__tests__/failed-hook.test.ts
+- worker/jobs/publisher/__tests__/ResponsePublisherWorker.test.ts
+- worker/jobs/publisher/edit-publish-tx.ts
+- worker/jobs/publisher/failed-hook.ts
+- worker/jobs/publisher/no-connection.ts
+- worker/jobs/publisher/publisher-error-handlers.ts
+- worker/jobs/publisher/ResponsePublisherWorker.ts
+- worker/jobs/RankingTrackingWorker.ts
+- worker/jobs/response-generation/__tests__/load-context.test.ts
+- worker/jobs/response-generation/auto-approval.ts
+- worker/jobs/response-generation/load-context.ts
+- worker/jobs/response-generation/persist.ts
+- worker/jobs/ResponseGeneratorWorker.ts
+- worker/jobs/solicitation-batch/__tests__/generate.test.ts
+- worker/jobs/solicitation-batch/__tests__/index.test.ts
+- worker/jobs/solicitation-batch/failed-hook.ts
+- worker/jobs/solicitation-batch/generate-failed-hook.ts
+- worker/jobs/solicitation-batch/generate.ts
+- worker/jobs/solicitation-batch/index.ts
+- worker/jobs/summary-report-helpers.ts
+- worker/jobs/WeeklySummaryWorker.ts
+- worker/jobs/zernio/__tests__/ingest-failed-hook.test.ts
+- worker/jobs/zernio/__tests__/zernio-end-to-end.integration.test.ts
+- worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts
+- worker/jobs/zernio/__tests__/ZernioReviewIngestWorker.test.ts
+- worker/jobs/zernio/ingest-failed-hook.ts
+- worker/jobs/zernio/job-eligibility.ts
+- worker/jobs/zernio/ZernioBackfillWorker.ts
+- worker/jobs/zernio/ZernioReviewIngestWorker.ts
+
+## `src/lib/solicitation/batch-builder.ts` — 8 importer(s)
+- src/lib/solicitation/__tests__/batch-builder.integration.test.ts
+- src/lib/solicitation/__tests__/batch-builder.test.ts
+- src/lib/solicitation/__tests__/batch-purge-concurrency.integration.test.ts
+- src/lib/solicitation/ask-generation.ts
+- worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts
+- worker/jobs/account-offboarding/purge-stages.ts
+- worker/jobs/solicitation-batch/__tests__/index.test.ts
+- worker/jobs/solicitation-batch/index.ts
+
+## `src/lib/solicitation/suppression.ts` — 6 importer(s)
+- src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts
+- src/lib/solicitation/__tests__/batch-builder.integration.test.ts
+- src/lib/solicitation/__tests__/suppression.integration.test.ts
+- src/lib/solicitation/__tests__/suppression.test.ts
+- src/lib/solicitation/batch-builder.ts
+- worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts
+
+## `worker/jobs/account-offboarding/AccountOffboardingEmailWorker.ts` — 3 importer(s)
+- worker/index.ts
+- worker/jobs/account-offboarding/__tests__/AccountOffboardingEmailWorker.test.ts
+- worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts
+
+## `worker/jobs/account-offboarding/purge-stages.ts` — 3 importer(s)
+- src/lib/solicitation/__tests__/batch-purge-concurrency.integration.test.ts
+- worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts
+- worker/jobs/account-offboarding/PurgeWorker.ts
+

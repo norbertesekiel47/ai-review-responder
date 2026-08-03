@@ -31,6 +31,8 @@ describe('analytics events', () => {
       'competitor_rival_picked',
       'solicitation_consent_recorded',
       'solicitation_consent_upgraded',
+      'solicitation_suppressed',
+      'solicitation_suppressed_at_dispatch',
     ]);
   });
 

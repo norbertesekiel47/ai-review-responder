@@ -22,6 +22,7 @@ import {
   MIGRATION_071_RUN_SPINE,
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
+  MIGRATION_096_SOLICITATION_SUPPRESSIONS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
@@ -31,6 +32,8 @@ import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
 import { readLatestBatch } from '../batch-view';
 import { ingestContactsCsvUpload } from '../ingest';
+import { BATCH_CAP } from '../restraint-policy';
+import { recordSuppression, type SuppressionSource } from '../suppression';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
@@ -97,13 +100,18 @@ async function seedConsent(
   `;
 }
 
+/** The Normalized handle `seedContact` stores — the ledger's join key (§1.1). */
+function contactEmail(contactId: string): string {
+  return `${contactId}@example.test`;
+}
+
 async function seedContact(
   uploadId: string,
   visitDate: string,
   options: { consent?: boolean } = {},
 ): Promise<string> {
   const contactId = randomUUID();
-  const email = `${contactId}@example.test`;
+  const email = contactEmail(contactId);
   await sql()`
     INSERT INTO solicitation_contacts (
       id, business_id, name, email, created_by_upload_id
@@ -122,6 +130,60 @@ async function seedContact(
   `;
   if (options.consent !== false) await seedConsent(email, uploadId);
   return contactId;
+}
+
+/**
+ * Every Normalized handle this suite has written to the Suppression ledger.
+ * Swept explicitly: a ledger row has no expiry and no ordinary delete path, and
+ * `account_id` is a NO-ACTION FK to `accounts`, so a leaked row would outlive
+ * the suite AND block `cleanupTenantAccount`.
+ */
+const suppressedHandles = new Set<string>();
+
+/**
+ * Writes one Suppression ledger row through the production writer — a fixture
+ * built by hand could carry a source/scope pairing the writer can never emit —
+ * and returns its `suppressed_at` exactly as the database renders it, which is
+ * what the populate seam must surface into evidence.
+ */
+async function suppressHandle(
+  handle: string,
+  source: Exclude<SuppressionSource, 'owner_manual' | 'admin_manual'>,
+): Promise<string> {
+  suppressedHandles.add(handle);
+  const suppressionId = await sql().begin(async (tx) =>
+    recordSuppression(tx, {
+      scope: 'global',
+      channel: 'email',
+      normalizedHandle: handle,
+      accountId: tenant!.accountId,
+      source,
+    }),
+  );
+  if (suppressionId === null) {
+    throw new Error(`expected a new Suppression ledger row for ${handle}`);
+  }
+  const [row] = await sql()<{ suppressed_at: string }[]>`
+    SELECT suppressed_at::text AS suppressed_at
+    FROM solicitation_suppressions
+    WHERE id = ${suppressionId}::uuid
+  `;
+  return row!.suppressed_at;
+}
+
+async function sweepSuppressionFixtures(): Promise<void> {
+  if (suppressedHandles.size === 0) return;
+  const handles = [...suppressedHandles];
+  suppressedHandles.clear();
+  await sql()`
+    DELETE FROM analytics_events
+    WHERE event_name = 'solicitation_suppressed'
+      AND account_id = ${tenant!.accountId}::uuid
+  `;
+  await sql()`
+    DELETE FROM solicitation_suppressions
+    WHERE normalized_handle = ANY(${handles}::text[])
+  `;
 }
 
 const CSV_HEADER = 'name,email,phone,last_visit_date,note';
@@ -293,6 +355,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       MIGRATION_071_RUN_SPINE,
       MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
       MIGRATION_093_SOLICITATION_CONSENT,
+      MIGRATION_096_SOLICITATION_SUPPRESSIONS,
     ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',
@@ -354,11 +417,18 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     // Consent rows never cascade from uploads — migration 093 only SET NULLs
     // their source_upload_id — so sweep them explicitly.
     await sql()`DELETE FROM solicitation_consent WHERE business_id = ${businessId}::uuid`;
+    // Suppression ledger rows hang off no business at all: they key on the
+    // Normalized handle, so nothing above reaches them.
+    await sweepSuppressionFixtures();
   }, 120_000);
 
   afterAll(async () => {
     try {
       if (db) {
+        // BEFORE cleanupTenantAccount: solicitation_suppressions.account_id is a
+        // NO-ACTION FK to accounts, which that helper deletes directly. A row
+        // leaked by a failed afterEach would turn teardown into an FK error.
+        await sweepSuppressionFixtures();
         await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
         if (tenant) await cleanupTenantAccount(db, tenant);
       }
@@ -1319,6 +1389,78 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       reason: 'no_consent',
       upload_id: v1UploadId,
       attestation_version: 'consent_attestation_v1',
+    });
+  });
+
+  it("a suppressed candidate is withheld with reason 'suppressed' carrying the ledger source and timestamp as evidence", async () => {
+    // Attestation never overrides suppression (CONTEXT.md): this contact has a
+    // send-eligible consent row and a fresh visit, so without the ledger row it
+    // sends. Consent and suppression are independent inputs — the recipient's
+    // revocation is what turns it into a withhold.
+    const uploadId = await seedCompletedUpload();
+    const contactId = await seedContact(uploadId, daysAgoUtc(1));
+    const suppressedAt = await suppressHandle(contactEmail(contactId), 'complaint');
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: 1,
+      sendCount: 0,
+      withholdCount: 1,
+      withheldByReason: expect.objectContaining({ suppressed: 1 }),
+    });
+
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({
+      contact_id: contactId,
+      status: 'withhold',
+      withheld_reason: 'suppressed',
+    });
+    // The ledger's own source and timestamp, not a re-derivation: this is the
+    // record that answers "why did this contact drop out of my list".
+    expect(parseAskEvidence(ask!.evidence)).toMatchObject({
+      reason: 'suppressed',
+      suppression_source: 'complaint',
+      suppressed_at: suppressedAt,
+    });
+  });
+
+  it('a withheld-suppressed candidate does not consume BATCH_CAP', async () => {
+    // Populate, do not pre-filter (§4.2), proven by arithmetic: BATCH_CAP clean
+    // candidates plus one suppressed. A `WHERE suppression.source IS NULL` in
+    // loadCandidateWindow would drop the suppressed contact out of the window
+    // entirely — candidateCount BATCH_CAP, suppressed 0 — and the owner would
+    // never learn why their list shrank. Counting it against the cap instead
+    // would push eligible past BATCH_CAP and bank one real send.
+    const uploadId = await seedCompletedUpload();
+    const eligibleIds: string[] = [];
+    for (let index = 0; index < BATCH_CAP; index++) {
+      eligibleIds.push(await seedContact(uploadId, daysAgoUtc(1)));
+    }
+    const suppressedContactId = await seedContact(uploadId, daysAgoUtc(1));
+    await suppressHandle(contactEmail(suppressedContactId), 'unsubscribe_link');
+
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const batch = await seedBatch();
+    await expect(build(batch)).resolves.toMatchObject({
+      status: 'built',
+      candidateCount: BATCH_CAP + 1,
+      sendCount: BATCH_CAP,
+      withholdCount: 1,
+      withheldByReason: expect.objectContaining({
+        suppressed: 1,
+        velocity_banked: 0,
+      }),
+    });
+
+    const asks = await readAsks(batch.batchId);
+    expect(asks).toHaveLength(BATCH_CAP + 1);
+    expect(asks.filter((ask) => ask.status === 'send').map((ask) => ask.contact_id).sort())
+      .toEqual([...eligibleIds].sort());
+    expect(asks.find((ask) => ask.contact_id === suppressedContactId)).toMatchObject({
+      status: 'withhold',
+      withheld_reason: 'suppressed',
     });
   });
 });

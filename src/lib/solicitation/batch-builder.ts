@@ -40,6 +40,7 @@ import {
   type AskDecision,
   type WithholdReason,
 } from './restraint-policy';
+import { suppressionMatchSql } from './suppression';
 
 interface BuildSolicitationBatchInput {
   batchId: string;
@@ -97,6 +98,9 @@ interface CandidateWindowRow {
   /** Consent ledger row provenance — null when no row exists (case (a)). */
   consent_upload_id: string | null;
   consent_attestation_version: string | null;
+  /** Suppression ledger hit (§1.2) — both null when the handle is not suppressed. */
+  suppression_source: string | null;
+  suppressed_at: string | null;
 }
 
 interface PriorSendRow {
@@ -332,7 +336,14 @@ function toCandidate(
       uploadId: row.consent_upload_id,
       attestationVersion: row.consent_attestation_version,
     },
-    suppression: null,
+    // `source` stays a plain string here (G10): restraint-policy's evidence is
+    // a serialization contract that round-trips through JSONB and is re-read by
+    // parseEvidence, so narrowing it to the derived union would ripple into the
+    // read model for no safety gain at this write site.
+    suppression:
+      row.suppression_source !== null && row.suppressed_at !== null
+        ? { source: row.suppression_source, suppressedAt: row.suppressed_at }
+        : null,
     matchedReview: null,
     priorBatch:
       priorSend !== undefined &&
@@ -365,6 +376,14 @@ interface CandidateWindow {
  * candidate's most recent prior send so the restraint policy can reason about
  * repeat asks.
  *
+ * Suppression is POPULATED, never pre-filtered (§4.2). The Suppression ledger
+ * hit is stamped onto the candidate and `evaluateAsk` owns the withhold. A
+ * `WHERE suppression.source IS NULL` here would make the shipped precedence-2
+ * `suppressed` gate permanently dead code and delete the record that tells the
+ * owner why their list shrank. It buys nothing either way: `evaluateBatch`
+ * counts only `send` decisions against BATCH_CAP, so a withheld candidate has
+ * never consumed a slot.
+ *
  * Reads only under the caller's batch row lock and per-Business advisory lock.
  * Returns no contact PII beyond the ids the policy needs.
  */
@@ -388,7 +407,9 @@ async function loadCandidateWindow(
         AND consent.attestation_version = ANY(${sendEligibleVersions}::text[])
       ) AS consent_attested,
       consent.source_upload_id::text AS consent_upload_id,
-      consent.attestation_version AS consent_attestation_version
+      consent.attestation_version AS consent_attestation_version,
+      suppression.source AS suppression_source,
+      suppression.suppressed_at::text AS suppressed_at
     FROM solicitation_contacts c
     JOIN solicitation_visits latest_visit
       ON latest_visit.contact_id = c.id
@@ -418,6 +439,13 @@ async function loadCandidateWindow(
       ON consent.channel = 'email'
      AND consent.normalized_handle = c.email
      AND consent.business_id = ${businessId}::uuid
+    -- suppressionMatchSql is the ONE owner of the §1.2 lookup (G7); composing
+    -- the fragment is how this join and #630's dispatch gate stay one predicate.
+    -- c.email already holds the Normalized handle — the consent join above is
+    -- the standing proof — so nothing is re-normalized here.
+    LEFT JOIN LATERAL (
+      ${suppressionMatchSql(tx, tx`c.email`, accountId, 'email')}
+    ) suppression ON TRUE
     LEFT JOIN solicitation_asks latest_evaluation
       ON latest_evaluation.contact_id = c.id
      AND latest_evaluation.account_id = ${accountId}::uuid

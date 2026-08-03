@@ -398,6 +398,53 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
+  // #643 G5. Snapshot-at-purge, not query-at-send: the count reaches the template
+  // off the payload, so a BullMQ retry renders the SAME number and this worker
+  // never learns that a Suppression ledger exists.
+  it('renders the purge receipt retained count from the payload snapshot on every retry', async () => {
+    const job = makeJob({
+      email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
+      recipient_email: 'owner@example.com',
+      purged_at: '2026-07-06T00:00:00.000Z',
+      retained_suppression_count: 2,
+    });
+
+    await handleAccountOffboardingEmail(mockSql, job);
+    await handleAccountOffboardingEmail(mockSql, job);
+
+    expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenCalledTimes(2);
+    expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenNthCalledWith(1, {
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 2,
+    });
+    expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenNthCalledWith(2, {
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 2,
+    });
+    expect(sqlCalls.some((call) => call.text.includes('solicitation_suppressions'))).toBe(false);
+  });
+
+  it('renders no retained count for a purge receipt enqueued before the count existed', async () => {
+    // In-flight outbox rows from before this field shipped carry no count. The
+    // receipt has to render, and it has to claim nothing it does not know.
+    await handleAccountOffboardingEmail(mockSql, makeJob({
+      email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
+      recipient_email: 'owner@example.com',
+      purged_at: '2026-07-06T00:00:00.000Z',
+    }));
+
+    expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenCalledWith({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 0,
+    });
+  });
+
   it('fails the purge receipt when the outbox payload carries no recipient', async () => {
     await handleAccountOffboardingEmail(mockSql, makeJob({
       email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],

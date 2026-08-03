@@ -23,6 +23,8 @@ export const ANALYTICS_EVENT_NAMES = [
   'competitor_rival_picked',
   'solicitation_consent_recorded',
   'solicitation_consent_upgraded',
+  'solicitation_suppressed',
+  'solicitation_suppressed_at_dispatch',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

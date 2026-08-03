@@ -250,3 +250,26 @@ CSV content.
 - **Required properties:** `channel` (`email`), `from_version`, `to_version`
 - **Optional properties:** none
 - **Privacy notes:** never the handle.
+
+### `solicitation_suppressed`
+- **Status:** planned
+- **Description:** A Suppression ledger row was inserted — one opt-out, keyed on the Normalized handle for its channel (#643, suppression/unsubscribe spec §9.4). Rows are first-write-wins, so a `DO NOTHING` that hit an existing row emits nothing: the count is opt-outs created, never opt-out signals received.
+- **Owner:** `recordSuppression` (`src/lib/solicitation/suppression.ts`), inside the caller's transaction
+- **Source:** server-side, same transaction as the ledger insert (durable; **not** client-postable — a client-postable variant would let anyone forge a compliance record)
+- **Distinct ID:** account ID **when one is known**, else the suppression row id (`input.accountId ?? row.id`). The `accountId: null` path is not an accident — §5.2 post-purge redemption and unresolvable webhook sources both mint global rows with no account — and `analytics_events.distinct_id` is NOT NULL, so it needs *some* value. The consequence, stated because the fallback ships before its first caller: an accountless global suppression mints a one-off PostHog person per row. Harmless at today's zero callers; **#644/#645/#627 own picking a stable sentinel** if accountless volume turns out to be non-trivial.
+- **Event key:** `solicitation_suppressed_<suppression_row_id>` — the row id comes from the insert's `RETURNING`, so a rolled-back or conflict-skipped write mints no key at all.
+- **Required properties:** `source` (one of the seven §3.1 sources), `scope` (`global` or `account`), `channel` (`email`)
+- **Optional properties:** none
+- **Privacy notes:** **never the handle**, and never the `note` (§7.5 manual entries can quote an originating message). IDs and closed enum values only.
+- **Status note:** `planned` rather than `live` because `recordSuppression` ships with zero production callers (#643 G6) — its consumer today is the live-DB suite. #644/#645/#627 supply the first real callers.
+
+### `solicitation_suppressed_at_dispatch`
+- **Status:** planned
+- **Description:** The last-moment suppression re-check refused a send that the batch build had already marked sendable — the window between build and dispatch closing on a handle that opted out in between. Emitted by **#630**, not by #643; registered here so #630 needs no migration of its own.
+- **Owner:** #630's dispatch path (not yet built)
+- **Source:** server-side, in the dispatch transaction (durable; **not** client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `solicitation_suppressed_at_dispatch_<ask_id>` — one refusal per Ask.
+- **Required properties:** `source` (the source of the matched Suppression ledger row), `ask_id`
+- **Optional properties:** none
+- **Privacy notes:** never the handle. `scope` is deliberately absent: reporting which scope matched would surface the `account_id` provenance §7.4 forbids exposing.

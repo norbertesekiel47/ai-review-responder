@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **095** — next migration is **096**
+Current head: **097** — next migration is **098**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
@@ -36,6 +36,8 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `solicitation_asks` | No time-based expiry deletion in watch-mode; authoritative decisions outlive 180-day run archival and hard-delete with their batch on account purge | `solicitation_batches` cascade |
 | `solicitation_consent` | **No TTL — consent rows never expire (§7.3)**; a consent row outliving or predeceasing its contact would desynchronize the two. Hard-deleted with the contact on per-contact delete (same transaction, by handle — the ledger has no FK to `solicitation_contacts`) and on offboarding purge (`must_be_absent`) — consent fails closed; suppression fails open (DR1), which is why these rows are destroyed where #621's suppression rows are retained | contact-delete path (#625) + `businesses` `ON DELETE CASCADE`; purge verification via `TABLE_DISPOSITIONS` (`hard_delete`, `direct_business_id`) |
 | `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
+| `solicitation_suppressions` | **No TTL — an opt-out never expires (§2.1)**; a time limit on an opt-out is a violation with a cron job attached. Splits on **Suppression scope** at offboarding purge (D7): `scope='global'` rows are **retained** with `account_id` intact — the recipient's revocation against our one shared sending identity is not the account's data, and deleting one would let us mail a person who opted out (#535 §6 through a different door) — while `scope='account'` (`owner_manual`) rows hard-delete with the account. The only removal path for a retained row is the admin-only, audited **Correction path** (#645) | ArchivalPoller deliberately untouched; offboarding purge content stage + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention` — ONE entry for both scopes, #643 G2) |
+| `solicitation_unsubscribe_tokens` | **No TTL, no expiry** (§2.2): CAN-SPAM §7704(a)(3) requires the link operate ≥30 days, and there is no expiry value better than none. **Row kept; provenance scrubbed.** The offboarding purge NULLs `account_id`/`business_id`/`ask_id` and keeps `token_hash`, `normalized_handle`, `channel` and `sent_at`, so redemption still works after the sender is gone (§5.2). `outreach_id` nulls independently via `ON DELETE SET NULL` (#643 G1) whenever its outreach row is deleted, account alive or not | ArchivalPoller deliberately untouched; offboarding purge token scrub + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`) |
 
 Revisit triggers:
 
@@ -968,6 +970,113 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **097** — `suppression_analytics_events`: extends the
+  `analytics_events.event_name` DB CHECK allowlist with
+  `solicitation_suppressed` + `solicitation_suppressed_at_dispatch` (#643, spec
+  `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §9.4).
+  The first is emitted by `recordSuppression` in the SAME transaction as the
+  ledger row; the second belongs to #630's dispatch-time re-check and is
+  registered here so #644 and #630 both stay migration-free. **Constraint-only:
+  no new relation, column or index**, and the constraint name
+  (`analytics_events_event_name_check`) has existed since 046 — hence **no
+  `SchemaRequirement` export and no `assertSchemaReady` entry**, because a
+  presence check on that name would pass against a 094-era database and prove
+  nothing; 094, the exact analogue, likewise has none. No retention-policy row
+  either. Same DROP + re-ADD under `lock_timeout` as 046 → 058 → 069 → 089 →
+  094; the new list is a strict superset of 094's, so existing rows always pass.
+  Why its own file and not part of 096 (#643 G8): the swap takes a brief ACCESS
+  EXCLUSIVE lock on `analytics_events` and re-validates every row. Registering
+  the names only in `ANALYTICS_EVENT_NAMES` would not have been enough (089's
+  lesson) — without the CHECK entry every emitting transaction rolls back, and
+  `ci:analytics-events` cannot catch it (it compares the TS allowlist against
+  `docs/analytics/events.md`, never the database). Shape suite:
+  `src/lib/shared/__tests__/migration-097-suppression-analytics-events.integration.test.ts`
+  — text-only (it never calls `assertSchemaReady`) and the new owner of the live
+  CHECK ⟺ `ANALYTICS_EVENT_NAMES` drift guard, handed off from 094's suite,
+  which now pins its own historical 21-name list (the 089 → 094 precedent).
+  **Applied to STAGING 2026-08-02** (immediately after 096, same change window),
+  verified by schema introspection: the live
+  `analytics_events_event_name_check` carries both `solicitation_suppressed` and
+  `solicitation_suppressed_at_dispatch`. **NOT yet applied to production** —
+  applied there in lockstep at PR promotion, 096 first, then 097.
+
+- **096** — `solicitation_suppressions`: the **Suppression ledger** and the
+  **Unsubscribe token** table (#643, split from #626; locked spec
+  `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md`
+  §2.1/§2.2). Two new tables, five explicit indexes (three unique, two
+  account-leading lookup), RLS enabled with zero policies on both.
+
+  **`solicitation_suppressions` — keyed on the Normalized handle per channel,
+  never on `contact_id`** (§1.1), so delete-and-re-upload cannot launder an
+  opt-out (#535 §6). The two **Suppression scopes** (§1.2) give it TWO PARTIAL
+  unique indexes — `(channel, normalized_handle) WHERE scope = 'global'` and
+  `(channel, normalized_handle, account_id) WHERE scope = 'account'` — so every
+  writer must re-spell its `ON CONFLICT` predicate BYTE-FOR-BYTE or Postgres
+  will not infer the constraint (086 is the in-repo pattern). Writers are
+  `ON CONFLICT … DO NOTHING`: **first write wins** (§2.1). `suppressed_at` is
+  never compared against a window — both evaluation points are existence
+  checks, which deliberately sidesteps the postgres.js microsecond-truncation
+  class. `account_id` is the SCOPE, not a denormalization (086's warning does
+  not apply — the row hangs off no business), and carries **no `ON DELETE`
+  action** (§6.3): global rows survive the offboarding purge with `account_id`
+  intact, pointing at the already-tombstoned `accounts` row. Two CHECKs pair
+  scope and source, and the pairing is **one-directional**: `scope='account'`
+  requires `account_id NOT NULL` while a `global` row MAY carry it as
+  provenance; and **G11** pairs the closed seven-member source enum to scope,
+  because `owner_manual` + `global` would otherwise insert cleanly and let one
+  owner suppress a recipient across every tenant with no recipient having
+  spoken. Handle stored **raw, not hashed** (§6.4) — a bare SHA-256 of an email
+  is dictionary-attackable, and a real HMAC pepper is a catastrophic SPOF on a
+  compliance record.
+
+  **`solicitation_unsubscribe_tokens`** — SHA-256 `token_hash` only (invariants
+  #5/#10), and that is **enforced, not merely asserted in a comment**: a named
+  CHECK `token_hash ~ '^[a-f0-9]{64}$'` (mirroring 056's
+  `account_offboarding_tokens`), because `TEXT NOT NULL UNIQUE` on its own would
+  have stored a raw token as readily as a digest and every reader downstream
+  would still have worked. Lowercase-only is deliberate — it is what
+  `node:crypto`'s `digest('hex')` emits, and admitting uppercase would let two
+  spellings of one digest past the UNIQUE index. `account_id`, `business_id`
+  and `ask_id` are plain UUIDs with no FK,
+  scrubbed to NULL by the purge. `outreach_id` is
+  `REFERENCES solicitation_outreach(id) ON DELETE SET NULL` with a PARTIAL
+  unique index (`WHERE outreach_id IS NOT NULL`, so purge-scrubbed NULLs never
+  collide) — **#643 G1, amending B9**: CASCADE would have deleted retained token
+  rows through the `solicitation_outreach` → `solicitation_batches` →
+  `contact_csv_uploads` chain and broken §5.2, while no FK at all would have
+  left a scrubbed row carrying a stale pointer nothing could detect. A CHECK
+  enforces the one-way provenance-scrub implication (**G12**),
+  `account_id IS NOT NULL OR (business_id IS NULL AND ask_id IS NULL)`,
+  deliberately EXCLUDING `outreach_id` — SET NULL may null that one
+  independently while the account is still live.
+
+  **`account_id`-leading indexes on BOTH tables (G4).** The partial uniques lead
+  with `(channel, normalized_handle)`, but the purge delete, the retained-row
+  count and the token scrub all filter account-first and PG16 has no skip scan
+  — migration 095's lesson applied up front. PKs are UUIDv7, worker-supplied.
+  RLS deny-all is the `auto_approval_policies` posture (invariant #14), not
+  decorative: a direct client read of a global row would expose the `account_id`
+  provenance §7.4 forbids surfacing. **Both tables get a retention-policy row
+  (above)** — they are the first solicitation tables that are not
+  `hard_delete`-on-purge. Shape suite:
+  `src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts`
+  (columns/nullability, both CHECK matrices driven from the `as const` arrays in
+  `src/lib/solicitation/suppression.ts` and pinned against
+  `pg_get_constraintdef()`, the token_hash format matrix — raw token, uppercase
+  hex, off-by-one lengths and hex-length non-hex all rejected, a real digest
+  accepted — exact FK set including the no-FK absences, both
+  partial uniques, RLS-with-zero-policies); schema-ready entry
+  `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied to STAGING 2026-08-02**,
+  verified by schema introspection (never the Supabase migration ledger, which
+  does not track RepWorth's `0xx` migrations): both tables present; all 8 indexes
+  present (2 PKs, the 2 partial uniques, the 2 account-leading lookups, the
+  partial `outreach_id` unique, the `token_hash` UNIQUE); `relrowsecurity=true`
+  on both with **0** rows in `pg_policies`; and
+  `solicitation_unsubscribe_tokens_token_hash_sha256_hex` live as
+  `CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text))`. **NOT yet applied to
+  production** — applied there in lockstep at PR promotion, 096 then 097, in
+  order, verified the same way.
 
 - **095** — `consent_business_index`: one business-leading index
   `idx_solicitation_consent_business_handle` on

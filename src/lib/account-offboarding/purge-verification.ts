@@ -612,6 +612,56 @@ export function verificationQuery(
     case 'solicitation_consent':
       return absentByBusiness('solicitation_consent', accountId, exec);
 
+    // SCOPE NOTE (G13): this verifier counts VIOLATIONS, so it structurally
+    // cannot prove RETENTION — "correctly retained" and "every row wrongly
+    // deleted" both return 0. The retention guarantee for the Suppression
+    // ledger is therefore a TEST obligation, never a runtime check.
+    //
+    // TWO branches, both of which CAN fire:
+    // (a) a surviving account-scoped row — the account's own data, must be gone;
+    // (b) a retained global row still naming one of this account's users.
+    //
+    // Branch (b) is vacuous for VALID data — admin users carry
+    // users.account_id IS NULL (migration 039), so an admin_manual row never
+    // matches — and it proves nothing about retention. It is live anyway
+    // because it is the only detector for an INVALID row that named an owner as
+    // the actor on a global row: G14 types that actor as a plain string and so
+    // cannot prove the caller established admin identity. Defence-in-depth
+    // against a state the type layer also forbids is not decoration.
+    //
+    // One arm rather than two entries: TABLE_DISPOSITIONS is keyed by table
+    // name (G2, amending spec §6.3's two-row table). Users are derived by
+    // subquery rather than widening the input (G9), exactly as the
+    // analytics_events arm above already does.
+    case 'solicitation_suppressions':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_suppressions
+        WHERE (scope = 'account' AND account_id = ${accountId}::uuid)
+           OR (
+             scope = 'global'
+             AND created_by_user_id IN (
+               SELECT id FROM users WHERE account_id = ${accountId}::uuid
+             )
+           )
+      `;
+
+    // Retained so post-purge redemption still works (spec §5.2). G12's
+    // implication CHECK — account_id IS NULL implies business_id and ask_id are
+    // null — makes a partially-scrubbed row impossible in the post-scrub
+    // direction, so checking account_id and business_id is sufficient to prove
+    // ask_id was scrubbed too. Without it, a row with account_id NULL but
+    // ask_id set would be invisible here. outreach_id is excluded from that
+    // CHECK and is nulled by its own ON DELETE SET NULL (G1), which may fire
+    // independently while the account is still live — so it is not checked.
+    case 'solicitation_unsubscribe_tokens':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_unsubscribe_tokens
+        WHERE account_id = ${accountId}::uuid
+           OR business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
+      `;
+
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);
   }
