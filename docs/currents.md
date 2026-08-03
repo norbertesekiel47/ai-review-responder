@@ -7,7 +7,59 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-01 (Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-08-03 (Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Suppression ledger: schema + domain core (2026-08-03, PR #647)
+
+A recipient's opt-out is now a **record the system holds**, not a flag on a contact
+row that a re-upload can wipe. `solicitation_suppressions` (migration 096) stores one
+row per opt-out keyed on the **normalized handle per channel** — never on the contact
+row id — so deleting a contact and re-uploading the CSV cannot launder it. Rows are
+first-write-wins: a `complaint` arriving after an `unsubscribe_link` leaves the earlier
+row alone, because the state is already correct and the history belongs in the provider
+webhook records. There is **no expiry, ever** — a TTL on an opt-out is a compliance
+violation with a cron job attached.
+
+Two scopes, and the distinction is about *who spoke*, not how widely it applies.
+`global` is the recipient's own opt-out (or the mail ecosystem's on their behalf) and
+holds across every tenant, which is defensible because all mail leaves one shared
+sender. `account` is the owner's own do-not-contact list. Making `account` rows global
+would let one owner silently degrade another's reach with no recipient having said
+anything, so the pairing is enforced by a database CHECK rather than convention. When
+both match, **global wins** — reporting the account row would let an owner clear it,
+watch the contact stay suppressed, and have no idea why.
+
+**Nothing writes to the ledger yet.** The writer (`recordSuppression`) ships with zero
+production callers on purpose: its `ON CONFLICT` predicates must match two partial
+unique indexes byte-for-byte, and shipping it alongside the indexes proves that against
+a real database instead of three tickets later. #644 (redemption), #645 (manual paths)
+and #627 (webhook sources) land the first real callers. **Zero suppression rows and
+zero `solicitation_suppressed` events is the expected steady state, not a failure.**
+
+The batch build already *reads* it. `loadCandidateWindow` stamps each candidate with
+its suppression state via a LATERAL join and `evaluateAsk` owns the withhold decision —
+**populate, do not pre-filter** — so the shipped `suppressed` gate is live code from
+day one rather than a branch that never executes. And attestation never overrides
+suppression: consent is the owner asserting a relationship, suppression is the
+recipient revoking one, and the second outranks the first permanently.
+
+Unsubscribe tokens (`solicitation_unsubscribe_tokens`, same migration) are a dedicated
+table rather than a column on the ask, so redemption still works after the sender is
+gone. Only the SHA-256 hash is stored, now enforced by a format CHECK rather than
+asserted in a comment. Through an account purge the row **survives with its provenance
+scrubbed to NULL** — the mechanism outlives the account that minted it, because
+honouring the opt-out matters and knowing which dead account sent it does not.
+
+**The new shape**
+
+| Path | Role |
+|---|---|
+| `supabase/migrations/096_solicitation_suppressions.sql` | Both tables: 2 partial uniques, 2 account-leading indexes, source/scope CHECK pairing, provenance-scrub implication, `token_hash` format CHECK, RLS deny-all |
+| `supabase/migrations/097_suppression_analytics_events.sql` | Registers `solicitation_suppressed` + `solicitation_suppressed_at_dispatch` in the event-name CHECK |
+| `src/lib/solicitation/suppression.ts` | Domain core — closed enums, `suppressionMatchSql` (sole owner of the lookup), first-write-wins `recordSuppression` |
+| `src/lib/solicitation/batch-builder.ts` | Populate seam — LATERAL join stamps `candidate.suppression` |
+| `worker/jobs/account-offboarding/purge-stages.ts` | Retention: global rows survive with `account_id`, account rows hard-delete, token provenance scrubbed |
+| `src/lib/account-offboarding/purge-verification.ts` | Two-armed verification incl. the cross-account tripwire |
 
 ## Quick summary — Consent ledger: attestation v2 + per-handle consent state (2026-08-01, PR #640)
 

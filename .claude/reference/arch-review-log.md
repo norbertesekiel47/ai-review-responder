@@ -6,9 +6,33 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** (#640 — #625 consent ledger, 2026-08-01)
+**Merges since last architecture pass: 2** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
+
+Added by #647 (#643), for the next pass to weigh — three workflow-mechanism
+findings, none blocking, all recorded in `lab-notes.md` under "2026-08-03":
+
+- **`verify-gate.sh` does not own its DB precondition.** An intake could declare
+  `pnpm test:db:setup` — which DROPs schema `public` — as a `verification_command`,
+  and the gate launches those in parallel with the `test` row. It produced a fully
+  spurious RED. Candidate fix: run DB provisioning serially before the fan-out, or
+  reject destructive commands from `verification_commands`.
+- **`migration-immutability-guard.sh` keys on the migrations-log head, not on
+  "applied".** Every in-place amendment of a local-only migration is a false
+  positive, and this workflow produces that shape whenever the migrations-log task
+  runs before the ship lane. Candidate fix: a per-entry applied marker.
+- **`reclassify` counts workflow artifacts against the implementation they
+  describe.** #643 fired at 2.94× with production code at 435 lines and 37/37 files
+  in-surface; 1,537 of the counted lines were the plan, deviations, intake and
+  handoff. Candidate fix: exclude `docs/superpowers/plans/**`, and budget
+  production and test volume as two separate estimates.
+
+Also carried, not a code finding: the RISK=high lane's staging ride makes
+`git merge --ff-only main` structurally impossible afterwards — `main` gets a
+squash commit while `staging` carries a real merge, so reconciling needs a
+verified-identical-trees `reset --hard` + `--force-with-lease`. This will recur on
+every high-risk feature; feature.md step 8's post-merge instruction should say so.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|

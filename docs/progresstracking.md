@@ -1164,3 +1164,86 @@ gate/review rounds. #630 owns spec §10 test 7 +
 `solicitation_consent_missing_at_dispatch`.
 
 ---
+
+## 2026-08-01 → 2026-08-03 — Suppression ledger #643 (send-mode map #617; split from #626) — PR #647
+
+Ticket #643, "Suppression ledger: schema + domain core". Locked spec
+`docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md`; plan
+`docs/superpowers/plans/2026-08-01-suppression-ledger-core.md` (G1–G14 decision
+table). Merged as squash `4186cefa`. RISK=high lane: staging ride, then PR.
+
+**Migrations 096 + 097 — staging 2026-08-02, production 2026-08-03, lockstep
+complete.** Verified by schema introspection in both environments (never the
+Supabase migration ledger, which does not track RepWorth's `0xx` migrations), then
+the two introspection outputs were **diffed field-by-field and came back
+identical** — that diff is the lockstep evidence, not the fact that both `psql`
+runs exited 0. Prod schema was applied deliberately **before** the merge:
+`loadCandidateWindow`'s LATERAL join and the purge stages both reference these
+tables, so code deploying ahead of schema would have failed.
+
+**What shipped**
+
+- **096** — `solicitation_suppressions` (keyed on normalized handle per channel,
+  never `contact_id`, so delete-and-re-upload cannot launder an opt-out) and
+  `solicitation_unsubscribe_tokens` (dedicated table, not a column on the ask, so
+  redemption survives the sender). Two partial unique indexes; two account-leading
+  indexes (PG16 has no skip scan — migration 095's lesson applied up front); the
+  G11 source/scope CHECK pairing; G12's one-way provenance-scrub implication; a
+  `token_hash` SHA-256-hex format CHECK; RLS enabled with **zero** policies.
+- **097** — analytics event-name CHECK swap for `solicitation_suppressed` and
+  `solicitation_suppressed_at_dispatch`. Its own file, not folded into 096, because
+  the swap takes a brief ACCESS EXCLUSIVE lock on `analytics_events`.
+- **`src/lib/solicitation/suppression.ts`** — closed `as const` enums, the
+  `suppressionMatchSql` fragment that solely owns the §1.2 lookup (global wins a
+  double match), and first-write-wins `recordSuppression`.
+- **Purge retention** — global rows survive with `account_id` intact, account rows
+  hard-delete, token provenance scrubbed to NULL while the mechanism is kept; the
+  receipt reports the retained global count in aggregate.
+- **Populate, do not pre-filter** — the batch build stamps `candidate.suppression`
+  and `evaluateAsk` owns the withhold, so the shipped `suppressed` gate is never
+  dead code.
+
+**Deliberately callerless.** `recordSuppression` ships with zero production callers
+(G6) so its byte-for-byte `ON CONFLICT` predicates are proven against the real
+partial indexes the moment those indexes exist. #644/#645/#627 supply the first
+writers. Zero rows and zero `solicitation_suppressed` events is the expected steady
+state, not a failure signal.
+
+**Review — two rounds, 7 findings fixed.** Step 6 adversarial (Codex):
+`needs-attention`, one [high] — `token_hash` was `TEXT NOT NULL UNIQUE` with a
+comment claiming invariant #5 and nothing enforcing it. Fixed with a named format
+CHECK mirroring migration 056, plus a 6-case rejection matrix, **mutation-verified**
+(remove the CHECK → 6 of 7 new assertions fail). Step 7 dual review, two fresh
+parallel agents: spec & correctness 3 low (37/37 paths in-surface, 19/19 promised
+tests verbatim, 13/13 edge cases); standards & maintainability 3 medium + 3 low.
+**6 accepted and fixed, 3 rejected with recorded reasoning.** The two that mattered:
+`suppressionMatchSql` hardcoded `channel = 'email'` while `recordSuppression`
+parameterized it — two owners for one dimension, failing **open** — now a required
+parameter on both sides; and the token scrub's `OR business_id IN (…)` made the
+account-leading index unusable on the one statement 096 added it for and was
+redundant under G12, so it was dropped from the scrub while **kept in the verifier**
+as the cross-account tripwire. That second fix also handed back two tenant-scope
+allowlist entries: `ALLOWLIST_BASELINE` walked 410 → 413 → **411**, net +1.
+
+**Staging smoke** (rolled-back transaction, zero residue): first-write-wins proved
+`ON CONFLICT` inference against the real partial index (`INSERT 0 0` on the
+duplicate), the LATERAL lookup returned the global row, G11 rejected
+`owner_manual + global`, the `token_hash` CHECK rejected a raw token, and a real
+digest was accepted.
+
+**Deviations**: 33 entries at step 6.5, all ACCEPT, 0 RE-PLAN; 9 more added across
+steps 6–7. `reclassify` fired at 2.94× and was adjudicated an **estimate error, not
+a lane error** — production code landed at 435 lines across exactly the files the
+plan named, with 1,537 of the counted lines being workflow artifacts. Two intake
+amendments spent (2 of 2, budget exhausted): the tenant-scope allowlist during
+planning, and two `tests_to_add` titles at step 7 that named `isSuppressed`, a
+helper CONTEXT.md's G7 forbids by name.
+
+**Carried forward**: the prod Railway worker has **never been deployed**
+(`repworth-worker`/`production` reports no deployments, 35 env vars set) — so prod
+here means schema + Vercel, not a running worker. Also: the RISK=high staging ride
+makes the post-merge `git merge --ff-only main` structurally impossible, since
+`main` gets a squash and `staging` a real merge; reconciling needed a
+verified-identical-trees `reset --hard` + `--force-with-lease`.
+
+---
