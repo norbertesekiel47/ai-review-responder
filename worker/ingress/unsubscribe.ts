@@ -27,6 +27,7 @@ import { redactSensitivePathsAndQueries } from '../../src/lib/shared/sentry-scru
 import { readReplicaIdentity, replicaIdentityFields } from '../config/replica-identity';
 import {
   assertUnsubscribeTokenSecretConfigured,
+  hashUnsubscribeToken,
   isWellFormedUnsubscribeToken,
   redeemUnsubscribeToken,
   unsubscribeTokenLogPrefix,
@@ -108,11 +109,10 @@ async function handleUnsubscribePost(
       return;
     }
 
-    // postgres.js resolves `begin` only after COMMIT is acknowledged, so nothing
-    // in this function may answer from inside the callback (§9.1).
-    redemption = await sql.begin((tx) =>
-      redeemUnsubscribeToken(tx, { rawToken, source: 'unsubscribe_one_click' }),
-    );
+    // Concurrent replays of the SAME token collapse to one round trip (see the
+    // single-flight section below). Sheds nothing: every caller still awaits a
+    // real outcome.
+    redemption = await redemptionSingleFlight.run(rawToken);
   } catch (err) {
     failClosed(reply, err, rawToken, 'redeem');
     return;
@@ -277,6 +277,101 @@ function sanitizeText(text: string, rawToken: string): string {
   if (rawToken.length === 0) return redacted;
   return redacted.split(rawToken).join(REDACTED);
 }
+
+// ── per-token single-flight ─────────────────────────────────────────────────
+// The HMAC gate stops forged strings for free, but every replay of ONE genuinely
+// delivered token passes it and opens a transaction on the SHARED write pool
+// (`src/lib/db/server`, DB_POOL_MAX=20 on the worker, against which the hot-four
+// BullMQ workers already sum to 18 concurrent slots). §9.2 forbids throttling a
+// statutory opt-out, so unlike every other public route this one has no limiter —
+// which leaves a single recipient able to occupy the pool with concurrent replays
+// and starve unrelated webhooks and jobs.
+//
+// So concurrent in-flight redemptions of the same token collapse to ONE round
+// trip; later arrivals await the promise already running and share its outcome.
+// Sharing is sound HERE and only here because `redeemUnsubscribeToken` is
+// idempotent by claim-first ordering AND all three non-`unknown_token` outcomes
+// map to 200 in `handleUnsubscribePost`, with `unknown_token` mapping to 503 for
+// every caller alike — so no waiter can receive an answer the adapter would have
+// given differently. Re-check that mapping before widening this.
+//
+// It is NOT admission control. An earlier revision bounded concurrency and
+// answered 503 when full; owner review deleted it, because shedding a well-formed
+// request is an intentional silent loss of a statutory opt-out. Single-flight
+// sheds nothing, so it does not reintroduce that path — and the cap below
+// BYPASSES rather than rejects for the same reason. Do not add a semaphore, a
+// limiter, or a 503-when-busy branch here.
+//
+// A dedicated bounded pool for this route is the complementary fix and is
+// deliberately NOT here: it needs src/lib/db/server.ts, ADR-0009's connection
+// budget re-derived, and a staging burst drill. Tracked as a follow-up.
+
+/**
+ * Memory bound only. Entries live exactly as long as one transaction, so the map
+ * tracks concurrent DISTINCT tokens — a number the pool itself already limits in
+ * practice. The cap exists so a pathological burst cannot grow it without limit;
+ * past it, requests simply redeem directly, which is precisely the behaviour that
+ * shipped before this seam existed.
+ */
+const MAX_IN_FLIGHT_REDEMPTIONS = 1024;
+
+export interface RedemptionSingleFlightDeps {
+  maxEntries: number;
+  redeem: (rawToken: string) => Promise<UnsubscribeRedemption>;
+}
+
+export interface RedemptionSingleFlight {
+  /** Never throws synchronously; rejects exactly as `deps.redeem` rejects. */
+  run: (rawToken: string) => Promise<UnsubscribeRedemption>;
+}
+
+/**
+ * Injectable for the same reason `createUnknownTokenReporter` below is: the tests
+ * drive a real instance with a tiny cap and a controllable promise rather than
+ * racing the process-level one.
+ */
+export function createRedemptionSingleFlight(
+  deps: RedemptionSingleFlightDeps,
+): RedemptionSingleFlight {
+  // Keyed on the token HASH, never the raw token — a map key is one `.keys()`
+  // away from a heap dump or a debug log (invariant #5).
+  const inFlight = new Map<string, Promise<UnsubscribeRedemption>>();
+
+  return {
+    run: (rawToken) => {
+      const key = hashUnsubscribeToken(rawToken);
+      const existing = inFlight.get(key);
+      if (existing !== undefined) return existing;
+      if (inFlight.size >= deps.maxEntries) return deps.redeem(rawToken);
+
+      const pending = deps.redeem(rawToken);
+      inFlight.set(key, pending);
+      const release = (): void => {
+        // Identity-checked so this can only ever remove the entry it installed. A
+        // leaked entry would serve a stale outcome to every later replay of this
+        // token — including one legitimately re-delivered after a correction.
+        if (inFlight.get(key) === pending) inFlight.delete(key);
+      };
+      // `then(release, release)`, NOT `finally`: `finally` returns a derived
+      // promise that REJECTS whenever `pending` does, and nothing awaits that
+      // derivative — an unhandled rejection, which worker/index.ts escalates
+      // rather than ignores. Two handlers means the entry is released on BOTH
+      // settle paths, and the rejection itself still reaches every waiter through
+      // the promise they are awaiting.
+      pending.then(release, release);
+      return pending;
+    },
+  };
+}
+
+const redemptionSingleFlight = createRedemptionSingleFlight({
+  maxEntries: MAX_IN_FLIGHT_REDEMPTIONS,
+  // postgres.js resolves `begin` only after COMMIT is acknowledged, so nothing
+  // may answer from inside the callback (§9.1) — the shared promise settles on
+  // the commit, which is exactly what every waiter needs to hear.
+  redeem: async (rawToken) =>
+    sql.begin((tx) => redeemUnsubscribeToken(tx, { rawToken, source: 'unsubscribe_one_click' })),
+});
 
 // ── bounded observability for unknown tokens ────────────────────────────────
 // Plan §1.6. The route is deliberately unauthenticated and unrate-limited, so

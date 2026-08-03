@@ -160,6 +160,168 @@ describe('unsubscribe token', () => {
   });
 });
 
+describe('unsubscribe signing key rollover', () => {
+  // The rotation this exists for: `token_hash` is an UNKEYED SHA-256, so rotating
+  // SESSION_COOKIE_SECRET leaves every already-delivered token's row perfectly
+  // redeemable while the token itself fails the gate BEFORE lookup. CAN-SPAM
+  // §7704(a)(3) requires the link operate ≥30 days, and the same secret protects
+  // session and offboarding domains where a compromise forces a rotation nobody
+  // gets to decline.
+  const OUTGOING_SECRET = 'previous-session-cookie-secret-at-least-32-chars';
+  const INCOMING_SECRET = 'incoming-session-cookie-secret-at-least-32-chars';
+
+  /** Mint under `secret` alone — i.e. before the rollover deploy. */
+  async function mintUnder(secret: string): Promise<string> {
+    vi.stubEnv('SESSION_COOKIE_SECRET', secret);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', '');
+    const { mintUnsubscribeRawToken } = await freshUnsubscribe();
+    return mintUnsubscribeRawToken();
+  }
+
+  /** The state after the rollover deploy: new key current, old key accepted. */
+  async function afterRollover() {
+    vi.stubEnv('SESSION_COOKIE_SECRET', INCOMING_SECRET);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', OUTGOING_SECRET);
+    return freshUnsubscribe();
+  }
+
+  /** The state after the previous key is retired at the end of the window. */
+  async function afterRetirement() {
+    vi.stubEnv('SESSION_COOKIE_SECRET', INCOMING_SECRET);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', '');
+    return freshUnsubscribe();
+  }
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('a token minted under the previous key still passes the gate', async () => {
+    const delivered = await mintUnder(OUTGOING_SECRET);
+    const { isWellFormedUnsubscribeToken } = await afterRollover();
+
+    expect(isWellFormedUnsubscribeToken(delivered)).toBe(true);
+  });
+
+  it('a token minted under the previous key fails once that key is cleared', async () => {
+    const delivered = await mintUnder(OUTGOING_SECRET);
+    const { isWellFormedUnsubscribeToken } = await afterRetirement();
+
+    // Clearing the previous key is the deliberate end of the rollover window, so
+    // this MUST fail — an outgoing key that kept verifying forever would make the
+    // rotation cosmetic.
+    expect(isWellFormedUnsubscribeToken(delivered)).toBe(false);
+  });
+
+  it('a token minted under the current key passes with and without a previous key', async () => {
+    const fresh = await mintUnder(INCOMING_SECRET);
+
+    // Whether a previous key is configured is invisible to a current-key token —
+    // the previous key is only ever consulted after the current one misses.
+    const rolling = await afterRollover();
+    expect(rolling.isWellFormedUnsubscribeToken(fresh)).toBe(true);
+
+    const retired = await afterRetirement();
+    expect(retired.isWellFormedUnsubscribeToken(fresh)).toBe(true);
+  });
+
+  it('minting always uses the current key, never the previous one', async () => {
+    const { mintUnsubscribeRawToken } = await afterRollover();
+    const minted = mintUnsubscribeRawToken();
+
+    // Verifiable under the incoming key alone — so it will survive the moment the
+    // outgoing key is retired, rather than expiring with it.
+    const retired = await afterRetirement();
+    expect(retired.isWellFormedUnsubscribeToken(minted)).toBe(true);
+  });
+
+  it('a forged token fails against both keys without opening a database connection', async () => {
+    const delivered = await mintUnder(OUTGOING_SECRET);
+    const { nonce } = tokenHalves(delivered);
+    const forged = `${nonce}.${'A'.repeat(43)}`;
+    const { findRedeemableUnsubscribeToken, isWellFormedUnsubscribeToken, redeemUnsubscribeToken } =
+      await afterRollover();
+
+    expect(isWellFormedUnsubscribeToken(forged)).toBe(false);
+
+    // Two configured keys means two HMAC compares — and still ZERO database work.
+    // Throws on ANY use, including a property read.
+    const refuseToBeUsed = () => {
+      throw new Error('the database must not be touched for a forged token');
+    };
+    const executor = new Proxy(() => undefined, {
+      apply: refuseToBeUsed,
+      get: refuseToBeUsed,
+    }) as unknown as TransactionSql;
+
+    await expect(findRedeemableUnsubscribeToken(executor, forged)).resolves.toBeNull();
+    await expect(
+      redeemUnsubscribeToken(executor, { rawToken: forged, source: 'unsubscribe_one_click' }),
+    ).resolves.toEqual({ status: 'unknown_token', tokenHashPrefix: '' });
+  });
+
+  it('a receipt minted under the previous key still verifies', async () => {
+    const tokenHash = createHash('sha256').update('a-raw-unsubscribe-token').digest('hex');
+    vi.stubEnv('SESSION_COOKIE_SECRET', OUTGOING_SECRET);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', '');
+    const before = await freshUnsubscribe();
+    const receipt = before.mintUnsubscribeReceipt(tokenHash, Date.now());
+
+    const { verifyUnsubscribeReceipt } = await afterRollover();
+    expect(verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(true);
+
+    const retired = await afterRetirement();
+    expect(retired.verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(false);
+  });
+
+  // The default deployment state — the new var ships empty everywhere — so this
+  // is what proves the change is inert until someone deliberately rotates.
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+  ])('a %s previous key changes nothing about current key behaviour', async (_label, previous) => {
+    vi.stubEnv('SESSION_COOKIE_SECRET', INCOMING_SECRET);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', previous);
+    const { isWellFormedUnsubscribeToken, mintUnsubscribeRawToken } = await freshUnsubscribe();
+
+    const minted = mintUnsubscribeRawToken();
+    expect(isWellFormedUnsubscribeToken(minted)).toBe(true);
+    expect(isWellFormedUnsubscribeToken(`${tokenHalves(minted).nonce}.${'A'.repeat(43)}`)).toBe(
+      false,
+    );
+    // Still total over hostile input, and still throws on nothing but config.
+    expect(() => isWellFormedUnsubscribeToken('x'.repeat(100_000))).not.toThrow();
+  });
+
+  it('still throws when the CURRENT secret is missing, previous key or not', async () => {
+    vi.stubEnv('SESSION_COOKIE_SECRET', '');
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', OUTGOING_SECRET);
+    const { isWellFormedUnsubscribeToken } = await freshUnsubscribe();
+
+    // The previous key is a rollover affordance, never a way to keep running
+    // without the real one — reclassifying every opt-out as malformed is exactly
+    // the silent statutory failure the throw exists to prevent.
+    expect(() => isWellFormedUnsubscribeToken('AAAAAAAAAAAAAAAAAAAAAA.BBBB')).toThrow(
+      /SESSION_COOKIE_SECRET/,
+    );
+  });
+
+  it('a previous key too short to be an HMAC key fails loudly instead of being skipped', async () => {
+    vi.stubEnv('SESSION_COOKIE_SECRET', INCOMING_SECRET);
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', 'too-short');
+    const { isWellFormedUnsubscribeToken, mintUnsubscribeRawToken } = await freshUnsubscribe();
+
+    // A rollover typo must not silently degrade to current-key-only — that would
+    // leave every delivered link failing the gate while the deploy looked healthy.
+    // Minting is unaffected (it never reads the previous key), so the failure
+    // surfaces precisely where the outgoing key would have been needed.
+    const minted = mintUnsubscribeRawToken();
+    expect(() => isWellFormedUnsubscribeToken(minted)).not.toThrow();
+    expect(() => isWellFormedUnsubscribeToken(`${tokenHalves(minted).nonce}.${'A'.repeat(43)}`))
+      .toThrow(/SESSION_COOKIE_SECRET_PREVIOUS.*at least 32 bytes/);
+  });
+});
+
 describe('redemptionConfirmsSuppression', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();

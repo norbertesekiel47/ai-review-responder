@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import { getServerConfig } from '@/lib/config/server';
 import { deploymentLaneFields, requiresProductionConfig } from '@/lib/config/deployment-lane';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
@@ -20,10 +21,15 @@ import {
  * versioned-context-string convention, same "only the SHA-256 hash is ever
  * persisted" posture (invariant #5). Node's own crypto throughout (invariant #10).
  *
- * Rotating SESSION_COOKIE_SECRET invalidates every already-delivered unsubscribe
- * link. That is an accepted document-only constraint, not an oversight — see
- * docs/superpowers/plans/feat-644-unsubscribe-opt-out-deviations.md D1. Do not
- * add a previous-secret fallback, and do not make the gate fail open.
+ * SIGNING-KEY ROLLOVER. `token_hash` is an UNKEYED SHA-256, so rotating
+ * SESSION_COOKIE_SECRET never corrupts the lookup — it makes every
+ * already-delivered link fail the gate BEFORE lookup while its row stays
+ * perfectly redeemable. CAN-SPAM §7704(a)(3) requires the link operate ≥30 days,
+ * and this secret also protects unrelated session and offboarding domains where a
+ * compromise forces an emergency rotation you do not get to decline. So
+ * verification accepts CURRENT-plus-PREVIOUS (`SESSION_COOKIE_SECRET_PREVIOUS`);
+ * minting always uses the current key alone. Rollover procedure and the ≥30-day
+ * retention window: .claude/reference/env-vars.md. Do not make the gate fail open.
  */
 
 // Distinct from the receipt context so a MAC minted for one domain can never
@@ -60,7 +66,9 @@ export function hashUnsubscribeToken(rawToken: string): string {
  */
 export function mintUnsubscribeRawToken(): string {
   const nonce = randomBytes(NONCE_BYTES).toString('base64url');
-  return `${nonce}.${signNonce(nonce)}`;
+  // Always the CURRENT key. A token minted under the outgoing key would outlive
+  // the rollover window that exists to retire it.
+  return `${nonce}.${signNonce(getSessionCookieSecret(), nonce)}`;
 }
 
 /**
@@ -71,7 +79,8 @@ export function mintUnsubscribeRawToken(): string {
  * Total over hostile input: any string returns a boolean. It does throw when
  * SESSION_COOKIE_SECRET is unset, and that is intentional — a misconfiguration
  * that silently reclassified every real opt-out as malformed would be a silent
- * statutory failure, so it has to surface.
+ * statutory failure, so it has to surface. A configured-but-too-short
+ * SESSION_COOKIE_SECRET_PREVIOUS throws for the same reason.
  */
 export function isWellFormedUnsubscribeToken(rawToken: string): boolean {
   if (rawToken.length > MAX_SIGNED_INPUT_LENGTH) return false;
@@ -79,7 +88,10 @@ export function isWellFormedUnsubscribeToken(rawToken: string): boolean {
 
   const separator = rawToken.indexOf('.');
   const nonce = rawToken.slice(0, separator);
-  return macMatches(signNonce(nonce), rawToken.slice(separator + 1));
+  return macMatchesUnderAnySigningKey(
+    (secret) => signNonce(secret, nonce),
+    rawToken.slice(separator + 1),
+  );
 }
 
 /**
@@ -103,10 +115,16 @@ export function assertUnsubscribeTokenSecretConfigured(): void {
   if (isMockMode()) return;
   try {
     getSessionCookieSecret();
+    // A configured-but-malformed SESSION_COOKIE_SECRET_PREVIOUS is a rollover
+    // typo, and it throws per-request in the gate above. Asserting it here turns
+    // that into a crash-loop the deploy surfaces immediately, instead of a 503 on
+    // every opt-out — the same reasoning that put the current key in this gate.
+    getPreviousSessionCookieSecret();
   } catch (err) {
     const { deployment_lane: lane, lane_source: source } = deploymentLaneFields();
     throw new Error(
-      `[startup] Unsubscribe redemption requires SESSION_COOKIE_SECRET (${source ?? 'lane'}=${lane}): `
+      `[startup] Unsubscribe redemption requires a valid SESSION_COOKIE_SECRET (and a valid `
+        + `SESSION_COOKIE_SECRET_PREVIOUS when one is set) (${source ?? 'lane'}=${lane}): `
         + `${err instanceof Error ? err.message : String(err)} — without it every well-formed `
         + `opt-out fails as an unknown token, which CAN-SPAM §7704(a)(3) does not permit`,
     );
@@ -122,7 +140,7 @@ export function assertUnsubscribeTokenSecretConfigured(): void {
  * claim is actually true comes from a live ledger read at render time.
  */
 export function mintUnsubscribeReceipt(tokenHash: string, issuedAtMs: number): string {
-  return `${issuedAtMs}.${signReceipt(tokenHash, issuedAtMs)}`;
+  return `${issuedAtMs}.${signReceipt(getSessionCookieSecret(), tokenHash, issuedAtMs)}`;
 }
 
 /** Total over hostile input, same contract as the token gate above. */
@@ -143,7 +161,13 @@ export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): bo
   // case — verifying moments after minting, on a different host.
   if (Date.now() - issuedAtMs > RECEIPT_TTL_MS) return false;
 
-  return macMatches(signReceipt(tokenHash, issuedAtMs), receipt.slice(separator + 1));
+  // Current-plus-previous, same as the token gate. Lower stakes at a 10-minute
+  // TTL, but a rollover must not blank the success page for a receipt that was
+  // in flight across the deploy, and consistency here costs nothing.
+  return macMatchesUnderAnySigningKey(
+    (secret) => signReceipt(secret, tokenHash, issuedAtMs),
+    receipt.slice(separator + 1),
+  );
 }
 
 // ── redemption ──────────────────────────────────────────────────────────────
@@ -455,14 +479,58 @@ function toSuppressionChannel(value: string): SuppressionChannel {
   return channel;
 }
 
-function signNonce(nonce: string): string {
-  return createHmac('sha256', getSessionCookieSecret())
+/**
+ * The OUTGOING signing key mid-rollover, or `undefined` when none is configured.
+ *
+ * Unset/empty is the steady state, so it is NOT an error — but a key that IS set
+ * and too short to be an HMAC-SHA256 key is a rollover typo, and it throws rather
+ * than being skipped: silently ignoring it would leave every already-delivered
+ * link failing the gate while the deploy looked healthy, which is the exact
+ * silent statutory failure this whole mechanism exists to prevent.
+ *
+ * Validation mirrors `getSessionCookieSecret` byte-for-byte, including treating
+ * a whitespace-only value as present-and-invalid. It lives here rather than
+ * beside its sibling in src/lib/shared/session-cookie-secret.ts only because the
+ * unsubscribe domain is the sole consumer of key rollover today; when a second
+ * domain adopts it, promote this function there so the pair keeps one owner.
+ */
+function getPreviousSessionCookieSecret(): string | undefined {
+  const secret = getServerConfig().SESSION_COOKIE_SECRET_PREVIOUS;
+  if (!secret) return undefined;
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('SESSION_COOKIE_SECRET_PREVIOUS must be at least 32 bytes (256-bit HMAC key)');
+  }
+  return secret;
+}
+
+/**
+ * Verifies a MAC against the current signing key, then — only on a miss, and only
+ * when one is configured — against the previous one. Callers pass a signer rather
+ * than a precomputed MAC so neither context string is ever re-spelled here.
+ *
+ * The current key is read FIRST and unconditionally, so a missing
+ * SESSION_COOKIE_SECRET still throws: the previous key is a rollover affordance,
+ * never a way to keep running without the real one.
+ */
+function macMatchesUnderAnySigningKey(
+  sign: (secret: string) => string,
+  candidate: string,
+): boolean {
+  if (macMatches(sign(getSessionCookieSecret()), candidate)) return true;
+
+  const previous = getPreviousSessionCookieSecret();
+  if (previous === undefined) return false;
+  return macMatches(sign(previous), candidate);
+}
+
+function signNonce(secret: string, nonce: string): string {
+  return createHmac('sha256', secret)
     .update(`${UNSUBSCRIBE_TOKEN_CONTEXT}:${nonce}`)
     .digest('base64url');
 }
 
-function signReceipt(tokenHash: string, issuedAtMs: number): string {
-  return createHmac('sha256', getSessionCookieSecret())
+function signReceipt(secret: string, tokenHash: string, issuedAtMs: number): string {
+  return createHmac('sha256', secret)
     .update(`${UNSUBSCRIBE_RECEIPT_CONTEXT}:${tokenHash}:${issuedAtMs}`)
     .digest('base64url');
 }

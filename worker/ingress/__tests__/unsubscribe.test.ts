@@ -357,6 +357,171 @@ describe('unsubscribe ingress — POST', () => {
   });
 });
 
+// ── single-flight, at the HTTP boundary ─────────────────────────────────────
+// The seam's own contract is unit-tested in unsubscribe-single-flight.test.ts.
+// What only a real router can prove is that every collapsed waiter still gets its
+// OWN reply and its OWN §9.5 log line — the whole point of collapsing the database
+// round trip rather than the request.
+
+/** Drains every pending microtask — the deterministic alternative to a sleep. */
+function drainMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Holds every request inside `preHandler` until all `count` have arrived, then
+ * releases them together. That is what makes "concurrent" a fact rather than a
+ * hope: without it the first request could complete before the second is routed,
+ * and the test would pass for the wrong reason.
+ */
+function buildArrivalBarrier(count: number) {
+  let arrived = 0;
+  let announce!: () => void;
+  let release!: () => void;
+  const allArrived = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    allArrived,
+    hook: async (): Promise<void> => {
+      arrived += 1;
+      if (arrived === count) {
+        announce();
+        release();
+      }
+      await released;
+    },
+  };
+}
+
+describe('unsubscribe ingress — concurrent replays of one token', () => {
+  const CONCURRENCY = 6;
+
+  async function raceOneToken(): Promise<{
+    settle: (outcome: unknown) => void;
+    fail: (reason: unknown) => void;
+    responses: Promise<Array<{ statusCode: number }>>;
+  }> {
+    const barrier = buildArrivalBarrier(CONCURRENCY);
+    harness.app.addHook('preHandler', barrier.hook);
+
+    let settle!: (outcome: unknown) => void;
+    let fail!: (reason: unknown) => void;
+    mockRedeem.mockReturnValue(
+      new Promise((resolve, reject) => {
+        settle = resolve;
+        fail = reject;
+      }),
+    );
+
+    const responses = Promise.all(
+      Array.from({ length: CONCURRENCY }, () => postToken(validToken)),
+    );
+    await barrier.allArrived;
+    // Every request is now past preHandler; draining leaves them all parked on the
+    // single shared redemption promise.
+    await drainMicrotasks();
+    return { settle, fail, responses };
+  }
+
+  it('opens exactly one transaction and answers every waiter 200', async () => {
+    const sink = captureWorkerLog();
+    try {
+      const race = await raceOneToken();
+
+      // The finding: the HMAC gate blocks forged strings, but every replay of one
+      // DELIVERED token passes it and opens a transaction on the shared write pool
+      // (DB_POOL_MAX=20 on the worker, against 18 concurrent BullMQ slots) — on a
+      // route §9.2 forbids rate-limiting.
+      expect(mockBegin).toHaveBeenCalledTimes(1);
+      expect(mockRedeem).toHaveBeenCalledTimes(1);
+
+      race.settle({ status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' });
+      const settled = await race.responses;
+
+      // Nothing is shed — that is what separates this from the bulkhead owner
+      // review deleted. All six get the answer the adapter would have given anyway.
+      expect(settled.map((response) => response.statusCode)).toEqual(Array(6).fill(200));
+      // …and each keeps its OWN line. Collapsing the observability would hide five
+      // of six statutory opt-out receipts.
+      const records = workerLogRecords(sink);
+      expect(records).toHaveLength(CONCURRENCY);
+      for (const record of records) {
+        expect(record.data).toEqual({ outcome: 'redeemed', hash_prefix: 'a1b2c3d4e5f6' });
+      }
+    } finally {
+      sink.restore();
+    }
+  });
+
+  it('propagates a rejected shared redemption to every waiter as its own 503', async () => {
+    const sink = captureWorkerLog();
+    try {
+      const race = await raceOneToken();
+      race.fail(new Error('ledger write exploded'));
+      const settled = await race.responses;
+
+      expect(settled.map((response) => response.statusCode)).toEqual(Array(6).fill(503));
+      // Each waiter takes the normal catch → sanitized Sentry → 503 path on its
+      // own; a shared failure must not become a shared silence.
+      expect(mockCaptureException).toHaveBeenCalledTimes(CONCURRENCY);
+      const records = workerLogRecords(sink);
+      expect(records).toHaveLength(CONCURRENCY);
+      for (const record of records) {
+        expect(record.data).toMatchObject({ outcome: 'failed', stage: 'redeem' });
+      }
+      expect(sink.lines()).not.toContain(validToken);
+    } finally {
+      sink.restore();
+    }
+  });
+
+  it('releases the token after settle so a later replay redeems again', async () => {
+    const sink = captureWorkerLog();
+    try {
+      const race = await raceOneToken();
+      race.settle({ status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' });
+      await race.responses;
+
+      mockRedeem.mockResolvedValue({
+        status: 'already_suppressed',
+        tokenHashPrefix: 'a1b2c3d4e5f6',
+      });
+      const later = await postToken(validToken);
+
+      // A leaked entry would answer every future replay from the first outcome —
+      // including one re-delivered after an audited correction removed the row.
+      expect(later.statusCode).toBe(200);
+      expect(mockRedeem).toHaveBeenCalledTimes(2);
+    } finally {
+      sink.restore();
+    }
+  });
+
+  it('does not collapse two different tokens into one redemption', async () => {
+    const sink = captureWorkerLog();
+    try {
+      const other = mintUnsubscribeRawToken();
+      const barrier = buildArrivalBarrier(2);
+      harness.app.addHook('preHandler', barrier.hook);
+
+      const responses = Promise.all([postToken(validToken), postToken(other)]);
+      await barrier.allArrived;
+      await drainMicrotasks();
+
+      // Keyed on the token HASH, so two distinct delivered tokens never share.
+      expect(mockRedeem).toHaveBeenCalledTimes(2);
+      const settled = await responses;
+      expect(settled.map((response) => response.statusCode)).toEqual([200, 200]);
+    } finally {
+      sink.restore();
+    }
+  });
+});
+
 describe('unsubscribe ingress — GET', () => {
   it('GET redirects to the landing page with a 302', async () => {
     const response = await harness.app.inject({

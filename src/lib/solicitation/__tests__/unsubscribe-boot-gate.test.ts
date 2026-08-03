@@ -42,6 +42,31 @@ describe('assertUnsubscribeTokenSecretConfigured', () => {
     expect(() => assertUnsubscribeTokenSecretConfigured()).toThrow(/at least 32 bytes/);
   });
 
+  it('rejects a rollover previous key too short to be a 256-bit HMAC key', async () => {
+    vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', 'production');
+    vi.stubEnv('MOCK_EXTERNAL_APIS', '');
+    vi.stubEnv('SESSION_COOKIE_SECRET', 'test-session-cookie-secret-at-least-32-chars');
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', 'too-short');
+    const { assertUnsubscribeTokenSecretConfigured } = await freshUnsubscribe();
+
+    // A rollover typo otherwise stays invisible until the first token that needs
+    // the outgoing key — i.e. until a real opt-out fails. Boot is where it belongs.
+    expect(() => assertUnsubscribeTokenSecretConfigured()).toThrow(
+      /SESSION_COOKIE_SECRET_PREVIOUS/,
+    );
+    expect(() => assertUnsubscribeTokenSecretConfigured()).toThrow(/at least 32 bytes/);
+  });
+
+  it('passes on a deployed lane mid-rollover with both keys configured', async () => {
+    vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', 'production');
+    vi.stubEnv('MOCK_EXTERNAL_APIS', '');
+    vi.stubEnv('SESSION_COOKIE_SECRET', 'test-session-cookie-secret-at-least-32-chars');
+    vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', 'previous-session-cookie-secret-at-least-32');
+    const { assertUnsubscribeTokenSecretConfigured } = await freshUnsubscribe();
+
+    expect(() => assertUnsubscribeTokenSecretConfigured()).not.toThrow();
+  });
+
   it('passes on a deployed lane when the secret is configured', async () => {
     vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', 'production');
     vi.stubEnv('MOCK_EXTERNAL_APIS', '');

@@ -158,6 +158,9 @@ describe('config/server', () => {
     'OWNER_LEADS_GOOGLE_SHEET_RANGE',
     'IMPERSONATION_COOKIE_SECRET',
     'SESSION_COOKIE_SECRET',
+    // #644 signing-key rollover. Optional and empty in the steady state, so it
+    // belongs in the tolerate-absent list rather than any required-var list.
+    'SESSION_COOKIE_SECRET_PREVIOUS',
     'CSRF_SECRET',
     'WORKER_PUBLIC_URL',
   ] as const;
@@ -189,6 +192,10 @@ describe('config/server', () => {
   it('preserves whitespace-only secrets verbatim (rawOptionalVar passthrough)', async () => {
     Object.assign(process.env, CORE, {
       SESSION_COOKIE_SECRET: '   ',
+      // Same reason as its sibling: the rollover reader treats a whitespace value
+      // as PRESENT-and-invalid and throws, so collapsing it to undefined here
+      // would silently reclassify a typo'd key as "not rotating".
+      SESSION_COOKIE_SECRET_PREVIOUS: '   ',
       IMPERSONATION_COOKIE_SECRET: '   ',
       CSRF_SECRET: '   ',
       WORKER_PUBLIC_URL: '   ',
@@ -196,6 +203,7 @@ describe('config/server', () => {
     const { getServerConfig } = await import('../server');
     const cfg = getServerConfig();
     expect(cfg.SESSION_COOKIE_SECRET).toBe('   ');
+    expect(cfg.SESSION_COOKIE_SECRET_PREVIOUS).toBe('   ');
     expect(cfg.IMPERSONATION_COOKIE_SECRET).toBe('   ');
     expect(cfg.CSRF_SECRET).toBe('   ');
     expect(cfg.WORKER_PUBLIC_URL).toBe('   ');

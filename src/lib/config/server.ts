@@ -102,6 +102,21 @@ const serverSchema = z.object({
   // undefined and FLIP the throw branch. requirePresent-based asserts (if any
   // wire up later) still treat whitespace as absent, independent of the field.
   SESSION_COOKIE_SECRET: rawOpt,
+  // The OUTGOING signing key during a SESSION_COOKIE_SECRET rollover (#644).
+  // Optional and empty in the steady state; set to the previous value in the SAME
+  // deploy that sets the new SESSION_COOKIE_SECRET, then cleared once every
+  // already-delivered unsubscribe link has outlived CAN-SPAM's ≥30-day operating
+  // window. Verification-only — nothing is ever minted under it. rawOptionalVar
+  // for the same reason as its sibling above: the reader
+  // (src/lib/solicitation/unsubscribe.ts) does `if (!secret)` then a RAW
+  // Buffer.byteLength >= 32 check, so a whitespace '   ' must stay truthy and
+  // reach the length check rather than collapsing to undefined and silently
+  // reading as "not rotating". Server lane only, exactly like
+  // SESSION_COOKIE_SECRET: getSessionCookieSecret() and the previous-key reader
+  // both go through getServerConfig() on BOTH surfaces, so a worker-lane copy
+  // would be a second declaration with no reader. No NEXT_PUBLIC_* companion
+  // (invariant #13).
+  SESSION_COOKIE_SECRET_PREVIOUS: rawOpt,
   CSRF_SECRET: rawOpt,
   IMPERSONATION_COOKIE_SECRET: rawOpt,
   CONTACT_NOTIFY_TO: rawOpt, // migrated raw read (contact-notify resolveContactNotifyTo ?.trim()) — #7
