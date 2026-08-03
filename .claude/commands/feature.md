@@ -83,8 +83,9 @@ in this session, run the step 5 gate, one `/code-review` pass, PR, done.
 half-followed full pipeline is worse than a smaller one followed
 completely): skip steps 3–4 and 6, and step 1's full grilling. Ask only
 what's needed to fill an ABBREVIATED intake — `goal`, `non_goals`,
-`allowed_edit_surface`, `tests_to_add`, `estimated_diff_size` (other
-fields may be empty arrays) — and get sign-off. Then: step 2 setup as
+`allowed_edit_surface`, `tests_to_add`, `estimated_prod_lines` +
+`estimated_test_lines` (other fields may be empty arrays) — and get
+sign-off. Then: step 2 setup as
 normal (enforcement still arms), implement IN THIS SESSION with no
 subagent dispatch, step 5 gate, ONE review agent (spec & correctness
 only), step 8 by RISK lane. The full pipeline is reserved for normal+
@@ -106,8 +107,11 @@ at feature scale, so an epic never runs steps 2–8 directly. Instead:
    disciplined merges — never as one big-bang branch.
 
 State the classification in one line before proceeding — it MUST name the
-specific files you expect to touch and an estimated diff size (recorded as
-`estimated_diff_size` in the intake). When uncertain between two lanes,
+specific files you expect to touch and estimated diff sizes for BOTH
+buckets (recorded as `estimated_prod_lines` / `estimated_test_lines` in
+the intake — estimating tests at 1:1 fires the reclassify trigger on
+exactly the features whose test rigour is most worth having, the #643
+lesson). When uncertain between two lanes,
 take the HEAVIER one and say so — under-classification is the systematic
 failure mode ("epic" is not a failure state, it's a routing decision), and
 step 5's re-classification trigger checks the estimate against reality.
@@ -161,8 +165,9 @@ step 2 moves it into the worktree and arms the hooks from an ephemeral
   "existing_patterns_to_follow": ["file/module precedents"],
   "allowed_edit_surface": ["glob list of paths implementation may touch"],
   "tests_to_add": ["VERBATIM test titles — each names the invariant/edge case it covers"],
-  "verification_commands": ["gate commands beyond the standard set"],
-  "estimated_diff_size": "±lines from step 0 — step 5 re-checks it against the real diff",
+  "verification_commands": ["gate commands beyond the standard set — NEVER test:db:setup (the gate provisions serially itself and rejects destructive commands)"],
+  "estimated_prod_lines": "±N production+migration lines from step 0 — step 5 re-checks 2x per bucket, workflow artifacts excluded",
+  "estimated_test_lines": "±N test-file lines, estimated SEPARATELY — a DB-contract feature legitimately runs 3-4x its production lines in tests (#643 lesson)",
   "dependencies_added": [],
   "rollback_plan": "MANDATORY when db_touching: how to back out (down migration / flag flip / revert order)",
   "observability": ["what log line / metric / Sentry signal proves this works in prod — 'how would I know it broke'"],
@@ -211,7 +216,9 @@ deletes the parent draft, proves the hooks are armed (`scripts/arm-check.sh`
 cross-worktree surface overlaps. On overlap, surface it to me BEFORE
 planning: agree a merge order (noted in both deviations files) or narrow a
 surface. If the surface is amended mid-run (with my sign-off), update BOTH
-intake copies — and count the amendment (abort criteria, step 5).
+intake copies — and count the amendment (abort criteria, step 5; only
+`allowed_edit_surface` changes count, other intake-field corrections are
+deviations-file entries).
 `.feature/deps-justification.md` is likewise ephemeral — carry its content
 into the PR description so the justification survives.
 
@@ -245,12 +252,29 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 `.claude/reference/migrations-log.md` before writing the migration step.
 
 **If RISK = high, gate the plan before executing:**
-1. Dispatch the codex rescue agent (read-only) to adversarially review the
-   plan document: challenge assumptions, missing failure modes, and simpler
-   alternatives; require an explicit `VERDICT: APPROVED` or `REVISE` with
-   reasons. Revise and re-submit until APPROVED (max 3 rounds — after that,
-   surface the disagreement to me instead of looping).
-2. Then show me the approved plan and wait for my sign-off.
+1. Before EVERY review dispatch, run `bash scripts/feature-state.sh
+   incr-round plan`. The counter lives in `.feature/state.json`, so a
+   resumed session CONTINUES the count — uncounted rounds are how #628
+   reached a round-5 review under a "max 3" cap.
+2. **Round 1 (full)**: dispatch the codex rescue agent (read-only) to
+   adversarially review the plan document: challenge assumptions, missing
+   failure modes, and simpler alternatives; require an explicit
+   `VERDICT: APPROVED` or `REVISE` with reasons. The brief MUST include the
+   **cited-artifact check**: verify every file/section the plan cites
+   actually exists on disk (three #643 plan rounds each re-reviewed
+   plan-internal consistency and all missed that a cited `CONTEXT.md`
+   section had never been written). Dispatch via direct `codex exec` and
+   record the codex session id in the handoff doc — the companion wrapper
+   has lost task ids across session resumes.
+3. **Rounds 2–3 (verification-only)**: after revising, re-submit ONLY the
+   findings-and-fixes delta. The reviewer verifies each prior finding is
+   addressed and may flag a defect a FIX introduced — it may NOT open new
+   fronts against unchanged plan sections. A round that returns new
+   unrelated findings is over-reviewing: note them in the plan's review
+   appendix and move on.
+4. **After round 3**: STOP. Surface the remaining disagreement to me with
+   both positions — my call substitutes for APPROVED. Never loop further.
+5. Then show me the approved plan and wait for my sign-off.
 
 **CHECKPOINT (step 3→4 boundary)**: after plan sign-off, run
 `cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved`
@@ -308,14 +332,27 @@ surface/db flags, runs the applicable checks, writes per-check logs to
   (fallow runs in its own CI workflow with its own baseline.)
 - If surface includes ui: `pnpm build`
 - Changed `*.integration.test.ts` suites: RUN when
-  `TEST_DATABASE_POOL_URL` is set; otherwise a loud `SKIP` row + warning
+  `TEST_DATABASE_POOL_URL` is set (the gate resolves it itself — env
+  first, `.env.local` fallback); otherwise a loud `SKIP` row + warning
   (live-DB suites self-skip locally and can go red in CI — the #520
   class). A gate with that warning is NOT review-ready for DB-touching
   work: set the var and re-run.
+- If `db_touching`: the gate provisions the test DB (`pnpm test:db:setup`)
+  SERIALLY before the parallel rows — provisioning is a precondition it
+  owns, never a `verification_commands` entry (destructive commands there
+  are rejected as FAIL rows; a schema drop as a parallel peer produced 27
+  phantom timeouts on #643).
 - `promised-tests` row: every `tests_to_add` title must exist VERBATIM in
   a test file — the edge-case→test mapping is deterministic, not judged.
-- `reclassify` WARN row: actual diff > 2× `estimated_diff_size` fires the
+- `reclassify` WARN row: either bucket of the actual diff (production /
+  test, workflow artifacts under `docs/superpowers/plans/**` and
+  `docs/reviews/**` excluded) > 2× its intake estimate fires the
   re-classification trigger below.
+- Docs-only diffs (every changed path is `docs/`, `.claude/`, or `*.md`)
+  auto-detect: the gate runs lint/typecheck/audit rows only and records
+  `"mode":"docs_only"` in `gate-status.json` — a valid green for docs
+  commits and mid-feature checkpoints, where `promised-tests` is
+  structurally unsatisfiable.
 - Plus any `verification_commands` declared in the intake.
 
 The LAST gate run before step 7 is `scripts/verify-gate.sh --review`: the
@@ -356,35 +393,26 @@ regression-test) against the failing check, with the log file path and the
 relevant spec slice as its inputs. It returns the diagnosis and fix summary;
 the instrumentation noise stays out of this session.
 
-**Re-classification trigger**: compare the actual branch diff
-(`git diff --stat <fork-point>..HEAD`) against the intake's
-`estimated_diff_size`. If actual exceeds ~2× the estimate, or the edit
-surface has already been amended once, STOP and re-run step 0 with the
-real numbers — the lane was wrong, and the heavier lane's controls exist
-for exactly this feature.
+**Re-classification trigger**: the gate's `reclassify` row compares the
+actual diff per bucket (production vs test, workflow artifacts excluded)
+against `estimated_prod_lines` / `estimated_test_lines`. If either bucket
+exceeds ~2× its estimate, or `allowed_edit_surface` has already been
+amended once, STOP and re-run step 0 with the real numbers — the lane was
+wrong, and the heavier lane's controls exist for exactly this feature.
 
 **Abort criteria (sunk cost is not a lane)**: after 3 full gate-fail
-rounds, or a 2nd surface amendment, or any deviation that invalidates a
-locked intake decision — stop patching. Write a post-mortem to
+rounds, or a 2nd amendment of `allowed_edit_surface`, or any deviation
+that invalidates a locked intake decision — stop patching. Only surface
+amendments count toward that budget: `tests_to_add` retitles and
+`verification_commands` corrections are recorded as owner-approved
+deviations-file entries, not amendments (#643 nearly hit teardown over
+two test-title renames). Write a post-mortem to
 `docs/superpowers/plans/<branch>-postmortem.md` (what was learned; what
 the intake/plan got wrong), tear the branch down, and restart at step 1
 carrying the post-mortem. The genuinely bad merges come from persisting,
 not restarting.
 
-## 6. REVIEW 0 — ADVERSARIAL (RISK = high only)
-
-Runs ONLY when RISK = high; skip entirely for normal-risk features (the
-plan already got adversarial review at step 3 for high-risk work — this
-pass challenges what was actually built).
-
-PAUSE and ask me to run `/codex:adversarial-review` on the branch (it is
-user-invocable only). This challenges the chosen approach, design choices,
-and assumptions — not implementation defects. Triage its findings with
-`superpowers:receiving-code-review`: a valid approach-level finding may mean
-revisiting the plan (step 3), not just patching code. Re-run step 5 after any
-change.
-
-## 6.5 DEVIATIONS READ-BACK — mandatory before review
+## 6. DEVIATIONS READ-BACK — mandatory before review
 
 Read `docs/superpowers/plans/<branch>-deviations.md` end to end. Every
 entry is, by definition, something the plan did not anticipate — the
@@ -400,10 +428,11 @@ First run `cd <worktree-root> && bash scripts/blast-radius.sh` — it writes
 changed file (typecheck catches signature breaks; it cannot catch a
 semantic change whose callers relied on the old behavior).
 
-One review round, two parallel fresh agents on the branch diff since the
-fork point, so neither axis pollutes the other. Both receive the triaged
-deviations file; the spec agent also receives `blast-radius.md` (check the
-listed callers against the changed semantics):
+ONE full review round: parallel fresh agents on the branch diff since the
+fork point — two axes always, a third when RISK = high — so no axis
+pollutes another. All agents receive the triaged deviations file; the spec
+agent also receives `blast-radius.md` (check the listed callers against
+the changed semantics):
 
 - **Spec & correctness agent**: does the diff faithfully implement the
   intake contract and tickets? Flag bugs, drift outside
@@ -416,20 +445,39 @@ listed callers against the changed semantics):
   `/code-review` at high effort. Covers repo standards, the
   `codebase-design` deep-module discipline, a Fowler smell baseline, and
   glossary violations (code that renames a `CONTEXT.md` concept).
+- **Adversarial approach agent (RISK = high only)**: the codex rescue
+  agent (read-only, direct `codex exec`) against the branch diff + the
+  intake + the triaged deviations file: challenge the chosen approach,
+  design choices, and assumptions — not line-level defects (the other two
+  agents own those). This replaces the old sequential step 6 pass —
+  running it in parallel with the other axes removes a full review phase
+  from the wall clock. A valid approach-level finding may mean revisiting
+  the plan (step 3), not just patching code.
 
-**Confidence filter (both agents)**: the findings table contains ONLY
+**Round protocol (counter-enforced)**: before dispatching ANY review wave,
+run `bash scripts/feature-state.sh incr-round branch` — the counter lives
+in `.feature/state.json` and survives session resumes, so a resumed
+session cannot restart at round 1. Round 1 is the full parallel review
+above. Rounds 2–3 are **verification-only**: one fresh agent per axis that
+had accepted findings, briefed with that axis's findings table + the fix
+commits, verifying each fix landed and introduced nothing new — it may NOT
+open new fronts against unchanged code; new unrelated findings go in the
+report appendix, untriaged. After round 3, STOP and surface any remaining
+disagreement to me — never loop further.
+
+**Confidence filter (all agents)**: the findings table contains ONLY
 findings the agent would stake ≥80% confidence on, each with file:line and
 either a concrete failure scenario or the named standard violated.
 Speculative "might be nicer" observations go in a low-confidence appendix
 in the on-disk report — never in the table, never triaged by default.
 
-Both agents write full reports to `docs/reviews/<branch>/` and return only
-a findings table: severity | file:line | one-line finding. This applies to
-ALL reviews in this workflow (steps 6 and 7): full report on disk, findings
-table in context. Open the full report only for findings you are actively
-triaging.
+Every agent writes its full report to `docs/reviews/<branch>/` and returns
+only a findings table: severity | file:line | one-line finding. This
+applies to ALL reviews in this workflow (steps 3 and 7): full report on
+disk, findings table in context. Open the full report only for findings
+you are actively triaging.
 
-Triage both tables with `superpowers:receiving-code-review`: fix what is
+Triage the tables with `superpowers:receiving-code-review`: fix what is
 real, reject the rest with stated reasoning. Log accepted/rejected verdicts
 as one-liners in the report file (so a resumed session inherits triage
 state). **COMMIT the review reports + triage verdicts on the branch** —

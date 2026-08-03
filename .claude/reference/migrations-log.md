@@ -4,6 +4,16 @@ Base schema: `supabase/migrations/001_initial_schema.sql`
 Current head: **097** — next migration is **098**
 All tables use UUIDv7 (time-ordered primary keys).
 
+> **LOCAL-ONLY convention:** a migration entry written before its promotion
+> MUST carry **LOCAL-ONLY** (applied only to the rebuildable local test
+> container). At promotion, replace the marker with the
+> **Applied to STAGING … / PRODUCTION …** sentence.
+> `.claude/hooks/migration-immutability-guard.sh` blocks in-place edits to any
+> migration at/below the head above — EXCEPT those whose entry carries
+> LOCAL-ONLY, because an unpromoted migration is not yet immutable. Removing
+> the marker is what re-arms the guard; do it in the promotion change, never
+> before.
+
 > **Lab note — verifying "is migration N applied?" (2026-06-20):** the Supabase
 > `list_migrations` MCP (reads `supabase_migrations.schema_migrations`) does **not**
 > track RepWorth's `0xx` migrations — they're applied outside the Supabase CLI. It
