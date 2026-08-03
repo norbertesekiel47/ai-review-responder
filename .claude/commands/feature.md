@@ -244,8 +244,7 @@ deepening an existing module or forced to add a new interface. If the plan
 would widen an interface or scatter logic across seams, redesign before
 proceeding.
 
-Then invoke `writing-plans`, but structure the tasks per the
-`to-tickets` discipline:
+Then invoke `writing-plans`, structuring the tasks as tickets:
 - **The FIRST task is the eval task**: author the `tests_to_add` bodies as
   failing tests (slices not yet buildable may use `.todo`/`.fails`
   markers), committed before any implementation task — the spec in
@@ -298,7 +297,7 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 `cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved`
 (the machine-readable phase record `/feature-resume` reads first — setup
 initialized it at `worktree_ready`; the gate records `gate_green` itself),
-then invoke the `handoff` skill and write the handoff doc to the worktree
+then write the handoff doc to the worktree
 (`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
 plan, ticket files, and glossary excerpt by path — not restate them. Then:
 - If context usage is already high (grilling ran long), tell me to start a
@@ -323,7 +322,7 @@ task prompt MUST include:
   failing eval tests this task turns green — code references, not prose
   descriptions of them.
 
-TDD per the `tdd` skill discipline where behavior is specifiable up front:
+TDD per the `test-driven-development` skill discipline where behavior is specifiable up front:
 red-green-refactor, one vertical slice at a time. Commit per completed task
 on the branch.
 
