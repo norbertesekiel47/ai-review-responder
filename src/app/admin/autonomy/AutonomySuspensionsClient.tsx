@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { EmptyState, ErrorState } from '@/components/admin/ui/states';
+import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
 interface Rate {
   numerator: number;
@@ -225,22 +225,26 @@ function SuspensionTable({
 }
 
 function QueryResult({
-  suspensions,
+  data,
   loading,
   failed,
   onRetry,
   pending,
   onUnsuspend,
 }: {
-  suspensions: SuspensionItem[] | undefined;
+  data: SuspensionListResponse | undefined;
   loading: boolean;
   failed: boolean;
   onRetry: () => void;
   pending: boolean;
   onUnsuspend: (input: { accountId: string; note: string }) => void;
 }) {
-  if (loading) return <p className="text-sm text-gray-500">Loading suspensions…</p>;
-  if (failed)
+  // Non-blanking error pattern (matches Jobs/Overview/Costs/Notifications/
+  // Flagged): a full-screen ErrorState only when there's no cached data yet;
+  // a failed background refetch keeps the table on screen with an inline
+  // "Last refresh failed" notice instead of discarding it.
+  if (loading && !data) return <TableSkeleton />;
+  if (failed && !data) {
     return (
       <ErrorState
         title="Couldn't load autonomy suspensions"
@@ -248,16 +252,30 @@ function QueryResult({
         onRetry={onRetry}
       />
     );
-  if (suspensions?.length === 0)
-    return (
-      <EmptyState
-        title="No suspended policies"
-        detail="The autonomy watchdog has no open recovery work."
-      />
-    );
-  return suspensions
-    ? <SuspensionTable suspensions={suspensions} pending={pending} onUnsuspend={onUnsuspend} />
-    : null;
+  }
+  if (!data) return null;
+
+  return (
+    <>
+      {failed && (
+        <div className="mb-4">
+          <ErrorState
+            title="Last refresh failed"
+            detail="GET /api/admin/autonomy/suspensions failed — showing the last loaded data."
+            onRetry={onRetry}
+          />
+        </div>
+      )}
+      {data.suspensions.length === 0 ? (
+        <EmptyState
+          title="No suspended policies"
+          detail="The autonomy watchdog has no open recovery work."
+        />
+      ) : (
+        <SuspensionTable suspensions={data.suspensions} pending={pending} onUnsuspend={onUnsuspend} />
+      )}
+    </>
+  );
 }
 
 export function AutonomySuspensionsClient({
@@ -302,7 +320,7 @@ export function AutonomySuspensionsClient({
         </p>
       )}
       <QueryResult
-        suspensions={query.data?.suspensions}
+        data={query.data}
         loading={query.isLoading}
         failed={query.isError}
         onRetry={() => void query.refetch()}

@@ -106,4 +106,35 @@ describe('AutonomySuspensionsClient', () => {
     });
     await waitFor(() => expect(button).not.toBeDisabled());
   });
+
+  it('keeps the cached suspension rows visible and adds a last-refresh-failed notice when a background refetch fails', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ suspensions: [suspension] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    render(
+      <QueryClientProvider client={client}>
+        <AutonomySuspensionsClient />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Northstar Dental')).toBeInTheDocument();
+
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('network down');
+    }));
+    await client.invalidateQueries({ queryKey: ['admin-autonomy-suspensions'] });
+
+    await waitFor(() => {
+      expect(screen.getByText('Last refresh failed')).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(
+        'GET /api/admin/autonomy/suspensions failed — showing the last loaded data.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Northstar Dental')).toBeInTheDocument();
+  });
 });
