@@ -11,7 +11,7 @@ describe('admin security page source', () => {
   });
 
   it('links the admin MFA surface into the admin nav', async () => {
-    const nav = await readFile('src/components/admin/AdminNav.tsx', 'utf8');
+    const nav = await readFile('src/components/admin/nav-config.ts', 'utf8');
     expect(nav).toContain('/admin/security');
   });
 });

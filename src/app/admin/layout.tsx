@@ -1,5 +1,5 @@
 import { AdminProviders } from './providers';
-import { AdminNav } from '@/components/admin/AdminNav';
+import { AdminShellFrame } from '@/components/admin/AdminShellFrame';
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 
@@ -10,8 +10,7 @@ export default function AdminLayout({
 }) {
   return (
     <AdminProviders>
-      <AdminNav />
-      {children}
+      <AdminShellFrame>{children}</AdminShellFrame>
     </AdminProviders>
   );
 }

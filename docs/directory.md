@@ -130,7 +130,7 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `layout.tsx` | Role-checks session; renders `AdminNav`. |
+| `layout.tsx` | Role-checks session; renders `AdminSidebar`. |
 | `providers.tsx` | React context providers wrapping the admin layout. |
 | `overview/page.tsx` | Admin dashboard overview stats. |
 | `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). |
@@ -289,6 +289,7 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `demos/route.ts` | GET + POST demo requests. |
 | `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
 | `jobs/route.ts` | GET queue health. |
+| `nav-counts/route.ts` | Thin admin-gated GET for sidebar badge counts (flagged open, failed jobs); delegates to `getAdminNavCounts`. Polled every 60s by `AdminSidebar`. |
 | `notifications/route.ts` | GET delivery logs. |
 | `autonomy/suspensions/route.ts` | **(WS6)** Admin-only GET for the cross-account suspended-policy read model (current rates + five newest flag verdicts); delegates to `listSuspendedPolicies`. |
 | `autonomy/unsuspend/route.ts` | **(WS6)** Admin-only POST that validates `{ accountId, note }`, takes the account-level autonomy lock inside one transaction, and maps already-manual state to 409. |
@@ -331,11 +332,18 @@ Reusable React components imported by multiple pages.
 |------|--------------|
 | `DashboardContent.tsx` | Top-level owner dashboard shell. Composes sub-components (`ReviewsList`, `Charts`, `ValueSummary`, `ConnectGoogleBanner`, etc.) and passes dashboard data down. |
 | `OwnerNav.tsx` | Top nav bar for the owner dashboard (logo, business name, settings link, logout). |
-| `AdminNav.tsx` | Top nav bar for the admin panel. |
 | `PlaceAutocomplete.tsx` | Google Places autocomplete input (uses `PlaceAutocompleteElement`; guarded for SSR with `typeof window !== 'undefined'`). |
+| `admin/AdminSidebar.tsx` | Grouped dark sidebar shell for the admin console — desktop `<aside>` + mobile fixed top bar/drawer, nav groups from `nav-config.ts`, live badge counts via `/api/admin/nav-counts`. Returns `null` on `/admin/login`, `/admin/forgot-password`, `/admin/reset-password`. |
+| `admin/nav-config.ts` | Admin nav IA as data — `ADMIN_NAV_GROUPS` (grouped nav items + optional badge key) and `ADMIN_AUTH_ROUTES` (routes where the sidebar hides). |
 | `admin/ChannelsSection.tsx` | Admin panel section showing all three channel widgets side-by-side. |
 | `admin/TelegramEnrollmentWidget.tsx` | 8-state machine UI for Telegram enrollment. Shows QR code (server-rendered data URL). 3s polling + 1h TTL countdown. |
 | `admin/WhatsAppEnrollmentWidget.tsx` | 8-state machine UI for WhatsApp enrollment. Masked phone `+15•••4567`. Same polling pattern as Telegram. |
+| `admin/ui/AdminPage.tsx` | Page chrome primitive — breadcrumb group label, title/description, optional actions row. |
+| `admin/ui/DataTable.tsx` | Generic sortable, paginated table primitive; optional per-row "View →" link column. |
+| `admin/ui/FilterBar.tsx` | Search input + removable filter chips row for admin list pages. |
+| `admin/ui/states.tsx` | `EmptyState`/`ErrorState` primitives for admin list/detail pages. |
+| `admin/ui/StatTile.tsx` | Single stat tile (label/value/sub) with an alert (red-border) variant for breached thresholds. |
+| `admin/ui/StatusBadge.tsx` | One authoritative status → badge-color mapping (`STATUS_BADGE_STYLES`) for the admin console — subscription statuses + outbox terminal statuses. |
 | `auth/LoginFormClient.tsx` | Login form (email + password → Supabase sign-in). |
 | `auth/ForgotPasswordFormClient.tsx` | Forgot-password form. |
 | `auth/ResetPasswordFormClient.tsx` | Reset-password form. |
@@ -660,6 +668,7 @@ Admin-side domain helpers.
 | `impersonation/session.ts` | Starts, ends, and loads active impersonation sessions with account audit logging. |
 | `impersonation/view.ts` | Resolves an admin-owned impersonation view session and loads account-scoped location data. |
 | `impersonation/guard.ts` | Non-destructive action allowlist for impersonation surfaces. |
+| `nav-counts-service.ts` | `getAdminNavCounts(sql)` — the two cross-tenant aggregate COUNT queries (flagged_responses open, job_outbox failed) behind the sidebar's badge counts. Used by `GET /api/admin/nav-counts`. |
 
 ### `onboarding/`
 
