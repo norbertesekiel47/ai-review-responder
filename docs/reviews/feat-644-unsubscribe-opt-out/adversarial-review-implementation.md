@@ -43,8 +43,14 @@ bounded DB pool* so redemption cannot touch webhook/job capacity at all. That is
 fix and single-flight is not a substitute for it: many distinct tokens still contend. It
 requires `src/lib/db/server.ts` (**outside `allowed_edit_surface`** → surface amendment #3),
 re-deriving ADR-0009's connection budget (57 usable backend connections; Vercel isolates × 11
-≤ 200 Supavisor clients), and a staging burst drill. Proposed as a **follow-up ticket**, not
-smuggled into this branch.
+≤ 200 Supavisor clients), and a staging burst drill.
+
+**Owner decision 2026-08-03: follow-up ticket → [#651](https://github.com/RepWorth/ai-review-responder/issues/651).**
+Rationale accepted: the residual now requires N *distinct genuine* tokens — compromising N
+recipients' delivered links — a far higher bar than the one-token flood that was open before;
+a third Postgres client is a real capacity change ADR-0009 requires be re-derived and
+burst-drilled; and it sizes better after the staging ride produces real traffic numbers.
+Recorded so a step-7 reviewer raising pool isolation finds the decision rather than the gap.
 
 ---
 
