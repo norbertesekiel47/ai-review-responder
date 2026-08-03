@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import type { TransactionSql } from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TEST_SECRET = 'test-session-cookie-secret-at-least-32-chars';
@@ -86,6 +87,38 @@ describe('unsubscribe token', () => {
       expect(() => isWellFormedUnsubscribeToken(candidate)).not.toThrow();
       expect(isWellFormedUnsubscribeToken(candidate)).toBe(false);
     }
+  });
+
+  it('a forged token is rejected without opening a database connection', async () => {
+    const {
+      findRedeemableUnsubscribeToken,
+      hashUnsubscribeToken,
+      mintUnsubscribeRawToken,
+      redeemUnsubscribeToken,
+    } = await freshUnsubscribe();
+    const { nonce } = tokenHalves(mintUnsubscribeRawToken());
+    const forged = `${nonce}.${'A'.repeat(43)}`;
+
+    // Throws on ANY use — a call or even a property read fails the test rather
+    // than passing it. The admission gate is what lets both opt-out surfaces
+    // stay unrate-limited without an unbounded public path to Postgres, so
+    // "no query was issued" is too weak: no connection may be reached for.
+    const refuseToBeUsed = () => {
+      throw new Error('the database must not be touched for a forged token');
+    };
+    const executor = new Proxy(() => undefined, {
+      apply: refuseToBeUsed,
+      get: refuseToBeUsed,
+    }) as unknown as TransactionSql;
+
+    await expect(findRedeemableUnsubscribeToken(executor, forged)).resolves.toBeNull();
+    await expect(
+      redeemUnsubscribeToken(executor, { rawToken: forged, source: 'unsubscribe_one_click' }),
+    ).resolves.toEqual({
+      status: 'unknown_token',
+      // Never the raw token, and never the whole digest (invariant #5, §9.5).
+      tokenHashPrefix: hashUnsubscribeToken(forged).slice(0, 12),
+    });
   });
 
   it('fails loudly rather than rejecting every token when the signing secret is missing', async () => {

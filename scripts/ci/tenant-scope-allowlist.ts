@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 411;
+export const ALLOWLIST_BASELINE = 416;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -3123,5 +3123,40 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT s.source, s.suppressed_at FROM solicitation_suppressions s WHERE s.channel = ${channel} AND s.normalized_handle = ${handleColumn} AND ( s.scope = 'global' OR (s.scope = 'account' AND s.account_id = ${accountId}::uuid) ) ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC LIMIT 1",
     category: 'tenant-root-lookup',
     reason: "suppressionMatchSql is the single owner of the Suppression ledger's §1.2 lookup and takes accountId as a required parameter — the caller has already established owner scope, and that id IS the tenant boundary for the `account` arm. The `global` arm is deliberately unscoped and cannot be account-filtered: a global row records what the RECIPIENT (or the mail ecosystem on their behalf) revoked against the one shared sender identity, so it must match for every tenant. Scoping it would silently resume sending to someone who opted out. Read-only, returns only source + suppressed_at — never the account_id provenance §7.4 forbids surfacing.",
+  },
+  {
+    file: "src/lib/solicitation/unsubscribe.ts",
+    table: "solicitation_unsubscribe_tokens",
+    sqlSnippet: "SELECT b.name AS business_name FROM solicitation_unsubscribe_tokens t LEFT JOIN businesses b ON b.id = t.business_id AND b.account_id = t.account_id WHERE t.token_hash = ${hashUnsubscribeToken(rawToken)} AND t.redeemed_at IS NULL",
+    category: 'pre-auth-token',
+    reason: "Unsubscribe landing-page read (#644 §5.3). The opaque token IS the only credential a recipient has — there is no session, no login and no account to scope by until this row resolves, which is exactly what §5.4 requires (unknown, malformed and already-redeemed must be indistinguishable). Gated first by isWellFormedUnsubscribeToken, so a forged string never reaches this statement.",
+  },
+  {
+    file: "src/lib/solicitation/unsubscribe.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT b.name AS business_name FROM solicitation_unsubscribe_tokens t LEFT JOIN businesses b ON b.id = t.business_id AND b.account_id = t.account_id WHERE t.token_hash = ${hashUnsubscribeToken(rawToken)} AND t.redeemed_at IS NULL",
+    category: 'pre-auth-token',
+    reason: "Same pre-auth token lookup; the businesses join is the cross-account FAIL-CLOSED guard rather than an unscoped read — the name resolves only when businesses.account_id equals the token's own account_id, so a token can never name another tenant's business (§5.5 permits naming exactly one, the sender).",
+  },
+  {
+    file: "src/lib/solicitation/unsubscribe.ts",
+    table: "solicitation_unsubscribe_tokens",
+    sqlSnippet: "UPDATE solicitation_unsubscribe_tokens SET redeemed_at = NOW() WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL RETURNING account_id, business_id, normalized_handle, channel",
+    category: 'pre-auth-token',
+    reason: "The redemption claim (#644 §1.3). Keyed on the unique token_hash, which is the credential; the account_id it would be scoped by is what this statement RETURNS, and after an offboarding purge that column is NULL by design — scoping on it would make a purged account's token unredeemable, breaking a statutory opt-out.",
+  },
+  {
+    file: "src/lib/solicitation/unsubscribe.ts",
+    table: "solicitation_unsubscribe_tokens",
+    sqlSnippet: "SELECT redeemed_at, normalized_handle, channel FROM solicitation_unsubscribe_tokens WHERE token_hash = ${tokenHash}",
+    category: 'pre-auth-token',
+    reason: "The claim's disambiguating read (#644 §1.3): distinguishes a spent token from one minted after the claim's Read Committed snapshot. Same token credential, same absent tenant context, and it reads no provenance — only redeemed_at plus the redemption target the ledger check needs.",
+  },
+  {
+    file: "src/lib/solicitation/unsubscribe.ts",
+    table: "solicitation_suppressions",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM solicitation_suppressions WHERE channel = ${existing.channel} AND normalized_handle = ${existing.normalized_handle} AND scope = 'global' ) AS suppressed",
+    category: 'pre-auth-token',
+    reason: "Cross-tenant BY DESIGN, and narrower than suppressionMatchSql on purpose: it asks whether the RECIPIENT's own global opt-out still stands, which is precisely what the §5.5 success sentence asserts. scope='global' rows key on (channel, normalized_handle) across every tenant, so an account filter would be meaningless here; the account-scoped arm is deliberately excluded because an owner's do-not-contact would satisfy the match while falsifying the sentence. Read-only existence check, returns one boolean and no provenance.",
   },
 ];
