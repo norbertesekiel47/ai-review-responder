@@ -36,6 +36,21 @@ interface OverviewData {
   businesses: BusinessRow[];
 }
 
+interface NavCounts {
+  flaggedOpen: number;
+  failedJobs: number;
+}
+
+// Mirrors src/components/admin/AdminSidebar.tsx's fetchNavCounts + query
+// exactly (same queryKey, same fetcher, same poll cadence) so the sidebar's
+// Flagged badge and this page's needs-attention line share ONE react-query
+// cache entry instead of drifting out of sync on their own timers.
+async function fetchNavCounts(): Promise<NavCounts> {
+  const response = await fetch('/api/admin/nav-counts');
+  if (!response.ok) throw new Error(`nav-counts failed (${response.status})`);
+  return response.json();
+}
+
 interface BusinessRow {
   id: string;
   name: string;
@@ -275,6 +290,21 @@ export function OverviewClient({
     initialData: page === 0 ? initialData : undefined,
   });
 
+  // Same cache entry the sidebar's Flagged badge reads (queryKey, fetcher,
+  // and poll cadence mirrored from AdminSidebar.tsx) — the needs-attention
+  // strip's flagged-response line must never disagree with the sidebar badge
+  // on screen at once. Seeded from the server-provided flaggedOpen prop plus
+  // this page's already-fetched failedJobs so the tile never flashes 0 before
+  // the shared query resolves.
+  const { data: navCounts } = useQuery<NavCounts>({
+    queryKey: ['admin', 'nav-counts'],
+    queryFn: fetchNavCounts,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: 1,
+    initialData: { flaggedOpen, failedJobs: initialData.systemHealth.failedJobs },
+  });
+
   return (
     <AdminPage
       group="Operate"
@@ -324,7 +354,7 @@ export function OverviewClient({
           )}
           <OverviewContent
             data={data}
-            flaggedOpen={flaggedOpen}
+            flaggedOpen={navCounts.flaggedOpen}
             page={page}
             onPageChange={setPage}
           />
