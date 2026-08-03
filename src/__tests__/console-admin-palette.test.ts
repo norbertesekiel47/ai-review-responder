@@ -24,7 +24,7 @@ const SWEPT_FILES = [
   'src/components/dashboard/reviews/edit-reply/ManualEditor.tsx',
   'src/components/dashboard/reviews/edit-reply/ReviewChangedPanel.tsx',
   // Admin tool
-  'src/app/admin/overview/page.tsx',
+  'src/app/admin/overview/OverviewClient.tsx',
   'src/app/admin/businesses/[id]/page.tsx',
   'src/app/admin/businesses/[id]/_components/PastDueExtensionPanel.tsx',
   'src/app/admin/businesses/[id]/_components/ReviewsList.tsx',
