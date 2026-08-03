@@ -1,5 +1,17 @@
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+
+// The opt-out flag lives beside the rule it governs. `fastify-raw-body` augments
+// FastifyContextConfig with only `rawBody` and Fastify's own interface is
+// otherwise empty, so without this the config read below does not typecheck.
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /** Opt a route out of the global /ingress/ limiter (§9.2). Statutory paths only. */
+    skipIngressRateLimit?: boolean;
+  }
+}
+
+const INGRESS_PATH_PREFIX = '/ingress/';
 
 // BEST-EFFORT per-IP DoS/abuse backstop — NOT a hard per-IP control (F-21 is
 // closed as best-effort, see the design doc). Providers (Stripe/Twilio/Telegram/
@@ -38,5 +50,45 @@ export async function enforceIngressRateLimit(
   );
   if (!allowed) {
     reply.status(429).send({ error: 'rate_limited' });
+  }
+}
+
+/**
+ * Installs the per-IP backstop on every `/ingress/*` route. Registered from the
+ * composition root but owned here, beside the limiter and the exemption flag —
+ * the scoping rule below is policy, not wiring, and it has been wrong twice.
+ *
+ * `onRequest` runs before body parsing and before signature verification, so a
+ * 429 short-circuits the lifecycle and the handler never runs.
+ *
+ * **Both arms of the scope test are required.** An unmatched path yields
+ * `routeOptions.url === undefined`, so a resolved-route-only test would drop
+ * every 404 out of the hook and reopen an unthrottled flood namespace. A
+ * raw-URL-only test — what shipped before #644 — misses `/%69ngress/resend`,
+ * which resolves to the real route while failing a literal prefix compare, and
+ * therefore escaped the limiter entirely on EVERY provider.
+ *
+ * The **exemption** keys strictly on resolved route config, never on the URL, so
+ * an unmatched path can never inherit it.
+ */
+export function registerIngressRateLimitHook(app: FastifyInstance): void {
+  app.addHook('onRequest', async (request, reply) => {
+    const isIngress =
+      request.routeOptions.url?.startsWith(INGRESS_PATH_PREFIX) === true ||
+      decodeIngressPath(request.url).startsWith(INGRESS_PATH_PREFIX);
+    if (!isIngress) return;
+    if (request.routeOptions.config?.skipIngressRateLimit === true) return;
+    await enforceIngressRateLimit(request, reply);
+  });
+}
+
+/** Total: any string in, a path out. Malformed percent-encoding falls back raw. */
+function decodeIngressPath(url: string): string {
+  const boundary = url.search(/[?#]/);
+  const rawPath = boundary === -1 ? url : url.slice(0, boundary);
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    return rawPath;
   }
 }

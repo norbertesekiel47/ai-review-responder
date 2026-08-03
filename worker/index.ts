@@ -66,7 +66,12 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
-import { enforceIngressRateLimit } from './ingress/rate-limit';
+import { registerIngressRateLimitHook } from './ingress/rate-limit';
+import {
+  registerUnsubscribeRoutes,
+  stopUnknownUnsubscribeTokenWindow,
+} from './ingress/unsubscribe';
+import { assertUnsubscribeTokenSecretConfigured } from '../src/lib/solicitation/unsubscribe';
 import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
@@ -504,13 +509,10 @@ async function main(): Promise<void> {
   // content-type gate, before the handler (and its rawBody) ever run.
   registerIngressContentTypeParsers(app);
 
-  // Per-IP DoS/abuse backstop on every /ingress/* route (F-21). onRequest runs
-  // before body parsing + signature verification; a 429 short-circuits the
-  // lifecycle so the handler never runs. checkRateLimit fails open.
-  app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/ingress/')) return;
-    await enforceIngressRateLimit(request, reply);
-  });
+  // Per-IP DoS/abuse backstop on every /ingress/* route (F-21). The scoping rule
+  // and the statutory-path exemption are owned by the limiter module, beside the
+  // rule they govern; this is registration only. checkRateLimit fails open.
+  registerIngressRateLimitHook(app);
 
   // Fail fast on missing env vars when feature flags are enabled.
   // Log per-flag status so operators can see at a glance what's enabled.
@@ -526,6 +528,11 @@ async function main(): Promise<void> {
     assertSelfServeSignupEnv();
     assertZernioPublishingEnv();
     assertAccountOffboardingEnv();
+    // #644 / deviations D4. Nothing else asserts SESSION_COOKIE_SECRET on a
+    // deployed lane today (assertAccountOffboardingEnv returns early while
+    // ACCOUNT_OFFBOARDING_ENABLED is off), so without this a worker missing it
+    // boots clean and then 503s every well-formed opt-out forever.
+    assertUnsubscribeTokenSecretConfigured();
     warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +
@@ -628,6 +635,11 @@ async function main(): Promise<void> {
 
   // Zernio webhook ingress — flag-gated inside the handler
   app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
+
+  // RFC 8058 one-click unsubscribe (#644) — no signature, no rawBody, no dedup
+  // claim. The module registers both routes because their shared options ARE the
+  // security contract (limiter exemption §9.2, silenced request log, 1 KB body).
+  registerUnsubscribeRoutes(app);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
 
@@ -795,6 +807,10 @@ const shutdown = createGracefulShutdown({
     stopHealthAlertPoller();
     stopJudgeSweepPoller();
     stopAutonomyGovernorScheduler();
+    // Flush the partial unknown-token window (#644 §1.6) before the process
+    // leaves. A rate signal, not a correctness input — an ungraceful crash may
+    // lose <=60s of counts, but a SIGTERM must not.
+    stopUnknownUnsubscribeTokenWindow();
   },
   // Drain the DB-backed analytics dispatch before the DB pool closes, so we
   // never mark rows completed (or call PostHog) after sql.end().

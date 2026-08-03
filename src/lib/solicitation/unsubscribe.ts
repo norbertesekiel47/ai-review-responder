@@ -1,5 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import { deploymentLaneFields, requiresProductionConfig } from '@/lib/config/deployment-lane';
+import { isMockMode } from '@/lib/shared/mock-mode';
 import { getSessionCookieSecret } from '@/lib/shared/session-cookie-secret';
 import {
   recordSuppression,
@@ -78,6 +80,37 @@ export function isWellFormedUnsubscribeToken(rawToken: string): boolean {
   const separator = rawToken.indexOf('.');
   const nonce = rawToken.slice(0, separator);
   return macMatches(signNonce(nonce), rawToken.slice(separator + 1));
+}
+
+/**
+ * Boot gate for the secret the admission gate above depends on (deviations D4).
+ *
+ * Without it a worker boots perfectly clean, then throws inside
+ * `isWellFormedUnsubscribeToken` for EVERY well-formed token, 503s each one, and
+ * the provider retries forever — a statutory opt-out silently lost, with no boot
+ * signal and no symptom distinguishable from a genuine unknown token (§5.4 makes
+ * 503 the correct answer there too). `assertAccountOffboardingEnv` does not cover
+ * this: it returns early unless ACCOUNT_OFFBOARDING_ENABLED='true', which is off.
+ *
+ * The token module owns its own secret-configured assertion rather than
+ * `worker/config/startup-assert.ts`, following
+ * `assertKeepMyDataTokenSecretConfigured` — callers never learn WHICH secret this
+ * needs. Deployed-lane-and-non-mock gating mirrors `assertAlertSinkEnv`, so dev,
+ * CI and tests stay unaffected.
+ */
+export function assertUnsubscribeTokenSecretConfigured(): void {
+  if (!requiresProductionConfig()) return;
+  if (isMockMode()) return;
+  try {
+    getSessionCookieSecret();
+  } catch (err) {
+    const { deployment_lane: lane, lane_source: source } = deploymentLaneFields();
+    throw new Error(
+      `[startup] Unsubscribe redemption requires SESSION_COOKIE_SECRET (${source ?? 'lane'}=${lane}): `
+        + `${err instanceof Error ? err.message : String(err)} — without it every well-formed `
+        + `opt-out fails as an unknown token, which CAN-SPAM §7704(a)(3) does not permit`,
+    );
+  }
 }
 
 /**
