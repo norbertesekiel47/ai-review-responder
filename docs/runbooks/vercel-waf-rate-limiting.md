@@ -190,6 +190,31 @@ vercel firewall rules add "api-get-volumetric-log" \
 > limiter keys on a client-supplied, rotatable `anonymousId`; the per-IP edge net
 > doesn't care about that field). No app-code change needed.
 
+> ⚠️ **`POST /api/u/<token>` (#644 unsubscribe) already matches rule 1a and MUST
+> be excluded before any flip to enforce.** Rule 1a keys on `path prefix /api` +
+> `POST`, so the unsubscribe landing form POST is inside it today. That is
+> harmless while the rule is LOG-only — it counts and blocks nothing — and becomes
+> a **compliance defect the moment it enforces**.
+>
+> Spec §9.2 forbids rate limiting, BotID registration, and WAF enforcement on both
+> unsubscribe surfaces, because a throttled unsubscribe is a **silently lost
+> statutory opt-out**: the recipient sees a failure page, believes they opted out
+> or gives up, and keeps receiving mail, while CAN-SPAM §7704(a)(3) requires the
+> link operate for ≥30 days. Unlike every other route under this net, there is no
+> retry the *user* can be expected to perform and no signal that anything went
+> wrong. It is also the one route where hostile volume is already handled in the
+> application: a forged token is rejected by a constant-time HMAC gate that opens
+> **no database connection at all** (#644 plan §1.4a), which is precisely what
+> made edge admission control unnecessary here.
+>
+> **The GET landing page `/u/<token>` is not affected** — rules 1a and 1b are both
+> scoped to the `/api` prefix, so it matches neither. Only the form POST does.
+>
+> **The Railway ingress `POST|GET /ingress/unsubscribe/<token>` is out of scope for
+> the WAF entirely** — it terminates on Railway, not Vercel (invariant #6). Its
+> equivalent exemption lives in the worker's own `onRequest` limiter hook, keyed on
+> resolved route config; see `worker/index.ts` and `worker/ingress/rate-limit.ts`.
+
 ---
 
 ## Ordering, review, publish (owner) — ✅ DONE (published 2026-06-09)
@@ -259,6 +284,15 @@ Firewall dashboard (traffic filtered by rule ID) or `vc metrics`.
 
 Before flipping `api-mutating-volumetric-log` to enforce:
 
+- [ ] 🛑 **BLOCKER — exclude `POST /api/u/*` first (#644, spec §9.2).** Rule 1a's
+      `/api` prefix currently matches the unsubscribe form POST. Flipping to
+      enforce without an exclusion rate-limits a statutory opt-out, which is
+      silently lost rather than retried — see the warning under Component 1. Add a
+      negative path condition to 1a (re-specifying ALL conditions, since
+      `edit --condition` overwrites the set), then verify with a burst against
+      `POST /api/u/<any-token>` that it is **not** throttled while a sibling
+      `/api/*` POST still is. Do not treat "the app doesn't rate-limit it" as
+      sufficient — the whole point of an edge net is that it acts before the app.
 - [ ] **3–7 days** of LOG data collected across a normal weekly cycle (incl. a
       busy weekday).
 - [ ] No **legitimate shared-NAT office IP** sustained >100 `POST/PUT/DELETE` in
