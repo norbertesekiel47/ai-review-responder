@@ -995,11 +995,12 @@ Revisit triggers:
   — text-only (it never calls `assertSchemaReady`) and the new owner of the live
   CHECK ⟺ `ANALYTICS_EVENT_NAMES` drift guard, handed off from 094's suite,
   which now pins its own historical 21-name list (the 089 → 094 precedent).
-  **Applied to STAGING 2026-08-02** (immediately after 096, same change window),
-  verified by schema introspection: the live
-  `analytics_events_event_name_check` carries both `solicitation_suppressed` and
-  `solicitation_suppressed_at_dispatch`. **NOT yet applied to production** —
-  applied there in lockstep at PR promotion, 096 first, then 097.
+  **Applied to STAGING 2026-08-02 and PRODUCTION 2026-08-03** (immediately after
+  096 in both, same change window), verified by schema introspection in both: the
+  live `analytics_events_event_name_check` carries both `solicitation_suppressed`
+  and `solicitation_suppressed_at_dispatch`. Lockstep complete (PR #647). Prod
+  `analytics_events` held 0 rows at apply time, so the CHECK swap had nothing to
+  validate against.
 
 - **096** — `solicitation_suppressions`: the **Suppression ledger** and the
   **Unsubscribe token** table (#643, split from #626; locked spec
@@ -1067,16 +1068,23 @@ Revisit triggers:
   hex, off-by-one lengths and hex-length non-hex all rejected, a real digest
   accepted — exact FK set including the no-FK absences, both
   partial uniques, RLS-with-zero-policies); schema-ready entry
-  `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied to STAGING 2026-08-02**,
-  verified by schema introspection (never the Supabase migration ledger, which
-  does not track RepWorth's `0xx` migrations): both tables present; all 8 indexes
-  present (2 PKs, the 2 partial uniques, the 2 account-leading lookups, the
-  partial `outreach_id` unique, the `token_hash` UNIQUE); `relrowsecurity=true`
-  on both with **0** rows in `pg_policies`; and
+  `MIGRATION_096_SOLICITATION_SUPPRESSIONS`. **Applied to STAGING 2026-08-02 and
+  PRODUCTION 2026-08-03 (PR #647) — lockstep complete**, verified by schema
+  introspection in BOTH (never the Supabase migration ledger, which does not track
+  RepWorth's `0xx` migrations): both tables present; all 8 indexes present (2 PKs,
+  the 2 partial uniques, the 2 account-leading lookups, the partial `outreach_id`
+  unique, the `token_hash` UNIQUE); `relrowsecurity=true` on both with **0** rows
+  in `pg_policies`; the two FKs exactly `accounts(id)` with no referential action
+  and `solicitation_outreach(id) ON DELETE SET NULL`; and
   `solicitation_unsubscribe_tokens_token_hash_sha256_hex` live as
-  `CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text))`. **NOT yet applied to
-  production** — applied there in lockstep at PR promotion, 096 then 097, in
-  order, verified the same way.
+  `CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text))`. The two environments were
+  diffed field-by-field on that introspection output and came back **identical**,
+  which is the evidence for lockstep — not the fact that both `psql` runs exited 0.
+
+  Prod schema deliberately landed **before** the merge: `loadCandidateWindow`'s
+  LATERAL join and the purge stages both reference these tables, so code deploying
+  ahead of the schema would have failed. Schema-ahead-of-code is the safe
+  direction for an additive migration; code-ahead-of-schema is not.
 
 - **095** — `consent_business_index`: one business-leading index
   `idx_solicitation_consent_business_handle` on
