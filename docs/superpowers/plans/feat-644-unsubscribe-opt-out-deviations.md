@@ -304,6 +304,68 @@ Constraints carried into T2's brief:
 
 ---
 
+## D11 — `app.inject()` normalises the request target, so it cannot falsify a claim about the raw one
+
+**Raised** 2026-08-03 by the T1c quality review. **Promote to `.claude/reference/lab-notes.md`
+at merge — this is a live bypass affecting every ingress provider, and the testing lesson
+generalises past #644.**
+
+### The bypass
+
+The ingress limiter's scope test has two arms:
+
+```ts
+const isIngress =
+  request.routeOptions.url?.startsWith('/ingress/') === true ||   // arm 1
+  decodeIngressPath(request.url).startsWith('/ingress/');          // arm 2
+```
+
+I argued arm 1 was probably **dead logic**: deleting it fails **zero** tests, and plan §1.4
+justified it by comparing against a *raw* URL check rather than the *decoded* one it actually
+specified. Both observations were correct. The conclusion was **wrong**.
+
+Arm 1 is load-bearing, and the input that proves it is an **absolute-form request target**
+(RFC 9112 §3.2.2):
+
+```
+POST http://<host>/ingress/resend HTTP/1.1
+```
+
+`find-my-way@9.6.0` strips the scheme and authority (`index.js:571-572`) so the route
+**resolves normally**, while `request.url` retains the full absolute string — so
+`decodeIngressPath(request.url).startsWith('/ingress/')` is **false**. Verified over a raw
+socket against this worktree's `fastify@5.8.5`: arm1 `true` / arm2 `false`, for both
+`/ingress/resend` and the unsubscribe route.
+
+**Delete arm 1 and every ingress provider's rate limiter — Stripe, Resend, Telegram, Twilio,
+Zernio — is bypassable by a one-token change to the request line.** Absolute-form is legal
+HTTP/1.1 that any client can send; it is not a malformed-request edge case.
+
+### Why no test caught it, which is the transferable part
+
+**`app.inject()` normalises the request target before Fastify sees it.** So the absolute-form
+case is *unreachable* through the entire existing test suite — every rate-limit test on this
+branch, and every earlier one, goes through `inject`. The mutation run reporting "deleting arm
+1 fails zero tests" was accurate and completely misleading: the suite has a structural blind
+spot exactly where the bypass lives.
+
+> **The general rule: a test harness that normalises its input cannot falsify a claim about
+> un-normalised input.** `app.inject` is the right tool for routing, status and body
+> assertions; it is the *wrong* tool for anything asserting behaviour over the raw request
+> line, raw headers, or transfer encoding. Those need a real socket — `app.listen` on an
+> ephemeral port plus `net.connect`.
+
+This also retires the "mutation testing proves the suite bites" heuristic in its strong form:
+a surviving mutant means either dead logic **or** a hole in the harness, and those are
+indistinguishable from the mutation result alone.
+
+**Resolution:** arm 1 stays. A real-socket regression test lands with the T1c fix batch. The
+pre-existing bypass is closed for every provider by the same change — this is the second live
+production hole #644 has closed as a side effect of touching the hook (the first being the
+percent-encoded spelling in plan §1.4).
+
+---
+
 ## D9 — the edit-surface guard blocked a new file; owner declined amendment #3
 
 **Raised** 2026-08-03 by the T1c implementer. **The enforcement worked as designed** — this
