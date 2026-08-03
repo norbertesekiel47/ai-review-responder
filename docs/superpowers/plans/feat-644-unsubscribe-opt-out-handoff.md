@@ -1,13 +1,27 @@
 # #644 handoff — unsubscribe opt-out path
 
 **Branch** `feat-644-unsubscribe-opt-out` · **Worktree** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-644-unsubscribe-opt-out`
-**Phase at handoff:** `worktree_ready` — step 3 (plan), **revision 4**.
-**BLOCKED ON THE OWNER:** rounds 1–3 all returned REVISE and were addressed; round 4 could
-not be run because the codex tooling failed four consecutive ways (see Sharp edges). The
-owner elected to run `/codex:adversarial-review` themselves — it is user-invocable only,
-which is likely why every programmatic attempt failed. **Do not implement until that
-verdict is triaged and the owner signs off.**
-**HEAD** `c468bc90` (6 commits, all documentation — no implementation code exists)
+**Phase at handoff:** `worktree_ready` — step 3 (plan). The plan file's own header is the
+authoritative revision label; do not restate it here.
+**BLOCKED ON THE OWNER:** five adversarial passes have run — three programmatic codex
+rounds, then two owner-run `/codex:adversarial-review` passes after the programmatic path
+failed four consecutive ways (see Sharp edges). **Every one returned REVISE /
+needs-attention, and every finding has been folded in.** The next action is another
+owner-run pass against the current revision. **Do not implement until a pass comes back
+clean and the owner signs off.**
+**Mutable facts are NOT restated here** — they drifted twice and were flagged twice by
+review. Read them from their one authoritative source instead:
+
+| Fact | Authoritative source |
+|---|---|
+| HEAD, phase, commit count | `jq . .feature/state.json` · `git rev-list --count main..HEAD` |
+| Current plan revision | the revision header at the top of the plan file itself |
+| Promised-test count | `jq '.tests_to_add\|length' .feature/intake.json` |
+| Whether enforcement is armed | `bash scripts/arm-check.sh` |
+
+Invariant that holds regardless: **every commit on this branch is documentation. No
+implementation code exists.** If `git diff main --stat` ever shows a non-doc path, this
+handoff is stale and the tree is ahead of it.
 **Worktree is PARKED between sessions:** `.feature/intake.json` may be renamed to
 `.feature/intake.parked.json`. If `arm-check.sh` reports DISARMED, rename it back before
 doing anything else — `/feature-resume` depends on it.
@@ -20,9 +34,12 @@ the grilling transcript is not required.
 | Artifact | Path |
 |---|---|
 | Intake contract (drift detector, authoritative) | `.feature/intake.json` (audit copy in `docs/superpowers/plans/feat-644-unsubscribe-opt-out-intake.json`) |
-| Plan, revision 2 | `docs/superpowers/plans/2026-08-03-644-unsubscribe-opt-out.md` |
+| Plan (revision stated in its own header) | `docs/superpowers/plans/2026-08-03-644-unsubscribe-opt-out.md` |
 | Adversarial review round 1 + triage | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round1.md` |
-| **Adversarial review round 2 (REVISE — read this before touching the plan)** | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round2.md` |
+| Adversarial review round 2 | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round2.md` |
+| Adversarial review round 3 | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-round3.md` |
+| Owner-run review #1 | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-owner-run.md` |
+| **Owner-run review #2 (latest — read before touching the plan)** | `docs/reviews/feat-644-unsubscribe-opt-out/plan-adversarial-owner-run-2.md` |
 | Locked spec | `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §5.1–5.5, §9.1–9.5, §10, DR1 |
 | Glossary | `CONTEXT.md` → "Solicitation suppression & unsubscribe" |
 | Ticket | `gh issue view 644` |
@@ -31,11 +48,10 @@ the grilling transcript is not required.
 
 - **Steps 0–2 complete.** RISK=high / SURFACE=mixed / db_touching=true. Worktree armed
   (`scripts/arm-check.sh` clean), no cross-worktree surface overlap.
-- **Step 3 in progress.** Plan at **revision 5**. Four adversarial passes ran (3 codex
-  rounds + one owner-run `/codex:adversarial-review`); every one returned REVISE /
-  needs-attention and every finding is folded in. See the review-history table below.
-- **Nothing implemented.** No source file has been created or modified. All six commits are
-  documentation.
+- **Step 3 in progress.** Five adversarial passes ran (3 programmatic codex rounds + 2
+  owner-run); every one returned REVISE / needs-attention and every finding is folded in.
+  See the review-history table below.
+- **Nothing implemented.** No source file has been created or modified.
 
 ## Owner decisions locked so far
 
@@ -68,7 +84,7 @@ the grilling transcript is not required.
 Last run was a pre-implementation baseline: **RED**, correctly. Everything that can pass
 does — lint, typecheck, full test suite, `pnpm build`, and every `ci:*` audit including
 `rls-audit`, `tenant-scope`, `static-policy`. The only red rows are `promised-tests`
-(**54** titles, none written yet) and the declared integration-suite command (file does not
+(count via `jq '.tests_to_add|length' .feature/intake.json`; none written yet) and the declared integration-suite command (file does not
 exist yet). Both resolve on completion of step 4.
 
 `TEST_DATABASE_POOL_URL` is present in `.env.local` and the DB is at migrations head
@@ -100,7 +116,8 @@ rather than self-skip.
 | 2 | REVISE, 7 | Closed 5/6/7. Showed rev 2's log fix was **false** (Fastify logs before the handler) and its ordering let a spent token undo an audited Correction path removal. → rev 3. |
 | 3 | REVISE, 5 | Closed 3/9 + GET/HEAD. Found rev 3's `SELECT 1` **recreated the mint race**, its scrub broke two shipped `/approve/` contracts, and its counter rested on a false single-replica premise. → rev 4. |
 | 4 | **not run** | Codex tooling failed 4×. Replaced by the owner-run pass below. |
-| owner-run `/codex:adversarial-review` | **needs-attention**, 3 high | `?done=1` could render a **false unsubscribe success**; unknown-token logging was an unbounded amplification path (my "like every other ingress route" justification was a false equivalence — they keep the limiter, this route does not); handoff/state drifted to a superseded revision. All 3 accepted → **rev 5**. Report: `plan-adversarial-owner-run.md`. |
+| owner-run #2 | **needs-attention**, 3 high + 1 med | Spent-token replay after a Correction-path removal still minted a success receipt; the limiter-exempt route had unbounded body/DB workload; **test titles** still contradicted the revised behaviour (same drift class as owner-run #1, in the field I had not swept); handoff drifted a 3rd time → now fixed structurally. → **rev 6**. Report: `plan-adversarial-owner-run-2.md`. |
+| owner-run #1 | **needs-attention**, 3 high | `?done=1` could render a **false unsubscribe success**; unknown-token logging was an unbounded amplification path (my "like every other ingress route" justification was a false equivalence — they keep the limiter, this route does not); handoff/state drifted to a superseded revision. All 3 accepted → **rev 5**. Report: `plan-adversarial-owner-run.md`. |
 
 **Empirically verified in place of round 4** (commit `ae28c6e5`) — the two riskiest claims,
 measured rather than argued:

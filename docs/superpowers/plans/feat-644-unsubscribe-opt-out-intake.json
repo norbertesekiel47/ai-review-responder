@@ -62,7 +62,9 @@
     "§5.5 vs §5.4 conflict, resolved at plan time: rendering §5.5's named-business sentence on the receipt-gated success page would require resolving a now-redeemed token, making it distinguishable from an unknown one on that URL. §5.4 wins — the button page carries the business name, the success page uses the generic sentence, and the module exports ONE lookup that collapses unknown/malformed/redeemed to null",
     "A hand-crafted /u/<anything>?done=1 or a forged/expired ?ok= receipt: renders the button page or the neutral page, NEVER the success copy — the success view is bound to a server-minted HMAC receipt, not to the presence of a query parameter (owner-run adversarial review, finding 1)",
     "Hostile or scanner traffic hammering unknown tokens: at most ONE aggregated warn line per 60-second window per process, never one per request (owner-run adversarial review, finding 2)",
-    "Worker restarts mid-window: the partial unknown-token count is flushed by the graceful shutdown sequence; an ungraceful crash loses at most one 60s window, which is acceptable for a rate signal and feeds no correctness decision"
+    "Worker restarts mid-window: the partial unknown-token count is flushed by the graceful shutdown sequence; an ungraceful crash loses at most one 60s window, which is acceptable for a rate signal and feeds no correctness decision",
+    "A spent token replayed AFTER an audited Correction-path removal: redeemed_at IS NOT NULL proves only that it was once redeemed, NOT that a suppression exists. The ledger is checked explicitly; with no live global row the outcome is already_redeemed_not_suppressed -> no receipt, neutral page, and deliberately NO re-suppression (owner-run review round 2, finding 1)",
+    "Hostile traffic against the limiter-exempt route: a 1 KB per-route body limit and a bounded-concurrency bulkhead returning 503 + Retry-After keep it from saturating the shared worker/DB pool. A bulkhead DEFERS with a retryable status; a rate limiter DROPS -- only the latter is forbidden by 9.2 (owner-run review round 2, finding 2)"
   ],
   "existing_patterns_to_follow": [
     "src/app/(public)/approve/[token]/page.tsx — hash-on-read, GET reads and renders, every mutation a separate POST (the same link-prefetcher threat, already answered)",
@@ -101,7 +103,7 @@
     "returns 200 only after the suppression row commits",
     "returns 5xx and reports to Sentry when the ledger write fails",
     "a repeat POST of the same token is a 200 no-op and writes no second row",
-    "an unknown token returns 503 and logs only a token_hash prefix",
+    "an unknown token returns 503 and emits no per-request log line",
     "returns 503 without letting the raw token reach the error log",
     "redacts the unsubscribe token from Sentry event paths",
     "routes a percent-encoded unsubscribe path without enforcing the rate limit",
@@ -134,7 +136,7 @@
     "a token whose account was purged still writes a ledger row with account_id NULL",
     "an unknown token hash reports not found without writing",
     "any sequence of redemptions over one token yields exactly one success-shaped outcome",
-    "POST commits the suppression row then 303s to the landing page with done",
+    "POST commits the suppression row then 303s with a signed receipt",
     "POST with an unknown token 303s to the neutral page and writes nothing",
     "falls back to generic copy when the token business belongs to a different account",
     "encodes reserved characters in the form action and redirect target",
@@ -154,7 +156,14 @@
     "the success copy renders only for a receipt minted after a committed write",
     "hostile unknown token traffic emits at most one warning per window",
     "the aggregated unknown token line carries the replica id and an accurate count",
-    "a partial unknown token window is flushed on graceful shutdown"
+    "a partial unknown token window is flushed on graceful shutdown",
+    "a spent token whose suppression was removed by the correction path mints no receipt",
+    "a spent token whose suppression was removed by the correction path does not re-suppress",
+    "a spent token with a live global suppression still mints a receipt",
+    "an account scoped suppression alone does not justify the global success sentence",
+    "an oversized request body is rejected before the handler runs",
+    "concurrency beyond the bulkhead cap returns 503 with retry after",
+    "the bulkhead never applies a per-recipient rate limit"
   ],
   "verification_commands": [
     "pnpm test src/lib/solicitation/__tests__/unsubscribe.integration.test.ts"

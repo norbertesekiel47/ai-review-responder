@@ -7,7 +7,17 @@
 **Depends on** #643 (migration 096/097 + `src/lib/solicitation/suppression.ts`) — merged, `4186cefa`
 **Hands off to** #630 (imports `hashUnsubscribeToken`), #622 (shares `SOLICITATION_UNSUBSCRIBE_MAILTO`)
 
-**Revision 5** — supersedes revision 4 after the **owner-run `/codex:adversarial-review`**
+**Revision 6** — supersedes revision 5 after **owner-run `/codex:adversarial-review` #2**
+(needs-attention, 3 high + 1 medium; report `plan-adversarial-owner-run-2.md`). All four
+accepted: **(1)** a spent token whose suppression was later removed by the audited
+Correction path still minted a success receipt — the display side of a hole whose write side
+revision 4 had closed (§1.3); **(2)** exempting the route from the limiter left its body
+size and DB concurrency unbounded (§1.4b); **(3)** the promised-test titles still contradicted
+the revised behaviour — the same drift class as owner-run #1, in the one field I had not
+swept; **(4)** the handoff restated mutable facts that drifted a third time, now fixed
+structurally by not restating them at all.
+
+**Revision 5** — superseded. Followed the **owner-run `/codex:adversarial-review`**
 (verdict: needs-attention, 3 high findings), which ran because the programmatic codex
 reviewer failed four consecutive ways. All three accepted:
 **(1)** the success view was renderable from a bare `?done=1`, so `/u/bogus?done=1` claimed
@@ -76,6 +86,10 @@ export function redeemUnsubscribeToken(
 ): Promise<
   | { status: 'redeemed'; tokenHashPrefix: string }
   | { status: 'already_suppressed'; tokenHashPrefix: string }
+  // Spent token whose suppression was later removed via the audited Correction
+  // path. Deliberately distinct from already_suppressed: it must NOT mint a
+  // success receipt, and it must NOT re-suppress (§1.3).
+  | { status: 'already_redeemed_not_suppressed'; tokenHashPrefix: string }
   | { status: 'unknown_token'; tokenHashPrefix: string }
 >;
 ```
@@ -114,8 +128,10 @@ UPDATE solicitation_unsubscribe_tokens
 - **No row returned** → disambiguate by reading **`redeemed_at`**, never by a bare
   existence check:
   `SELECT redeemed_at FROM solicitation_unsubscribe_tokens WHERE token_hash = $1`.
-  - Row with `redeemed_at IS NOT NULL` → `already_suppressed`. No write at all, so a
-    Correction path removal stands.
+  - Row with `redeemed_at IS NOT NULL` → the token is **spent**. That fact alone proves
+    only that it was *once* redeemed — **not** that a suppression exists now. Consult the
+    ledger before deciding (see below). Either way there is **no write**, so a Correction
+    path removal stands.
   - Row with `redeemed_at IS NULL` → **the token was minted after our UPDATE's snapshot.**
     Report `unknown_token` (→ 503), so the provider retries and succeeds once the mint is
     visible. Reporting success here is exactly the mint-race lost opt-out this ticket
@@ -144,6 +160,38 @@ concurrent connections — not reasoning). Six cases, all pass:
 
 `recordSuppression` is never reached on the already-spent path. That is the whole point.
 
+**A spent token is not proof of a live suppression** (owner-run review round 2, finding 1).
+Revision 5 labelled `redeemed_at IS NOT NULL` as `already_suppressed` and minted a success
+receipt for it. But the audited **Correction path** (§8.2) can remove that suppression
+afterwards — at which point replaying the spent link would display "You're unsubscribed"
+while **no suppression exists**. That is the same false-success class §1.8 was written to
+eliminate; revision 4 closed the *write* side of this hole and left the *display* side open.
+
+The spent branch therefore performs an explicit **current-ledger existence check** on the
+token's own `normalized_handle` + `channel`, scoped to `scope='global'`:
+
+| Claim | Ledger now | Outcome | Receipt? |
+|---|---|---|---|
+| won | — (we just wrote it) | `redeemed` | **yes** |
+| lost, token spent | global row **exists** | `already_suppressed` | **yes** — truthful |
+| lost, token spent | **no** global row (correction removed it) | `already_redeemed_not_suppressed` | **no** → neutral page |
+| lost, token unspent | — | `unknown_token` (post-snapshot mint) | no |
+| no token row | — | `unknown_token` | no |
+
+The correction case deliberately does **not** re-suppress — that would silently undo the
+audited removal, which is exactly what round-3 finding 4 forbade. The recipient lands on the
+neutral page, which carries the working `mailto:` (§5.4), so it does not dead-end.
+
+> **Why this is not `suppressionMatchSql`.** That fragment (#643, CLAUDE.md G7) answers the
+> *send-time gate* question — "may we contact this handle **for this account**?" — and
+> matches `global` OR that account's `account`-scoped row. Here the question is different:
+> "does the **recipient's own global opt-out** still stand?", because that is precisely what
+> the §5.5 success sentence asserts ("or from any other business that uses RepWorth"). An
+> `account`-scoped row would satisfy `suppressionMatchSql` while making that sentence false.
+> Distinct question, distinct query — and it lives in `unsubscribe.ts` because
+> `suppression.ts` is outside this ticket's edit surface. Needs a `pre-auth-token`
+> tenant-scope allowlist entry.
+
 No ABBA deadlock: `recordSuppression` only inserts into the suppression table
 (`suppression.ts:160`), and after this reordering redemption holds the token-row lock
 *before* that insert, consistently in one direction.
@@ -166,6 +214,8 @@ const UNSUBSCRIBE_ROUTE_OPTS = {
   // finding 3: suppress Fastify's `incoming request` log, which serialises the raw
   // URL — and therefore the raw token — BEFORE onRequest and before the handler.
   logLevel: 'silent',
+  // §1.4b: RFC 8058 bodies are ~30 bytes; the app-wide default is 5 MB.
+  bodyLimit: 1024,
 } as const;
 
 app.post('/ingress/unsubscribe/:token', UNSUBSCRIBE_ROUTE_OPTS, handleUnsubscribePost);
@@ -237,6 +287,35 @@ declare module 'fastify' {
 
 Tests go through real `app.inject()` — a unit test of a string predicate would have passed
 while production failed.
+
+### 1.4b Exempt from the limiter is not exempt from bounds (owner-run round 2, finding 2)
+
+Removing the rate limiter removed the only thing bounding this route's *workload*. Each
+request buffers a body against the app-wide **5 MB** limit
+(`worker/config/fastify-options.ts:21`), is parsed by the app-wide urlencoded parser
+(`content-type-parsers.ts:18`), and opens a transaction containing an `UPDATE`, a follow-up
+`SELECT`, and now a ledger check. Hostile traffic can therefore exhaust buffers and saturate
+the **shared** worker/DB pool, delaying other webhooks *and* legitimate opt-outs — a
+self-defeating outcome for the one route that must never drop one.
+
+§9.2 forbids **rate limiting**, because a throttled unsubscribe is a silently-lost statutory
+opt-out. It does not forbid — and `production.md` positively requires — bounding the work a
+public endpoint can induce. The two are different: a rate limiter *drops* a request on a
+per-caller quota; a bulkhead *defers* it with a retryable status.
+
+1. **Per-route body limit — 1 KB.** RFC 8058 §3.1's body is `List-Unsubscribe=One-Click`,
+   about 30 bytes. Fastify's per-route `bodyLimit` yields 413 above it. Nothing legitimate
+   approaches this.
+2. **Bounded concurrency bulkhead.** A small in-process semaphore caps simultaneous
+   in-flight redemptions; over the cap, respond **503 with `Retry-After`** rather than
+   queueing on the shared pool. This is deliberately the *same* retryable shape already used
+   for `unknown_token` (§1.7), so provider behaviour is uniform and no opt-out is lost —
+   only deferred. Sized well above any plausible legitimate burst, since even a large send
+   produces opt-outs spread over hours.
+
+Tests: an oversized body is rejected without reaching the handler; concurrency beyond the
+cap yields 503 + `Retry-After` rather than pool exhaustion; and neither path is a
+per-recipient rate limit (§9.2 stays intact).
 
 ### 1.5 Raw-token logging: silence the route, generalise the scrub (findings 3, 10)
 
@@ -382,10 +461,12 @@ export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): bo
 - Receipt = `<issuedAtMs>.<base64url HMAC-SHA256(secret, "repworth:unsubscribe-receipt:v1:<tokenHash>:<issuedAtMs>")>`,
   keyed on `getSessionCookieSecret()` — the same trust boundary
   `src/lib/account-offboarding/tokens.ts` already uses for its keep-my-data token.
-- `POST /api/u/<token>` mints one **only** for `redeemed` and `already_suppressed`
-  (§5.4: already-suppressed is success from the recipient's point of view) and redirects to
-  `/u/<enc(token)>?ok=<receipt>`. For `unknown_token` it mints nothing and redirects to
-  `/u/<enc(token)>` bare — which lands on the neutral page.
+- `POST /api/u/<token>` mints one **only** for `redeemed` and `already_suppressed` — both
+  of which are backed by a suppression row that exists *right now* (§1.3: the second is
+  ledger-verified, not inferred from `redeemed_at`). For `unknown_token` **and
+  `already_redeemed_not_suppressed`** it mints nothing and redirects to `/u/<enc(token)>`
+  bare, landing on the neutral page. **A receipt is never issued without a live
+  suppression** — that is the invariant, not "a receipt follows a POST".
 - The page renders success **only** when `ok` verifies against
   `hashUnsubscribeToken(token)` via `timingSafeEqual` **and** is within a 10-minute TTL.
   Otherwise it falls through to ordinary token evaluation — so a crafted or expired `ok`,
