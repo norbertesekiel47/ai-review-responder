@@ -7,10 +7,18 @@ import type { ContactListItem } from '@/lib/solicitation/contacts-repo';
 
 /**
  * Contact-list lane of /dashboard/requests/contacts (#541): paginated tenant-scoped
- * list, confirm-step hard delete. Split from ContactsClient so each concern
+ * list, confirm-step hard delete, and the §7.4 suppression state with its
+ * do-not-contact controls (#645). Split from ContactsClient so each concern
  * stays independently scannable; `epoch` (bumped by the parent when an ingest
- * completes) and `onRefresh` (bumps the same counter after a delete or a
- * retry) are the only integration points with the upload lane.
+ * completes) and `onRefresh` (bumps the same counter after a delete, a
+ * suppression change, or a retry) are the only integration points with the
+ * upload lane.
+ *
+ * Two mutations that must never be confused live in this file: DELETE
+ * `/contacts/<id>` erases a customer record and their visit history, while
+ * POST/DELETE `/contacts/<id>/suppression` only changes whether we may mail a
+ * handle. Their call sites are deliberately separate functions with separate
+ * URL builders so a copy-paste cannot silently swap one for the other.
  */
 
 const PAGE_LIMIT = 50;
@@ -38,6 +46,7 @@ export function ContactList({ epoch, onRefresh }: ContactListProps) {
 
   const list = useContactListFetch(currentScope, offset, epoch);
   const deletion = useContactDelete(currentScope, onRefresh);
+  const suppression = useContactSuppression(currentScope, onRefresh);
 
   return (
     <div className="card section-enter section-enter-2">
@@ -53,6 +62,7 @@ export function ContactList({ epoch, onRefresh }: ContactListProps) {
         list={list}
         offset={offset}
         deletion={deletion}
+        suppression={suppression}
         onRefresh={onRefresh}
         onPage={(nextOffset) =>
           setPageState({ scope: currentScope, offset: nextOffset })
@@ -66,12 +76,14 @@ function ContactListBody({
   list,
   offset,
   deletion,
+  suppression,
   onRefresh,
   onPage,
 }: {
   list: ListResult | null;
   offset: number;
   deletion: ContactDeletion;
+  suppression: ContactSuppression;
   onRefresh: () => void;
   onPage: (offset: number) => void;
 }) {
@@ -109,7 +121,11 @@ function ContactListBody({
   }
   return (
     <>
-      <ContactTable contacts={list.data.contacts} deletion={deletion} />
+      <ContactTable
+        contacts={list.data.contacts}
+        deletion={deletion}
+        suppression={suppression}
+      />
       <Pagination
         offset={offset}
         total={list.data.total}
@@ -232,6 +248,97 @@ async function requestContactDelete(contactId: string, scope: string): Promise<s
   }
 }
 
+// ── Do-not-contact flow (§7.5 mark, §7.6 clear) ─────────────────────────────
+
+interface ContactSuppression {
+  /** Row whose "Don't contact" confirm step is open. */
+  confirmingId: string | null;
+  /** Row with a suppression mutation in flight. */
+  pendingId: string | null;
+  /** The row a failure belongs to, and its copy — never a global banner, so an
+   *  error can never read as if it applied to a different contact. */
+  errorId: string | null;
+  error: string | null;
+  requestMark: (contactId: string) => void;
+  cancelMark: () => void;
+  confirmMark: (contactId: string) => void;
+  clear: (contactId: string) => void;
+}
+
+/**
+ * §7.5 marking rides the same confirm step as the delete control; §7.6 clearing
+ * does not, because it removes a preference this account set rather than
+ * creating one.
+ *
+ * A FAILED mutation deliberately does not call `onRefresh`. Bumping the epoch
+ * would refetch a page the server never changed and re-render the row as
+ * though the change landed — the owner would believe a contact was suppressed
+ * when they are still mailable, which is the inverse of the hazard this whole
+ * surface exists to prevent.
+ */
+function useContactSuppression(currentScope: string, onRefresh: () => void): ContactSuppression {
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
+
+  async function mutate(contactId: string, method: 'POST' | 'DELETE') {
+    if (currentScope === 'all') return;
+    setPendingId(contactId);
+    setFailure(null);
+    const error = await requestSuppressionChange(contactId, currentScope, method);
+    if (error === null) {
+      setConfirmingId(null);
+      onRefresh();
+    } else {
+      setFailure({ id: contactId, message: error });
+    }
+    setPendingId(null);
+  }
+
+  return {
+    confirmingId,
+    pendingId,
+    errorId: failure?.id ?? null,
+    error: failure?.message ?? null,
+    requestMark: (contactId) => {
+      setConfirmingId(contactId);
+      setFailure(null);
+    },
+    cancelMark: () => {
+      setConfirmingId(null);
+      setFailure(null);
+    },
+    confirmMark: (contactId) => void mutate(contactId, 'POST'),
+    clear: (contactId) => void mutate(contactId, 'DELETE'),
+  };
+}
+
+/**
+ * The ONLY caller of the suppression endpoint. `/contacts/<id>/suppression`
+ * changes whether we may mail a handle; the sibling `/contacts/<id>` erases the
+ * customer record. Keeping the two URL builders apart is what stops a
+ * do-not-contact control ever hard-deleting somebody's history.
+ *
+ * Returns null on success or the error copy to show.
+ */
+async function requestSuppressionChange(
+  contactId: string,
+  scope: string,
+  method: 'POST' | 'DELETE',
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      withSolicitationScope(`/api/dashboard/contacts/${contactId}/suppression`, scope),
+      { method },
+    );
+    if (res.ok) return null;
+    const body: { error?: string } = await res.json().catch(() => ({}));
+    return body.error ?? `Could not update this contact (${res.status}).`;
+  } catch {
+    return 'Could not reach the server. Try again.';
+  }
+}
+
 // ── Contact list pieces ─────────────────────────────────────────────────────
 
 const TABLE_HEADERS = ['Name', 'Email', 'Phone', 'Last visit', 'Visits', ''] as const;
@@ -249,9 +356,11 @@ const headerCellStyle: React.CSSProperties = {
 function ContactTable({
   contacts,
   deletion,
+  suppression,
 }: {
   contacts: ContactListItem[];
   deletion: ContactDeletion;
+  suppression: ContactSuppression;
 }) {
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -277,12 +386,8 @@ function ContactTable({
             <ContactRow
               key={contact.id}
               contact={contact}
-              confirming={deletion.confirmingId === contact.id}
-              deleting={deletion.deletingId === contact.id}
-              deleteError={deletion.confirmingId === contact.id ? deletion.deleteError : null}
-              onRequestDelete={() => deletion.requestDelete(contact.id)}
-              onCancelDelete={deletion.cancelDelete}
-              onConfirmDelete={() => deletion.confirmDelete(contact.id)}
+              deletion={deletion}
+              suppression={suppression}
             />
           ))}
         </tbody>
@@ -299,27 +404,28 @@ const cellStyle: React.CSSProperties = {
 
 function ContactRow({
   contact,
-  confirming,
-  deleting,
-  deleteError,
-  onRequestDelete,
-  onCancelDelete,
-  onConfirmDelete,
+  deletion,
+  suppression,
 }: {
   contact: ContactListItem;
-  confirming: boolean;
-  deleting: boolean;
-  deleteError: string | null;
-  onRequestDelete: () => void;
-  onCancelDelete: () => void;
-  onConfirmDelete: () => void;
+  deletion: ContactDeletion;
+  suppression: ContactSuppression;
 }) {
+  const confirmingDelete = deletion.confirmingId === contact.id;
+  const confirmingMark = suppression.confirmingId === contact.id;
+  const suppressionError = suppression.errorId === contact.id ? suppression.error : null;
+
   return (
     <>
       <tr>
         <td style={{ ...cellStyle, fontWeight: 600 }}>{contact.name}</td>
         <td style={{ ...cellStyle, color: 'var(--rw-app-text-muted)' }}>
-          {contact.email ?? '—'}
+          <div>{contact.email ?? '—'}</div>
+          {contact.suppression !== null && (
+            <div style={{ marginTop: 5 }}>
+              <SuppressionBadge display={contact.suppression} />
+            </div>
+          )}
         </td>
         <td style={{ ...cellStyle, color: 'var(--rw-app-text-muted)' }}>
           {contact.phone ?? '—'}
@@ -329,27 +435,182 @@ function ContactRow({
           {contact.visitCount}
         </td>
         <td style={{ ...cellStyle, textAlign: 'right' }}>
-          {!confirming && (
-            <button
-              type="button"
-              className="btn btn-tertiary"
-              onClick={onRequestDelete}
-              aria-label={`Delete ${contact.name}`}
+          <div
+            style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}
+          >
+            {!confirmingMark && (
+              <SuppressionControl contact={contact} suppression={suppression} />
+            )}
+            {!confirmingDelete && (
+              <button
+                type="button"
+                className="btn btn-tertiary"
+                onClick={() => deletion.requestDelete(contact.id)}
+                aria-label={`Delete ${contact.name}`}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+          {/* While the confirm step is open its own row owns the error, so it
+              is never shown twice. */}
+          {suppressionError !== null && !confirmingMark && (
+            <p
+              role="alert"
+              style={{ fontSize: 12, color: 'var(--rw-danger)', margin: '6px 0 0' }}
             >
-              Delete
-            </button>
+              {suppressionError}
+            </p>
           )}
         </td>
       </tr>
-      {confirming && (
+      {confirmingMark && (
+        <MarkDoNotContactRow
+          name={contact.name}
+          pending={suppression.pendingId === contact.id}
+          error={suppressionError}
+          onConfirm={() => suppression.confirmMark(contact.id)}
+          onCancel={suppression.cancelMark}
+        />
+      )}
+      {confirmingDelete && (
         <DeleteConfirmRow
-          deleting={deleting}
-          deleteError={deleteError}
-          onConfirmDelete={onConfirmDelete}
-          onCancelDelete={onCancelDelete}
+          deleting={deletion.deletingId === contact.id}
+          deleteError={deletion.deleteError}
+          onConfirmDelete={() => deletion.confirmDelete(contact.id)}
+          onCancelDelete={deletion.cancelDelete}
         />
       )}
     </>
+  );
+}
+
+/** §7.4 state, keyed on the display seam's closed scope enum. Neither wash is
+ *  danger: an opt-out is a fact about a person, not a fault. */
+const SUPPRESSION_BADGE_STYLE: Record<
+  NonNullable<ContactListItem['suppression']>['state'],
+  React.CSSProperties
+> = {
+  // The recipient spoke. Neutral cream — stated, not alarmed.
+  global: { background: 'var(--rw-cream)', color: 'var(--rw-app-text-muted)' },
+  // The owner's own setting, in the accent that reads as "yours".
+  account: { background: 'var(--rw-accent-100)', color: 'var(--rw-accent-800)' },
+};
+
+function SuppressionBadge({
+  display,
+}: {
+  display: NonNullable<ContactListItem['suppression']>;
+}) {
+  return (
+    <span
+      className="badge"
+      // `detail` is the seam's own copy; it carries no account name and no
+      // source, so a tooltip cannot leak provenance (§7.4, invariant #8).
+      title={display.detail}
+      style={SUPPRESSION_BADGE_STYLE[display.state]}
+    >
+      {display.label}
+    </span>
+  );
+}
+
+/**
+ * §7.4/§7.6, three states — and the third is the one that is easy to get
+ * subtly wrong. A global row gets **no control at all**, not a disabled one:
+ * a greyed-out "Allow requests again" would present clearing a recipient's own
+ * revocation and clearing the owner's own preference as the same act with one
+ * temporarily unavailable, which is exactly what §7.6 forbids. The two are
+ * different acts, and only one of them belongs to the owner.
+ */
+function SuppressionControl({
+  contact,
+  suppression,
+}: {
+  contact: ContactListItem;
+  suppression: ContactSuppression;
+}) {
+  const pending = suppression.pendingId === contact.id;
+
+  if (contact.suppression === null) {
+    return (
+      <button
+        type="button"
+        className="btn btn-tertiary"
+        disabled={pending}
+        onClick={() => suppression.requestMark(contact.id)}
+        aria-label={`Don't contact ${contact.name}`}
+      >
+        Don&apos;t contact
+      </button>
+    );
+  }
+
+  if (!contact.suppression.clearableByOwner) return null;
+
+  return (
+    <button
+      type="button"
+      className="btn btn-tertiary"
+      disabled={pending}
+      onClick={() => suppression.clear(contact.id)}
+      aria-label={`Allow requests again for ${contact.name}`}
+    >
+      {pending ? 'Saving…' : 'Allow requests again'}
+    </button>
+  );
+}
+
+/** §7.5 confirm step — the delete control's pattern, in the accent wash rather
+ *  than the danger one, because nothing is destroyed here. */
+function MarkDoNotContactRow({
+  name,
+  pending,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  pending: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <tr>
+      <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}>
+        <div
+          style={{
+            background: 'var(--rw-accent-50)',
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: 13, color: 'var(--rw-app-text)', fontWeight: 600 }}>
+            We will stop sending {name} review requests. Their visit history stays.
+          </span>
+          <button type="button" className="btn btn-primary" disabled={pending} onClick={onConfirm}>
+            {pending ? 'Saving…' : 'Stop sending requests'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={pending}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          {error !== null && (
+            <span role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)' }}>
+              {error}
+            </span>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
