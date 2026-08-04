@@ -436,3 +436,53 @@ prose paragraph ~1000 lines further down, in a section about migration
 lesson is not "review harder": **a design fact restated in a second place needs a
 grep for the fact, not a re-read of the rows you remember editing.** Promote to
 step 8's sweep.
+
+## D-A13 · 2026-08-04 · step 8 — `fallow` was the first gate to see this branch
+
+`fallow` is a **CI-only** gate: `verify-gate.sh` does not run it, and `ci:fallow`
+"gates nothing" per CLAUDE.md, so the failing check is `fallow.yml`'s
+coverage-informed `ci:fallow:coverage`. PR #659 was the first time it ever ran on
+this branch — two full review rounds and every local gate had passed without it.
+It failed on **4 duplication clone groups + `SuppressionsClient` at 19 cyclomatic
+/ 256 lines**. Owner call: fix both rather than merge red.
+
+Fixed inside the declared surface, no amendment:
+
+- **Duplication** — the three admin routes shared a ~14-line JSON-parse +
+  `safeParse` preamble; extracted to `parseJsonBody` in
+  `src/app/api/admin/suppressions/_guard.ts`. The owner route's mark/clear shared
+  their args object and two failure branches; extracted to `repoArgs` +
+  `sharedFailure`, keeping the §7.6 requirement that the two directions speak
+  with **distinct copy**. All 4 clone groups cleared.
+- **Complexity** — `SuppressionsClient` split into `LookupSection`,
+  `ManualEntrySection` and `CorrectionSection`. Parent 256 → 125 lines and off
+  the high-complexity list.
+
+### The mistake worth keeping: a refactor that blinded a security audit
+
+The first version of `_guard.ts` exported `withAal2JsonBody`, wrapping the AAL2
+gate **and** the body parse. It typechecked, all route tests passed — and
+`ci:admin-aal2` went **RED on all three routes**. That audit is a file-level TEXT
+scan: an admin route exporting a mutation verb must literally contain
+`requireAdminWithAal2`. Hiding the call behind a wrapper made three genuinely
+gated routes read as ungated.
+
+The audit does expose a `GATED_SHARED_HELPERS` allowlist for exactly this
+delegator shape, so "add the helper to the list" was available — and was the
+wrong answer twice over: `scripts/ci/admin-aal2-audit.ts` is outside this
+branch's surface (a third amendment = teardown), and more importantly **"is this
+admin mutation MFA-gated?" should be answerable by grepping the route**, not by
+following a wrapper. The gate now stays spelled out in each route and only the
+body handling is shared. This is the same principle migration 098 already
+applied to `accountLinkedTablesFromMigrations()` — do not reshape code so a
+governance check stops seeing it.
+
+### Local `fallow` ≠ CI `fallow` — do not chase the difference
+
+Locally, `fallow audit` without `--coverage` estimates CRAP **from export
+references** and reports `ContactRow` (`ContactList.tsx`) as HIGH at 63.6 CRAP.
+The CI run, which passes real coverage, did **not** flag it — its only complexity
+finding was `SuppressionsClient`. Verified by reading both outputs side by side
+before deciding not to act. A local-only HIGH with an "estimated" banner over it
+is not a finding; re-check against the coverage-informed run before refactoring
+for it.

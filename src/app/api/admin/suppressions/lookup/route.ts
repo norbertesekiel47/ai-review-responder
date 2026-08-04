@@ -26,6 +26,7 @@ import {
   type LookupSuppressionsResult,
 } from '@/lib/admin/suppressions-service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { opaqueBodyError, parseJsonBody } from '../_guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,25 +53,14 @@ async function lookup(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = LookupSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
+  // `opaqueBodyError` keeps a schema rejection from describing a body whose only
+  // field IS the recipient address (§9.5) — do not let this drift to the default
+  // zod-issue message.
+  const body = await parseJsonBody(request, LookupSchema, opaqueBodyError);
+  if (!body.ok) return body.response;
 
   try {
-    const result = await lookupSuppressions(sql, parsed.data.email);
+    const result = await lookupSuppressions(sql, body.data.email);
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error },

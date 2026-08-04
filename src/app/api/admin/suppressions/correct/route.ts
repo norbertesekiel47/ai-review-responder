@@ -10,6 +10,7 @@ import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { correctSuppression } from '@/lib/admin/suppressions-service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { parseJsonBody } from '../_guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,22 +24,8 @@ async function correct(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = CorrectSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
+  const body = await parseJsonBody(request, CorrectSchema);
+  if (!body.ok) return body.response;
 
   try {
     // No sql.begin: correctSuppression is a single statement (P-9), so the
@@ -47,9 +34,9 @@ async function correct(request: NextRequest): Promise<NextResponse> {
     // a strictObject precisely so a client-supplied actor field is a 400 rather
     // than a silently ignored key.
     const result = await correctSuppression(sql, {
-      suppressionId: parsed.data.suppressionId,
+      suppressionId: body.data.suppressionId,
       adminUserId: gate.admin.id,
-      reason: parsed.data.reason,
+      reason: body.data.reason,
     });
     if (result === 'not_found') {
       return NextResponse.json(
@@ -63,7 +50,7 @@ async function correct(request: NextRequest): Promise<NextResponse> {
     // handle. The neighbouring admin routes log nothing on success, so this
     // route does not introduce a success log line either.
     return internalError(
-      `[api/admin/suppressions/correct] failed for ${parsed.data.suppressionId}:`,
+      `[api/admin/suppressions/correct] failed for ${body.data.suppressionId}:`,
       error,
     );
   }

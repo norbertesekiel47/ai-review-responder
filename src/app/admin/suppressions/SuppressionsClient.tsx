@@ -358,6 +358,257 @@ function CorrectionPanel({
   );
 }
 
+/**
+ * Region 1 of the ritual. Owns the lookup form and the four render states of
+ * the query behind it; the parent owns the handle, because the entry and
+ * correction regions both invalidate on it.
+ */
+function LookupSection({
+  emailInput,
+  onEmailInput,
+  onSubmit,
+  state,
+  onSelect,
+  selectedId,
+}: {
+  emailInput: string;
+  onEmailInput: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  state: {
+    isLoading: boolean;
+    isError: boolean;
+    data: LookupSuppressionsResult | undefined;
+    refetch: () => void;
+  };
+  onSelect: (row: AdminSuppressionRow) => void;
+  selectedId: string | null;
+}) {
+  return (
+    <section aria-labelledby="lookup-heading" className={SECTION}>
+      <h2 id="lookup-heading" className={SECTION_TITLE}>
+        Look up an address
+      </h2>
+      <p className="mt-0.5 text-sm text-gray-500">
+        There is no list of every opted-out recipient — start from the address in the
+        forwarded reply.
+      </p>
+      <form onSubmit={onSubmit} className="mt-3 flex flex-wrap items-end gap-2">
+        <div className="grow">
+          <label htmlFor="lookup-email" className="text-xs font-semibold text-gray-900">
+            Email address
+          </label>
+          <input
+            id="lookup-email"
+            type="text"
+            inputMode="email"
+            autoComplete="off"
+            value={emailInput}
+            onChange={(event) => onEmailInput(event.target.value)}
+            maxLength={320}
+            className={`mt-1 ${FIELD}`}
+          />
+        </div>
+        <button type="submit" disabled={emailInput.trim() === ''} className={PRIMARY_BUTTON}>
+          Look up
+        </button>
+      </form>
+
+      {state.isLoading ? (
+        <div className="mt-4">
+          <TableSkeleton rows={3} />
+        </div>
+      ) : state.isError ? (
+        <div className="mt-4">
+          <ErrorState
+            title="Couldn't look up that address"
+            detail="POST /api/admin/suppressions/lookup failed"
+            onRetry={state.refetch}
+          />
+        </div>
+      ) : state.data ? (
+        <LookupResults result={state.data} onSelect={onSelect} selectedId={selectedId} />
+      ) : null}
+    </section>
+  );
+}
+
+/** Region 2: §7.3 manual entry. Both fields are required by the route's schema. */
+function ManualEntrySection({
+  email,
+  note,
+  onEmail,
+  onNote,
+  onSubmit,
+  state,
+}: {
+  email: string;
+  note: string;
+  onEmail: (value: string) => void;
+  onNote: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  state: {
+    isPending: boolean;
+    isSuccess: boolean;
+    isError: boolean;
+    data: { created: boolean; handle: string } | undefined;
+    error: unknown;
+  };
+}) {
+  return (
+    <section aria-labelledby="entry-heading" className={SECTION}>
+      <h2 id="entry-heading" className={SECTION_TITLE}>
+        Enter a manual opt-out
+      </h2>
+      <p className="mt-0.5 text-sm text-gray-500">
+        Records a global opt-out for an address that asked to stop by reply. Takes effect
+        immediately and applies everywhere.
+      </p>
+      <form onSubmit={onSubmit} className="mt-3 grid max-w-xl gap-3">
+        <div>
+          <label htmlFor="entry-email" className="text-xs font-semibold text-gray-900">
+            Email address
+          </label>
+          <input
+            id="entry-email"
+            type="text"
+            inputMode="email"
+            autoComplete="off"
+            value={email}
+            onChange={(event) => onEmail(event.target.value)}
+            maxLength={320}
+            required
+            className={`mt-1 ${FIELD}`}
+          />
+        </div>
+        <div>
+          <label htmlFor="entry-note" className="text-xs font-semibold text-gray-900">
+            Originating message reference
+          </label>
+          <p id="entry-note-help" className="mt-0.5 text-xs text-gray-500">
+            {ENTRY_NOTE_HELPER}
+          </p>
+          <textarea
+            id="entry-note"
+            aria-describedby="entry-note-help"
+            value={note}
+            onChange={(event) => onNote(event.target.value)}
+            maxLength={1_000}
+            rows={2}
+            required
+            className={`mt-1 min-h-16 resize-y ${FIELD}`}
+          />
+        </div>
+        <div>
+          <button
+            type="submit"
+            disabled={state.isPending || email.trim() === '' || note.trim() === ''}
+            className={PRIMARY_BUTTON}
+          >
+            {state.isPending ? 'Recording…' : 'Record opt-out'}
+          </button>
+        </div>
+      </form>
+
+      {state.isSuccess && state.data && (
+        <p
+          role="status"
+          className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800"
+        >
+          {state.data.created
+            ? `Opt-out recorded for ${state.data.handle}.`
+            : // First-write-wins (§2.1): the state is already correct, so a
+              // repeat entry is a no-op SUCCESS and must not read as failure.
+              `Already suppressed — no change. ${state.data.handle} was already opted out.`}
+        </p>
+      )}
+      {state.isError && (
+        <p
+          role="alert"
+          className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
+        >
+          {state.error instanceof Error ? state.error.message : 'Entry failed'}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Region 3: the Correction path (§8.2). The three result branches are the whole
+ * point of this region — corrected, already-removed, and genuine failure each
+ * say something different, and only the last may say "still in place".
+ */
+function CorrectionSection({
+  target,
+  reason,
+  onReason,
+  onCancel,
+  onConfirm,
+  state,
+}: {
+  target: AdminSuppressionRow | null;
+  reason: string;
+  onReason: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  state: {
+    isPending: boolean;
+    isSuccess: boolean;
+    isError: boolean;
+    data: CorrectionOutcome | undefined;
+    error: unknown;
+  };
+}) {
+  return (
+    <section aria-labelledby="correction-heading" className={SECTION}>
+      <h2 id="correction-heading" className={SECTION_TITLE}>
+        Correction path
+      </h2>
+      <p className="mt-0.5 text-sm text-gray-500">
+        Admin-only and audited. Every removal writes a record naming who removed it and why.
+      </p>
+      <div className="mt-3">
+        <CorrectionPanel
+          target={target}
+          reason={reason}
+          onReasonChange={onReason}
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+          pending={state.isPending}
+        />
+      </div>
+      {state.isSuccess && state.data === 'corrected' && (
+        <p
+          role="status"
+          className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800"
+        >
+          Record corrected. The removal is in the audit trail.
+        </p>
+      )}
+      {state.isSuccess && state.data === 'already_removed' && (
+        // Not green: nothing this admin did took effect, and the recipient
+        // is mailable again. Not red either — no failure occurred.
+        <p
+          role="alert"
+          className="mt-3 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+        >
+          {CORRECTION_ALREADY_REMOVED_COPY}
+        </p>
+      )}
+      {state.isError && (
+        <p
+          role="alert"
+          className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
+        >
+          {state.error instanceof Error
+            ? `${state.error.message} — the suppression is still in place.`
+            : 'Correction failed — the suppression is still in place.'}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function SuppressionsClient() {
   const queryClient = useQueryClient();
 
@@ -423,193 +674,62 @@ export function SuppressionsClient() {
       description="Service the opt-out mailbox: look an address up, record a manual opt-out, or correct a record entered in error"
     >
       <div className="space-y-6">
-        <section aria-labelledby="lookup-heading" className={SECTION}>
-          <h2 id="lookup-heading" className={SECTION_TITLE}>
-            Look up an address
-          </h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            There is no list of every opted-out recipient — start from the address in the
-            forwarded reply.
-          </p>
-          <form onSubmit={runLookup} className="mt-3 flex flex-wrap items-end gap-2">
-            <div className="grow">
-              <label htmlFor="lookup-email" className="text-xs font-semibold text-gray-900">
-                Email address
-              </label>
-              <input
-                id="lookup-email"
-                type="text"
-                inputMode="email"
-                autoComplete="off"
-                value={emailInput}
-                onChange={(event) => setEmailInput(event.target.value)}
-                maxLength={320}
-                className={`mt-1 ${FIELD}`}
-              />
-            </div>
-            <button type="submit" disabled={emailInput.trim() === ''} className={PRIMARY_BUTTON}>
-              Look up
-            </button>
-          </form>
+        <LookupSection
+          emailInput={emailInput}
+          onEmailInput={setEmailInput}
+          onSubmit={runLookup}
+          state={{
+            isLoading: lookup.isLoading,
+            isError: lookup.isError,
+            data: lookup.data,
+            refetch: () => void lookup.refetch(),
+          }}
+          onSelect={(row) => {
+            setCorrectionTarget(row);
+            setCorrectionReason('');
+            correction.reset();
+          }}
+          selectedId={correctionTarget?.id ?? null}
+        />
 
-          {lookup.isLoading ? (
-            <div className="mt-4">
-              <TableSkeleton rows={3} />
-            </div>
-          ) : lookup.isError ? (
-            <div className="mt-4">
-              <ErrorState
-                title="Couldn't look up that address"
-                detail="POST /api/admin/suppressions/lookup failed"
-                onRetry={() => void lookup.refetch()}
-              />
-            </div>
-          ) : lookup.data ? (
-            <LookupResults
-              result={lookup.data}
-              onSelect={(row) => {
-                setCorrectionTarget(row);
-                setCorrectionReason('');
-                correction.reset();
-              }}
-              selectedId={correctionTarget?.id ?? null}
-            />
-          ) : null}
-        </section>
+        <ManualEntrySection
+          email={entryEmail}
+          note={entryNote}
+          onEmail={setEntryEmail}
+          onNote={setEntryNote}
+          onSubmit={submitEntry}
+          state={{
+            isPending: entry.isPending,
+            isSuccess: entry.isSuccess,
+            isError: entry.isError,
+            data: entry.data,
+            error: entry.error,
+          }}
+        />
 
-        <section aria-labelledby="entry-heading" className={SECTION}>
-          <h2 id="entry-heading" className={SECTION_TITLE}>
-            Enter a manual opt-out
-          </h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            Records a global opt-out for an address that asked to stop by reply. Takes effect
-            immediately and applies everywhere.
-          </p>
-          <form onSubmit={submitEntry} className="mt-3 grid max-w-xl gap-3">
-            <div>
-              <label htmlFor="entry-email" className="text-xs font-semibold text-gray-900">
-                Email address
-              </label>
-              <input
-                id="entry-email"
-                type="text"
-                inputMode="email"
-                autoComplete="off"
-                value={entryEmail}
-                onChange={(event) => setEntryEmail(event.target.value)}
-                maxLength={320}
-                required
-                className={`mt-1 ${FIELD}`}
-              />
-            </div>
-            <div>
-              <label htmlFor="entry-note" className="text-xs font-semibold text-gray-900">
-                Originating message reference
-              </label>
-              <p id="entry-note-help" className="mt-0.5 text-xs text-gray-500">
-                {ENTRY_NOTE_HELPER}
-              </p>
-              <textarea
-                id="entry-note"
-                aria-describedby="entry-note-help"
-                value={entryNote}
-                onChange={(event) => setEntryNote(event.target.value)}
-                maxLength={1_000}
-                rows={2}
-                required
-                className={`mt-1 min-h-16 resize-y ${FIELD}`}
-              />
-            </div>
-            <div>
-              <button
-                type="submit"
-                disabled={
-                  entry.isPending || entryEmail.trim() === '' || entryNote.trim() === ''
-                }
-                className={PRIMARY_BUTTON}
-              >
-                {entry.isPending ? 'Recording…' : 'Record opt-out'}
-              </button>
-            </div>
-          </form>
-
-          {entry.isSuccess && (
-            <p
-              role="status"
-              className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800"
-            >
-              {entry.data.created
-                ? `Opt-out recorded for ${entry.data.handle}.`
-                : // First-write-wins (§2.1): the state is already correct, so a
-                  // repeat entry is a no-op SUCCESS and must not read as failure.
-                  `Already suppressed — no change. ${entry.data.handle} was already opted out.`}
-            </p>
-          )}
-          {entry.isError && (
-            <p
-              role="alert"
-              className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
-            >
-              {entry.error instanceof Error ? entry.error.message : 'Entry failed'}
-            </p>
-          )}
-        </section>
-
-        <section aria-labelledby="correction-heading" className={SECTION}>
-          <h2 id="correction-heading" className={SECTION_TITLE}>
-            Correction path
-          </h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            Admin-only and audited. Every removal writes a record naming who removed it and why.
-          </p>
-          <div className="mt-3">
-            <CorrectionPanel
-              target={correctionTarget}
-              reason={correctionReason}
-              onReasonChange={setCorrectionReason}
-              onCancel={() => {
-                setCorrectionTarget(null);
-                setCorrectionReason('');
-              }}
-              onConfirm={() => {
-                if (correctionTarget === null) return;
-                correction.mutate({
-                  suppressionId: correctionTarget.id,
-                  reason: correctionReason.trim(),
-                });
-              }}
-              pending={correction.isPending}
-            />
-          </div>
-          {correction.isSuccess && correction.data === 'corrected' && (
-            <p
-              role="status"
-              className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800"
-            >
-              Record corrected. The removal is in the audit trail.
-            </p>
-          )}
-          {correction.isSuccess && correction.data === 'already_removed' && (
-            // Not green: nothing this admin did took effect, and the recipient
-            // is mailable again. Not red either — no failure occurred.
-            <p
-              role="alert"
-              className="mt-3 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
-            >
-              {CORRECTION_ALREADY_REMOVED_COPY}
-            </p>
-          )}
-          {correction.isError && (
-            <p
-              role="alert"
-              className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
-            >
-              {correction.error instanceof Error
-                ? `${correction.error.message} — the suppression is still in place.`
-                : 'Correction failed — the suppression is still in place.'}
-            </p>
-          )}
-        </section>
+        <CorrectionSection
+          target={correctionTarget}
+          reason={correctionReason}
+          onReason={setCorrectionReason}
+          onCancel={() => {
+            setCorrectionTarget(null);
+            setCorrectionReason('');
+          }}
+          onConfirm={() => {
+            if (correctionTarget === null) return;
+            correction.mutate({
+              suppressionId: correctionTarget.id,
+              reason: correctionReason.trim(),
+            });
+          }}
+          state={{
+            isPending: correction.isPending,
+            isSuccess: correction.isSuccess,
+            isError: correction.isError,
+            data: correction.data,
+            error: correction.error,
+          }}
+        />
       </div>
     </AdminPage>
   );

@@ -13,6 +13,7 @@ import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { recordAdminManualSuppression } from '@/lib/admin/suppressions-service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { parseJsonBody } from './_guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,31 +28,17 @@ async function recordEntry(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = EntrySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
+  const body = await parseJsonBody(request, EntrySchema);
+  if (!body.ok) return body.response;
 
   try {
     // The actor comes from the AAL2 gate, never from the body — EntrySchema is
     // a strictObject precisely so a client-supplied actor field is a 400 rather
     // than a silently ignored key.
     const result = await sql.begin((tx) => recordAdminManualSuppression(tx, {
-      rawEmail: parsed.data.email,
+      rawEmail: body.data.email,
       adminUserId: gate.admin.id,
-      note: parsed.data.note,
+      note: body.data.note,
     }));
     if (!result.ok) {
       return NextResponse.json(
