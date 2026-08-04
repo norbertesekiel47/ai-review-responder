@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FlaggedClient } from '../FlaggedClient';
+import { FlaggedClient, PAGE_SIZE } from '../FlaggedClient';
 
 const baseData = {
   flagged: [
@@ -30,6 +31,17 @@ const baseData = {
 };
 
 const emptyData = { ...baseData, flagged: [], total: 0 };
+
+/** A full first page of a 120-row queue — exercises the shared pagination footer. */
+const fullPageData = {
+  ...baseData,
+  flagged: Array.from({ length: PAGE_SIZE }, (_, i) => ({
+    ...baseData.flagged[0]!,
+    id: `flag-${i + 1}`,
+    businessName: `Business ${i + 1}`,
+  })),
+  total: 120,
+};
 
 function renderClient(initialData: typeof baseData) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -65,6 +77,32 @@ describe('FlaggedClient', () => {
 
     expect(screen.getByText('No open flagged responses')).toBeInTheDocument();
     expect(screen.getByText('Every held draft has been dispositioned.')).toBeInTheDocument();
+  });
+
+  it('renders the shared pagination footer for a multi-page queue', () => {
+    renderClient(fullPageData);
+
+    expect(screen.getByText('Showing 1–50 of 120')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+  });
+
+  it('keeps the footer reachable on an empty later page (dead-end guard)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(
+        JSON.stringify({ ...baseData, flagged: [], total: 120, offset: PAGE_SIZE }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )),
+    );
+    renderClient(fullPageData);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('No rows on this page (120 total)')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeEnabled();
   });
 
   it('keeps the cached cards visible and adds a last-refresh-failed notice when a background refetch fails', async () => {

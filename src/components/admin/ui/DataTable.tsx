@@ -37,6 +37,83 @@ interface SortState {
   dir: 'asc' | 'desc';
 }
 
+export interface ServerPaginationFooterState {
+  pageCount: number;
+  label: string;
+  show: boolean;
+}
+
+/**
+ * Server-pagination footer math, shared by DataTable's controlled mode and by
+ * card-list pages (FlaggedClient) that paginate server-side without a table.
+ * Single owner so the "Showing a–b of N" string and the empty-page-with-rows-
+ * behind-you guard cannot drift between call sites.
+ */
+function pageCountOf(totalRows: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(totalRows / pageSize));
+}
+
+export function serverPaginationFooterState({
+  page,
+  pageSize,
+  rowsOnPage,
+  totalRows,
+}: {
+  page: number;
+  pageSize: number;
+  rowsOnPage: number;
+  totalRows: number;
+}): ServerPaginationFooterState {
+  const pageCount = pageCountOf(totalRows, pageSize);
+  const start = page * pageSize + 1;
+  const end = Math.min(start + rowsOnPage - 1, totalRows);
+  return {
+    pageCount,
+    label:
+      rowsOnPage > 0
+        ? `Showing ${start}–${end} of ${totalRows}`
+        : `No rows on this page (${totalRows} total)`,
+    show: totalRows > rowsOnPage || pageCount > 1,
+  };
+}
+
+/** The footer chrome itself. Callers decide whether to render it (see `show`). */
+export function PaginationFooter({
+  page,
+  pageCount,
+  label,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  label: string;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2 text-xs text-gray-500">
+      <span>{label}</span>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => onPageChange(page - 1)}
+          className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={page >= pageCount - 1}
+          onClick={() => onPageChange(page + 1)}
+          className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState, serverPagination }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(0);
@@ -55,8 +132,8 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
   }, [rows, sort, columns]);
 
   const pageCount = serverPagination
-    ? Math.max(1, Math.ceil(serverPagination.totalRows / serverPagination.pageSize))
-    : Math.max(1, Math.ceil(sorted.length / pageSize));
+    ? pageCountOf(serverPagination.totalRows, serverPagination.pageSize)
+    : pageCountOf(sorted.length, pageSize);
   // Clamped in BOTH modes: server mode's `page` is caller-controlled state that
   // can point past the last valid page (e.g. the 30s poll shrinks totalRows
   // while the admin sits on a later page) — display math must never assume
@@ -88,9 +165,17 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
     return <>{emptyState}</>;
   }
 
-  const showFooter = serverPagination
-    ? serverPagination.totalRows > rows.length || pageCount > 1
-    : pageCount > 1;
+  // Both modes render the SAME footer component; only the label and the
+  // visibility rule differ. `serverPaginationFooterState` owns the server-mode
+  // rule so card-list pages (FlaggedClient) cannot drift from this table.
+  const footer: ServerPaginationFooterState = serverPagination
+    ? serverPaginationFooterState({
+        page: currentPage,
+        pageSize: serverPagination.pageSize,
+        rowsOnPage: rows.length,
+        totalRows: serverPagination.totalRows,
+      })
+    : { pageCount, label: `Page ${currentPage + 1} of ${pageCount}`, show: pageCount > 1 };
 
   return (
     <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
@@ -151,38 +236,13 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
           </table>
         </div>
       )}
-      {showFooter && (
-        <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2 text-xs text-gray-500">
-          <span>
-            {serverPagination
-              ? rows.length > 0
-                ? (() => {
-                    const start = currentPage * serverPagination.pageSize + 1;
-                    const end = Math.min(start + rows.length - 1, serverPagination.totalRows);
-                    return `Showing ${start}–${end} of ${serverPagination.totalRows}`;
-                  })()
-                : `No rows on this page (${serverPagination.totalRows} total)`
-              : `Page ${currentPage + 1} of ${pageCount}`}
-          </span>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              disabled={currentPage === 0}
-              onClick={() => goToPage(currentPage - 1)}
-              className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => goToPage(currentPage + 1)}
-              className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {footer.show && (
+        <PaginationFooter
+          page={currentPage}
+          pageCount={footer.pageCount}
+          label={footer.label}
+          onPageChange={goToPage}
+        />
       )}
     </div>
   );
