@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { OverviewData } from '@/lib/admin/overview-service';
 import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
@@ -248,34 +247,11 @@ export function OverviewClient({
     initialData: { flaggedOpen, failedJobs: initialData.systemHealth.failedJobs },
   });
 
+  // Page chrome (group/title/description + the three static action links) lives
+  // on the server page so it renders in the RSC payload, never behind this
+  // client's loading state.
   return (
-    <AdminPage
-      group="Operate"
-      title="Overview"
-      description="System health and every business at a glance"
-      actions={
-        <>
-          <Link
-            href="/admin/demos"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Demos
-          </Link>
-          <Link
-            href="/admin/businesses"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            All Businesses
-          </Link>
-          <Link
-            href="/admin/businesses/new"
-            className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700"
-          >
-            + Add Business
-          </Link>
-        </>
-      }
-    >
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -303,6 +279,6 @@ export function OverviewClient({
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

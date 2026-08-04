@@ -1,6 +1,7 @@
 import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { listOpenFlaggedResponses } from '@/lib/admin/flagged-service';
+import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { FlaggedClient, PAGE_SIZE } from './FlaggedClient';
 
 export const dynamic = 'force-dynamic';
@@ -13,5 +14,13 @@ export default async function AdminFlaggedPage() {
 
   const flagged = await listOpenFlaggedResponses(sql, { limit: PAGE_SIZE, offset: 0 });
 
-  return <FlaggedClient initialData={{ ...flagged, limit: PAGE_SIZE, offset: 0 }} />;
+  return (
+    <AdminPage
+      group="Safety"
+      title="Flagged responses"
+      description="Held drafts awaiting your disposition"
+    >
+      <FlaggedClient initialData={{ ...flagged, limit: PAGE_SIZE, offset: 0 }} />
+    </AdminPage>
+  );
 }

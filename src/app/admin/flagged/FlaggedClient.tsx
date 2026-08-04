@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminFlaggedData } from '@/lib/admin/flagged-service';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { PaginationFooter, serverPaginationFooterState } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 
@@ -155,12 +154,10 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
     },
   });
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage
-      group="Safety"
-      title="Flagged responses"
-      description="Held drafts awaiting your disposition"
-    >
+    <>
       {actionError && (
         <p
           role="alert"
@@ -199,6 +196,6 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

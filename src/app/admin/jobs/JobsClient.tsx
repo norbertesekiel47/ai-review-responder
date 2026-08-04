@@ -9,7 +9,6 @@ import {
   type QueueHealthJobState,
 } from '@/lib/shared/queue-health-states';
 import type { AdminJobsData } from '@/lib/admin/jobs-service';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
@@ -185,8 +184,10 @@ export function JobsClient({ initialData }: { initialData: JobsData }) {
     initialData: page === 0 ? initialData : undefined,
   });
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage group="Operate" title="Jobs" description="Outbox, queue depth, and failed jobs">
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -209,6 +210,6 @@ export function JobsClient({ initialData }: { initialData: JobsData }) {
           <JobsContent data={data} page={page} onPageChange={setPage} />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

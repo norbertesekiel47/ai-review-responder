@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { AdminNotificationsData } from '@/lib/admin/notifications-service';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
@@ -179,8 +178,10 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
     setPage(0);
   }
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage group="Operate" title="Notifications" description="Delivery log across channels">
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -214,6 +215,6 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

@@ -23,11 +23,17 @@ const SWEPT_FILES = [
   'src/components/dashboard/reviews/edit-reply/PreviewPanel.tsx',
   'src/components/dashboard/reviews/edit-reply/ManualEditor.tsx',
   'src/components/dashboard/reviews/edit-reply/ReviewChangedPanel.tsx',
-  // Admin tool
+  // Admin tool — the five Phase 2 pages, chrome converged onto the server page
+  // (CF-4: page.tsx now carries the chrome + actions markup, so it is swept too)
+  'src/app/admin/overview/page.tsx',
   'src/app/admin/overview/OverviewClient.tsx',
+  'src/app/admin/jobs/page.tsx',
   'src/app/admin/jobs/JobsClient.tsx',
+  'src/app/admin/costs/page.tsx',
   'src/app/admin/costs/CostsClient.tsx',
+  'src/app/admin/notifications/page.tsx',
   'src/app/admin/notifications/NotificationsClient.tsx',
+  'src/app/admin/flagged/page.tsx',
   'src/app/admin/flagged/FlaggedClient.tsx',
   'src/app/admin/autonomy/AutonomySuspensionsClient.tsx',
   'src/app/admin/businesses/BusinessesClient.tsx',

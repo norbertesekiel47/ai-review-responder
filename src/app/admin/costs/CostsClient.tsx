@@ -6,7 +6,6 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MarginData, MarginRiskLevel } from '@/lib/admin/margin-service';
 import type { CostData as CostReportData } from '@/lib/admin/cost-report-service';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
@@ -419,8 +418,10 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
     setPage(0);
   }
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage group="Operate" title="Costs" description="LLM + API spend and margin by account">
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -443,6 +444,6 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
           <CostsContent data={data} days={days} onDaysChange={handleDaysChange} page={page} onPageChange={setPage} />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

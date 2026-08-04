@@ -3,6 +3,7 @@ import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getCostReport, type CostQuery } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { CostsClient, PAGE_SIZE } from './CostsClient';
 
 export const dynamic = 'force-dynamic';
@@ -24,5 +25,9 @@ export default async function AdminCostsPage() {
     }),
   ]);
 
-  return <CostsClient initialData={{ ...report, margin }} />;
+  return (
+    <AdminPage group="Operate" title="Costs" description="LLM + API spend and margin by account">
+      <CostsClient initialData={{ ...report, margin }} />
+    </AdminPage>
+  );
 }
