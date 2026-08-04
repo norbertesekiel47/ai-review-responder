@@ -88,13 +88,11 @@ describe('FlaggedClient', () => {
   });
 
   it('keeps the footer reachable on an empty later page (dead-end guard)', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(
-        JSON.stringify({ ...baseData, flagged: [], total: 120, offset: PAGE_SIZE }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )),
-    );
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ ...baseData, flagged: [], total: 120, offset: PAGE_SIZE }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
     renderClient(fullPageData);
 
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -103,6 +101,12 @@ describe('FlaggedClient', () => {
       expect(screen.getByText('No rows on this page (120 total)')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Previous' })).toBeEnabled();
+    // Guards the offset⇄page conversion at the footer boundary: page 1 must
+    // request offset=PAGE_SIZE. An off-by-one is otherwise invisible here,
+    // because the stubbed fetch answers every URL identically.
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/admin/flagged?limit=${PAGE_SIZE}&offset=${PAGE_SIZE}`,
+    );
   });
 
   it('keeps the cached cards visible and adds a last-refresh-failed notice when a background refetch fails', async () => {

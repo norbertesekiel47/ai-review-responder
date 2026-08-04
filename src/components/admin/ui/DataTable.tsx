@@ -43,16 +43,21 @@ export interface ServerPaginationFooterState {
   show: boolean;
 }
 
+function pageCountOf(totalRows: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(totalRows / pageSize));
+}
+
 /**
  * Server-pagination footer math, shared by DataTable's controlled mode and by
  * card-list pages (FlaggedClient) that paginate server-side without a table.
  * Single owner so the "Showing a–b of N" string and the empty-page-with-rows-
  * behind-you guard cannot drift between call sites.
+ *
+ * `page` is taken unclamped: DataTable clamps its own page index before
+ * calling, card lists do not, so a page index past the end renders a
+ * disabled-Next footer here and a clamped one there. Both keep Previous
+ * reachable, which is the property that matters.
  */
-function pageCountOf(totalRows: number, pageSize: number): number {
-  return Math.max(1, Math.ceil(totalRows / pageSize));
-}
-
 export function serverPaginationFooterState({
   page,
   pageSize,
