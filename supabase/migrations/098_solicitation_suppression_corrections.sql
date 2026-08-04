@@ -15,19 +15,38 @@
 --
 -- NO FOREIGN KEYS anywhere, deliberately: `suppression_id`'s referent is
 -- DELETEd by the very statement that writes this row (that is the whole point),
--- and `removed_by_user_id` follows 096's `created_by_user_id` posture — a plain
--- UUID, because a compliance record must outlive the user row it names.
+-- and `account_id`, `created_by_user_id` and `removed_by_user_id` all follow
+-- 096's `created_by_user_id` posture — plain UUIDs, because a compliance record
+-- must outlive the rows it names. An FK to accounts(id) would additionally let
+-- an offboarding purge CASCADE the record away with the account it names.
 --
--- NO `account_id` COLUMN AT ALL, and that is a decision rather than an
--- omission (plan P-2). Copying the deleted row's provenance in would create a
--- fresh indefinite retention obligation for data whose owning row no longer
--- exists, and would make this table account-linked to
+-- IT CARRIES THE CORRECTED ROW'S OWN account_id, created_by_user_id AND note.
+-- That is the substance of the record, not incidental provenance (deviation
+-- D-A11, superseding plan P-2). A correction DELETEs an assertion; these three
+-- columns are the evidence that the assertion was legitimate when it was made.
+-- For a `scope='account'` row, `account_id` is not provenance at all — it is the
+-- Suppression scope key itself, non-null by construction (§1.2) — so without it
+-- an account-scoped correction cannot say WHOSE do-not-contact was removed. For
+-- a `global` row it is provenance and may be null. `created_by_user_id` and
+-- `note` are exactly what §7.3 makes required of a manual entry: who entered the
+-- opt-out, and the originating message reference proving it was real. Dropping
+-- them destroyed the evidence behind the very assertion being corrected, and
+-- there is nothing to backfill it from — the source row is gone.
+--
+-- The table is therefore account-linked, and it is CLASSIFIED rather than
+-- RENAMED TO EVADE CLASSIFICATION. `original_account_id` /
+-- `original_created_by_user_id` would slip past
 -- accountLinkedTablesFromMigrations() in
--- src/lib/account-offboarding/__tests__/table-disposition.test.ts — which then
--- requires entries in TENANT_TABLES, TABLE_DISPOSITIONS and purge verification
--- for a record that has no tenant. The sentence this table exists to record is
--- "WHICH opt-out was removed, by WHOM, and WHY"; whose send originally produced
--- the suppression is not part of it.
+-- src/lib/account-offboarding/__tests__/table-disposition.test.ts on a
+-- word-boundary technicality: its pattern needs a word boundary before
+-- `account_id`, and a leading `original_` removes it. Naming data to dodge a
+-- governance check is worse than the gap it hides — the detector would go quiet
+-- while the retention obligation stayed exactly as real. So the columns keep
+-- their honest names and the table takes its TENANT_TABLES,
+-- TABLE_DISPOSITIONS and purge-verification entries as
+-- `retain_compliance_limited_pii`, the disposition `solicitation_suppressions`
+-- and `solicitation_unsubscribe_tokens` already carry for this same class of
+-- data (D7).
 --
 -- RLS deny-all with ZERO policies — the auto_approval_policies posture
 -- (invariant #14), matching 096. Not decorative: a row here names a recipient's
@@ -48,6 +67,11 @@ CREATE TABLE IF NOT EXISTS solicitation_suppression_corrections (
   channel TEXT NOT NULL CHECK (channel IN ('email')),
   normalized_handle TEXT NOT NULL,     -- what was removed; raw, matching §6.4's posture on the ledger
   scope TEXT NOT NULL CHECK (scope IN ('global', 'account')),
+  -- Copied from the removed row. NULLABLE and NO FK: the Suppression scope key
+  -- for an `account` row (non-null by construction, §1.2), plain provenance for
+  -- a `global` one. Deliberately NOT re-CHECKed against `scope` the way 096
+  -- does — 098 records what the ledger held, it does not re-adjudicate it.
+  account_id UUID,
   source TEXT NOT NULL CHECK (source IN (
     'unsubscribe_link',
     'unsubscribe_one_click',
@@ -58,6 +82,13 @@ CREATE TABLE IF NOT EXISTS solicitation_suppression_corrections (
     'owner_manual'
   )),
   suppressed_at TIMESTAMPTZ NOT NULL,  -- when the REMOVED row was recorded, copied from it
+  -- Who created the suppression being corrected, and the §7.3 originating
+  -- message reference. Both copied from the removed row and both NULLABLE:
+  -- machine sources (bounce, complaint, provider_suppressed, the unsubscribe
+  -- paths) write neither. Not the same fact as `removed_by_user_id` below — one
+  -- names the person who asserted the opt-out, the other the admin who undid it.
+  created_by_user_id UUID,
+  note TEXT,
   removed_by_user_id UUID NOT NULL,    -- the admin; plain UUID, NO FK (096's created_by_user_id posture)
   -- "why" is not optional on this path. Stated as "contains at least one
   -- non-whitespace character" rather than as `length(btrim(reason)) > 0`:

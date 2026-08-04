@@ -399,6 +399,13 @@ export const TABLE_DISPOSITIONS = [
     purgeVerification: 'allowed_limited_retention',
     reason: 'Redemption must still work after the sender is gone (spec §5.2): an Unsubscribe token operates >=30 days past send while the asks it referenced are hard-deleted. Provenance (account_id, business_id, ask_id, outreach_id) is scrubbed; token_hash, normalized_handle, channel and sent_at are kept.',
   },
+  {
+    table: 'solicitation_suppression_corrections',
+    disposition: 'retain_compliance_limited_pii',
+    scopeEvidence: 'compliance_handle_hash',
+    purgeVerification: 'allowed_limited_retention',
+    reason: "The Correction path record (spec §8.2) proves an opt-out was removed and by whom; deleting it with the account erases the only evidence the removal was audited. It carries the corrected row's own account_id, created_by_user_id and note because those are the evidence the removed assertion was legitimate (D-A11) — and it describes Suppression ledger rows that are themselves retained under D7, so purging the audit while the audited data survives inverts the point.",
+  },
 ] as const satisfies readonly TableDisposition[];
 
 export const ACCOUNT_OFFBOARDING_TABLES = Object.freeze(

@@ -14,6 +14,7 @@ import {
   assertSchemaReady,
   MIGRATION_098_SUPPRESSION_CORRECTIONS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { TABLE_DISPOSITIONS } from '@/lib/account-offboarding/table-disposition';
 import { SUPPRESSION_SCOPES, SUPPRESSION_SOURCES } from '@/lib/solicitation/suppression';
 
 // Shape suite for migration 098 — `solicitation_suppression_corrections`, the
@@ -25,15 +26,17 @@ import { SUPPRESSION_SCOPES, SUPPRESSION_SOURCES } from '@/lib/solicitation/supp
 // the whole design, and each is asserted here against the LIVE schema rather
 // than against the checked-in SQL text:
 //
-//  1. It has NO `account_id` and no foreign keys (plan P-2). The suppression row
-//     is gone by the time the record is written — that is the point — so an FK
-//     to it is impossible, and an FK to `accounts` would let an offboarding
-//     purge CASCADE away a compliance record. Copying the deleted row's
-//     `account_id` in would additionally make the table account-linked to
-//     `accountLinkedTablesFromMigrations()` in
-//     `src/lib/account-offboarding/__tests__/table-disposition.test.ts`, which
-//     then demands `TENANT_TABLES` / `TABLE_DISPOSITIONS` / purge-verification
-//     entries for a record that has no tenant.
+//  1. It CARRIES the removed row's own `account_id`, `created_by_user_id` and
+//     `note`, and has no foreign keys at all (deviation D-A11, superseding plan
+//     P-2). Those three columns are the evidence the corrected assertion was
+//     legitimate: `account_id` is the Suppression scope key itself for a
+//     `scope='account'` row (§1.2), and `created_by_user_id` + `note` are what
+//     §7.3 requires of a manual entry. They make the table account-linked, so it
+//     is CLASSIFIED in `TABLE_DISPOSITIONS` — not renamed `original_*` to slip
+//     past `accountLinkedTablesFromMigrations()` on a word boundary. The FKs
+//     still cannot exist: the suppression row is gone by the time the record is
+//     written — that is the point — and an FK to `accounts` would let an
+//     offboarding purge CASCADE away a compliance record.
 //
 //  2. `normalized_handle` STAYS (plan P-3). `suppression_id` points at a deleted
 //     row, so without the handle the record cannot identify its own subject —
@@ -142,10 +145,13 @@ describeWithDb(
         ORDER BY column_name
       `;
       expect(columns.map((c) => c.column_name)).toEqual([
+        'account_id',
         'channel',
         'created_at',
+        'created_by_user_id',
         'id',
         'normalized_handle',
+        'note',
         'reason',
         'removed_by_user_id',
         'scope',
@@ -154,8 +160,18 @@ describeWithDb(
         'suppression_id',
       ]);
 
-      // Every column is NOT NULL: this record has no optional facts.
-      expect(columns.filter((c) => c.is_nullable === 'YES')).toEqual([]);
+      // Exactly three optional facts, and each is optional for a stated reason
+      // (D-A11): `account_id` is null on a `global` row entered from a mailbox
+      // reply that names no account, and `created_by_user_id` / `note` are null
+      // for every machine source — a bounce, a complaint, a provider mirror or
+      // an unsubscribe redemption has no human author and no message reference.
+      // Making any of them NOT NULL would make those corrections impossible to
+      // record at all.
+      expect(columns.filter((c) => c.is_nullable === 'YES').map((c) => c.column_name)).toEqual([
+        'account_id',
+        'created_by_user_id',
+        'note',
+      ]);
 
       const byName = new Map(columns.map((column) => [column.column_name, column]));
       const expectType = (column: string, dataType: string) => {
@@ -167,8 +183,13 @@ describeWithDb(
       expectType('channel', 'text');
       expectType('normalized_handle', 'text');
       expectType('scope', 'text');
+      // Copied from the removed row: the Suppression scope key for an `account`
+      // row, provenance for a `global` one. Honestly named on purpose.
+      expectType('account_id', 'uuid');
       expectType('source', 'text');
       expectType('suppressed_at', 'timestamp with time zone');
+      expectType('created_by_user_id', 'uuid');
+      expectType('note', 'text');
       expectType('removed_by_user_id', 'uuid');
       expectType('reason', 'text');
       expectType('created_at', 'timestamp with time zone');
@@ -182,25 +203,39 @@ describeWithDb(
       expect(byName.get('created_at')?.column_default).toMatch(/now\(\)/i);
     });
 
-    it('has no account-linked column, so the offboarding inventory correctly excludes it', async () => {
-      // P-2 asserted against the schema rather than the plan: if a later change
-      // adds account_id/business_id here, table-disposition.test.ts starts
-      // failing and THIS test says why before anyone goes looking.
+    it('is account-linked and therefore classified in the offboarding inventory', async () => {
+      // D-A11, asserted against the LIVE schema rather than the plan. The
+      // account-linked columns are here on purpose — they are the evidence
+      // behind the assertion a correction removes — so the obligation they
+      // create is discharged, not dodged: the table carries its
+      // TABLE_DISPOSITIONS entry as `retain_compliance_limited_pii`, the same
+      // disposition solicitation_suppressions and solicitation_unsubscribe_tokens
+      // already carry for this class of data (D7).
+      //
+      // The alternative was `original_account_id` / `original_created_by_user_id`,
+      // which slip past accountLinkedTablesFromMigrations()'s
+      // `\baccount_id\b` on a word boundary and nothing else. That would have
+      // silenced the detector while leaving the retention obligation exactly as
+      // real, so the names stayed honest and the inventory grew instead.
       const columns = await db!<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'public'
           AND table_name = 'solicitation_suppression_corrections'
       `;
       const names = columns.map((column) => column.column_name);
-      expect(names).not.toContain('account_id');
+      expect(names).toContain('account_id');
+      expect(names).toContain('created_by_user_id');
+      expect(names).toContain('note');
+      // Still no business_id: a suppression hangs off an account, never a
+      // location, so there is no business fact to preserve.
       expect(names).not.toContain('business_id');
-      // `removed_by_user_id` is deliberately spelled so it does NOT match
-      // accountLinkedTablesFromMigrations()'s `\buser_id\b` — the leading
-      // underscore blocks the word boundary. Named here so a future rename to
-      // `user_id` is understood as a schema change with an inventory
-      // consequence, not a tidy-up.
-      expect(names).toContain('removed_by_user_id');
-      expect(names).not.toContain('user_id');
+
+      const entry = TABLE_DISPOSITIONS.find(
+        (candidate) => candidate.table === 'solicitation_suppression_corrections',
+      );
+      expect(entry).toBeDefined();
+      expect(entry?.disposition).toBe('retain_compliance_limited_pii');
+      expect(entry?.purgeVerification).toBe('allowed_limited_retention');
     });
 
     // ── the closed value sets, exercised ─────────────────────────────────────
@@ -235,11 +270,13 @@ describeWithDb(
         WHERE conrelid = 'public.solicitation_suppression_corrections'::regclass
           AND contype = 'f'
       `;
-      // The absence IS the assertion. `suppression_id`'s referent is DELETEd by
-      // the same statement that writes this row; an FK to `accounts` would let a
-      // purge CASCADE away a compliance record; and `removed_by_user_id` follows
-      // 096's `created_by_user_id` posture because the record must outlive the
-      // user row it names.
+      // The absence IS the assertion, and it survives D-A11 unchanged even
+      // though the table now carries account_id and created_by_user_id.
+      // `suppression_id`'s referent is DELETEd by the same statement that writes
+      // this row; an FK from `account_id` to `accounts` would let a purge
+      // CASCADE away a compliance record; and both user columns follow 096's
+      // `created_by_user_id` posture because the record must outlive the rows it
+      // names. Honest column names, still no referential coupling.
       expect(foreignKeys).toEqual([]);
     });
 

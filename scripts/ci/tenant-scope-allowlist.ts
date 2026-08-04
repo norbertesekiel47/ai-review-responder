@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 419;
+export const ALLOWLIST_BASELINE = 420;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -177,6 +177,14 @@ const NAMED_RIVAL_LANE_SQL =
 // hoisted here once rather than copy-pasted into both entries.
 const ADMIN_SUPPRESSION_LOOKUP_SQL =
   "SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source, s.account_id, a.display_name AS account_name, s.created_by_user_id, s.note, s.suppressed_at::text FROM solicitation_suppressions s LEFT JOIN accounts a ON a.id = s.account_id WHERE s.channel = 'email' AND s.normalized_handle = ${handle} ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC";
+
+// #645 §8.2 Correction path. ONE data-modifying CTE (P-9) that both removes the
+// ledger row and writes its audit record, so the audit attributes it to
+// solicitation_suppressions AND solicitation_suppression_corrections — hoisted
+// once rather than copy-pasted into both entries. It carries the removed row's
+// account_id, created_by_user_id and note through to the record (D-A11).
+const ADMIN_SUPPRESSION_CORRECTION_SQL =
+  "WITH removed AS ( DELETE FROM solicitation_suppressions WHERE id = ${input.suppressionId}::uuid RETURNING id, channel, normalized_handle, scope, account_id, source, suppressed_at, created_by_user_id, note ) INSERT INTO solicitation_suppression_corrections (id, suppression_id, channel, normalized_handle, scope, account_id, source, suppressed_at, created_by_user_id, note, removed_by_user_id, reason) SELECT ${uuidv7()}, removed.id, removed.channel, removed.normalized_handle, removed.scope, removed.account_id, removed.source, removed.suppressed_at, removed.created_by_user_id, removed.note, ${input.adminUserId}::uuid, ${input.reason} FROM removed RETURNING suppression_id";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3181,8 +3189,15 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/lib/admin/suppressions-service.ts",
+    table: "solicitation_suppression_corrections",
+    sqlSnippet: "SELECT id, suppression_id, scope, source, removed_by_user_id, reason, created_at::text FROM solicitation_suppression_corrections WHERE channel = 'email' AND normalized_handle = ${handle} ORDER BY created_at DESC LIMIT 20",
+    category: 'admin-after-require-role',
+    reason: "#645 §7.3 admin suppression servicing — the prior-corrections leg of the lookup, cross-tenant by design behind requireAdminWithAal2 and keyed on the Normalized handle, which is the only identifier a correction record shares with anything. Scoping it by account_id would hide exactly the records the servicing view exists to show: a `global` correction carries account_id only as provenance and may carry none at all. Read-only, and it returns no account_id.",
+  },
+  {
+    file: "src/lib/admin/suppressions-service.ts",
     table: "solicitation_suppressions",
-    sqlSnippet: "WITH removed AS ( DELETE FROM solicitation_suppressions WHERE id = ${input.suppressionId}::uuid RETURNING id, channel, normalized_handle, scope, source, suppressed_at ) INSERT INTO solicitation_suppression_corrections (id, suppression_id, channel, normalized_handle, scope, source, suppressed_at, removed_by_user_id, reason) SELECT ${uuidv7()}, removed.id, removed.channel, removed.normalized_handle, removed.scope, removed.source, removed.suppressed_at, ${input.adminUserId}::uuid, ${input.reason} FROM removed RETURNING suppression_id",
+    sqlSnippet: ADMIN_SUPPRESSION_CORRECTION_SQL,
     category: 'admin-after-require-role',
     reason: "#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.",
   },

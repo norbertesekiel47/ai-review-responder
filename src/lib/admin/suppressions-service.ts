@@ -184,6 +184,13 @@ export type CorrectSuppressionResult = 'corrected' | 'not_found';
  * this call did not remove: exactly one caller's DELETE matches, the other
  * returns zero rows and writes nothing.
  *
+ * The RETURNING carries the removed row's `account_id`, `created_by_user_id`
+ * and `note` through into the record (D-A11). They are the evidence the removed
+ * assertion was legitimate — for a `scope='account'` row `account_id` IS the
+ * Suppression scope key (§1.2), and `created_by_user_id` + `note` are what §7.3
+ * requires of a manual entry. Nothing can backfill them afterwards, because the
+ * row they came from is what this statement deletes.
+ *
  * Takes `Sql | TransactionSql` because it no longer needs an outer transaction
  * to be correct — it composes into one if a caller has one, and is safe alone.
  *
@@ -198,13 +205,16 @@ export async function correctSuppression(
     WITH removed AS (
       DELETE FROM solicitation_suppressions
       WHERE id = ${input.suppressionId}::uuid
-      RETURNING id, channel, normalized_handle, scope, source, suppressed_at
+      RETURNING id, channel, normalized_handle, scope, account_id, source,
+                suppressed_at, created_by_user_id, note
     )
     INSERT INTO solicitation_suppression_corrections
-      (id, suppression_id, channel, normalized_handle, scope, source,
-       suppressed_at, removed_by_user_id, reason)
+      (id, suppression_id, channel, normalized_handle, scope, account_id,
+       source, suppressed_at, created_by_user_id, note, removed_by_user_id,
+       reason)
     SELECT ${uuidv7()}, removed.id, removed.channel, removed.normalized_handle,
-           removed.scope, removed.source, removed.suppressed_at,
+           removed.scope, removed.account_id, removed.source,
+           removed.suppressed_at, removed.created_by_user_id, removed.note,
            ${input.adminUserId}::uuid, ${input.reason}
     FROM removed
     RETURNING suppression_id

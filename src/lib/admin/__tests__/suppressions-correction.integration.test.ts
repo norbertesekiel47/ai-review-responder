@@ -462,6 +462,96 @@ describeWithDb(
       ]);
     });
 
+    it('the correction record keeps the admin_manual entry creator and originating message reference', async () => {
+      // D-A11. §7.3 makes both REQUIRED of a manual entry — who entered the
+      // opt-out, and the message reference proving it was real. The correction
+      // DELETEs the row that held them, so if the record does not copy them
+      // they are gone: there is nothing left to backfill from.
+      const handle = freshHandle();
+      const suppressionId = await seedGlobalAdminRow(handle, 'forwarded mailbox reply 2026-08-01');
+
+      const outcome = await correctSuppression(sql(), {
+        suppressionId,
+        adminUserId: adminUserId(),
+        reason: 'entered against the wrong address',
+      });
+
+      expect(outcome).toBe('corrected');
+      const records = await sql()<{
+        account_id: string | null;
+        created_by_user_id: string | null;
+        note: string | null;
+        removed_by_user_id: string;
+      }[]>`
+        SELECT account_id, created_by_user_id, note, removed_by_user_id
+        FROM solicitation_suppression_corrections
+        WHERE suppression_id = ${suppressionId}::uuid
+      `;
+      expect(records).toEqual([
+        {
+          // A mailbox reply names no account, so provenance is legitimately
+          // null here — nullable, not absent.
+          account_id: null,
+          created_by_user_id: adminUserId(),
+          note: 'forwarded mailbox reply 2026-08-01',
+          // Distinct facts, deliberately: who asserted the opt-out, and who
+          // undid it. They coincide only because one admin did both.
+          removed_by_user_id: adminUserId(),
+        },
+      ]);
+    });
+
+    it('the correction record keeps the account_id of an account-scoped owner row', async () => {
+      // The case that motivated D-A11. For a `scope='account'` row account_id
+      // is not provenance — it is the Suppression scope key itself (§1.2), so
+      // without it the record cannot say WHOSE do-not-contact was removed.
+      const handle = freshHandle();
+      await sql().begin((tx) => recordSuppression(tx, {
+        scope: 'account',
+        channel: 'email',
+        normalizedHandle: handle,
+        accountId: otherTenant().accountId,
+        source: 'owner_manual',
+        createdByUserId: otherTenant().userId,
+        note: 'owner marked do-not-contact from the contacts table',
+      }));
+      const [seeded] = await sql()<{ id: string }[]>`
+        SELECT id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${handle} AND scope = 'account'
+      `;
+      expect(seeded).toBeDefined();
+
+      const outcome = await correctSuppression(sql(), {
+        suppressionId: seeded!.id,
+        adminUserId: adminUserId(),
+        reason: 'owner suppressed the wrong contact row',
+      });
+
+      expect(outcome).toBe('corrected');
+      const records = await sql()<{
+        scope: string;
+        source: string;
+        account_id: string | null;
+        created_by_user_id: string | null;
+        note: string | null;
+      }[]>`
+        SELECT scope, source, account_id, created_by_user_id, note
+        FROM solicitation_suppression_corrections
+        WHERE suppression_id = ${seeded!.id}::uuid
+      `;
+      expect(records).toEqual([
+        {
+          scope: 'account',
+          source: 'owner_manual',
+          // Non-null by construction on the ledger row (§1.2) and copied
+          // verbatim: the account whose do-not-contact this was.
+          account_id: otherTenant().accountId,
+          created_by_user_id: otherTenant().userId,
+          note: 'owner marked do-not-contact from the contacts table',
+        },
+      ]);
+    });
+
     it('reports not-found instead of writing an orphan correction record when the row is already gone', async () => {
       const result = await correctSuppression(sql(), {
         suppressionId: randomUUID(),

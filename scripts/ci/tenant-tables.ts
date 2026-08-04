@@ -61,6 +61,18 @@ export const TENANT_TABLES = [
   // gone.
   'solicitation_suppressions',
   'solicitation_unsubscribe_tokens',
+  // Deny-all RLS (migration 098, #645 Correction path audit sink) — zero
+  // policies, same posture: a row names a recipient's Normalized handle, so a
+  // direct client read would expose that an identified person's opt-out was
+  // removed.
+  //
+  // It carries account_id, created_by_user_id and note copied off the row it
+  // records the removal of — the evidence behind the corrected assertion
+  // (D-A11). Listed here rather than named around the detector: the honest
+  // spelling is what keeps the retention obligation visible. Written only by
+  // the admin Correction path and read only by the admin lookup, both behind
+  // requireAdminWithAal2 and both exempted in tenant-scope-allowlist.ts.
+  'solicitation_suppression_corrections',
   // Deny-all RLS (migration 066, deep-scan §4.1) — listed so ci:rls-audit
   // guards them. These are NOT account/business-scoped: raw webhook payloads,
   // sales-demo snapshots, and legacy Google OAuth secrets. Their SQL touchpoints

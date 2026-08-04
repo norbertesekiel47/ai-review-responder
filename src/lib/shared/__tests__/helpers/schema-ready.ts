@@ -323,10 +323,23 @@ export const MIGRATION_096_SOLICITATION_SUPPRESSIONS: SchemaRequirement = {
  * 098 creates the Correction path's audit sink. The handle-leading index is the
  * migration's last object before the RLS switch, so its presence implies the
  * whole file ran.
+ *
+ * The three evidence columns are named EXPLICITLY even though that rule would
+ * normally cover them: 098 was edited in place while still LOCAL-ONLY (D-A11),
+ * so a container provisioned before that edit has both the table and the index
+ * and is still missing these. "The last object exists" proves the file ran
+ * ONCE, not that it ran in its current form — and without this the symptom is
+ * `correctSuppression` throwing an undefined-column error rather than the
+ * actionable `pnpm test:db:setup` message.
  */
 export const MIGRATION_098_SUPPRESSION_CORRECTIONS: SchemaRequirement = {
   migration: '098_solicitation_suppression_corrections',
   tables: ['solicitation_suppression_corrections'],
+  columns: [
+    'solicitation_suppression_corrections.account_id',
+    'solicitation_suppression_corrections.created_by_user_id',
+    'solicitation_suppression_corrections.note',
+  ],
   indexes: ['idx_solicitation_suppression_corrections_handle'],
 };
 
