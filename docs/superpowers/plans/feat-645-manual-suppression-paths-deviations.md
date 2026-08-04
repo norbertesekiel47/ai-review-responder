@@ -286,3 +286,40 @@ should be estimated as a **refactor of that component**, not as a diff against
 it — the props threading alone exceeded the whole original estimate.
 
 **Verdict:** ACCEPT — estimate defect, not a lane defect.
+
+---
+
+# STEP 6 TRIAGE ROLL-UP (orchestrator, 2026-08-03)
+
+Read end to end before review dispatch. Every entry is by definition something
+the plan did not anticipate, so this is the highest-signal defect list on the
+branch. Verdicts:
+
+| # | Entry | Verdict |
+|---|---|---|
+| D-A1 | Surface amendment #1 — `src/lib/shared/__tests__/**` | **ACCEPT** — mechanically required by the #573 live-DB convention; test-helper tree only, no production code |
+| D-A2 | Cross-worktree contention on `tenant-scope-allowlist.ts` | **ACCEPT** — append-only handling held; T4 added 3 entries and moved the baseline 416→419 without touching another branch's rows |
+| D-A3 | Migration number collision with #656 | **ACCEPT** — this branch keeps 098 and merges first; #656 renumbered to 099. Merge order **#645 → #656** |
+| D-A4 | `btrim` CHECK contradicted its own test | **ACCEPT** — a real plan defect, corrected toward the plan's stated behaviour and verified against PG16 |
+| D-A5 | T3 left the allowlist snippet stale; T4 fixed it | **ACCEPT** — but see the process lesson below |
+| D-A6 | `../../location-scope` import fails lint | **ACCEPT** — plan snippet written at the sibling route's depth; alias fix, no behaviour change |
+| D-A7 | Flag-gate test placed in `flag-404.test.ts` | **ACCEPT** — follows the convention that file documents as its own. Not one of the 18 contract titles, so the gate is unaffected. **Flagged to the spec reviewer** to confirm the gate really is covered for both new routes |
+| D-A8 | Confirm step on the safe direction, not the risky one | **ACCEPT** — implemented as a follow-up; clearing now confirms with copy distinct from marking, per §7.6 |
+| D-A9 | Two integration suites collide on one coverage directory | **ACCEPT** the rename; the harness bug itself is unfixed and promoted to step 8 |
+| D-A10 | Production estimate missed by 2.5x | **ACCEPT** — estimate defect, not a lane defect; owner call recorded |
+
+**None RE-PLAN. No entry invalidates a locked intake decision**, so the abort
+criteria do not fire. Surface amendments used: **1 of 2**.
+
+## Two process lessons for step 8 promotion
+
+1. **D-A5 is my error, not T3's.** I dispatched T2+T3 and then T4+T5 in parallel
+   without running the gate between batches, so T3's stale-allowlist red was
+   discovered by T4 as "already red on arrival" rather than by me at the batch
+   boundary. It cost T4 diagnosis time on someone else's defect. **Run the gate
+   between parallel batches, not only at the end** — the whole point of a cheap
+   gate is that re-running it is cheap.
+2. **A statement-shape change invalidates its tenant-scope allowlist entry.**
+   `ci:tenant-scope` keys on `file + table + normalized SQL`, so adding a column
+   to a *shared SQL fragment* silently breaks the allowlist entry of every call
+   site that composes it. Not obvious from the fragment's own file.
