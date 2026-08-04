@@ -69,3 +69,38 @@ the plan already cites, while #656 had written nothing.
 **Nothing on this branch changes.** Recorded here only so the merge order is
 visible from both sides: **#645 → #656**. The `tenant-scope-allowlist.ts`
 contention with #656 follows the same append-only handling as D-A2 above.
+
+---
+
+## D-A4 · 2026-08-03 · T2 — the `reason` CHECK contradicted its own test; SQL changed
+
+**What:** the plan's Task 2 Step 1 SQL spells the non-blank guard as
+`CHECK (length(btrim(reason)) > 0)`, while Task 2 Step 4's shape test asserts
+*"rejects every empty-or-whitespace reason"* over `['', ' ', '\t', '\n', '   ']`.
+Those two cannot both hold. Shipped as
+`CHECK (reason ~ '[^[:space:]]')` — "contains at least one non-whitespace
+character".
+
+**Why:** one-argument `btrim(text)` strips **spaces only**. Verified against the
+live PG16 test container while writing the migration:
+
+```
+SELECT length(btrim(E'\t')), length(btrim(' ')), (E'\t' ~ '[^[:space:]]');
+ -- 1 | 0 | f
+```
+
+So a tab- or newline-only reason satisfies `length(btrim(reason)) > 0` and the
+plan's own test failed on the first non-space blank (`'\t'`). The test states
+the intent — an unexplained correction must abort the data-modifying CTE, and
+therefore the DELETE — so the predicate was the wrong side of the contradiction.
+The regex form also matches the route gate: `CorrectSchema`'s
+`z.string().trim().min(1)` uses JS `.trim()`, which strips all whitespace, so
+the DB backstop and the request gate now agree rather than disagreeing on tabs.
+
+**Blast radius:** none outside T2. No call site, no service signature, no test
+title changed; T4's `'   '` rejection case (spaces) behaves identically under
+both predicates. The migration comment and the `**098**` migrations-log entry
+both carry the reasoning.
+
+**Verdict:** ACCEPT — a defect in the plan's SQL, corrected toward the plan's
+own stated behaviour.

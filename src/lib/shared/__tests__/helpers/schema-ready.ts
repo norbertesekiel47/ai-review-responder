@@ -320,6 +320,17 @@ export const MIGRATION_096_SOLICITATION_SUPPRESSIONS: SchemaRequirement = {
 };
 
 /**
+ * 098 creates the Correction path's audit sink. The handle-leading index is the
+ * migration's last object before the RLS switch, so its presence implies the
+ * whole file ran.
+ */
+export const MIGRATION_098_SUPPRESSION_CORRECTIONS: SchemaRequirement = {
+  migration: '098_solicitation_suppression_corrections',
+  tables: ['solicitation_suppression_corrections'],
+  indexes: ['idx_solicitation_suppression_corrections_handle'],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.
