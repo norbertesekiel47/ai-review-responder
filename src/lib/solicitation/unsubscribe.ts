@@ -218,8 +218,14 @@ export type UnsubscribeRedemption =
   | { status: 'already_redeemed_not_suppressed'; tokenHashPrefix: string }
   | { status: 'unknown_token'; tokenHashPrefix: string };
 
-/** Derived from the union above, which stays the single owner of the outcome set. */
-export type UnsubscribeRedemptionStatus = UnsubscribeRedemption['status'];
+/**
+ * Derived from the union above, which stays the single owner of the outcome set.
+ * Module-private on purpose: its only job is to make the record below total, and
+ * no caller names it. A future consumer should write `UnsubscribeRedemption['status']`
+ * rather than re-export this — the union is the exported owner, and one public
+ * name for the outcome set is enough.
+ */
+type UnsubscribeRedemptionStatus = UnsubscribeRedemption['status'];
 
 /**
  * Total by construction: `Record<UnsubscribeRedemptionStatus, …>` makes adding a
