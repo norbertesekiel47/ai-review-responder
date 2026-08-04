@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { AdminNotificationsData } from '@/lib/admin/notifications-service';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 // Mirrors src/app/api/admin/notifications/route.ts's NotifData exactly: the
 // delivery log + businesses dropdown come from AdminNotificationsData (single
@@ -18,16 +18,6 @@ type Delivery = NotifData['notifications'][number];
 
 export const PAGE_SIZE = 20 as const;
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {
   if (d.deliveredAt) return 'delivered';
@@ -40,7 +30,7 @@ const columns: DataTableColumn<Delivery>[] = [
   { key: 'channel', header: 'Channel', render: (d) => <span className="capitalize text-gray-700">{d.channel}</span> },
   { key: 'recipient', header: 'Recipient', render: (d) => <span className="font-mono text-xs text-gray-500">{d.recipient}</span> },
   { key: 'template', header: 'Template', render: (d) => <span className="text-gray-700">{d.template}</span> },
-  { key: 'sent', header: 'Sent', render: (d) => <span className="whitespace-nowrap text-gray-600">{formatDate(d.sentAt)}</span> },
+  { key: 'sent', header: 'Sent', render: (d) => <span className="whitespace-nowrap text-gray-600">{formatAdminDateTime(d.sentAt)}</span> },
   {
     key: 'status',
     header: 'Status',
@@ -83,7 +73,7 @@ function NotificationsContent({
         <select
           value={businessId}
           onChange={(e) => onBusinessIdChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Businesses</option>
           {data.businesses.map((b) => (
@@ -96,7 +86,7 @@ function NotificationsContent({
         <select
           value={channel}
           onChange={(e) => onChannelChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Channels</option>
           <option value="email">Email</option>
@@ -105,7 +95,7 @@ function NotificationsContent({
         <select
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Statuses</option>
           <option value="delivered">Delivered</option>
@@ -116,7 +106,7 @@ function NotificationsContent({
         <button
           type="button"
           onClick={onReset}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           Reset
         </button>
@@ -162,6 +152,7 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
       if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
       return res.json() as Promise<NotifData>;
     },
+    staleTime: 30_000,
     initialData: page === 0 && noFilters ? initialData : undefined,
   });
 
@@ -179,8 +170,10 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
     setPage(0);
   }
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage group="Operate" title="Notifications" description="Delivery log across channels">
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -214,6 +207,6 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

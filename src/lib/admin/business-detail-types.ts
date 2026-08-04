@@ -61,7 +61,14 @@ export interface ReviewRow {
   reviewer_name: string;
   star_rating: number;
   review_text: string | null;
-  review_date: string | null;
+  /**
+   * `reviews.review_date` is TIMESTAMPTZ (migration 001) and is NOT cast in the
+   * SELECT, so Postgres.js decodes it into a `Date`. It was typed `string` here
+   * until the RSC audit (Phase 3 Task 3): the route's `JSON.stringify` converted
+   * it silently, but a server component handing the DTO to a client component
+   * preserves the `Date` instance. The mapper now converts it explicitly.
+   */
+  review_date: Date | null;
   detected_language: string | null;
   review_status: string;
   detected_at: Date | null;

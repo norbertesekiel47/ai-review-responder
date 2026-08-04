@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelEnrollmentRow, DetailData } from '../types';
 
@@ -17,11 +18,27 @@ export interface UseBusinessDetailResult {
   clearBounceFlag: () => Promise<void>;
 }
 
-export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
+export interface UseBusinessDetailOptions {
+  /**
+   * Server-rendered first paint (spec §4). The detail server page fetches both
+   * reads and hands them down, so the page renders with data instead of a
+   * spinner and these queries start `isLoading: false`.
+   */
+  initialDetail?: DetailData;
+  initialChannels?: ChannelEnrollmentRow[];
+}
+
+export function useBusinessDetail(
+  businessId: string,
+  { initialDetail, initialChannels }: UseBusinessDetailOptions = {},
+): UseBusinessDetailResult {
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
+    staleTime: 30_000,
+    initialData: initialDetail,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}`);
       if (!res.ok) {
@@ -44,6 +61,8 @@ export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
     isError: channelsError,
   } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
     queryKey: ['admin-business-channels', businessId],
+    staleTime: 30_000,
+    initialData: initialChannels ? { enrollments: initialChannels } : undefined,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
       if (!res.ok) {
@@ -60,6 +79,10 @@ export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
     // Owner-email edits upsert channel_enrollments inside the PATCH txn; the
     // Channels table must refresh to show the new handle.
     void queryClient.invalidateQueries({ queryKey: ['admin-business-channels', businessId] });
+    // The page <h1> and description are server-rendered from business.name /
+    // .category, which ProfileEditor can edit. Invalidating the react-query
+    // cache alone leaves the chrome showing the pre-edit name until a reload.
+    router.refresh();
   };
 
   const clearBounceFlag = async () => {

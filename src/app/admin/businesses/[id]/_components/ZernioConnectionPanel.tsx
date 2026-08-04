@@ -7,6 +7,7 @@ import type {
   AwaitingOwnerConnectResponse,
   ZernioFinalizeIncident,
 } from '../types';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 interface ZernioConnectionPanelProps {
   businessId: string;
@@ -16,42 +17,40 @@ interface ZernioConnectionPanelProps {
 
 const LAST_ERROR_PREVIEW_LIMIT = 120;
 
-const STATUS_BADGE_STYLES: Record<string, string> = {
+// Deliberately NOT the shared `StatusBadge` (src/components/admin/ui/StatusBadge.tsx):
+// this is a Zernio-connection vocabulary, not a console status. `pending` means
+// "connection handshake outstanding" here and "outbox row not yet dispatched"
+// there — one key, two meanings, no correct single color (the shared map paints
+// it yellow, this one gray). It also renders friendly labels ("Not connected")
+// where the shared badge deliberately renders the raw status string. Named
+// distinctly so it no longer shadows the shared primitive.
+const ZERNIO_CONNECTION_BADGE_STYLES: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
   pending: 'bg-gray-100 text-gray-700',
   disconnected: 'bg-red-100 text-red-800',
   not_connected: 'bg-gray-100 text-gray-700',
 };
 
-const STATUS_BADGE_LABELS: Record<string, string> = {
+const ZERNIO_CONNECTION_BADGE_LABELS: Record<string, string> = {
   active: 'Active',
   pending: 'Pending',
   disconnected: 'Disconnected',
   not_connected: 'Not connected',
 };
 
-function formatTimestamp(iso: string | null): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 function truncate(text: string | null, max: number): string {
   if (!text) return '';
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
-function StatusBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
+function ZernioConnectionBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.not_connected
+        ZERNIO_CONNECTION_BADGE_STYLES[status] ?? ZERNIO_CONNECTION_BADGE_STYLES.not_connected
       }`}
     >
-      {STATUS_BADGE_LABELS[status] ?? status}
+      {ZERNIO_CONNECTION_BADGE_LABELS[status] ?? status}
     </span>
   );
 }
@@ -72,14 +71,14 @@ function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Connected at
             </p>
-            <p className="mt-0.5 text-gray-800">{formatTimestamp(connection.connectedAt)}</p>
+            <p className="mt-0.5 text-gray-800">{formatAdminDateTime(connection.connectedAt)}</p>
           </div>
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Disconnected at
             </p>
             <p className="mt-0.5 text-gray-800">
-              {formatTimestamp(connection.disconnectedAt)}
+              {formatAdminDateTime(connection.disconnectedAt)}
             </p>
           </div>
           {connection.disconnectReason && (
@@ -96,7 +95,7 @@ function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary
                 Last error
                 {connection.lastErrorAt && (
                   <span className="ml-2 font-normal normal-case text-gray-400">
-                    {formatTimestamp(connection.lastErrorAt)}
+                    {formatAdminDateTime(connection.lastErrorAt)}
                   </span>
                 )}
               </p>
@@ -191,7 +190,7 @@ function AwaitingQueueSection({
               <span className="text-rw-teal">{formatStars(r.starRating)}</span>
               <span className="font-medium text-gray-700">{r.reviewerName}</span>
               <span className="text-xs text-gray-400">
-                Queued {formatTimestamp(r.createdAt)}
+                Queued {formatAdminDateTime(r.createdAt)}
               </span>
               <button
                 type="button"
@@ -206,7 +205,7 @@ function AwaitingQueueSection({
               <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
             )}
             {r.draftText && (
-              <p className="mt-2 line-clamp-3 rounded bg-blue-50 p-2 text-xs text-blue-900">
+              <p className="mt-2 line-clamp-3 rounded bg-gray-50 p-2 text-xs text-gray-700">
                 {r.draftText}
               </p>
             )}
@@ -241,7 +240,7 @@ function IncidentsSection({
             <div className="flex flex-wrap gap-3">
               <span className="text-red-700">
                 <span className="font-medium">Opened:</span>{' '}
-                {formatTimestamp(i.finalizeUnknownAt)}
+                {formatAdminDateTime(i.finalizeUnknownAt)}
               </span>
               <span className="text-red-700">
                 <span className="font-medium">Flow:</span>{' '}
@@ -404,7 +403,7 @@ export function ZernioConnectionPanel({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-gray-900">Zernio Connection</h2>
-          <StatusBadge status={status} />
+          <ZernioConnectionBadge status={status} />
         </div>
         {status === 'active' && (
           <button

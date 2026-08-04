@@ -64,7 +64,9 @@ const REVIEW_ROW = {
   reviewer_name: 'Happy Customer',
   star_rating: 5,
   review_text: 'Excellent coffee!',
-  review_date: '2026-04-20',
+  // Postgres.js decodes `reviews.review_date` (TIMESTAMPTZ) into a Date — the
+  // fixture must be a real Date or it cannot catch the RSC Date-leak trap.
+  review_date: new Date('2026-04-20T00:00:00Z'),
   detected_language: 'en',
   review_status: 'response_approved',
   detected_at: new Date('2026-04-20T08:00:00Z'),
@@ -304,7 +306,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
       reviewerName: 'Happy Customer',
       starRating: 5,
       reviewText: 'Excellent coffee!',
-      reviewDate: '2026-04-20',
+      reviewDate: new Date('2026-04-20T00:00:00Z').toISOString(),
       detectedLanguage: 'en',
       detectedAt: new Date('2026-04-20T08:00:00Z').toISOString(),
       responseId: 'resp-1',
@@ -573,5 +575,76 @@ describe('getBusinessDetail — full DTO characterization', () => {
     const result = await getBusinessDetail(sql, 'biz-abc');
     expect(result).not.toBeNull();
     expect(result!.zernio.connection).toBeNull();
+  });
+
+  // RSC-boundary guard (admin console Phase 3, Task 3).
+  //
+  // Every DTO field typed `string`/`string | null` that is sourced from a
+  // TIMESTAMPTZ column must hold a real string, not a `Date`. The API route
+  // hid any miss because `JSON.stringify` serializes a `Date` to ISO; a server
+  // component handing this same object to a client component does NOT — the
+  // RSC serializer preserves the `Date`, and the first paint throws on
+  // `.slice()`/`.replace()`/string rendering before react-query's refetch
+  // silently swaps in real JSON. So: feed real Dates, assert `typeof`.
+  it('emits every timestamptz-sourced DTO field as a string, never a Date (RSC-safe)', async () => {
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+
+    queueAllResults();
+
+    const res = (await getBusinessDetail(sql, 'biz-abc'))!;
+    expect(res).not.toBeNull();
+
+    expect(typeof res.business.lastSyncAt).toBe('string');
+    expect(typeof res.reviews[0]!.reviewDate).toBe('string');
+    expect(typeof res.reviews[0]!.detectedAt).toBe('string');
+    expect(typeof res.rankingSnapshots[0]!.snapshotDate).toBe('string');
+    expect(typeof res.account.locations[0]!.archivedAt === 'string'
+      || res.account.locations[0]!.archivedAt === null).toBe(true);
+    expect(typeof res.zernio.connection!.connectedAt).toBe('string');
+    expect(typeof res.zernio.connection!.disconnectedAt === 'string'
+      || res.zernio.connection!.disconnectedAt === null).toBe(true);
+    expect(typeof res.zernio.connection!.lastErrorAt === 'string'
+      || res.zernio.connection!.lastErrorAt === null).toBe(true);
+    expect(typeof res.zernio.awaitingOwnerConnect[0]!.createdAt).toBe('string');
+    expect(typeof res.zernio.unresolvedIncidents[0]!.finalizeUnknownAt).toBe('string');
+    expect(typeof res.approvalAuditLog[0]!.createdAt).toBe('string');
+    expect(typeof res.accountAuditLog[0]!.createdAt).toBe('string');
+    expect(typeof res.autoApproval.locations[0]!.archivedAt === 'string'
+      || res.autoApproval.locations[0]!.archivedAt === null).toBe(true);
+
+    // Belt-and-braces: no `Date` survives anywhere in the DTO.
+    const dateLeaks: string[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (node instanceof Date) { dateLeaks.push(path); return; }
+      if (Array.isArray(node)) { node.forEach((v, i) => walk(v, `${path}[${i}]`)); return; }
+      if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) walk(v, `${path}.${k}`);
+      }
+    };
+    walk(res, 'response');
+    expect(dateLeaks).toEqual([]);
+  });
+
+  it('maps a Date-valued review_date to an ISO string and a null one to null', async () => {
+    const { getBusinessDetail } = await import('@/lib/admin/business-detail-service');
+
+    const withNullReviewDate = { ...REVIEW_ROW, id: 'rev-2', review_date: null };
+    sqlReturnQueue.push([BUSINESS_ROW]);
+    sqlReturnQueue.push([REVIEW_ROW, withNullReviewDate]);
+    sqlReturnQueue.push([{ count: 2 }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ ...METRICS_ROW }]);
+    sqlReturnQueue.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([AUTO_APPROVAL_ACCOUNT_ROW]);
+
+    const res = (await getBusinessDetail(sql, 'biz-abc'))!;
+    expect(res.reviews[0]!.reviewDate).toBe(new Date('2026-04-20T00:00:00Z').toISOString());
+    expect(res.reviews[1]!.reviewDate).toBeNull();
   });
 });

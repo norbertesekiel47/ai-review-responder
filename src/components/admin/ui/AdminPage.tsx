@@ -10,6 +10,32 @@ interface AdminPageProps {
   children: ReactNode;
 }
 
+/**
+ * CONTENT MEASURES (CF-5) — the rule, so it stops being decided per file.
+ *
+ * `AdminPage` owns the PAGE measure (`max-w-7xl`) and nothing else. What sits
+ * inside picks its own reading measure by kind:
+ *
+ *   - **form pages** → `max-w-2xl` on the form. Inputs stretched to 1280px are
+ *     unreadable and unfillable. (`businesses/new`, `impersonate`)
+ *   - **upload / report pages** → `max-w-3xl`. Wider than a form because the
+ *     validation preview and result summary are tabular, still bounded because
+ *     they are prose-and-list, not a data grid. (`locations/csv-import`)
+ *   - **data pages** → no inner measure; a table or card list uses the full
+ *     `AdminPage` width. (`overview`, `jobs`, `costs`, `notifications`,
+ *     `flagged`, `businesses`, `businesses/[id]`, `offboardings`, `autonomy`,
+ *     the impersonation view)
+ *   - **mixed form + list on one page** → measure the FORM (`max-w-2xl`), let
+ *     the list run full width. The two blocks are independent surfaces; pinning
+ *     the whole page to the form's measure would waste the grid the list needs.
+ *     (`demos`)
+ *
+ * Known side effect, accepted: an `actions`-slot button sits at the `max-w-7xl`
+ * right edge even when the content below it is pinned left, so on a wide
+ * monitor it floats away from what it acts on. Fixing that means moving the
+ * measure into `AdminPage` and having every page declare its kind — a bigger
+ * change than this sweep, and one that would have to re-home the actions slot.
+ */
 export function AdminPage({ group, title, description, actions, children }: AdminPageProps) {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">

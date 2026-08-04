@@ -156,7 +156,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             value={keyword}
             onChange={(e) => dispatch({ type: 'setKeyword', value: e.target.value })}
             placeholder="e.g. plumber downtown"
-            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             disabled={saving}
             required
           />
@@ -172,7 +172,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             min={1}
             max={100}
             step={1}
-            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             disabled={saving}
           />
         </div>
@@ -183,7 +183,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             type="date"
             value={date}
             onChange={(e) => dispatch({ type: 'setDate', value: e.target.value })}
-            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             disabled={saving}
             required
           />

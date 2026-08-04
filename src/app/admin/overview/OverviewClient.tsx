@@ -7,11 +7,11 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { OverviewData } from '@/lib/admin/overview-service';
 import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminCount } from '@/components/admin/ui/format';
 
 export const PAGE_SIZE = 20;
 
@@ -146,18 +146,18 @@ function OverviewContent({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatTile
           label="Pending Outbox"
-          value={systemHealth.pendingOutbox.toLocaleString()}
+          value={formatAdminCount(systemHealth.pendingOutbox)}
           alert={systemHealth.pendingOutbox > 10}
         />
         <StatTile
           label="Failed Jobs"
-          value={systemHealth.failedJobs.toLocaleString()}
+          value={formatAdminCount(systemHealth.failedJobs)}
           alert={systemHealth.failedJobs > 0}
         />
         <StatTile label="Today's API Cost" value={`$${systemHealth.todayCostUsd.toFixed(2)}`} />
         <StatTile
           label="Notif Failures (24h)"
-          value={systemHealth.notificationFailures24h.toLocaleString()}
+          value={formatAdminCount(systemHealth.notificationFailures24h)}
           alert={systemHealth.notificationFailures24h > 0}
         />
         <StatTile
@@ -180,7 +180,7 @@ function OverviewContent({
           <ul className="mt-2 space-y-1">
             {attention.map((item) => (
               <li key={item.href + item.label}>
-                <Link href={item.href} className="text-sm text-blue-600 hover:underline">
+                <Link href={item.href} className="text-sm text-gray-900 underline hover:text-gray-600">
                   {item.label}
                 </Link>
               </li>
@@ -191,7 +191,7 @@ function OverviewContent({
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-gray-800">
-          Businesses ({data.totalBusinesses.toLocaleString()})
+          Businesses ({formatAdminCount(data.totalBusinesses)})
         </h2>
         <div className="mt-3">
           <DataTable
@@ -235,6 +235,7 @@ export function OverviewClient({
     },
     refetchInterval: 30_000,
     initialData: page === 0 ? initialData : undefined,
+    staleTime: 30_000,
   });
 
   // Same cache entry the sidebar's Flagged badge reads (navCountsQueryOptions
@@ -248,34 +249,11 @@ export function OverviewClient({
     initialData: { flaggedOpen, failedJobs: initialData.systemHealth.failedJobs },
   });
 
+  // Page chrome (group/title/description + the three static action links) lives
+  // on the server page so it renders in the RSC payload, never behind this
+  // client's loading state.
   return (
-    <AdminPage
-      group="Operate"
-      title="Overview"
-      description="System health and every business at a glance"
-      actions={
-        <>
-          <Link
-            href="/admin/demos"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Demos
-          </Link>
-          <Link
-            href="/admin/businesses"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            All Businesses
-          </Link>
-          <Link
-            href="/admin/businesses/new"
-            className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700"
-          >
-            + Add Business
-          </Link>
-        </>
-      }
-    >
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -303,6 +281,6 @@ export function OverviewClient({
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

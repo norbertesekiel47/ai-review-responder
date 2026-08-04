@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AdminFlaggedData } from '@/lib/admin/flagged-service';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
+import { PaginationFooter, serverPaginationFooterState } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 type FlaggedData = AdminFlaggedData & { limit: number; offset: number };
 
@@ -35,86 +36,81 @@ function FlaggedContent({
   onDispose: (vars: { flaggedId: string; action: DispositionAction }) => void;
   disposing: boolean;
 }) {
-  if (data.flagged.length === 0) {
-    return (
-      <EmptyState
-        title="No open flagged responses"
-        detail="Every held draft has been dispositioned."
-      />
-    );
-  }
+  // The route is offset-based; the shared footer is page-based. Convert at this
+  // boundary only — `offset` stays the state shape AND the query key.
+  const page = Math.floor(offset / PAGE_SIZE);
+  const footer = serverPaginationFooterState({
+    page,
+    pageSize: PAGE_SIZE,
+    rowsOnPage: data.flagged.length,
+    totalRows: data.total,
+  });
 
   return (
     <>
-      <div className="space-y-4">
-        {data.flagged.map((item) => (
-          <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                  item.severity === 'high'
-                    ? 'bg-red-100 text-red-800'
-                    : 'bg-yellow-100 text-yellow-800'
-                }`}
-              >
-                {item.severity}
-              </span>
-              <span className="text-sm font-medium text-gray-800">{item.businessName}</span>
-              <span className="text-sm text-gray-500">
-                {item.starRating}★ from {item.reviewerName}
-              </span>
-              <span className="ml-auto text-xs text-gray-400">
-                {new Date(item.createdAt).toLocaleString()}
-              </span>
-            </div>
-
-            <p className="mt-2 text-xs text-gray-500">
-              Reason: <span className="font-medium text-gray-700">{item.reason ?? '—'}</span>{' '}
-              · Source: {item.source} · Draft v{item.version}
-            </p>
-
-            <p className="mt-3 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-800">
-              {item.responseText}
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {(Object.keys(ACTION_LABELS) as DispositionAction[]).map((action) => (
-                <button
-                  type="button"
-                  key={action}
-                  onClick={() => onDispose({ flaggedId: item.id, action })}
-                  disabled={disposing}
-                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+      {data.flagged.length === 0 ? (
+        <EmptyState
+          title="No open flagged responses"
+          detail="Every held draft has been dispositioned."
+        />
+      ) : (
+        <div className="space-y-4">
+          {data.flagged.map((item) => (
+            <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                    item.severity === 'high'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-yellow-100 text-yellow-800'
+                  }`}
                 >
-                  {ACTION_LABELS[action]}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+                  {item.severity}
+                </span>
+                <span className="text-sm font-medium text-gray-800">{item.businessName}</span>
+                <span className="text-sm text-gray-500">
+                  {item.starRating}★ from {item.reviewerName}
+                </span>
+                <span className="ml-auto text-xs text-gray-400">
+                  {formatAdminDateTime(item.createdAt)}
+                </span>
+              </div>
 
-      {(offset > 0 || data.flagged.length === PAGE_SIZE) && (
-        <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-3 text-xs text-gray-500">
-          <button
-            type="button"
-            onClick={() => onOffsetChange(Math.max(0, offset - PAGE_SIZE))}
-            disabled={offset === 0}
-            className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <span>
-            Showing {offset + 1}–{offset + data.flagged.length} of {data.total}
-          </span>
-          <button
-            type="button"
-            onClick={() => onOffsetChange(offset + PAGE_SIZE)}
-            disabled={data.flagged.length < PAGE_SIZE}
-            className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-          >
-            Next
-          </button>
+              <p className="mt-2 text-xs text-gray-500">
+                Reason: <span className="font-medium text-gray-700">{item.reason ?? '—'}</span>{' '}
+                · Source: {item.source} · Draft v{item.version}
+              </p>
+
+              <p className="mt-3 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-800">
+                {item.responseText}
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(Object.keys(ACTION_LABELS) as DispositionAction[]).map((action) => (
+                  <button
+                    type="button"
+                    key={action}
+                    onClick={() => onDispose({ flaggedId: item.id, action })}
+                    disabled={disposing}
+                    className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {ACTION_LABELS[action]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {footer.show && (
+        <div className="mt-6">
+          <PaginationFooter
+            page={page}
+            pageCount={footer.pageCount}
+            label={footer.label}
+            onPageChange={(nextPage) => onOffsetChange(nextPage * PAGE_SIZE)}
+          />
         </div>
       )}
     </>
@@ -135,6 +131,7 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
     },
     refetchInterval: 30_000,
     initialData: offset === 0 ? initialData : undefined,
+    staleTime: 30_000,
   });
 
   const disposition = useMutation({
@@ -159,12 +156,10 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
     },
   });
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage
-      group="Safety"
-      title="Flagged responses"
-      description="Held drafts awaiting your disposition"
-    >
+    <>
       {actionError && (
         <p
           role="alert"
@@ -203,6 +198,6 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
           />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

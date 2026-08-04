@@ -332,7 +332,9 @@ export function mapBusinessDetailResponse({
       reviewerName: row.reviewer_name,
       starRating: row.star_rating,
       reviewText: row.review_text ?? null,
-      reviewDate: row.review_date ?? null,
+      // TIMESTAMPTZ → ISO string. `JSON.stringify` used to do this for the route;
+      // the RSC boundary does not, so the conversion is the mapper's job.
+      reviewDate: row.review_date ? row.review_date.toISOString() : null,
       detectedLanguage: row.detected_language ?? null,
       detectedAt: row.detected_at ? row.detected_at.toISOString() : null,
       responseId: row.response_id ?? null,

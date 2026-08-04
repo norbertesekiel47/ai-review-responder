@@ -131,49 +131,72 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `layout.tsx` | Role-checks session; renders `AdminSidebar`. |
+The console migration (spec `docs/superpowers/specs/2026-07-30-admin-console-redesign-design.md`)
+landed the same shape on every page: `page.tsx` is a **server component** —
+`requireAdminPage(sql, {from, aal2?})` gate → read via the owning
+`src/lib/admin/*` service → `<AdminPage>` chrome → client island seeded with
+that read as react-query `initialData`. Phase 3 finished the set and moved
+`<AdminPage>` out of the five Phase 2 clients onto their server pages, so page
+chrome renders in the RSC payload rather than behind a loading state. `PAGE_SIZE`
+is declared once, in the client, and imported by the server page.
+
+| Path | What it does |
+|------|--------------|
+| `layout.tsx` | Wraps everything in `AdminProviders` + `AdminShellFrame` (sidebar shell). |
 | `providers.tsx` | React context providers wrapping the admin layout. |
-| `overview/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminOverview` + `getAdminNavCounts` server-side (`PAGE_SIZE` owned by `OverviewClient.tsx`), renders `OverviewClient` with the server-rendered first page as `initialData`. |
-| `overview/OverviewClient.tsx` | **(Phase 2)** Client island: dashboard overview stats + per-business churn table (`DataTable`, server-paginated), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
-| `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). |
-| `forgot-password/page.tsx` | Admin forgot-password. |
-| `reset-password/page.tsx` | Admin reset-password. |
-| `businesses/page.tsx` | List all businesses. |
-| `businesses/new/page.tsx` | Create a new business. |
-| `businesses/new/schema.ts` | Zod schema for the new-business form. |
-| `businesses/new/components/BusinessInfoSection.tsx` | Form section: business name, Place ID, address. |
-| `businesses/new/components/OwnerInfoSection.tsx` | Form section: owner email, name. |
-| `businesses/new/components/SubscriptionTierSection.tsx` | Form section: tier picker. |
-| `businesses/new/components/VoiceContextSection.tsx` | Form section: tone + product context. |
-| `businesses/new/components/_shared.tsx` | Shared field primitives for the new-business form. |
-| `businesses/new/hooks/useBusinessPrefill.ts` | Hook that calls `/api/admin/businesses/prefill` on Place ID change. |
-| `businesses/[id]/page.tsx` | Business detail page (shell; delegates to sub-components). |
+| `loading.tsx` | Segment streaming fallback: title skeleton + shared `TableSkeleton`, at `AdminPage`'s measure. Owns no viewport height or background — the shell does. |
+| `error.tsx` | Segment error boundary: reports to Sentry, focuses its heading, offers Try again / Back to overview. Rendered as a card inside the shell's main column, palette-matched to the shared `ErrorState`. |
+| `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). Renders outside the shell (`ADMIN_AUTH_ROUTES`). |
+| `forgot-password/page.tsx` | Admin forgot-password. Outside the shell. |
+| `reset-password/page.tsx` | Admin reset-password. Outside the shell. |
+| `overview/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminOverview` + `getAdminNavCounts`, owns the `<AdminPage group="Operate">` chrome and its three action links. |
+| `overview/OverviewClient.tsx` | Client island: system-health tiles + per-business churn table (`DataTable`, server-paginated); owns `PAGE_SIZE`. |
+| `jobs/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminJobsData` + `fetchQueueHealth`, `<AdminPage group="Operate" title="Jobs">`. |
+| `jobs/JobsClient.tsx` | Client island: outbox summary tiles + failed-jobs table + per-queue depth/pool-wait; owns `PAGE_SIZE`. |
+| `costs/page.tsx` | **(Phase 2/3)** Server component: gate, `getCostReport` + `getMarginReport`, `<AdminPage group="Operate" title="Costs">`. |
+| `costs/CostsClient.tsx` | Client island: API cost report + margin mini-tables; owns `PAGE_SIZE`. |
+| `notifications/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminNotifications`, `<AdminPage group="Operate" title="Notifications">`. |
+| `notifications/NotificationsClient.tsx` | Client island: notification delivery log + businesses filter dropdown; owns `PAGE_SIZE`. |
+| `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). Static server page on `<AdminPage group="Operate">`. |
+| `businesses/page.tsx` | **(Phase 3)** Server component: gate, `getAdminBusinessesList`, `<AdminPage group="Businesses">` with the Import CSV / + Add Business actions. |
+| `businesses/BusinessesClient.tsx` | **(Phase 3)** Client island: the businesses table (`DataTable`, server-paginated, `rowHref` → detail), shared `StatusBadge`, `Last Sync (UTC)`; owns `PAGE_SIZE`. |
+| `businesses/[id]/page.tsx` | **(Phase 3)** Server component: gate, `Promise.all([getBusinessDetail, getBusinessChannelEnrollments])`, `notFound()` on a missing business, `<AdminPage>` titled with the business name. |
+| `businesses/[id]/BusinessDetailClient.tsx` | **(Phase 3)** Client island: meta row (health badge, tier/subscription pills, Maps link), the panels below, and both audit logs as client-paginated `DataTable`s. |
 | `businesses/[id]/types.ts` | TypeScript types for the business detail page. |
-| `businesses/[id]/hooks/useBusinessDetail.ts` | Hook that fetches and refreshes `GET /api/admin/businesses/[id]`. |
-| `businesses/[id]/components/ChannelsPanel.tsx` | Displays all three channel enrollment widgets side-by-side. |
-| `businesses/[id]/components/ManualPostFlow.tsx` | UI for marking a response as manually posted. |
-| `businesses/[id]/components/ManualRankingSection.tsx` | Manual ranking snapshot input. |
-| `businesses/[id]/components/ProfileEditor.tsx` | Inline editor for business profile fields. |
-| `businesses/[id]/components/ReviewsList.tsx` | Reviews + responses list for the admin detail view. |
-| `businesses/[id]/components/TrackedKeywordsSection.tsx` | Add/remove ranking keywords. |
-| `businesses/[id]/components/ZernioConnectionPanel.tsx` | Displays Zernio connection status; lets admin disconnect. |
-| `jobs/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminJobsData` + `fetchQueueHealth` server-side (`PAGE_SIZE` owned by `JobsClient.tsx`), renders `JobsClient` with the server-rendered first page as `initialData`. |
-| `jobs/JobsClient.tsx` | **(Phase 2)** Client island: outbox summary tiles + failed-jobs table (`DataTable`, server-paginated) + per-queue depth/pool-wait, refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
-| `costs/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getCostReport` + `getMarginReport` server-side (`PAGE_SIZE` owned by `CostsClient.tsx`), renders `CostsClient` with the server-rendered first page as `initialData`. |
-| `costs/CostsClient.tsx` | **(Phase 2)** Client island: API cost report + margin mini-tables (`DataTable`, server-paginated), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
-| `demos/page.tsx` | Demo requests list. |
-| `notifications/page.tsx` | **(Phase 2)** Server component: `requireAdminPage` gate, fetches `getAdminNotifications` server-side (`PAGE_SIZE` owned by `NotificationsClient.tsx`), renders `NotificationsClient` with the server-rendered first page as `initialData`. |
-| `notifications/NotificationsClient.tsx` | **(Phase 2)** Client island: notification delivery log (`DataTable`, server-paginated) + businesses filter dropdown, refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
-| `flagged/FlaggedClient.tsx` | **(Phase 2)** Client island for `flagged/page.tsx`'s open flagged-response queue: per-item disposition actions (approve/dismiss/regenerate), refetches via react-query seeded from `initialData`; owns `PAGE_SIZE`. |
-| `autonomy/page.tsx` | **(WS6)** Admin-only server shell for the suspended-autonomy queue; loads the branded `AutonomySuspensionsClient`. |
-| `autonomy/AutonomySuspensionsClient.tsx` | **(WS6)** Lists account suspensions with governor rates and recent flag verdicts, collects a required operator note, and POSTs the manual unsuspend action with truthful success/conflict states. |
+| `businesses/[id]/_hooks/useBusinessDetail.ts` | Detail + channels react-query pair, both seeded from the server page's `initialDetail`/`initialChannels`; exposes the channels query's load/error state separately, plus `invalidate()` and `clearBounceFlag()`. |
+| `businesses/[id]/_components/ChannelsPanel.tsx` | Channel enrollments table + the Telegram/WhatsApp enrollment widgets. Distinguishes "no enrollments" from "channels fetch failed". Owns `CHANNEL_ENROLLMENT_BADGE_STYLES`/`ChannelEnrollmentBadge` — deliberately not the shared `StatusBadge` (none of its four keys exist there). |
+| `businesses/[id]/_components/ZernioConnectionPanel.tsx` | Zernio connection status, disconnect, reconnect queue, finalize incidents. Owns `ZERNIO_CONNECTION_BADGE_STYLES`/`ZernioConnectionBadge` — `pending` means something different here than in the shared map. |
+| `businesses/[id]/_components/ProfileEditor.tsx` | Inline editor for business profile fields. |
+| `businesses/[id]/_components/ReviewsList.tsx` | Reviews + responses list for the admin detail view. Star glyphs stay `text-rw-teal` (locked by `no-yellow-star-colors.test.ts`). |
+| `businesses/[id]/_components/ManualRankingSection.tsx` | Manual ranking snapshot input. |
+| `businesses/[id]/_components/TrackedKeywordsSection.tsx` | Add/remove ranking keywords. |
+| `businesses/[id]/_components/PastDueExtensionPanel.tsx` | Grants a bounded past-due grace extension against a ticket. |
+| `businesses/[id]/_components/AutoApprovalDiagnosticsPanel.tsx` | **(WS4)** Auto-approval readiness: block reasons, threshold/source, recent verdicts. |
+| `businesses/new/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Onboard new business">`; no read (it is a form). |
+| `businesses/new/NewBusinessClient.tsx` | **(Phase 3)** Client island: the `react-hook-form` onboarding form at the `max-w-2xl` form measure. |
+| `businesses/new/schema.ts` | Zod schema for the new-business form. |
+| `businesses/new/_components/{BusinessInfoSection,OwnerInfoSection,SubscriptionTierSection,VoiceContextSection}.tsx` | Form sections: business identity/Place ID, owner email+name, tier picker, tone + product context. |
+| `businesses/new/_components/_shared.tsx` | Shared field primitives for the new-business form. |
+| `businesses/new/_hooks/useBusinessPrefill.ts` | Hook that calls `/api/admin/businesses/prefill` on Place ID change. |
+| `locations/csv-import/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Locations import">` (title matches the sidebar label). |
+| `locations/csv-import/CsvImportClient.tsx` | **(Phase 3)** Client island: upload → validate → preview → import, at the `max-w-3xl` upload/report measure. The preview/result tables stay plain `<table>`s — a transient validation preview, not a data page. |
+| `locations/csv-import/csv-validation.ts` | Client-side CSV parse + per-row validation feeding the preview. |
+| `offboardings/page.tsx` | **(Phase 3)** Server component: gate with **`aal2: true`** (parity with `GET /api/admin/offboardings`' `requireAdminWithAal2`), `getAdminOffboardings`, `<AdminPage group="Businesses">`. |
+| `offboardings/OffboardingsClient.tsx` | **(Phase 3)** Client island: offboarding lifecycle cards, provider-disposition mutation, shared `PaginationFooter`; owns `PAGE_SIZE` and the tone-keyed `ToneBadge` (renamed from a local `StatusBadge` that shadowed the shared primitive). |
+| `flagged/page.tsx` | **(Phase 2/3)** Server component: gate, `listOpenFlaggedResponses`, `<AdminPage group="Safety" title="Flagged responses">`. |
+| `flagged/FlaggedClient.tsx` | Client island: open flagged-response queue with per-item disposition actions (approve/dismiss/regenerate), shared `PaginationFooter`; owns `PAGE_SIZE`. |
 | `suppressions/page.tsx` | **(#645)** Server shell for the spec §7.2 daily mailbox-servicing surface (**Safety** nav group). `requireAdminPage(sql, { aal2: true })` — same sensitivity as `/admin/flagged` — and **fetches nothing**: there is deliberately no "all suppressions" list, because the servicing ritual always starts from an address in a forwarded mailbox reply and a browsable dump of every opted-out recipient is a cross-tenant liability with no use. |
 | `suppressions/SuppressionsClient.tsx` | **(#645)** Client island, three regions in the order the ritual uses them: look one address up (`POST /api/admin/suppressions/lookup` — §9.5 keeps the handle out of URLs), record a manual opt-out for it (§7.3 POST, required note), and — only for a record that is factually wrong — the audited **Correction path** (§8.2 POST to `suppressions/correct`). The copy is load-bearing, not decoration: the affordance reads "Correct this record", the confirm step says error-correction-never-re-subscribe in full, and no branch renders a raw API token — a genuine failure says the suppression is still in place, while an already-corrected row (404) says so truthfully and re-runs the lookup, because telling an admin a recipient is still protected when the row is gone is the inverse hazard. |
-| `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
-| `security/AdminSecurityClient.tsx` | **(Phase 2)** Client island for `security/page.tsx`: admin's own MFA enrollment UI (`useMfaEnrollment`) — enroll/verify/unenroll an authenticator factor for step-up (AAL2) access to the rest of the admin control plane. |
-| `impersonate/page.tsx` | **(Wave 2)** Admin support entry for starting an audited read-only view-as session. |
-| `impersonate/ImpersonationStartClient.tsx` | **(Wave 2)** Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
-| `impersonate/[sessionId]/view/page.tsx` | **(Wave 2)** Admin-owned read-only impersonation shell. Validates the signed cookie + active DB session; does not mount owner routes. |
+| `autonomy/page.tsx` | **(WS6)** Server shell for the suspended-autonomy queue; loads `AutonomySuspensionsClient`. |
+| `autonomy/AutonomySuspensionsClient.tsx` | **(WS6)** Lists account suspensions with governor rates and recent flag verdicts, collects a required operator note, and POSTs the manual unsuspend action. |
+| `security/page.tsx` | Server shell for the admin's own MFA enrollment. |
+| `security/AdminSecurityClient.tsx` | **(Phase 2)** Client island: enroll/verify/unenroll an authenticator factor for step-up (AAL2) access to the rest of the admin control plane. |
+| `demos/page.tsx` | **(Phase 3)** Server component: gate, `getAdminDemos`, `<AdminPage group="Growth" title="Demos">`. |
+| `demos/DemosClient.tsx` | **(Phase 3)** Client island: generate form (measured `max-w-2xl`) + full-width demo list, polling at 5s only while a demo is `queued`/`running`. Owns `DEMO_STATUS_STYLES` (generation status has an `animate-pulse` running state the shared badge cannot express). |
+| `impersonate/page.tsx` | **(Wave 2 / Phase 3)** Server component: gate + `<AdminPage group="Growth" title="Impersonation">`. |
+| `impersonate/ImpersonationStartClient.tsx` | Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
+| `impersonate/[sessionId]/view/page.tsx` | **(Wave 2 / Phase 3)** Admin-owned read-only impersonation shell on `<AdminPage>`. Keeps its bespoke gate — `resolveImpersonationViewSession` has four distinct redirect/notFound outcomes that `requireAdminPage` cannot express. Does not mount owner routes. |
+| `impersonate/[sessionId]/view/ImpersonationLocationsTable.tsx` | **(Phase 3)** The account's locations as a `DataTable` (Name / Location ID / State); no `rowHref` — nothing is navigable inside a read-only session. |
 | `impersonate/[sessionId]/view/EndImpersonationButton.tsx` | **(Wave 2)** Ends the current impersonation session via `/api/admin/impersonation/end`. |
 
 ---
@@ -293,18 +316,21 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 
 | Route | What it does |
 |-------|--------------|
-| `overview/route.ts` | Admin overview stats. |
-| `businesses/route.ts` | GET list + POST create (calls `AdminOnboardingService`). |
+| `overview/route.ts` | Admin overview stats; delegates to `getAdminOverview`. |
+| `businesses/route.ts` | GET list (auth → parse/clamp `limit`/`offset` → `getAdminBusinessesList` → JSON) + POST create (calls `AdminOnboardingService`). |
 | `businesses/prefill/route.ts` | Prefill form from Google Place ID (via SerpAPI). |
-| `businesses/[id]/route.ts` | GET / PATCH / DELETE a business. |
-| `businesses/[id]/channels/route.ts` | GET + POST channel enrollments. |
+| `businesses/[id]/route.ts` | GET / PATCH / DELETE a business; delegates to `business-detail-service`. |
+| `businesses/[id]/channels/route.ts` | GET (delegates to `getBusinessChannelEnrollments`) + POST channel enrollments. |
 | `businesses/[id]/keywords/route.ts` | GET + POST ranking keywords. |
 | `businesses/[id]/ranking/route.ts` | GET ranking snapshot. |
-| `businesses/[id]/mark-posted/route.ts` | Mark a response as manually posted. |
-| `costs/route.ts` | GET cost summary. |
-| `demos/route.ts` | GET + POST demo requests. |
+| `businesses/[id]/zernio-queue/route.ts` | Reconnect-queue admin actions (force drain / dismiss) for a location's `awaiting_owner_connect` responses. |
+| `costs/route.ts` | GET cost summary; delegates to `getCostReport` + `getMarginReport`. |
+| `demos/route.ts` | GET demo list (delegates to `getAdminDemos`) + POST demo request. |
 | `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
-| `jobs/route.ts` | GET queue health. |
+| `flagged/route.ts` | GET the open flagged-response queue (delegates to `listOpenFlaggedResponses`) + POST the disposition transaction (which stays in the route). |
+| `offboardings/route.ts` | GET the offboarding lifecycle list behind `requireAdminWithAal2`; delegates to `getAdminOffboardings`. Its page gate matches (`requireAdminPage(sql, {aal2: true})`). |
+| `offboardings/[offboardingId]/route.ts` | POST a provider disposition against one offboarding. |
+| `jobs/route.ts` | GET queue health; delegates to `getAdminJobsData` + `fetchQueueHealth`. |
 | `nav-counts/route.ts` | Thin admin-gated GET for sidebar badge counts (flagged open, failed jobs); delegates to `getAdminNavCounts`. Polled every 60s by `AdminSidebar`. |
 | `notifications/route.ts` | GET delivery logs. |
 | `autonomy/suspensions/route.ts` | **(WS6)** Admin-only GET for the cross-account suspended-policy read model (current rates + five newest flag verdicts); delegates to `listSuspendedPolicies`. |
@@ -355,13 +381,15 @@ Reusable React components imported by multiple pages.
 | `admin/AdminSidebar.tsx` | Grouped dark sidebar shell for the admin console — desktop `<aside>` + mobile fixed top bar/drawer, nav groups from `nav-config.ts`, live badge counts via `/api/admin/nav-counts`. Returns `null` on `/admin/login`, `/admin/forgot-password`, `/admin/reset-password`. |
 | `admin/nav-config.ts` | Admin nav IA as data — `ADMIN_NAV_GROUPS` (grouped nav items + optional badge key) and `ADMIN_AUTH_ROUTES` (routes where the sidebar hides). |
 | `admin/nav-counts-query.ts` | **(Phase 2)** Single owner of the admin nav-badge counts fetch (`GET /api/admin/nav-counts`) + its react-query wiring (`navCountsQueryOptions`) — `AdminSidebar` and `OverviewClient`'s needs-attention strip read the same cache entry (same query key, fetcher, poll cadence) so the two can't disagree on screen at once. |
-| `admin/ChannelsSection.tsx` | Admin panel section showing all three channel widgets side-by-side. |
+| `admin/AdminEnrollmentWidget.tsx` | The shared mobile-channel enrollment state machine (`useEnrollment`) plus an `AdminEnrollmentPresentation` seam; `TelegramEnrollmentWidget`/`WhatsAppEnrollmentWidget` are thin wrappers that differ only in label, colors, copy, and handle masking. |
 | `admin/TelegramEnrollmentWidget.tsx` | 8-state machine UI for Telegram enrollment. Shows QR code (server-rendered data URL). 3s polling + 1h TTL countdown. |
 | `admin/WhatsAppEnrollmentWidget.tsx` | 8-state machine UI for WhatsApp enrollment. Masked phone `+15•••4567`. Same polling pattern as Telegram. |
-| `admin/ui/AdminPage.tsx` | Page chrome primitive — breadcrumb group label, title/description, optional actions row. |
-| `admin/ui/DataTable.tsx` | Generic sortable, paginated table primitive; optional per-row "View →" link column. |
+| `admin/AdminShellFrame.tsx` | Owns the auth-route decision for the whole shell: bare children on login/forgot/reset (no sidebar mount, no nav-counts polling), otherwise the `flex min-h-screen bg-gray-50` sidebar + main frame. The **only** owner of the admin viewport height and page background. |
+| `admin/ui/AdminPage.tsx` | Page chrome primitive — breadcrumb group label, title/description, optional actions row, and the `max-w-7xl` page measure. Carries the **content-measure rule** (form `max-w-2xl` · upload/report `max-w-3xl` · data pages full width · mixed form+list measures the form only). |
+| `admin/ui/DataTable.tsx` | Generic sortable table primitive with two paging modes, plus the exported `PaginationFooter` + `serverPaginationFooterState` that card-list pages (`FlaggedClient`, `OffboardingsClient`) share so the "Showing a–b of N" string and its dead-end guards cannot drift. Optional per-row "View →" link column. In server mode it pushes its display clamp back to the caller, so a caller stranded past a shrunk `totalRows` converges instead of refetching an empty page. |
+| `admin/ui/format.ts` | The console's single date/number formatter — `formatAdminDateTime` (self-labels " UTC"), `formatAdminDate` (bare; caller labels the zone), `formatAdminCount`. All pinned to locale `en-US` + `timeZone: 'UTC'`, because admin pages now render on Vercel (UTC) *and* in the browser (the admin's zone and locale) and a runtime-derived `toLocale*` mismatches on every hydration. `__tests__/format.test.ts` bans `toLocale*` and un-zoned `Intl.DateTimeFormat` across `src/app/admin/**` + `src/components/admin/**`. |
 | `admin/ui/FilterBar.tsx` | Search input + removable filter chips row for admin list pages. |
-| `admin/ui/states.tsx` | `EmptyState`/`ErrorState` primitives for admin list/detail pages. |
+| `admin/ui/states.tsx` | `EmptyState`/`ErrorState`/`TableSkeleton` primitives for admin list/detail pages. |
 | `admin/ui/StatTile.tsx` | Single stat tile (label/value/sub) with an alert (red-border) variant for breached thresholds. |
 | `admin/ui/StatusBadge.tsx` | One authoritative status → badge-color mapping (`STATUS_BADGE_STYLES`) for the admin console — subscription statuses + outbox terminal statuses. |
 | `auth/LoginFormClient.tsx` | Login form (email + password → Supabase sign-in). |
@@ -699,6 +727,12 @@ Admin-side domain helpers.
 | `notifications-service.ts` | **(Phase 2)** `getAdminNotifications(sql, filters)` — the notification delivery log page (dynamic `sql.unsafe()` WHERE builder) + the businesses filter dropdown. Single owner shared by `GET /api/admin/notifications` and `notifications/page.tsx`. |
 | `flagged-service.ts` | **(Phase 2)** `listOpenFlaggedResponses(sql, {limit, offset})` — a page of the open flagged-response queue (joined to response/review/business) + the open total. Single owner shared by `GET /api/admin/flagged` and `flagged/page.tsx` (the POST disposition transaction stays in the route). |
 | `suppressions-service.ts` | **(#645)** The admin-owned Suppression ledger paths (spec §7.3, §8.2): `lookupSuppressions` (live rows for one **Normalized handle** + its prior corrections, so a re-entry after a correction is visible rather than a surprise — cross-tenant, `ci:tenant-scope`-allowlisted), `recordAdminManualSuppression` (`global` / `admin_manual`, `accountId` deliberately null — a mailbox reply names no account and guessing one writes false provenance), and `correctSuppression` — **one** data-modifying CTE whose `DELETE … RETURNING` feeds the `solicitation_suppression_corrections` INSERT, so the delete cannot commit without its audit record even if a call site forgets a transaction, and the record is built from the DELETE's own `RETURNING` so a concurrent correction cannot describe a row this call did not remove. Zero rows back = `'not_found'`: nothing deleted, no orphan record, no third outcome. Authorization lives in the callers (the two `requireAdminWithAal2` routes), which is the proof `recordSuppression`'s `createdByUserId` string cannot carry. |
+| `businesses-list-service.ts` | **(Phase 3)** `getAdminBusinessesList(sql, {limit, offset})` — the businesses list join (`businesses`/`accounts`/`responses`) + the total. Converts `last_sync_at` to ISO itself. Single owner shared by `GET /api/admin/businesses` and `businesses/page.tsx`; the limit/offset clamping stays in the route. |
+| `business-channels-service.ts` | **(Phase 3)** `getBusinessChannelEnrollments(sql, businessId)` — account resolution, the enrollment query, per-channel dedup (location override beats org default), and `maskChannelHandle`. All timestamps ISO. Single owner shared by `GET /api/admin/businesses/[id]/channels` and `businesses/[id]/page.tsx`. |
+| `offboardings-service.ts` | **(Phase 3)** `getAdminOffboardings(sql, {limit, offset})` — the lifecycle list + count, the row mapper, and `scrubAdminLastError` (the security-relevant redactor). Exports the `AdminOffboarding`/`AdminProviderDisposition` DTOs the client imports. Single owner shared by `GET /api/admin/offboardings` and `offboardings/page.tsx`. |
+| `demos-service.ts` | **(Phase 3)** `getAdminDemos(sql)` — the demo list read, ISO timestamps. Single owner shared by `GET /api/admin/demos` and `demos/page.tsx`. |
+| `business-detail-service.ts`, `business-detail-types.ts`, `business-detail/{queries,mappers,update,errors}.ts` | The business-detail read/write model behind `GET`/`PATCH /api/admin/businesses/[id]` and `businesses/[id]/page.tsx`. The mappers own the `timestamptz → ISO string` conversion for every `string`-typed DTO field — a raw `Date` is invisible through a route's `JSON.stringify` but crosses the RSC boundary intact and throws on first paint. |
+| `overview-service.ts`, `cost-report-service.ts`, `margin-service.ts`, `csv-import.ts` | Overview read model; API-cost report; admin-only aggregate margin signals; the CSV locations-import row processor. |
 
 ### `onboarding/`
 
@@ -1147,10 +1181,15 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 All schema migrations live here, numbered `001` … `098` (repository/local-test
 head — `098_solicitation_suppression_corrections.sql`, the #645 **Correction
 path** audit sink: one immutable row per admin-removed suppression, written by
-the same statement as the DELETE, RLS deny-all with zero policies, **no foreign
-keys** — `suppression_id`'s referent is gone by design — and deliberately **no
-`account_id`**, so it is correctly absent from the offboarding inventory; next
-is `099`). Supabase staging/production migrations remain a user-run
+the same statement as the DELETE, RLS deny-all with zero policies, and **no
+foreign keys** — `suppression_id`'s referent is gone by design. It **does**
+snapshot the corrected row's `normalized_handle`, `account_id`,
+`created_by_user_id` and `note` (D-A11) — the evidence the removed assertion was
+legitimate — so it is account-linked and therefore **classified rather than
+renamed to evade classification**: `retain_compliance_limited_pii` /
+`allowed_limited_retention` in `table-disposition.ts`, the disposition its
+siblings `solicitation_suppressions` and `solicitation_unsubscribe_tokens`
+already carry; next is `099`). Supabase staging/production migrations remain a user-run
 promotion step. WS8 uses `077_copilot_autopilot_expand.sql` only after provider
 preflight reaches zero while traffic is quiesced, then deploys strict code and
 smokes before `078_copilot_autopilot_contract.sql` installs the NULL-safe strict

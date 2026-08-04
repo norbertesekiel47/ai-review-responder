@@ -59,6 +59,8 @@ describe('PastDueExtensionPanel', () => {
       }),
     });
     await waitFor(() => expect(onGranted).toHaveBeenCalledTimes(1));
-    expect(screen.getByText('Extension granted until May 29, 2026.')).toBeInTheDocument();
+    // UTC-pinned + zone-labelled (CF-1): the deadline is an operational date the
+    // admin repeats to the owner, so it must not shift with the reader's zone.
+    expect(screen.getByText('Extension granted until May 29, 2026 UTC.')).toBeInTheDocument();
   });
 });

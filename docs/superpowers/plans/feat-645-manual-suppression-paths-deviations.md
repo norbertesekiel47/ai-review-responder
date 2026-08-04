@@ -406,3 +406,33 @@ pre-review `GET /api/admin/suppressions` lookup. Both are now corrected — a
 glossary that documents a design the code no longer has is worse than no entry,
 because the next session will trust it. Also folded in: the `lookup/route.ts`
 row and the §9.5 reasoning for it being a POST.
+
+## D-A12 · 2026-08-04 · step 8 — `main` merged in; one D-A11 resync site was missed
+
+`5f285125` (admin console Phase 3, #658) landed on `main` while this branch sat
+at `gate_green`, leaving it 1 commit behind. Merged in before opening the PR.
+
+**The conflict D-A2 predicted did not happen.** `scripts/ci/tenant-scope-allowlist.ts`
+auto-merged clean — the append-only discipline held exactly as designed. The one
+content conflict was `docs/directory.md`, both sides having rewritten the
+`src/app/admin/` and `src/lib/admin/` tables. Resolved by taking `main`'s Phase 3
+rows wholesale and re-inserting this branch's `#645` rows (verified: all 8
+suppression rows and all 7 `(#645)` tags survive, and the resolved file diffs
+against `origin/main` as additions only).
+
+**The real find:** resolving that conflict surfaced a stale claim
+`efe15be4`'s D-A11 resync had missed — `docs/directory.md`'s
+`supabase/migrations/` paragraph still said migration 098 carries
+"deliberately **no `account_id`**, so it is correctly absent from the offboarding
+inventory." Both halves are false as shipped: 098 line 74 declares
+`account_id UUID`, and the table is entry `table-disposition.ts:403`
+(`retain_compliance_limited_pii` / `allowed_limited_retention`) with a
+`purge-verification.ts:679` branch. Corrected to the D-A11 design.
+
+**Why two review rounds missed it.** The D-A11 addendum above scoped its sweep to
+"`CONTEXT.md`'s Correction path entry and two `docs/directory.md` rows" — the
+prose paragraph ~1000 lines further down, in a section about migration
+*numbering*, is not where anyone looks for a claim about column design. The
+lesson is not "review harder": **a design fact restated in a second place needs a
+grep for the fact, not a re-read of the rows you remember editing.** Promote to
+step 8's sweep.
