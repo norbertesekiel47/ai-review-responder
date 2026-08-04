@@ -5,17 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ADMIN_NAV_GROUPS, type AdminNavItem } from './nav-config';
-
-interface NavCounts {
-  flaggedOpen: number;
-  failedJobs: number;
-}
-
-async function fetchNavCounts(): Promise<NavCounts> {
-  const response = await fetch('/api/admin/nav-counts');
-  if (!response.ok) throw new Error(`nav-counts failed (${response.status})`);
-  return response.json();
-}
+import { navCountsQueryOptions, type NavCounts } from './nav-counts-query';
 
 function isActive(pathname: string | null, href: string): boolean {
   return pathname === href || Boolean(pathname?.startsWith(`${href}/`));
@@ -76,13 +66,7 @@ export function AdminSidebar() {
   const mobilePanelRef = useRef<HTMLDivElement>(null);
   const wasMobileOpenRef = useRef(false);
 
-  const { data: counts } = useQuery({
-    queryKey: ['admin', 'nav-counts'],
-    queryFn: fetchNavCounts,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-    retry: 1,
-  });
+  const { data: counts } = useQuery(navCountsQueryOptions);
 
   // Move focus into the drawer on open, and back to the hamburger on close —
   // never on initial mount, when the drawer was never open to begin with.

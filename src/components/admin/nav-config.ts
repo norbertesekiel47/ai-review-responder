@@ -1,17 +1,17 @@
 export interface AdminNavItem {
-  href: string;
-  label: string;
+  readonly href: string;
+  readonly label: string;
   /** Which nav-counts field renders as a badge on this item. */
-  badge?: 'flaggedOpen' | 'failedJobs';
+  readonly badge?: 'flaggedOpen' | 'failedJobs';
 }
 
-export interface AdminNavGroup {
-  label: string;
-  items: AdminNavItem[];
+interface AdminNavGroup {
+  readonly label: string;
+  readonly items: readonly AdminNavItem[];
 }
 
 /** Grouped admin IA (spec §2). Every admin page must appear exactly once. */
-export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+export const ADMIN_NAV_GROUPS = [
   {
     label: 'Operate',
     items: [
@@ -45,7 +45,9 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: '/admin/impersonate', label: 'Support' },
     ],
   },
-];
+] as const satisfies readonly AdminNavGroup[];
+
+export type AdminNavGroupLabel = (typeof ADMIN_NAV_GROUPS)[number]['label'];
 
 /** Auth pages render outside the shell — the sidebar hides itself here. */
 export const ADMIN_AUTH_ROUTES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'];

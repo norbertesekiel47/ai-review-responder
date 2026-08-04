@@ -92,7 +92,7 @@ describe('GET /api/admin/flagged', () => {
       {
         id: 'flag-1', response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1',
         review_id: 'rev-1', source: 'local_regex', reason: 'refund_discount', severity: 'high',
-        status: 'open', created_at: '2026-05-26T00:00:00.000Z', response_text: 'x',
+        status: 'open', created_at: new Date('2026-05-26T00:00:00.000Z'), response_text: 'x',
         version: 1, reviewer_name: 'Jane', star_rating: 2, business_name: 'Bella Italia',
       },
     ]);
@@ -110,7 +110,7 @@ describe('GET /api/admin/flagged', () => {
       {
         id: 'flag-1', response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1',
         review_id: 'rev-1', source: 'local_regex', reason: 'refund_discount', severity: 'high',
-        status: 'open', created_at: '2026-05-26T00:00:00.000Z', response_text: 'Here is a full refund.',
+        status: 'open', created_at: new Date('2026-05-26T00:00:00.000Z'), response_text: 'Here is a full refund.',
         version: 1, reviewer_name: 'Jane', star_rating: 2, business_name: 'Bella Italia',
       },
     ]);

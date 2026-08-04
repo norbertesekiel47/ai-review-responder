@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DataTable, type DataTableColumn } from '../DataTable';
 import { EmptyState } from '../states';
 
@@ -67,5 +67,80 @@ describe('DataTable', () => {
     const links = screen.getAllByRole('link', { name: 'View →' });
     expect(links).toHaveLength(3);
     expect(links[0]).toHaveAttribute('href', '/admin/businesses/1');
+  });
+
+  it('server pagination: renders given rows as-is with Showing footer and controlled navigation', async () => {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="none" />}
+        serverPagination={{ page: 1, pageSize: 3, totalRows: 8, onPageChange }}
+      />,
+    );
+    expect(names()).toEqual(['Bravo', 'Alpha', 'Charlie']);
+    expect(screen.getByText('Showing 4–6 of 8')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(onPageChange).toHaveBeenCalledWith(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(onPageChange).toHaveBeenCalledWith(0);
+  });
+
+  it('server pagination: disables Previous on first page and Next on last page', () => {
+    const { rerender } = render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="none" />}
+        serverPagination={{ page: 0, pageSize: 3, totalRows: 8, onPageChange: () => {} }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    rerender(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="none" />}
+        serverPagination={{ page: 2, pageSize: 3, totalRows: 8, onPageChange: () => {} }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+
+  it('server pagination: a shrunk page (rows empty, totalRows > 0) still shows the empty state with a reachable Previous', async () => {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="No rows yet" />}
+        serverPagination={{ page: 2, pageSize: 3, totalRows: 8, onPageChange }}
+      />,
+    );
+    expect(screen.getByText('No rows yet')).toBeInTheDocument();
+    const previous = screen.getByRole('button', { name: 'Previous' });
+    expect(previous).toBeEnabled();
+    await userEvent.click(previous);
+    expect(onPageChange).toHaveBeenCalledWith(1);
+  });
+
+  it('server pagination: a true-empty result (totalRows === 0) renders the bare empty state with no footer', () => {
+    render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="No rows yet" />}
+        serverPagination={{ page: 0, pageSize: 3, totalRows: 0, onPageChange: () => {} }}
+      />,
+    );
+    expect(screen.getByText('No rows yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
   });
 });

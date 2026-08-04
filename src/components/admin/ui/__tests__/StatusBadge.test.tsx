@@ -28,4 +28,8 @@ describe('StatusBadge', () => {
     const badge = screen.getByText('some_future_status');
     expect(badge.className).toContain('bg-gray-100');
   });
+
+  it('has an explicit style for the notification delivered status', () => {
+    expect(STATUS_BADGE_STYLES['delivered']).toBeDefined();
+  });
 });
