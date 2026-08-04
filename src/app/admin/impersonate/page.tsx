@@ -15,7 +15,7 @@ export default async function AdminImpersonatePage() {
   return (
     <AdminPage
       group="Growth"
-      title="Impersonation"
+      title="Support"
       description="Start a scoped, read-only support session tied to a ticket and audit log"
     >
       <ImpersonationStartClient />

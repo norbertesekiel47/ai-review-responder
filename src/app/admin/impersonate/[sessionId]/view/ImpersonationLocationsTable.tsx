@@ -12,7 +12,8 @@ export interface ImpersonationLocationRow {
   id: string;
   name: string;
   displayLabel: string | null;
-  state: string;
+  /** Derived server-side. Precedence is archived > primary > active. */
+  state: 'Archived' | 'Primary' | 'Active';
 }
 
 const COLUMNS: DataTableColumn<ImpersonationLocationRow>[] = [
@@ -56,6 +57,10 @@ export function ImpersonationLocationsTable({ locations }: { locations: Imperson
       columns={COLUMNS}
       rows={locations}
       rowKey={(row) => row.id}
+      // A read-only support view exists to show the WHOLE account; DataTable's
+      // default of 20 would page a mid-size account behind a header that still
+      // reads "N total". Page only past the point the list is unreadable.
+      pageSize={100}
       emptyState={<EmptyState title="No locations found for this account." />}
     />
   );

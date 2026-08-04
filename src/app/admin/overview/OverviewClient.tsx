@@ -180,7 +180,7 @@ function OverviewContent({
           <ul className="mt-2 space-y-1">
             {attention.map((item) => (
               <li key={item.href + item.label}>
-                <Link href={item.href} className="text-sm text-blue-600 hover:underline">
+                <Link href={item.href} className="text-sm text-gray-900 underline hover:text-gray-600">
                   {item.label}
                 </Link>
               </li>
