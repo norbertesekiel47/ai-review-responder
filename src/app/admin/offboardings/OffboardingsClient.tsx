@@ -71,6 +71,7 @@ export function OffboardingsClient({ initialData }: { initialData: OffboardingsD
       return res.json() as Promise<OffboardingsData>;
     },
     refetchInterval: 30_000,
+    staleTime: 30_000,
     initialData: offset === 0 ? initialData : undefined,
   });
 

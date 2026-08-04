@@ -290,6 +290,7 @@ export function AutonomySuspensionsClient({
     queryKey: ['admin-autonomy-suspensions'],
     queryFn: fetchSuspensions,
     refetchInterval: 30_000,
+    staleTime: 30_000,
     initialData,
   });
   const unsuspend = useMutation({

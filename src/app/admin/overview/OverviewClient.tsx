@@ -234,6 +234,7 @@ export function OverviewClient({
     },
     refetchInterval: 30_000,
     initialData: page === 0 ? initialData : undefined,
+    staleTime: 30_000,
   });
 
   // Same cache entry the sidebar's Flagged badge reads (navCountsQueryOptions

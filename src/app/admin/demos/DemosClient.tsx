@@ -86,7 +86,7 @@ function GenerateForm() {
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://www.google.com/maps/place/..."
               required={inputMode === 'url'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             />
           )}
           <button
@@ -119,7 +119,7 @@ function GenerateForm() {
               onChange={(e) => setBusinessName(e.target.value)}
               placeholder="Bella Italia"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             />
           </div>
           <div>
@@ -135,7 +135,7 @@ function GenerateForm() {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               placeholder="Italian Restaurant"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             />
           </div>
         </div>
@@ -181,6 +181,7 @@ function DemoList({ initialData }: { initialData: DemoListItem[] }) {
       );
       return hasActive ? 5000 : false;
     },
+    staleTime: 30_000,
     initialData,
   });
 

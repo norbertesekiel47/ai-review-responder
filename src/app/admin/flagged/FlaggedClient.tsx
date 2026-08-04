@@ -130,6 +130,7 @@ export function FlaggedClient({ initialData }: { initialData: FlaggedData }) {
     },
     refetchInterval: 30_000,
     initialData: offset === 0 ? initialData : undefined,
+    staleTime: 30_000,
   });
 
   const disposition = useMutation({

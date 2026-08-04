@@ -161,6 +161,7 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
       if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
       return res.json() as Promise<NotifData>;
     },
+    staleTime: 30_000,
     initialData: page === 0 && noFilters ? initialData : undefined,
   });
 

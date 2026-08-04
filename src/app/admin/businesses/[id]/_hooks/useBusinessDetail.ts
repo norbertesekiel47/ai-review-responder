@@ -37,6 +37,7 @@ export function useBusinessDetail(
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
+    staleTime: 30_000,
     initialData: initialDetail,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}`);
@@ -60,6 +61,7 @@ export function useBusinessDetail(
     isError: channelsError,
   } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
     queryKey: ['admin-business-channels', businessId],
+    staleTime: 30_000,
     initialData: initialChannels ? { enrollments: initialChannels } : undefined,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}/channels`);

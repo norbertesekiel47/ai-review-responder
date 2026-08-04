@@ -410,6 +410,7 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
       if (!res.ok) throw new Error(`Failed to fetch cost data: ${res.status}`);
       return res.json() as Promise<CostData>;
     },
+    staleTime: 30_000,
     initialData: days === DEFAULT_DAYS && page === 0 ? initialData : undefined,
   });
 
