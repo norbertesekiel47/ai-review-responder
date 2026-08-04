@@ -52,9 +52,9 @@ export type SuppressionChannel = (typeof SUPPRESSION_CHANNELS)[number];
  * Global wins a double match (G3): reporting the account row would let an owner
  * clear it under §7.6, watch the contact stay suppressed, and have no idea why.
  *
- * Returns at most one row of { source, suppressed_at }, or none — an existence
- * check, never a comparison against suppressed_at (§2.1), which sidesteps the
- * postgres.js microsecond-truncation class entirely.
+ * Returns at most one row of { scope, source, suppressed_at }, or none — an
+ * existence check, never a comparison against suppressed_at (§2.1), which
+ * sidesteps the postgres.js microsecond-truncation class entirely.
  *
  * `channel` is a PARAMETER rather than the literal 'email' this fragment used to
  * hardcode, because `recordSuppression` has always taken one: with the reader
@@ -63,6 +63,14 @@ export type SuppressionChannel = (typeof SUPPRESSION_CHANNELS)[number];
  * ledger holds but the gate cannot find fails OPEN — the recipient gets
  * contacted. One owner for the channel dimension, on both sides. (#643 step-7
  * review.)
+ *
+ * Returns `scope` as well as `source` because §7.4 requires an owner surface to
+ * distinguish their own reversible account row from a global one. Deriving it
+ * caller-side from `source === 'owner_manual'` would be correct today only
+ * because the G11 DB CHECK makes the mapping total — a second account-scoped
+ * source would silently mislabel every row. One owner for the scope dimension,
+ * same argument as the channel parameter above. The existing consumer
+ * (batch-builder's LATERAL) names its columns explicitly, so this is additive.
  */
 export function suppressionMatchSql(
   db: SqlExecutor,
@@ -71,7 +79,7 @@ export function suppressionMatchSql(
   channel: SuppressionChannel,
 ) {
   return db`
-    SELECT s.source, s.suppressed_at
+    SELECT s.scope, s.source, s.suppressed_at
     FROM solicitation_suppressions s
     WHERE s.channel = ${channel}
       AND s.normalized_handle = ${handleColumn}
@@ -82,6 +90,70 @@ export function suppressionMatchSql(
     ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC
     LIMIT 1
   `;
+}
+
+/**
+ * §7.4's display contract, enforced on the OUTPUT shape.
+ *
+ * The returned object has exactly four keys, and that closure is the guarantee:
+ * a global row's `account_id` provenance cannot reach an owner surface through
+ * this seam (§7.4, invariant #8), and neither can `source`, so FU-3 (bounce vs
+ * complaint vs unsubscribe is NOT owner-visible) holds by construction. The
+ * ledger row carries both; this function is where they stop.
+ *
+ * The narrow `{ scope }` parameter states intent but does NOT prevent a caller
+ * passing a whole row — TypeScript accepts a wider object in that position. The
+ * output closure is what is actually load-bearing, and the exact-key-set test is
+ * what proves it.
+ *
+ * Two consumers today: the contacts list (#645) and the Requests surface (#629,
+ * spec §11 hands §7.4's rendering there). Both feed it a row picked by
+ * `suppressionMatchSql`, so G3's global-wins ordering is already applied.
+ */
+export type SuppressionDisplayState = SuppressionScope;
+
+export interface SuppressionDisplay {
+  state: SuppressionDisplayState;
+  label: string;
+  detail: string;
+  /** §7.6: only an account row is the owner's to reverse. */
+  clearableByOwner: boolean;
+}
+
+/**
+ * Owner-facing copy. "Opted out" and never "skipped" — #622 §6.3 requires the
+ * global effect be stated honestly, and "skipped" reads as a scheduling accident
+ * rather than a person's decision. The global copy deliberately does not say WHO
+ * they opted out from: naming another business is the cross-tenant leak §7.4
+ * forbids.
+ */
+export const SUPPRESSION_DISPLAY_COPY = {
+  global: {
+    label: 'Opted out of RepWorth review requests',
+    detail: 'This person opted out of review requests. We will not contact them.',
+  },
+  account: {
+    label: 'You marked this contact do-not-contact',
+    detail: 'You asked us not to send this contact review requests. You can undo this.',
+  },
+} as const satisfies Record<SuppressionDisplayState, { label: string; detail: string }>;
+
+export function toSuppressionDisplay(
+  match: { scope: string } | null | undefined,
+): SuppressionDisplay | null {
+  if (match == null) return null;
+  // Assert the impossible state rather than defaulting to one of the two: the
+  // DB CHECK makes any other value unreachable, so reaching it means the row
+  // did not come from this ledger and silently rendering it as "global" would
+  // claim an opt-out nobody made.
+  if (match.scope !== 'global' && match.scope !== 'account') {
+    throw new Error(`toSuppressionDisplay: unknown suppression scope ${match.scope}`);
+  }
+  return {
+    state: match.scope,
+    ...SUPPRESSION_DISPLAY_COPY[match.scope],
+    clearableByOwner: match.scope === 'account',
+  };
 }
 
 /**

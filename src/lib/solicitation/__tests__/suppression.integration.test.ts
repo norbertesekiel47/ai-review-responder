@@ -140,14 +140,21 @@ async function expectRejectedWrite(
  * normalized handle. Testing the fragment through its real composition shape is
  * the point — a fragment that only works standalone is a fragment T4 cannot
  * use.
+ *
+ * `scope` is projected alongside `source` because §7.4's display seam reads it
+ * off this fragment (#645). The display mapper's own tests hand-build their
+ * input, so only a probe through the real SQL can prove the fragment projects
+ * the scope of the row its ORDER BY actually picked.
  */
 async function matchSuppression(
   tx: postgresType.TransactionSql,
   handle: string,
   forAccountId: string,
-): Promise<{ source: string | null; suppressed_at: Date | null }> {
-  const rows = await tx<{ source: string | null; suppressed_at: Date | null }[]>`
-    SELECT hit.source, hit.suppressed_at
+): Promise<{ scope: string | null; source: string | null; suppressed_at: Date | null }> {
+  const rows = await tx<
+    { scope: string | null; source: string | null; suppressed_at: Date | null }[]
+  >`
+    SELECT hit.scope, hit.source, hit.suppressed_at
     FROM (SELECT ${handle}::text AS handle) AS probe
     LEFT JOIN LATERAL (
       ${suppressionMatchSql(tx, tx`probe.handle`, forAccountId, 'email')}
@@ -556,6 +563,69 @@ describeWithDb(
       // Same fragment, same handle, the owning account: the row IS found, so
       // the miss above is scoping and not a broken predicate.
       expect(results.forOwningAccount.source).toBe('owner_manual');
+    });
+
+    // ── §7.4 projection: the scope column the display seam reads ─────────────
+    //
+    // The display mapper's unit tests hand-build their input, so the fragment
+    // could project the WRONG scope and every one of them would still pass.
+    // These two probe the real SQL, which is the only place that gap closes.
+
+    it('suppressionMatchSql projects scope global when global and account rows both match', async () => {
+      // G3 proven on the PROJECTION, not just the ordering: the previous test
+      // reads `source`, and a fragment that returned the global row's source
+      // beside the account row's scope would satisfy it while telling the owner
+      // their own reversible row is what suppressed the contact (§7.6).
+      const handle = freshHandle();
+      const hit = await inRolledBackTx(async (tx) => {
+        await recordSuppression(tx, {
+          scope: 'account',
+          channel: 'email',
+          normalizedHandle: handle,
+          accountId: accountId(),
+          source: 'owner_manual',
+          createdByUserId: tenant!.userId,
+        });
+        await recordSuppression(tx, {
+          scope: 'global',
+          channel: 'email',
+          normalizedHandle: handle,
+          accountId: null,
+          source: 'complaint',
+        });
+        return matchSuppression(tx, handle, accountId());
+      });
+
+      expect(hit.scope).toBe('global');
+      // Both columns come from ONE row — asserting them together is what makes
+      // a mismatched pairing visible.
+      expect(hit.source).toBe('complaint');
+    });
+
+    it('suppressionMatchSql projects account scope only for the matching account', async () => {
+      // The account row is the only one that maps to a clearable display state,
+      // so a scope that leaked across the tenant boundary would offer Owner B a
+      // "clear this" control over a row Owner A wrote.
+      const handle = freshHandle();
+      const results = await inRolledBackTx(async (tx) => {
+        await recordSuppression(tx, {
+          scope: 'account',
+          channel: 'email',
+          normalizedHandle: handle,
+          accountId: accountId(),
+          source: 'owner_manual',
+          createdByUserId: tenant!.userId,
+        });
+        return {
+          forOwningAccount: await matchSuppression(tx, handle, accountId()),
+          forNeighbour: await matchSuppression(tx, handle, otherAccountId()),
+        };
+      });
+
+      expect(results.forOwningAccount.scope).toBe('account');
+      expect(results.forOwningAccount.source).toBe('owner_manual');
+      expect(results.forNeighbour.scope).toBeNull();
+      expect(results.forNeighbour.source).toBeNull();
     });
   },
 );
