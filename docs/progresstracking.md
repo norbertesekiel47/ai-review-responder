@@ -1247,3 +1247,117 @@ makes the post-merge `git merge --ff-only main` structurally impossible, since
 verified-identical-trees `reset --hard` + `--force-with-lease`.
 
 ---
+
+## 2026-08-03 — Unsubscribe opt-out path #644 (send-mode map #617; the Suppression ledger's first writer) — PR #654
+
+**No migration.** 096 created both tables and 097 registered the analytics event
+names; this ticket added neither. No dependency added. Merged as `f937f462`.
+
+### What shipped
+
+Two entry points, one outcome. `POST /ingress/unsubscribe/:token` on the Railway
+worker is the RFC 8058 one-click route (`source='unsubscribe_one_click'`);
+`/u/<token>` on Vercel is the human landing path (`source='unsubscribe_link'`).
+Both write one `scope='global'` row to `solicitation_suppressions`.
+
+| File | Role |
+|---|---|
+| `src/lib/solicitation/unsubscribe.ts` (+612) | Token mint/gate/hash, claim-first redemption, Success receipt, `assertUnsubscribeTokenSecretConfigured` |
+| `worker/ingress/unsubscribe.ts` (+532) | One-click route, both hook arms, 60s unknown-token aggregate + shutdown flush, `assertUnsubscribeIngressConfigured` |
+| `worker/ingress/rate-limit.ts` (+70/−) | Both ingress-scope arms, `skipIngressRateLimit` context-config augmentation |
+| `worker/config/fastify-options.ts` (+83/−) | Request serializer + prose-safe censor (`redactSensitiveTokenPaths`) |
+| `src/app/(public)/u/[token]/page.tsx` (+185) | Button / success / Neutral render states |
+| `src/app/api/u/[token]/route.ts` (+66) | Form POST → 303 + receipt mint |
+| `src/lib/shared/sentry-scrub.ts` (+93/−) | Generalised path redaction incl. encoded spellings |
+| `src/lib/config/server.ts` (+25) | `SESSION_COOKIE_SECRET_PREVIOUS`, `SOLICITATION_UNSUBSCRIBE_MAILTO` |
+| `src/app/robots.ts` (+4) | `/u/` disallowed |
+
+Tests: ~3,500 lines across 8 suites, including a 742-line live-DB integration
+suite (20 tests: concurrent redemptions, a mint landing *inside* the race window,
+concurrent purge, correction-path replay) and a **real-socket** rate-limit test.
+
+### Decisions that shaped it
+
+- **Claim first, then suppress.** One `UPDATE … RETURNING account_id,
+  normalized_handle, channel` is the write-ordering primitive; `recordSuppression`
+  is fed from the provenance it locked. `business_id` is deliberately **not**
+  returned — the ledger has no field for it and G12 makes it redundant for the
+  null case. The reverse order lets a replayed spent link undo an audited
+  Correction path removal.
+- **A spent token is not proof of a live suppression.** The spent branch reads the
+  ledger explicitly against a *global-only* existence query — not
+  `suppressionMatchSql`, which answers a different question and would be satisfied
+  by an `account`-scoped row that makes the success sentence false.
+- **Receipt necessary, never sufficient.** Success renders only on a verifying
+  HMAC **and** a live global row read during that render. Three adversarial
+  findings, one root cause: asserting a fact about mutable state from evidence
+  decoupled in time from it.
+- **Honest failure.** Unknown token → `503`, not a success-shaped no-op, so a #630
+  mint race is recoverable by provider retry. Deliberately **no Sentry event** —
+  the route is unauthenticated and unrate-limited; telemetry is a replica-tagged
+  windowed aggregate instead.
+- **Self-authenticating tokens (§1.4a).** A forged token opens **no DB connection**
+  on either surface. Current-plus-previous key verification makes a
+  `SESSION_COOKIE_SECRET` rollover survivable for the statutory ≥30-day window.
+
+### Two live production bypasses closed as side effects
+
+Both pre-existing, both affecting Stripe, Resend, Telegram, Twilio and Zernio:
+
+1. **Percent-encoded ingress paths** — the limiter gated on raw
+   `request.url.startsWith('/ingress/')`, so `/%69ngress/resend` resolved to the
+   real route while escaping the limiter.
+2. **Absolute-form request targets** (RFC 9112 §3.2.2) — `find-my-way` strips
+   scheme+authority so the route resolves, while `request.url` stays absolute,
+   defeating the decoded arm. **Invisible to the entire test suite** because
+   `app.inject()` normalises the target; found only via a raw-socket test.
+
+### Gotchas worth keeping
+
+- `createWorkerLogger`'s **object** args pass through the analytics blocked-key
+  sanitizer, which drops any key containing `token` — `token_hash_prefix` would
+  have vanished silently. Renamed `hash_prefix`. (lab-notes 2026-08-03)
+- `app.inject()` normalises the request target, so an inject-only suite is
+  structurally blind to the raw request line. A surviving mutant there means dead
+  logic **or** a harness blind spot. (lab-notes 2026-08-03)
+- `feature-cleanup.sh` derives `MAIN_ROOT` from its cwd, so run from inside a
+  feature worktree it skips that worktree and cleans nothing while exiting 0.
+- The post-merge sweep does **not** require the main checkout, contradicting
+  #643's note: park `.feature/intake.json` and branch the shipping worktree off
+  `origin/main` (same checkout satisfies containment, no intake satisfies arming).
+
+### Staging proof
+
+Full stack, `SOLICITATION_SEND_ENABLED` **off** throughout (DR1 says every one of
+these must work anyway). Unknown token → `503`; `GET`/`HEAD` → `302`; unmatched
+sub-path → `404`; button page renders the generic fallback for NULL provenance;
+form POST → `303` with a **relative** Location and `cache-control: no-store`;
+success page renders only with a valid receipt **and** a live row; four forged
+receipts (incl. a future-dated HMAC and a single flipped MAC character) all render
+the Neutral page; two spent-token ingress POSTs return `200` and write **nothing**,
+leaving `source='unsubscribe_link'` intact — first-write-wins proven on real
+infrastructure. Test rows deleted afterwards.
+
+### Deployment posture
+
+`SESSION_COOKIE_SECRET` is now **boot-asserted on deployed worker lanes** — a
+deployed worker without it crash-loops, deliberately, replacing a silent statutory
+failure where every well-formed opt-out `503`'d indistinguishably from a genuine
+unknown token. Staging: set. **Railway prod: deliberately unset** until the
+Solicitation agent ships — safe because that worker is `Offline — never
+successfully deployed`, so the gate has nothing to crash-loop; but
+`RAILWAY_ENVIRONMENT_NAME=production` means it binds from that worker's **first
+boot**, so setting it is a precondition of that deploy, not of any merge
+(deviations D13). Vercel has no boot phase and throws per-request instead; it is
+set on prod, which is the lane that went live at merge.
+
+**Carried forward**: `SOLICITATION_UNSUBSCRIBE_MAILTO` is unset by choice — the
+Neutral page omits the line rather than advertising an unserviced address, and
+setting it creates a §7.2 daily business-day servicing obligation. Follow-ups
+**#651** (dedicated bounded DB pool for redemption) and **#652**
+(`redeemUnsubscribeToken` takes `Sql` and owns its transaction) are filed with
+full context. The staging-reconcile item carried from #643 **recurred exactly as
+predicted** — `staging` ended 61 ahead / 1 behind and needed `reset --hard
+origin/main` + `--force-with-lease`.
+
+---
