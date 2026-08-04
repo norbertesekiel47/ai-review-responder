@@ -50,8 +50,10 @@ const SWEPT_FILES = [
   'src/app/admin/locations/csv-import/page.tsx',
   'src/app/admin/offboardings/OffboardingsClient.tsx',
   'src/app/admin/demos/DemosClient.tsx',
+  'src/app/admin/impersonate/page.tsx',
   'src/app/admin/impersonate/ImpersonationStartClient.tsx',
   'src/app/admin/impersonate/[sessionId]/view/page.tsx',
+  'src/app/admin/impersonate/[sessionId]/view/ImpersonationLocationsTable.tsx',
   'src/components/admin/TelegramEnrollmentWidget.tsx',
   'src/components/admin/WhatsAppEnrollmentWidget.tsx',
   // Admin tool — shared UI primitives (Phase 2 console migration)
