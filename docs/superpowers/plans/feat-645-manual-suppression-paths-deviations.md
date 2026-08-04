@@ -104,3 +104,36 @@ both carry the reasoning.
 
 **Verdict:** ACCEPT — a defect in the plan's SQL, corrected toward the plan's
 own stated behaviour.
+
+---
+
+## D-A5 · 2026-08-03 · T4 — T3 left the `suppressionMatchSql` allowlist snippet stale
+
+**What:** T4 found `pnpm ci:tenant-scope` already RED on arrival, before any T4
+file existed:
+
+```
+src/lib/solicitation/suppression.ts: solicitation_suppressions: unused tenant scope allowlist entry
+src/lib/solicitation/suppression.ts: solicitation_suppressions: missing account_id or business_id scope
+```
+
+T3 Step 3 added `s.scope` to the fragment's projection, and the audit keys
+allowlist entries by exact `file + table + normalized SQL` — so the existing
+entry stopped matching the statement it exempts. The plan's T3 has no step for
+this. Fixed in T4 by updating that ONE entry's `sqlSnippet` in place (adding
+`s.scope,`) and extending its reason to name the new column.
+
+**Why it is not a renumber/removal:** the cross-worktree rule on this file is
+append-only with respect to OTHER branches' entries. This entry is this
+branch's own dependency (T3's statement), the edit changes no other entry, and
+the entry count is unchanged by it — `ALLOWLIST_BASELINE` moved 416 → 419 for
+T4's three NEW entries only (`suppressions-service.ts`: the lookup statement
+against `solicitation_suppressions` and against the `accounts` display-name
+join, plus the Correction path CTE against `solicitation_suppressions`).
+`solicitation_suppression_corrections` needs no entry — it is not in
+`TENANT_TABLES`, correctly, because P-2 gives it no account-linked column.
+
+**Blast radius:** none beyond the audit. No runtime code changed.
+
+**Verdict:** ACCEPT — a step the plan omitted, discovered by the audit exactly
+as the plan's "do not guess the count, run it" procedure intends.

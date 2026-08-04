@@ -54,20 +54,34 @@ function lookupRequest(): NextRequest {
   );
 }
 
-function entryRequest(): NextRequest {
+function entryRequest(
+  body: unknown = { email: 'person@example.com', note: 'mailbox ref 1' },
+  origin = 'https://app.example.com',
+): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/suppressions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
-    body: JSON.stringify({ email: 'person@example.com', note: 'mailbox ref 1' }),
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify(body),
   });
 }
 
-function correctRequest(): NextRequest {
+function correctRequest(
+  body: unknown = { suppressionId: SUPPRESSION_ID, reason: 'admin typo' },
+  origin = 'https://app.example.com',
+): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/suppressions/correct', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
-    body: JSON.stringify({ suppressionId: SUPPRESSION_ID, reason: 'admin typo' }),
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify(body),
   });
+}
+
+const ADMIN_ID = '33333333-3333-4333-8333-333333333333';
+/** Any other user id a caller might try to write into the audit trail. */
+const IMPOSTOR_ID = '44444444-4444-4444-8444-444444444444';
+
+function gateAllows(): void {
+  mockRequireAdminWithAal2.mockResolvedValue({ ok: true, admin: { id: ADMIN_ID } });
 }
 
 describe('admin suppression routes', () => {
@@ -102,5 +116,121 @@ describe('admin suppression routes', () => {
     expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
     expect(mockCorrectSuppression).not.toHaveBeenCalled();
     expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('uses the authenticated admin id for entry and correction and rejects client-supplied actor fields', async () => {
+    gateAllows();
+    mockRecordAdminManualSuppression.mockResolvedValue({
+      ok: true,
+      created: true,
+      handle: 'person@example.com',
+    });
+    mockCorrectSuppression.mockResolvedValue('corrected');
+
+    const { POST: entryPost } = await import('../route');
+    const { POST: correctPost } = await import('../correct/route');
+
+    const entryResponse = await entryPost(entryRequest());
+    expect(entryResponse.status).toBe(200);
+    // The actor is the gate's admin, never a body field: an audit record that
+    // can name an arbitrary user proves nothing about who acted.
+    expect(mockRecordAdminManualSuppression).toHaveBeenCalledWith(mockSql, {
+      rawEmail: 'person@example.com',
+      adminUserId: ADMIN_ID,
+      note: 'mailbox ref 1',
+    });
+
+    const correctResponse = await correctPost(correctRequest());
+    expect(correctResponse.status).toBe(200);
+    expect(mockCorrectSuppression).toHaveBeenCalledWith(mockSql, {
+      suppressionId: SUPPRESSION_ID,
+      adminUserId: ADMIN_ID,
+      reason: 'admin typo',
+    });
+
+    vi.clearAllMocks();
+    gateAllows();
+
+    // A client-supplied actor field is a 400 from strictObject, not a silently
+    // ignored key — the difference between "cannot be set" and "is overwritten
+    // today" is one refactor.
+    const spoofedEntry = await entryPost(entryRequest({
+      email: 'person@example.com',
+      note: 'mailbox ref 1',
+      createdByUserId: IMPOSTOR_ID,
+    }));
+    expect(spoofedEntry.status).toBe(400);
+    expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
+
+    const spoofedCorrection = await correctPost(correctRequest({
+      suppressionId: SUPPRESSION_ID,
+      reason: 'admin typo',
+      removedByUserId: IMPOSTOR_ID,
+    }));
+    expect(spoofedCorrection.status).toBe(400);
+    expect(mockCorrectSuppression).not.toHaveBeenCalled();
+  });
+
+  it('rejects blank entry notes blank correction reasons malformed suppression ids and unknown fields before any write', async () => {
+    gateAllows();
+
+    const { POST: entryPost } = await import('../route');
+    const { POST: correctPost } = await import('../correct/route');
+
+    const entryBodies: unknown[] = [
+      { email: 'person@example.com', note: '' },
+      { email: 'person@example.com', note: '   ' },
+      { email: '', note: 'mailbox ref 1' },
+      { email: 'person@example.com' },
+      { email: 'person@example.com', note: 'mailbox ref 1', scope: 'account' },
+    ];
+    for (const body of entryBodies) {
+      const response = await entryPost(entryRequest(body));
+      expect(response.status).toBe(400);
+    }
+
+    const correctBodies: unknown[] = [
+      { suppressionId: SUPPRESSION_ID, reason: '' },
+      { suppressionId: SUPPRESSION_ID, reason: '  ' },
+      { suppressionId: 'not-a-uuid', reason: 'admin typo' },
+      { suppressionId: SUPPRESSION_ID },
+      { suppressionId: SUPPRESSION_ID, reason: 'admin typo', force: true },
+    ];
+    for (const body of correctBodies) {
+      const response = await correctPost(correctRequest(body));
+      expect(response.status).toBe(400);
+    }
+
+    // Validation precedes every write: a rejected body must never have reached
+    // the ledger or the Correction path's audit sink.
+    expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
+    expect(mockCorrectSuppression).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('enforces same-origin on both admin suppression mutations', async () => {
+    gateAllows();
+
+    const { POST: entryPost } = await import('../route');
+    const { POST: correctPost } = await import('../correct/route');
+
+    // The wrapper lives at the export, so only calling the exported POST
+    // exercises it — a mocked-AAL2 assertion alone never would.
+    const entryResponse = await entryPost(entryRequest(
+      { email: 'person@example.com', note: 'mailbox ref 1' },
+      'https://evil.example.com',
+    ));
+    const correctResponse = await correctPost(correctRequest(
+      { suppressionId: SUPPRESSION_ID, reason: 'admin typo' },
+      'https://evil.example.com',
+    ));
+
+    expect(entryResponse.status).toBe(403);
+    expect(correctResponse.status).toBe(403);
+    // Same-origin is decided before the gate, so a cross-origin caller never
+    // even reaches the authorization step.
+    expect(mockRequireAdminWithAal2).not.toHaveBeenCalled();
+    expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
+    expect(mockCorrectSuppression).not.toHaveBeenCalled();
   });
 });
