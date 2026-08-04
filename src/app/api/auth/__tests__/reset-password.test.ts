@@ -11,6 +11,7 @@ const {
   mockSignOut,
   mockGetAal,
   mockCreateServerClient,
+  mockReportCaughtError,
 } = vi.hoisted(() => {
   const sqlFn = vi.fn();
   const getUser = vi.fn();
@@ -32,11 +33,16 @@ const {
         mfa: { getAuthenticatorAssuranceLevel: getAal },
       },
     })),
+    mockReportCaughtError: vi.fn(),
   };
 });
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
+}));
+
+vi.mock('@/lib/shared/report-caught-error', () => ({
+  reportCaughtError: mockReportCaughtError,
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -120,6 +126,8 @@ beforeEach(() => {
       mfa: { getAuthenticatorAssuranceLevel: mockGetAal },
     },
   }));
+
+  mockReportCaughtError.mockReset();
 
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
@@ -375,5 +383,77 @@ describe('POST /api/auth/reset-password', () => {
     const json = await res.json();
     expect(json.error).toBe('mfa_required');
     expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  // ── Provider error status pass-through ───────────────────────────
+
+  it('maps an insufficient_aal write failure to 403 mfa_required, not 400', async () => {
+    mockUpdateUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: {
+        code: 'insufficient_aal',
+        status: 401,
+        message: 'AAL2 session is required to update email or password when MFA is enabled.',
+      },
+    });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('mfa_required');
+  });
+
+  it('passes a provider status through instead of flattening it to 400, and does NOT alarm on it', async () => {
+    mockUpdateUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { status: 422, message: 'New password should be different from the old one.' },
+    });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe('New password should be different from the old one.');
+    expect(mockSignOut).not.toHaveBeenCalled();
+    // A 422 is an ordinary user-facing validation failure, not an
+    // infrastructure anomaly — it must NOT trip the observability path added
+    // for the unmapped-401 / unusable-status cases below.
+    expect(mockReportCaughtError).not.toHaveBeenCalled();
+  });
+
+  it('clamps a status-0 transport error to 400 instead of throwing, and reports it', async () => {
+    // Object.assign(new Error(...), { status }) mirrors the real shape that
+    // reaches this branch: AuthError extends Error, so reportCaughtError's
+    // `err instanceof Error` check is true in production. A plain object
+    // literal would silently pass `instanceof Error` as false and hide a
+    // regression in what actually reaches Sentry on this exact call.
+    const error = Object.assign(new Error('Failed to fetch'), { status: 0 });
+    mockUpdateUser.mockResolvedValueOnce({ data: { user: null }, error });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(400);
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'reset-password',
+      error,
+      expect.objectContaining({ reason: 'update_user_unusable_status' }),
+    );
+  });
+
+  it('passes a bare 401 through as 401 so the client shows the expired-link state, and reports it', async () => {
+    const error = Object.assign(new Error('Invalid session'), { status: 401 });
+    mockUpdateUser.mockResolvedValueOnce({ data: { user: null }, error });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(401);
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'reset-password',
+      error,
+      expect.objectContaining({ reason: 'update_user_unmapped_401' }),
+    );
   });
 });
