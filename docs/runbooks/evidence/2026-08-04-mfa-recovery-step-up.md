@@ -51,6 +51,31 @@ MFA-enrolled accounts recover only through support — is **not** needed. The
 runbook at `docs/runbooks/mfa-factor-reset.md` remains necessary for the separate
 lost-authenticator case, which no amount of step-up can solve.
 
+## Addendum — post-implementation smoke test (staging, 2026-08-04)
+
+The above proved the *premise*. This proves the *shipped feature*, run by the
+operator against `staging.repworth.net` with the branch merged in
+(`9699a6ea`). All three paths passed:
+
+| Path | Expected | Result |
+|---|---|---|
+| Mistyped code (`000000`) | "code was not accepted", and `/api/auth/reset-password` **never called** | PASS |
+| Correct TOTP code | password updated, redirect to `/admin/login`, sign-in works | PASS |
+| Account with no enrolled factor | no code field, completes in one submit, unchanged | PASS |
+
+The first row is the load-bearing one. A rejected code that *still* reached the
+reset route would mean the verify-before-post ordering was wrong and every
+mistyped digit would spend one of that route's 5 attempts/hour. Confirmed absent
+from the network panel, not merely inferred from the error message.
+
+The third row is the regression check: the overwhelming majority of accounts have
+no factor, and their path had to stay byte-for-byte the experience it was.
+
+Caveat on provenance: staging carried **two** unmerged features at the time of
+this run — this branch and `feat-645` (including migration 098). Nothing observed
+suggested interference, but a later bisect should know the environment was not
+carrying this change alone.
+
 ## Provenance and limits of this record
 
 This is an **operator attestation**, not an extracted log. The per-request rows
