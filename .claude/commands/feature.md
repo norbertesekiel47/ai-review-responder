@@ -314,11 +314,11 @@ initialized it at `worktree_ready`; the gate records `gate_green` itself),
 then write the handoff doc to the worktree
 (`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
 plan, ticket files, and glossary excerpt by path — not restate them. Then
-continue in this session: the harness summarizes long context automatically
-and work continues; the handoff doc is a recovery point for
-`/feature-resume <branch>` (crash, interruption, parked branch), not a
-mandatory exit. From here on, never re-read the full grilling
-conversation — consult the spec/plan files instead.
+apply the Session hygiene exit rule: if grilling/planning ran long, tell me
+in one line to `/clear` and run `/feature-resume <branch>` (one keystroke —
+the fresh session reads disk and continues from step 4); if the session is
+still light, continue here. Either way, from here on never re-read the
+full grilling conversation — consult the spec/plan files instead.
 
 ## 4. EXECUTE — delegated
 
@@ -573,19 +573,26 @@ Re-run step 5. When triage completes, run
 
 ## Session hygiene
 
-State lives on disk; sessions are disposable — but restarts are never
-required:
+State lives on disk; sessions are disposable. A fresh session reading
+files beats a summarized one — auto-summarization is the safety net, not
+the plan:
 
 - Write/update the handoff doc at the step 3→4 boundary and after step 7
-  (review verdicts + current step). These are recovery points, not exits:
-  the harness summarizes long context automatically and work continues in
-  this session.
-- `/feature-resume <branch>` is for interruption recovery (crash, closed
-  session, parked branch) or a deliberate split I ask for — never a
-  mandatory step.
-- After a context summarization, do not trust the summary for state:
-  re-read `.feature/state.json`, the handoff doc, and the plan. Disk
-  beats any summary.
+  (review verdicts + current step) — always, whether or not a restart
+  follows.
+- **Take the exit when the session is heavy**: at either checkpoint, if
+  this session has accumulated substantial non-disk context (long
+  grilling, review tables, log digging) — or you suspect you're past
+  halfway — tell me in ONE line to `/clear` and run
+  `/feature-resume <branch>`. That single keystroke is the entire cost;
+  it is not an approval pause. After step 7 this is the default: reviews
+  are the biggest context consumers and everything step 8 needs is on
+  disk.
+- If we ride through and the harness summarizes anyway: do not trust the
+  summary for state — re-read `.feature/state.json`, the handoff doc, and
+  the plan. Disk beats any summary.
+- `/feature-resume <branch>` equally covers interruption recovery (crash,
+  closed session, parked branch).
 
 A resumed session bootstraps from: handoff doc → spec → plan → deviations
 file → review findings tables. It never needs the prior transcript.
