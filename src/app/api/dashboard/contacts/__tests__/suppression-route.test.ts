@@ -130,4 +130,94 @@ describe('owner contact suppression route', () => {
       expect(serialized).not.toContain(banned);
     }
   });
+
+  it('derives account business contact and actor ids only from authenticated scope and route params', async () => {
+    mockMarkContactDoNotContact.mockResolvedValue('marked');
+    mockClearContactDoNotContact.mockResolvedValue('cleared');
+
+    // A caller-supplied body naming other tenants' ids. The route reads none of
+    // it: every id it passes down comes from the authenticated owner scope or
+    // the resolved route param, so a body field cannot redirect a Suppression
+    // ledger write at another account.
+    const hostileBody = JSON.stringify({
+      accountId: FOREIGN_ACCOUNT_ID,
+      businessId: '01900000-0000-7000-8000-0000000000ff',
+      contactId: '01900000-0000-7000-8000-0000000000fe',
+      actorUserId: '01900000-0000-7000-8000-0000000000fd',
+    });
+    const authenticatedScope = {
+      accountId: ACCOUNT_ID,
+      businessId: LOCATION_ID,
+      contactId: CONTACT_ID,
+      actorUserId: OWNER_USER_ID,
+    };
+
+    for (const method of ['POST', 'DELETE'] as const) {
+      const request = new NextRequest(
+        `https://app.example.com/api/dashboard/contacts/${CONTACT_ID}/suppression`,
+        { method, headers: { origin: 'https://app.example.com' }, body: hostileBody },
+      );
+      const handler = method === 'POST' ? POST : DELETE;
+      const response = await handler(request, params);
+      expect(response.status, method).toBe(200);
+    }
+
+    expect(mockMarkContactDoNotContact).toHaveBeenCalledWith(
+      expect.anything(), authenticatedScope,
+    );
+    expect(mockClearContactDoNotContact).toHaveBeenCalledWith(
+      expect.anything(), authenticatedScope,
+    );
+  });
+});
+
+// The wrapper itself, with the real `withSameOrigin` rather than the identity
+// stand-in the suite above installs. Last in the file deliberately: it swaps the
+// route-helpers mock out of the module registry, and the bindings the tests
+// above already imported are unaffected by that.
+describe('owner contact suppression route same-origin wrapper', () => {
+  it('enforces same-origin on both owner suppression mutations', async () => {
+    vi.clearAllMocks();
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com');
+    mockRequireContactsWriteAccess.mockResolvedValue({
+      ok: true,
+      accountId: ACCOUNT_ID,
+      user: { id: OWNER_USER_ID, locationId: LOCATION_ID },
+    });
+    mockResolveContactsScopedId.mockResolvedValue({
+      ok: true,
+      id: CONTACT_ID,
+      locationId: LOCATION_ID,
+    });
+    mockMarkContactDoNotContact.mockResolvedValue('marked');
+    mockClearContactDoNotContact.mockResolvedValue('cleared');
+
+    vi.doUnmock('@/lib/auth/route-helpers');
+    vi.resetModules();
+    try {
+      const route = await import('../[id]/suppression/route');
+
+      for (const method of ['POST', 'DELETE'] as const) {
+        const crossOrigin = new NextRequest(
+          `https://app.example.com/api/dashboard/contacts/${CONTACT_ID}/suppression`,
+          { method, headers: { origin: 'https://attacker.example.com' } },
+        );
+        const handler = method === 'POST' ? route.POST : route.DELETE;
+        const response = await handler(crossOrigin, params);
+        expect(response.status, method).toBe(403);
+      }
+      // Rejected before any owner work: a cross-origin request must never reach
+      // the ledger, not even to be told 404.
+      expect(mockRequireContactsWriteAccess).not.toHaveBeenCalled();
+      expect(mockMarkContactDoNotContact).not.toHaveBeenCalled();
+      expect(mockClearContactDoNotContact).not.toHaveBeenCalled();
+
+      // And the check is not vacuous — a same-origin request still gets through.
+      const sameOrigin = await route.POST(suppressionRequest('POST'), params);
+      expect(sameOrigin.status).toBe(200);
+      expect(mockMarkContactDoNotContact).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

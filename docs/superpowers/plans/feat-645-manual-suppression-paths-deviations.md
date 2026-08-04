@@ -137,3 +137,55 @@ join, plus the Correction path CTE against `solicitation_suppressions`).
 
 **Verdict:** ACCEPT — a step the plan omitted, discovered by the audit exactly
 as the plan's "do not guess the count, run it" procedure intends.
+
+---
+
+## D-A6 · 2026-08-03 · T5 — the owner route's `../../location-scope` import fails lint
+
+**What:** T5 Step 3's route body imports
+`{ requireContactsWriteAccess, resolveContactsScopedId } from '../../location-scope'`.
+That is one level deeper than the sibling `[id]/route.ts` precedent it mirrors,
+and `@typescript-eslint/no-restricted-imports` rejects it:
+
+```
+'../../location-scope' import is restricted — No ../.. parent-traversal for
+src-internal imports — use @/ path aliases
+```
+
+**Fix:** `@/app/api/dashboard/contacts/location-scope`. Same module, so the
+route suite's `vi.mock('../location-scope', …)` still intercepts it (the two
+specifiers resolve to one absolute id) — proven by the mocked-repo call
+assertions, which would not fire if the real gate had run.
+
+**Blast radius:** one import line. No behaviour change.
+
+**Verdict:** ACCEPT — the plan's snippet was written at the sibling route's
+depth and not re-checked one directory down.
+
+---
+
+## D-A7 · 2026-08-03 · T5 — the owner routes' flag-gate test lives in `flag-404.test.ts`
+
+**What:** T5 Step 5 lists "returns the feature-disabled 404 before attempting
+owner authentication" among the tests for
+`src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts`. It is
+instead covered by registering `POST`/`DELETE
+/api/dashboard/contacts/[id]/suppression` in the existing
+`src/app/api/dashboard/contacts/__tests__/flag-404.test.ts` route table.
+
+**Why:** that file's header states the convention outright — "Every
+/api/dashboard/contacts/* route registers here … so the flag gate stays covered
+in one place" — and it already asserts the gate fires *before* auth
+(`expect(mockRequireWritableOwner).not.toHaveBeenCalled()`), which is the exact
+claim the promised title makes. Writing it a second time in
+`suppression-route.test.ts` would need that file to un-mock `../location-scope`
+mid-suite and would leave two owners of one fact. The other two Step 5 extras
+(same-origin enforcement, id derivation from authenticated scope only) ARE in
+`suppression-route.test.ts`; the same-origin one swaps the identity
+`withSameOrigin` stand-in for the real wrapper via `vi.doUnmock` +
+`vi.resetModules` and asserts both the 403 and a non-vacuous 200.
+
+**Blast radius:** test placement only. The gate is covered either way, and the
+two new routes are now in the shared table that future contacts routes join.
+
+**Verdict:** ACCEPT — follows the repo convention the target file documents.

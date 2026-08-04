@@ -8,7 +8,14 @@
  * account-scope check (invariant #8). Never trust the contact id alone.
  */
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
+import { writeAccountAuditLog } from '@/lib/audit/log';
+import {
+  recordSuppression,
+  suppressionMatchSql,
+  toSuppressionDisplay,
+  type SuppressionDisplay,
+} from './suppression';
 
 export interface ContactListItem {
   id: string;
@@ -17,6 +24,8 @@ export interface ContactListItem {
   phone: string | null;
   lastVisitDate: string;
   visitCount: number;
+  /** §7.4 display state, or null when this contact is contactable. */
+  suppression: SuppressionDisplay | null;
 }
 
 const CONTACT_LIST_DEFAULT_LIMIT = 50;
@@ -57,15 +66,25 @@ export async function listContacts(
       phone: string | null;
       last_visit_date: string;
       visit_count: number;
+      suppression_scope: string | null;
     }[]>`
       SELECT c.id, c.name, c.email, c.phone,
              MAX(v.visit_date)::text AS last_visit_date,
-             COUNT(v.id)::int AS visit_count
+             COUNT(v.id)::int AS visit_count,
+             suppression.scope AS suppression_scope
       FROM solicitation_contacts c
       JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id = ${businessId}
       JOIN businesses b ON b.id = c.business_id
+      -- suppressionMatchSql is the ONE owner of the §1.2 lookup (G7); composing
+      -- the fragment is how this join and the dispatch gate stay one predicate.
+      -- c.email already holds the Normalized handle (normalized at CSV parse),
+      -- so nothing is re-normalized here; a phone-only contact has a NULL email
+      -- and simply matches no row.
+      LEFT JOIN LATERAL (
+        ${suppressionMatchSql(sql, sql`c.email`, accountId, 'email')}
+      ) suppression ON TRUE
       WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
-      GROUP BY c.id
+      GROUP BY c.id, suppression.scope
       ORDER BY MAX(v.visit_date) DESC, c.id
       LIMIT ${limit} OFFSET ${offset}
     `,
@@ -85,6 +104,11 @@ export async function listContacts(
       phone: row.phone,
       lastVisitDate: row.last_visit_date,
       visitCount: row.visit_count,
+      // The §7.4 seam is where `account_id` and `source` stop: only the closed
+      // four-key display object reaches an owner surface.
+      suppression: toSuppressionDisplay(
+        row.suppression_scope === null ? null : { scope: row.suppression_scope },
+      ),
     })),
     total: countRows[0]?.total ?? 0,
   };
@@ -127,5 +151,129 @@ export async function deleteContact(
       `;
     }
     return true;
+  });
+}
+
+/** The account-scoped contact lookup both owner suppression paths open with:
+ *  the `businesses` join IS the account-scope check (invariant #8), so a
+ *  foreign contact is indistinguishable from a missing one. */
+async function readOwnedContactHandle(
+  tx: TransactionSql,
+  input: { accountId: string; businessId: string; contactId: string },
+): Promise<{ email: string | null } | undefined> {
+  const rows = await tx<{ email: string | null }[]>`
+    SELECT c.email
+    FROM solicitation_contacts c
+    JOIN businesses b ON b.id = c.business_id
+    WHERE c.id = ${input.contactId}
+      AND c.business_id = ${input.businessId}
+      AND b.account_id = ${input.accountId}
+  `;
+  return rows[0];
+}
+
+export interface OwnerSuppressionInput {
+  accountId: string;
+  businessId: string;
+  contactId: string;
+  actorUserId: string;
+}
+
+export type MarkDoNotContactResult =
+  | 'marked'
+  | 'already_marked'
+  | 'not_found'
+  | 'no_email_handle';
+
+/**
+ * §7.5. The owner is the liable sender under CAN-SPAM even when we send on
+ * their behalf, so they get a mechanism to stop mail going out under their own
+ * name. Writes `scope='account'` — global would let one owner silently degrade
+ * every other tenant's reach with no recipient having spoken (§1.2), and the
+ * one-directional pairing CHECK refuses that combination anyway.
+ *
+ * Keyed on the Normalized handle, never the contact row id: delete-and-
+ * re-upload must not launder it (#535 §6).
+ *
+ * Deliberately writes NO audit-log row: creation already emits the §9.4
+ * `solicitation_suppressed` analytics event inside `recordSuppression`'s
+ * transaction. Deletion emits nothing, which is why clearing gets one.
+ */
+export async function markContactDoNotContact(
+  sql: Sql,
+  input: OwnerSuppressionInput,
+): Promise<MarkDoNotContactResult> {
+  return sql.begin(async (tx): Promise<MarkDoNotContactResult> => {
+    const row = await readOwnedContactHandle(tx, input);
+    if (row === undefined) return 'not_found';
+    if (row.email === null) return 'no_email_handle';
+
+    const id = await recordSuppression(tx, {
+      scope: 'account',
+      channel: 'email',
+      normalizedHandle: row.email,
+      accountId: input.accountId,
+      source: 'owner_manual',
+      createdByUserId: input.actorUserId,
+    });
+    // First-write-wins (§2.1): a repeat is a no-op against the account partial
+    // unique index, not an error.
+    return id === null ? 'already_marked' : 'marked';
+  });
+}
+
+export type ClearDoNotContactResult =
+  | 'cleared'
+  | 'not_marked'
+  | 'not_found'
+  | 'no_email_handle';
+
+/**
+ * §7.6. An owner may remove a row THEY created — their own preference about
+ * their own customer, no recipient ever spoke. The `scope = 'account' AND
+ * account_id = <caller's>` predicate is what makes "an owner may never clear a
+ * global row" unreachable rather than merely unimplemented: there is no input
+ * to this function that reaches one. This is emphatically NOT re-subscribe
+ * (§8.1), and the Correction path (§8.2) is a different act with a different
+ * sink.
+ *
+ * The audit row is here and not on the marking path because creation already
+ * emits the §9.4 `solicitation_suppressed` analytics event inside
+ * recordSuppression's transaction, and deletion emits nothing. It shares the
+ * DELETE's transaction, so a failed audit write keeps the suppression: failing
+ * safe on this path means KEEPING the opt-out.
+ */
+export async function clearContactDoNotContact(
+  sql: Sql,
+  input: OwnerSuppressionInput,
+): Promise<ClearDoNotContactResult> {
+  return sql.begin(async (tx): Promise<ClearDoNotContactResult> => {
+    const row = await readOwnedContactHandle(tx, input);
+    if (row === undefined) return 'not_found';
+    if (row.email === null) return 'no_email_handle';
+
+    const deleted = await tx<{ id: string }[]>`
+      DELETE FROM solicitation_suppressions
+      WHERE channel = 'email'
+        AND normalized_handle = ${row.email}
+        AND scope = 'account'
+        AND account_id = ${input.accountId}::uuid
+      RETURNING id
+    `;
+    const removed = deleted[0];
+    if (removed === undefined) return 'not_marked';
+
+    await writeAccountAuditLog(tx, {
+      accountId: input.accountId,
+      locationId: input.businessId,
+      actorUserId: input.actorUserId,
+      eventType: 'solicitation_do_not_contact_cleared',
+      entityType: 'solicitation_suppression',
+      entityId: removed.id,
+      // NEVER the Normalized handle (§9.5) — the entity id is the correlation key.
+      payload: { channel: 'email', scope: 'account' },
+    });
+
+    return 'cleared';
   });
 }

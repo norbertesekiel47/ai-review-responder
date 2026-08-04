@@ -22,6 +22,7 @@ import {
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import {
   clearContactDoNotContact,
+  deleteContact,
   listContacts,
   markContactDoNotContact,
 } from '../contacts-repo';
@@ -60,8 +61,13 @@ const testDatabaseUrl = resolveTestDatabaseUrl();
 let db: postgresType.Sql | undefined;
 let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
+/** A second tenant, for the two cross-account proofs (invariant #8). */
+let otherTenant: TenantSeed | undefined;
 const businessId = randomUUID();
 const uploadId = randomUUID();
+/** A second user inside the SAME account, so attribution can be proven to
+ *  follow the acting user rather than defaulting to the account owner. */
+const staffUserId = randomUUID();
 
 /** Every Normalized handle this suite touched, swept in `afterEach`. */
 const handles: string[] = [];
@@ -74,6 +80,11 @@ function sql(): postgresType.Sql {
 function seed(): TenantSeed {
   if (!tenant) throw new Error('do-not-contact integration tenant was not seeded');
   return tenant;
+}
+
+function foreignSeed(): TenantSeed {
+  if (!otherTenant) throw new Error('do-not-contact integration foreign tenant was not seeded');
+  return otherTenant;
 }
 
 /** A fresh Normalized handle per test, so no two tests contend on one key. */
@@ -129,6 +140,17 @@ describeWithDb(
         userName: 'Do Not Contact Integration Owner',
         accountDisplayName: 'Do Not Contact Integration Account',
       });
+      otherTenant = await seedTenantAccount(db, {
+        userName: 'Do Not Contact Foreign Owner',
+        accountDisplayName: 'Do Not Contact Foreign Account',
+      });
+      // A non-owner member of the SAME account. `account_audit_log.actor_user_id`
+      // is an FK to `users`, so the actor a clear attributes to must really exist.
+      await db`
+        INSERT INTO users (id, name, email, role, account_id)
+        VALUES (${staffUserId}::uuid, 'Do Not Contact Staff',
+                ${`staff-${staffUserId}@test.local`}, 'owner', ${tenant.accountId}::uuid)
+      `;
       await db`
         INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
         VALUES (
@@ -182,9 +204,15 @@ describeWithDb(
           if (tenant) {
             await db`DELETE FROM solicitation_suppressions WHERE account_id = ${tenant.accountId}::uuid`;
           }
+          if (otherTenant) {
+            await db`DELETE FROM solicitation_suppressions WHERE account_id = ${otherTenant.accountId}::uuid`;
+          }
           await db`DELETE FROM contact_csv_uploads WHERE business_id = ${businessId}::uuid`;
           await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+          // The extra account member goes before the account it belongs to.
+          await db`DELETE FROM users WHERE id = ${staffUserId}::uuid`;
           if (tenant) await cleanupTenantAccount(db, tenant);
+          if (otherTenant) await cleanupTenantAccount(db, otherTenant);
         }
       } finally {
         try {
@@ -293,6 +321,318 @@ describeWithDb(
       );
       expect(contacts.find((contact) => contact.id === contactId)?.suppression?.state)
         .toBe('global');
+    });
+
+    it('repeating owner do-not-contact is a no-op against the account partial unique index', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Repeat Marker',
+        email: contactEmail,
+        visitDates: ['2026-03-04'],
+      });
+      const input = ownerInput(contactId);
+
+      expect(await markContactDoNotContact(sql(), input)).toBe('marked');
+      // First-write-wins (§2.1) reaches this wrapper through recordSuppression's
+      // ON CONFLICT path — a second click is a no-op success, not an error and
+      // not a second row.
+      expect(await markContactDoNotContact(sql(), input)).toBe('already_marked');
+
+      const rows = await sql()<{ id: string }[]>`
+        SELECT id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+      expect(rows).toHaveLength(1);
+    });
+
+    it('attributes owner do-not-contact to the authenticated owner user', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Attributed Contact',
+        email: contactEmail,
+        visitDates: ['2026-03-05'],
+      });
+
+      // Acted on by a member who is NOT the account owner: attribution must
+      // follow the actor the route authenticated, never the account's owner row.
+      expect(await markContactDoNotContact(sql(), {
+        ...ownerInput(contactId),
+        actorUserId: staffUserId,
+      })).toBe('marked');
+
+      const [row] = await sql()<{ created_by_user_id: string | null }[]>`
+        SELECT created_by_user_id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+      expect(row?.created_by_user_id).toBe(staffUserId);
+      expect(row?.created_by_user_id).not.toBe(seed().userId);
+    });
+
+    it('a foreign account can neither mark nor clear another account contact', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Someone Else Customer',
+        email: contactEmail,
+        visitDates: ['2026-03-06'],
+      });
+      expect(await markContactDoNotContact(sql(), ownerInput(contactId))).toBe('marked');
+
+      const foreignInput = {
+        accountId: foreignSeed().accountId,
+        businessId,
+        contactId,
+        actorUserId: foreignSeed().userId,
+      };
+
+      // The `businesses` join IS the account-scope check, so the foreign caller
+      // cannot tell this contact from one that does not exist.
+      expect(await markContactDoNotContact(sql(), foreignInput)).toBe('not_found');
+      expect(await clearContactDoNotContact(sql(), foreignInput)).toBe('not_found');
+
+      const rows = await sql()<{ account_id: string | null }[]>`
+        SELECT account_id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+      expect(rows).toEqual([{ account_id: seed().accountId }]);
+      const audit = await sql()<{ id: string }[]>`
+        SELECT id FROM account_audit_log
+        WHERE event_type = 'solicitation_do_not_contact_cleared'
+      `;
+      expect(audit).toHaveLength(0);
+    });
+
+    it('clearing one account row leaves the global row and every other account row untouched', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Shared Handle Customer',
+        email: contactEmail,
+        visitDates: ['2026-03-07'],
+      });
+
+      await sql().begin((tx) => recordSuppression(tx, {
+        scope: 'global',
+        channel: 'email',
+        normalizedHandle: contactEmail,
+        accountId: null,
+        source: 'complaint',
+      }));
+      // A second tenant's own do-not-contact on the same Normalized handle:
+      // three independent rows, three independent facts.
+      await sql().begin((tx) => recordSuppression(tx, {
+        scope: 'account',
+        channel: 'email',
+        normalizedHandle: contactEmail,
+        accountId: foreignSeed().accountId,
+        source: 'owner_manual',
+        createdByUserId: foreignSeed().userId,
+      }));
+      expect(await markContactDoNotContact(sql(), ownerInput(contactId))).toBe('marked');
+
+      expect(await clearContactDoNotContact(sql(), ownerInput(contactId))).toBe('cleared');
+
+      const remaining = await sql()<{ scope: string; account_id: string | null }[]>`
+        SELECT scope, account_id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+        ORDER BY scope
+      `;
+      // §7.6's predicate carries `account_id = <the caller's>`, so one owner's
+      // control can never reach another tenant's row or the recipient's own.
+      expect(remaining).toEqual([
+        { scope: 'account', account_id: foreignSeed().accountId },
+        { scope: 'global', account_id: null },
+      ]);
+    });
+
+    it('a global-only suppression returns not_marked and writes no owner-clear audit row', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Globally Opted Out',
+        email: contactEmail,
+        visitDates: ['2026-03-08'],
+      });
+      await sql().begin((tx) => recordSuppression(tx, {
+        scope: 'global',
+        channel: 'email',
+        normalizedHandle: contactEmail,
+        accountId: null,
+        source: 'unsubscribe_one_click',
+      }));
+
+      // The REAL SQL proof that an owner cannot clear a global row: the DELETE's
+      // `scope = 'account' AND account_id = <caller's>` predicate matches
+      // nothing, so there is no input to this function that reaches one.
+      expect(await clearContactDoNotContact(sql(), ownerInput(contactId))).toBe('not_marked');
+
+      const remaining = await sql()<{ scope: string }[]>`
+        SELECT scope FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+      expect(remaining).toEqual([{ scope: 'global' }]);
+      // Nothing was removed, so nothing is audited — an audit row here would
+      // record a removal that never happened.
+      const audit = await sql()<{ id: string }[]>`
+        SELECT id FROM account_audit_log WHERE account_id = ${seed().accountId}::uuid
+      `;
+      expect(audit).toHaveLength(0);
+    });
+
+    it('owner clear writes the exact audit actor account location entity and payload without the normalized handle', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Audited Clear',
+        email: contactEmail,
+        visitDates: ['2026-03-09'],
+      });
+      const input = { ...ownerInput(contactId), actorUserId: staffUserId };
+      expect(await markContactDoNotContact(sql(), input)).toBe('marked');
+      const [marked] = await sql()<{ id: string }[]>`
+        SELECT id FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+
+      expect(await clearContactDoNotContact(sql(), input)).toBe('cleared');
+
+      const entries = await sql()<{
+        account_id: string;
+        location_id: string | null;
+        actor_user_id: string | null;
+        event_type: string;
+        entity_type: string | null;
+        entity_id: string | null;
+        payload: unknown;
+      }[]>`
+        SELECT account_id, location_id, actor_user_id, event_type,
+               entity_type, entity_id, payload
+        FROM account_audit_log
+        WHERE account_id = ${seed().accountId}::uuid
+      `;
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        account_id: seed().accountId,
+        location_id: businessId,
+        actor_user_id: staffUserId,
+        event_type: 'solicitation_do_not_contact_cleared',
+        entity_type: 'solicitation_suppression',
+        // The removed row's id is the correlation key (§9.5) — it is what lets
+        // an investigator join back to the ledger without the record itself
+        // naming a person.
+        entity_id: marked!.id,
+      });
+      // PgBouncer can hand JSONB back as a string; either way the assertion is
+      // on the serialized text, which is the shape §9.5 constrains.
+      const payload = entries[0]!.payload;
+      const serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      expect(JSON.parse(serialized)).toEqual({ channel: 'email', scope: 'account' });
+      expect(serialized).not.toContain(contactEmail);
+    });
+
+    it('owner clear rolls back the suppression delete when the audit insert fails', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Rollback Customer',
+        email: contactEmail,
+        visitDates: ['2026-03-10'],
+      });
+      expect(await markContactDoNotContact(sql(), ownerInput(contactId))).toBe('marked');
+
+      // `account_audit_log.actor_user_id` is an FK to `users`, so an actor that
+      // does not exist makes the audit insert fail AFTER the DELETE. Failing
+      // safe on this path means KEEPING the suppression: a lost opt-out is the
+      // one outcome §7.6 must never produce.
+      await expect(clearContactDoNotContact(sql(), {
+        ...ownerInput(contactId),
+        actorUserId: randomUUID(),
+      })).rejects.toThrow();
+
+      const remaining = await sql()<{ scope: string }[]>`
+        SELECT scope FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+      expect(remaining).toEqual([{ scope: 'account' }]);
+    });
+
+    it('deleting and re-uploading the same handle does not clear its suppression', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Churned Customer',
+        email: contactEmail,
+        visitDates: ['2026-03-11'],
+      });
+      expect(await markContactDoNotContact(sql(), ownerInput(contactId))).toBe('marked');
+
+      expect(await deleteContact(sql(), seed().accountId, businessId, contactId)).toBe(true);
+      // Re-ingested tomorrow as a brand-new contact row with the same address.
+      const rebuiltContactId = await seedContact({
+        name: 'Churned Customer',
+        email: contactEmail,
+        visitDates: ['2026-03-12'],
+      });
+      expect(rebuiltContactId).not.toBe(contactId);
+
+      // The ledger keys on the Normalized handle, never the contact row id
+      // (#535 §6), so delete-and-re-upload cannot launder an opt-out back into
+      // contactability. Attestation never overrides suppression.
+      const { contacts } = await listContacts(
+        sql(), seed().accountId, businessId, { limit: 50, offset: 0 },
+      );
+      expect(contacts.find((contact) => contact.id === rebuiltContactId)?.suppression)
+        .toMatchObject({ state: 'account', clearableByOwner: true });
+    });
+
+    it('listContacts ignores an account suppression owned by another account for the same handle', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Other Tenant Customer Too',
+        email: contactEmail,
+        visitDates: ['2026-03-13'],
+      });
+      await sql().begin((tx) => recordSuppression(tx, {
+        scope: 'account',
+        channel: 'email',
+        normalizedHandle: contactEmail,
+        accountId: foreignSeed().accountId,
+        source: 'owner_manual',
+        createdByUserId: foreignSeed().userId,
+      }));
+
+      const { contacts } = await listContacts(
+        sql(), seed().accountId, businessId, { limit: 50, offset: 0 },
+      );
+      // Another tenant's do-not-contact is that tenant's preference, not a
+      // recipient's revocation — surfacing it here would leak that a different
+      // business marked this person (invariant #8, §7.4).
+      expect(contacts.find((contact) => contact.id === contactId)?.suppression).toBeNull();
+    });
+
+    it('listContacts returns only the suppression display shape and never source or account provenance', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Shape Check',
+        email: contactEmail,
+        visitDates: ['2026-03-14'],
+      });
+      expect(await markContactDoNotContact(sql(), {
+        ...ownerInput(contactId),
+        actorUserId: staffUserId,
+      })).toBe('marked');
+
+      const { contacts } = await listContacts(
+        sql(), seed().accountId, businessId, { limit: 50, offset: 0 },
+      );
+      const listed = contacts.find((contact) => contact.id === contactId);
+      expect(Object.keys(listed!.suppression!).sort())
+        .toEqual(['clearableByOwner', 'detail', 'label', 'state']);
+
+      // The API response is where §7.4's cross-tenant prohibition and FU-3 are
+      // actually load-bearing: a component test cannot catch the route shipping
+      // provenance to the browser.
+      const serialized = JSON.stringify(contacts);
+      for (const forbidden of [
+        'account_id', 'accountId', 'accountName', 'source', 'note',
+        seed().accountId, staffUserId, 'owner_manual',
+      ]) {
+        expect(serialized).not.toContain(forbidden);
+      }
     });
   },
 );
