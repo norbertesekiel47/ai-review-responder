@@ -14,9 +14,19 @@ verified MFA factor, GoTrue requires AAL2 for a password change and returns
 The route performs no AAL check anywhere: it validates same-origin, session, role, flag
 gate, rate limit, and body, then writes.
 
-Every RepWorth admin is affected. AAL2 is required to use the console at all
-(`src/proxy.ts:118-136`), so every admin has an enrolled factor by construction. An admin
-who forgets their password has no self-service path back in.
+Every RepWorth admin with an enrolled factor is affected, and in practice that is all of
+them: `src/proxy.ts:118-136` bounces an admin to `/mfa/challenge` on every console surface
+until they reach AAL2. An admin who forgets their password has no self-service path back in.
+
+Two precisions worth stating, because the loose version of this claim is wrong in ways that
+matter elsewhere. First, the gate is conditional on `MFA_ENFORCEMENT_ENABLED`, whose
+documented default is `false` (`.env.example:298`) — so "AAL2 is required to use the console
+at all" is a deployment fact, not a code invariant. Second, it is a *step-up* gate
+(`nextLevel === 'aal2' && currentLevel !== 'aal2'`), not an enrollment requirement: an
+account with **no** factor reports `nextLevel: 'aal1'` and passes. Nothing in the repo forces
+a factor to exist. That matters for the break-glass runbook — after an operator removes
+someone's only factor, the account stays usable at AAL1 indefinitely and re-enrollment has to
+be chased, not assumed.
 
 Owners are affected identically. They can enroll TOTP at `/settings/security` and share
 the same route.

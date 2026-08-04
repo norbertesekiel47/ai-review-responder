@@ -1891,20 +1891,27 @@ gh pr create --base main --title "fix(auth): MFA step-up in password recovery" -
 Password reset was permanently impossible for any account with MFA enrolled.
 `/api/auth/reset-password` called `updateUser` on the AAL1 recovery session, so
 GoTrue returned `401 insufficient_aal` on every attempt, and the route's flat
-`status: 400` mapping disguised it as a validation error. Every RepWorth admin
-was affected — AAL2 is required to use the console at all, so every admin has an
-enrolled factor by construction.
+`status: 400` mapping disguised it as a validation error. Every admin with an
+enrolled factor was affected, which in practice is all of them — `src/proxy.ts`
+bounces admins to `/mfa/challenge` until they reach AAL2 (when
+`MFA_ENFORCEMENT_ENABLED` is on; note that gate is a step-up check, not an
+enrollment requirement).
 
 ## Fix
 
 - Gate the route on `requireAal2FromSupabase`, placed after the rate limit and
-  before the body parse. Mirrors GoTrue's own predicate, so the pre-check and the
-  provider cannot disagree; no-factor accounts fall through untouched.
+  before the body parse. Reads the same verified-factor list GoTrue stamps into
+  the session, so the pre-check tracks the provider without a second round-trip.
+  Wrapped in try/catch — the probe can throw, and an unwrapped call would break
+  the fail-closed promise. No-factor accounts fall through untouched.
 - Collect the TOTP code inline on both reset cards via a new headless
   `useRecoveryStepUp` hook, which challenges/verifies through the existing
   `/api/auth/mfa/challenge`. A mistyped code never reaches the reset route.
-- Pass provider statuses through instead of flattening to 400 — which also
-  un-masks the genuine 401 of a session that lapses mid-request.
+- Pass provider statuses through instead of flattening to 400 — clamped to
+  400-599, because `AuthRetryableFetchError` carries status 0 and would
+  otherwise throw a `RangeError` out of the handler. Also un-masks the genuine
+  401 of a session that lapses mid-request, and reports the two shapes the
+  client can misread.
 - Admin card gains the recovery-session probe the owner card already had.
 - Ships the break-glass runbook that `mfa/challenge/route.ts` already claimed
   existed.
