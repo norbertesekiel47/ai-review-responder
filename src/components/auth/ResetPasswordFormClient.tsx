@@ -161,6 +161,14 @@ function AdminResetPassword({
   );
 }
 
+// This component renders THREE distinct full-page layouts from one state
+// machine (owner card, admin card, expired-link dead-end for each portal)
+// because both reset cards must share the step-up probe/verify state (see
+// the comment on `stepUp` below); splitting it into wrapper components would
+// still need every branch here to select among them, only with the
+// branching moved up a level and the shared state threaded through props
+// instead of read directly.
+// fallow-ignore-next-line complexity
 export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordFormProps) {
   const [password, setPassword] = useState('');
   const [confirmPw, setConfirmPw] = useState('');

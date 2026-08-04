@@ -151,6 +151,12 @@ function mfaReducer(state: MfaState, action: MfaAction): MfaState {
   }
 }
 
+// Most of the branching is JSX: three mutually exclusive render states
+// (loading / no-factor dead-end / form), a conditional factor picker, and
+// the challenge/verify status handling inline. Pre-existing on main; this
+// branch only wired the shared normalizeChallengeFactors import through it,
+// unchanged in shape.
+// fallow-ignore-next-line complexity
 export function MfaChallengeForm() {
   const router = useRouter();
   const searchParams = useSearchParams();

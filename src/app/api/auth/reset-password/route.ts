@@ -7,6 +7,7 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { ResetPasswordSchema } from '@/lib/shared/schemas';
 import { requireAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
+import { mapUpdateUserError } from '@/lib/auth/reset-password-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,14 @@ export const dynamic = 'force-dynamic';
  * `redirectTo` is the caller's next location after the password is updated.
  * Owners land on `/login`; admins land on `/admin/login`.
  */
+// Ten sequential security guards (CSRF, session, role lookup, flag gate,
+// rate limit, AAL step-up, body validation, provider write, session
+// teardown), each a hard-reject branch; the updateError taxonomy already
+// moved out to mapUpdateUserError. Splitting the remaining guards into
+// helper functions would trade one linear, readable sequence for
+// indirection across several single-call files without reducing the actual
+// number of security-relevant branches.
+// fallow-ignore-next-line complexity
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Same-origin check. Password updates against an active Supabase session
   //    are a prime CSRF target — without this, a malicious page could ride
@@ -206,43 +215,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    (`mapResetPasswordError` in `ResetPasswordFormClient.tsx`), so the raw
   //    text never reaches the user. On error we DO NOT sign out — the recovery
   //    session must stay active so the user can retry with a valid password.
+  //    The error taxonomy itself lives in `mapUpdateUserError` (invariant #12:
+  //    error-handling branches over ~30 lines get their own tested module).
   const { error: updateError } = await supabase.auth.updateUser({
     password: parsed.data.password,
   });
   if (updateError) {
-    // Backstop for the step-up gate above: if the pre-check ever drifts from
-    // GoTrue's own rule, surface the refusal in the vocabulary the client will
-    // handle once the reset cards learn `mfa_required`.
-    //
-    // Every other provider error keeps its real status. Flattening them all to
-    // 400 is precisely what made an `insufficient_aal` 401 read as a password
-    // validation failure and hid this bug — and it also swallowed the genuine
-    // 401 of a session that lapsed mid-request, which the client knows how to
-    // turn into the expired-link state.
-    //
-    // Matched on `code` alone, not the message text: the message is provider
-    // copy that can be reworded at any time, and a bare 401 here is more likely
-    // a lapsed session than an AAL refusal now that the gate above exists.
-    const { code, status, message } = updateError;
-    if (code === 'insufficient_aal') {
-      return NextResponse.json({ error: 'mfa_required' }, { status: 403 });
+    const mapped = mapUpdateUserError(updateError);
+    if (mapped.report) {
+      reportCaughtError('reset-password', updateError, mapped.report);
     }
-    // GoTrue's AuthRetryableFetchError carries status 0 for a failed fetch, and
-    // Response rejects anything outside 200–599. Clamp to the old 400 default
-    // rather than letting a transient network error throw out of the handler.
-    const httpStatus =
-      typeof status === 'number' && status >= 400 && status <= 599 ? status : 400;
-    if (status === 401 || httpStatus !== status) {
-      // A 401 that ISN'T insufficient_aal becomes the client's expired-link
-      // state. If that's ever a misread AAL refusal, the user loops forever —
-      // so make it visible rather than silent.
-      reportCaughtError('reset-password', updateError, {
-        reason: status === 401 ? 'update_user_unmapped_401' : 'update_user_unusable_status',
-        providerCode: code,
-        providerStatus: status,
-      });
-    }
-    return NextResponse.json({ error: message }, { status: httpStatus });
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
   // 10. Explicitly end the recovery session. Without signOut the browser

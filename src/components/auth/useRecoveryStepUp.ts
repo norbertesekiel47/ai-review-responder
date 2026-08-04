@@ -195,6 +195,13 @@ export function useRecoveryStepUp(): UseRecoveryStepUp {
     // Concurrent callers share the in-flight result rather than racing.
     if (inFlight.current) return inFlight.current;
 
+    // Each branch maps one distinct challenge/verify HTTP outcome
+    // (429/401/503/ok on two separate fetches, plus the pre-flight
+    // state/factor/code guards) to its own status copy; collapsing any pair
+    // would make two different failure modes show the user the same
+    // message, which is the class of bug this hook exists to avoid (see
+    // STEP_UP_AGAIN_COPY's history above).
+    // fallow-ignore-next-line complexity
     const run = async (): Promise<boolean> => {
       // Already cleared, or never needed clearing. Idempotent by design: the
       // route does not signOut on a failed password write, so a retry must
