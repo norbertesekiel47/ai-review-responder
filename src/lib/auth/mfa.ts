@@ -42,3 +42,47 @@ export async function requireCurrentAal2FromSupabase(
 export function mfaChallengePath(next: string): string {
   return `/mfa/challenge?next=${encodeURIComponent(next)}`;
 }
+
+/**
+ * A verified MFA factor reduced to what a challenge UI needs: an id to
+ * challenge against and a label to show. Anything not `verified` is dropped —
+ * a factor mid-enrollment cannot satisfy a challenge.
+ *
+ * NOTE: `src/components/auth/useMfaEnrollment.ts` has a similar-looking
+ * normalizer that deliberately keeps EVERY factor with its full shape, because
+ * the settings surfaces must render an unverified factor so the user can finish
+ * or abandon that enrollment. The two are not duplicates. Do not merge them.
+ */
+export interface ChallengeFactor {
+  id: string;
+  label: string;
+}
+
+export function normalizeChallengeFactor(raw: unknown): ChallengeFactor | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  if (typeof record.id !== 'string') return null;
+  if (record.status !== 'verified') return null;
+  const label =
+    typeof record.friendly_name === 'string'
+      ? record.friendly_name
+      : typeof record.friendlyName === 'string'
+        ? record.friendlyName
+        : 'Authenticator app';
+  return { id: record.id, label };
+}
+
+export function normalizeChallengeFactors(data: unknown): ChallengeFactor[] {
+  if (!data || typeof data !== 'object') return [];
+  const record = data as Record<string, unknown>;
+  const candidates = [
+    ...(Array.isArray(record.totp) ? record.totp : []),
+    ...(Array.isArray(record.all) ? record.all : []),
+  ];
+  const unique = new Map<string, ChallengeFactor>();
+  for (const candidate of candidates) {
+    const factor = normalizeChallengeFactor(candidate);
+    if (factor) unique.set(factor.id, factor);
+  }
+  return [...unique.values()];
+}

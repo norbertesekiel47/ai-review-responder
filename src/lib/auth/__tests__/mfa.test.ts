@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { requireAal2FromSupabase, requireCurrentAal2FromSupabase } from '../mfa';
+import {
+  requireAal2FromSupabase,
+  requireCurrentAal2FromSupabase,
+  normalizeChallengeFactors,
+} from '../mfa';
 
 describe('requireAal2FromSupabase', () => {
   it('allows current aal2 sessions', async () => {
@@ -101,5 +105,58 @@ describe('requireCurrentAal2FromSupabase', () => {
       ok: false,
       reason: 'mfa_required',
     });
+  });
+});
+
+describe('normalizeChallengeFactors', () => {
+  it('keeps verified factors and projects them to id + label', () => {
+    expect(
+      normalizeChallengeFactors({
+        totp: [{ id: 'f1', friendly_name: 'Phone', status: 'verified' }],
+      }),
+    ).toEqual([{ id: 'f1', label: 'Phone' }]);
+  });
+
+  it('drops unverified factors — a half-enrolled factor cannot satisfy a challenge', () => {
+    expect(
+      normalizeChallengeFactors({
+        totp: [{ id: 'f1', friendly_name: 'Phone', status: 'unverified' }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('falls back to a generic label when the factor has no friendly name', () => {
+    expect(
+      normalizeChallengeFactors({ totp: [{ id: 'f1', status: 'verified' }] }),
+    ).toEqual([{ id: 'f1', label: 'Authenticator app' }]);
+  });
+
+  it('accepts the camelCase spelling of friendlyName', () => {
+    expect(
+      normalizeChallengeFactors({
+        totp: [{ id: 'f1', friendlyName: 'Laptop', status: 'verified' }],
+      }),
+    ).toEqual([{ id: 'f1', label: 'Laptop' }]);
+  });
+
+  it('dedupes a factor appearing in both totp and all', () => {
+    expect(
+      normalizeChallengeFactors({
+        totp: [{ id: 'f1', friendly_name: 'Phone', status: 'verified' }],
+        all: [{ id: 'f1', friendly_name: 'Phone', status: 'verified' }],
+      }),
+    ).toEqual([{ id: 'f1', label: 'Phone' }]);
+  });
+
+  it('returns an empty array for junk input rather than throwing', () => {
+    expect(normalizeChallengeFactors(null)).toEqual([]);
+    expect(normalizeChallengeFactors('nope')).toEqual([]);
+    expect(normalizeChallengeFactors({})).toEqual([]);
+  });
+
+  it('skips entries with no string id', () => {
+    expect(
+      normalizeChallengeFactors({ totp: [{ friendly_name: 'X', status: 'verified' }] }),
+    ).toEqual([]);
   });
 });
