@@ -75,21 +75,42 @@ review wave; never restart the count.
 five review-fix commits. Gate GREEN at every checkpoint; the `reclassify` row
 WARNs by design (owner decision, D-A10).
 
-## What remains: step 8 SHIP, high-RISK lane
+## Step 8 SHIP — in progress (2026-08-04)
 
-1. **Ride staging first.** Land on `staging` (push auto-deploys the full stack).
-   **Apply migration 098 to the staging Supabase project FIRST**, then push.
-2. Smoke the touched paths on staging: the `/admin/suppressions` lookup → manual
-   entry → correction ritual, and the owner mark/clear on
-   `/dashboard/requests/contacts`.
-3. Open the PR to `main`, confirm CI green, then **PAUSE for explicit merge
-   approval**. Apply 098 to prod Supabase in lockstep at promotion.
-4. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
+**Done:**
+
+1. ✅ **`main` merged in.** `5f285125` (#658 admin console Phase 3) had landed
+   while the branch sat at `gate_green`. D-A2's predicted conflict on
+   `tenant-scope-allowlist.ts` did **not** happen (append-only handling held);
+   the one content conflict was `docs/directory.md`. Two real defects surfaced
+   and were fixed — see **D-A12** and the `formatAdminDateTime` commit.
+2. ✅ **Migration 098 applied to staging** (`kubdiqdhqbhwmqfditeg`), verified by
+   schema introspection. The migrations-log **LOCAL-ONLY marker is removed** —
+   the immutability guard is now ARMED, correctly: staging holds the schema, so
+   098 must never be edited in place. Prod is explicitly called out as unapplied.
+3. ✅ **Pushed to `staging`** — fast-forward `5f285125..5749c826`. Railway staging
+   worker redeployed clean (`repworth-worker-staging.up.railway.app`, Success).
+4. ✅ **DB-half smoke against real staging Postgres** — the shipped
+   `correctSuppression` CTE run verbatim: correct → `corrected` with the D-A11
+   evidence trio and `created_by_user_id ≠ removed_by_user_id`; replay → 0 rows /
+   `not_found` / **no orphan**; tab-only reason → CHECK rejects **and the
+   suppression survives** (the D-A4 property `length(btrim(...)) > 0` would have
+   missed). Smoke data removed; both tables verified back to 0 rows.
+5. ✅ **PR #659 opened** to `main`.
+
+**Remaining:**
+
+6. ⏸️ **UI-half smoke needs an AAL2 admin session** — the `/admin/suppressions`
+   lookup → manual entry → correction ritual, and the owner mark/clear on
+   `/dashboard/requests/contacts`. Route *deployment* is verified (302 not 404 on
+   all five; POST lookup returns 401 unauthed, so the gate is live and the
+   handler exists), but the click-through ritual has NOT been exercised. This is
+   the one gap in the staging evidence — do not describe the smoke as complete.
+7. ⏸️ **Confirm CI green on #659**, then **PAUSE for explicit merge approval**.
+8. ⏸️ At promotion: apply 098 to prod Supabase (`udeyaqnvpojbwgoaxwdg`) in
+   lockstep, then add `PRODUCTION <date>` to the 098 migrations-log entry.
+9. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
    099 on the understanding this branch lands first).
-5. On promotion, replace **LOCAL-ONLY** in migration 098's migrations-log entry
-   with the `Applied to STAGING … / PRODUCTION …` sentence. That marker is what
-   re-arms the immutability guard — leaving it stale means the migration stays
-   editable when it must not be.
 
 ## Follow-ups to promote after merge (step 8 sweep)
 
