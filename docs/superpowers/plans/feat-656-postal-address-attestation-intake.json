@@ -59,6 +59,7 @@
     "src/app/(authenticated)/settings/profile/**",
     "src/components/dashboard/settings/SolicitationAddressPanel.tsx",
     "src/components/dashboard/settings/__tests__/**",
+    "worker/jobs/solicitation-batch/index.ts",
     "worker/jobs/account-offboarding/purge-stages.ts",
     "worker/jobs/account-offboarding/__tests__/**",
     "scripts/ci/tenant-scope-allowlist.ts",
@@ -98,7 +99,7 @@
   "dependencies_added": [],
   "rollback_plan": "Revert the PR. Migration 099 is purely additive — four nullable columns on businesses plus one CHECK that constrains only those four columns against each other — so it is inert with the code reverted and needs no down migration; dropping the columns would be a separate deliberate migration. SOLICITATION_SEND_ENABLED is off in every environment, so the send-handoff suppression is unreachable in prod either way. Order: apply 099 to staging Supabase first, ride staging, then prod Supabase in lockstep at promotion. MERGE ORDER: #645 (migration 098) merges BEFORE this branch — agreed 2026-08-03 and recorded in both deviations files.",
   "observability": [
-    "A structured log line from the batch builder when the send handoff is withheld, carrying the business id and the location-level reason and no contact PII — the signal that a location is silently not sending",
+    "A send_handoff field on the existing 'solicitation batch build finished' structured log emitted by worker/jobs/solicitation-batch/index.ts, carrying the location-level withheld reason alongside the business id and no contact PII — the signal that a location is silently not sending. Emitted by the worker, NOT by batch-builder.ts, which returns results and deliberately does no logging.",
     "The attestation columns themselves are the durable record: querying businesses for solicitation_postal_address_attested_at answers 'which locations may send' directly, with no derived state to drift",
     "A 4xx rate on PUT /api/settings/postal-address indicates the lint is rejecting real owner addresses — the signal that the US-first lint is too strict for the live customer mix"
   ],
