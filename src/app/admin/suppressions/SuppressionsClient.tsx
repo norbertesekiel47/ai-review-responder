@@ -32,6 +32,40 @@ const INVALID_HANDLE_COPY = 'That is not a valid email address';
 const CORRECTION_CONFIRM_COPY =
   'Error correction only. This removes a suppression that was recorded in error — it is not a re-subscribe, and it does not give anyone permission to contact this person again.';
 
+/**
+ * A 404 from the Correction path means the row was ALREADY gone — another admin
+ * corrected it between this admin's lookup and their confirm. Nobody is
+ * suppressed by that record any more. Rendering this as "the suppression is
+ * still in place" tells an admin they are protected when the recipient is in
+ * fact mailable again, which is the worst sentence this screen can produce.
+ */
+const CORRECTION_ALREADY_REMOVED_COPY =
+  'This record was already removed — another admin corrected it first. It is no longer suppressing anyone.';
+
+/**
+ * Every server error code these three endpoints can return, mapped to a
+ * sentence. A raw API token must never reach an admin's screen: it is
+ * unreadable at best, and — as `not_found` proved — a token carries no
+ * statement at all about who is still suppressed. Clause-shaped, no trailing
+ * period, because the Correction path composes onto it.
+ */
+const ERROR_COPY: Record<string, string> = {
+  invalid_handle: INVALID_HANDLE_COPY,
+  invalid_body: 'The request was malformed — reload the page and try again',
+  forbidden: 'That request was refused — reload the page and try again',
+  mfa_required: 'Your admin session needs a fresh MFA step-up',
+  internal_error: 'Something went wrong on our side',
+};
+
+/**
+ * Never render `body.error` directly: an unrecognised code falls back to a
+ * sentence rather than leaking the token itself.
+ */
+function errorSentence(code: string | undefined, fallback: string): string {
+  if (code === undefined) return fallback;
+  return ERROR_COPY[code] ?? fallback;
+}
+
 const ENTRY_NOTE_HELPER =
   "Where this opt-out came from — the reply's subject, date, or message id. Required: this is the audit trail.";
 
@@ -55,9 +89,15 @@ function formatTimestamp(value: string): string {
 }
 
 async function lookupAddress(email: string): Promise<LookupSuppressionsResult> {
-  const response = await fetch(`/api/admin/suppressions?email=${encodeURIComponent(email)}`);
+  // A POST for a read, on purpose: §9.5 forbids logging the raw handle, and an
+  // address in a query string is logged by construction — access logs, log
+  // drains, browser history. It travels in the body instead.
+  const response = await fetch('/api/admin/suppressions/lookup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
   const body = (await response.json().catch(() => ({}))) as {
-    ok?: boolean;
     error?: string;
     handle?: string;
     rows?: AdminSuppressionRow[];
@@ -73,12 +113,11 @@ async function lookupAddress(email: string): Promise<LookupSuppressionsResult> {
   }
   if (
     !response.ok ||
-    body.ok !== true ||
     typeof body.handle !== 'string' ||
     !Array.isArray(body.rows) ||
     !Array.isArray(body.corrections)
   ) {
-    throw new Error(body.error ?? `Lookup failed: ${response.status}`);
+    throw new Error(errorSentence(body.error, `Lookup failed (${response.status})`));
   }
   return { ok: true, handle: body.handle, rows: body.rows, corrections: body.corrections };
 }
@@ -98,19 +137,22 @@ async function recordManualEntry(input: {
     error?: string;
   };
   if (!response.ok || typeof body.created !== 'boolean' || typeof body.handle !== 'string') {
-    throw new Error(
-      body.error === 'invalid_handle'
-        ? INVALID_HANDLE_COPY
-        : (body.error ?? `Entry failed: ${response.status}`),
-    );
+    throw new Error(errorSentence(body.error, `Entry failed (${response.status})`));
   }
   return { created: body.created, handle: body.handle };
 }
 
+/**
+ * `corrected` — the row was live and this admin removed it.
+ * `already_removed` — the row was already gone (404). NOT a failure, and above
+ * all not a suppression that is "still in place".
+ */
+type CorrectionOutcome = 'corrected' | 'already_removed';
+
 async function submitCorrection(input: {
   suppressionId: string;
   reason: string;
-}): Promise<void> {
+}): Promise<CorrectionOutcome> {
   const response = await fetch('/api/admin/suppressions/correct', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -120,9 +162,14 @@ async function submitCorrection(input: {
     corrected?: boolean;
     error?: string;
   };
+  // A 404 is a concurrent correction, not a failed one. It is returned rather
+  // than thrown so the caller can say the true thing and re-read the ledger,
+  // instead of inheriting the genuine-failure branch's "still in place".
+  if (response.status === 404 && body.error === 'not_found') return 'already_removed';
   if (!response.ok || body.corrected !== true) {
-    throw new Error(body.error ?? `Correction failed: ${response.status}`);
+    throw new Error(errorSentence(body.error, `Correction failed (${response.status})`));
   }
+  return 'corrected';
 }
 
 function LookupResults({
@@ -332,10 +379,14 @@ export function SuppressionsClient() {
   const correction = useMutation({
     mutationFn: submitCorrection,
     onSuccess: () => {
-      // Cleared only on a confirmed success. A failure deliberately leaves the
-      // panel and the row exactly where they were.
+      // Cleared on a confirmed removal AND on an already-removed 404 — in both
+      // cases the row on screen is stale. A genuine failure deliberately leaves
+      // the panel and the row exactly where they were.
       setCorrectionTarget(null);
       setCorrectionReason('');
+      // The re-read is what makes the already-removed message trustworthy: the
+      // admin ends up looking at current ledger state, not at the row they just
+      // acted on.
       void queryClient.invalidateQueries({ queryKey: ['admin-suppressions'] });
     },
   });
@@ -401,7 +452,7 @@ export function SuppressionsClient() {
             <div className="mt-4">
               <ErrorState
                 title="Couldn't look up that address"
-                detail="GET /api/admin/suppressions failed"
+                detail="POST /api/admin/suppressions/lookup failed"
                 onRetry={() => void lookup.refetch()}
               />
             </div>
@@ -522,12 +573,22 @@ export function SuppressionsClient() {
               pending={correction.isPending}
             />
           </div>
-          {correction.isSuccess && (
+          {correction.isSuccess && correction.data === 'corrected' && (
             <p
               role="status"
               className="mt-3 rounded border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800"
             >
               Record corrected. The removal is in the audit trail.
+            </p>
+          )}
+          {correction.isSuccess && correction.data === 'already_removed' && (
+            // Not green: nothing this admin did took effect, and the recipient
+            // is mailable again. Not red either — no failure occurred.
+            <p
+              role="alert"
+              className="mt-3 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+            >
+              {CORRECTION_ALREADY_REMOVED_COPY}
             </p>
           )}
           {correction.isError && (

@@ -29,12 +29,16 @@ const GLOBAL_ROW = {
   suppressedAt: '2026-08-01T10:00:00.000Z',
 };
 
+// The lookup wire body carries exactly what the surface renders — no `ok`
+// discriminant. The route maps the service union at the boundary so a future
+// variant of it cannot silently change what arrives here.
 const LOOKUP_OK = {
-  ok: true,
   handle: 'person@example.com',
   rows: [GLOBAL_ROW],
   corrections: [],
 };
+
+const LOOKUP_URL = '/api/admin/suppressions/lookup';
 
 type FetchArgs = [input: RequestInfo | URL, init?: RequestInit];
 
@@ -54,7 +58,7 @@ function installFetch(
 ) {
   const spy = vi.fn(async (...args: FetchArgs) => {
     const url = String(args[0]);
-    if (url.startsWith('/api/admin/suppressions?')) {
+    if (url === LOOKUP_URL) {
       return overrides.lookup?.() ?? jsonResponse(LOOKUP_OK);
     }
     if (url === '/api/admin/suppressions') {
@@ -205,6 +209,65 @@ describe('SuppressionsClient', () => {
     // removed when it was not will re-enter it and mail the person twice.
     expect(screen.getByText('unsubscribe_one_click')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Correct this record' })).toBeInTheDocument();
+  });
+
+  it('tells the admin an already-corrected record was removed and never that it is still in place', async () => {
+    let lookups = 0;
+    const spy = installFetch({
+      lookup: () => {
+        lookups += 1;
+        // Read 2 is the post-correction re-read: the row is gone, because the
+        // other admin's correction removed it.
+        return jsonResponse(lookups === 1 ? LOOKUP_OK : { ...LOOKUP_OK, rows: [] });
+      },
+      correct: () => jsonResponse({ error: 'not_found' }, 404),
+    });
+    const user = userEvent.setup();
+    renderClient();
+    await lookUpAddress(user);
+    await user.click(await screen.findByRole('button', { name: 'Correct this record' }));
+    await user.type(screen.getByLabelText('Why is this record wrong?'), 'admin typo');
+    await user.click(screen.getByRole('button', { name: 'Confirm correction' }));
+
+    // A 404 means the row was ALREADY removed — a concurrent correction by
+    // another admin. The recipient is mailable again, so telling this admin the
+    // suppression is "still in place" claims a protection that no longer
+    // exists. That is the one sentence this screen must never produce here.
+    const notice = await screen.findByRole('alert');
+    expect(notice).toHaveTextContent(/already removed/i);
+    expect(notice).toHaveTextContent(/no longer suppressing anyone/i);
+    expect(notice).not.toHaveTextContent(/still in place/i);
+    expect(screen.queryByText(/still in place/i)).toBeNull();
+    // A raw API token is not copy: it says nothing about who is suppressed.
+    expect(screen.queryByText(/not_found/)).toBeNull();
+
+    // And the admin is left looking at current ledger state, not at the stale
+    // row they just acted on.
+    await waitFor(() => {
+      expect(callsTo(spy, LOOKUP_URL)).toHaveLength(2);
+    });
+    expect(await screen.findByText('Not suppressed')).toBeInTheDocument();
+  });
+
+  it('sends the looked-up address in the request body and never in the URL', async () => {
+    const spy = installFetch();
+    const user = userEvent.setup();
+    renderClient();
+    await lookUpAddress(user);
+
+    await waitFor(() => {
+      expect(callsTo(spy, LOOKUP_URL)).toHaveLength(1);
+    });
+    // §9.5: a raw handle in a query string is logged by construction — access
+    // logs, log drains, browser history — and no care inside the handler takes
+    // it back out.
+    const requestedUrls = spy.mock.calls.map((call) => String(call[0]));
+    for (const url of requestedUrls) {
+      expect(url).not.toMatch(/person@example\.com|person%40example/i);
+    }
+    const call = lastCallTo(spy, LOOKUP_URL);
+    expect(call[1]?.method).toBe('POST');
+    expect(bodyOf(call)).toEqual({ email: 'person@example.com' });
   });
 
   it('manual entry posts the email and required originating message reference to the entry endpoint', async () => {

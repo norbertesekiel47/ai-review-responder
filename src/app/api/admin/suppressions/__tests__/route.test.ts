@@ -34,8 +34,10 @@ vi.mock('@/lib/admin/suppressions-service', () => ({
 
 // Route suite for the admin Suppression ledger surfaces (#645; locked spec
 // docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md §7.3,
-// §8.2). Both route modules land in Task 4, so this file is red at import time
-// — the intended state of the eval task.
+// §8.2, §9.5). Three route modules, one per act: `lookup/` reads, `route.ts`
+// enters, `correct/` corrects. All three are POSTs to the same prefix — the
+// segment is what distinguishes them — and the lookup is a POST despite being
+// a read because §9.5 forbids the raw handle reaching a place that logs it.
 //
 // These routes are deliberately NOT flag-gated (plan P-6): a statutory
 // 10-business-day obligation behind a feature flag is a violation waiting for a
@@ -48,10 +50,17 @@ process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
 
 const SUPPRESSION_ID = '01900000-0000-7000-8000-000000000001';
 
-function lookupRequest(): NextRequest {
-  return new NextRequest(
-    'https://app.example.com/api/admin/suppressions?email=person@example.com',
-  );
+// The lookup is a POST with the address in the body, not a GET with it in the
+// query string (§9.5 — a query string is logged by construction).
+function lookupRequest(
+  body: unknown = { email: 'person@example.com' },
+  origin = 'https://app.example.com',
+): NextRequest {
+  return new NextRequest('https://app.example.com/api/admin/suppressions/lookup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify(body),
+  });
 }
 
 function entryRequest(
@@ -96,11 +105,12 @@ describe('admin suppression routes', () => {
       response: NextResponse.json({ error: 'mfa_required' }, { status: 403 }),
     });
 
-    const { GET, POST: entryPost } = await import('../route');
+    const { POST: entryPost } = await import('../route');
+    const { POST: lookupPost } = await import('../lookup/route');
     const { POST: correctPost } = await import('../correct/route');
 
     const responses = [
-      await GET(lookupRequest()),
+      await lookupPost(lookupRequest()),
       await entryPost(entryRequest()),
       await correctPost(correctRequest()),
     ];
@@ -232,5 +242,96 @@ describe('admin suppression routes', () => {
     expect(mockRequireAdminWithAal2).not.toHaveBeenCalled();
     expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
     expect(mockCorrectSuppression).not.toHaveBeenCalled();
+  });
+
+  it('enforces same-origin on the admin suppression lookup', async () => {
+    gateAllows();
+
+    const { POST: lookupPost } = await import('../lookup/route');
+
+    // The lookup is a read, but it is a POST, so it gets the same wrapper as
+    // the mutations — a cross-origin caller must not be able to drive a
+    // cross-tenant read of every opted-out recipient from a victim's session.
+    const response = await lookupPost(lookupRequest(
+      { email: 'person@example.com' },
+      'https://evil.example.com',
+    ));
+
+    expect(response.status).toBe(403);
+    expect(mockRequireAdminWithAal2).not.toHaveBeenCalled();
+    expect(mockLookupSuppressions).not.toHaveBeenCalled();
+  });
+
+  it('carries the looked-up address in the request body and never in the URL', async () => {
+    gateAllows();
+    mockLookupSuppressions.mockResolvedValue({
+      ok: true,
+      handle: 'person@example.com',
+      rows: [],
+      corrections: [],
+    });
+
+    const { POST: lookupPost } = await import('../lookup/route');
+    const request = lookupRequest();
+
+    // §9.5: never log the raw handle. A query string is logged by construction
+    // — Vercel access logs, every log drain downstream, browser history — and
+    // no care inside the handler takes it back out. This is why the read is a
+    // POST; do not "simplify" it back to a GET.
+    expect(request.url).not.toContain('person');
+    expect(request.nextUrl.search).toBe('');
+
+    const response = await lookupPost(request);
+    expect(response.status).toBe(200);
+    expect(mockLookupSuppressions).toHaveBeenCalledWith(mockSql, 'person@example.com');
+  });
+
+  it('maps the lookup service result to an explicit response body rather than serialising the union', async () => {
+    gateAllows();
+    mockLookupSuppressions.mockResolvedValue({
+      ok: true,
+      handle: 'person@example.com',
+      rows: [],
+      corrections: [],
+    });
+
+    const { POST: lookupPost } = await import('../lookup/route');
+    const okResponse = await lookupPost(lookupRequest());
+    expect(okResponse.status).toBe(200);
+
+    // The service's `ok` discriminant is internal. Shipping the union verbatim
+    // makes every future `ok: false` variant a silent wire-contract change that
+    // arrives at the browser as a raw token inside a 200.
+    const okBody = (await okResponse.json()) as Record<string, unknown>;
+    expect(Object.keys(okBody).sort()).toEqual(['corrections', 'handle', 'rows']);
+    expect(okBody).toEqual({ handle: 'person@example.com', rows: [], corrections: [] });
+
+    vi.clearAllMocks();
+    gateAllows();
+    mockLookupSuppressions.mockResolvedValue({ ok: false, error: 'invalid_handle' });
+
+    // Each `ok: false` variant maps to its own status at the boundary.
+    const failResponse = await lookupPost(lookupRequest());
+    expect(failResponse.status).toBe(400);
+    expect(await failResponse.json()).toEqual({ error: 'invalid_handle' });
+  });
+
+  it('rejects a malformed or unknown-field lookup body before reading any tenant', async () => {
+    gateAllows();
+
+    const { POST: lookupPost } = await import('../lookup/route');
+
+    const bodies: unknown[] = [
+      { email: '' },
+      { email: '   ' },
+      {},
+      { email: 'person@example.com', scope: 'account' },
+    ];
+    for (const body of bodies) {
+      const response = await lookupPost(lookupRequest(body));
+      expect(response.status).toBe(400);
+    }
+
+    expect(mockLookupSuppressions).not.toHaveBeenCalled();
   });
 });
