@@ -433,7 +433,7 @@ function DueDate({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="rounded border border-gray-200 bg-white px-3 py-2">
       <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className="mt-1 text-sm text-gray-900">{formatAdminDateTime(value, '-')}</div>
+      <div className="mt-1 text-sm text-gray-900">{formatAdminDateTime(value)}</div>
     </div>
   );
 }
