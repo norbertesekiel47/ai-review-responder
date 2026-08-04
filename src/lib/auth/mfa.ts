@@ -58,7 +58,7 @@ export interface ChallengeFactor {
   label: string;
 }
 
-export function normalizeChallengeFactor(raw: unknown): ChallengeFactor | null {
+function normalizeChallengeFactor(raw: unknown): ChallengeFactor | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
   if (typeof record.id !== 'string') return null;
