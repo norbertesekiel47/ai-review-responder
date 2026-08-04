@@ -28,8 +28,13 @@ fire.** Read this table first; the entries below carry the reasoning.
 1. **D1 —** confirm `SESSION_COOKIE_SECRET` is set on the Railway **staging and prod** workers
    before anything ships the boot gate. It is a hard boot failure by design; a deployed worker
    without it will crash-loop. Owner-verified, not automatable from here.
+   **→ Discharged for staging and re-scoped for prod at step 8 — see D13.**
 2. **D10 + D11 —** promote both to `.claude/reference/lab-notes.md` in the post-merge sweep.
    That file is outside `allowed_edit_surface`, so it cannot be done on this branch.
+
+**D13 postdates this triage.** It was raised at step 8 (ship) and is an owner decision about
+deployment sequencing, not a plan deviation needing a 6.5 verdict — so it is deliberately not
+a row in the table above, which stays a true record of what step 6.5 saw. Entry at the end.
 
 ---
 
@@ -534,3 +539,43 @@ the same routing and buys nothing. The growth is traceable to accepted review fi
 §1.4a, the receipt, the windowed aggregate, dual-sink redaction, the D4 boot gate — not to
 drift. A metric that would have us ship a broken opt-out path to stay under a number is being
 read wrongly.
+
+---
+
+## D13 — the prod worker secret is a first-boot precondition, not a merge precondition
+
+**Raised at step 8 (ship). Owner decision, 2026-08-03. Verdict: ACCEPT.**
+
+D1's carry obligation said "confirm `SESSION_COOKIE_SECRET` on the Railway **staging and prod**
+workers before anything ships the boot gate", and the step-8 checklist repeated it as "repeat
+for prod before promotion". The owner confirmed staging is set and directed that **prod is
+deliberately left unset until the Solicitation agent is ready**. That reverses the merge
+precondition, so it is recorded here rather than silently violated.
+
+**Why merging without it is safe, and it is not a judgement call.** The prod Railway worker is
+`repworth-worker` **Offline — never successfully deployed** (`docs/runbooks/deployment-guide.md`,
+cloud-state table), in an environment with no Redis provisioned and four other env vars already
+missing. `assertUnsubscribeIngressConfigured()` runs at boot. A boot gate cannot crash-loop a
+process that does not run, so shipping the gate to `main` changes nothing operationally in prod.
+
+**Where the obligation actually binds.** `requiresProductionConfig()`
+(`src/lib/config/deployment-lane.ts`) is true when `RAILWAY_ENVIRONMENT_NAME` is set **or**
+`NODE_ENV === 'production'`. Prod has `NODE_ENV` **unset** — but Railway injects
+`RAILWAY_ENVIRONMENT_NAME=production`, so the first disjunct fires anyway. The gate is therefore
+live from the prod worker's very first boot: **setting the secret is a precondition of that
+deploy succeeding at all**, and the failure is loud and immediate rather than a silent 503 per
+opt-out. That is the designed outcome, moved to the right moment rather than removed.
+
+**The lane this does NOT cover — and the one that is actually live at merge.** Vercel has no
+boot phase and is not asserted (D4); `getSessionCookieSecret()` throws **per request** instead.
+`/u/<token>` and `/api/u/<token>` ship to `repworth.net` the moment the PR merges. The secret is
+near-certainly already set there — the approval session cookie, the Zernio connect cookie and
+the keep-my-data token all read it, and owner approval links work in prod today — but "near
+certainly" is not the standard for a statutory path, so it is an explicit pre-merge check rather
+than an inference. **Absence on Vercel prod would be a live, recipient-visible failure**, unlike
+the dormant Railway one; a recipient clicking a delivered unsubscribe link would get a 500.
+
+`.claude/reference/env-vars.md`'s `SESSION_COOKIE_SECRET` row is corrected in the same commit to
+state the precondition per lane, because leaving "confirm on staging AND prod before merging"
+there while merging without prod would present the next reader with an instruction the repo's
+own history had already broken.
