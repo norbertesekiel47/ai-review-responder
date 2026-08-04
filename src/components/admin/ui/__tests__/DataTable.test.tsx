@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { DataTable, serverPaginationFooterState, type DataTableColumn } from '../DataTable';
+import { DataTable, PaginationFooter, serverPaginationFooterState, type DataTableColumn } from '../DataTable';
 import { EmptyState } from '../states';
 
 interface Row { id: string; name: string; spend: number }
@@ -147,7 +147,13 @@ describe('DataTable', () => {
   // CF-2. A DataTable whose caller sits on a page that `totalRows` has shrunk
   // past used to display-clamp silently: the footer's own buttons were both
   // dead and the caller kept refetching an empty page with no way back.
-  it('server pagination: pushes the clamp back to the caller when its page runs past the end', () => {
+  //
+  // Asserting the pushback ALONE would leave the doc claim "keeps Previous live
+  // to walk back" untested — and for this caller it is false. DataTable passes
+  // its clamped `currentPage` (0) into the footer state, so `show` is false and
+  // there is no footer at all: the pushback IS the entire recovery, and if it
+  // regressed the page would be a dead end with nothing rendered to click.
+  it('server pagination: a clamped caller past the end renders NO footer and recovers only via the clamp pushback', () => {
     const onPageChange = vi.fn();
     render(
       <DataTable
@@ -159,6 +165,10 @@ describe('DataTable', () => {
       />,
     );
     expect(onPageChange).toHaveBeenCalledWith(0);
+    expect(screen.getByText('No rows yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No rows on this page/)).not.toBeInTheDocument();
   });
 
   it('server pagination: leaves an in-range caller page alone', () => {
@@ -210,5 +220,44 @@ describe('serverPaginationFooterState (CF-2)', () => {
       label: 'No rows on this page (120 total)',
       show: true,
     });
+  });
+
+  // The same skew (`{page: 2, pageSize: 20, totalRows: 10, rows: []}`) reaches
+  // this function differently from each kind of caller, and the two outcomes
+  // are what the doc comment on the export now describes. Pinned as a pair so
+  // neither branch can be "simplified" into the other.
+  it('clamped (DataTable) vs unclamped (card-list) callers diverge on `show`', () => {
+    // DataTable clamps first: page 2 arrives as 0 -> nothing is reachable, so
+    // no footer. Recovery is the clamp pushback, NOT `page > 0`.
+    expect(serverPaginationFooterState({ page: 0, pageSize: 20, rowsOnPage: 0, totalRows: 10 })).toEqual({
+      pageCount: 1,
+      label: 'No rows on this page (10 total)',
+      show: false,
+    });
+    // FlaggedClient / OffboardingsClient pass the raw index: `page > 0` keeps
+    // the footer, and Previous, alive.
+    expect(serverPaginationFooterState({ page: 2, pageSize: 20, rowsOnPage: 0, totalRows: 10 })).toEqual({
+      pageCount: 1,
+      label: 'No rows on this page (10 total)',
+      show: true,
+    });
+  });
+});
+
+describe('PaginationFooter for an unclamped card-list caller past the end (CF-2)', () => {
+  it('renders the empty label with Previous live and Next dead', async () => {
+    const onPageChange = vi.fn();
+    const state = serverPaginationFooterState({ page: 2, pageSize: 20, rowsOnPage: 0, totalRows: 10 });
+    render(
+      <PaginationFooter page={2} pageCount={state.pageCount} label={state.label} onPageChange={onPageChange} />,
+    );
+
+    expect(screen.getByText('No rows on this page (10 total)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    const previous = screen.getByRole('button', { name: 'Previous' });
+    expect(previous).toBeEnabled();
+    await userEvent.click(previous);
+    // Walks back one page at a time — the card list's own recovery path.
+    expect(onPageChange).toHaveBeenCalledWith(1);
   });
 });

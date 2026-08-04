@@ -49,14 +49,23 @@ function pageCountOf(totalRows: number, pageSize: number): number {
 
 /**
  * Server-pagination footer math, shared by DataTable's controlled mode and by
- * card-list pages (FlaggedClient) that paginate server-side without a table.
- * Single owner so the "Showing a–b of N" string and the empty-page-with-rows-
- * behind-you guard cannot drift between call sites.
+ * card-list pages (FlaggedClient, OffboardingsClient) that paginate
+ * server-side without a table. Single owner so the "Showing a–b of N" string
+ * and the empty-page-with-rows-behind-you guard cannot drift between call
+ * sites.
  *
- * `page` is taken unclamped: DataTable clamps its own page index before
- * calling, card lists do not, so a page index past the end renders a
- * disabled-Next footer here and a clamped one there. Both keep Previous
- * reachable, which is the property that matters.
+ * `page` means different things at the two kinds of call site, and a page past
+ * the end recovers by a DIFFERENT mechanism at each — do not generalise one to
+ * the other:
+ *
+ *   - DataTable passes its ALREADY-CLAMPED `currentPage`. `{page: 2,
+ *     pageSize: 20, totalRows: 10, rows: []}` arrives here as page 0 with
+ *     `pageCount` 1, so `show` is FALSE and no footer renders at all. Its
+ *     recovery is the clamp-pushback effect below (`onPageChange(clamped)`),
+ *     which converges the caller's own state — never `page > 0`.
+ *   - Card lists pass their raw, unclamped page index. The same skew arrives
+ *     here as page 2, `show` is true via `page > 0`, and the footer that
+ *     renders keeps Previous live so the reader can walk back by hand.
  *
  * TWO GUARDS, both from CF-2, both against count⇄list skew (the count query and
  * the row query are separate reads, and a 30s poll can land between them):
@@ -69,8 +78,8 @@ function pageCountOf(totalRows: number, pageSize: number): number {
  *      with nothing to click.
  *   2. A `page` past the end makes `start > totalRows`, which used to print the
  *      inverted `Showing 101–90 of 90`. That page genuinely holds no rows, so
- *      it takes the honest empty label and (via guard 1, `page > 0`) keeps
- *      Previous live to walk back.
+ *      it takes the honest empty label. What is left to click then depends on
+ *      which of the two callers it came from — see above.
  */
 export function serverPaginationFooterState({
   page,
