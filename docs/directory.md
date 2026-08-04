@@ -70,6 +70,7 @@ Next.js App Router pages, grouped by access level.
 | `signup/finish/FinishSignupClient.tsx` | Second signup step (after Google OAuth). Collects business name, Place ID, tone, etc. POSTs to `/api/auth/finish-signup`. |
 | `forgot-password/page.tsx` | Request a password reset email. |
 | `reset-password/page.tsx` | Consume the reset token and set a new password. |
+| `u/[token]/page.tsx` | **(#644)** The recipient unsubscribe landing page. Three states from one URL: the **button page** (names the originating business, or "the business that contacted you" when provenance was purged), the **success page**, and the **Neutral page** — one identical render for unknown, malformed *and* already-redeemed tokens, so no caller can tell them apart (§5.4). Success requires a verifying Success receipt **and** a live global suppression read **during that render**: a receipt proves a row existed when it was minted, and the Correction path can remove it inside the 10-min TTL. Plain `<form method="post">`, no client component — it works with JS disabled. |
 | `approve/[token]/page.tsx` | Approval page reached via a notification link. Server component loads the approval context. |
 | `src/components/approval/approval-client.tsx` | Interactive Approve / Edit / Regenerate UI (lives under `src/components/`, not `(public)/`). **(WS4)** also renders the scheduled-auto-post state (`ScheduledAutoPostView`): a response in `approved`/`auto_policy` with a future `auto_post_scheduled_at` shows "posts at HH:MM UTC" + a **Cancel auto-post** action → POST `/api/approve/[token]/veto`. |
 | `demo/[slug]/page.tsx` | Public demo page for a prospect. |
@@ -189,6 +190,12 @@ Next.js App Router pages, grouped by access level.
 ---
 
 ### `api/` — API routes (all thin; no LLM or heavy work)
+
+#### `u/` — unauthenticated recipient opt-out
+
+| Route | What it does |
+|-------|--------------|
+| `u/[token]/route.ts` | **(#644)** POST target of the `/u/<token>` unsubscribe form. Redeems the token (`source='unsubscribe_link'`), then `303`s back to the landing page with a **relative** Location carrying `?ok=<receipt>` and `cache-control: no-store`. Mints the Success receipt **only** for `redeemed` / `already_suppressed` — never for `already_redeemed_not_suppressed`, whose whole purpose is to refuse a success claim the ledger cannot support. No auth and no session by design: the token IS the authorisation, and requiring a login to opt out would itself be the compliance defect. |
 
 #### `auth/`
 
@@ -554,6 +561,11 @@ Phase 2 Solicitation agent (watch-mode first).
 
 | `batch-builder.ts` | **(#593)** Batch build lane: `constructBatch` (per-business `pg_advisory_xact_lock` FIRST, then the `FOR UPDATE OF sb` row lock — one global order, advisory-before-row, so purge and construction cannot deadlock ABBA) + `prepareBatch`. Candidate selection, restraint evaluation and the ask fan-out land in one tx with the `built_at` CAS. Injected `Sql` (invariant #15). |
 | `outreach.ts` | **(#624)** Send-lane lifecycle kernel: `deriveBatchState` (the read-time closed union over `solicitation_batches`' monotone timestamps — there is deliberately no `status` column), `closeBatchIfSettled` (the single owner of batch closure: CASes `send_closed_at` on NULL, records one close step, terminalizes the **Send batch parent** through an ordered disposition precedence — every write gated on the winning CAS because `appendRunStep` always appends), and the approval/send window boundaries. Disposition arrives as an explicit `failure` parameter, never read back off `agent_runs.error`, so batch→run is the sole lock order. Injected `Sql`/`TransactionSql` (invariant #15). |
+
+| `unsubscribe.ts` | **(#644)** The Unsubscribe token kernel, consumed by BOTH surfaces. `mintUnsubscribeRawToken` (`<nonce>.<HMAC>` — #630 MUST call this, not roll its own) · `isWellFormedUnsubscribeToken`, the constant-time, **zero-DB** admission gate, so a forged token opens no connection · `hashUnsubscribeToken` (unkeyed SHA-256 — the *storage* key, deliberately not the HMAC) · `redeemUnsubscribeToken`, the claim-first `UPDATE … RETURNING account_id, normalized_handle, channel` (no `business_id` — the ledger has no field for it) feeding `recordSuppression` from the row it locked · `redemptionConfirmsSuppression`, a total `Record` over the outcome union so a fifth outcome without an answer is a **`tsc` error** · `mint`/`verifyUnsubscribeReceipt` (10-min TTL, `timingSafeEqual`, current-then-previous key) · `assertUnsubscribeTokenSecretConfigured`. Verification tries `SESSION_COOKIE_SECRET_PREVIOUS` on a miss so a rollover cannot strand delivered links inside the statutory ≥30-day window. Injected `Sql`/`TransactionSql` (invariant #15). |
+
+> **Known gap, not #644's to fill:** `suppression.ts` (#643), the five `ask-*.ts`
+> modules (#628) and `upload-status.ts` have no rows in this table yet.
 
 **Connection:** `POST /api/dashboard/contacts/uploads` → `uploads.ts` (upload row + `csv_ingest` outbox, one tx) → OutboxPoller dispatches → `worker/jobs/csv-ingest/` delegates to `ingest.ts` → the dashboard polls `GET /api/dashboard/contacts/uploads/[id]` for the terminal report. The built batch then surfaces on `/dashboard/requests` via `GET /api/dashboard/solicitation/batch` → `batch-view.ts`. Unit + integration tests colocate in `__tests__/`.
 
@@ -921,18 +933,26 @@ These are not BullMQ job handlers — they run as standalone loops inside the wo
 
 ### `worker/ingress/` — Inbound Webhook Handlers
 
-Each handler is registered as a Fastify route in `worker/index.ts`. They all follow the same pattern:
+Each handler is registered as a Fastify route in `worker/index.ts`. **Provider webhooks** all follow the same pattern:
 
 1. Verify the request signature.
 2. Write an `inbound_events` row first (deduplication — rejects duplicate event IDs).
 3. Execute business logic (update DB, write to `job_outbox`).
 4. Return `200` quickly.
 
+**`unsubscribe.ts` is the one exception and follows none of it** — it is a
+*recipient-facing* route, not a provider webhook. There is no signature to verify
+(the mail client is anonymous), no `inbound_events` dedup (idempotence comes from
+the token's own `redeemed_at` claim), and no `rawBody`. It is also the only ingress
+route **exempt from the rate limiter**, because §9.2 forbids throttling a statutory
+opt-out. Do not "fix" it to match the table above.
+
 | File | Route | What it does |
 |------|-------|--------------|
 | `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
 | `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signatures and deduplicates delivery. Checkout completion provider-reads and validates the authoritative attempt before the single status/snapshot projection; subscription/invoice handlers converge provider-current status through the exact entitlement-locked account and durably enqueue deprecated mirror repair. |
 | `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag; **WS6** classifies `autonomy_suspended_notice` as owner-directed for hard-bounce suppression. |
+| `unsubscribe.ts` | `POST` + `GET /ingress/unsubscribe/:token` | **(#644)** RFC 8058 one-click opt-out. `POST` redeems the token into a `scope='global'` suppression (`source='unsubscribe_one_click'`) and answers `200` **before** logging, so telemetry cannot turn a committed redemption into a `500`; `unknown_token` → `503` (never a success-shaped no-op, so a #630 mint race stays recoverable). `GET` always `302`s to `<APP_URL>/u/<token>` — including for a forged token, since `503`-ing there would be the one answer that distinguishes forged from real. No signature, no dedup row, no rate limit. Owns the 60s unknown-token aggregate (+ shutdown flush), a per-token single-flight, and `assertUnsubscribeIngressConfigured()`. |
 | `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by WhatsApp ingress. |
 | `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |
 | `twilio/twilio-whatsapp.ts` | *(barrel)* | Re-exports both WhatsApp ingress handlers and shared helpers for unit tests. Mounts were moved to focused modules. |

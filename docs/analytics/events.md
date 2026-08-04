@@ -252,16 +252,16 @@ CSV content.
 - **Privacy notes:** never the handle.
 
 ### `solicitation_suppressed`
-- **Status:** planned
+- **Status:** live
 - **Description:** A Suppression ledger row was inserted — one opt-out, keyed on the Normalized handle for its channel (#643, suppression/unsubscribe spec §9.4). Rows are first-write-wins, so a `DO NOTHING` that hit an existing row emits nothing: the count is opt-outs created, never opt-out signals received.
 - **Owner:** `recordSuppression` (`src/lib/solicitation/suppression.ts`), inside the caller's transaction
 - **Source:** server-side, same transaction as the ledger insert (durable; **not** client-postable — a client-postable variant would let anyone forge a compliance record)
-- **Distinct ID:** account ID **when one is known**, else the suppression row id (`input.accountId ?? row.id`). The `accountId: null` path is not an accident — §5.2 post-purge redemption and unresolvable webhook sources both mint global rows with no account — and `analytics_events.distinct_id` is NOT NULL, so it needs *some* value. The consequence, stated because the fallback ships before its first caller: an accountless global suppression mints a one-off PostHog person per row. Harmless at today's zero callers; **#644/#645/#627 own picking a stable sentinel** if accountless volume turns out to be non-trivial.
+- **Distinct ID:** account ID **when one is known**, else the suppression row id (`input.accountId ?? row.id`). The `accountId: null` path is not an accident — §5.2 post-purge redemption and unresolvable webhook sources both mint global rows with no account — and `analytics_events.distinct_id` is NOT NULL, so it needs *some* value. The consequence: an accountless global suppression mints a one-off PostHog person per row. **#644 shipped the first caller that actually reaches this path** — a token whose account was purged (§5.2) redeems with `account_id = NULL` — so the fallback is live, not hypothetical. Still acceptable at today's volume (nothing mints tokens until #630), but **#645/#627 should pick a stable sentinel** if accountless volume turns out to be non-trivial.
 - **Event key:** `solicitation_suppressed_<suppression_row_id>` — the row id comes from the insert's `RETURNING`, so a rolled-back or conflict-skipped write mints no key at all.
 - **Required properties:** `source` (one of the seven §3.1 sources), `scope` (`global` or `account`), `channel` (`email`)
 - **Optional properties:** none
 - **Privacy notes:** **never the handle**, and never the `note` (§7.5 manual entries can quote an originating message). IDs and closed enum values only.
-- **Status note:** `planned` rather than `live` because `recordSuppression` ships with zero production callers (#643 G6) — its consumer today is the live-DB suite. #644/#645/#627 supply the first real callers.
+- **Status note:** flipped `planned` → `live` by **#644** (PR #654), which supplied the first production callers: the RFC 8058 ingress (`source='unsubscribe_one_click'`) and the `/u/<token>` landing form (`source='unsubscribe_link'`). Verified on staging — a real redemption wrote one ledger row and emitted one event. Volume stays near zero until #630 mints tokens; #645 (`admin_manual`/`owner_manual`) and #627 (bounce/complaint) add the remaining sources.
 
 ### `solicitation_suppressed_at_dispatch`
 - **Status:** planned

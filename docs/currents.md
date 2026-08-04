@@ -7,7 +7,71 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-03 (Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-08-03 (Unsubscribe opt-out #644 SHIPPED — PR #654, **no migration**: the Suppression ledger now has its first writer. RFC 8058 one-click ingress on Railway + the `/u/<token>` recipient landing path on Vercel, both live and both proven on staging with `SOLICITATION_SEND_ENABLED` **off** (DR1). Two live pre-existing limiter bypasses closed as side effects — percent-encoded ingress paths and absolute-form request targets — affecting Stripe, Resend, Telegram, Twilio and Zernio alike. `SESSION_COOKIE_SECRET` is now boot-asserted on deployed worker lanes and **deliberately unset on Railway prod** until the Solicitation agent ships; that worker has never successfully deployed, so the gate has nothing to crash-loop. Earlier: Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Unsubscribe opt-out path (2026-08-03, PR #654)
+
+The Suppression ledger #643 built now has its **first writer**. A recipient who
+wants out can actually get out, by either of the two routes the law and the mail
+ecosystem expect — and both work today even though nothing is sending yet.
+
+**Two entry points, one outcome.** A mail client's one-click button POSTs to
+`/ingress/unsubscribe/<token>` on the Railway worker (RFC 8058); a human clicking
+the link in the message lands on `/u/<token>` on Vercel, reads a sentence, and
+presses one button. Either way the result is the same `scope='global'` row in
+`solicitation_suppressions` — the two differ only in the `source` they record.
+
+**The ordering is the whole design: claim first, then suppress.** One statement —
+`UPDATE … SET redeemed_at = NOW() WHERE token_hash = $1 AND redeemed_at IS NULL
+RETURNING account_id, normalized_handle, channel` — is the single write-ordering
+primitive, and the suppression is written from the provenance *that statement
+locked*. Doing it the other way round lets a replayed spent link silently undo an
+audited Correction path removal, and lets a concurrent account purge write a row
+carrying stale provenance.
+
+**A spent token is not proof of a live suppression.** `redeemed_at IS NOT NULL`
+proves only that it was *once* redeemed. The Correction path can remove the row
+afterwards, so the spent branch reads the ledger explicitly; with no live global
+row the outcome is `already_redeemed_not_suppressed`, which mints no receipt and
+deliberately does **not** re-suppress.
+
+**Nothing claims success without checking.** The success page is gated by a
+server-minted HMAC **and** a live ledger read taken during that same render —
+necessary and sufficient are different things here. Three separate adversarial
+findings were all one root cause: asserting a fact about mutable ledger state
+from evidence decoupled in time from it. An unknown, malformed or already-used
+token gets the **Neutral page** — one identical render, so no caller can tell the
+three apart.
+
+**Honest failure over a comfortable lie.** A token that does not resolve returns
+`503`, not a success-shaped no-op, because reporting success on a mint race is
+precisely the lost opt-out this work exists to prevent. Forged tokens are
+self-authenticating failures — they open **no database connection** on either
+surface.
+
+**Two live bypasses closed on the way past**, both pre-existing and both affecting
+Stripe, Resend, Telegram, Twilio and Zernio equally: percent-encoded ingress paths
+(`/%69ngress/resend`) and absolute-form request targets. The second was invisible
+to the entire test suite because `app.inject()` normalises the request target;
+it took a raw-socket test to see it.
+
+### The new shape
+
+| Path | What it owns |
+|---|---|
+| `src/lib/solicitation/unsubscribe.ts` | Token mint/gate/hash, the claim-first redemption, the Success receipt, the boot assertion |
+| `worker/ingress/unsubscribe.ts` | RFC 8058 one-click route, the 60s unknown-token aggregate, the single-flight |
+| `worker/ingress/rate-limit.ts` | Both ingress-scope arms + the statutory exemption |
+| `worker/config/fastify-options.ts` | Request-serializer + censor so a raw token never reaches a log or Sentry |
+| `src/app/(public)/u/[token]/page.tsx` | Button / success / Neutral render states |
+| `src/app/api/u/[token]/route.ts` | Form POST → 303, mints the receipt |
+| `src/lib/shared/sentry-scrub.ts` | Generalised path redaction covering encoded spellings |
+
+**Not built, deliberately:** nothing mints these tokens yet — that is #630, the
+sender. `SOLICITATION_UNSUBSCRIBE_MAILTO` is unset, so the Neutral page omits the
+mailto line rather than advertising an address nobody services; setting it creates
+a §7.2 daily servicing obligation. Follow-ups **#651** (dedicated bounded DB pool)
+and **#652** (`redeemUnsubscribeToken` owns its transaction) are filed with context.
 
 ## Quick summary — Suppression ledger: schema + domain core (2026-08-03, PR #647)
 

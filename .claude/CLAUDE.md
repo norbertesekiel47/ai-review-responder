@@ -93,7 +93,7 @@ Detailed inventories load on demand — read the matching file before the work:
 | build or debug owner offboarding (cancel_only / delete_data / purge) | spec `docs/superpowers/specs/2026-06-05-owner-offboarding-design.md` + runbook `docs/runbooks/owner-offboarding-staging-dry-run.md` |
 | build or debug multi-location (locations lifecycle, per-location overage billing, account-level digests, channel overrides) or run the two-location full-loop | spec `docs/superpowers/specs/2026-06-09-multi-location-hardening-design.md` + plan `docs/superpowers/plans/2026-06-09-multi-location-hardening.md` + runbook `docs/runbooks/multi-location-e2e-full-loop.md` |
 | roll out / test the Telegram + WhatsApp channels, the auto-approved post FYI (`auto_post_notice` topic, `worker/jobs/auto-post-notice/`), or its `/r/google/<id>` redirect | runbooks `docs/runbooks/channels-rollout.md` (prod flip) + `docs/runbooks/channels-staging-smoke-test.md` (staging test) + `docs/runbooks/whatsapp-templates.md` (template content) + ADR `docs/adr/0003-conversational-channel-seams.md` (future-agent seam) |
-| touch **solicitation consent or suppression** (Consent ledger `solicitation_consent`, Suppression ledger `solicitation_suppressions`, Unsubscribe tokens, the `suppressionMatchSql` lookup, or the withhold-reason precedence in `evaluateAsk`) | spec `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` + `CONTEXT.md` → "Solicitation suppression & unsubscribe" (five locked terms, incl. **attestation never overrides suppression**; global wins a double match; the ledger is solicitation-only — DR2) |
+| touch **solicitation consent or suppression** (Consent ledger `solicitation_consent`, Suppression ledger `solicitation_suppressions`, Unsubscribe tokens, the `suppressionMatchSql` lookup, or the withhold-reason precedence in `evaluateAsk`) | spec `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` + `CONTEXT.md` → "Solicitation suppression & unsubscribe" (**eight** locked terms, incl. **attestation never overrides suppression**; global wins a double match; the ledger is solicitation-only — DR2). **Redemption (#644) spans both surfaces** — `src/lib/solicitation/unsubscribe.ts` owns the token gate, the claim-first ordering and the Success receipt; `worker/ingress/unsubscribe.ts` is the RFC 8058 one-click route; `src/app/(public)/u/**` + `src/app/api/u/**` are the recipient landing path. A page may claim "you are unsubscribed" **only** from a ledger read taken during that render — a receipt is necessary, never sufficient. |
 | touch a named library/subsystem (Postgres.js, Zernio, Stripe, Supabase auth, Vercel BotID/WAF, …) | `.claude/reference/lab-notes.md` |
 | deploy, promote, or reason about the preview/staging/prod split | `docs/runbooks/deployment-guide.md` |
 | harden bot-protection / edge rate-limiting / WAF / Attack Mode | runbook `docs/runbooks/vercel-waf-rate-limiting.md` + `src/lib/security/botid*` + ADR `docs/adr/0002-botid-server-check-carveout.md` |
@@ -144,6 +144,11 @@ decide *where new worker code goes*:
   vs `background/schedulers/` (time-cadence-driven) — new loop → pick by trigger.
 - **Webhook ingress** terminates in `worker/ingress/`: `{stripe,resend,shared}.ts`
   + per-provider subfolders (`stripe/`, `twilio/`, `telegram/`, `zernio/`).
+  `unsubscribe.ts` is the one **recipient-facing** ingress route, not a provider
+  webhook: no signature, no `rawBody`, no `claimInboundEvent`, and deliberately
+  **exempt from the ingress rate limiter** (§9.2 forbids throttling a statutory
+  opt-out — the exemption is read from the RESOLVED route config so an unmatched
+  path under the prefix cannot inherit it).
 - **Boot-time env assertions**: `worker/config/startup-assert.ts`; **Fastify ingress bounds**:
   `worker/config/fastify-options.ts` (`buildFastifyOptions` — requestTimeout/keepAlive/connection/bodyLimit).
 - **Sentry init + scrubber**: `worker/sentry.ts` (imported for side effect by `index.ts`).
