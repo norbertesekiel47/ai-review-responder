@@ -1120,8 +1120,7 @@ deployment status remain in `.claude/reference/migrations-log.md`.
 
 ## Other top-level surfaces (not detailed here)
 
-- `.claude/CLAUDE.md` — always-loaded project facts + the canonical architecture-invariants list + gotchas + a "where things live" index. Source of truth for architecture.
-- `.claude/rules/` — always-loaded behavioral law: `repworth.md` (project rules) plus the generic `engineering.md` / `production.md` / `design.md`.
+- `.claude/CLAUDE.md` — always-loaded project facts + the canonical architecture-invariants list + working rules + gotchas + a "where things live" index. Source of truth for architecture. (The former `.claude/rules/` files were retired 2026-08-03: the generic book distillations deleted, `repworth.md`'s unique contracts folded into CLAUDE.md's "Working rules".)
 - `.claude/skills/` — patterns to follow, invoked on demand (cost-guard, approval-security, outbox-pattern, onboarding-demo-cost-guard).
 - `.claude/reference/` — recall-when-needed inventories, read on demand (env-vars, migrations-log, lab-notes, review-ingestion).
 - `docs/runbooks/` — operational + deployment runbooks, including
