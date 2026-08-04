@@ -54,10 +54,17 @@ migration-bearing," which this branch's own grilling superseded. The map line is
 stale; this branch IS migration-bearing.
 
 **Owner call: this branch keeps 098 and merges FIRST. #656 renumbered to 099.**
-Rationale: this branch is materially ahead (plan approved at review round 2,
-gate green) and renumbering it would have forced a plan revision plus a rename
-of the `migration-098-*.integration.test.ts` file the plan already cites, while
-#656 had written nothing.
+Rationale: this branch is materially ahead and renumbering it would have forced
+a plan revision plus a rename of the `migration-098-*.integration.test.ts` file
+the plan already cites, while #656 had written nothing.
+
+> **Correction (recorded by the #645 session):** the #656 note gave "plan
+> approved at review round 2" as part of the rationale. That was not accurate at
+> the time it was written — plan review round 1 returned REVISE and was
+> addressed in `711575f4`, but round 2 was stopped before producing any verdict.
+> What was true: the plan was revised and the gate was green on docs-only mode.
+> The 098-keeps-this-branch call stands on the other grounds above; this note
+> exists so nobody later reads an approval into the record that never happened.
 
 **Nothing on this branch changes.** Recorded here only so the merge order is
 visible from both sides: **#645 → #656**. The `tenant-scope-allowlist.ts`

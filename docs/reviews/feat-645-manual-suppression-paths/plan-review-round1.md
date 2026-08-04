@@ -258,3 +258,44 @@ Citation failures:
 8. Make Task 1 execute all eighteen files and use genuinely failing tests rather than counting `it.todo` as implementation evidence.
 
 VERDICT: REVISE
+---
+
+# TRIAGE (orchestrator, 2026-08-03) — applied in commit 711575f4
+
+Verdicts on every round-1 finding. 37 of the 38 required test titles are now in
+the plan; the one exception is recorded below with its reasoning.
+
+## Accepted — design-changing
+
+| Finding | Verdict | Evidence |
+|---|---|---|
+| `accounts.business_name` does not exist | **ACCEPT** | `display_name` confirmed in `034_multi_location_schema.sql:30`; plan and all lookup tests updated |
+| Correction is not provably atomic against the production call path | **ACCEPT, and fixed more strongly than proposed** | `correctSuppression` is now a single data-modifying CTE (P-9). Validated against real Postgres with scratch tables: happy path writes exactly one record and removes the row; a missing id returns zero rows and writes no orphan; a blank reason throws and the suppression row SURVIVES — **with no outer transaction**, which is what production does |
+| Corrections table omitted from `TABLE_DISPOSITIONS` | **ACCEPT, resolved by removing the cause** | Verified by running the exact `linkedColumnPattern` + `referencesTenantRootPattern` regexes from `table-disposition.test.ts` against both variants: the revised table (no `account_id`) → `false`/`false`; the same table WITH `account_id` → `true`. Dropping the column keeps the table honestly outside the offboarding inventory AND avoids a fresh indefinite retention obligation for provenance whose owning row is being deleted (P-2) |
+| "structurally cannot carry account_id" is a false type claim | **ACCEPT** | Restated as output closure (P-8); the property test now generates only legal `(scope, source)` pairs and asserts the exact four-key result |
+| Task 1's `it.todo` cannot fail; Step 2 ran 4 of 6 files | **ACCEPT** | T1 now requires real bodies importing not-yet-existing symbols, and runs all six files |
+| Tenant-scope allowlist count guessed at three | **ACCEPT** | Plan now derives the count by running `pnpm ci:tenant-scope` and setting `ALLOWLIST_BASELINE` to the real entry count |
+| Migration 098 shape suite too loose | **ACCEPT** | Expanded to pin exact columns/types/nullability, both enum sets driven from the exported constants, zero-FK posture, index definition, the reason CHECK across five blank forms, and RLS deny-all — plus a new test asserting no account-linked column, so a future regression explains itself |
+| 37 missing failing tests across ledger SQL projection, tenant isolation, laundering, concurrency, routes, and UI wiring | **ACCEPT** | All 37 added to the owning tasks |
+| `src/lib/admin/flagged-service.test.ts` path wrong; intake cites nonexistent `businesses-list-service.ts` | **ACCEPT** | Both corrected; the latter exists only in the `admin-console-phase3` worktree, not on `main` |
+| "D7" ambiguous between plan and spec registers | **ACCEPT** | Plan decisions renumbered **P-1 … P-10** so they cannot collide with the spec's D1–D9 |
+| Observability claim unfulfilled (correction logs lack the suppression id) | **ACCEPT** | The id is now in both the success log line and the `internalError` prefix; never the handle (§9.5) |
+| `NO_STORE_HEADERS` fallback unnecessary | **ACCEPT** | Hedge removed |
+
+## Rejected, with reasoning
+
+| Finding | Verdict | Reasoning |
+|---|---|---|
+| Add test `runs correction inside sql.begin and returns success only after the transaction resolves` | **REJECT AS WRITTEN — underlying concern accepted** | The fix removed `sql.begin` from the correction path entirely, so a test asserting its presence would pin an implementation detail that no longer exists and would fail against the correct code. The concern it encodes — *atomicity must be provable against the production call path, not against a transaction the test supplied* — is closed by `rolls back the delete when the correction record write fails`, now run on the pooled client with no outer transaction, and independently validated against live Postgres |
+| Drop `normalized_handle` from the correction record | **REJECT** | `suppression_id` references a row this statement deletes, so it resolves to nothing. Without the handle the record cannot identify which opt-out was removed, and an audit record that cannot name its subject is not one. Retention posture matches the `scope='global'` ledger rows it describes and is documented in the migrations-log retention table (P-3) |
+| Drop correction-history lookup by email and its index | **REJECT** | §7.2's servicing ritual starts from an address in a forwarded mailbox reply. Showing prior corrections for that handle is what stops an admin re-entering an opt-out that was just corrected, and the index is what keeps that query off a sequential scan of a no-TTL table |
+| Replace the `fast-check` property with two table-driven cases | **PARTIAL** | The property's *stated* invariant was wrong and is fixed; the property itself is kept because the title is a locked `tests_to_add` entry in the intake contract, and output closure over generated legal inputs is a real invariant. The two live SQL projection tests were added as proposed — they cover what the property cannot |
+
+## Round 2
+
+Dispatched as verification-only and **stopped before producing any output** — no
+verdict, no partial report. The three design-changing fixes were instead
+verified directly by the orchestrator with the concrete evidence cited above
+(schema introspection, the real detector regexes, and live-Postgres execution of
+the CTE), which is stronger evidence than a second model opinion on the same
+prose.
