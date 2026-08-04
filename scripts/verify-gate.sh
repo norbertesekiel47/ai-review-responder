@@ -16,12 +16,29 @@
 # env var set they RUN as part of the gate; without it they appear as a
 # loud SKIP row instead of passing silently.
 #
+# DB precondition (owned by the gate, not the intake): TEST_DATABASE_POOL_URL
+# is resolved here (env first, .env.local fallback), and a db_touching intake
+# gets the test DB provisioned SERIALLY before the parallel fan-out.
+# `pnpm test:db:setup` drops schema `public` — run as a parallel peer (a #643
+# verification_command) it demolished the schema underneath its own siblings
+# (27 phantom timeouts). Destructive commands in verification_commands are
+# rejected, not run.
+#
+# Docs-only mode (auto-detected): when every changed path is docs/, .claude/,
+# or *.md, the code rows (test, build, promised-tests, reclassify,
+# diff-coverage) are meaningless — two #643 sessions hit a wall where a
+# docs-only commit could never go green. Lint, typecheck, and the ci:* audits
+# still run; gate-status.json records "mode":"docs_only".
+#
 # Post-check rows (after the parallel checks):
 #   promised-tests — every tests_to_add entry (a VERBATIM test title) must
 #     exist in a test file; missing titles are listed.
-#   reclassify — WARN when the actual diff exceeds ~2x the intake's
-#     estimated_diff_size (the step 0 lane was probably wrong; feature.md's
-#     re-classification trigger applies).
+#   reclassify — WARN when either diff bucket (production / test) exceeds
+#     ~2x its intake estimate (estimated_prod_lines / estimated_test_lines;
+#     legacy fallback: estimated_diff_size vs the combined total). Workflow
+#     artifacts (docs/superpowers/plans/**, docs/reviews/**) are EXCLUDED —
+#     #643's plan+deviations alone were 1,537 of 4,989 "changed lines",
+#     firing the trigger on the workflow's own paperwork.
 #
 # `--review` mode (run once before step 7): the test row runs with
 # coverage, then diff-coverage enforces changed-line coverage (default min
@@ -35,6 +52,47 @@ INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
 
 SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
+DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
+
+BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+
+# Docs-only detection: branch diff + working tree, same union the
+# integration-suite scan uses below.
+CHANGED_PATHS=$(
+  {
+    [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD
+    git status --porcelain --untracked-files=all | cut -c4-
+  } 2>/dev/null | sort -u | grep -v '^$' || true
+)
+DOCS_ONLY=false
+if [ -n "$CHANGED_PATHS" ] && \
+   ! printf '%s\n' "$CHANGED_PATHS" | grep -qvE '^docs/|^\.claude/|\.md$'; then
+  DOCS_ONLY=true
+fi
+
+# Resolve TEST_DATABASE_POOL_URL so changed integration suites never SKIP on
+# a machine that has the DB configured (#643: the gate itself reported SKIP
+# and then declared its own result not review-ready).
+if [ -z "${TEST_DATABASE_POOL_URL:-}" ] && [ -f .env.local ]; then
+  ENV_URL=$(grep -E '^TEST_DATABASE_POOL_URL=' .env.local | tail -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')
+  [ -n "$ENV_URL" ] && export TEST_DATABASE_POOL_URL="$ENV_URL"
+fi
+
+# Serial DB provisioning — a precondition, never a parallel peer. Fail fast:
+# every DB row downstream of a failed provision is noise.
+DB_PROVISION_RESULT=""
+if [ "$DOCS_ONLY" = false ] && [ "$DB_TOUCHING" = "true" ] && [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
+  if pnpm test:db:setup > .feature/logs/db-provision.log 2>&1; then
+    DB_PROVISION_RESULT="PASS"
+  else
+    printf '{"passed":false,"mode":"full","timestamp":%s,"checks":[{"name":"db-provision","result":"FAIL"}]}\n' \
+      "$(date +%s)" > .feature/gate-status.json
+    echo "VERIFY GATE:"
+    printf '  %-24s %s\n' "db-provision" "FAIL"
+    echo "GATE: RED — test-DB provisioning failed (tail .feature/logs/db-provision.log); parallel checks not started."
+    exit 1
+  fi
+fi
 
 NAMES=()
 PIDS=()
@@ -82,10 +140,12 @@ launch typecheck pnpm typecheck
 run_full_suite() {
   env -u TEST_DATABASE_POOL_URL REPWORTH_DISABLE_LIVE_DB_SUITES=1 "$@"
 }
-if [ "$REVIEW_MODE" = true ]; then
-  launch test run_full_suite pnpm test:coverage --maxWorkers="$VITEST_WORKERS"
-else
-  launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
+if [ "$DOCS_ONLY" = false ]; then
+  if [ "$REVIEW_MODE" = true ]; then
+    launch test run_full_suite pnpm test:coverage --maxWorkers="$VITEST_WORKERS"
+  else
+    launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
+  fi
 fi
 
 # Every ci:* audit from package.json (excluding ci:fallow*).
@@ -93,27 +153,32 @@ while IFS= read -r SCRIPT; do
   launch "${SCRIPT#ci:}" pnpm "$SCRIPT"
 done < <(jq -r '.scripts | keys[] | select(startswith("ci:")) | select(startswith("ci:fallow") | not)' package.json)
 
-if [ "$SURFACE" = "ui" ] || [ "$SURFACE" = "mixed" ]; then
+if { [ "$SURFACE" = "ui" ] || [ "$SURFACE" = "mixed" ]; } && [ "$DOCS_ONLY" = false ]; then
   launch build pnpm build
 fi
 
 # Extra commands declared in the intake (each entry is one shell command).
+# Destructive DB commands are REJECTED, not run: the gate owns provisioning
+# (serial, above) — a schema-dropping command can never be a safe parallel
+# peer of the suites reading that schema (#643 step-5 gate incident).
+REJECTED_EXTRAS=""
 while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
   SAFE=$(echo "$CMD" | tr -c 'a-zA-Z0-9' '-' | cut -c1-40)
+  if echo "$CMD" | grep -qiE 'test:db:setup|db:setup|drop schema'; then
+    echo "rejected destructive verification_command: $CMD" > ".feature/logs/extra-${SAFE}.log"
+    echo "The gate provisions the test DB serially when db_touching — remove this from the intake." >> ".feature/logs/extra-${SAFE}.log"
+    REJECTED_EXTRAS="${REJECTED_EXTRAS}extra-${SAFE}
+"
+    continue
+  fi
   launch "extra-${SAFE}" bash -c "$CMD"
 done < <(jq -r '.verification_commands[]?' "$INTAKE" 2>/dev/null)
 
 # Changed live-DB integration suites (branch diff vs fork point + working
 # tree). They self-skip without TEST_DATABASE_POOL_URL — never let that
 # read as green.
-BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
-CHANGED_INTEGRATION=$(
-  {
-    [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD
-    git status --porcelain --untracked-files=all | cut -c4-
-  } 2>/dev/null | sort -u | grep -E '\.integration\.test\.ts$' || true
-)
+CHANGED_INTEGRATION=$(printf '%s\n' "$CHANGED_PATHS" | grep -E '\.integration\.test\.ts$' || true)
 INTEGRATION_SKIPPED=0
 # Per-row coverage output. Each integration row is its own vitest process
 # writing a COMPLETE coverage-final.json, so a shared directory would let the
@@ -148,6 +213,16 @@ for i in "${!NAMES[@]}"; do
   fi
 done
 
+# Rows recorded outside the parallel section (appended after the wait loop so
+# NAMES/PIDS index pairing above stays intact).
+if [ -n "$DB_PROVISION_RESULT" ]; then
+  NAMES+=("db-provision"); RESULTS+=("$DB_PROVISION_RESULT")
+fi
+while IFS= read -r REJECTED; do
+  [ -n "$REJECTED" ] || continue
+  NAMES+=("$REJECTED"); RESULTS+=("FAIL")
+done <<< "$REJECTED_EXTRAS"
+
 # Synchronous post-check, appended after the parallel rows.
 run_sync() {
   local name="$1"; shift
@@ -179,20 +254,54 @@ while IFS= read -r TITLE; do
   MISSING_TITLES="${MISSING_TITLES}  - ${TITLE}
 "
 done < <(jq -r '.tests_to_add[]?' "$INTAKE" 2>/dev/null)
-if jq -e '.tests_to_add | length > 0' "$INTAKE" >/dev/null 2>&1; then
+if [ "$DOCS_ONLY" = false ] && jq -e '.tests_to_add | length > 0' "$INTAKE" >/dev/null 2>&1; then
   NAMES+=("promised-tests")
   if [ -n "$MISSING_TITLES" ]; then RESULTS+=("FAIL"); else RESULTS+=("PASS"); fi
 fi
 
-# --- reclassify: actual diff vs the intake's estimated_diff_size ---
+# --- reclassify: actual diff vs the intake's per-bucket estimates ---
+# Buckets: test (__tests__/, *.test.ts(x), e2e/) vs production (the rest).
+# Workflow artifacts (docs/superpowers/plans/**, docs/reviews/**) are excluded
+# entirely — the plan document is not scope creep against itself.
 RECLASSIFY_MSG=""
-EST=$(jq -r '.estimated_diff_size // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
-if [ -n "$EST" ] && [ "$EST" -gt 0 ] && [ -n "$BASE" ]; then
-  ACTUAL=$(git diff --shortstat "$BASE" 2>/dev/null \
-    | grep -oE '[0-9]+ (insertion|deletion)' | grep -oE '[0-9]+' | paste -sd+ - | bc 2>/dev/null || echo 0)
-  if [ "${ACTUAL:-0}" -gt $((EST * 2)) ]; then
-    NAMES+=("reclassify"); RESULTS+=("WARN")
-    RECLASSIFY_MSG="actual diff ${ACTUAL} changed lines > 2x estimated_diff_size (${EST}) — re-run step 0 (re-classification trigger)."
+if [ "$DOCS_ONLY" = false ] && [ -n "$BASE" ]; then
+  PROD_ACTUAL=0; TEST_ACTUAL=0
+  while IFS=$'\t' read -r ADDS DELS PATHNAME; do
+    [ -n "$PATHNAME" ] || continue
+    case "$ADDS" in ''|*[!0-9]*) continue ;; esac
+    case "$DELS" in ''|*[!0-9]*) continue ;; esac
+    case "$PATHNAME" in
+      docs/superpowers/plans/*|docs/reviews/*) continue ;;
+    esac
+    if echo "$PATHNAME" | grep -qE '(^|/)__tests__/|\.test\.tsx?$|^e2e/'; then
+      TEST_ACTUAL=$((TEST_ACTUAL + ADDS + DELS))
+    else
+      PROD_ACTUAL=$((PROD_ACTUAL + ADDS + DELS))
+    fi
+  done < <(git diff --numstat "$BASE" 2>/dev/null)
+
+  EST_PROD=$(jq -r '.estimated_prod_lines // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
+  EST_TEST=$(jq -r '.estimated_test_lines // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
+  if [ -n "$EST_PROD" ] || [ -n "$EST_TEST" ]; then
+    OVER=""
+    if [ -n "$EST_PROD" ] && [ "$EST_PROD" -gt 0 ] && [ "$PROD_ACTUAL" -gt $((EST_PROD * 2)) ]; then
+      OVER="production ${PROD_ACTUAL} > 2x estimated_prod_lines (${EST_PROD})"
+    fi
+    if [ -n "$EST_TEST" ] && [ "$EST_TEST" -gt 0 ] && [ "$TEST_ACTUAL" -gt $((EST_TEST * 2)) ]; then
+      [ -n "$OVER" ] && OVER="${OVER}; "
+      OVER="${OVER}test ${TEST_ACTUAL} > 2x estimated_test_lines (${EST_TEST})"
+    fi
+    if [ -n "$OVER" ]; then
+      NAMES+=("reclassify"); RESULTS+=("WARN")
+      RECLASSIFY_MSG="${OVER} changed lines (workflow artifacts excluded) — re-run step 0 (re-classification trigger)."
+    fi
+  else
+    # Legacy intakes: single estimated_diff_size vs the combined total.
+    EST=$(jq -r '.estimated_diff_size // empty' "$INTAKE" 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)
+    if [ -n "$EST" ] && [ "$EST" -gt 0 ] && [ $((PROD_ACTUAL + TEST_ACTUAL)) -gt $((EST * 2)) ]; then
+      NAMES+=("reclassify"); RESULTS+=("WARN")
+      RECLASSIFY_MSG="actual diff $((PROD_ACTUAL + TEST_ACTUAL)) changed lines (workflow artifacts excluded) > 2x estimated_diff_size (${EST}) — re-run step 0 (re-classification trigger)."
+    fi
   fi
 fi
 
@@ -201,7 +310,7 @@ fi
 # a live-DB suite executes are absent from its report. Fold each integration
 # row's coverage in first, or DB-orchestration modules read ~0% on changed lines
 # despite their suites passing (#563 item 2).
-if [ "$REVIEW_MODE" = true ]; then
+if [ "$REVIEW_MODE" = true ] && [ "$DOCS_ONLY" = false ]; then
   if [ -d "$INTEGRATION_COV_DIR" ]; then
     run_sync merge-coverage \
       pnpm tsx scripts/merge-coverage.ts coverage/coverage-final.json "$INTEGRATION_COV_DIR"
@@ -222,10 +331,16 @@ for i in "${!NAMES[@]}"; do
 done
 CHECKS_JSON="${CHECKS_JSON%,}]"
 
-printf '{"passed":%s,"timestamp":%s,"checks":%s}\n' \
-  "$PASSED" "$(date +%s)" "$CHECKS_JSON" > .feature/gate-status.json
+GATE_MODE="full"
+[ "$DOCS_ONLY" = true ] && GATE_MODE="docs_only"
+printf '{"passed":%s,"mode":"%s","timestamp":%s,"checks":%s}\n' \
+  "$PASSED" "$GATE_MODE" "$(date +%s)" "$CHECKS_JSON" > .feature/gate-status.json
 
 echo "VERIFY GATE:"
+if [ "$DOCS_ONLY" = true ]; then
+  echo "  (docs-only mode: every changed path is docs/, .claude/, or *.md —"
+  echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped)"
+fi
 for i in "${!NAMES[@]}"; do
   printf '  %-24s %s\n' "${NAMES[$i]}" "${RESULTS[$i]}"
 done
@@ -235,7 +350,7 @@ if [ "$INTEGRATION_SKIPPED" -gt 0 ]; then
   echo "They self-skip locally and can go red in CI — set the var and re-run before review:"
   printf '%s\n' "$CHANGED_INTEGRATION" | sed 's/^/  - /'
 fi
-if [ -n "$MISSING_TITLES" ]; then
+if [ "$DOCS_ONLY" = false ] && [ -n "$MISSING_TITLES" ]; then
   echo "PROMISED TESTS MISSING (tests_to_add titles not found verbatim in any test file):"
   printf '%s' "$MISSING_TITLES"
 fi

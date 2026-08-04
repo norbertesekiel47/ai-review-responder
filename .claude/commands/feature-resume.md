@@ -21,12 +21,18 @@ continue: the handoff doc's claims are hints; git state is the truth.
 3. **Reconcile claimed state against git state** (do this BEFORE trusting
    the handoff doc):
    - Read `.feature/state.json` FIRST — the machine-readable phase record
-     (`phase`, `headSha`, `lastGreenGateSha`, `intakeSha256`). If
+     (`phase`, `headSha`, `lastGreenGateSha`, `intakeSha256`, and the
+     review-round counters `planReviewRounds` / `branchReviewRounds`). If
      `headSha` ≠ actual `git rev-parse HEAD`, work happened without a
      phase update — reconcile from git, then re-run
      `bash scripts/feature-state.sh set-phase <phase>` to repair it. If
      the file is missing (pre-state-machine run), fall through to the git
      checks below.
+   - The round counters are CUMULATIVE across sessions — a resumed review
+     continues from the recorded count under feature.md's caps (1 full +
+     2 verification-only rounds, then escalate to me). Never restart at
+     round 1 because the transcript is gone; uncounted rounds are how a
+     "max 3" review reached round 5.
    - `git log --oneline $(git merge-base HEAD origin/main)..HEAD` — do the
      commits match the tasks the handoff (and `state.json` phase) claim
      are done?
