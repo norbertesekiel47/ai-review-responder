@@ -85,6 +85,8 @@
     "src/components/admin/nav-config.ts",
     "src/components/admin/__tests__/**",
     "src/__tests__/**",
+    "src/lib/account-offboarding/**",
+    "scripts/ci/tenant-tables.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
     ".claude/reference/migrations-log.md",
     "docs/runbooks/channels-rollout.md",

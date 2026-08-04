@@ -323,3 +323,62 @@ criteria do not fire. Surface amendments used: **1 of 2**.
    `ci:tenant-scope` keys on `file + table + normalized SQL`, so adding a column
    to a *shared SQL fragment* silently breaks the allowlist entry of every call
    site that composes it. Not obvious from the fragment's own file.
+
+---
+
+## D-A11 · 2026-08-03 · Surface amendment #2 — P-2 was partly wrong; the correction record loses its evidence
+
+**Found by:** the step-7 adversarial approach review (Codex), report at
+`docs/reviews/feat-645-manual-suppression-paths/codex-adversarial-approach-review.md`,
+findings HIGH-1, HIGH-2 and MEDIUM-1. It attacked P-2 because I asked it to.
+
+**What is wrong.** The correction record stores `suppression_id`, `channel`,
+`normalized_handle`, `scope`, `source`, `suppressed_at`, `removed_by_user_id`
+and `reason` — and drops the removed row's `created_by_user_id` and `note`. For
+an `admin_manual` row those two are exactly what §7.3 makes **required**: who
+entered the opt-out, and the originating message reference proving it was real.
+Correcting the row destroys the evidence behind the assertion being corrected.
+
+**And P-2's own reasoning was flawed.** I justified dropping `account_id` as
+"provenance for a row that is being deleted". That holds for a `global` row. It
+is **false for `scope='account'`**, where `account_id` is not provenance but the
+Suppression scope key itself — §1.2 makes it non-null by construction. I
+conflated two different meanings of one column, which the glossary explicitly
+separates. P-7 lets an admin correct either scope, so account-scoped corrections
+currently cannot say whose do-not-contact was removed.
+
+**The evasion I am NOT taking.** `original_account_id` and
+`original_created_by_user_id` slip past `accountLinkedTablesFromMigrations()`
+purely by naming — the regex needs a word boundary before `account_id`, and a
+leading `original_` removes it. That is HIGH-2's charge ("enshrines identity-column
+naming that evades the governance detector") and it is correct. Naming data to
+dodge a governance check is worse than the gap it hides.
+
+**Resolution — classify, don't dodge.** Add the evidence columns with honest
+names and give the table its `TABLE_DISPOSITIONS` entry as
+`retain_compliance_limited_pii`. That is not scope creep to satisfy a detector:
+`solicitation_suppressions` and `solicitation_unsubscribe_tokens` **already**
+carry exactly that disposition for exactly this class of data (D7). The detector
+was right and P-2's reason (b) was tail-wagging-dog.
+
+**Migration 098 is edited in place, not superseded.** Its migrations-log entry
+carries **LOCAL-ONLY**, and the log's own convention states that
+`migration-immutability-guard.sh` exempts unpromoted migrations because they are
+"not yet immutable". It has never been applied to staging or production. (099 is
+claimed by #656 per D-A3, so stacking would have meant 100 for a table that has
+never shipped.)
+
+**Why now and not as a follow-up:** after merge this becomes unfixable. Any
+correction performed between merge and the follow-up loses the original creator
+and the §7.3 note permanently — there is nothing to backfill from, because the
+source row was deleted.
+
+**Surface amendment #2 of 2**, adding `src/lib/account-offboarding/**` and
+`scripts/ci/tenant-tables.ts`. This reaches the abort-criteria threshold.
+**Owner call, 2026-08-03: continue rather than tear down** — the finding is a
+schema-completeness defect caught before promotion, on a branch that is otherwise
+gate-green with eight tasks landed; restarting at step 1 would reproduce the same
+plan with this one correction already made. **No further amendment is available:
+a third means teardown.**
+
+**Verdict:** ACCEPT — my design error, corrected before it could ship.
