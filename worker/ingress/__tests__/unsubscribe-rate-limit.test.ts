@@ -23,7 +23,12 @@ vi.mock('../../../src/lib/solicitation/unsubscribe', async (importOriginal) => {
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 import { mintUnsubscribeRawToken } from '../../../src/lib/solicitation/unsubscribe';
-import { buildUnsubscribeTestApp, type UnsubscribeTestApp } from './helpers/unsubscribe-app';
+import {
+  buildUnsubscribeTestApp,
+  REAL_HANDLER_INGRESS_PATH,
+  SIBLING_INGRESS_PATHS,
+  type UnsubscribeTestApp,
+} from './helpers/unsubscribe-app';
 
 const SESSION_SECRET = 'test-session-cookie-secret-at-least-32-chars';
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -110,8 +115,38 @@ describe('ingress rate-limit hook — the unsubscribe exemption', () => {
 
 describe('ingress rate-limit hook — everything else stays throttled', () => {
   it('still enforces the ingress rate limit on every other ingress path', async () => {
-    await harness.app.inject({ method: 'POST', url: '/ingress/resend', payload: {} });
-    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
+    // Every path worker/index.ts registers, not one convenience stub. The hook is
+    // general policy for all five providers and D11 records that its predecessor
+    // was bypassable on every one of them, so a single-stub assertion under this
+    // title claimed coverage the harness could not provide.
+    const everyOtherIngressPath = [REAL_HANDLER_INGRESS_PATH, ...SIBLING_INGRESS_PATHS];
+
+    for (const ingressPath of everyOtherIngressPath) {
+      mockCheckRateLimit.mockClear();
+      await harness.app.inject({ method: 'POST', url: ingressPath, payload: {} });
+      expect(mockCheckRateLimit, ingressPath).toHaveBeenCalledTimes(1);
+    }
+    // The real Resend handler sits behind one of them, so the hook is proven to
+    // run ahead of a genuine provider handler and not only ahead of a stub.
+    expect(everyOtherIngressPath).toHaveLength(6);
+  });
+
+  it('the sibling ingress paths match the ones worker/index.ts registers', async () => {
+    // The list above is only as good as its correspondence to the composition
+    // root. A sixth provider added there with no entry here would silently drop
+    // out of the matrix.
+    const source = readFileSync(path.join(REPO_ROOT, 'worker/index.ts'), 'utf8');
+    // flatMap, not map+filter: the capture group is `string | undefined` under
+    // noUncheckedIndexedAccess, and narrowing here keeps the assertion honest —
+    // a regex that stopped capturing would yield an empty set rather than a
+    // TypeError, and the toEqual below would catch it.
+    const registered = [...source.matchAll(/app\.(?:post|get)\('(\/ingress\/[^']*)'/g)]
+      .flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
+      .filter((ingressPath) => !ingressPath.includes('unsubscribe'));
+
+    expect(new Set(registered)).toEqual(
+      new Set([REAL_HANDLER_INGRESS_PATH, ...SIBLING_INGRESS_PATHS]),
+    );
   });
 
   it('still enforces the ingress rate limit on a percent-encoded ingress root path', async () => {
@@ -197,7 +232,11 @@ describe('ingress rate-limit hook — absolute-form request targets', () => {
       );
 
       // It really reaches the handler — the bypass would be worthless on a 404.
-      expect(status).toContain('200');
+      // 401 is the REAL Resend handler rejecting an unsigned body, which is a
+      // stronger witness than a stub's 200: routing resolved and a genuine
+      // provider handler ran, both downstream of the hook under test.
+      expect(status).toContain('401');
+      expect(status).not.toContain('404');
       expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
     } finally {
       // In a `finally` so an assertion failure cannot leak the listening port.
@@ -230,9 +269,27 @@ describe('ingress rate-limit hook — wiring', () => {
   it('the unsubscribe route modules never import checkRateLimit', async () => {
     // §9.2 forbids throttling a statutory opt-out. Asserted structurally so a
     // future "just add a limiter here" cannot pass review by accident.
-    const source = readFileSync(path.join(REPO_ROOT, 'worker/ingress/unsubscribe.ts'), 'utf8');
-    expect(source).not.toContain('checkRateLimit');
-    expect(source).not.toMatch(/from ['"][^'"]*rate-limit['"]/);
+    //
+    // ALL THREE modules, not just the worker's. The title says "modules" and it
+    // used to read one file — while Vercel is the *more* likely place for the
+    // mistake: `/api/*` is where every other mutating route in the app IS
+    // limited, and the WAF runbook records that rule 1a already matches this
+    // path. A limiter on the Vercel POST would violate §9.2 identically and the
+    // guard would have stayed green.
+    const UNSUBSCRIBE_ROUTE_MODULES = [
+      'worker/ingress/unsubscribe.ts',
+      'src/app/api/u/[token]/route.ts',
+      'src/app/(public)/u/[token]/page.tsx',
+    ];
+
+    for (const modulePath of UNSUBSCRIBE_ROUTE_MODULES) {
+      const source = readFileSync(path.join(REPO_ROOT, modulePath), 'utf8');
+      expect(source, modulePath).not.toContain('checkRateLimit');
+      expect(source, modulePath).not.toMatch(/from ['"][^'"]*rate-limit['"]/);
+      // The Vercel-side equivalents §9.2 also forbids: BotID registration and an
+      // explicit WAF challenge are throttles by another name on this path.
+      expect(source, modulePath).not.toContain('checkBotId');
+    }
   });
 
   it('worker/index.ts registers the hook through the limiter module', async () => {

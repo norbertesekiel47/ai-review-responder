@@ -261,17 +261,17 @@ describe('unsubscribe signing key rollover', () => {
   });
 
   it('a receipt minted under the previous key still verifies', async () => {
-    const tokenHash = createHash('sha256').update('a-raw-unsubscribe-token').digest('hex');
+    const rawToken = 'a-raw-unsubscribe-token';
     vi.stubEnv('SESSION_COOKIE_SECRET', OUTGOING_SECRET);
     vi.stubEnv('SESSION_COOKIE_SECRET_PREVIOUS', '');
     const before = await freshUnsubscribe();
-    const receipt = before.mintUnsubscribeReceipt(tokenHash, Date.now());
+    const receipt = before.mintUnsubscribeReceipt(rawToken, Date.now());
 
     const { verifyUnsubscribeReceipt } = await afterRollover();
-    expect(verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(true);
+    expect(verifyUnsubscribeReceipt(rawToken, receipt)).toBe(true);
 
     const retired = await afterRetirement();
-    expect(retired.verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(false);
+    expect(retired.verifyUnsubscribeReceipt(rawToken, receipt)).toBe(false);
   });
 
   // The default deployment state — the new var ships empty everywhere — so this
@@ -362,8 +362,11 @@ describe('redemptionConfirmsSuppression', () => {
 });
 
 describe('unsubscribe receipt', () => {
-  const tokenHash = createHash('sha256').update('a-raw-unsubscribe-token').digest('hex');
-  const otherTokenHash = createHash('sha256').update('a-different-raw-token').digest('hex');
+  // Raw tokens now, not digests: the receipt API takes the raw token and derives
+  // the hash itself, so mint and verify cannot be keyed on different values.
+  const rawToken = 'a-raw-unsubscribe-token';
+  const otherRawToken = 'a-different-raw-token';
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -373,38 +376,38 @@ describe('unsubscribe receipt', () => {
   it('mints and verifies a receipt in the documented wire format', async () => {
     const { mintUnsubscribeReceipt, verifyUnsubscribeReceipt } = await freshUnsubscribe();
     const issuedAtMs = Date.now();
-    const receipt = mintUnsubscribeReceipt(tokenHash, issuedAtMs);
+    const receipt = mintUnsubscribeReceipt(rawToken, issuedAtMs);
 
     expect(receipt).toBe(
       `${issuedAtMs}.${createHmac('sha256', TEST_SECRET)
         .update(`repworth:unsubscribe-receipt:v1:${tokenHash}:${issuedAtMs}`)
         .digest('base64url')}`,
     );
-    expect(verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(true);
+    expect(verifyUnsubscribeReceipt(rawToken, receipt)).toBe(true);
   });
 
   it('rejects a receipt minted for a different token hash', async () => {
     const { mintUnsubscribeReceipt, verifyUnsubscribeReceipt } = await freshUnsubscribe();
-    const receipt = mintUnsubscribeReceipt(otherTokenHash, Date.now());
+    const receipt = mintUnsubscribeReceipt(otherRawToken, Date.now());
 
-    expect(verifyUnsubscribeReceipt(tokenHash, receipt)).toBe(false);
+    expect(verifyUnsubscribeReceipt(rawToken, receipt)).toBe(false);
   });
 
   it('enforces the ten minute receipt TTL', async () => {
     const { mintUnsubscribeReceipt, verifyUnsubscribeReceipt } = await freshUnsubscribe();
     const now = Date.now();
 
-    const justInside = mintUnsubscribeReceipt(tokenHash, now - (TEN_MINUTES_MS - 1_000));
-    const justOutside = mintUnsubscribeReceipt(tokenHash, now - (TEN_MINUTES_MS + 1_000));
+    const justInside = mintUnsubscribeReceipt(rawToken, now - (TEN_MINUTES_MS - 1_000));
+    const justOutside = mintUnsubscribeReceipt(rawToken, now - (TEN_MINUTES_MS + 1_000));
 
-    expect(verifyUnsubscribeReceipt(tokenHash, justInside)).toBe(true);
-    expect(verifyUnsubscribeReceipt(tokenHash, justOutside)).toBe(false);
+    expect(verifyUnsubscribeReceipt(rawToken, justInside)).toBe(true);
+    expect(verifyUnsubscribeReceipt(rawToken, justOutside)).toBe(false);
   });
 
   it('rejects malformed receipts without throwing', async () => {
     const { mintUnsubscribeReceipt, verifyUnsubscribeReceipt } = await freshUnsubscribe();
     const issuedAtMs = Date.now();
-    const { mac } = tokenHalves(mintUnsubscribeReceipt(tokenHash, issuedAtMs));
+    const { mac } = tokenHalves(mintUnsubscribeReceipt(rawToken, issuedAtMs));
 
     const rejected = [
       '',
@@ -422,8 +425,8 @@ describe('unsubscribe receipt', () => {
     ];
 
     for (const candidate of rejected) {
-      expect(() => verifyUnsubscribeReceipt(tokenHash, candidate)).not.toThrow();
-      expect(verifyUnsubscribeReceipt(tokenHash, candidate)).toBe(false);
+      expect(() => verifyUnsubscribeReceipt(rawToken, candidate)).not.toThrow();
+      expect(verifyUnsubscribeReceipt(rawToken, candidate)).toBe(false);
     }
   });
 });

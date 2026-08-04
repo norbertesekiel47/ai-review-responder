@@ -222,6 +222,42 @@ describe('unsubscribe ingress — POST', () => {
     }
   });
 
+  it('a spent token whose suppression was corrected away is 200, not a retryable 503', async () => {
+    const sink = captureWorkerLog();
+    try {
+      // The third success-shaped outcome, and the only one the ingress had never
+      // been driven with. It is the one `redemptionConfirmsSuppression` exists
+      // for — and the one the adapter deliberately does NOT ask that predicate
+      // about: a provider POST asks "handled?", not "is this recipient
+      // suppressed?". 503 here would make the provider retry forever a token that
+      // by design will never re-suppress.
+      //
+      // Unreachable until the audited Correction path (#645) ships, so it is
+      // pinned here rather than discovered in production. This is also the case
+      // that keeps the single-flight's soundness premise honest — all three
+      // non-unknown outcomes map to 200, so sharing one across waiters is safe.
+      mockRedeem.mockResolvedValue({
+        status: 'already_redeemed_not_suppressed',
+        tokenHashPrefix: 'a1b2c3d4e5f6',
+      });
+
+      const response = await postToken(validToken);
+
+      expect(response.statusCode).toBe(200);
+      expect(mockCaptureException).not.toHaveBeenCalled();
+      // It still earns its §9.5 line — this is the outcome that indicates a
+      // correction/replay collision, so dropping it would hide the signal.
+      const records = workerLogRecords(sink);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.data).toEqual({
+        outcome: 'already_redeemed_not_suppressed',
+        hash_prefix: 'a1b2c3d4e5f6',
+      });
+    } finally {
+      sink.restore();
+    }
+  });
+
   it('an unknown token returns 503 and emits no per-request log line', async () => {
     const sink = captureWorkerLog();
     try {
@@ -274,9 +310,28 @@ describe('unsubscribe ingress — POST', () => {
       const response = await postToken(validToken);
 
       expect(response.statusCode).toBe(503);
+
+      // POSITIVE CONTROL FIRST. Invariant #5's highest-stakes assertion is a
+      // `not.toContain`, and a `not.toContain` against an empty sink passes for
+      // the wrong reason — which is precisely what the Fastify assertion that
+      // used to sit here did. Prove the line was written before proving what it
+      // does not contain.
+      const records = workerLogRecords(sink);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.data).toMatchObject({ outcome: 'failed', stage: 'redeem' });
+      expect(sink.lines()).toContain('/ingress/unsubscribe/[REDACTED]');
       expect(sink.lines()).not.toContain(validToken);
-      expect(harness.rawFastifyLog()).not.toContain(validToken);
+
+      // Fastify's OWN sink is empty on this path, and that is a property worth
+      // asserting rather than a place to hide a vacuous check: `failClosed`
+      // answers the 503 itself, so the framework error handler never runs, and
+      // the route carries `logLevel:'silent'`. The non-empty Fastify cases live
+      // where they can actually fail — the unmatched-404 test below, and the
+      // 5xx/double-send tests in worker/config/__tests__/fastify-options.test.ts.
+      expect(harness.fastifyLogLines()).toEqual([]);
+
       const [reported] = mockCaptureException.mock.calls[0] as [Error];
+      expect(reported.message).toContain('[REDACTED]');
       expect(reported.message).not.toContain(validToken);
       expect(String(reported.stack)).not.toContain(validToken);
     } finally {
@@ -617,6 +672,11 @@ describe('unsubscribe ingress — logging', () => {
         url: `/ingress/unsubscribe/${validToken}/extra`,
       });
 
+      // Positive controls, so neither negative assertion can pass against an
+      // empty sink: the unmatched 404 puts a redacted URL in Fastify's log, and
+      // the failed POST puts a redacted one in the worker's.
+      expect(infoHarness.rawFastifyLog()).toContain('/ingress/unsubscribe/[REDACTED]');
+      expect(sink.lines()).toContain('/ingress/unsubscribe/[REDACTED]');
       expect(infoHarness.rawFastifyLog()).not.toContain(validToken);
       expect(sink.lines()).not.toContain(validToken);
     } finally {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { scrubSentryEvent, redactSensitivePathsAndQueries } from '../sentry-scrub';
+import {
+  scrubSentryEvent,
+  redactSensitivePathsAndQueries,
+  redactSensitiveTokenPaths,
+} from '../sentry-scrub';
 
 describe('scrubSentryEvent', () => {
   it('redacts sensitive keys recursively from extra and request headers', () => {
@@ -299,5 +303,90 @@ describe('redactSensitivePathsAndQueries', () => {
   it('returns malformed percent-encoding unchanged instead of throwing', () => {
     expect(() => redactSensitivePathsAndQueries('/dashboard/%E0%A4%A')).not.toThrow();
     expect(redactSensitivePathsAndQueries('/dashboard/%E0%A4%A')).toBe('/dashboard/%E0%A4%A');
+  });
+});
+
+describe('redactSensitiveTokenPaths', () => {
+  // The prose-safe half, written because the pino censor feeds free text from
+  // Stripe, Resend, Telegram, Twilio and Zernio through it — not URLs.
+
+  it('leaves a provider error message with a question mark and code= intact', () => {
+    // The exact regression: `redactSensitivePathsAndQueries` treats everything
+    // after the first `?` as a query string and SENSITIVE_QUERY_KEY_RE matches
+    // the `code` substring, so this message lost `batch=7` — a real narrowing of
+    // ingress diagnostics for a provider that has nothing to do with #644.
+    const message = 'Zernio ingest failed? code=REVIEW_CREATED batch=7';
+    expect(redactSensitiveTokenPaths(message)).toBe(message);
+    expect(redactSensitivePathsAndQueries(message)).not.toBe(message);
+  });
+
+  it.each([
+    'Could not decode payload? decoded=null raw=abc',
+    'Are you passing the raw request body you received from Stripe?',
+    'Twilio 21610: The message From/To pair violates a blacklist rule? code=21610',
+    'Telegram getUpdates conflict? offset=42 signature=abc',
+  ])('leaves the provider message %j byte-for-byte unchanged', (message) => {
+    expect(redactSensitiveTokenPaths(message)).toBe(message);
+  });
+
+  it('keeps every stack frame after a frame containing key=', () => {
+    // A `?` anywhere in the message made the WHOLE stack read as a query string,
+    // so one later `key=` deleted every frame past it — the frames that actually
+    // locate the failure.
+    const stack = [
+      'Error: bad request?',
+      '    at parse (/app/worker/ingress/zernio.ts:1:1)',
+      '    at eval (eval at run (/app/x.ts:2:2), key=1)',
+      '    at dispatch (/app/worker/index.ts:3:3)',
+    ].join('\n');
+
+    expect(redactSensitiveTokenPaths(stack)).toBe(stack);
+    expect(redactSensitivePathsAndQueries(stack)).not.toContain('at dispatch');
+  });
+
+  it('still redacts every unsubscribe and approve token shape in prose', () => {
+    expect(redactSensitiveTokenPaths('boom while redeeming /ingress/unsubscribe/SECRET')).toBe(
+      'boom while redeeming /ingress/unsubscribe/[REDACTED]',
+    );
+    expect(redactSensitiveTokenPaths('GET /u/SECRET 200')).toBe('GET /u/[REDACTED] 200');
+    expect(redactSensitiveTokenPaths('POST /api/u/SECRET failed')).toBe(
+      'POST /api/u/[REDACTED] failed',
+    );
+    expect(redactSensitiveTokenPaths('/api/approve/SECRET/edit threw')).toBe(
+      '/api/approve/[REDACTED]/edit threw',
+    );
+    // Cross-slash and encoded-prefix coverage is not lost by dropping the query
+    // split — both live in the token rules themselves.
+    expect(redactSensitiveTokenPaths('at /u/abc/def')).toBe('at /u/[REDACTED]');
+    expect(redactSensitiveTokenPaths('at /ingress/%75nsubscribe/SECRET')).toBe(
+      'at /ingress/unsubscribe/[REDACTED]',
+    );
+  });
+
+  it('bounds a token match at the first query or fragment character', () => {
+    // The token regexes self-bound at `?`/`#`/whitespace, which is why no span
+    // splitting is needed here at all.
+    expect(redactSensitiveTokenPaths('/u/SECRET?ok=receipt')).toBe('/u/[REDACTED]?ok=receipt');
+    expect(redactSensitiveTokenPaths('/u/SECRET#done')).toBe('/u/[REDACTED]#done');
+  });
+
+  it('never applies query redaction, so a URL-shaped input keeps its query values', () => {
+    // The deliberate trade, stated so nobody swaps this into the Sentry path:
+    // prose safety costs query-value masking, which is why Sentry keeps the
+    // full treatment.
+    expect(redactSensitiveTokenPaths('/dashboard?api_key=SECRET')).toBe(
+      '/dashboard?api_key=SECRET',
+    );
+    expect(redactSensitivePathsAndQueries('/dashboard?api_key=SECRET')).toBe(
+      '/dashboard?api_key=[REDACTED]',
+    );
+  });
+
+  it('is total over hostile and empty input', () => {
+    expect(redactSensitiveTokenPaths('')).toBe('');
+    expect(() => redactSensitiveTokenPaths('/dashboard/%E0%A4%A')).not.toThrow();
+    expect(redactSensitiveTokenPaths('/dashboard/%E0%A4%A')).toBe('/dashboard/%E0%A4%A');
+    expect(() => redactSensitiveTokenPaths('100% done? key=x')).not.toThrow();
+    expect(redactSensitiveTokenPaths('100% done? key=x')).toBe('100% done? key=x');
   });
 });

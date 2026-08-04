@@ -209,6 +209,34 @@ describe('buildFastifyOptions', () => {
     expect(JSON.stringify(lines)).not.toContain('SECRET_TOK');
   });
 
+  it('does not narrow another provider\'s error message at the production warn level', async () => {
+    // The censor's blast radius: it applies to `msg`/`err.*` for EVERY route on
+    // this server, so a rule written for #644's path tokens runs over free prose
+    // from Stripe, Resend, Telegram, Twilio and Zernio. The URL-shaped rule
+    // treated everything after the first `?` as a query string and dropped
+    // `batch=7`; the header comment above claims the opposite, so this is what
+    // makes the claim true rather than aspirational.
+    const message = 'Zernio ingest failed? code=REVIEW_CREATED batch=7 signature=ok';
+    const { statusCode, lines } = await injectWithLogCapture({
+      productionConfigRequired: true,
+      method: 'POST',
+      url: '/ingress/zernio',
+      register: (app) => {
+        app.post('/ingress/zernio', async () => {
+          throw new Error(message);
+        });
+      },
+    });
+
+    expect(statusCode).toBe(500);
+    const errorLine = lines.find((line) => line.err !== undefined);
+    expect(errorLine?.err?.message).toBe(message);
+    // The stack is the diagnostic that mattered most: a `?` in the message used
+    // to make every frame after a `key=`/`code=` frame vanish.
+    expect(String(errorLine?.err?.stack)).toContain('batch=7');
+    expect(String(errorLine?.err?.stack)).toContain('fastify-options.test.ts');
+  });
+
   it('redacts the token from an aggregate error at the production warn level', async () => {
     // pino-std-serializers emits aggregated errors as a SEPARATE recursive array
     // (lib/err.js), which `err.message` / `err.stack` never reach — so the

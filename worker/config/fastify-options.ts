@@ -1,5 +1,8 @@
 import type { FastifyRequest, FastifyServerOptions } from 'fastify';
-import { redactSensitivePathsAndQueries } from '@/lib/shared/sentry-scrub';
+import {
+  redactSensitivePathsAndQueries,
+  redactSensitiveTokenPaths,
+} from '@/lib/shared/sentry-scrub';
 
 /**
  * Ingress server limits. Fastify's defaults leave requestTimeout at 0
@@ -24,8 +27,10 @@ import { redactSensitivePathsAndQueries } from '@/lib/shared/sentry-scrub';
  * message are level 30, BELOW the prod `warn` threshold, while
  * FST_ERR_REP_ALREADY_SENT is 40 and the default 5xx handler is 50. Two
  * mechanisms cover all three — `serializers.req` for `req.url`, and pino's
- * `redact` for `msg` and the serialized error. The rule itself is
- * `redactSensitivePathsAndQueries`, shared with the Sentry scrubber.
+ * `redact` for `msg` and the serialized error. Both rules are shared with the
+ * Sentry scrubber, but they are NOT the same rule: `req.url` is a real URL and
+ * gets the full path+query treatment, while `msg`/`err` are free prose and get
+ * the path-only one. See the censor below.
  */
 export function buildFastifyOptions(productionConfigRequired: boolean): FastifyServerOptions {
   return {
@@ -57,8 +62,15 @@ export function buildFastifyOptions(productionConfigRequired: boolean): FastifyS
           'err.aggregateErrors[*].message',
           'err.aggregateErrors[*].stack',
         ],
+        // PROSE-safe, deliberately NOT redactSensitivePathsAndQueries. These
+        // paths carry free text from all five other providers, and that function
+        // treats everything after the first `?` as a query string: it turned
+        // `Zernio ingest failed? code=X batch=7` into `…? code=[REDACTED]`, and
+        // one `key=` in a stack frame deleted every frame after it. Invariant #5
+        // needs only PATH redaction here — the token is a path segment and is
+        // never a query parameter on either surface.
         censor: (value: unknown) =>
-          typeof value === 'string' ? redactSensitivePathsAndQueries(value) : value,
+          typeof value === 'string' ? redactSensitiveTokenPaths(value) : value,
       },
       serializers: {
         // The request object on the `incoming request` line, which Fastify emits

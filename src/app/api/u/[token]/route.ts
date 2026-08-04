@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
 import {
-  hashUnsubscribeToken,
   isWellFormedUnsubscribeToken,
   mintUnsubscribeReceipt,
   redeemUnsubscribeToken,
@@ -53,7 +52,7 @@ export async function POST(
 
   // Minted only now: `sql.begin` resolves after COMMIT returns, so a receipt
   // cannot exist for a write that never landed.
-  const receipt = mintUnsubscribeReceipt(hashUnsubscribeToken(token), Date.now());
+  const receipt = mintUnsubscribeReceipt(token, Date.now());
   return seeOther(`${landingPath}?ok=${encodeURIComponent(receipt)}`);
 }
 

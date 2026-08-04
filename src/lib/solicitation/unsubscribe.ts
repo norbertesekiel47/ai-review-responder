@@ -138,13 +138,29 @@ export function assertUnsubscribeTokenSecretConfigured(): void {
  * NOT an authorisation token: it authorises nothing and grants no access. It
  * gates only whether the success view MAY be shown (plan §1.8); whether the
  * claim is actually true comes from a live ledger read at render time.
+ *
+ * Takes the RAW token and derives the digest internally. Both functions used to
+ * take the hash, which meant the mint site (`src/app/api/u/[token]/route.ts`)
+ * and the verify site (`src/app/(public)/u/[token]/page.tsx`) each re-spelled
+ * `hashUnsubscribeToken(...)` — and since mint and verify are symmetric and both
+ * parameters were `string`, a ONE-SIDED slip produced no type error and no
+ * runtime error. It produced receipts that silently stop verifying, sending a
+ * recipient who *did* successfully unsubscribe to the Neutral page telling them
+ * the link is not active — a false negative on the exact statutory claim §1.8
+ * exists to make honest. The digest is this module's storage representation;
+ * callers have no business holding it.
  */
-export function mintUnsubscribeReceipt(tokenHash: string, issuedAtMs: number): string {
+export function mintUnsubscribeReceipt(rawToken: string, issuedAtMs: number): string {
+  const tokenHash = hashUnsubscribeToken(rawToken);
   return `${issuedAtMs}.${signReceipt(getSessionCookieSecret(), tokenHash, issuedAtMs)}`;
 }
 
-/** Total over hostile input, same contract as the token gate above. */
-export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): boolean {
+/**
+ * Total over hostile input, same contract as the token gate above. Takes the RAW
+ * token for the same reason as the minter — the two are symmetric and must not be
+ * able to disagree about what they are keyed on.
+ */
+export function verifyUnsubscribeReceipt(rawToken: string, receipt: string): boolean {
   if (receipt.length > MAX_SIGNED_INPUT_LENGTH) return false;
 
   const separator = receipt.indexOf('.');
@@ -160,6 +176,10 @@ export function verifyUnsubscribeReceipt(tokenHash: string, receipt: string): bo
   // our own mint under a fast clock, and rejecting one would break the common
   // case — verifying moments after minting, on a different host.
   if (Date.now() - issuedAtMs > RECEIPT_TTL_MS) return false;
+
+  // Hashed only after the cheap structural checks above, so a malformed receipt
+  // costs no digest.
+  const tokenHash = hashUnsubscribeToken(rawToken);
 
   // Current-plus-previous, same as the token gate. Lower stakes at a 10-minute
   // TTL, but a rollover must not blank the success page for a receipt that was
@@ -220,11 +240,25 @@ const STATUS_CONFIRMS_SUPPRESSION: Readonly<Record<UnsubscribeRedemptionStatus, 
 };
 
 /**
- * Whether this outcome may back a "you have been unsubscribed" claim — the only
- * sanctioned way to ask. Both callers (the RFC 8058 ingress and the Vercel POST)
- * MUST use it rather than testing statuses themselves: `status !== 'unknown_token'`
- * reads as a reasonable success test and is wrong for exactly one outcome, which
- * is the one that matters.
+ * Whether this outcome may back a "you have been unsubscribed" CLAIM — the only
+ * sanctioned way to ask that question.
+ *
+ * SCOPE, stated precisely because an earlier wording over-reached and one of its
+ * two named callers did not keep it: this predicate governs whether a surface may
+ * TELL A RECIPIENT a suppression exists — minting a Success receipt, rendering
+ * the §5.5 success copy. Any code deciding that MUST call this rather than test
+ * statuses itself, because `status !== 'unknown_token'` reads as a reasonable
+ * success test and is wrong for exactly the one outcome that matters
+ * (`already_redeemed_not_suppressed`).
+ *
+ * It does NOT govern the RFC 8058 ingress's HTTP mapping, and that surface is
+ * right not to use it. A provider POST asks "did you receive and handle this?",
+ * not "is this recipient suppressed?" — so all three non-`unknown_token` outcomes
+ * are 200 there, deliberately. Answering 503 for
+ * `already_redeemed_not_suppressed` would make the provider retry forever a token
+ * that by design will never re-suppress. The asymmetry is intentional and both
+ * halves are correct: the machine needs "handled", the recipient must never be
+ * told they are suppressed when no global row exists.
  *
  * True means a `scope='global'` Suppression ledger row existed for this handle
  * when the redemption committed. It is NOT a promise that one exists *now* —
@@ -314,22 +348,44 @@ export async function findRedeemableUnsubscribeToken(
  * No ABBA deadlock: `recordSuppression` only inserts into the ledger, and this
  * holds the token row lock before that insert — consistently in one direction.
  *
- * CALLER OBLIGATIONS — both are contracts, not preferences:
+ * ⚠️ CALLER OBLIGATIONS — contracts, not preferences, and **NOTHING ENFORCES
+ * THEM**. Not the type system, not CI, not the test suite: `TransactionSql` is
+ * the same type whatever isolation level opened it. Prose is the only guard,
+ * which is why it is stated this bluntly. **The safe way to call this is
+ * `sql.begin((tx) => redeemUnsubscribeToken(tx, …))` with the callback body
+ * containing nothing else.** Both shipped callers do exactly that
+ * (`worker/ingress/unsubscribe.ts`, `src/app/api/u/[token]/route.ts`); copy one
+ * of them rather than composing something new.
  *
  *  1. `tx` MUST be a READ COMMITTED transaction, which is what a plain
  *     `sql.begin()` gives you. Do NOT call this inside a REPEATABLE READ
- *     transaction (`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, as
- *     `src/lib/solicitation/batch-view.ts` builds for its read-only snapshot).
- *     Under REPEATABLE READ the claim raises a 40001 serialization failure
- *     instead of blocking on the row lock, which breaks this function's "domain
- *     outcomes are returned, not thrown" contract; and because the snapshot is
- *     pinned at the transaction's FIRST statement, a caller that read anything
- *     beforehand gets `unknown_token` for a token that was in fact redeemed —
- *     an "invalid link" shown to someone who successfully opted out.
+ *     transaction — and note that **this domain already builds one**:
+ *     `src/lib/solicitation/batch-view.ts` opens a REPEATABLE READ snapshot for
+ *     its read-only view, so it is the nearest thing to hand and it is the wrong
+ *     thing. Under REPEATABLE READ the claim raises a 40001 serialization
+ *     failure instead of blocking on the row lock, which breaks this function's
+ *     "domain outcomes are returned, not thrown" contract; and because the
+ *     snapshot is pinned at the transaction's FIRST statement, a caller that read
+ *     anything beforehand gets `unknown_token` for a token that WAS redeemed —
+ *     an "invalid link" shown to someone who successfully opted out, with no
+ *     error anywhere.
  *  2. The claim takes a ROW LOCK the caller's transaction holds until it
  *     commits. No remote call — provider HTTP, Sentry, analytics flush — may sit
  *     between this call and the commit (production.md: never hold a lock across
  *     a remote call). Commit, then do the remote work.
+ *
+ * WHY THE BOUNDARY IS STILL THE CALLER'S, and what would remove obligation 1
+ * entirely: taking `db: Sql` and owning `sql.begin()` here would make the wrong
+ * isolation level unrepresentable (invariant #15 is satisfied either way — the
+ * executor stays an explicit parameter). That is the better shape and it is a
+ * known, deliberate follow-up, not an oversight. It was not taken in this pass
+ * because it is an interface change across both surfaces plus the ingress
+ * single-flight, and there is no third caller today to force it. A runtime
+ * isolation assertion was also considered and rejected: the only zero-extra-
+ * round-trip hook is a `current_setting('transaction_isolation')` column on a
+ * RETURNING/SELECT, and both are absent on exactly the no-row path where
+ * obligation 1's failure lands — so it would cost a query per redemption on a
+ * statutory hot path to detect the case it cannot see.
  */
 export async function redeemUnsubscribeToken(
   tx: TransactionSql,
@@ -337,11 +393,16 @@ export async function redeemUnsubscribeToken(
 ): Promise<UnsubscribeRedemption> {
   if (!isWellFormedUnsubscribeToken(input.rawToken)) {
     // Indistinguishable from a genuine miss, with ZERO database work — and no
-    // hashing either: this branch is reachable precisely when the gate rejected
-    // the input for exceeding MAX_SIGNED_INPUT_LENGTH, so digesting it here
-    // would restore the unbounded work that bound exists to prevent. There is
-    // also nothing to correlate: a token that was never minted has no prior
-    // attempt and no row.
+    // hashing either. Reachable for ANY gate rejection: wrong length, wrong
+    // shape, or wrong MAC. (An earlier wording said "precisely when the gate
+    // rejected on length", which is false — `aaa.bbb` reaches here already
+    // length-bounded — and invited the conclusion that hashing would be safe.)
+    //
+    // No digest is taken because there is nothing to correlate: a token that was
+    // never minted has no prior attempt and no row. That reason holds for all
+    // three rejections. The length bound still matters independently — it is what
+    // keeps a megabyte of junk to one length compare on an unauthenticated,
+    // unrate-limited route — so do not add hashing here for any of them.
     return { status: 'unknown_token', tokenHashPrefix: '' };
   }
 

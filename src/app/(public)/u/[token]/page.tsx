@@ -7,7 +7,6 @@ import { sql } from '@/lib/db/server';
 import {
   findRedeemableUnsubscribeToken,
   hasLiveGlobalSuppressionForToken,
-  hashUnsubscribeToken,
   verifyUnsubscribeReceipt,
 } from '@/lib/solicitation/unsubscribe';
 
@@ -95,7 +94,7 @@ async function resolveLandingState(
   // so it is treated as no receipt at all.
   if (typeof receiptParam === 'string') {
     if (
-      verifyUnsubscribeReceipt(hashUnsubscribeToken(rawToken), receiptParam)
+      verifyUnsubscribeReceipt(rawToken, receiptParam)
       && (await hasLiveGlobalSuppressionForToken(db, rawToken))
     ) {
       return { view: 'success' };

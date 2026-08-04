@@ -78,11 +78,11 @@ const UNSUBSCRIBE_TOKEN_PATH_RE = /(\/ingress\/unsubscribe\/|\/api\/u\/|\/u\/)[^
  * Pure + total: never throws (no `new URL()`, which rejects relative inputs),
  * handles absolute and relative URLs, and returns non-matching input unchanged.
  *
- * The input is assumed URL-SHAPED. The Fastify ingress logger also routes `msg`
- * and `err.message`/`err.stack` through here, and for free prose the `?` split
- * over-redacts (`"Is this ok? key=v"` loses the value) — safe, but do not rely
- * on this function to leave prose intact. Token redaction itself is applied to
- * the fragment too, precisely so free text after a `#` is not a blind spot.
+ * The input MUST be URL-SHAPED. Everything after the first `?` is treated as a
+ * query string, so over free prose this mangles the message: `"Zernio ingest
+ * failed? code=X batch=7"` loses `batch=7`. Use `redactSensitiveTokenPaths`
+ * below for prose — `msg`, `err.message`, `err.stack`. Callers that hold a real
+ * URL (`request.url`, `event.transaction`, breadcrumb URLs) want this one.
  */
 export function redactSensitivePathsAndQueries(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -98,6 +98,31 @@ export function redactSensitivePathsAndQueries(url: string): string {
   const redactedQuery = query ? `?${redactQueryString(query)}` : '';
 
   return `${redactTokenPaths(path)}${redactedQuery}${redactTokenPaths(fragment)}`;
+}
+
+/**
+ * The PROSE-SAFE half: token paths only, no query-string handling at all.
+ *
+ * Written for the Fastify ingress logger's pino censor, which feeds it `msg`,
+ * `err.message` and `err.stack` — free text from Stripe, Resend, Telegram,
+ * Twilio and Zernio, not URLs. `redactSensitivePathsAndQueries` treats
+ * everything after the first `?` as a query string, so on a message like
+ * `"Zernio ingest failed? code=REVIEW_CREATED batch=7"` it deleted `batch=7`,
+ * and one `key=` inside a stack frame deleted every frame after it. Invariant #5
+ * needs only PATH redaction there: the token is a path segment and is never a
+ * query parameter on either surface.
+ *
+ * No span-splitting is needed because both token regexes already stop at `?`,
+ * `#` and whitespace — so a `?` in prose bounds the match rather than
+ * reinterpreting the remainder. Total: never throws, returns non-matching input
+ * byte-for-byte unchanged.
+ *
+ * Sentry keeps the full URL+query treatment; do NOT swap this in there, or
+ * `?api_key=SECRET` starts reaching the event.
+ */
+export function redactSensitiveTokenPaths(text: string): string {
+  if (typeof text !== 'string' || text.length === 0) return text;
+  return redactTokenPaths(text);
 }
 
 /**

@@ -61,12 +61,28 @@ export async function enforceIngressRateLimit(
  * `onRequest` runs before body parsing and before signature verification, so a
  * 429 short-circuits the lifecycle and the handler never runs.
  *
- * **Both arms of the scope test are required.** An unmatched path yields
- * `routeOptions.url === undefined`, so a resolved-route-only test would drop
- * every 404 out of the hook and reopen an unthrottled flood namespace. A
- * raw-URL-only test — what shipped before #644 — misses `/%69ngress/resend`,
- * which resolves to the real route while failing a literal prefix compare, and
- * therefore escaped the limiter entirely on EVERY provider.
+ * **Both arms of the scope test are required, and each has its OWN case.**
+ * Neither arm is redundant, and the resolved-route arm is the one that looks it —
+ * do not delete it without reading this paragraph to the end.
+ *
+ *  * **Arm 1 (`routeOptions.url`)** is load-bearing for an **absolute-form
+ *    request target** (RFC 9112 §3.2.2): `POST http://host/ingress/resend
+ *    HTTP/1.1` is a legal request line, and `find-my-way` strips scheme +
+ *    authority before matching, so the route resolves while `request.url` keeps
+ *    the whole absolute string — which does not start with `/ingress/`, decoded
+ *    or not, so **arm 2 reads false**. Deleting arm 1 reopens the limiter bypass
+ *    for all five providers via a one-token change to the request line. This was
+ *    actually reasoned to the point of a mutation run on this branch before a
+ *    real socket falsified it; see deviations D11, and the real-socket test
+ *    `worker/ingress/__tests__/unsubscribe-rate-limit.test.ts` ("absolute-form").
+ *    `app.inject()` cannot reach this case — it normalises the target — so a
+ *    unit-level check will agree with the deletion.
+ *  * **Arm 2 (decoded raw URL)** covers two cases arm 1 cannot. An unmatched path
+ *    yields `routeOptions.url === undefined`, so a resolved-route-only test would
+ *    drop every 404 out of the hook and reopen an unthrottled flood namespace.
+ *    And the decode is what catches `/%69ngress/resend` — what shipped before
+ *    #644 compared the raw URL literally, so that spelling resolved to the real
+ *    route and escaped the limiter entirely on EVERY provider.
  *
  * The **exemption** keys strictly on resolved route config, never on the URL, so
  * an unmatched path can never inherit it.

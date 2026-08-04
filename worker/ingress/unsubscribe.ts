@@ -127,6 +127,20 @@ async function handleUnsubscribePost(
     return;
   }
 
+  // DIRECT status test, deliberately NOT `redemptionConfirmsSuppression`. That
+  // predicate answers "may we TELL a recipient they are suppressed?"; a provider
+  // POST asks "did you receive and handle this?" — a different question with a
+  // different right answer for `already_redeemed_not_suppressed`. Here it is 200
+  // (handled: the token is spent and we will not re-suppress); on `/u/` the same
+  // outcome shows the Neutral page and mints no receipt, because no global row
+  // exists to be truthful about. Both are correct. Answering 503 here instead
+  // would make the provider retry forever a token that by design will never
+  // resolve differently.
+  //
+  // That outcome is unreachable until the audited Correction path (#645) ships —
+  // nothing else can remove a suppression — which is exactly why it is covered by
+  // test here rather than left to be discovered in production.
+  //
   // Answer FIRST. The commit already happened and the 200 is the provider's proof
   // of it, so nothing after this line may be able to change the answer — ordering
   // the telemetry ahead of the reply would make a log failure a lost opt-out.

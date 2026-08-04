@@ -13,9 +13,9 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
-  hashUnsubscribeToken,
   mintUnsubscribeRawToken,
   mintUnsubscribeReceipt,
+  redemptionConfirmsSuppression,
   verifyUnsubscribeReceipt,
 } from '@/lib/solicitation/unsubscribe';
 import { resetServerConfigForTests } from '@/lib/config/server';
@@ -39,9 +39,35 @@ const ledger = vi.hoisted(() => {
   const suppressedHandles = new Set<string>();
   let redemptionWrites = 0;
   const events: string[] = [];
+  const sources: string[] = [];
 
   function rowFor(rawToken: string): FakeTokenRow | undefined {
     return tokens.get(rawToken);
+  }
+
+  // The two statuses a SPENT token can carry. Resolved through the REAL
+  // partition rather than picked by hand, so this fake cannot drift from the
+  // module whose branch §1.8's false-success tests exist to protect. Read at
+  // call time, not at hoist time, so the import binding is initialized.
+  const SPENT_STATUSES = ['already_suppressed', 'already_redeemed_not_suppressed'] as const;
+
+  function spentStatusFor(stillSuppressed: boolean): string {
+    const status = SPENT_STATUSES.find(
+      (candidate) =>
+        redemptionConfirmsSuppression({ status: candidate, tokenHashPrefix: 'fakehash' }) ===
+        stillSuppressed,
+    );
+    if (status === undefined) {
+      // Loud on purpose. If the real module ever stops partitioning the two
+      // spent statuses by whether a global row still stands, every §1.8 test
+      // below is asserting against a rule that no longer exists — which is
+      // precisely the drift that used to pass silently.
+      throw new Error(
+        'the real module no longer classifies exactly one spent status as '
+          + `confirming suppression=${stillSuppressed}`,
+      );
+    }
+    return status;
   }
 
   return {
@@ -50,6 +76,7 @@ const ledger = vi.hoisted(() => {
       suppressedHandles.clear();
       redemptionWrites = 0;
       events.length = 0;
+      sources.length = 0;
     },
     /** Registers an unredeemed token, as #630's mint would. */
     mint(rawToken: string, businessName: string | null): void {
@@ -67,6 +94,13 @@ const ledger = vi.hoisted(() => {
     },
     redemptionWrites: (): number => redemptionWrites,
     events: (): readonly string[] => events,
+    /**
+     * Every `source` the route handed the redemption core. The fake used to drop
+     * the field entirely, which left `source: 'unsubscribe_link'` — the §3.1
+     * provenance split the whole human-vs-machine metric rests on — asserted by
+     * nothing in the repo: flipping it to `unsubscribe_one_click` failed no test.
+     */
+    sources: (): readonly string[] => sources,
     record(event: string): void {
       events.push(event);
     },
@@ -86,9 +120,10 @@ const ledger = vi.hoisted(() => {
     },
     async redeemUnsubscribeToken(
       _tx: unknown,
-      input: { rawToken: string },
+      input: { rawToken: string; source: string },
     ): Promise<{ status: string; tokenHashPrefix: string }> {
       events.push('redeem');
+      sources.push(input.source);
       const row = rowFor(input.rawToken);
       if (row === undefined) return { status: 'unknown_token', tokenHashPrefix: '' };
       if (!row.redeemed) {
@@ -97,10 +132,20 @@ const ledger = vi.hoisted(() => {
         redemptionWrites += 1;
         return { status: 'redeemed', tokenHashPrefix: 'fakehash' };
       }
+      // The SPENT branch. Which of the two spent statuses applies is the real
+      // module's rule, not this fake's, so it is asked rather than re-spelled:
+      // pick the status the REAL partition classifies to match whether a global
+      // row actually still stands. Hard-coding the two literals here gave §1.8's
+      // false-success suite its own private copy of the branch under test — the
+      // core could have collapsed the two and every test would still have passed.
+      //
+      // Full delegation to the real `redeemUnsubscribeToken` was considered and
+      // rejected: it would need a fake postgres.js tagged-template executor to
+      // answer three queries, and the real core is already proven against real
+      // Postgres in unsubscribe.integration.test.ts. Binding the fake to the
+      // partition §1.8 actually depends on is the part that was missing.
       return {
-        status: suppressedHandles.has(row.handle)
-          ? 'already_suppressed'
-          : 'already_redeemed_not_suppressed',
+        status: spentStatusFor(suppressedHandles.has(row.handle)),
         tokenHashPrefix: 'fakehash',
       };
     },
@@ -130,9 +175,9 @@ vi.mock('@/lib/solicitation/unsubscribe', async (importOriginal) => {
     redeemUnsubscribeToken: ledger.redeemUnsubscribeToken,
     hasLiveGlobalSuppressionForToken: ledger.hasLiveGlobalSuppressionForToken,
     // Real HMAC, wrapped only to observe WHEN it runs relative to the commit.
-    mintUnsubscribeReceipt: (tokenHash: string, issuedAtMs: number) => {
+    mintUnsubscribeReceipt: (rawToken: string, issuedAtMs: number) => {
       ledger.record('mint');
-      return actual.mintUnsubscribeReceipt(tokenHash, issuedAtMs);
+      return actual.mintUnsubscribeReceipt(rawToken, issuedAtMs);
     },
   };
 });
@@ -187,7 +232,24 @@ describe('/u/<token> unsubscribe landing', () => {
     expect(ledger.events()).toEqual(['redeem', 'commit', 'mint']);
     const receipt = receiptFrom(response);
     expect(receipt).not.toBeNull();
-    expect(verifyUnsubscribeReceipt(hashUnsubscribeToken(token), receipt!)).toBe(true);
+    expect(verifyUnsubscribeReceipt(token, receipt!)).toBe(true);
+  });
+
+  it('POST attributes the ledger row to the human-click source', async () => {
+    const token = mintUnsubscribeRawToken();
+    ledger.mint(token, BUSINESS_NAME);
+
+    await postUnsubscribe(token);
+
+    // §3.1 provenance, and the only assertion in the repo that pins the route's
+    // constant: `rg unsubscribe_link src/app worker` used to return the call site
+    // and nothing else, so flipping it to `unsubscribe_one_click` would have
+    // mis-attributed every human click with no test failing. Provenance is not
+    // retroactively repairable, and observability[2] splits the two channels on
+    // exactly this field. Mirrors the worker-side assertion in
+    // worker/ingress/__tests__/unsubscribe.test.ts.
+    expect(ledger.sources()).toEqual(['unsubscribe_link']);
+    expect(ledger.sources()).not.toContain('unsubscribe_one_click');
   });
 
   it('POST with an unknown token 303s to the neutral page and writes nothing', async () => {
@@ -355,7 +417,7 @@ describe('/u/<token> unsubscribe landing', () => {
     ledger.mint(token, BUSINESS_NAME);
     await postUnsubscribe(token);
     const forged = `${Date.now()}.${'A'.repeat(43)}`;
-    expect(verifyUnsubscribeReceipt(hashUnsubscribeToken(token), forged)).toBe(false);
+    expect(verifyUnsubscribeReceipt(token, forged)).toBe(false);
 
     render(await renderLanding(token, { ok: forged }));
 
@@ -367,7 +429,7 @@ describe('/u/<token> unsubscribe landing', () => {
     ledger.mint(token, BUSINESS_NAME);
     await postUnsubscribe(token);
     const expired = mintUnsubscribeReceipt(
-      hashUnsubscribeToken(token),
+      token,
       Date.now() - TEN_MINUTES_MS - 1_000,
     );
     // The suppression is live; only the receipt's age disqualifies it.
@@ -381,15 +443,42 @@ describe('/u/<token> unsubscribe landing', () => {
   it('the success copy renders only for a receipt minted after a committed write', async () => {
     const token = mintUnsubscribeRawToken();
     ledger.mint(token, BUSINESS_NAME);
+
+    // A receipt that is genuine, in-TTL and correctly bound to THIS token — but
+    // that no committed write backs, minted directly rather than earned through
+    // the route. The signature alone must not be enough: §1.8's render-time
+    // ledger read is what separates "holds a valid receipt" from "is actually
+    // unsubscribed", and only this shape can tell the two apart.
+    const unearned = mintUnsubscribeReceipt(token, Date.now());
+    expect(verifyUnsubscribeReceipt(token, unearned)).toBe(true);
+    expect(ledger.isSuppressed(token)).toBe(false);
+
+    const { container } = render(await renderLanding(token, { ok: unearned }));
+    expect(container.innerHTML).not.toContain("You're unsubscribed");
+
+    // …and the same token, same receipt shape, once the write HAS committed.
+    // Without this half the assertion above would pass on a page that never
+    // renders success at all.
+    const earned = receiptFrom(await postUnsubscribe(token));
+    render(await renderLanding(token, { ok: earned! }));
+    expect(
+      screen.getByRole('heading', { level: 1, name: /you're unsubscribed/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('a receipt earned by a different token never renders the success copy', async () => {
+    // Split out of the test above, which asserted this rather than the ordering
+    // its title names. Receipt↔token binding is covered nowhere else.
+    const token = mintUnsubscribeRawToken();
     const other = mintUnsubscribeRawToken();
+    ledger.mint(token, BUSINESS_NAME);
     ledger.mint(other, BUSINESS_NAME);
-    const receipt = receiptFrom(await postUnsubscribe(token));
+    await postUnsubscribe(token);
     const otherReceipt = receiptFrom(await postUnsubscribe(other));
 
-    render(await renderLanding(token, { ok: receipt! }));
-    expect(screen.getByRole('heading', { level: 1, name: /you're unsubscribed/i })).toBeInTheDocument();
+    // This recipient IS suppressed, so only the binding disqualifies the receipt.
+    expect(ledger.isSuppressed(token)).toBe(true);
 
-    // A receipt bound to a different committed write proves nothing about this one.
     const { container } = render(await renderLanding(token, { ok: otherReceipt! }));
     expect(container.innerHTML).not.toContain("You're unsubscribed");
   });
@@ -417,7 +506,7 @@ describe('/u/<token> unsubscribe landing', () => {
 
     const receipt = receiptFrom(replay);
     expect(receipt).not.toBeNull();
-    expect(verifyUnsubscribeReceipt(hashUnsubscribeToken(token), receipt!)).toBe(true);
+    expect(verifyUnsubscribeReceipt(token, receipt!)).toBe(true);
   });
 
   it('a correction landing between POST and GET renders the neutral state', async () => {
@@ -440,7 +529,7 @@ describe('/u/<token> unsubscribe landing', () => {
 
     // The receipt itself is still cryptographically good and inside its TTL —
     // the ledger read taken during the render is what makes the claim false.
-    expect(verifyUnsubscribeReceipt(hashUnsubscribeToken(token), receipt!)).toBe(true);
+    expect(verifyUnsubscribeReceipt(token, receipt!)).toBe(true);
     expect(ledger.isSuppressed(token)).toBe(false);
 
     render(await renderLanding(token, { ok: receipt! }));
