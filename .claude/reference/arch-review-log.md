@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03)
+**Merges since last architecture pass: 3** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
 
@@ -33,6 +33,37 @@ Also carried, not a code finding: the RISK=high lane's staging ride makes
 squash commit while `staging` carries a real merge, so reconciling needs a
 verified-identical-trees `reset --hard` + `--force-with-lease`. This will recur on
 every high-risk feature; feature.md step 8's post-merge instruction should say so.
+
+Added by #654 (#644), for the next pass to weigh. **The staging-reconcile item above
+recurred exactly as predicted** — `staging` ended 61 ahead / 1 behind after the squash
+merge and needed `reset --hard origin/main` + `--force-with-lease`. Second occurrence, so
+it is no longer a hypothesis; `deployment-guide.md` step 5 does document the reset, but
+feature.md step 8 still says "fast-forward `staging` onto `main`", which is the instruction
+that cannot work. One code finding and two workflow-mechanism findings:
+
+- **`inject`-only suites are structurally blind to the raw request line — and one such
+  blind spot was hiding a live limiter bypass for all five ingress providers.** Absolute-form
+  request targets (RFC 9112 §3.2.2) resolve normally through `find-my-way` while leaving
+  `request.url` absolute, defeating the decoded-path arm of the ingress-scope test; a
+  mutation run reported the surviving arm as dead logic because `app.inject()` normalises
+  the target and every rate-limit test in the repo goes through it. Closed for #644 with a
+  real-socket test. **The pass should ask what else assumes a normalised request line** —
+  signature verification, path-prefix auth checks, and the WAF-adjacent rules are the
+  candidates, and none of them has a raw-socket test today.
+- **`feature-cleanup.sh` silently cleans nothing when run from inside a feature worktree.**
+  It derives `MAIN_ROOT` from its own cwd and then skips `[ "$WT" = "$MAIN_ROOT" ]`, so the
+  worktree you are standing in — the one that just merged — is the one it cannot remove. It
+  reports SKIP/KEEP rows for everything else and exits 0, which reads as success. Candidate
+  fix: resolve `MAIN_ROOT` from `git worktree list`'s first entry (the real main checkout)
+  rather than `rev-parse --show-toplevel`, or refuse to run from a non-main checkout.
+- **feature.md step 8's post-merge sweep is described as impossible from the shipping
+  session, and it is not.** #643's lab note concluded the sweep "must run from the main
+  checkout AFTER `feature-cleanup.sh` removes the worktree". That route was unavailable here
+  (main checkout on an unrelated branch; cleanup skips its own worktree). Parking
+  `.feature/intake.json` and branching the shipping worktree off `origin/main` satisfies both
+  guard rules — same checkout for containment, no intake for arming — and needs no
+  launch-time env var. Candidate fix: document park-and-branch as the sanctioned route, and
+  note that the branch must come off `origin/main`, since local `main` lags every squash merge.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
