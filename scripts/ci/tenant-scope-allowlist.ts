@@ -195,7 +195,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
-    file: "src/app/api/admin/businesses/route.ts",
+    file: "src/lib/admin/businesses-list-service.ts",
     table: "businesses",
     sqlSnippet: "SELECT COUNT(*)::int AS total FROM businesses",
     category: 'admin-after-require-role',
@@ -917,21 +917,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
-    file: "src/app/api/admin/businesses/route.ts",
+    file: "src/lib/admin/businesses-list-service.ts",
     table: "accounts",
     sqlSnippet: "SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_count FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at ORDER BY b.name ASC LIMIT ${limit} OFFSET ${offset}",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
-    file: "src/app/api/admin/businesses/route.ts",
+    file: "src/lib/admin/businesses-list-service.ts",
     table: "businesses",
     sqlSnippet: "SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_count FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at ORDER BY b.name ASC LIMIT ${limit} OFFSET ${offset}",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
-    file: "src/app/api/admin/businesses/route.ts",
+    file: "src/lib/admin/businesses-list-service.ts",
     table: "responses",
     sqlSnippet: "SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_count FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at ORDER BY b.name ASC LIMIT ${limit} OFFSET ${offset}",
     category: 'admin-after-require-role',
