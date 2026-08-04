@@ -46,6 +46,7 @@ const SWEPT_FILES = [
   'src/app/admin/businesses/new/_components/OwnerInfoSection.tsx',
   'src/app/admin/businesses/new/_components/VoiceContextSection.tsx',
   'src/app/admin/businesses/new/_components/SubscriptionTierSection.tsx',
+  'src/app/admin/locations/csv-import/CsvImportClient.tsx',
   'src/app/admin/impersonate/ImpersonationStartClient.tsx',
   'src/app/admin/impersonate/[sessionId]/view/page.tsx',
   'src/components/admin/TelegramEnrollmentWidget.tsx',
