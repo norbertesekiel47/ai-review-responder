@@ -84,8 +84,8 @@ half-followed full pipeline is worse than a smaller one followed
 completely): skip steps 3–4 and 6, and step 1's full grilling. Ask only
 what's needed to fill an ABBREVIATED intake — `goal`, `non_goals`,
 `allowed_edit_surface`, `tests_to_add`, `estimated_prod_lines` +
-`estimated_test_lines` (other fields may be empty arrays) — and get
-sign-off. Then: step 2 setup as
+`estimated_test_lines` (other fields may be empty arrays) — post it and
+proceed (sign-off only if RISK = high). Then: step 2 setup as
 normal (enforcement still arms), implement IN THIS SESSION with no
 subagent dispatch, step 5 gate, ONE review agent (spec & correctness
 only), step 8 by RISK lane. The full pipeline is reserved for normal+
@@ -142,6 +142,13 @@ cases the ticket doesn't cover, and anything that changed since the map
 was drawn. Do not re-litigate decisions the map already made — if one
 looks wrong now, surface it to me as a map-level question instead.
 
+**Proportionality (RISK = normal)**: grill only until the intake fields
+are answerable — batch related questions, lead each with a recommended
+answer, and never ask what the code, docs, or design of record already
+answer. The relentless full-decision-tree interview is reserved for
+RISK = high; for everything else the intake contract IS the deliverable,
+not the interview.
+
 **Prototype escape hatch**: if grilling surfaces a design question that
 discussion cannot resolve (state-machine behavior, UI feel, library fit),
 invoke the `prototype` skill to build a throwaway answer before locking the
@@ -175,8 +182,14 @@ step 2 moves it into the worktree and arms the hooks from an ephemeral
 }
 ```
 
-Present it to me section by section for sign-off (prose rendering is fine;
-the JSON is the artifact). `open_questions` must be empty before proceeding.
+`open_questions` must be empty before proceeding — a question only I can
+answer is a fork to resolve during grilling (batch them, lead with your
+recommended answer), never a field to carry forward. Then, by lane:
+**RISK = high** — present the intake to me section by section and wait for
+sign-off; this is where my decisions live. **RISK = normal** — post the
+rendered intake in ONE message and proceed immediately; I veto
+asynchronously, and the drift detector below plus the step 5 gate catch
+mechanically anything I would have caught by reading it.
 
 The intake contract is the **drift detector** for everything downstream:
 implementation touching paths outside `allowed_edit_surface`, adding
@@ -215,10 +228,12 @@ deletes the parent draft, proves the hooks are armed (`scripts/arm-check.sh`
 — any DISARMED output means STOP and report, do not implement), and prints
 cross-worktree surface overlaps. On overlap, surface it to me BEFORE
 planning: agree a merge order (noted in both deviations files) or narrow a
-surface. If the surface is amended mid-run (with my sign-off), update BOTH
-intake copies — and count the amendment (abort criteria, step 5; only
-`allowed_edit_surface` changes count, other intake-field corrections are
-deviations-file entries).
+surface. Surface amendments mid-run: an amendment that only NARROWS the surface,
+or adds ≤2 files inside a directory tree the surface already covers, is
+auto-approved — apply it and record it in the deviations file. Anything
+broader needs my sign-off. Either way update BOTH intake copies and count
+the amendment (abort criteria, step 5; only `allowed_edit_surface` changes
+count, other intake-field corrections are deviations-file entries).
 `.feature/deps-justification.md` is likewise ephemeral — carry its content
 into the PR description so the justification survives.
 
@@ -237,16 +252,25 @@ deepening an existing module or forced to add a new interface. If the plan
 would widen an interface or scatter logic across seams, redesign before
 proceeding.
 
-Then invoke `superpowers:writing-plans`, but structure the tasks per the
-`to-tickets` discipline:
+Then invoke `writing-plans`, structuring the tasks as tickets:
+- **The FIRST task is the eval task**: author the `tests_to_add` bodies as
+  failing tests (slices not yet buildable may use `.todo`/`.fails`
+  markers), committed before any implementation task — the spec in
+  executable form. Each implementation task then names the failing tests
+  it turns green. Prefer code-shaped spec over prose everywhere: a test
+  suite, an HTML mockup, or a precedent file `@`-referenced beats a
+  paragraph describing the same thing.
 - Each task is a **tracer bullet**: a thin vertical slice that runs
   end-to-end, not a horizontal layer.
 - Each task declares its **blocking edges** (which tasks must land first).
 - Each task uses glossary terms from `CONTEXT.md` verbatim.
 - Each task stays within `allowed_edit_surface`. If planning reveals the
-  surface was declared too narrowly, amend the intake contract WITH my
-  sign-off — the hook enforces the declared surface, so silent widening
-  will be blocked anyway.
+  surface was declared too narrowly, amend it per step 2's amendment rule
+  (trivial widenings auto-approved + recorded; broader ones need my
+  sign-off) — the hook enforces the declared surface, so silent widening
+  is blocked regardless.
+- Mark which tasks are mutually independent (no blocking edges AND
+  disjoint planned file sets) — step 4 uses this for parallel dispatch.
 
 Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 `.claude/reference/migrations-log.md` before writing the migration step.
@@ -256,9 +280,13 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
    incr-round plan`. The counter lives in `.feature/state.json`, so a
    resumed session CONTINUES the count — uncounted rounds are how #628
    reached a round-5 review under a "max 3" cap.
-2. **Round 1 (full)**: dispatch the codex rescue agent (read-only) to
-   adversarially review the plan document: challenge assumptions, missing
-   failure modes, and simpler alternatives; require an explicit
+2. **Round 1 (full, eval-first)**: the primary review target is the
+   failable definition of done, not the plan prose. Dispatch the codex
+   rescue agent (read-only) to adversarially review the plan + the eval
+   task, leading with: **can this eval pass while the feature is still
+   wrong?** — every missing failure mode must be named as a missing
+   failing test, not as a prose objection. Plan-level findings
+   (assumptions, simpler alternatives) are secondary. Require an explicit
    `VERDICT: APPROVED` or `REVISE` with reasons. The brief MUST include the
    **cited-artifact check**: verify every file/section the plan cites
    actually exists on disk (three #643 plan rounds each re-reviewed
@@ -274,35 +302,45 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
    appendix and move on.
 4. **After round 3**: STOP. Surface the remaining disagreement to me with
    both positions — my call substitutes for APPROVED. Never loop further.
-5. Then show me the approved plan and wait for my sign-off.
+5. On `APPROVED`, post the plan summary and proceed straight to step 4 —
+   the verdict replaces a plan-reading pause (veto anytime; step 8's
+   high-lane merge approval remains the human gate).
 
-**CHECKPOINT (step 3→4 boundary)**: after plan sign-off, run
+**CHECKPOINT (step 3→4 boundary)**: once the plan is locked (RISK = high:
+`APPROVED` verdict or my round-3 call; normal: plan posted), run
 `cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved`
 (the machine-readable phase record `/feature-resume` reads first — setup
 initialized it at `worktree_ready`; the gate records `gate_green` itself),
-then invoke the `handoff` skill and write the handoff doc to the worktree
+then write the handoff doc to the worktree
 (`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
-plan, ticket files, and glossary excerpt by path — not restate them. Then:
-- If context usage is already high (grilling ran long), tell me to start a
-  fresh session **in the worktree** and resume with `/feature-resume
-  <branch>` — it re-enters the worktree, re-runs the ARM CHECK, and
-  bootstraps from the handoff doc + referenced files, continuing from
-  step 4. The grilling transcript is no longer needed once the spec is
-  locked.
-- Otherwise continue in this session — but from here on, NEVER re-read the
-  full grilling conversation; consult the spec/plan files instead.
+plan, ticket files, and glossary excerpt by path — not restate them. Then
+apply the Session hygiene exit rule: if grilling/planning ran long, tell me
+in one line to `/clear` and run `/feature-resume <branch>` (one keystroke —
+the fresh session reads disk and continues from step 4); if the session is
+still light, continue here. Either way, from here on never re-read the
+full grilling conversation — consult the spec/plan files instead.
 
 ## 4. EXECUTE — delegated
 
 Set the phase first (`bash scripts/feature-state.sh set-phase executing`),
-then invoke `superpowers:subagent-driven-development` FROM this session:
+then invoke `subagent-driven-development` FROM this session:
 dispatch fresh per-task subagents against the worktree. Each subagent's
 task prompt MUST include:
 - The relevant `CONTEXT.md` glossary excerpt (so it names things in the
   shared language, not its own invented jargon).
 - The task's spec slice and its blocking-edge context.
+- The precedent file paths from `existing_patterns_to_follow` and the
+  failing eval tests this task turns green — code references, not prose
+  descriptions of them.
 
-TDD per the `tdd` skill discipline where behavior is specifiable up front:
+**Parallel dispatch**: the first task always runs alone (its enforcement
+spot check below proves the guard binds for subagent tool calls). After it
+passes, tasks the plan marked mutually independent (no blocking edges AND
+disjoint file sets) may run as concurrent subagents via
+`dispatching-parallel-agents`; tasks sharing files or edges stay serial.
+Any surface violation by a parallel task stops the whole fan-out.
+
+TDD per the `test-driven-development` skill discipline where behavior is specifiable up front:
 red-green-refactor, one vertical slice at a time. Commit per completed task
 on the branch.
 
@@ -466,8 +504,10 @@ above. Rounds 2–3 are **verification-only**: one fresh agent per axis that
 had accepted findings, briefed with that axis's findings table + the fix
 commits, verifying each fix landed and introduced nothing new — it may NOT
 open new fronts against unchanged code; new unrelated findings go in the
-report appendix, untriaged. After round 3, STOP and surface any remaining
-disagreement to me — never loop further.
+report appendix, untriaged. After round 3, stop looping. RISK = high: surface the
+remaining disagreement to me. RISK = normal: make the call yourself and
+record both positions in the review report AND the PR description — I
+read it there.
 
 **Confidence filter (all agents)**: the findings table contains ONLY
 findings the agent would stake ≥80% confidence on, each with file:line and
@@ -481,7 +521,7 @@ applies to ALL reviews in this workflow (steps 3 and 7): full report on
 disk, findings table in context. Open the full report only for findings
 you are actively triaging.
 
-Triage the tables with `superpowers:receiving-code-review`: fix what is
+Triage the tables with `receiving-code-review`: fix what is
 real, reject the rest with stated reasoning. Log accepted/rejected verdicts
 as one-liners in the report file (so a resumed session inherits triage
 state). **COMMIT the review reports + triage verdicts on the branch** —
@@ -533,22 +573,26 @@ Re-run step 5. When triage completes, run
 
 ## Session hygiene
 
-Handoff is proactive, not reactive:
+State lives on disk; sessions are disposable. A fresh session reading
+files beats a summarized one — auto-summarization is the safety net, not
+the plan:
 
-- **Mandatory**: at the step 3→4 boundary (see checkpoint above).
-- **Unconditional after step 7**: update the handoff doc with review
-  verdicts and current step, then tell me to start a fresh session for
-  step 8 (`/feature-resume <branch>`). Reviews are the biggest context
-  consumers and everything step 8 needs is on disk — no judgment call.
-- **Default fresh at 3→4**: start a fresh session for step 4 unless
-  grilling + planning were genuinely short. There is no reliable way to
-  measure context usage from inside the session — the only rule is: if
-  you think you might be past halfway, take the exit NOW (update handoff,
-  `/clear`, resume). One rule followed beats a threshold ladder ignored.
-- Prefer `/clear` + handoff-doc resume over `/compact`: state lives on
-  disk in this workflow, so a clean session reading files beats a lossy
-  summary. Reserve `/compact` for mid-grilling (step 1) where no
-  checkpoint exists yet, and pass preservation instructions when you do.
+- Write/update the handoff doc at the step 3→4 boundary and after step 7
+  (review verdicts + current step) — always, whether or not a restart
+  follows.
+- **Take the exit when the session is heavy**: at either checkpoint, if
+  this session has accumulated substantial non-disk context (long
+  grilling, review tables, log digging) — or you suspect you're past
+  halfway — tell me in ONE line to `/clear` and run
+  `/feature-resume <branch>`. That single keystroke is the entire cost;
+  it is not an approval pause. After step 7 this is the default: reviews
+  are the biggest context consumers and everything step 8 needs is on
+  disk.
+- If we ride through and the harness summarizes anyway: do not trust the
+  summary for state — re-read `.feature/state.json`, the handoff doc, and
+  the plan. Disk beats any summary.
+- `/feature-resume <branch>` equally covers interruption recovery (crash,
+  closed session, parked branch).
 
 A resumed session bootstraps from: handoff doc → spec → plan → deviations
 file → review findings tables. It never needs the prior transcript.

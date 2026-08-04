@@ -95,7 +95,12 @@ const config = [
     // such file under src/ is the config helper src/lib/security/csp.mjs, which
     // stays covered by tsc (allowJs) + its vitest unit test. Revisit when
     // eslint-config-next ships ESLint 10 support.
-    ignores: ['.next/**', 'out/**', 'build/**', 'coverage/**', 'next-env.d.ts', '**/*.mjs'],
+    // `.claude/workflows/**` is excluded for the same crash (plain-.js files hit
+    // the identical addGlobals path) AND because workflow scripts are a runtime
+    // dialect ESLint cannot model: the Workflow harness wraps the body in an
+    // async function and injects agent/parallel/pipeline/phase/log/args/budget.
+    // Their syntax gate is the runtime itself plus `node --check` at authoring.
+    ignores: ['.next/**', 'out/**', 'build/**', 'coverage/**', 'next-env.d.ts', '**/*.mjs', '.claude/workflows/**'],
   },
   ...nextCoreWebVitals,
   {
