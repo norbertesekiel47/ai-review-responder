@@ -6,10 +6,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MarginData, MarginRiskLevel } from '@/lib/admin/margin-service';
 import type { CostData as CostReportData } from '@/lib/admin/cost-report-service';
-import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminCount } from '@/components/admin/ui/format';
 
 export const PAGE_SIZE = 20;
 const DEFAULT_DAYS = 30;
@@ -102,7 +102,7 @@ function CostMiniTable<T>({
             <tr key={rowKey(row)} className="hover:bg-gray-50">
               <td className={`px-4 py-2 ${primaryClassName}`}>{primaryLabel(row)}</td>
               <td className="px-4 py-2 text-right text-gray-700">${totalUsd(row).toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-gray-500">{callCount(row).toLocaleString()}</td>
+              <td className="px-4 py-2 text-right text-gray-500">{formatAdminCount(callCount(row))}</td>
             </tr>
           ))}
         </tbody>
@@ -135,7 +135,7 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
       key: 'calls',
       header: 'Calls',
       className: 'text-right',
-      render: (row) => row.callCount.toLocaleString(),
+      render: (row) => formatAdminCount(row.callCount),
       sortValue: (row) => row.callCount,
     },
     {
@@ -372,7 +372,7 @@ function CostsContent({
       {/* By Business */}
       <div className="mt-6">
         <h2 className="text-lg font-semibold text-gray-800">
-          By Business ({days}d): {data.totalBusinesses.toLocaleString()} businesses
+          By Business ({days}d): {formatAdminCount(data.totalBusinesses)} businesses
         </h2>
         <div className="mt-3">
           <DataTable
@@ -411,6 +411,7 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
       if (!res.ok) throw new Error(`Failed to fetch cost data: ${res.status}`);
       return res.json() as Promise<CostData>;
     },
+    staleTime: 30_000,
     initialData: days === DEFAULT_DAYS && page === 0 ? initialData : undefined,
   });
 
@@ -419,8 +420,10 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
     setPage(0);
   }
 
+  // Page chrome (group/title/description) lives on the server page so it
+  // renders in the RSC payload, never behind this client's loading state.
   return (
-    <AdminPage group="Operate" title="Costs" description="LLM + API spend and margin by account">
+    <>
       {isLoading && !data ? (
         <TableSkeleton />
       ) : isError && !data ? (
@@ -443,6 +446,6 @@ export function CostsClient({ initialData }: { initialData: CostData }) {
           <CostsContent data={data} days={days} onDaysChange={handleDaysChange} page={page} onPageChange={setPage} />
         </>
       ) : null}
-    </AdminPage>
+    </>
   );
 }

@@ -1,25 +1,24 @@
+import { sql } from '@/lib/db/server';
+import { requireAdminPage } from '@/lib/auth/page-gate';
+import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { ImpersonationStartClient } from './ImpersonationStartClient';
 
 export const dynamic = 'force-dynamic';
 
-export default function AdminImpersonatePage() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Support
-          </p>
-          <h1 className="mt-1 text-2xl font-bold text-gray-900">
-            Impersonation
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-gray-600">
-            Start a scoped, read-only support session tied to a ticket and audit log.
-          </p>
-        </div>
+export default async function AdminImpersonatePage() {
+  // Defense-in-depth behind src/proxy.ts's /admin gate. No read data — this page
+  // is a form, so "server-first" means the chrome renders in the RSC payload.
+  // aal2: /api/admin/impersonation/start is gated by requireAdminWithAal2 —
+  // step up before the form renders, not after it is filled in and submitted.
+  await requireAdminPage(sql, { from: '/admin/impersonate', aal2: true });
 
-        <ImpersonationStartClient />
-      </div>
-    </div>
+  return (
+    <AdminPage
+      group="Growth"
+      title="Support"
+      description="Start a scoped, read-only support session tied to a ticket and audit log"
+    >
+      <ImpersonationStartClient />
+    </AdminPage>
   );
 }

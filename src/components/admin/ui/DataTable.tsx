@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export interface DataTableColumn<T> {
   key: string;
@@ -37,6 +37,111 @@ interface SortState {
   dir: 'asc' | 'desc';
 }
 
+export interface ServerPaginationFooterState {
+  pageCount: number;
+  label: string;
+  show: boolean;
+}
+
+function pageCountOf(totalRows: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(totalRows / pageSize));
+}
+
+/**
+ * Server-pagination footer math, shared by DataTable's controlled mode and by
+ * card-list pages (FlaggedClient, OffboardingsClient) that paginate
+ * server-side without a table. Single owner so the "Showing a–b of N" string
+ * and the empty-page-with-rows-behind-you guard cannot drift between call
+ * sites.
+ *
+ * `page` means different things at the two kinds of call site, and a page past
+ * the end recovers by a DIFFERENT mechanism at each — do not generalise one to
+ * the other:
+ *
+ *   - DataTable passes its ALREADY-CLAMPED `currentPage`. `{page: 2,
+ *     pageSize: 20, totalRows: 10, rows: []}` arrives here as page 0 with
+ *     `pageCount` 1, so `show` is FALSE and no footer renders at all. Its
+ *     recovery is the clamp-pushback effect below (`onPageChange(clamped)`),
+ *     which converges the caller's own state — never `page > 0`.
+ *   - Card lists pass their raw, unclamped page index. The same skew arrives
+ *     here as page 2, `show` is true via `page > 0`, and the footer that
+ *     renders keeps Previous live so the reader can walk back by hand.
+ *
+ * TWO GUARDS, both from CF-2, both against count⇄list skew (the count query and
+ * the row query are separate reads, and a 30s poll can land between them):
+ *
+ *   1. `show` requires a page to actually be reachable from another page —
+ *      `pageCount > 1 || page > 0`. The old rule `totalRows > rowsOnPage` fired
+ *      on a SINGLE-page result whose list came back short (`{page: 0,
+ *      pageSize: 50, rowsOnPage: 3, totalRows: 10}`), rendering a footer that
+ *      claimed 7 more rows with Previous AND Next both disabled — a dead end
+ *      with nothing to click.
+ *   2. A `page` past the end makes `start > totalRows`, which used to print the
+ *      inverted `Showing 101–90 of 90`. That page genuinely holds no rows, so
+ *      it takes the honest empty label. What is left to click then depends on
+ *      which of the two callers it came from — see above.
+ */
+export function serverPaginationFooterState({
+  page,
+  pageSize,
+  rowsOnPage,
+  totalRows,
+}: {
+  page: number;
+  pageSize: number;
+  rowsOnPage: number;
+  totalRows: number;
+}): ServerPaginationFooterState {
+  const pageCount = pageCountOf(totalRows, pageSize);
+  const start = page * pageSize + 1;
+  const end = Math.min(start + rowsOnPage - 1, totalRows);
+  const hasRenderableRange = rowsOnPage > 0 && start <= totalRows;
+  return {
+    pageCount,
+    label: hasRenderableRange
+      ? `Showing ${start}–${end} of ${totalRows}`
+      : `No rows on this page (${totalRows} total)`,
+    show: pageCount > 1 || page > 0,
+  };
+}
+
+/** The footer chrome itself. Callers decide whether to render it (see `show`). */
+export function PaginationFooter({
+  page,
+  pageCount,
+  label,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  label: string;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2 text-xs text-gray-500">
+      <span>{label}</span>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => onPageChange(page - 1)}
+          className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={page >= pageCount - 1}
+          onClick={() => onPageChange(page + 1)}
+          className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState, serverPagination }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(0);
@@ -55,14 +160,29 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
   }, [rows, sort, columns]);
 
   const pageCount = serverPagination
-    ? Math.max(1, Math.ceil(serverPagination.totalRows / serverPagination.pageSize))
-    : Math.max(1, Math.ceil(sorted.length / pageSize));
+    ? pageCountOf(serverPagination.totalRows, serverPagination.pageSize)
+    : pageCountOf(sorted.length, pageSize);
   // Clamped in BOTH modes: server mode's `page` is caller-controlled state that
   // can point past the last valid page (e.g. the 30s poll shrinks totalRows
   // while the admin sits on a later page) — display math must never assume
   // it's in range.
   const currentPage = Math.min(serverPagination ? serverPagination.page : page, pageCount - 1);
   const visible = serverPagination ? sorted : sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+
+  // CF-2: clamping for DISPLAY is not enough. The caller still holds the
+  // out-of-range page number, so it keeps refetching an empty page, and once
+  // `pageCount` collapses to 1 the footer disappears (nothing is reachable) —
+  // leaving no control that can put the caller back in range. Push the clamp
+  // back so the caller's state converges. Idempotent: after the caller adopts
+  // it the condition is false, and a caller that ignores it re-renders no more
+  // than it already would.
+  const serverPage = serverPagination?.page;
+  const serverOnPageChange = serverPagination?.onPageChange;
+  const clampedServerPage = serverPage === undefined ? 0 : Math.min(serverPage, pageCount - 1);
+  useEffect(() => {
+    if (serverPage === undefined || serverOnPageChange === undefined) return;
+    if (serverPage > clampedServerPage) serverOnPageChange(clampedServerPage);
+  }, [serverPage, clampedServerPage, serverOnPageChange]);
 
   function toggleSort(key: string) {
     if (!serverPagination) setPage(0);
@@ -88,9 +208,17 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
     return <>{emptyState}</>;
   }
 
-  const showFooter = serverPagination
-    ? serverPagination.totalRows > rows.length || pageCount > 1
-    : pageCount > 1;
+  // Both modes render the SAME footer component; only the label and the
+  // visibility rule differ. `serverPaginationFooterState` owns the server-mode
+  // rule so card-list pages (FlaggedClient) cannot drift from this table.
+  const footer: ServerPaginationFooterState = serverPagination
+    ? serverPaginationFooterState({
+        page: currentPage,
+        pageSize: serverPagination.pageSize,
+        rowsOnPage: rows.length,
+        totalRows: serverPagination.totalRows,
+      })
+    : { pageCount, label: `Page ${currentPage + 1} of ${pageCount}`, show: pageCount > 1 };
 
   return (
     <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
@@ -151,38 +279,13 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
           </table>
         </div>
       )}
-      {showFooter && (
-        <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2 text-xs text-gray-500">
-          <span>
-            {serverPagination
-              ? rows.length > 0
-                ? (() => {
-                    const start = currentPage * serverPagination.pageSize + 1;
-                    const end = Math.min(start + rows.length - 1, serverPagination.totalRows);
-                    return `Showing ${start}–${end} of ${serverPagination.totalRows}`;
-                  })()
-                : `No rows on this page (${serverPagination.totalRows} total)`
-              : `Page ${currentPage + 1} of ${pageCount}`}
-          </span>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              disabled={currentPage === 0}
-              onClick={() => goToPage(currentPage - 1)}
-              className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => goToPage(currentPage + 1)}
-              className="rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {footer.show && (
+        <PaginationFooter
+          page={currentPage}
+          pageCount={footer.pageCount}
+          label={footer.label}
+          onPageChange={goToPage}
+        />
       )}
     </div>
   );

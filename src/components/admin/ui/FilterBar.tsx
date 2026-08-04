@@ -25,7 +25,7 @@ export function FilterBar({ search, onSearchChange, rowCount, chips = [], search
         value={search}
         onChange={(event) => onSearchChange(event.target.value)}
         placeholder={searchPlaceholder}
-        className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+        className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
       />
       {chips.map((chip) => (
         <span key={chip.id} className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2.5 py-1 text-xs font-medium text-gray-900">

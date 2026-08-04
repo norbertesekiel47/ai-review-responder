@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 interface Rate {
   numerator: number;
@@ -92,13 +93,13 @@ function RecoveryForm({
         maxLength={1_000}
         rows={3}
         required
-        className="min-h-20 resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+        className="min-h-20 resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900"
       />
       <button
         type="submit"
         disabled={pending || !trimmedNote}
         aria-label={`Unsuspend ${suspension.accountName}`}
-        className="min-h-11 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="min-h-11 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {pending ? 'Unsuspending…' : 'Unsuspend account'}
       </button>
@@ -144,7 +145,7 @@ function FlagEvidenceList({ verdicts }: { verdicts: FlagEvidence[] }) {
               : 'Flagged without categories'}
           </p>
           <p className="mt-1 font-mono">Response {verdict.responseId}</p>
-          <p className="mt-1">{new Date(verdict.createdAt).toLocaleString()}</p>
+          <p className="mt-1">{formatAdminDateTime(verdict.createdAt)}</p>
         </li>
       ))}
     </ul>
@@ -174,7 +175,7 @@ function SuspensionRow({
         </span>
         <p className="mt-2 leading-5 text-gray-800">{item.suspendedReason ?? 'No reason recorded.'}</p>
         <p className="mt-2 text-xs text-gray-500">
-          {new Date(item.suspendedAt).toLocaleString()}
+          {formatAdminDateTime(item.suspendedAt)}
         </p>
       </td>
       <td className="whitespace-nowrap px-4 py-4 text-xs leading-6 text-gray-500">
@@ -290,6 +291,7 @@ export function AutonomySuspensionsClient({
     queryKey: ['admin-autonomy-suspensions'],
     queryFn: fetchSuspensions,
     refetchInterval: 30_000,
+    staleTime: 30_000,
     initialData,
   });
   const unsuspend = useMutation({

@@ -7,7 +7,6 @@ import type {
   ZernioPanelData,
 } from '@/lib/admin/business-detail-types';
 import type { ChurnScore } from '@/lib/shared/churn-score';
-import type { ChannelId } from '@/lib/notifications/channels/types';
 
 export type BusinessDetail = Omit<
   BusinessDetailResponse['business'],
@@ -45,13 +44,9 @@ export type ZernioConnectionSummary = NonNullable<ZernioPanelData['connection']>
 export type AwaitingOwnerConnectResponse = ZernioPanelData['awaitingOwnerConnect'][number];
 export type ZernioFinalizeIncident = ZernioPanelData['unresolvedIncidents'][number];
 
-export interface ChannelEnrollmentRow {
-  channel: ChannelId;
-  handle: string;
-  status: 'pending_verification' | 'verified' | 'disabled' | 'unsubscribed';
-  verified_at: string | null;
-  disabled_at: string | null;
-  unsubscribed_at: string | null;
-  unsubscribed_reason: string | null;
-  last_activity_at: string | null;
-}
+/**
+ * Single owner is `business-channels-service.ts` — the same module the channels
+ * route and the detail server page both call, so the page's `initialChannels`
+ * and the client's react-query refetch cannot drift apart.
+ */
+export type { AdminChannelEnrollment as ChannelEnrollmentRow } from '@/lib/admin/business-channels-service';

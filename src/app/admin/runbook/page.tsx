@@ -1,8 +1,10 @@
-// Auth: Supabase session checked by src/proxy.ts (admin role required)
-
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { sql } from '@/lib/db/server';
+import { requireAdminPage } from '@/lib/auth/page-gate';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
+
+export const dynamic = 'force-dynamic';
 
 interface Scenario {
   id: string;
@@ -104,7 +106,13 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
-export default function RunbookPage() {
+export default async function RunbookPage() {
+  // Defense-in-depth behind src/proxy.ts's /admin gate — the only non-auth admin
+  // page that was missing it. Plain gate, no `aal2`: this page renders static
+  // prose reference content, holds no tenant data, and calls no API route, so
+  // there is nothing here for a step-up to protect.
+  await requireAdminPage(sql, { from: '/admin/runbook' });
+
   return (
     <AdminPage group="Operate" title="Runbook" description="First-response playbook for support scenarios">
       <p className="mb-6 text-sm text-gray-600">
@@ -168,7 +176,7 @@ export default function RunbookPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+      <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800">
         <p className="font-semibold">Need more?</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
           <li>

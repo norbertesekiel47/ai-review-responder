@@ -89,10 +89,12 @@ export function ImpersonationStartClient() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
-        <h2 className="text-sm font-semibold text-blue-900">Read-only admin view</h2>
-        <p className="mt-1 text-sm text-blue-800">
+    // `max-w-2xl` is a form-legibility measure, not the deleted page shell:
+    // AdminPage owns the max-w-7xl page measure (CF-5 — form pages max-w-2xl).
+    <form onSubmit={handleSubmit} className="max-w-2xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
+        <h2 className="text-sm font-semibold text-gray-900">Read-only admin view</h2>
+        <p className="mt-1 text-sm text-gray-600">
           Creates an audited one-hour session for support diagnostics. The owner auth session is not reused.
         </p>
       </div>
@@ -104,7 +106,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={accountId}
             onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
-            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
         </label>
@@ -114,7 +116,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={impersonatedUserId}
             onChange={(event) => dispatch({ type: 'setImpersonatedUserId', value: event.target.value })}
-            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
         </label>
@@ -124,7 +126,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={ticketId}
             onChange={(event) => dispatch({ type: 'setTicketId', value: event.target.value })}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
         </label>
@@ -134,7 +136,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={reason}
             onChange={(event) => dispatch({ type: 'setReason', value: event.target.value })}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
         </label>
@@ -144,7 +146,7 @@ export function ImpersonationStartClient() {
         <button
           type="submit"
           disabled={submitting}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? 'Starting...' : 'Start view-as session'}
         </button>

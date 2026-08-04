@@ -8,21 +8,18 @@ import {
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { getAdminBusinessesList } from '@/lib/admin/businesses-list-service';
 
 export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses — paginated business list
+//
+// The queries + row mapping live in src/lib/admin/businesses-list-service.ts so
+// the /admin/businesses server page can read the same data without going
+// through HTTP. This handler keeps the query-param parsing/clamping and echoes
+// `limit`/`offset` back — the response shape is unchanged.
 // ---------------------------------------------------------------------------
-
-interface BusinessListRow {
-  id: string;
-  name: string;
-  category: string | null;
-  subscription_status: string;
-  last_sync_at: Date | null;
-  pending_count: number;
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireRoleOr401(request, 'admin');
@@ -38,39 +35,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       0,
     );
 
-    const [businessRows, countRows] = await Promise.all([
-      sql<BusinessListRow[]>`
-        SELECT
-          b.id,
-          b.name,
-          b.category,
-          a.subscription_status,
-          b.last_sync_at,
-          COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_count
-        FROM businesses b
-        JOIN accounts a ON a.id = b.account_id
-        LEFT JOIN responses resp
-          ON resp.business_id = b.id AND resp.status != 'superseded'
-        GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at
-        ORDER BY b.name ASC
-        LIMIT ${limit} OFFSET ${offset}
-      `,
-      sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
-    ]);
+    const data = await getAdminBusinessesList(sql, { limit, offset });
 
-    return NextResponse.json({
-      businesses: businessRows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        category: row.category ?? null,
-        subscriptionStatus: row.subscription_status,
-        lastSyncAt: row.last_sync_at ? row.last_sync_at.toISOString() : null,
-        pendingCount: row.pending_count,
-      })),
-      total: countRows[0]?.total ?? 0,
-      limit,
-      offset,
-    });
+    return NextResponse.json({ ...data, limit, offset });
   } catch (error) {
     reportCaughtError('api/admin/businesses GET', error);
     return NextResponse.json(

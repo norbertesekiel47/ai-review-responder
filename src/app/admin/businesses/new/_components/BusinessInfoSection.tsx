@@ -135,7 +135,7 @@ export function BusinessInfoSection({
               setInputMode('autocomplete');
             }
           }}
-          className="mt-1 text-xs text-indigo-600 hover:text-indigo-800"
+          className="mt-1 text-xs text-gray-600 hover:text-gray-900"
         >
           {inputMode === 'autocomplete'
             ? 'Or paste a Google Maps URL'
