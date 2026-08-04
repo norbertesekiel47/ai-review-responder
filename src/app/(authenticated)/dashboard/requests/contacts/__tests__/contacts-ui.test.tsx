@@ -336,12 +336,40 @@ describe('ContactList', () => {
     render(<ContactList epoch={0} onRefresh={onRefresh} />);
 
     await user.click(await screen.findByRole('button', { name: /allow requests again/i }));
+    await user.click(screen.getByRole('button', { name: /start sending requests/i }));
 
     expect(urlsOf(fetchMock)).toContain(SUPPRESSION_URL);
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: 'DELETE' });
     // Mirrored hazard: the clear control shares a verb with the hard delete.
     expect(urlsOf(fetchMock)).not.toContain(CONTACT_DELETE_URL);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires a confirm step before clearing, and does not reuse the marking prompt', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(page(ACCOUNT_DISPLAY));
+    vi.stubGlobal('fetch', fetchMock);
+    const onRefresh = vi.fn();
+    render(<ContactList epoch={0} onRefresh={onRefresh} />);
+
+    await user.click(await screen.findByRole('button', { name: /allow requests again/i }));
+
+    // One click resumes review requests to somebody the owner deliberately
+    // marked, so it must send nothing on its own — only the list fetch happened.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onRefresh).not.toHaveBeenCalled();
+    // §7.6: the two directions are not the same act, so their confirm steps may
+    // not read the same either. This one names what RESUMES.
+    expect(
+      screen.getByText(/start including ada lovelace in review requests again/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/we will stop sending/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: /allow requests again/i }),
+    ).toBeInTheDocument();
   });
 
   it('a failed suppression mutation does not refresh into an apparently successful state', async () => {

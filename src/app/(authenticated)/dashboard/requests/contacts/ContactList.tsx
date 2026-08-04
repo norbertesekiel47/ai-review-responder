@@ -250,25 +250,35 @@ async function requestContactDelete(contactId: string, scope: string): Promise<s
 
 // ── Do-not-contact flow (§7.5 mark, §7.6 clear) ─────────────────────────────
 
+/** The two directions, never collapsed to a boolean: every place that branches
+ *  on direction has to name which one it means. */
+type SuppressionAction = 'mark' | 'clear';
+
+const SUPPRESSION_METHOD = { mark: 'POST', clear: 'DELETE' } as const;
+
 interface ContactSuppression {
-  /** Row whose "Don't contact" confirm step is open. */
-  confirmingId: string | null;
+  /** The one open confirm step: which row, and which direction. */
+  confirming: { contactId: string; action: SuppressionAction } | null;
   /** Row with a suppression mutation in flight. */
   pendingId: string | null;
   /** The row a failure belongs to, and its copy — never a global banner, so an
    *  error can never read as if it applied to a different contact. */
   errorId: string | null;
   error: string | null;
-  requestMark: (contactId: string) => void;
-  cancelMark: () => void;
-  confirmMark: (contactId: string) => void;
-  clear: (contactId: string) => void;
+  /** Opens the confirm step for one row in one direction. */
+  request: (contactId: string, action: SuppressionAction) => void;
+  cancel: () => void;
+  /** Sends exactly the mutation the OPEN confirm step describes — it takes no
+   *  arguments, so a confirm can never fire against a row or a direction other
+   *  than the one the owner is looking at. */
+  confirm: () => void;
 }
 
 /**
- * §7.5 marking rides the same confirm step as the delete control; §7.6 clearing
- * does not, because it removes a preference this account set rather than
- * creating one.
+ * Both directions ride a confirm step (D-A8), and the guard matters more on the
+ * clearing side: marking stops mail and is one click to undo, while clearing
+ * resumes review requests to a contact the owner deliberately marked and leaves
+ * no visible trace afterwards.
  *
  * A FAILED mutation deliberately does not call `onRefresh`. Bumping the epoch
  * would refetch a page the server never changed and re-render the row as
@@ -277,17 +287,22 @@ interface ContactSuppression {
  * surface exists to prevent.
  */
 function useContactSuppression(currentScope: string, onRefresh: () => void): ContactSuppression {
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirming, setConfirming] =
+    useState<{ contactId: string; action: SuppressionAction } | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
 
-  async function mutate(contactId: string, method: 'POST' | 'DELETE') {
+  async function mutate(contactId: string, action: SuppressionAction) {
     if (currentScope === 'all') return;
     setPendingId(contactId);
     setFailure(null);
-    const error = await requestSuppressionChange(contactId, currentScope, method);
+    const error = await requestSuppressionChange(
+      contactId,
+      currentScope,
+      SUPPRESSION_METHOD[action],
+    );
     if (error === null) {
-      setConfirmingId(null);
+      setConfirming(null);
       onRefresh();
     } else {
       setFailure({ id: contactId, message: error });
@@ -296,20 +311,22 @@ function useContactSuppression(currentScope: string, onRefresh: () => void): Con
   }
 
   return {
-    confirmingId,
+    confirming,
     pendingId,
     errorId: failure?.id ?? null,
     error: failure?.message ?? null,
-    requestMark: (contactId) => {
-      setConfirmingId(contactId);
+    request: (contactId, action) => {
+      setConfirming({ contactId, action });
       setFailure(null);
     },
-    cancelMark: () => {
-      setConfirmingId(null);
+    cancel: () => {
+      setConfirming(null);
       setFailure(null);
     },
-    confirmMark: (contactId) => void mutate(contactId, 'POST'),
-    clear: (contactId) => void mutate(contactId, 'DELETE'),
+    confirm: () => {
+      if (confirming === null) return;
+      void mutate(confirming.contactId, confirming.action);
+    },
   };
 }
 
@@ -412,7 +429,10 @@ function ContactRow({
   suppression: ContactSuppression;
 }) {
   const confirmingDelete = deletion.confirmingId === contact.id;
-  const confirmingMark = suppression.confirmingId === contact.id;
+  const openConfirm =
+    suppression.confirming !== null && suppression.confirming.contactId === contact.id
+      ? suppression.confirming.action
+      : null;
   const suppressionError = suppression.errorId === contact.id ? suppression.error : null;
 
   return (
@@ -438,7 +458,7 @@ function ContactRow({
           <div
             style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}
           >
-            {!confirmingMark && (
+            {openConfirm === null && (
               <SuppressionControl contact={contact} suppression={suppression} />
             )}
             {!confirmingDelete && (
@@ -454,7 +474,7 @@ function ContactRow({
           </div>
           {/* While the confirm step is open its own row owns the error, so it
               is never shown twice. */}
-          {suppressionError !== null && !confirmingMark && (
+          {suppressionError !== null && openConfirm === null && (
             <p
               role="alert"
               style={{ fontSize: 12, color: 'var(--rw-danger)', margin: '6px 0 0' }}
@@ -464,13 +484,14 @@ function ContactRow({
           )}
         </td>
       </tr>
-      {confirmingMark && (
-        <MarkDoNotContactRow
+      {openConfirm !== null && (
+        <SuppressionConfirmRow
+          action={openConfirm}
           name={contact.name}
           pending={suppression.pendingId === contact.id}
           error={suppressionError}
-          onConfirm={() => suppression.confirmMark(contact.id)}
-          onCancel={suppression.cancelMark}
+          onConfirm={suppression.confirm}
+          onCancel={suppression.cancel}
         />
       )}
       {confirmingDelete && (
@@ -538,7 +559,7 @@ function SuppressionControl({
         type="button"
         className="btn btn-tertiary"
         disabled={pending}
-        onClick={() => suppression.requestMark(contact.id)}
+        onClick={() => suppression.request(contact.id, 'mark')}
         aria-label={`Don't contact ${contact.name}`}
       >
         Don&apos;t contact
@@ -553,29 +574,56 @@ function SuppressionControl({
       type="button"
       className="btn btn-tertiary"
       disabled={pending}
-      onClick={() => suppression.clear(contact.id)}
+      onClick={() => suppression.request(contact.id, 'clear')}
       aria-label={`Allow requests again for ${contact.name}`}
     >
-      {pending ? 'Saving…' : 'Allow requests again'}
+      Allow requests again
     </button>
   );
 }
 
-/** §7.5 confirm step — the delete control's pattern, in the accent wash rather
- *  than the danger one, because nothing is destroyed here. */
-function MarkDoNotContactRow({
+/**
+ * The two confirm steps, and they deliberately do not read the same (D-A8).
+ * §7.6 requires the two controls not be presented as the same thing, so two
+ * identical dialogs differing only in a verb would themselves be the defect —
+ * each names what actually changes: marking says what STOPS, clearing says what
+ * RESUMES. Clearing is the consequential direction, which is why it is guarded
+ * at all: it restarts review requests to somebody the owner deliberately
+ * marked, and leaves nothing behind to notice afterwards.
+ */
+const SUPPRESSION_CONFIRM_COPY = {
+  mark: {
+    prompt: (name: string) =>
+      `We will stop sending ${name} review requests. Their visit history stays.`,
+    action: 'Stop sending requests',
+  },
+  clear: {
+    prompt: (name: string) => `We will start including ${name} in review requests again.`,
+    action: 'Start sending requests',
+  },
+} as const satisfies Record<
+  SuppressionAction,
+  { prompt: (name: string) => string; action: string }
+>;
+
+/** The delete control's anatomy, in the accent wash rather than the danger one:
+ *  neither direction destroys anything. */
+function SuppressionConfirmRow({
+  action,
   name,
   pending,
   error,
   onConfirm,
   onCancel,
 }: {
+  action: SuppressionAction;
   name: string;
   pending: boolean;
   error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const copy = SUPPRESSION_CONFIRM_COPY[action];
   return (
     <tr>
       <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}>
@@ -590,10 +638,10 @@ function MarkDoNotContactRow({
           }}
         >
           <span style={{ fontSize: 13, color: 'var(--rw-app-text)', fontWeight: 600 }}>
-            We will stop sending {name} review requests. Their visit history stays.
+            {copy.prompt(name)}
           </span>
           <button type="button" className="btn btn-primary" disabled={pending} onClick={onConfirm}>
-            {pending ? 'Saving…' : 'Stop sending requests'}
+            {pending ? 'Saving…' : copy.action}
           </button>
           <button
             type="button"
