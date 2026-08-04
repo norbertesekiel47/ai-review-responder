@@ -10,6 +10,7 @@ import type {
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 
 /**
@@ -85,12 +86,14 @@ const SECTION_TITLE = 'text-sm font-semibold text-gray-900';
 
 /**
  * `suppressed_at`/`created_at` arrive as Postgres `::text`, whose format Date
- * parsing treats as implementation-defined. Falling back to the raw value keeps
- * a servicing admin looking at a timestamp rather than "Invalid Date".
+ * parsing treats as implementation-defined. Passing the raw value as the
+ * fallback keeps a servicing admin looking at a timestamp rather than
+ * "Invalid Date" — `formatAdminDateTime` returns it verbatim when the parse
+ * fails. The formatter itself is the shared UTC-pinned one: an admin reading a
+ * compliance record must not see a timestamp rendered in their own zone.
  */
 function formatTimestamp(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  return formatAdminDateTime(value, value);
 }
 
 async function lookupAddress(email: string): Promise<LookupSuppressionsResult> {
