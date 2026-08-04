@@ -190,10 +190,6 @@ decide *where new worker code goes*:
 - **The worker crash-net RECOVERS from transient-DB `unhandledRejection`s; it does NOT blanket-crash.** `worker/index.ts` classifies via `isCrashNetRecoverableDbError` (strict allowlist — keep it distinct from billing's broad `isTransientPostgresError`): transient Postgres rejections are survived (Sentry warning; sustained storms escalate to crash via `worker/transient-rejection-governor.ts`); everything else fails fast and `uncaughtException` is ALWAYS fatal. Never reintroduce blanket crash-on-any-rejection. Full mechanics: lab-notes "Worker crash-net".
 - **API rate limits fail OPEN by design; the worker's Redis cost RESERVATION precedes every LLM call, so spend stays safe even when a limiter is bypassed.** Pre-LLM Redis **transport** failures are RETRYABLE (`CostInfraUnavailableError` → BullMQ retry + outbox watchdog; #255 — do not re-terminalize); **budget-exceeded** decisions stay TERMINAL (never reclassify as infra); post-LLM finalize failures are governed by `withCostGuard`'s `onFinalizeError`, never a job-level retry (would re-spend). Do NOT "fix" the limiters to strict. Upstash is a single-instance **SPOF** (cache + rate-limit + cost-reserve + regen-budget + idempotent-generation). Full touchpoint/retry matrix: lab-notes "Cost-guard fail-open/retry matrix".
 
-## Codebase intelligence
-
-Prefer codebase-memory-mcp graph tools over Grep/Glob for structural code questions ("who calls X?", call chains, dead code, HTTP_CALLS cross-service links, REST routes, fan-out) — one call (~500 tokens) vs file-by-file (~80K). **Workflow:** `list_projects` → check freshness → `index_repository` if stale → `get_graph_schema` before complex Cypher → `search_graph` / `trace_call_path` → `get_code_snippet(qualified_name)`. Use grep/Glob for string literals, error messages, config values.
-
 ## MCP servers & CLIs
 
 **MCP servers** — load tool schemas via ToolSearch before calling; prefer the MCP over the matching CLI when both fit (structured results).
@@ -204,7 +200,6 @@ Prefer codebase-memory-mcp graph tools over Grep/Glob for structural code questi
 | **Railway** | Worker infra — deploys, logs, metrics, env vars, services |
 | **Stripe** | Billing inspection — Prices, subscriptions, events (remote HTTP MCP — OAuth via `/mcp` before first use) |
 | **Vercel** | Frontend deploys, build logs, project status (remote HTTP MCP — auth before first use) |
-| **codebase-memory** | Structural code questions — who-calls-X, call chains, routes, dead code |
 | **Context7** | Library/framework docs (BullMQ, Resend, Stripe, Next.js) before implementing |
 | **claude-mem** | "Did we solve this before?" — cross-session memory / observations |
 
