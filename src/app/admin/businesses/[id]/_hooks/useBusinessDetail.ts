@@ -17,11 +17,25 @@ export interface UseBusinessDetailResult {
   clearBounceFlag: () => Promise<void>;
 }
 
-export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
+export interface UseBusinessDetailOptions {
+  /**
+   * Server-rendered first paint (spec §4). The detail server page fetches both
+   * reads and hands them down, so the page renders with data instead of a
+   * spinner and these queries start `isLoading: false`.
+   */
+  initialDetail?: DetailData;
+  initialChannels?: ChannelEnrollmentRow[];
+}
+
+export function useBusinessDetail(
+  businessId: string,
+  { initialDetail, initialChannels }: UseBusinessDetailOptions = {},
+): UseBusinessDetailResult {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
+    initialData: initialDetail,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}`);
       if (!res.ok) {
@@ -44,6 +58,7 @@ export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
     isError: channelsError,
   } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
     queryKey: ['admin-business-channels', businessId],
+    initialData: initialChannels ? { enrollments: initialChannels } : undefined,
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
       if (!res.ok) {

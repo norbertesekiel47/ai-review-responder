@@ -16,14 +16,21 @@ interface ZernioConnectionPanelProps {
 
 const LAST_ERROR_PREVIEW_LIMIT = 120;
 
-const STATUS_BADGE_STYLES: Record<string, string> = {
+// Deliberately NOT the shared `StatusBadge` (src/components/admin/ui/StatusBadge.tsx):
+// this is a Zernio-connection vocabulary, not a console status. `pending` means
+// "connection handshake outstanding" here and "outbox row not yet dispatched"
+// there — one key, two meanings, no correct single color (the shared map paints
+// it yellow, this one gray). It also renders friendly labels ("Not connected")
+// where the shared badge deliberately renders the raw status string. Named
+// distinctly so it no longer shadows the shared primitive.
+const ZERNIO_CONNECTION_BADGE_STYLES: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
   pending: 'bg-gray-100 text-gray-700',
   disconnected: 'bg-red-100 text-red-800',
   not_connected: 'bg-gray-100 text-gray-700',
 };
 
-const STATUS_BADGE_LABELS: Record<string, string> = {
+const ZERNIO_CONNECTION_BADGE_LABELS: Record<string, string> = {
   active: 'Active',
   pending: 'Pending',
   disconnected: 'Disconnected',
@@ -44,14 +51,14 @@ function truncate(text: string | null, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
-function StatusBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
+function ZernioConnectionBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.not_connected
+        ZERNIO_CONNECTION_BADGE_STYLES[status] ?? ZERNIO_CONNECTION_BADGE_STYLES.not_connected
       }`}
     >
-      {STATUS_BADGE_LABELS[status] ?? status}
+      {ZERNIO_CONNECTION_BADGE_LABELS[status] ?? status}
     </span>
   );
 }
@@ -404,7 +411,7 @@ export function ZernioConnectionPanel({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-gray-900">Zernio Connection</h2>
-          <StatusBadge status={status} />
+          <ZernioConnectionBadge status={status} />
         </div>
         {status === 'active' && (
           <button

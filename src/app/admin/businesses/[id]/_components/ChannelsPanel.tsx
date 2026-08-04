@@ -5,15 +5,25 @@ import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentW
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import type { BusinessDetail, ChannelEnrollmentRow } from '../types';
 
-const STATUS_BADGE_STYLES: Record<ChannelEnrollmentRow['status'], string> = {
+// Deliberately NOT the shared `StatusBadge` (src/components/admin/ui/StatusBadge.tsx):
+// none of these four keys exist in the shared map, so every one of them would
+// fall through to its neutral-gray default. Channel enrollment is a
+// notifications-domain lifecycle, not a console status — it keeps a named local
+// owner rather than importing four foreign keys into the shared vocabulary.
+// Named distinctly so it no longer shadows the shared primitive.
+const CHANNEL_ENROLLMENT_BADGE_STYLES: Record<ChannelEnrollmentRow['status'], string> = {
   verified: 'bg-green-100 text-green-800',
   pending_verification: 'bg-yellow-100 text-yellow-800',
   disabled: 'bg-gray-100 text-gray-800',
   unsubscribed: 'bg-red-100 text-red-800',
 };
 
-function StatusBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
-  return <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGE_STYLES[status]}`}>{status}</span>;
+function ChannelEnrollmentBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs ${CHANNEL_ENROLLMENT_BADGE_STYLES[status]}`}>
+      {status}
+    </span>
+  );
 }
 
 // Channel enrollment is available to entitled accounts (active or trialing) —
@@ -53,7 +63,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
                   <tr key={e.channel} className="border-b border-gray-100">
                     <td className="py-2 text-gray-700">{e.channel}</td>
                     <td className="py-2 font-mono text-gray-700">{e.handle}</td>
-                    <td className="py-2"><StatusBadge status={e.status} /></td>
+                    <td className="py-2"><ChannelEnrollmentBadge status={e.status} /></td>
                     <td className="py-2 text-gray-700">
                       {e.last_activity_at
                         ? new Date(e.last_activity_at).toLocaleString('en-GB', {
