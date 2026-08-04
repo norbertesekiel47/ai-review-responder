@@ -4,7 +4,7 @@
 
 **Goal:** Ship the four human-authored Suppression ledger paths — admin manual entry (§7.3), owner do-not-contact (§7.5), owner clearing of their own account rows (§7.6), and the admin-only audited Correction path (§8.2) — plus the server-side §7.4 read seam #629 consumes.
 
-**Architecture:** The ledger's domain core `src/lib/solicitation/suppression.ts` is **deepened, not widened**: `suppressionMatchSql` gains one column in its projection (`scope`) and the file gains a display seam (`toSuppressionDisplay` + `SUPPRESSION_DISPLAY_COPY`) whose input type structurally cannot carry `account_id` or `source` — making both the §7.4 cross-tenant prohibition and the FU-3 no-reason-detail rule unrepresentable rather than merely unimplemented. Owner paths live in `contacts-repo.ts`, which already owns the "contacts carry no `account_id`; the `businesses` join IS the account-scope check" rule and already writes a sibling ledger table (`solicitation_consent`) inside `deleteContact`'s transaction. Admin cross-tenant reads and the Correction path live in a new `src/lib/admin/suppressions-service.ts`, the `flagged-service.ts` neighbourhood. Migration 098 adds `solicitation_suppression_corrections`, the §8.2 audit sink, because `account_audit_log.account_id` is `NOT NULL REFERENCES accounts(id)` and the rows §8.2 exists to correct carry no account.
+**Architecture:** The ledger's domain core `src/lib/solicitation/suppression.ts` is **deepened, not widened**: `suppressionMatchSql` gains one column in its projection (`scope`) and the file gains a display seam (`toSuppressionDisplay` + `SUPPRESSION_DISPLAY_COPY`) that returns a **closed four-key object**, so `account_id` and `source` cannot reach an owner surface through it (§7.4's cross-tenant prohibition and FU-3, enforced on the output shape and asserted by an exact-key-set test — see P-8 for what this does and does not prove). Owner paths live in `contacts-repo.ts`, which already owns the "contacts carry no `account_id`; the `businesses` join IS the account-scope check" rule and already writes a sibling ledger table (`solicitation_consent`) inside `deleteContact`'s transaction. Admin cross-tenant reads and the Correction path live in a new `src/lib/admin/suppressions-service.ts`, the `flagged-service.ts` neighbourhood; the correction itself is a single data-modifying CTE, so its atomicity does not depend on a call site remembering a transaction. Migration 098 adds `solicitation_suppression_corrections`, the §8.2 audit sink, because `account_audit_log.account_id` is `NOT NULL REFERENCES accounts(id)` and the rows §8.2 exists to correct carry no account.
 
 **Tech Stack:** Next.js 16 App Router (server components + route handlers), Postgres.js, `zod` v4 strict objects, `fast-check` for the display invariant, Vitest (unit + serialized `integration` project for live-DB suites).
 
@@ -12,16 +12,22 @@
 
 ## Decisions this plan locks (read before any task)
 
+Labelled **P-n** so they never collide with the spec's own **D1–D9** decision
+register — a plan citing "D7" for two different decisions is how a review round
+gets spent on a misunderstanding.
+
 | # | Decision | Why |
 |---|---|---|
-| D-1 | The Correction path audit sink is a **new table**, `solicitation_suppression_corrections`, not `account_audit_log` | `account_audit_log.account_id` is `NOT NULL REFERENCES accounts(id) ON DELETE CASCADE`. A `global`/`admin_manual` row entered from a mailbox reply has `account_id = NULL` (there is no account to attribute), and so does a `provider_suppressed` mirror from the transactional side — the two cases §8.2 names as its reason to exist. A CASCADE would also delete the compliance record with the account |
-| D-2 | The correction record carries **no FK** to `accounts` or to `solicitation_suppressions` | The suppression row is gone by the time the record is written (that is the point), and §6.3's retention posture keeps `account_id` as provenance that must survive its referent |
-| D-3 | Owner clearing (§7.6) writes to **`account_audit_log`**, NOT to the corrections table | The two acts are deliberately not the same thing (§7.6: "the UI must not present the two controls as the same thing"). An owner clearing their own preference is account-scoped with a non-null `account_id`; an admin removing a recipient's revocation is the compliance act. Separate sinks make the distinction structural |
-| D-4 | Owner **marking** writes no audit-log row | Creation is already covered by the `solicitation_suppressed` analytics event `recordSuppression` emits in the same transaction (§9.4). Deletion has no analytics event, which is exactly why it gets the audit row. The asymmetry is the coverage, not an oversight |
-| D-5 | Admin routes are **not** flag-gated; owner routes ride `solicitationWatchEnabled()` | A statutory 10-business-day obligation behind a feature flag is a violation waiting for a flag flip. The owner controls live on the already-watch-gated contacts surface, so they inherit its gate |
-| D-6 | The Correction path takes **any** suppression row by id, `global` or `account` | One sink, one audit shape, no scope-dependent branching. §7.6 stays a separate owner-scoped route whose SQL predicate can only ever reach `scope='account' AND account_id = <caller's>` |
-| D-7 | `toSuppressionDisplay` takes `{ scope }` only — not `source`, not `account_id` | §7.4's cross-tenant prohibition and FU-3 (no owner-visible bounce-vs-complaint detail) both become type errors instead of review comments |
-| D-8 | No new analytics event name for the correction | It would require extending the `analytics_events` `CHECK` enum; the corrections table is already the durable record, and an admin-only rare action does not need a second one |
+| P-1 | The Correction path audit sink is a **new table**, `solicitation_suppression_corrections`, not `account_audit_log` | `account_audit_log.account_id` is `NOT NULL REFERENCES accounts(id) ON DELETE CASCADE`. A `global`/`admin_manual` row entered from a mailbox reply has `account_id = NULL` (there is no account to attribute), and so does a `provider_suppressed` mirror from the transactional side — the two cases §8.2 names as its reason to exist. A CASCADE would also delete the compliance record with the account |
+| P-2 | The correction record carries **no FK anywhere**, and **no `account_id` column at all** | Two independent reasons. (a) The suppression row is gone by the time the record is written — that is the point — so an FK to it is impossible, and an FK to `accounts` would let a purge CASCADE away a compliance record. (b) Copying the deleted row's `account_id` in would create a NEW indefinite retention obligation for provenance whose owning row no longer exists, and would make this table "account-linked" to `accountLinkedTablesFromMigrations()` in `src/lib/account-offboarding/__tests__/table-disposition.test.ts` — which fails CI unless the table also joins `TENANT_TABLES`, `TABLE_DISPOSITIONS` and purge verification. The record says WHICH opt-out, WHO removed it and WHY; whose send originally produced it is not part of that sentence |
+| P-3 | `normalized_handle` **stays** on the correction record | `suppression_id` points at a deleted row, so without the handle the record cannot say which opt-out was removed — an audit record that cannot identify its subject is not one. Retention posture matches the `scope='global'` ledger rows it describes: indefinite, minimum-necessary, documented in the migrations-log retention table |
+| P-4 | Owner clearing (§7.6) writes to **`account_audit_log`**, NOT to the corrections table | The two acts are deliberately not the same thing (§7.6: "the UI must not present the two controls as the same thing"). An owner clearing their own preference is account-scoped with a non-null `account_id`; an admin removing a recipient's revocation is the compliance act. Separate sinks make the distinction structural |
+| P-5 | Owner **marking** writes no audit-log row | Creation is already covered by the `solicitation_suppressed` analytics event `recordSuppression` emits in the same transaction (§9.4). Deletion has no analytics event, which is exactly why it gets the audit row. The asymmetry is the coverage, not an oversight |
+| P-6 | Admin routes are **not** flag-gated; owner routes ride `solicitationWatchEnabled()` | A statutory 10-business-day obligation behind a feature flag is a violation waiting for a flag flip. The owner controls live on the already-watch-gated contacts surface, so they inherit its gate |
+| P-7 | The Correction path takes **any** suppression row by id, `global` or `account` | One sink, one audit shape, no scope-dependent branching. §7.6 stays a separate owner-scoped route whose SQL predicate can only ever reach `scope='account' AND account_id = <caller's>` |
+| P-8 | `toSuppressionDisplay` takes `{ scope }` and returns a closed four-key object | The **output** shape is what forbids leaking: §7.4's cross-tenant prohibition and FU-3 hold because `account_id` and `source` cannot appear in the result, and a test asserts the exact key set. The narrow **input** type documents intent but does NOT make passing extra fields impossible — TypeScript structural typing accepts a wider object in that position. Do not restate this as "structurally cannot be passed"; that overclaim was corrected in plan review round 1 |
+| P-9 | `correctSuppression` is **one SQL statement** — a data-modifying CTE, not a delete-then-insert pair | Statement-level atomicity means the delete and the audit record cannot separate even if the caller forgets a transaction. The delete-plus-insert version was only atomic if every call site remembered `sql.begin`, and no test that supplies its own transaction can prove a production call site did |
+| P-10 | No new analytics event name for the correction | It would require extending the `analytics_events` `CHECK` enum; the corrections table is already the durable record, and an admin-only rare action does not need a second one |
 
 **Glossary terms used verbatim throughout** (from `CONTEXT.md` → "Solicitation suppression & unsubscribe"): Suppression ledger · Suppression scope · Normalized handle · Correction path · Attestation never overrides suppression · Consent ledger.
 
@@ -65,86 +71,80 @@
 
 Every title below is a **verbatim** entry in `.feature/intake.json` → `tests_to_add`; the gate's `promised-tests` row matches them as exact strings. Do not reword, re-case, or re-punctuate them.
 
-- [ ] **Step 1: Write all eighteen as `it.todo`, distributed by owning module**
+**These must genuinely FAIL, not merely be pending.** `it.todo` satisfies the
+gate's `promised-tests` row (it matches titles as strings) while asserting
+nothing — so a plan that stops at `it.todo` has an eval task that cannot fail,
+which is the one thing an eval task must be able to do. Write each test with a
+real body that imports the symbol it needs. Every file below therefore fails at
+import time until its task lands, which is the correct red. Use `it.todo` ONLY
+for a test whose live-DB fixture does not exist yet, and name which task
+un-todos it in a trailing comment.
+
+- [ ] **Step 1: Write all eighteen with real bodies, distributed by owning module**
+
+Each file imports the symbol its task will create, so the whole file is red at
+import time until then. Write the bodies as they appear in the owning task
+(T3 §Step 1, T4 §Steps 4–6, T5 §Steps 4–5) — this step is where they are
+authored, and those tasks then make them pass without editing the assertions.
+
+| File | Titles it owns | Body authored from |
+|---|---|---|
+| `src/lib/solicitation/__tests__/suppression-display.test.ts` | reports a suppressed contact as opted out… · never exposes the account_id provenance… · distinguishes the owner's own account row… · global wins the display state… · invariant: every scope and source pair… | T3 Step 1 (verbatim) |
+| `src/lib/admin/__tests__/suppressions-service.test.ts` | records a global admin_manual row… · rejects an address that fails normalizeEmail… | T4 Step 4 |
+| `src/lib/admin/__tests__/suppressions-correction.integration.test.ts` | is idempotent against the global partial unique index… · deletes the suppression row and writes the correction record… · rolls back the delete… · corrects a global row whose account_id is NULL · reports not-found instead of writing an orphan… | T4 Step 5 |
+| `src/app/api/admin/suppressions/__tests__/route.test.ts` | requires admin AAL2 on every suppression admin route | T4 Step 6 |
+| `src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts` | returns a uniform 404 for a contact belonging to another account · refuses to clear a global row through the owner path | T5 Step 5 |
+| `src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts` | writes an owner_manual account-scoped row… · refuses an owner do-not-contact on a contact with no email handle · clears only the account row owned by the caller's account… | T5 Step 4 |
+
+Shape, using the display file as the worked example — note the import of a
+symbol that does not exist yet, which is what makes the file red:
 
 ```typescript
 // src/lib/solicitation/__tests__/suppression-display.test.ts
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { toSuppressionDisplay } from '../suppression'; // does not exist until T3
 
 describe('suppression display seam (§7.4)', () => {
-  it.todo('reports a suppressed contact as opted out of RepWorth review requests, never as skipped');
-  it.todo('never exposes the account_id provenance of a global row to an owner');
-  it.todo('distinguishes the owner\'s own account row from a global one, because only the former is reversible');
-  it.todo('global wins the display state when both a global and an account row match');
-});
-
-describe('invariants', () => {
-  it.todo('invariant: every scope and source pair maps to exactly one display state and never carries account_id');
+  it('reports a suppressed contact as opted out of RepWorth review requests, never as skipped', () => {
+    const display = toSuppressionDisplay({ scope: 'global' });
+    expect(display?.label).toBe('Opted out of RepWorth review requests');
+    expect(JSON.stringify(display).toLowerCase()).not.toContain('skipped');
+  });
+  // … the remaining four, verbatim from T3 Step 1
 });
 ```
 
-```typescript
-// src/lib/admin/__tests__/suppressions-service.test.ts
-import { describe, it } from 'vitest';
+The two live-DB files need a seeded tenant before their bodies can run. Author
+them fully anyway and let them fail on the missing import; if a fixture genuinely
+cannot exist until its task, mark that ONE test `it.todo` with a trailing
+`// un-todo in T4 Step 5` comment rather than leaving the whole file pending.
 
-describe('admin manual entry (§7.3)', () => {
-  it.todo('records a global admin_manual row with created_by_user_id and the required note');
-  it.todo('rejects an address that fails normalizeEmail instead of minting a wrong handle');
-});
+- [ ] **Step 2: Run all SIX files and confirm they are RED**
+
+```bash
+pnpm vitest run \
+  src/lib/solicitation/__tests__/suppression-display.test.ts \
+  src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts \
+  src/lib/admin/__tests__/suppressions-service.test.ts \
+  src/lib/admin/__tests__/suppressions-correction.integration.test.ts \
+  src/app/api/admin/suppressions/__tests__/route.test.ts \
+  src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts
 ```
 
-```typescript
-// src/lib/admin/__tests__/suppressions-correction.integration.test.ts
-import { describe, it } from 'vitest';
-
-describe('Correction path (§8.2)', () => {
-  it.todo('is idempotent against the global partial unique index — a repeat admin entry writes no second row');
-  it.todo('deletes the suppression row and writes the correction record in the same transaction');
-  it.todo('rolls back the delete when the correction record write fails');
-  it.todo('corrects a global row whose account_id is NULL');
-  it.todo('reports not-found instead of writing an orphan correction record when the row is already gone');
-});
-```
-
-```typescript
-// src/app/api/admin/suppressions/__tests__/route.test.ts
-import { describe, it } from 'vitest';
-
-describe('admin suppression routes', () => {
-  it.todo('requires admin AAL2 on every suppression admin route');
-});
-```
-
-```typescript
-// src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts
-import { describe, it } from 'vitest';
-
-describe('owner do-not-contact route (§7.5/§7.6)', () => {
-  it.todo('returns a uniform 404 for a contact belonging to another account');
-  it.todo('refuses to clear a global row through the owner path');
-});
-```
-
-```typescript
-// src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts
-import { describe, it } from 'vitest';
-
-describe('owner do-not-contact (§7.5/§7.6)', () => {
-  it.todo('writes an owner_manual account-scoped row for the caller\'s own account');
-  it.todo('refuses an owner do-not-contact on a contact with no email handle');
-  it.todo('clears only the account row owned by the caller\'s account, leaving a matching global row in place');
-});
-```
-
-- [ ] **Step 2: Run them and confirm they are pending, not passing**
-
-Run: `pnpm vitest run src/lib/solicitation/__tests__/suppression-display.test.ts src/lib/admin/__tests__/suppressions-service.test.ts src/app/api/admin/suppressions/__tests__/route.test.ts src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts`
-Expected: all files pass with every test reported as **todo/skipped**, zero passing assertions. A green run with 0 todos means a title was dropped.
+Expected: FAIL — unresolved imports (`toSuppressionDisplay`,
+`correctSuppression`, `markContactDoNotContact`, the route modules). A run that
+passes green means the tests assert nothing. Note the earlier version of this
+step listed only four files while claiming to confirm all eighteen titles; all
+six are required.
 
 - [ ] **Step 3: Verify the gate can see all eighteen titles**
 
 Run: `cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-645-manual-suppression-paths && bash scripts/verify-gate.sh 2>&1 | tail -20`
-Expected: the `promised-tests` row is **PASS** (titles are matched as strings; `it.todo` counts). Any other red row at this point is pre-existing and must be reported, not patched.
+Expected: the `promised-tests` row is **PASS** — all eighteen titles found. The
+`test` row is expected **FAIL** at this checkpoint and that is the point of the
+eval task; do not patch it, and do not claim a green gate until T8. Any red row
+that is neither `test` nor a downstream consequence of it is pre-existing and
+must be reported.
 
 - [ ] **Step 4: Commit**
 
@@ -186,18 +186,26 @@ git commit -m "test(#645): eval task — eighteen promised tests as failing spec
 -- §8.2 names. A CASCADE would additionally delete the compliance record along
 -- with the account it merely names as provenance.
 --
--- NO FOREIGN KEYS, deliberately, on either id-shaped column:
--- * suppression_id — the referent is DELETEd in the same transaction that
---   writes this row. That is the whole point of the record.
--- * account_id — provenance only, and §6.3's retention posture requires it
---   outlive its referent. The 096 tables take the same position for the same
---   reason (created_by_user_id there is likewise a plain UUID).
+-- NO FOREIGN KEYS anywhere, deliberately: `suppression_id`'s referent is
+-- DELETEd by the very statement that writes this row (that is the whole point),
+-- and `removed_by_user_id` follows 096's `created_by_user_id` posture — a plain
+-- UUID, because a compliance record must outlive the user row it names.
+--
+-- NO `account_id` COLUMN AT ALL, and that is a decision rather than an
+-- omission (plan P-2). Copying the deleted row's provenance in would create a
+-- fresh indefinite retention obligation for data whose owning row no longer
+-- exists, and would make this table account-linked to
+-- accountLinkedTablesFromMigrations() in
+-- src/lib/account-offboarding/__tests__/table-disposition.test.ts — which then
+-- requires entries in TENANT_TABLES, TABLE_DISPOSITIONS and purge verification
+-- for a record that has no tenant. The sentence this table exists to record is
+-- "WHICH opt-out was removed, by WHOM, and WHY"; whose send originally produced
+-- the suppression is not part of it.
 --
 -- RLS deny-all with ZERO policies — the auto_approval_policies posture
 -- (invariant #14), matching 096. Not decorative: a row here names a recipient's
--- Normalized handle and the account that mailed them, so a direct client read
--- would be the cross-tenant leak §7.4 forbids, on a record that also proves an
--- opt-out was removed.
+-- Normalized handle, so a direct client read would expose that an identified
+-- person's opt-out was removed.
 --
 -- The record is immutable: no updated_at, no soft-delete column. A correction
 -- that was itself wrong is a new suppression row via §7.3, not an edit here.
@@ -223,7 +231,6 @@ CREATE TABLE IF NOT EXISTS solicitation_suppression_corrections (
     'owner_manual'
   )),
   suppressed_at TIMESTAMPTZ NOT NULL,  -- when the REMOVED row was recorded, copied from it
-  account_id UUID,                     -- provenance only; plain UUID, NO FK (§6.3)
   removed_by_user_id UUID NOT NULL,    -- the admin; plain UUID, NO FK (096's created_by_user_id posture)
   reason TEXT NOT NULL CHECK (length(btrim(reason)) > 0),  -- "why" is not optional on this path
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -248,7 +255,7 @@ In `.claude/reference/migrations-log.md`: change the head line to `Current head:
 
 | Table | Retention | Enforced by |
 |---|---|---|
-| `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Survives an account purge with `account_id` intact — same reasoning as the `scope='global'` ledger rows it describes (D7) | No poller touches it; offboarding purge deliberately does not list it |
+| `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Retains `normalized_handle` indefinitely — the minimum needed to identify WHICH opt-out was removed, since `suppression_id` points at a deleted row — matching the retention posture of the `scope='global'` ledger rows it describes (spec D7). It carries **no** `account_id` (plan P-2), so it is not account-linked and correctly absent from `TABLE_DISPOSITIONS` | No poller touches it; the offboarding purge deliberately does not list it, and `table-disposition.test.ts` confirms that is correct rather than an omission because the table has no account-linked column |
 
 - [ ] **Step 3: Add the schema requirement**
 
@@ -271,27 +278,70 @@ export const MIGRATION_098_SUPPRESSION_CORRECTIONS: SchemaRequirement = {
 
 Mirror `src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts` exactly — `describeWithDb`, `acquireLiveDbLock` in `beforeAll` with `LIVE_DB_LOCK_HOOK_TIMEOUT_MS`, `assertLocalTestDatabaseUrl`, `assertSchemaReady([MIGRATION_098_SUPPRESSION_CORRECTIONS])`, and **no migration SQL applied** (#573). Assert behaviourally, not by existence:
 
+Six tests. Introspect the real schema — asserting a constraint merely *exists*
+proves nothing, because a malformed predicate is present and wrong (096's own
+first revision shipped that defect):
+
 ```typescript
-it('rejects a blank reason', async () => {
-  await expect(
-    db`INSERT INTO solicitation_suppression_corrections
-         (id, suppression_id, channel, normalized_handle, scope, source, suppressed_at,
-          account_id, removed_by_user_id, reason)
-       VALUES (${randomUUID()}, ${randomUUID()}, 'email', 'x@example.com', 'global',
-               'admin_manual', NOW(), NULL, ${randomUUID()}, '   ')`,
-  ).rejects.toThrow(/reason_check|violates check constraint/i);
+it('has exactly the correction audit columns with the locked types nullability and defaults', async () => {
+  const columns = await db<{ column_name: string; data_type: string; is_nullable: string;
+                             column_default: string | null }[]>`
+    SELECT column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns
+    WHERE table_name = 'solicitation_suppression_corrections'
+    ORDER BY column_name`;
+  expect(columns.map((c) => c.column_name)).toEqual([
+    'channel', 'created_at', 'id', 'normalized_handle', 'reason',
+    'removed_by_user_id', 'scope', 'source', 'suppressed_at', 'suppression_id',
+  ]);
+  // Every column is NOT NULL: this record has no optional facts.
+  expect(columns.filter((c) => c.is_nullable === 'YES')).toEqual([]);
+  // id has NO database default — UUIDv7 is app-supplied (repo convention).
+  expect(columns.find((c) => c.column_name === 'id')?.column_default).toBeNull();
 });
 
-it('accepts a correction record with no account provenance', async () => {
-  // The §8.2 case account_audit_log structurally cannot hold.
-  const inserted = await db<{ id: string }[]>`
-    INSERT INTO solicitation_suppression_corrections
-      (id, suppression_id, channel, normalized_handle, scope, source, suppressed_at,
-       account_id, removed_by_user_id, reason)
-    VALUES (${randomUUID()}, ${randomUUID()}, 'email', 'nobody@example.com', 'global',
-            'admin_manual', NOW(), NULL, ${randomUUID()}, 'admin typo on a mailbox reply')
-    RETURNING id`;
-  expect(inserted).toHaveLength(1);
+it('has no account-linked column, so the offboarding inventory correctly excludes it', async () => {
+  // P-2 asserted against the schema rather than the plan: if a later change
+  // adds account_id/business_id here, table-disposition.test.ts starts failing
+  // and THIS test says why before anyone goes looking.
+  const columns = await db<{ column_name: string }[]>`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'solicitation_suppression_corrections'`;
+  expect(columns.map((c) => c.column_name)).not.toContain('account_id');
+  expect(columns.map((c) => c.column_name)).not.toContain('business_id');
+});
+
+it('enforces the authoritative suppression channel scope and source value sets', async () => {
+  // Drive from the exported enums so a divergence between TS and the DB fails
+  // here rather than at the first production insert of a new source.
+  for (const source of SUPPRESSION_SOURCES) {
+    // every legal source inserts
+  }
+  for (const scope of SUPPRESSION_SCOPES) {
+    // every legal scope inserts
+  }
+  // and rejects: channel 'sms', scope 'everyone', source 'unsubscribed'
+});
+
+it('has no foreign keys to suppressions accounts or users so correction history survives its referents', async () => {
+  const fks = await db`
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'solicitation_suppression_corrections'::regclass AND contype = 'f'`;
+  expect(fks).toEqual([]);
+});
+
+it('indexes corrections by channel normalized handle and created_at descending', async () => {
+  const [index] = await db<{ indexdef: string }[]>`
+    SELECT indexdef FROM pg_indexes
+    WHERE indexname = 'idx_solicitation_suppression_corrections_handle'`;
+  expect(index?.indexdef).toMatch(/\(channel, normalized_handle, created_at DESC\)/);
+});
+
+it('rejects every empty-or-whitespace reason and accepts a nonblank reason', async () => {
+  for (const blank of ['', ' ', '\t', '\n', '   ']) {
+    await expect(insertCorrection({ reason: blank })).rejects.toThrow(/check constraint/i);
+  }
+  await expect(insertCorrection({ reason: 'admin typo on a mailbox reply' })).resolves.toBeDefined();
 });
 
 it('is deny-all: RLS is enabled with zero policies', async () => {
@@ -304,7 +354,9 @@ it('is deny-all: RLS is enabled with zero policies', async () => {
 });
 ```
 
-Clean up every inserted row in `afterAll` (no `seedTenantAccount` needed — this table has no FKs).
+`insertCorrection` is a local helper in this file taking overrides over a valid
+row. Clean up every inserted row in `afterAll` — no `seedTenantAccount` needed,
+this table has no FKs and no tenant.
 
 - [ ] **Step 5: Provision the DB and run the suite**
 
@@ -389,26 +441,57 @@ describe('suppression display seam (§7.4)', () => {
 
 describe('invariants', () => {
   it('invariant: every scope and source pair maps to exactly one display state and never carries account_id', () => {
+    // What this proves is OUTPUT CLOSURE, not input impossibility (P-8): a
+    // caller CAN hand this mapper a whole ledger row — TypeScript accepts a
+    // wider object where `{ scope: string }` is expected — so the guarantee
+    // that matters is that nothing beyond the four display keys survives the
+    // mapping. Generate only LEGAL (scope, source) pairs: the G11 DB CHECK
+    // makes the illegal ones unreachable, and asserting behaviour on rows the
+    // database cannot hold tests nothing.
     fc.assert(
       fc.property(
         fc.constantFrom(...SUPPRESSION_SCOPES),
-        fc.constantFrom(...SUPPRESSION_SOURCES),
         fc.uuid(),
-        (scope, source, accountId) => {
-          // Every field the ledger row carries beyond `scope` is passed in and
-          // must be invisible in the output — the mapper reads scope alone.
-          const display = toSuppressionDisplay({ scope, source, accountId } as { scope: string });
+        (scope, accountId) => {
+          const source = scope === 'account' ? 'owner_manual' : 'complaint';
+          const wholeRow = { scope, source, accountId, note: 'internal note' };
+          const display = toSuppressionDisplay(wholeRow as { scope: string });
           expect(display).not.toBeNull();
+          expect(Object.keys(display!).sort())
+            .toEqual(['clearableByOwner', 'detail', 'label', 'state']);
           expect(display?.state).toBe(scope);
           expect(display?.clearableByOwner).toBe(scope === 'account');
           const serialized = JSON.stringify(display);
           expect(serialized).not.toContain(accountId);
           expect(serialized).not.toContain(source);
+          expect(serialized).not.toContain('internal note');
           expect(display?.label).toBe(SUPPRESSION_DISPLAY_COPY[scope].label);
         },
       ),
     );
   });
+});
+```
+
+- [ ] **Step 1b: Add the two SQL-projection tests to the EXISTING ledger suite**
+
+The mapper tests above hand-build their input, so SQL could return the wrong
+`scope` and every one of them would still pass. These close that gap and belong
+next to the existing global-wins test in
+`src/lib/solicitation/__tests__/suppression.integration.test.ts` (which today
+selects only `source`):
+
+```typescript
+it('suppressionMatchSql projects scope global when global and account rows both match', async () => {
+  // seed BOTH rows for one handle, probe through the fragment in a LATERAL:
+  //   SELECT hit.scope, hit.source FROM (…) probe
+  //   LEFT JOIN LATERAL (${suppressionMatchSql(db, db`probe.handle`, accountId, 'email')}) hit ON TRUE
+  // assert scope 'global' — G3 proven on the projection, not just the ordering
+});
+
+it('suppressionMatchSql projects account scope only for the matching account', async () => {
+  // one owner_manual row for account A; probe as A → { scope: 'account',
+  // source: 'owner_manual' }; probe as B → both columns NULL
 });
 ```
 
@@ -443,15 +526,18 @@ Append to the function's doc block:
 
 ```typescript
 /**
- * §7.4's display contract, as a type rather than a convention.
+ * §7.4's display contract, enforced on the OUTPUT shape.
  *
- * The parameter is `{ scope }` and nothing else, deliberately:
- *  - `account_id` cannot be passed, so a global row's provenance cannot reach
- *    an owner surface through this seam (§7.4, invariant #8). The ledger row
- *    carries it; this type is where it stops.
- *  - `source` cannot be passed either, so FU-3 (bounce vs complaint vs
- *    unsubscribe is NOT owner-visible) is unrepresentable rather than merely
- *    unimplemented.
+ * The returned object has exactly four keys, and that closure is the
+ * guarantee: a global row's `account_id` provenance cannot reach an owner
+ * surface through this seam (§7.4, invariant #8), and neither can `source`, so
+ * FU-3 (bounce vs complaint vs unsubscribe is NOT owner-visible) holds by
+ * construction. The ledger row carries both; this function is where they stop.
+ *
+ * The narrow `{ scope }` parameter states intent but does NOT prevent a caller
+ * passing a whole row — TypeScript accepts a wider object in that position. The
+ * output closure is what is actually load-bearing, and the exact-key-set test
+ * is what proves it.
  *
  * Two consumers today: the contacts list (#645) and the Requests surface
  * (#629, spec §11 hands §7.4's rendering there). Both feed it a row picked by
@@ -617,7 +703,7 @@ export async function lookupSuppressions(
       suppressed_at: string;
     }[]>`
       SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source,
-             s.account_id, a.business_name AS account_name,
+             s.account_id, a.display_name AS account_name,
              s.created_by_user_id, s.note, s.suppressed_at::text
       FROM solicitation_suppressions s
       LEFT JOIN accounts a ON a.id = s.account_id
@@ -706,44 +792,45 @@ export async function recordAdminManualSuppression(
 export type CorrectSuppressionResult = 'corrected' | 'not_found';
 
 /**
- * §8.2. The DELETE and the correction record are one statement pair inside the
- * caller's transaction, and the record is built from the DELETE's RETURNING —
- * never from a row read earlier — so a concurrent correction cannot produce a
- * record describing a row this call did not remove. A DELETE that matches
- * nothing returns 'not_found' and writes no orphan record.
+ * §8.2, as ONE statement (P-9). The data-modifying CTE makes atomicity
+ * structural: an INSERT failure — a blank reason hitting the CHECK, a type
+ * violation, anything — aborts the whole statement, so the DELETE cannot commit
+ * without its audit record even if a call site forgot a transaction. The
+ * delete-then-insert version was atomic only if every caller remembered
+ * `sql.begin`, and no test that supplies its own transaction can prove a
+ * production call site did.
+ *
+ * The record is built from the DELETE's RETURNING, never from a row read
+ * earlier, so a concurrent correction cannot produce a record describing a row
+ * this call did not remove: exactly one caller's DELETE matches, the other
+ * returns zero rows and writes nothing.
+ *
+ * Takes `Sql | TransactionSql` because it no longer needs an outer transaction
+ * to be correct — it composes into one if a caller has one, and is safe alone.
  */
 export async function correctSuppression(
-  tx: TransactionSql,
+  db: Sql | TransactionSql,
   input: { suppressionId: string; adminUserId: string; reason: string },
 ): Promise<CorrectSuppressionResult> {
-  const removed = await tx<{
-    id: string;
-    channel: string;
-    normalized_handle: string;
-    scope: SuppressionScope;
-    source: SuppressionSource;
-    account_id: string | null;
-    suppressed_at: Date;
-  }[]>`
-    DELETE FROM solicitation_suppressions
-    WHERE id = ${input.suppressionId}::uuid
-    RETURNING id, channel, normalized_handle, scope, source, account_id, suppressed_at
-  `;
-
-  const row = removed[0];
-  if (row === undefined) return 'not_found';
-
-  await tx`
+  const written = await db<{ suppression_id: string }[]>`
+    WITH removed AS (
+      DELETE FROM solicitation_suppressions
+      WHERE id = ${input.suppressionId}::uuid
+      RETURNING id, channel, normalized_handle, scope, source, suppressed_at
+    )
     INSERT INTO solicitation_suppression_corrections
       (id, suppression_id, channel, normalized_handle, scope, source,
-       suppressed_at, account_id, removed_by_user_id, reason)
-    VALUES
-      (${uuidv7()}, ${row.id}, ${row.channel}, ${row.normalized_handle},
-       ${row.scope}, ${row.source}, ${row.suppressed_at}, ${row.account_id},
-       ${input.adminUserId}, ${input.reason})
+       suppressed_at, removed_by_user_id, reason)
+    SELECT ${uuidv7()}, removed.id, removed.channel, removed.normalized_handle,
+           removed.scope, removed.source, removed.suppressed_at,
+           ${input.adminUserId}::uuid, ${input.reason}
+    FROM removed
+    RETURNING suppression_id
   `;
 
-  return 'corrected';
+  // Zero rows means the DELETE matched nothing: no row removed, no orphan
+  // record written. There is no third outcome.
+  return written.length === 0 ? 'not_found' : 'corrected';
 }
 ```
 
@@ -884,31 +971,52 @@ async function correct(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const result = await sql.begin((tx) => correctSuppression(tx, {
+    // No sql.begin: correctSuppression is a single statement (P-9), so the
+    // transaction would add a moving part without adding a guarantee. The
+    // actor id comes from the AAL2 gate, never from the body — EntrySchema and
+    // CorrectSchema are strictObject precisely so a client-supplied actor
+    // field is a 400 rather than a silently ignored key.
+    const result = await correctSuppression(sql, {
       suppressionId: parsed.data.suppressionId,
       adminUserId: gate.admin.id,
       reason: parsed.data.reason,
-    }));
+    });
     if (result === 'not_found') {
       return NextResponse.json(
         { error: 'not_found' },
         { status: 404, headers: NO_STORE_HEADERS },
       );
     }
+    // §9.5: the suppression row id is the correlation key. Never the handle.
+    logger.info('suppression corrected', { suppressionId: parsed.data.suppressionId });
     return NextResponse.json({ corrected: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
-    return internalError('[api/admin/suppressions/correct] failed:', error);
+    return internalError(
+      `[api/admin/suppressions/correct] failed for ${parsed.data.suppressionId}:`,
+      error,
+    );
   }
 }
 
 export const POST = withSameOrigin()(correct);
 ```
 
-If `NO_STORE_HEADERS` is not exported from `@/lib/shared/constants`, use the local `const NO_STORE = { 'Cache-Control': 'no-store, private' } as const` that `src/app/api/admin/flagged/route.ts` defines — match whichever the neighbouring admin routes actually use; do not introduce a third spelling.
+`NO_STORE_HEADERS` **is** exported from `@/lib/shared/constants` (verified in plan review round 1) — use it, no fallback. For `logger`, use whatever the neighbouring admin routes use for structured logging; if they log nothing, put the suppression id in the `internalError` prefix only (as above) and skip the success line rather than introducing a new logging pattern for one route.
 
 - [ ] **Step 3: Add the tenant-scope allowlist entries**
 
-Append three entries to `TENANT_SCOPE_ALLOWLIST` in `scripts/ci/tenant-scope-allowlist.ts` (category `'admin-after-require-role'`) for `solicitation_suppressions`, `solicitation_suppression_corrections`, and `accounts` in `src/lib/admin/suppressions-service.ts`, and **bump `ALLOWLIST_BASELINE` by exactly the number of entries you added** (the audit fails on any count mismatch in either direction). Reason text for each: `#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.`
+**Do not guess the count.** The audit keys entries by exact `file + table + SQL
+statement` (`scripts/ci/tenant-scope-audit.ts`), so the number depends on how
+many statements it flags — the lookup's two reads hit `solicitation_suppressions`
+and `accounts`, and the correction CTE hits `solicitation_suppressions` again as
+one statement. `solicitation_suppression_corrections` needs an entry only if it
+is in `TENANT_TABLES`, which it is not (P-2: no account-linked column).
+
+Procedure: run `pnpm ci:tenant-scope`, add exactly the entries it names
+(category `'admin-after-require-role'`), then set `ALLOWLIST_BASELINE` to the
+real entry count — the audit fails on a mismatch in either direction, so a
+wrong guess fails loudly rather than shipping. Reason text for each:
+`#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.`
 
 > **Known conflict:** the `admin-console-phase3` worktree also appends here and bumps the same baseline. Append-only, so resolve by re-appending after rebase — never by reverting the other branch's entries or reusing its baseline number.
 
@@ -928,6 +1036,10 @@ it('rejects an address that fails normalizeEmail instead of minting a wrong hand
   });
   expect(result).toEqual({ ok: false, error: 'invalid_handle' });
   // and: no INSERT was attempted
+});
+
+it('lookupSuppressions rejects an invalid email without issuing either cross-tenant query', () => {
+  // fake sql that throws if called at all; assert { ok: false, error: 'invalid_handle' }
 });
 ```
 
@@ -957,15 +1069,19 @@ it('deletes the suppression row and writes the correction record in the same tra
 });
 
 it('rolls back the delete when the correction record write fails', async () => {
-  // reason of '   ' violates the CHECK; call correctSuppression inside
-  // db.begin and expect the transaction to reject, then assert the ledger row
-  // is STILL PRESENT. This is the atomicity proof — a non-transactional
-  // implementation loses the opt-out and keeps no record of why.
+  // Call correctSuppression on the POOLED client with NO outer transaction —
+  // that is the whole point (P-9). A blank reason violates the CHECK, the
+  // single statement aborts, and the ledger row must survive. Supplying our
+  // own db.begin here would prove nothing about production, which does not
+  // open one.
   await expect(
-    db.begin((tx) => correctSuppression(tx, { suppressionId, adminUserId, reason: '   ' })),
-  ).rejects.toThrow();
+    correctSuppression(db, { suppressionId, adminUserId, reason: '   ' }),
+  ).rejects.toThrow(/check constraint/i);
   const still = await db`SELECT id FROM solicitation_suppressions WHERE id = ${suppressionId}`;
   expect(still).toHaveLength(1);
+  const orphans = await db`SELECT id FROM solicitation_suppression_corrections
+                           WHERE suppression_id = ${suppressionId}`;
+  expect(orphans).toHaveLength(0);
 });
 
 it('corrects a global row whose account_id is NULL', async () => {
@@ -974,13 +1090,49 @@ it('corrects a global row whose account_id is NULL', async () => {
 });
 
 it('reports not-found instead of writing an orphan correction record when the row is already gone', async () => {
-  const result = await db.begin((tx) => correctSuppression(tx, {
+  const result = await correctSuppression(db, {
     suppressionId: randomUUID(), adminUserId, reason: 'already removed',
-  }));
+  });
   expect(result).toBe('not_found');
   const corrections = await db`SELECT id FROM solicitation_suppression_corrections
                                WHERE removed_by_user_id = ${adminUserId}`;
   expect(corrections).toHaveLength(0);
+});
+
+it('two concurrent corrections remove one suppression and write exactly one correction record', async () => {
+  // Promise.all two correctSuppression calls on the same id. Assert: one
+  // 'corrected' and one 'not_found', the suppression is gone, and exactly one
+  // correction record exists. The single statement is what makes this safe —
+  // there is no read-then-write window to lose.
+});
+
+it('admin manual entry writes a global row when only an account-scoped row already exists', async () => {
+  // seed an owner_manual account row for the handle, then run the admin entry:
+  // created === true, and BOTH rows now exist. Different partial unique
+  // indexes; the global writer must still infer its own.
+});
+
+it('admin manual no-op preserves the first global row source actor note and account provenance', async () => {
+  // seed a 'complaint' global row with account provenance, then run admin
+  // entry for the same handle: created === false and NOT ONE column changed —
+  // source stays 'complaint', account_id stays set, note stays null.
+  // §2.1 first-write-wins across SOURCES, not just repeated admin entries.
+});
+
+it('admin manual entry persists the authenticated admin actor required note global scope and null account provenance', async () => {
+  // inspect every persisted column on the live row, not just the call args
+});
+
+it('lookupSuppressions normalizes raw email and returns every matching live row global first with the account display name', async () => {
+  // seed a global row (account provenance → display_name resolves) and an
+  // account row for a second account; look up with ' Person@Example.COM '
+  // and assert order (global first) and account_name resolution.
+  // This is the test that would have caught accounts.business_name.
+});
+
+it('lookupSuppressions returns only corrections for the normalized handle newest first and capped at twenty', async () => {
+  // seed 21 correction records across two handles; assert filtering, ordering
+  // and the LIMIT 20
 });
 ```
 
@@ -993,6 +1145,23 @@ it('requires admin AAL2 on every suppression admin route', async () => {
   // requireAdminWithAal2 mocked to return { ok: false, response: 401 }
   // assert GET, POST (entry) and POST (correct) each return that response and
   // that neither service function was called
+});
+
+it('uses the authenticated admin id for entry and correction and rejects client-supplied actor fields', async () => {
+  // POST both routes with an extra body key (adminUserId / removedByUserId /
+  // createdByUserId set to some other uuid). strictObject must 400 on the
+  // unknown key, and on a VALID body the service must receive gate.admin.id —
+  // otherwise the audit record can name an arbitrary user.
+});
+
+it('rejects blank entry notes blank correction reasons malformed suppression ids and unknown fields before any write', async () => {
+  // table-driven: note '', note '   ', reason '', reason '  ', suppressionId
+  // 'not-a-uuid', an unknown key. Each → 400, and the service is never called.
+});
+
+it('enforces same-origin on both admin suppression mutations', async () => {
+  // a cross-origin POST to each mutation is rejected by the withSameOrigin()
+  // wrapper — a mocked-AAL2 test alone never exercises the exported wrapper
 });
 ```
 
@@ -1306,6 +1475,70 @@ it('clears only the account row owned by the caller\'s account, leaving a matchi
   const { contacts } = await listContacts(db, accountId, businessId, { limit: 50, offset: 0 });
   expect(contacts.find((c) => c.id === contactId)?.suppression?.state).toBe('global');
 });
+
+it('repeating owner do-not-contact is a no-op against the account partial unique index', async () => {
+  // second call → 'already_marked', still exactly one row. Proves the owner
+  // wrapper actually reaches recordSuppression's ON CONFLICT path.
+});
+
+it('attributes owner do-not-contact to the authenticated owner user', async () => {
+  // assert created_by_user_id === actorUserId on the persisted row
+});
+
+it('a foreign account can neither mark nor clear another account contact', async () => {
+  // call BOTH repo functions with account B's id against account A's contact:
+  // both return 'not_found', and no suppression or audit row changed anywhere
+});
+
+it('clearing one account row leaves the global row and every other account row untouched', async () => {
+  // seed: global row + account A row + account B row, all one handle.
+  // A clears → A's row gone, global and B's row both still present.
+});
+
+it('a global-only suppression returns not_marked and writes no owner-clear audit row', async () => {
+  // The REAL SQL proof that an owner cannot clear a global row — the route
+  // test only mocks this outcome. Assert the global row survives and
+  // account_audit_log gained nothing.
+});
+
+it('owner clear writes the exact audit actor account location entity and payload without the normalized handle', async () => {
+  const [entry] = await db`
+    SELECT account_id, location_id, actor_user_id, event_type,
+           entity_type, entity_id, payload
+    FROM account_audit_log
+    WHERE entity_id = ${suppressionId}`;
+  expect(entry).toMatchObject({
+    account_id: accountId, location_id: businessId, actor_user_id: actorUserId,
+    event_type: 'solicitation_do_not_contact_cleared',
+    entity_type: 'solicitation_suppression',
+  });
+  expect(JSON.stringify(entry?.payload)).not.toContain(contactEmail); // §9.5
+});
+
+it('owner clear rolls back the suppression delete when the audit insert fails', async () => {
+  // The owner-side lost-opt-out path. Pass an actorUserId that does not exist
+  // in users so account_audit_log.actor_user_id's FK rejects; assert the
+  // transaction rejects AND the owner_manual row is still present. Failing
+  // safe here means KEEPING the suppression.
+});
+
+it('deleting and re-uploading the same handle does not clear its suppression', async () => {
+  // §8.1 + #535 §6, end to end: mark do-not-contact, deleteContact, re-ingest
+  // the same normalized email as a new contact row, then assert listContacts
+  // STILL reports it suppressed. This is the laundering path the handle keying
+  // exists to close, and nothing else in the suite covers it.
+});
+
+it('listContacts ignores an account suppression owned by another account for the same handle', async () => {
+  // account B marks the handle; account A's listContacts must show account A's
+  // contact as NOT suppressed. Invariant #8, proven through the real query.
+});
+
+it('listContacts returns only the suppression display shape and never source or account provenance', async () => {
+  // serialize the listContacts result and assert it contains no 'account_id',
+  // 'accountId', 'accountName', 'source', 'note', nor any actor uuid — the
+  // component test cannot catch the API shipping provenance to the browser
+});
 ```
 
 - [ ] **Step 5: Write the owner route suite**
@@ -1321,6 +1554,21 @@ it('returns a uniform 404 for a contact belonging to another account', async () 
 it('refuses to clear a global row through the owner path', async () => {
   // repo mocked to return 'not_marked' (the shape a global-only match produces);
   // assert 409 and that the response never says the contact was un-suppressed
+});
+
+it('enforces same-origin on both owner suppression mutations', async () => {
+  // cross-origin POST and DELETE are rejected by the withSameOrigin() wrappers
+});
+
+it('derives account business contact and actor ids only from authenticated scope and route params', async () => {
+  // POST/DELETE with accountId, businessId and actorUserId in the BODY set to
+  // other tenants' ids; assert the repo receives the authenticated values and
+  // never the body's
+});
+
+it('returns the feature-disabled 404 before attempting owner authentication', async () => {
+  // solicitationWatchEnabled() false → 404 and the auth helper is never called
+  // (invariant #13 ordering: flag gate first)
 });
 ```
 
@@ -1413,6 +1661,24 @@ it('never offers a re-subscribe affordance on the correction control', () => {
 });
 it('keeps the correction submit disabled until a reason is entered', () => { /* … */ });
 it('reports an already-suppressed entry as a no-op success, not an error', () => { /* … */ });
+it('submits the selected suppression id and trimmed reason to the correction endpoint only after confirmation', () => {
+  // assert NOTHING is posted before the confirm step, then the exact body
+});
+it('keeps the live suppression visible when correction fails', () => {
+  // a 500 must not optimistically drop the row from the table — an admin
+  // believing an opt-out was removed when it was not is the inverse hazard
+});
+it('manual entry posts the email and required originating message reference to the entry endpoint', () => { /* … */ });
+```
+
+Also add `src/app/admin/suppressions/__tests__/page.test.tsx`:
+
+```typescript
+it('requires an admin AAL2 page gate before rendering the suppressions console', () => {
+  // requireAdminPage mocked; assert it is called with { from:
+  // '/admin/suppressions', aal2: true } and that no service call happens when
+  // the gate rejects
+});
 ```
 
 - [ ] **Step 5: Run**
@@ -1461,6 +1727,16 @@ it('shows an opted-out contact as opted out and offers no way to undo a global r
 });
 it('offers the owner a way to undo their own do-not-contact', () => { /* clearableByOwner: true */ });
 it('never renders another account name on a suppressed contact', () => { /* §7.4 */ });
+it('marking do-not-contact posts to the suppression endpoint and never hard-deletes the contact', () => {
+  // wiring the mark button to DELETE /api/dashboard/contacts/<id> would erase
+  // a customer record instead of suppressing a handle — assert the exact URL
+  // and method, and that the delete endpoint is never called
+});
+it('clearing owner do-not-contact deletes the suppression endpoint and never deletes the contact endpoint', () => { /* same hazard, mirrored */ });
+it('a failed suppression mutation does not refresh into an apparently successful state', () => {
+  // a rejected POST must surface the error and leave the row unchanged rather
+  // than bumping the epoch and re-rendering as if it worked
+});
 ```
 
 - [ ] **Step 3: Run**

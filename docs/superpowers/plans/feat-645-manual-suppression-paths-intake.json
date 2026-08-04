@@ -61,7 +61,7 @@
     "src/lib/solicitation/suppression.ts — the domain core: closed enums, suppressionMatchSql, recordSuppression's byte-for-byte ON CONFLICT predicates and same-transaction analytics insert",
     "src/app/api/admin/autonomy/unsuspend/route.ts — admin mutation route: requireAdminWithAal2 + withSameOrigin + z.strictObject + sql.begin(tx => domainFn(tx, ...)) + NO_STORE_HEADERS",
     "src/app/api/admin/flagged/route.ts — admin GET behind the same AAL2 gate, cross-tenant read delegated to a src/lib/admin/*-service.ts module",
-    "src/lib/admin/flagged-service.ts and src/lib/admin/businesses-list-service.ts — where cross-tenant admin reads live and how they are tenant-scope-allowlisted",
+    "src/lib/admin/flagged-service.ts (tests at src/lib/admin/__tests__/flagged-service.test.ts) — where cross-tenant admin reads live and how they are tenant-scope-allowlisted",
     "src/app/api/dashboard/contacts/route.ts — owner route shape: flag gate FIRST, then withDashboardOwnerRead, then requireContactsLocationScope",
     "src/lib/solicitation/contacts-repo.ts — tenant scoping by joining businesses on b.account_id, never trusting a contact id alone",
     "src/lib/audit/log.ts writeAccountAuditLog — the same-transaction audit posture the correction record follows (and the owner-clear audit reuses directly)",
