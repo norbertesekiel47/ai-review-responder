@@ -13,42 +13,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { LazyMotion, m, domAnimation, useReducedMotion } from 'motion/react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { BrandLogo } from '@/components/ui/BrandLogo';
+import { normalizeChallengeFactors, type ChallengeFactor } from '@/lib/auth/mfa';
 
 const SUPPORT_EMAIL = 'support@repworth.net';
-
-interface ChallengeFactor {
-  id: string;
-  label: string;
-}
-
-function normalizeFactor(raw: unknown): ChallengeFactor | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const record = raw as Record<string, unknown>;
-  if (typeof record.id !== 'string') return null;
-  if (record.status !== 'verified') return null;
-  const label =
-    typeof record.friendly_name === 'string'
-      ? record.friendly_name
-      : typeof record.friendlyName === 'string'
-        ? record.friendlyName
-        : 'Authenticator app';
-  return { id: record.id, label };
-}
-
-function normalizeFactors(data: unknown): ChallengeFactor[] {
-  if (!data || typeof data !== 'object') return [];
-  const record = data as Record<string, unknown>;
-  const candidates = [
-    ...(Array.isArray(record.totp) ? record.totp : []),
-    ...(Array.isArray(record.all) ? record.all : []),
-  ];
-  const unique = new Map<string, ChallengeFactor>();
-  for (const candidate of candidates) {
-    const factor = normalizeFactor(candidate);
-    if (factor) unique.set(factor.id, factor);
-  }
-  return [...unique.values()];
-}
 
 function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/dashboard';
@@ -184,6 +151,12 @@ function mfaReducer(state: MfaState, action: MfaAction): MfaState {
   }
 }
 
+// Most of the branching is JSX: three mutually exclusive render states
+// (loading / no-factor dead-end / form), a conditional factor picker, and
+// the challenge/verify status handling inline. Pre-existing on main; this
+// branch only wired the shared normalizeChallengeFactors import through it,
+// unchanged in shape.
+// fallow-ignore-next-line complexity
 export function MfaChallengeForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -203,7 +176,7 @@ export function MfaChallengeForm() {
         dispatch({ type: 'loadError', error: 'Could not load MFA factors.' });
         return;
       }
-      const nextFactors = normalizeFactors(data);
+      const nextFactors = normalizeChallengeFactors(data);
       dispatch({
         type: 'loadSuccess',
         factors: nextFactors,

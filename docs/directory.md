@@ -389,6 +389,8 @@ Reusable React components imported by multiple pages.
 | `auth/LoginFormClient.tsx` | Login form (email + password → Supabase sign-in). |
 | `auth/ForgotPasswordFormClient.tsx` | Forgot-password form. |
 | `auth/ResetPasswordFormClient.tsx` | Reset-password form. |
+| `auth/useRecoveryStepUp.ts` | Headless MFA step-up for password recovery: probes the recovery session + verified factors, then challenges/verifies via `/api/auth/mfa/challenge` so the session is AAL2 before the password write. Consumed by both reset cards. |
+| `auth/RecoveryStepUpField.tsx` | Presentational TOTP code field (plus factor picker when >1) shown inline on the reset cards. Styling arrives via className props. |
 | `dashboard/AccountStateScreens.tsx` | Full-page states for non-active accounts (pending payment, cancelled, past-due). |
 | `dashboard/Charts.tsx` | Recharts-based charts for the owner dashboard (response rate, star distribution, etc.). |
 | `dashboard/charts/` | Shared chart primitives: measured-viewBox contract (`useMeasuredSvg`), d3-backed `VelocityChart`, hover/tooltip/motion presets, chart tokens. |
@@ -1191,7 +1193,9 @@ deployment status remain in `.claude/reference/migrations-log.md`.
 - `.claude/reference/` — recall-when-needed inventories, read on demand (env-vars, migrations-log, lab-notes, review-ingestion).
 - `docs/runbooks/` — operational + deployment runbooks, including
   `ws8-tier-cutover.md` as the single quiesced Stripe → 077 → strict code → 078
-  tier rollout path.
+  tier rollout path, and `mfa-factor-reset.md` as the break-glass procedure for
+  a user who has lost their authenticator (operator-side factor removal via
+  the Supabase Admin Auth API).
 - `docs/security/` — **(Wave 1)** RLS inventory, tenant-isolation model, vendor-risk + access registers, CSP rollout plan.
 - `docs/finance/` — **(Wave 1)** pilot invoice-review template for the first multi-location accounts (`accounts.flags.is_pilot`).
 - `docs/legal/` — legal source docs + external-gate status (`legal-review.md`, `insurance.md`); rendered pages come from `src/lib/legal/content.ts`, not these.

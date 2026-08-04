@@ -744,7 +744,27 @@
       // UI/worker-template boundary and are 6 lines; sharing them would couple an
       // admin React component to the email template module. Ignoring the admin
       // side keeps the email helper visible.
-      "src/app/admin/businesses/*/_components/ReviewsList.tsx"
+      "src/app/admin/businesses/*/_components/ReviewsList.tsx",
+
+      // ── MFA recovery step-up (fix-mfa-recovery-step-up) ──
+      // useMfaEnrollment.ts:50-58 (normalizeFactors) ↔ mfa.ts:76-84
+      // (normalizeChallengeFactors) — both gather candidates from
+      // `data.totp`/`data.all` and de-dupe them into a Map by id. The outer
+      // collect-and-dedupe shape is genuinely identical, but each calls a
+      // DIFFERENT per-item normalizer with divergent semantics: mfa.ts's
+      // normalizeChallengeFactor drops anything not `status === 'verified'`
+      // (a half-enrolled factor cannot satisfy a challenge), while
+      // useMfaEnrollment.ts's normalizeFactor deliberately keeps EVERY
+      // factor with its full shape so the settings surfaces can render an
+      // unverified factor for the user to finish or abandon — see the
+      // "NOTE" docblock directly above ChallengeFactor in mfa.ts, which
+      // already documents this as intentional and says not to merge them.
+      // Extracting the shared collect/dedupe wrapper would still mean
+      // rewriting useMfaEnrollment.ts's normalizeFactors to call it, which
+      // this branch treats as off-limits for that file. Ignoring the
+      // enrollment-hook side keeps mfa.ts — the designated home for shared
+      // MFA logic — visible to `fallow dupes`.
+      "src/components/auth/useMfaEnrollment.ts"
     ]
   }
 }
