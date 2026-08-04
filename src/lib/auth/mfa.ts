@@ -72,17 +72,34 @@ function normalizeChallengeFactor(raw: unknown): ChallengeFactor | null {
   return { id: record.id, label };
 }
 
-export function normalizeChallengeFactors(data: unknown): ChallengeFactor[] {
+/**
+ * Gathers factors from a `listFactors()` payload — which reports them under
+ * `totp` and/or `all` — and de-dupes by id, preserving first-seen order.
+ *
+ * The per-item projection is a parameter precisely because the two consumers
+ * need different ones and must keep needing different ones: the challenge path
+ * drops unverified factors, while the enrollment surfaces keep every factor so
+ * a half-finished enrollment stays visible. Only this collect-and-dedupe
+ * traversal is shared; nothing about what a factor *means* is.
+ */
+export function collectFactors<T extends { id: string }>(
+  data: unknown,
+  normalize: (raw: unknown) => T | null,
+): T[] {
   if (!data || typeof data !== 'object') return [];
   const record = data as Record<string, unknown>;
   const candidates = [
     ...(Array.isArray(record.totp) ? record.totp : []),
     ...(Array.isArray(record.all) ? record.all : []),
   ];
-  const unique = new Map<string, ChallengeFactor>();
+  const unique = new Map<string, T>();
   for (const candidate of candidates) {
-    const factor = normalizeChallengeFactor(candidate);
+    const factor = normalize(candidate);
     if (factor) unique.set(factor.id, factor);
   }
   return [...unique.values()];
+}
+
+export function normalizeChallengeFactors(data: unknown): ChallengeFactor[] {
+  return collectFactors(data, normalizeChallengeFactor);
 }
