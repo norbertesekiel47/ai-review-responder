@@ -97,20 +97,30 @@ WARNs by design (owner decision, D-A10).
    suppression survives** (the D-A4 property `length(btrim(...)) > 0` would have
    missed). Smoke data removed; both tables verified back to 0 rows.
 5. ✅ **PR #659 opened** to `main`.
+6. ✅ **`fallow` findings cleared** (D-A13). fallow is a CI-only gate — #659 was
+   the first time it ran on this branch, and it failed on 4 duplication clone
+   groups + `SuppressionsClient` at 19 cyclomatic / 256 lines. Both fixed inside
+   the surface. **Read D-A13 before touching `_guard.ts`**: the first attempt
+   wrapped the AAL2 gate and turned `ci:admin-aal2` red on all three routes,
+   because that audit is a file-level text scan. The gate stays spelled out in
+   each route by design; do not "tidy" it back behind a wrapper.
+7. ✅ **All 14 CI checks green on `dbca3180`**; `mergeStateStatus: CLEAN`.
+   `staging` fast-forwarded to the same sha so it matches what merges.
 
 **Remaining:**
 
-6. ⏸️ **UI-half smoke needs an AAL2 admin session** — the `/admin/suppressions`
+8. ⏸️ **UI-half smoke needs an AAL2 admin session** — the `/admin/suppressions`
    lookup → manual entry → correction ritual, and the owner mark/clear on
    `/dashboard/requests/contacts`. Route *deployment* is verified (302 not 404 on
-   all five; POST lookup returns 401 unauthed, so the gate is live and the
-   handler exists), but the click-through ritual has NOT been exercised. This is
-   the one gap in the staging evidence — do not describe the smoke as complete.
-7. ⏸️ **Confirm CI green on #659**, then **PAUSE for explicit merge approval**.
-8. ⏸️ At promotion: apply 098 to prod Supabase (`udeyaqnvpojbwgoaxwdg`) in
-   lockstep, then add `PRODUCTION <date>` to the 098 migrations-log entry.
-9. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
-   099 on the understanding this branch lands first).
+   the pages; all three admin POSTs return 401 unauthed both before and after the
+   refactor, so the gate is live and the handlers exist), but the click-through
+   ritual has NOT been exercised. This is the one gap in the staging evidence —
+   **do not describe the smoke as complete.**
+9. ⏸️ **PAUSE for explicit merge approval** (high-RISK lane). Not yet given.
+10. ⏸️ At promotion: apply 098 to prod Supabase (`udeyaqnvpojbwgoaxwdg`) in
+    lockstep, then add `PRODUCTION <date>` to the 098 migrations-log entry.
+11. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
+    099 on the understanding this branch lands first).
 
 ## Follow-ups to promote after merge (step 8 sweep)
 
