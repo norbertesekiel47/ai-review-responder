@@ -2,17 +2,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-const { mockGetUser, mockListFactors, mockRefreshSession } = vi.hoisted(() => ({
+const { mockGetUser, mockListFactors } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockListFactors: vi.fn(),
-  mockRefreshSession: vi.fn(),
 }));
 
 vi.mock('@/lib/db/browser', () => ({
   createBrowserSupabaseClient: () => ({
     auth: {
       getUser: mockGetUser,
-      refreshSession: mockRefreshSession,
       mfa: { listFactors: mockListFactors },
     },
   }),
@@ -38,7 +36,6 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
   mockListFactors.mockResolvedValue({ data: { totp: [] }, error: null });
-  mockRefreshSession.mockResolvedValue({ data: { session: null }, error: null });
 });
 
 describe('useRecoveryStepUp — probe', () => {
@@ -175,52 +172,6 @@ describe('useRecoveryStepUp — verify', () => {
       challengeId: 'chal-1',
       code: '123456',
     });
-  });
-
-  it('resyncs the browser session after a successful verify, before reporting verified', async () => {
-    const result = await mountWithFactor();
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(jsonResponse({ challengeId: 'chal-1' }))
-        .mockResolvedValueOnce(jsonResponse({ ok: true })),
-    );
-
-    act(() => result.current.setCode('123456'));
-    await act(async () => {
-      await result.current.verify();
-    });
-
-    // The server wrote upgraded cookies; without this the browser client's
-    // stale AAL1 session (autoRefreshToken: on) can overwrite them.
-    expect(mockRefreshSession).toHaveBeenCalledTimes(1);
-    expect(result.current.status).toBe('verified');
-  });
-
-  it('still reports verified when the post-step-up resync fails (non-fatal)', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockRefreshSession.mockRejectedValueOnce(new Error('resync failed'));
-    const result = await mountWithFactor();
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(jsonResponse({ challengeId: 'chal-1' }))
-        .mockResolvedValueOnce(jsonResponse({ ok: true })),
-    );
-
-    act(() => result.current.setCode('123456'));
-    let outcome: boolean | undefined;
-    await act(async () => {
-      outcome = await result.current.verify();
-    });
-
-    // The server already accepted the step-up — a client-side resync failure
-    // must not undo that.
-    expect(outcome).toBe(true);
-    expect(result.current.status).toBe('verified');
-    consoleSpy.mockRestore();
   });
 
   it('reports a rejected code without advancing to verified', async () => {
@@ -364,6 +315,42 @@ describe('useRecoveryStepUp — verify', () => {
 
     expect(outcome).toBe(false);
     expect(result.current.status).toBe('code-required');
+    expect(result.current.error).toContain('connection');
+  });
+
+  it('times out a wedged challenge fetch instead of leaving busy true forever', async () => {
+    const result = await mountWithFactor();
+    // Simulate fetchWithTimeout's real behavior: the request never settles on
+    // its own, only when the abort signal it was given fires.
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    act(() => result.current.setCode('123456'));
+
+    let verifyPromise!: Promise<boolean>;
+    act(() => {
+      verifyPromise = result.current.verify();
+    });
+    expect(result.current.busy).toBe(true);
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      // fetchWithTimeout's default timeout.
+      await vi.advanceTimersByTimeAsync(12_000);
+      outcome = await verifyPromise;
+    });
+
+    vi.useRealTimers();
+
+    expect(outcome).toBe(false);
+    expect(result.current.busy).toBe(false);
     expect(result.current.error).toContain('connection');
   });
 

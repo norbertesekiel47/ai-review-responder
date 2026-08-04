@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { normalizeChallengeFactors, type ChallengeFactor } from '@/lib/auth/mfa';
+import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 
 /**
  * Headless owner of the MFA step-up inside the password-recovery flow.
@@ -15,6 +16,11 @@ import { normalizeChallengeFactors, type ChallengeFactor } from '@/lib/auth/mfa'
  *
  * Both reset cards consume it, so the flow has one authoritative implementation
  * and each surface owns only its presentation.
+ *
+ * CONSUMER CONTRACT: disable your submit control while `busy` is true. A second
+ * call mid-flight returns the first call's promise, which closed over the code
+ * as it was then — so an un-disabled control can silently send a stale code and
+ * report it as rejected.
  */
 export type RecoveryStepUpStatus =
   | 'probing'
@@ -214,7 +220,7 @@ export function useRecoveryStepUp(): UseRecoveryStepUp {
         // A fresh challenge per attempt. The verify budget (8/hr) is tighter
         // than the challenge budget (15/hr), so reusing a challenge id saves
         // nothing and only adds a stale-challenge failure mode.
-        const challengeRes = await fetch('/api/auth/mfa/challenge', {
+        const challengeRes = await fetchWithTimeout('/api/auth/mfa/challenge', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -247,7 +253,7 @@ export function useRecoveryStepUp(): UseRecoveryStepUp {
           return false;
         }
 
-        const verifyRes = await fetch('/api/auth/mfa/challenge', {
+        const verifyRes = await fetchWithTimeout('/api/auth/mfa/challenge', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -274,18 +280,6 @@ export function useRecoveryStepUp(): UseRecoveryStepUp {
           return false;
         }
 
-        // The step-up wrote upgraded session cookies server-side, but this
-        // browser client still holds the pre-step-up session with
-        // autoRefreshToken on — left alone, a background refresh can write
-        // the stale AAL1 session back over the cookies we just got. Best
-        // effort only: the server already accepted the step-up, so a resync
-        // failure here must not undo that.
-        try {
-          await supabase.auth.refreshSession();
-        } catch (err) {
-          console.error('[useRecoveryStepUp] post-step-up refreshSession failed', err);
-        }
-
         dispatch({ type: 'verified' });
         return true;
       } catch {
@@ -299,14 +293,23 @@ export function useRecoveryStepUp(): UseRecoveryStepUp {
     });
     inFlight.current = promise;
     return promise;
-  }, [state.status, state.selectedFactorId, state.code, supabase]);
+  }, [state.status, state.selectedFactorId, state.code]);
 
   const selectFactor = useCallback(
     (factorId: string) => dispatch({ type: 'selectFactor', factorId }),
     [],
   );
   const setCode = useCallback((code: string) => dispatch({ type: 'setCode', code }), []);
-  const requireStepUp = useCallback(() => dispatch({ type: 'stepUpInvalidated' }), []);
+  const requireStepUp = useCallback(() => {
+    // Null the in-flight ref first: without this, calling requireStepUp() mid-
+    // flight leaves the stale promise in place, and the old run's `verified`
+    // dispatch (once it settles) overwrites the invalidation it was meant to
+    // apply. Unreachable from the card today — it's only called after
+    // `await verify()` and after the reset fetch resolves — but cheap to make
+    // permanently correct.
+    inFlight.current = null;
+    dispatch({ type: 'stepUpInvalidated' });
+  }, []);
 
   return {
     status: state.status,
