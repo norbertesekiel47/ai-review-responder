@@ -53,17 +53,60 @@ Mutually independent, parallel-dispatchable: (T2, T3), then (T4, T5), then
 (diff `git status --porcelain` against `allowed_edit_surface`; an out-of-surface
 path means the guard did not bind for subagent tool calls → STOP).
 
-## Review ledger
+## Review ledger — COMPLETE
 
 | Round | Kind | Verdict | Report |
 |---|---|---|---|
-| plan 1 | Codex adversarial, eval-first + cited-artifact check | _pending_ | `docs/reviews/feat-645-manual-suppression-paths/plan-review-round1.md` |
+| plan 1 | Codex adversarial, eval-first + cited-artifact check | **REVISE** → triaged + applied in `711575f4` | `plan-review-round1.md` (triage table appended) |
+| plan 2 | Verification-only | **stopped before output** — closed by owner call; the three design-changing fixes were instead verified directly (schema introspection, the real detector regexes, live-Postgres execution of the CTE) | — |
+| branch 1 | spec · standards · adversarial, parallel | 11 accepted, 3 rejected | `branch-review-{spec,standards}.md`, `codex-adversarial-approach-review.md` |
+| branch 2 | verification-only, per axis | spec + standards clean; adversarial **REVISE** on one residual, fixed in `0aead24b` | `branch-review-{spec,standards}-round2.md`, `branch-review-adversarial-round2.md` |
 
-Codex session id: _recorded on completion of round 1._
+**Triage verdicts for every finding: `docs/reviews/feat-645-manual-suppression-paths/TRIAGE.md`.**
 
-Counter lives in `.feature/state.json` (`planReviewRounds`, `branchReviewRounds`)
-and survives a resume — always `bash scripts/feature-state.sh incr-round <kind>`
-BEFORE dispatching a review wave, never restart the count.
+Counters in `.feature/state.json`: `planReviewRounds=2`, `branchReviewRounds=2`.
+Always `bash scripts/feature-state.sh incr-round <kind>` BEFORE dispatching a
+review wave; never restart the count.
+
+## All eight tasks landed
+
+`T1` eval · `T2` migration 098 · `T3` display seam · `T4` admin service+routes ·
+`T5` owner paths · `T6` admin console · `T7` owner surface · `T8` docs — plus
+five review-fix commits. Gate GREEN at every checkpoint; the `reclassify` row
+WARNs by design (owner decision, D-A10).
+
+## What remains: step 8 SHIP, high-RISK lane
+
+1. **Ride staging first.** Land on `staging` (push auto-deploys the full stack).
+   **Apply migration 098 to the staging Supabase project FIRST**, then push.
+2. Smoke the touched paths on staging: the `/admin/suppressions` lookup → manual
+   entry → correction ritual, and the owner mark/clear on
+   `/dashboard/requests/contacts`.
+3. Open the PR to `main`, confirm CI green, then **PAUSE for explicit merge
+   approval**. Apply 098 to prod Supabase in lockstep at promotion.
+4. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
+   099 on the understanding this branch lands first).
+5. On promotion, replace **LOCAL-ONLY** in migration 098's migrations-log entry
+   with the `Applied to STAGING … / PRODUCTION …` sentence. That marker is what
+   re-arms the immutability guard — leaving it stale means the migration stays
+   editable when it must not be.
+
+## Follow-ups to promote after merge (step 8 sweep)
+
+- **Harness bug (D-A9):** `verify-gate.sh` truncates suite keys to ~40 chars, so
+  two suites in one directory sharing a prefix collide on one coverage directory
+  and fail with an ENOENT race. Worked around by renaming; the sanitizer should
+  hash or use the full path, and a collision should be a loud error.
+- **Estimate lesson (D-A10):** an admin console client with lookup + entry + a
+  confirmed destructive action runs 400–550 lines, not ~230; "add a control to an
+  existing list component" must be estimated as a refactor of that component.
+- **Process lesson:** run the gate between parallel task batches, not only at the
+  end — T3's stale allowlist snippet was found by T4 as "already red on arrival".
+- **Deferred finding:** `PRIMARY_BUTTON` is a fifth copy of the admin
+  primary-button recipe; belongs in `src/components/admin/ui/` once
+  `admin-console-phase3` has merged.
+- **`.claude/CLAUDE.md`** suppression row should point at `channels-rollout.md` §6
+  so the §7.2 servicing contract is discoverable from the index.
 
 ## Standing constraints for any session picking this up
 
