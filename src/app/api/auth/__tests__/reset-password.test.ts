@@ -9,20 +9,28 @@ const {
   mockGetUser,
   mockUpdateUser,
   mockSignOut,
+  mockGetAal,
   mockCreateServerClient,
 } = vi.hoisted(() => {
   const sqlFn = vi.fn();
   const getUser = vi.fn();
   const updateUser = vi.fn();
   const signOut = vi.fn();
+  const getAal = vi.fn();
   return {
     mockCheckRateLimit: vi.fn(),
     mockSql: sqlFn,
     mockGetUser: getUser,
     mockUpdateUser: updateUser,
     mockSignOut: signOut,
+    mockGetAal: getAal,
     mockCreateServerClient: vi.fn(() => ({
-      auth: { getUser, updateUser, signOut },
+      auth: {
+        getUser,
+        updateUser,
+        signOut,
+        mfa: { getAuthenticatorAssuranceLevel: getAal },
+      },
     })),
   };
 });
@@ -94,12 +102,22 @@ beforeEach(() => {
   mockSignOut.mockReset();
   mockSignOut.mockResolvedValue({ error: null });
 
+  mockGetAal.mockReset();
+  // Default fixture: an account with NO enrolled factor. GoTrue reports
+  // nextLevel 'aal1' for these, which is what makes every pre-existing test in
+  // this file exercise the unchanged pass-through path.
+  mockGetAal.mockResolvedValue({
+    data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+    error: null,
+  });
+
   mockCreateServerClient.mockReset();
   mockCreateServerClient.mockImplementation(() => ({
     auth: {
       getUser: mockGetUser,
       updateUser: mockUpdateUser,
       signOut: mockSignOut,
+      mfa: { getAuthenticatorAssuranceLevel: mockGetAal },
     },
   }));
 
@@ -152,6 +170,7 @@ describe('POST /api/auth/reset-password', () => {
     const res = await POST(mkReq({ password: 'a-new-strong-password' }));
     expect(res.status).toBe(404);
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockGetAal).not.toHaveBeenCalled();
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
@@ -248,6 +267,7 @@ describe('POST /api/auth/reset-password', () => {
     expect(json.redirectTo).toBe('/admin/login');
     expect(mockSignOut).toHaveBeenCalledTimes(1);
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockGetAal).not.toHaveBeenCalled();
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
@@ -277,6 +297,83 @@ describe('POST /api/auth/reset-password', () => {
 
     const res = await POST(mkReq({ password: 'a-new-strong-password' }));
     expect(res.status).toBe(503);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  // ── MFA step-up gate ─────────────────────────────────────────────
+
+  it('returns 403 mfa_required and NEVER calls updateUser when a factor is enrolled but unchallenged', async () => {
+    mockGetAal.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('mfa_required');
+    // The ABSENCE of the write is the point of this test. A status-only
+    // assertion would also pass against the shipped bug, where the route
+    // reached GoTrue and merely relabelled the refusal.
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('proceeds normally when the session is already AAL2', async () => {
+    mockGetAal.mockResolvedValueOnce({
+      data: { currentLevel: 'aal2', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      password: 'a-new-strong-password',
+    });
+  });
+
+  it('fails CLOSED with 403 mfa_check_failed when the AAL probe errors', async () => {
+    mockGetAal.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('mfa_check_failed');
+    // An unreadable AAL is not permission to write a password.
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('fails CLOSED with 403 mfa_check_failed when the AAL probe throws', async () => {
+    mockGetAal.mockRejectedValueOnce(new Error('decodeJWT boom'));
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('mfa_check_failed');
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('runs the rate limit BEFORE the AAL probe so a prober spends its own budget', async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(res.status).toBe(429);
+    expect(mockGetAal).not.toHaveBeenCalled();
+  });
+
+  it('refuses the step-up BEFORE parsing the body, so a refused request never reads the password', async () => {
+    mockGetAal.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    // A body that would fail schema validation with 400 if it were ever parsed.
+    const res = await POST(mkReq({ password: 'short' }));
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('mfa_required');
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 });

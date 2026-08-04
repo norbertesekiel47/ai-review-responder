@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { ResetPasswordSchema } from '@/lib/shared/schemas';
+import { requireAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 2. Read session via cookie-bound anon client. setAll is a no-op for the
   //    session-read client — we never want getUser() to rewrite cookies. The
-  //    post-update client (step 7) uses a response-backed adapter so signOut
+  //    post-update client (step 8) uses a response-backed adapter so signOut
   //    can actually clear the recovery session.
   const readOnlySupabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,7 +135,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 6. Parse + validate body.
+  // 6. MFA step-up gate. The recovery OTP mints an AAL1 session; GoTrue refuses
+  //    a password write on it whenever the account has a verified factor.
+  //    requireAal2FromSupabase reads the same verified-factor list GoTrue
+  //    stamps into the session, so it tracks the provider's refusal without a
+  //    second round-trip. Placed BEFORE the body parse so a refused request
+  //    never destructures the plaintext password, and AFTER the rate limit so
+  //    a scripted prober spends its own 5/hr budget. Fails CLOSED: an
+  //    unreadable AAL is not permission to write a password. 403 (not 401)
+  //    because the client reads 401 as "recovery session lapsed" and would
+  //    bounce the user to /forgot-password for a fresh link that fails
+  //    identically.
+  let aal: Awaited<ReturnType<typeof requireAal2FromSupabase>>;
+  try {
+    aal = await requireAal2FromSupabase(
+      readOnlySupabase as unknown as SupabaseMfaAalClient,
+    );
+  } catch (err) {
+    reportCaughtError('reset-password', err, { reason: 'aal_probe_threw' });
+    return NextResponse.json({ error: 'mfa_check_failed' }, { status: 403 });
+  }
+  if (!aal.ok) {
+    return NextResponse.json({ error: aal.reason }, { status: 403 });
+  }
+
+  // 7. Parse + validate body.
   let body: unknown;
   try {
     body = await req.json();
@@ -149,7 +174,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 7. Build the success response up-front so the signOut call below has a
+  // 8. Build the success response up-front so the signOut call below has a
   //    cookie jar to write cleared session cookies into. Response-backed
   //    adapter: setAll writes to `response.cookies`. We only reach this point
   //    when we're about to mutate the session — any earlier exit branch uses
@@ -174,7 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     },
   );
 
-  // 8. Update password against the session-scoped Supabase client. Surfacing
+  // 9. Update password against the session-scoped Supabase client. Surfacing
   //    Supabase's error message (e.g. "New password should be different from
   //    the old one") is preferable to a generic 400 because the caller has
   //    already been through the recovery-email gauntlet — no enumeration
@@ -187,7 +212,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
 
-  // 9. Explicitly end the recovery session. Without signOut the browser
+  // 10. Explicitly end the recovery session. Without signOut the browser
   //    cookie still represents the authenticated recovery session and a
   //    subsequent navigation to /dashboard would bypass the fresh-login
   //    requirement. signOut's cookie writes flow into `response` via the
