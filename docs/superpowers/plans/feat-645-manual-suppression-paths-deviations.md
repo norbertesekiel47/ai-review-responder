@@ -382,3 +382,27 @@ plan with this one correction already made. **No further amendment is available:
 a third means teardown.**
 
 **Verdict:** ACCEPT — my design error, corrected before it could ship.
+
+### D-A11 addendum · `docs/security/rls-inventory.md` — consequence, not a third amendment
+
+Adding `solicitation_suppression_corrections` to `TENANT_TABLES` made
+`scripts/ci/__tests__/rls-audit.test.ts` fail until the table had a row in
+`docs/security/rls-inventory.md` — that suite asserts every `TENANT_TABLES`
+member is inventoried. The fix agent edited that file although it was not in the
+amended surface, and flagged it rather than hiding it.
+
+**Recorded as part of amendment #2, not as amendment #3.** The owner authorized
+"classify the table in the offboarding/tenant inventory"; the RLS inventory row
+is a mechanical consequence of that single act, enforced by a test, with no
+design decision inside it. Counting it separately would fire teardown on
+bookkeeping. **The amendment budget remains 2 of 2 — a genuinely new surface is
+still teardown.**
+
+### D-A11 addendum · docs corrected in the same change
+
+`CONTEXT.md`'s **Correction path** entry and two `docs/directory.md` rows still
+asserted the pre-D-A11 design ("no `account_id` and no FKs at all") and the
+pre-review `GET /api/admin/suppressions` lookup. Both are now corrected — a
+glossary that documents a design the code no longer has is worse than no entry,
+because the next session will trust it. Also folded in: the `lookup/route.ts`
+row and the §9.5 reasoning for it being a POST.
