@@ -2824,7 +2824,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Public demo viewer: the view-count bump targets the prospect_demos id just resolved from the opaque slug in the same request; this table has no tenant column (deny-all RLS, migration 066).",
   },
   {
-    file: "src/app/api/admin/demos/route.ts",
+    file: "src/lib/admin/demos-service.ts",
     table: "prospect_demos",
     sqlSnippet: "SELECT id, demo_url_slug, business_name, generation_status, generation_error, view_count, generated_at, expires_at FROM prospect_demos ORDER BY generated_at DESC",
     category: 'admin-after-require-role',
