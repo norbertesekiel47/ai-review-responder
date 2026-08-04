@@ -38,3 +38,27 @@ than shipped.
 worktree right now. Task 6 reads it but must not modify it; if the admin
 suppressions client needs something DataTable lacks, it renders a plain table
 locally and records that here.
+
+---
+
+## D-A3 · Migration-number collision with #656 — resolved in #656's favour of this branch
+
+**Recorded from the #656 session, 2026-08-03.** `/feature 656`
+(`feat-656-postal-address-attestation`, the attested solicitation postal address)
+armed its worktree and `feature-setup.sh` reported an overlap on
+`supabase/migrations/098_*.sql` — **this branch and #656 were both claiming
+098**, the ADR-0011 collision class.
+
+Root cause: map #617 still says "Neither #644, #645 nor #657 is
+migration-bearing," which this branch's own grilling superseded. The map line is
+stale; this branch IS migration-bearing.
+
+**Owner call: this branch keeps 098 and merges FIRST. #656 renumbered to 099.**
+Rationale: this branch is materially ahead (plan approved at review round 2,
+gate green) and renumbering it would have forced a plan revision plus a rename
+of the `migration-098-*.integration.test.ts` file the plan already cites, while
+#656 had written nothing.
+
+**Nothing on this branch changes.** Recorded here only so the merge order is
+visible from both sides: **#645 → #656**. The `tenant-scope-allowlist.ts`
+contention with #656 follows the same append-only handling as D-A2 above.
