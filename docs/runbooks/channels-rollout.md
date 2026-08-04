@@ -6,6 +6,11 @@ WhatsApp notification channels on in production, plus the auto-approved post FYI
 dashboards + secrets; Claude owns the code, tests, ADR, template content, and
 staging verification.
 
+**§6 is a standing operational contract, not a rollout step** — the daily
+servicing of the solicitation unsubscribe mailbox (spec §7.2). It has no flag
+and no flip; it applies from the moment
+`SOLICITATION_UNSUBSCRIBE_MAILTO` is set.
+
 Source of truth for env behavior: `.claude/reference/env-vars.md`
 (`CHANNELS_TELEGRAM_ENABLED`, `CHANNELS_WHATSAPP_ENABLED`). Template content:
 `docs/runbooks/whatsapp-templates.md`. Deploy topology:
@@ -96,3 +101,64 @@ SELECT indexname FROM pg_indexes
   the channels on does not by itself produce any FYI.
 - The conversational free-text seam (ADR 0003) is a **no-op** today — no reply,
   auth-gated — so enabling the channels does not create a bot surface.
+
+## 6. Unsubscribe mailbox servicing (spec §7.2)
+
+The solicitation lane's opt-out address `unsubscribe@feedback.repworth.net` is a
+Cloudflare **forward**, not a staffed desk — and a forward nobody watches cannot
+discharge a statutory obligation. It belongs in this runbook because it is
+purely operational: no flag, no deploy, no code path runs it. Setting
+`SOLICITATION_UNSUBSCRIBE_MAILTO` (see `.claude/reference/env-vars.md`) is what
+creates the obligation below; an unmonitored address is a worse compliance
+position than an omitted one.
+
+This is **not** only about stray replies. The #622 envelope **advertises**
+`<mailto:unsubscribe@feedback.repworth.net>` in `List-Unsubscribe`, so some mail
+clients opt a recipient out by sending mail there. Those messages are opt-outs,
+and nothing automated reads them. Spec:
+`docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §7.2.
+
+### 6.1 The locked contract — do not soften
+
+- **Check the forwarded mailbox every business day.** The statutory bar is
+  CAN-SPAM's **10 business days**; daily costs nothing on a low-volume forward
+  and keeps the margin honest. A backlog measured against 10 days is a defensible
+  position; one measured against "whenever someone last looked" is not.
+- **Enter every opt-out through `/admin/suppressions`** (admin console →
+  **Safety** → **Suppressions**; AAL2-gated). Look the address up first, then
+  record it — the entry writes a `global` / `admin_manual` Suppression ledger row
+  carrying the acting admin and a **required note**. Put the **originating
+  message reference** in that note: it is what makes the entry auditable ten
+  business days later, when the only question that matters is *which* message
+  this row answered.
+- Anything that reads as an opt-out counts, however it is worded, and ambiguity
+  resolves toward suppressing.
+- A wrong entry is fixed on the same screen via the audited **Correction path**
+  (spec §8.2) — never by deleting a row by hand. It is error correction, never a
+  re-subscribe.
+
+### 6.2 Mailbox liveness is a documented probe, not a poller
+
+Building a monitor for a mailbox a human checks daily is the wrong altitude.
+Instead:
+
+1. Send a test message to `unsubscribe@feedback.repworth.net` from an address
+   outside the domain.
+2. Confirm it lands in the destination inbox.
+3. Record the date in the probe log below.
+
+Re-probe whenever the Cloudflare routing rules, the destination mailbox, or the
+domain's MX records change — and at least once per quarter otherwise.
+
+| Date probed | Probed by | Landed? | Notes |
+|---|---|---|---|
+| _(record each probe here)_ | | | |
+
+### 6.3 The failure mode, stated plainly
+
+A broken Cloudflare forward makes opt-outs **vanish with zero signal**. Nothing
+bounces back to us, nothing errors, no queue grows, no alert fires — the sender
+believes the message was delivered because it was. **The only evidence of the
+failure is the absence of entries**, and a genuinely quiet mailbox looks exactly
+like a broken one from the console. That asymmetry is the entire reason §6.2's
+probe exists and the reason the daily check is a check rather than a glance.
