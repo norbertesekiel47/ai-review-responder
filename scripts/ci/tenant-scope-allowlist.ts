@@ -2121,7 +2121,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/app/api/admin/businesses/[id]/channels/route.ts",
+    file: "src/lib/admin/business-channels-service.ts",
     table: "notification_deliveries",
     sqlSnippet: "SELECT e.channel, e.handle, e.status, e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason, e.verification_token_expires_at AS expires_at, e.location_id, (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at)) FROM notification_deliveries nd WHERE nd.business_id = ${businessId} AND nd.channel = e.channel) AS last_activity_at FROM channel_enrollments e WHERE e.account_id = ${accountId} AND (e.location_id = ${businessId} OR e.location_id IS NULL) AND e.archived_at IS NULL AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[]) ORDER BY CASE WHEN e.location_id IS NOT NULL THEN 0 ELSE 1 END, e.created_at ASC",
     category: 'admin-after-require-role',
