@@ -13,6 +13,7 @@ import {
   type WritableOwnerResult,
 } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import {
   resolveDashboardLocation,
@@ -78,4 +79,71 @@ export async function resolveContactsScopedId(
   const location = await requireContactsLocationScope(sql, request, input);
   if (!location.ok) return location;
   return { ok: true, id, locationId: location.locationId };
+}
+
+/** Everything a `[id]` contacts mutation is allowed to act on, and nothing a
+ *  caller could choose: the account and actor come from the authenticated owner
+ *  scope, the location from the resolved scope policy, the contact from the
+ *  route param. */
+export interface ScopedContactContext {
+  accountId: string;
+  locationId: string;
+  contactId: string;
+  actorUserId: string;
+}
+
+/**
+ * The `[id]` contacts-mutation policy, in one place. Every handler under
+ * `/api/dashboard/contacts/[id]` runs exactly this preamble, and each copy of
+ * it was a chance for one route to drift into a different exposure:
+ *
+ *  1. Flag gate FIRST, then owner auth (inside requireContactsWriteAccess) —
+ *     when watch-mode is off this surface does not exist, so the 404 precedes
+ *     auth and leaks no auth-shaped response (invariant #13).
+ *  2. Auth stays OUTSIDE the catch, so an auth-infrastructure failure keeps
+ *     requireWritableOwner's rethrow contract instead of being flattened to a
+ *     500 with this route's copy.
+ *  3. Malformed id, foreign contact, foreign/archived location → one uniform
+ *     404 (invariant #8): a caller can never tell a contact that is not theirs
+ *     from one that does not exist.
+ *  4. Anything thrown by the handler is reported against `endpoint` and mapped
+ *     to `failureMessage` — the two things that legitimately differ per route.
+ *
+ * `withSameOrigin()` is deliberately NOT applied here: it is the outermost
+ * wrapper on the exported handler, so a cross-origin request is refused before
+ * this preamble runs at all.
+ */
+export function withScopedContact(
+  sql: Sql,
+  options: { endpoint: string; failureMessage: string },
+  handler: (scoped: ScopedContactContext) => Promise<NextResponse>,
+): (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) => Promise<NextResponse> {
+  return async (request, { params }) => {
+    const owner = await requireContactsWriteAccess(sql, request);
+    if (!owner.ok) return owner.response;
+    const { user, accountId } = owner;
+
+    try {
+      const scoped = await resolveContactsScopedId(
+        sql,
+        request,
+        { accountId, userLocationId: user.locationId },
+        params,
+      );
+      if (!scoped.ok) return scoped.response;
+
+      return await handler({
+        accountId,
+        locationId: scoped.locationId,
+        contactId: scoped.id,
+        actorUserId: user.id,
+      });
+    } catch (error) {
+      reportCaughtError(options.endpoint, error, { accountId });
+      return errorResponse(options.failureMessage, 500);
+    }
+  };
 }

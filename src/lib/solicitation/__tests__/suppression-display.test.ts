@@ -52,13 +52,16 @@ describe('suppression display seam (§7.4)', () => {
       .not.toBe(toSuppressionDisplay({ scope: 'global' })?.label);
   });
 
-  it('global wins the display state when both a global and an account row match', () => {
-    // G3 is enforced in SQL by suppressionMatchSql's ORDER BY, which returns at
-    // most one row; the mapper's contract is that it faithfully renders
-    // whichever row the fragment picked. This asserts the seam does not
-    // second-guess it, and the live-DB proof of the ORDER BY itself lives in
-    // suppression.integration.test.ts.
+  it('renders whichever row the fragment selected rather than re-deciding the scope', () => {
+    // Deliberately NOT the G3 double-match contract: no double match can be
+    // constructed here, because the mapper never sees two rows. G3 is enforced
+    // in SQL by suppressionMatchSql's ORDER BY, which returns at most one row,
+    // and its proof — with a real global row and a real account row seeded on
+    // one handle — lives in suppression.integration.test.ts. What this pins is
+    // the mapper's own half of that contract: it reports the scope it was
+    // handed, in both directions, and never substitutes a default.
     expect(toSuppressionDisplay({ scope: 'global' })?.state).toBe('global');
+    expect(toSuppressionDisplay({ scope: 'account' })?.state).toBe('account');
   });
 
   it('returns null for a contact with no match', () => {

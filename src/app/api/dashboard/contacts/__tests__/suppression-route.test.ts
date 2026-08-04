@@ -1,14 +1,14 @@
 import { NextRequest } from 'next/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  mockRequireContactsWriteAccess,
-  mockResolveContactsScopedId,
+  mockRequireWritableOwner,
+  mockGetLocationById,
   mockMarkContactDoNotContact,
   mockClearContactDoNotContact,
 } = vi.hoisted(() => ({
-  mockRequireContactsWriteAccess: vi.fn(),
-  mockResolveContactsScopedId: vi.fn(),
+  mockRequireWritableOwner: vi.fn(),
+  mockGetLocationById: vi.fn(),
   mockMarkContactDoNotContact: vi.fn(),
   mockClearContactDoNotContact: vi.fn(),
 }));
@@ -20,16 +20,22 @@ vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
   return {
     ...actual,
     // Identity same-origin wrapper: this file exercises the owner outcomes, and
-    // the wrapper itself gets its own test in Task 5.
+    // the real wrapper gets its own describe block at the bottom.
     withSameOrigin: () =>
       <TArgs extends unknown[]>(handler: (...args: TArgs) => unknown) => handler,
+    requireWritableOwner: (...args: unknown[]) => mockRequireWritableOwner(...args),
   };
 });
 
-vi.mock('../location-scope', () => ({
-  requireContactsWriteAccess: mockRequireContactsWriteAccess,
-  resolveContactsScopedId: mockResolveContactsScopedId,
-}));
+// Mocked BELOW `../location-scope`, deliberately: the shared `[id]` preamble
+// (flag gate → owner auth → uniform-404 scope resolution → 500 mapping) is one
+// wrapper now, and stubbing it out would leave nothing checking that these
+// routes still run it. Everything from `withScopedContact` down is the real
+// code path; only the auth verdict, the location row and the repo are stubs.
+vi.mock('@/lib/locations/repo', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/locations/repo')>();
+  return { ...actual, getLocationById: (...args: unknown[]) => mockGetLocationById(...args) };
+});
 
 vi.mock('@/lib/solicitation/contacts-repo', () => ({
   markContactDoNotContact: mockMarkContactDoNotContact,
@@ -70,19 +76,32 @@ function suppressionRequest(method: 'POST' | 'DELETE'): NextRequest {
   );
 }
 
+/** The authenticated owner scope every test in this file acts under. Kept as
+ *  one helper so the second describe block installs exactly the same posture. */
+function stubAuthenticatedOwner(): void {
+  // The routes ride the contacts surface's watch-mode gate (plan P-6), and it
+  // fires before auth — an unset flag would 404 every case below.
+  vi.stubEnv('SOLICITATION_WATCH_ENABLED', 'true');
+  mockRequireWritableOwner.mockResolvedValue({
+    ok: true,
+    accountId: ACCOUNT_ID,
+    user: { id: OWNER_USER_ID, locationId: LOCATION_ID },
+  });
+  mockGetLocationById.mockResolvedValue({
+    id: LOCATION_ID,
+    account_id: ACCOUNT_ID,
+    archived_at: null,
+  });
+}
+
 describe('owner contact suppression route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRequireContactsWriteAccess.mockResolvedValue({
-      ok: true,
-      accountId: ACCOUNT_ID,
-      user: { id: OWNER_USER_ID, locationId: LOCATION_ID },
-    });
-    mockResolveContactsScopedId.mockResolvedValue({
-      ok: true,
-      id: CONTACT_ID,
-      locationId: LOCATION_ID,
-    });
+    stubAuthenticatedOwner();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('returns a uniform 404 for a contact belonging to another account', async () => {
@@ -178,21 +197,24 @@ describe('owner contact suppression route', () => {
 describe('owner contact suppression route same-origin wrapper', () => {
   it('enforces same-origin on both owner suppression mutations', async () => {
     vi.clearAllMocks();
+    stubAuthenticatedOwner();
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com');
-    mockRequireContactsWriteAccess.mockResolvedValue({
-      ok: true,
-      accountId: ACCOUNT_ID,
-      user: { id: OWNER_USER_ID, locationId: LOCATION_ID },
-    });
-    mockResolveContactsScopedId.mockResolvedValue({
-      ok: true,
-      id: CONTACT_ID,
-      locationId: LOCATION_ID,
-    });
     mockMarkContactDoNotContact.mockResolvedValue('marked');
     mockClearContactDoNotContact.mockResolvedValue('cleared');
 
-    vi.doUnmock('@/lib/auth/route-helpers');
+    // Re-mocked rather than un-mocked: `withSameOrigin` becomes the REAL one
+    // (that is the point of this block), while `requireWritableOwner` stays
+    // stubbed — restoring it would put a live auth call behind the wrapper and
+    // the "not vacuous" assertion below could no longer reach 200.
+    vi.doMock('@/lib/auth/route-helpers', async () => {
+      const actual = await vi.importActual<typeof import('@/lib/auth/route-helpers')>(
+        '@/lib/auth/route-helpers',
+      );
+      return {
+        ...actual,
+        requireWritableOwner: (...args: unknown[]) => mockRequireWritableOwner(...args),
+      };
+    });
     vi.resetModules();
     try {
       const route = await import('../[id]/suppression/route');
@@ -208,7 +230,7 @@ describe('owner contact suppression route same-origin wrapper', () => {
       }
       // Rejected before any owner work: a cross-origin request must never reach
       // the ledger, not even to be told 404.
-      expect(mockRequireContactsWriteAccess).not.toHaveBeenCalled();
+      expect(mockRequireWritableOwner).not.toHaveBeenCalled();
       expect(mockMarkContactDoNotContact).not.toHaveBeenCalled();
       expect(mockClearContactDoNotContact).not.toHaveBeenCalled();
 
@@ -217,6 +239,7 @@ describe('owner contact suppression route same-origin wrapper', () => {
       expect(sameOrigin.status).toBe(200);
       expect(mockMarkContactDoNotContact).toHaveBeenCalledTimes(1);
     } finally {
+      vi.doUnmock('@/lib/auth/route-helpers');
       vi.unstubAllEnvs();
     }
   });

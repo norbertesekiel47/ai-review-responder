@@ -571,11 +571,15 @@ describeWithDb(
     // could project the WRONG scope and every one of them would still pass.
     // These two probe the real SQL, which is the only place that gap closes.
 
-    it('suppressionMatchSql projects scope global when global and account rows both match', async () => {
-      // G3 proven on the PROJECTION, not just the ordering: the previous test
-      // reads `source`, and a fragment that returned the global row's source
-      // beside the account row's scope would satisfy it while telling the owner
-      // their own reversible row is what suppressed the contact (§7.6).
+    it('global wins the display state when both a global and an account row match', async () => {
+      // The G3 contract, proven where a real double match exists: two rows on
+      // one Normalized handle, and the scope the §7.4 display seam reads comes
+      // back `global`. The mapper's unit suite cannot hold this title — it
+      // never sees two rows — so it lives here, on the PROJECTION rather than
+      // just the ordering: the previous test reads `source`, and a fragment
+      // that returned the global row's source beside the account row's scope
+      // would satisfy it while telling the owner their own reversible row is
+      // what suppressed the contact (§7.6).
       const handle = freshHandle();
       const hit = await inRolledBackTx(async (tx) => {
         await recordSuppression(tx, {

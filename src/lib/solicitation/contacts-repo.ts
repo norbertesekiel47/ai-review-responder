@@ -45,6 +45,48 @@ export function clampContactListPage(page: { limit: number; offset: number }): {
   return { limit, offset };
 }
 
+/**
+ * The §7.4 read, scoped to the handles on ONE page.
+ *
+ * Deliberately a second round trip rather than a LATERAL inside the page query.
+ * Joined into the page's pre-aggregation tree, the ledger probe is driven by the
+ * business's whole `contacts x visits` row count — thousands of index lookups to
+ * render fifty rows, against a table that has no TTL and only grows. Here it
+ * runs once per DISTINCT handle the owner is about to see, so the cost is
+ * bounded by the page size (<= 100) and not by history.
+ *
+ * `suppressionMatchSql` stays the ONE owner of the §1.2 lookup (G7): the
+ * fragment is composed, never re-spelled, so this probe and the dispatch gate
+ * remain a single predicate. Handles arrive already normalized (contacts store
+ * the output of normalizeEmail at CSV parse), so nothing is re-normalized here.
+ */
+async function readPageSuppressionScopes(
+  sql: Sql,
+  accountId: string,
+  handles: (string | null)[],
+): Promise<Map<string, { scope: string }>> {
+  const scopes = new Map<string, { scope: string }>();
+  // A phone-only contact has no email handle and matches no row by definition;
+  // it never reaches the ledger at all.
+  const distinct = Array.from(
+    new Set(handles.filter((handle): handle is string => handle !== null)),
+  );
+  if (distinct.length === 0) return scopes;
+
+  const rows = await sql<{ handle: string; scope: string | null }[]>`
+    SELECT h.handle, suppression.scope
+    FROM unnest(${distinct}::text[]) AS h(handle)
+    LEFT JOIN LATERAL (
+      ${suppressionMatchSql(sql, sql`h.handle`, accountId, 'email')}
+    ) suppression ON TRUE
+  `;
+
+  for (const row of rows) {
+    if (row.scope !== null) scopes.set(row.handle, { scope: row.scope });
+  }
+  return scopes;
+}
+
 /** Bounded page of contacts ordered by most recent visit (then id for a
  *  stable tie-break). Every contact has >= 1 visit by construction (ingest
  *  writes contact + visit together), so the INNER JOIN drops nothing. */
@@ -66,25 +108,15 @@ export async function listContacts(
       phone: string | null;
       last_visit_date: string;
       visit_count: number;
-      suppression_scope: string | null;
     }[]>`
       SELECT c.id, c.name, c.email, c.phone,
              MAX(v.visit_date)::text AS last_visit_date,
-             COUNT(v.id)::int AS visit_count,
-             suppression.scope AS suppression_scope
+             COUNT(v.id)::int AS visit_count
       FROM solicitation_contacts c
       JOIN solicitation_visits v ON v.contact_id = c.id AND v.business_id = ${businessId}
       JOIN businesses b ON b.id = c.business_id
-      -- suppressionMatchSql is the ONE owner of the §1.2 lookup (G7); composing
-      -- the fragment is how this join and the dispatch gate stay one predicate.
-      -- c.email already holds the Normalized handle (normalized at CSV parse),
-      -- so nothing is re-normalized here; a phone-only contact has a NULL email
-      -- and simply matches no row.
-      LEFT JOIN LATERAL (
-        ${suppressionMatchSql(sql, sql`c.email`, accountId, 'email')}
-      ) suppression ON TRUE
       WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
-      GROUP BY c.id, suppression.scope
+      GROUP BY c.id
       ORDER BY MAX(v.visit_date) DESC, c.id
       LIMIT ${limit} OFFSET ${offset}
     `,
@@ -95,6 +127,13 @@ export async function listContacts(
       WHERE c.business_id = ${businessId} AND b.account_id = ${accountId}
     `,
   ]);
+
+  // Ordered after the page, not beside it: the probe's input IS the page.
+  const suppressionScopes = await readPageSuppressionScopes(
+    sql,
+    accountId,
+    rows.map((row) => row.email),
+  );
 
   return {
     contacts: rows.map((row) => ({
@@ -107,7 +146,7 @@ export async function listContacts(
       // The §7.4 seam is where `account_id` and `source` stop: only the closed
       // four-key display object reaches an owner surface.
       suppression: toSuppressionDisplay(
-        row.suppression_scope === null ? null : { scope: row.suppression_scope },
+        row.email === null ? null : suppressionScopes.get(row.email) ?? null,
       ),
     })),
     total: countRows[0]?.total ?? 0,

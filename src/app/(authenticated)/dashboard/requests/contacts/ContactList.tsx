@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { ContactListItem } from '@/lib/solicitation/contacts-repo';
+import './contacts.css';
 
 /**
  * Contact-list lane of /dashboard/requests/contacts (#541): paginated tenant-scoped
@@ -17,8 +18,11 @@ import type { ContactListItem } from '@/lib/solicitation/contacts-repo';
  * Two mutations that must never be confused live in this file: DELETE
  * `/contacts/<id>` erases a customer record and their visit history, while
  * POST/DELETE `/contacts/<id>/suppression` only changes whether we may mail a
- * handle. Their call sites are deliberately separate functions with separate
- * URL builders so a copy-paste cannot silently swap one for the other.
+ * handle. They share the confirm-step MACHINE (`useRowConfirmAction`) and the
+ * confirm-row CHROME (`RowConfirmBanner`), because those are genuinely the same
+ * interaction — but their URL builders stay deliberately separate functions, so
+ * a copy-paste cannot silently swap one endpoint for the other. What the shared
+ * pieces carry is exactly what must differ: the copy and the wash.
  */
 
 const PAGE_LIMIT = 50;
@@ -45,8 +49,19 @@ export function ContactList({ epoch, onRefresh }: ContactListProps) {
   const offset = pageState.scope === currentScope ? pageState.offset : 0;
 
   const list = useContactListFetch(currentScope, offset, epoch);
-  const deletion = useContactDelete(currentScope, onRefresh);
-  const suppression = useContactSuppression(currentScope, onRefresh);
+  // Two controllers, one machine. Neither knows about the other, so a row can
+  // never confirm a delete and a suppression change with a single click.
+  const deletion = useRowConfirmAction<DeleteAction>(
+    currentScope !== 'all',
+    (contactId) => requestContactDelete(contactId, currentScope),
+    onRefresh,
+  );
+  const suppression = useRowConfirmAction<SuppressionAction>(
+    currentScope !== 'all',
+    (contactId, action) =>
+      requestSuppressionChange(contactId, currentScope, SUPPRESSION_METHOD[action]),
+    onRefresh,
+  );
 
   return (
     <div className="card section-enter section-enter-2">
@@ -82,8 +97,8 @@ function ContactListBody({
 }: {
   list: ListResult | null;
   offset: number;
-  deletion: ContactDeletion;
-  suppression: ContactSuppression;
+  deletion: RowConfirmController<DeleteAction>;
+  suppression: RowConfirmController<SuppressionAction>;
   onRefresh: () => void;
   onPage: (offset: number) => void;
 }) {
@@ -187,86 +202,30 @@ async function fetchContactPage(scope: string, offset: number): Promise<ListResu
   }
 }
 
-// ── Delete flow (confirm step, then DELETE + refetch) ────────────────────────
+// ── The confirm-step machine both row mutations ride ─────────────────────────
 
-interface ContactDeletion {
-  confirmingId: string | null;
-  deletingId: string | null;
-  deleteError: string | null;
-  requestDelete: (contactId: string) => void;
-  cancelDelete: () => void;
-  confirmDelete: (contactId: string) => void;
-}
+/** The delete flow's single direction. Spelled as a one-member union rather
+ *  than collapsed away, so both call sites read the same and the row is always
+ *  asked WHICH mutation it is confirming. */
+type DeleteAction = 'delete';
 
-function useContactDelete(currentScope: string, onRefresh: () => void): ContactDeletion {
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  async function handleDelete(contactId: string) {
-    if (currentScope === 'all') return;
-    setDeletingId(contactId);
-    setDeleteError(null);
-    const error = await requestContactDelete(contactId, currentScope);
-    if (error === null) {
-      setConfirmingId(null);
-      onRefresh();
-    } else {
-      setDeleteError(error);
-    }
-    setDeletingId(null);
-  }
-
-  return {
-    confirmingId,
-    deletingId,
-    deleteError,
-    requestDelete: (contactId) => {
-      setConfirmingId(contactId);
-      setDeleteError(null);
-    },
-    cancelDelete: () => {
-      setConfirmingId(null);
-      setDeleteError(null);
-    },
-    confirmDelete: (contactId) => void handleDelete(contactId),
-  };
-}
-
-/** DELETEs one contact; returns null on success or the error copy to show. */
-async function requestContactDelete(contactId: string, scope: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      withSolicitationScope(`/api/dashboard/contacts/${contactId}`, scope),
-      { method: 'DELETE' },
-    );
-    if (res.status === 204) return null;
-    const body: { error?: string } = await res.json().catch(() => ({}));
-    return body.error ?? `Delete failed (${res.status}).`;
-  } catch {
-    return 'Could not reach the server. Try again.';
-  }
-}
-
-// ── Do-not-contact flow (§7.5 mark, §7.6 clear) ─────────────────────────────
-
-/** The two directions, never collapsed to a boolean: every place that branches
- *  on direction has to name which one it means. */
+/** The two do-not-contact directions, never collapsed to a boolean: every place
+ *  that branches on direction has to name which one it means. */
 type SuppressionAction = 'mark' | 'clear';
 
 const SUPPRESSION_METHOD = { mark: 'POST', clear: 'DELETE' } as const;
 
-interface ContactSuppression {
+interface RowConfirmController<TAction extends string> {
   /** The one open confirm step: which row, and which direction. */
-  confirming: { contactId: string; action: SuppressionAction } | null;
-  /** Row with a suppression mutation in flight. */
+  open: { rowId: string; action: TAction } | null;
+  /** Row with a mutation in flight. */
   pendingId: string | null;
-  /** The row a failure belongs to, and its copy — never a global banner, so an
-   *  error can never read as if it applied to a different contact. */
+  /** The row a failure belongs to, and its copy — never a page-level banner, so
+   *  an error can never read as if it applied to a different contact. */
   errorId: string | null;
   error: string | null;
   /** Opens the confirm step for one row in one direction. */
-  request: (contactId: string, action: SuppressionAction) => void;
+  request: (rowId: string, action: TAction) => void;
   cancel: () => void;
   /** Sends exactly the mutation the OPEN confirm step describes — it takes no
    *  arguments, so a confirm can never fire against a row or a direction other
@@ -275,66 +234,97 @@ interface ContactSuppression {
 }
 
 /**
- * Both directions ride a confirm step (D-A8), and the guard matters more on the
- * clearing side: marking stops mail and is one click to undo, while clearing
- * resumes review requests to a contact the owner deliberately marked and leaves
- * no visible trace afterwards.
+ * Both row mutations ride a confirm step (D-A8) with the same state machine:
+ * open on one row in one direction, send, keep the step open on failure. The
+ * guard matters most on the §7.6 clearing side — it resumes review requests to
+ * a contact the owner deliberately marked and leaves no visible trace
+ * afterwards — but the machine itself is direction-agnostic.
  *
- * A FAILED mutation deliberately does not call `onRefresh`. Bumping the epoch
+ * A FAILED mutation deliberately does not call `onSuccess`. Bumping the epoch
  * would refetch a page the server never changed and re-render the row as
  * though the change landed — the owner would believe a contact was suppressed
  * when they are still mailable, which is the inverse of the hazard this whole
  * surface exists to prevent.
+ *
+ * `send` is the ONLY thing the two callers vary at the network boundary, and it
+ * is supplied per-controller precisely so the delete URL and the suppression
+ * URL are built by two different functions that never meet.
  */
-function useContactSuppression(currentScope: string, onRefresh: () => void): ContactSuppression {
-  const [confirming, setConfirming] =
-    useState<{ contactId: string; action: SuppressionAction } | null>(null);
+function useRowConfirmAction<TAction extends string>(
+  enabled: boolean,
+  send: (rowId: string, action: TAction) => Promise<string | null>,
+  onSuccess: () => void,
+): RowConfirmController<TAction> {
+  const [open, setOpen] = useState<{ rowId: string; action: TAction } | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
 
-  async function mutate(contactId: string, action: SuppressionAction) {
-    if (currentScope === 'all') return;
-    setPendingId(contactId);
+  async function mutate(rowId: string, action: TAction) {
+    if (!enabled) return;
+    setPendingId(rowId);
     setFailure(null);
-    const error = await requestSuppressionChange(
-      contactId,
-      currentScope,
-      SUPPRESSION_METHOD[action],
-    );
+    const error = await send(rowId, action);
     if (error === null) {
-      setConfirming(null);
-      onRefresh();
+      setOpen(null);
+      onSuccess();
     } else {
-      setFailure({ id: contactId, message: error });
+      setFailure({ id: rowId, message: error });
     }
     setPendingId(null);
   }
 
   return {
-    confirming,
+    open,
     pendingId,
     errorId: failure?.id ?? null,
     error: failure?.message ?? null,
-    request: (contactId, action) => {
-      setConfirming({ contactId, action });
+    request: (rowId, action) => {
+      setOpen({ rowId, action });
       setFailure(null);
     },
     cancel: () => {
-      setConfirming(null);
+      setOpen(null);
       setFailure(null);
     },
     confirm: () => {
-      if (confirming === null) return;
-      void mutate(confirming.contactId, confirming.action);
+      if (open === null) return;
+      void mutate(open.rowId, open.action);
     },
   };
+}
+
+/** Maps a mutation response onto null (success) or the error copy to show.
+ *  Shared because reading `{ error }` off a failed body is not where the two
+ *  mutations differ; the URL each one calls is, and that stays split below. */
+async function mutationErrorCopy(
+  res: Response,
+  fallback: (status: number) => string,
+): Promise<string | null> {
+  if (res.ok) return null;
+  const body: { error?: string } = await res.json().catch(() => ({}));
+  return body.error ?? fallback(res.status);
+}
+
+/** The ONLY caller of the contact endpoint, which erases a customer record and
+ *  their visit history. Returns null on success or the error copy to show. */
+async function requestContactDelete(contactId: string, scope: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      withSolicitationScope(`/api/dashboard/contacts/${contactId}`, scope),
+      { method: 'DELETE' },
+    );
+    return await mutationErrorCopy(res, (status) => `Delete failed (${status}).`);
+  } catch {
+    return 'Could not reach the server. Try again.';
+  }
 }
 
 /**
  * The ONLY caller of the suppression endpoint. `/contacts/<id>/suppression`
  * changes whether we may mail a handle; the sibling `/contacts/<id>` erases the
  * customer record. Keeping the two URL builders apart is what stops a
- * do-not-contact control ever hard-deleting somebody's history.
+ * do-not-contact control ever hard-deleting somebody's history — it is the one
+ * thing the shared confirm machine above deliberately does not absorb.
  *
  * Returns null on success or the error copy to show.
  */
@@ -348,9 +338,10 @@ async function requestSuppressionChange(
       withSolicitationScope(`/api/dashboard/contacts/${contactId}/suppression`, scope),
       { method },
     );
-    if (res.ok) return null;
-    const body: { error?: string } = await res.json().catch(() => ({}));
-    return body.error ?? `Could not update this contact (${res.status}).`;
+    return await mutationErrorCopy(
+      res,
+      (status) => `Could not update this contact (${status}).`,
+    );
   } catch {
     return 'Could not reach the server. Try again.';
   }
@@ -376,8 +367,8 @@ function ContactTable({
   suppression,
 }: {
   contacts: ContactListItem[];
-  deletion: ContactDeletion;
-  suppression: ContactSuppression;
+  deletion: RowConfirmController<DeleteAction>;
+  suppression: RowConfirmController<SuppressionAction>;
 }) {
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -425,13 +416,13 @@ function ContactRow({
   suppression,
 }: {
   contact: ContactListItem;
-  deletion: ContactDeletion;
-  suppression: ContactSuppression;
+  deletion: RowConfirmController<DeleteAction>;
+  suppression: RowConfirmController<SuppressionAction>;
 }) {
-  const confirmingDelete = deletion.confirmingId === contact.id;
+  const confirmingDelete = deletion.open !== null && deletion.open.rowId === contact.id;
   const openConfirm =
-    suppression.confirming !== null && suppression.confirming.contactId === contact.id
-      ? suppression.confirming.action
+    suppression.open !== null && suppression.open.rowId === contact.id
+      ? suppression.open.action
       : null;
   const suppressionError = suppression.errorId === contact.id ? suppression.error : null;
 
@@ -465,7 +456,7 @@ function ContactRow({
               <button
                 type="button"
                 className="btn btn-tertiary"
-                onClick={() => deletion.requestDelete(contact.id)}
+                onClick={() => deletion.request(contact.id, 'delete')}
                 aria-label={`Delete ${contact.name}`}
               >
                 Delete
@@ -485,9 +476,13 @@ function ContactRow({
         </td>
       </tr>
       {openConfirm !== null && (
-        <SuppressionConfirmRow
-          action={openConfirm}
-          name={contact.name}
+        <RowConfirmBanner
+          // Accent, not danger: a do-not-contact change in either direction
+          // destroys nothing — it only changes whether we may mail a handle.
+          tone="accent"
+          message={SUPPRESSION_CONFIRM_COPY[openConfirm].prompt(contact.name)}
+          actionLabel={SUPPRESSION_CONFIRM_COPY[openConfirm].action}
+          pendingLabel="Saving…"
           pending={suppression.pendingId === contact.id}
           error={suppressionError}
           onConfirm={suppression.confirm}
@@ -495,27 +490,30 @@ function ContactRow({
         />
       )}
       {confirmingDelete && (
-        <DeleteConfirmRow
-          deleting={deletion.deletingId === contact.id}
-          deleteError={deletion.deleteError}
-          onConfirmDelete={() => deletion.confirmDelete(contact.id)}
-          onCancelDelete={deletion.cancelDelete}
+        <RowConfirmBanner
+          tone="danger"
+          message="Hard delete — removes this person and all their visits permanently."
+          actionLabel="Delete permanently"
+          pendingLabel="Deleting…"
+          pending={deletion.pendingId === contact.id}
+          error={deletion.errorId === contact.id ? deletion.error : null}
+          onConfirm={deletion.confirm}
+          onCancel={deletion.cancel}
         />
       )}
     </>
   );
 }
 
-/** §7.4 state, keyed on the display seam's closed scope enum. Neither wash is
- *  danger: an opt-out is a fact about a person, not a fault. */
-const SUPPRESSION_BADGE_STYLE: Record<
+/** §7.4 state → its Console badge variant, keyed on the display seam's closed
+ *  scope enum. The washes themselves live in `contacts.css` beside the rest of
+ *  the design system, not in an inline style object here. */
+const SUPPRESSION_BADGE_CLASS: Record<
   NonNullable<ContactListItem['suppression']>['state'],
-  React.CSSProperties
+  string
 > = {
-  // The recipient spoke. Neutral cream — stated, not alarmed.
-  global: { background: 'var(--rw-cream)', color: 'var(--rw-app-text-muted)' },
-  // The owner's own setting, in the accent that reads as "yours".
-  account: { background: 'var(--rw-accent-100)', color: 'var(--rw-accent-800)' },
+  global: 'badge suppression-badge suppression-badge--global',
+  account: 'badge suppression-badge suppression-badge--account',
 };
 
 function SuppressionBadge({
@@ -525,11 +523,10 @@ function SuppressionBadge({
 }) {
   return (
     <span
-      className="badge"
+      className={SUPPRESSION_BADGE_CLASS[display.state]}
       // `detail` is the seam's own copy; it carries no account name and no
       // source, so a tooltip cannot leak provenance (§7.4, invariant #8).
       title={display.detail}
-      style={SUPPRESSION_BADGE_STYLE[display.state]}
     >
       {display.label}
     </span>
@@ -549,7 +546,7 @@ function SuppressionControl({
   suppression,
 }: {
   contact: ContactListItem;
-  suppression: ContactSuppression;
+  suppression: RowConfirmController<SuppressionAction>;
 }) {
   const pending = suppression.pendingId === contact.id;
 
@@ -584,6 +581,10 @@ function SuppressionControl({
 
 /**
  * The two confirm steps, and they deliberately do not read the same (D-A8).
+ * Now that both directions render through the shared `RowConfirmBanner`, THIS
+ * table is the whole of the distinction — the chrome is common, the words are
+ * not, and that is the correct split.
+ *
  * §7.6 requires the two controls not be presented as the same thing, so two
  * identical dialogs differing only in a verb would themselves be the defect —
  * each names what actually changes: marking says what STOPS, clearing says what
@@ -606,30 +607,74 @@ const SUPPRESSION_CONFIRM_COPY = {
   { prompt: (name: string) => string; action: string }
 >;
 
-/** The delete control's anatomy, in the accent wash rather than the danger one:
- *  neither direction destroys anything. */
-function SuppressionConfirmRow({
-  action,
-  name,
+/**
+ * The two washes, and the distinction is the point. `danger` belongs to the
+ * hard delete, which is the only irreversible act on this surface; `accent`
+ * belongs to a do-not-contact change, which destroys nothing. Collapsing the
+ * chrome into one component is safe precisely because the tone stays an
+ * explicit per-call-site choice rather than something inferred from the row.
+ */
+type RowConfirmTone = 'danger' | 'accent';
+
+const ROW_CONFIRM_TONE: Record<
+  RowConfirmTone,
+  {
+    wash: string;
+    messageColor: string;
+    confirmClassName: string;
+    confirmStyle?: React.CSSProperties;
+  }
+> = {
+  danger: {
+    wash: 'var(--rw-danger-soft)',
+    messageColor: 'var(--rw-danger)',
+    confirmClassName: 'btn',
+    confirmStyle: { background: 'var(--rw-danger)', color: '#FDFBF7' },
+  },
+  accent: {
+    wash: 'var(--rw-accent-50)',
+    messageColor: 'var(--rw-app-text)',
+    confirmClassName: 'btn btn-primary',
+  },
+};
+
+/**
+ * The in-table confirm step, shared by both row mutations: it spans the whole
+ * row, states what is about to happen, and offers exactly one confirm and one
+ * cancel. Every word of the prompt and both button labels arrive as props —
+ * §7.6 requires the marking and clearing controls not read as the same thing,
+ * and the delete confirm must not read like either, so this component owns the
+ * anatomy and none of the copy.
+ */
+function RowConfirmBanner({
+  tone,
+  message,
+  actionLabel,
+  pendingLabel,
   pending,
   error,
   onConfirm,
   onCancel,
 }: {
-  action: SuppressionAction;
-  name: string;
+  tone: RowConfirmTone;
+  message: string;
+  actionLabel: string;
+  pendingLabel: string;
   pending: boolean;
   error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const copy = SUPPRESSION_CONFIRM_COPY[action];
+  const palette = ROW_CONFIRM_TONE[tone];
   return (
     <tr>
-      <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}>
+      <td
+        colSpan={TABLE_HEADERS.length}
+        style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}
+      >
         <div
           style={{
-            background: 'var(--rw-accent-50)',
+            background: palette.wash,
             padding: '12px 14px',
             display: 'flex',
             alignItems: 'center',
@@ -637,11 +682,17 @@ function SuppressionConfirmRow({
             flexWrap: 'wrap',
           }}
         >
-          <span style={{ fontSize: 13, color: 'var(--rw-app-text)', fontWeight: 600 }}>
-            {copy.prompt(name)}
+          <span style={{ fontSize: 13, color: palette.messageColor, fontWeight: 600 }}>
+            {message}
           </span>
-          <button type="button" className="btn btn-primary" disabled={pending} onClick={onConfirm}>
-            {pending ? 'Saving…' : copy.action}
+          <button
+            type="button"
+            className={palette.confirmClassName}
+            style={palette.confirmStyle}
+            disabled={pending}
+            onClick={onConfirm}
+          >
+            {pending ? pendingLabel : actionLabel}
           </button>
           <button
             type="button"
@@ -654,61 +705,6 @@ function SuppressionConfirmRow({
           {error !== null && (
             <span role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)' }}>
               {error}
-            </span>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function DeleteConfirmRow({
-  deleting,
-  deleteError,
-  onConfirmDelete,
-  onCancelDelete,
-}: {
-  deleting: boolean;
-  deleteError: string | null;
-  onConfirmDelete: () => void;
-  onCancelDelete: () => void;
-}) {
-  return (
-    <tr>
-      <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}>
-        <div
-          style={{
-            background: 'var(--rw-danger-soft)',
-            padding: '12px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 13, color: 'var(--rw-danger)', fontWeight: 600 }}>
-            Hard delete — removes this person and all their visits permanently.
-          </span>
-          <button
-            type="button"
-            className="btn"
-            style={{ background: 'var(--rw-danger)', color: '#FDFBF7' }}
-            disabled={deleting}
-            onClick={onConfirmDelete}
-          >
-            {deleting ? 'Deleting…' : 'Delete permanently'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={deleting}
-            onClick={onCancelDelete}
-          >
-            Cancel
-          </button>
-          {deleteError && (
-            <span role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)' }}>
-              {deleteError}
             </span>
           )}
         </div>

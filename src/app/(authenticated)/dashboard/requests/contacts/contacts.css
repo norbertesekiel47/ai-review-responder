@@ -1,0 +1,25 @@
+/* Contacts (#541 / #645) — the watch-mode contact list under Requests. Warm
+   Editorial Console tokens only (_styles/tokens.css); colocated with the route
+   so the whole surface stays one deletable folder, matching the sibling
+   requests.css.
+
+   §7.4 Suppression ledger state — extends the Console `.badge` recipe in
+   _styles/console.css, which keeps the shape; only the wash lives here. The
+   Suppression scope picks it, and NEITHER wash is danger: an opt-out is a fact
+   about a person, not a fault.
+     · global  → the recipient spoke. Neutral cream — stated, not alarmed.
+     · account → the owner's own setting, in the accent that reads as "yours".
+
+   Named for the suppression state rather than borrowing `.badge-edited` or
+   `.escalation-badge--low`, which happen to carry the same two washes today but
+   mean "a reply was edited" and "escalation severity: low". Reusing either
+   would make a future restyle of an unrelated surface silently restyle an
+   opt-out badge.
+
+   Contrast: both pairings (--rw-app-text-muted #6B5E50 on --rw-cream, and
+   --rw-accent-800 on --rw-accent-100) are the ones console.css already ships
+   for those two variants, so this adds no new color decision. */
+
+.suppression-badge { white-space: nowrap; }
+.suppression-badge--global { background: var(--rw-cream); color: var(--rw-app-text-muted); }
+.suppression-badge--account { background: var(--rw-accent-100); color: var(--rw-accent-800); }
