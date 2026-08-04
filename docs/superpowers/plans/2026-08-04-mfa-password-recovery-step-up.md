@@ -494,25 +494,44 @@ Insert this block immediately after the rate-limit `try/catch` (which ends at li
 
 ```ts
   // 6. MFA step-up gate. The recovery OTP mints an AAL1 session; GoTrue refuses
-  //    a password write on it whenever the account has a verified factor, and
-  //    every RepWorth admin has one by construction (AAL2 is required to use
-  //    the console at all). Mirror GoTrue's own predicate rather than
-  //    re-deriving it, so the pre-check and the provider cannot disagree —
-  //    accounts with no factor report nextLevel='aal1' and fall through
-  //    untouched, with no branch to write.
-  //
-  //    Placed BEFORE the body parse so a refused request never destructures the
-  //    plaintext password, and AFTER the rate limit so a scripted prober spends
-  //    its own 5/hr budget. Fails CLOSED: an unreadable AAL is not permission to
-  //    write a password. 403 (not 401) because the client reads 401 as "recovery
-  //    session lapsed" and would bounce the user to /forgot-password for a fresh
-  //    link that fails identically.
-  const aal = await requireAal2FromSupabase(
-    readOnlySupabase as unknown as SupabaseMfaAalClient,
-  );
+  //    a password write on it whenever the account has a verified factor.
+  //    requireAal2FromSupabase reads the same verified-factor list GoTrue
+  //    stamps into the session, so it tracks the provider's refusal without a
+  //    second round-trip. Placed BEFORE the body parse so a refused request
+  //    never destructures the plaintext password, and AFTER the rate limit so
+  //    a scripted prober spends its own 5/hr budget. Fails CLOSED: an
+  //    unreadable AAL is not permission to write a password. 403 (not 401)
+  //    because the client reads 401 as "recovery session lapsed" and would
+  //    bounce the user to /forgot-password for a fresh link that fails
+  //    identically.
+  let aal: Awaited<ReturnType<typeof requireAal2FromSupabase>>;
+  try {
+    aal = await requireAal2FromSupabase(
+      readOnlySupabase as unknown as SupabaseMfaAalClient,
+    );
+  } catch (err) {
+    reportCaughtError('reset-password', err, { reason: 'aal_probe_threw' });
+    return NextResponse.json({ error: 'mfa_check_failed' }, { status: 403 });
+  }
   if (!aal.ok) {
     return NextResponse.json({ error: aal.reason }, { status: 403 });
   }
+```
+
+**The `try/catch` is mandatory, not defensive padding.** `getAuthenticatorAssuranceLevel`
+can throw rather than return an error — auth-js's no-JWT branch calls `decodeJWT` outside
+its own guard. Unwrapped, a throw escapes as a raw 500 with nothing reported, breaking the
+"fails CLOSED" promise the comment right above it makes. `page-gate.ts`,
+`admin-mfa-gate.ts`, and `destructive-auth.ts` all already wrap it. Add a matching test:
+
+```ts
+  it('fails CLOSED with 403 mfa_check_failed when the AAL probe throws', async () => {
+    mockGetAal.mockRejectedValueOnce(new Error('decodeJWT boom'));
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('mfa_check_failed');
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
 ```
 
 Then renumber the trailing comments in the file so they stay honest: `// 6. Parse + validate body.` → `// 7.`, `// 7. Build the success response` → `// 8.`, `// 8. Update password` → `// 9.`, `// 9. Explicitly end the recovery session` → `// 10.`
@@ -520,7 +539,7 @@ Then renumber the trailing comments in the file so they stay honest: `// 6. Pars
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm vitest run src/app/api/auth/__tests__/reset-password.test.ts`
-Expected: PASS, 20 tests (15 pre-existing + 5 new).
+Expected: PASS, 21 tests (15 pre-existing + 5 new + the probe-throws case above).
 
 - [ ] **Step 7: Commit**
 
@@ -600,24 +619,80 @@ Replace the `if (updateError)` block (route.ts lines 186-188 pre-change):
     // Matched on `code` alone, not the message text: the message is provider
     // copy that can be reworded at any time, and a bare 401 here is more likely
     // a lapsed session than an AAL refusal now that the gate above exists.
-    const { code, status, message } = updateError as {
-      code?: string;
-      status?: number;
-      message: string;
-    };
+    const { code, status, message } = updateError;
     if (code === 'insufficient_aal') {
       return NextResponse.json({ error: 'mfa_required' }, { status: 403 });
     }
-    return NextResponse.json({ error: message }, { status: status ?? 400 });
+    // AuthRetryableFetchError carries status 0 for a failed fetch, and Response
+    // rejects anything outside 200-599. Clamp to the old 400 default rather
+    // than letting a transient network error throw out of the handler.
+    const httpStatus =
+      typeof status === 'number' && status >= 400 && status <= 599 ? status : 400;
+    if (status === 401 || httpStatus !== status) {
+      reportCaughtError('reset-password', updateError, {
+        reason: status === 401 ? 'update_user_unmapped_401' : 'update_user_unusable_status',
+        providerCode: code,
+        providerStatus: status,
+      });
+    }
+    return NextResponse.json({ error: message }, { status: httpStatus });
   }
 ```
 
-The pre-existing test at line 192 passes an error with no `status`, so `status ?? 400` keeps it at 400 and that test stays green.
+Three things here are load-bearing and were each a bug in an earlier draft of this plan:
+
+- **No `as` cast.** `if (updateError)` already narrows to `AuthError`, which declares
+  `code`/`status`/`message`. A cast on a third-party type would silently absorb an upstream
+  rename into `undefined` at runtime; the plain destructure fails typecheck instead.
+- **The clamp, not `status ?? 400`.** `updateUser` *returns* rather than throws any
+  `AuthError`, including `AuthRetryableFetchError`, which auth-js builds with `status: 0`.
+  `NextResponse.json(..., { status: 0 })` throws a `RangeError` out of the handler.
+- **The reporting.** A 401 that isn't `insufficient_aal` becomes the client's expired-link
+  state, looping a locked-out user forever in silence. A clamped status means a Supabase
+  transport outage now looks exactly like a weak-password rejection. Ordinary user errors
+  (422) are deliberately *not* reported — alarms on expected failures are noise, and a test
+  must pin that decision.
+
+The pre-existing test that passes an error with no `status` stays green: `undefined` fails
+the `typeof` check and clamps to 400.
+
+Add tests for the two branches the comment spends its length defending — both otherwise
+untested, and one of which crashes without the clamp:
+
+```ts
+  it('passes a bare 401 through as 401 so the client shows the expired-link state', async () => {
+    mockUpdateUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: Object.assign(new Error('Invalid session'), { status: 401 }),
+    });
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(401);
+  });
+
+  it('clamps a status-0 transport error to 400 instead of throwing', async () => {
+    mockUpdateUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: Object.assign(new Error('Failed to fetch'), { status: 0 }),
+    });
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(400);
+  });
+```
+
+Mock `@/lib/shared/report-caught-error` and assert it fires with
+`reason: 'update_user_unmapped_401'` on the first, `'update_user_unusable_status'` on the
+second, and **not at all** on the 422 case. That last assertion is the only thing pinning
+the deliberate choice not to alarm on ordinary user errors.
+
+Use real `Error` instances (via `Object.assign`) rather than plain object literals:
+`reportCaughtError` does `err instanceof Error ? err : new Error(String(err))`, so a plain
+object stringifies to `[object Object]` and the test cannot detect a regression in what
+actually reaches Sentry — on the exact call added for observability.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run src/app/api/auth/__tests__/reset-password.test.ts`
-Expected: PASS, 22 tests.
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 

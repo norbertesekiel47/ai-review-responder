@@ -108,10 +108,22 @@ response construction 8, update 9, signOut 10.
 ### The check
 
 Use `requireAal2FromSupabase` (`src/lib/auth/mfa.ts:16`), which blocks when
-`nextLevel === 'aal2' && currentLevel !== 'aal2'`. That predicate *is* the condition GoTrue
-uses to emit `insufficient_aal`, so the pre-check and the provider cannot disagree.
-Accounts with no factor report `nextLevel: 'aal1'` and fall through unchanged — "no factor
-keeps today's path" comes free, with no branch to write.
+`nextLevel === 'aal2' && currentLevel !== 'aal2'`. It reads the same verified-factor list
+GoTrue stamps into the session, so it tracks the provider's refusal without a second
+round-trip. Accounts with no factor report `nextLevel: 'aal1'` and fall through unchanged.
+
+The two are *not* structurally identical, and the difference is load-bearing enough to
+state: auth-js derives `nextLevel` from `session.user.factors` in the **cookie-decoded**
+session, while GoTrue decides `insufficient_aal` from the **database**. They agree only
+because GoTrue re-stamps the user on every token grant. A factor verified *after* the
+recovery cookie was minted therefore passes the pre-check and is refused by GoTrue — which
+is precisely why the `insufficient_aal` backstop below is a live path, not dead code.
+
+The gate must be wrapped in `try/catch`. `getAuthenticatorAssuranceLevel` can throw rather
+than return an error: auth-js's no-JWT branch calls `decodeJWT` outside its own guard. An
+unwrapped call escapes as a raw 500 with nothing reported, breaking the fail-closed promise
+on the one path whose entire job is refusing a password write. Three sibling call sites in
+this repo already wrap it (`page-gate.ts`, `admin-mfa-gate.ts`, `destructive-auth.ts`).
 
 Not `requireCurrentAal2FromSupabase` + `listFactors()`: two API calls, and it re-derives a
 rule GoTrue already owns, so it can drift in either direction. That helper is correct for
@@ -136,10 +148,19 @@ in CLAUDE.md governs cost and abuse limiting, not a password write.
 
 Replace the flat `status: 400` at `route.ts:186-188` with:
 
-- `insufficient_aal` → `403 { error: 'mfa_required' }`, so a pre-check that ever drifts from
+- `insufficient_aal` → `403 { error: 'mfa_required' }`, so a pre-check that drifts from
   GoTrue lands in the client branch that already knows what to do. This is a backstop, not
-  an alternative to the pre-check.
-- Everything else → `updateError.status ?? 400`.
+  an alternative to the pre-check — and per the section above, it is reachable.
+- Everything else → the provider status, **clamped to 400–599**. Not a bare
+  `status ?? 400`: `updateUser` *returns* rather than throws any `AuthError`, including
+  `AuthRetryableFetchError`, which auth-js constructs with `status: 0` on a failed fetch.
+  `NextResponse.json(..., { status: 0 })` throws a `RangeError` out of the handler, turning
+  a Supabase network blip into an uncaught 500.
+- A 401 that is *not* `insufficient_aal`, and any status that had to be clamped, are
+  reported via `reportCaughtError`. The first would otherwise loop a locked-out user
+  through request-a-new-link forever in silence; the second would make a transport outage
+  indistinguishable from a weak-password rejection. Ordinary user errors (422 and friends)
+  are deliberately not reported — alarms on expected failures are noise.
 
 The pass-through is a second, quieter fix: a genuinely expired session now returns its real
 401 and reaches the expired-link state instead of being flattened into a validation error —
