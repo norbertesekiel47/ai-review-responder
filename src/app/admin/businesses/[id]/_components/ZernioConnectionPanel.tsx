@@ -205,7 +205,7 @@ function AwaitingQueueSection({
               <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
             )}
             {r.draftText && (
-              <p className="mt-2 line-clamp-3 rounded bg-blue-50 p-2 text-xs text-blue-900">
+              <p className="mt-2 line-clamp-3 rounded bg-gray-50 p-2 text-xs text-gray-700">
                 {r.draftText}
               </p>
             )}

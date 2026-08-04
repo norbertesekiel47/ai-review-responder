@@ -73,7 +73,7 @@ function NotificationsContent({
         <select
           value={businessId}
           onChange={(e) => onBusinessIdChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Businesses</option>
           {data.businesses.map((b) => (
@@ -86,7 +86,7 @@ function NotificationsContent({
         <select
           value={channel}
           onChange={(e) => onChannelChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Channels</option>
           <option value="email">Email</option>
@@ -95,7 +95,7 @@ function NotificationsContent({
         <select
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           <option value="">All Statuses</option>
           <option value="delivered">Delivered</option>
@@ -106,7 +106,7 @@ function NotificationsContent({
         <button
           type="button"
           onClick={onReset}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900"
         >
           Reset
         </button>

@@ -35,6 +35,11 @@ const SWEPT_FILES = [
   'src/app/admin/notifications/NotificationsClient.tsx',
   'src/app/admin/flagged/page.tsx',
   'src/app/admin/flagged/FlaggedClient.tsx',
+  // Shared shell states — re-chromed on this branch, and CF-4's rule covers
+  // them even though they are not `page.tsx` so the derived check below cannot
+  // find them.
+  'src/app/admin/error.tsx',
+  'src/app/admin/loading.tsx',
   'src/app/admin/autonomy/AutonomySuspensionsClient.tsx',
   'src/app/admin/runbook/page.tsx',
   'src/app/admin/businesses/page.tsx',
@@ -89,6 +94,83 @@ describe('Console + Admin carry no banned amber/orange/stone palette (P1 #14)', 
     const text = readFileSync(resolve(process.cwd(), relPath), 'utf-8');
     for (const { label, re } of BANNED) {
       expect(text, `${relPath} still contains a ${label}`).not.toMatch(re);
+    }
+  });
+});
+
+/**
+ * Convention #5's second half — "blue/indigo used decoratively becomes neutral
+ * gray; blue is reserved for the shared StatusBadge" — as an ENFORCED layer
+ * rather than an aspiration. It is deliberately NOT folded into `BANNED`:
+ *
+ * 1. SWEPT_FILES is a mixed set. Roughly a third of it is owner-console /
+ *    dashboard surface (`_styles/tokens.css`, the edit-reply drawer, the
+ *    connect banner) where blue is the legitimate accent. A global blue ban
+ *    would either fail on those files or force them out of the amber/orange
+ *    sweep they were added for. So this rule takes the same set and filters it
+ *    to the admin console.
+ * 2. The scope is DERIVED from the path, not a second hand-maintained list —
+ *    any admin file added to SWEPT_FILES is covered by this rule the moment it
+ *    is added, with no second edit to remember.
+ * 3. Exemptions are per-file with a written reason, so a failure message
+ *    explains itself and adding one is a visible, reviewable act.
+ */
+const ADMIN_ROOTS = ['src/app/admin/', 'src/components/admin/'];
+const isAdminFile = (relPath: string) => ADMIN_ROOTS.some((root) => relPath.startsWith(root));
+
+const BLUE_EXEMPT: Record<string, string> = {
+  // The one sanctioned blue in the console: `trialing` (subscription) and
+  // `dispatching`/`dispatched` (outbox) — an in-flight state that has no other
+  // colour in the green/yellow/red/gray vocabulary. Every page reads its badge
+  // colours from here precisely so no page hand-picks one (spec §3).
+  'src/components/admin/ui/StatusBadge.tsx':
+    'blue is the legitimate trialing / dispatching status colour',
+  // Channel BRAND identity, not a primary-action colour: this widget renders
+  // beside WhatsAppEnrollmentWidget, whose `bg-green-600` is protected by the
+  // semantic-green rule. Neutralising only the Telegram half leaves a gray/green
+  // Connect pair that reads as a bug. The pair moves together or not at all.
+  'src/components/admin/TelegramEnrollmentWidget.tsx':
+    'Telegram brand blue, paired with the protected WhatsApp brand green',
+};
+
+const ADMIN_BANNED = [
+  { label: 'decorative blue Tailwind class', re: /\bblue-\d/ },
+  { label: 'decorative indigo Tailwind class', re: /\bindigo-\d/ },
+];
+
+const ADMIN_SWEPT_FILES = SWEPT_FILES.filter(isAdminFile);
+
+describe('Admin console carries no decorative blue/indigo (convention #5)', () => {
+  it('the admin-scoped subset is non-empty and excludes the owner console', () => {
+    expect(ADMIN_SWEPT_FILES.length).toBeGreaterThan(0);
+    expect(ADMIN_SWEPT_FILES).not.toContain('src/app/(authenticated)/_styles/tokens.css');
+  });
+
+  it.each(ADMIN_SWEPT_FILES)('%s uses no decorative blue or indigo', (relPath) => {
+    const exemptReason = BLUE_EXEMPT[relPath];
+    const text = readFileSync(resolve(process.cwd(), relPath), 'utf-8');
+    const hits = ADMIN_BANNED.filter(({ re }) => re.test(text));
+
+    if (exemptReason) {
+      // Assert the exemption is still LOAD-BEARING. A file that no longer
+      // contains any blue has outgrown its exemption, and a dead BLUE_EXEMPT
+      // entry would silently un-guard that file again later.
+      expect(
+        hits.length,
+        `${relPath} is exempt ("${exemptReason}") but no longer contains blue or indigo — drop it from BLUE_EXEMPT`,
+      ).toBeGreaterThan(0);
+      return;
+    }
+
+    expect(
+      hits.map(({ label }) => label),
+      `${relPath} still contains a decorative blue/indigo Tailwind class`,
+    ).toEqual([]);
+  });
+
+  it('every BLUE_EXEMPT entry is an admin file that is actually swept', () => {
+    for (const relPath of Object.keys(BLUE_EXEMPT)) {
+      expect(ADMIN_SWEPT_FILES, `${relPath} is exempt but not swept`).toContain(relPath);
     }
   });
 });

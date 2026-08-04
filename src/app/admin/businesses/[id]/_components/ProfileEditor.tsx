@@ -208,7 +208,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
                 const safeHref = safeHttpUrl(business.website);
                 if (safeHref) {
                   return (
-                    <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                    <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-gray-700 hover:underline">
                       {business.website}
                     </a>
                   );
@@ -251,7 +251,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
   }
 
   return (
-    <section className="mt-8 rounded-lg border border-blue-200 bg-white p-6">
+    <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-800">Edit Profile</h2>
       <div className="mt-4 space-y-4">
         <div>
@@ -261,7 +261,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             type="text"
             value={name}
             onChange={(e) => dispatch({ type: 'setField', field: 'name', value: e.target.value })}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -271,7 +271,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             type="text"
             value={category}
             onChange={(e) => dispatch({ type: 'setField', field: 'category', value: e.target.value })}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -282,7 +282,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             value={website}
             onChange={(e) => dispatch({ type: 'setField', field: 'website', value: e.target.value })}
             placeholder="https://example.com"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -292,7 +292,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             type="text"
             value={tone}
             onChange={(e) => dispatch({ type: 'setField', field: 'tone', value: e.target.value })}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -303,7 +303,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             value={ownerEmail}
             onChange={(e) => dispatch({ type: 'setField', field: 'ownerEmail', value: e.target.value })}
             placeholder="owner@example.com"
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
           <p className="mt-1 text-xs text-gray-500">
             Updating this address does not clear a hard-bounce flag. Use the banner above to clear it after verifying.
@@ -316,7 +316,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             value={productsServices}
             onChange={(e) => dispatch({ type: 'setField', field: 'productsServices', value: e.target.value })}
             rows={3}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -328,7 +328,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             type="text"
             value={staffNames}
             onChange={(e) => dispatch({ type: 'setField', field: 'staffNames', value: e.target.value })}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -340,7 +340,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             value={highlightFacts}
             onChange={(e) => dispatch({ type: 'setField', field: 'highlightFacts', value: e.target.value })}
             rows={4}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -352,7 +352,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             value={avoidFacts}
             onChange={(e) => dispatch({ type: 'setField', field: 'avoidFacts', value: e.target.value })}
             rows={4}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         {saveError && <p className="text-sm text-red-600">{saveError}</p>}
@@ -361,7 +361,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
           >
             {mutation.isPending ? 'Saving...' : 'Save'}
           </button>

@@ -6,8 +6,8 @@ import { ADMIN_TIME_ZONE_LABEL, formatAdminDate } from '@/components/admin/ui/fo
 const RESPONSE_BADGE_COLORS: Record<string, string> = {
   new: 'bg-gray-100 text-gray-600',
   pending_approval: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-blue-100 text-blue-800',
-  edited: 'bg-blue-100 text-blue-800',
+  approved: 'bg-gray-900 text-white',
+  edited: 'bg-gray-900 text-white',
   awaiting_owner_connect: 'bg-gray-100 text-gray-700',
   posted: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-800',
@@ -83,8 +83,8 @@ export function ReviewsList({ reviews, totalCount }: ReviewsListProps) {
                 </p>
               )}
               {review.approvedText && (
-                <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-sm text-blue-900">
-                  <span className="font-medium text-blue-700">Response: </span>
+                <div className="mt-2 rounded bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                  <span className="font-medium text-gray-900">Response: </span>
                   {review.approvedText}
                 </div>
               )}
