@@ -170,7 +170,83 @@ Round 2 closed findings 5, 6, 7 and cleared the crash-net interaction and the
 7. **Finding 1 — soften the claim.** 503 makes mint-race recovery *possible*, not
    guaranteed; no provider retry contract exists in-repo. State it honestly.
 
-## Next actions
+---
+
+# ▶ STEP 8 — SHIP. Everything before this is complete.
+
+**Phase `reviewed`. Gate GREEN (`--review`) with the live-DB suite actually run and
+diff-coverage passing.** Steps 4, 5, 6, 6.5 and 7 are all closed. Read this section and
+ignore the historical detail below unless you need the reasoning.
+
+## Do this, in order — RISK = high lane
+
+1. **BLOCKING, owner-verified, not automatable from here.** Confirm `SESSION_COOKIE_SECRET` is
+   set on the Railway **staging** worker — and decide whether `SESSION_COOKIE_SECRET_PREVIOUS`
+   is set alongside it (optional; empty is a safe default and changes nothing). The new boot
+   gate is a **hard failure by design**: a deployed worker missing the secret will
+   **crash-loop**. That is intended — it replaces a silent statutory failure, where every
+   well-formed opt-out 503'd indistinguishably from a genuine unknown token — but it must be
+   checked *before* the branch reaches staging, not after. `railway link` is interactive, so it
+   needs a human. Repeat for **prod** before promotion.
+2. **Ride staging first.** Push the branch to `staging` (full stack auto-deploys — both the
+   Railway worker and the Vercel staging Custom Env). **No migration to apply** — 096 created
+   both tables and 097 registered both analytics event names; this ticket adds neither.
+3. **Smoke the touched path on staging.** No runbook exists for this path yet. Minimum:
+   `POST /ingress/unsubscribe/<token>` returns 200 only after the ledger row exists; a repeat
+   POST is a 200 no-op with no second row; an unknown token returns 503 with **no** Sentry
+   event; `GET /ingress/unsubscribe/<token>` 302s to `/u/<token>`; the landing page renders the
+   button page, the form POST lands a `scope='global'` row with `source='unsubscribe_link'`,
+   and the success page appears only with a valid receipt **and** a live ledger row.
+   `SOLICITATION_SEND_ENABLED` stays **off** throughout — DR1 means every one of these must
+   work anyway, and that is worth proving on staging rather than asserting.
+4. **Open the PR to `main`**, confirm every GitHub CI check is green, then **PAUSE for explicit
+   merge approval**. Carry `.feature/deps-justification.md` content into the PR description if
+   one exists (none does — no dependency was added).
+5. **After merge:** `git pull --ff-only` on local `main`; fast-forward `staging` onto `main`;
+   run `bash scripts/feature-cleanup.sh` (dry run, then `--apply`).
+
+## Post-merge obligations — do NOT skip, they are the durable value
+
+- **Promote to `.claude/reference/lab-notes.md`** (outside this branch's edit surface, so it
+  could not be done here): **D10** — `createWorkerLogger` object args pass through the
+  analytics blocked-key sanitizer, which silently drops any key containing `token`; a
+  deliberately-safe derived value must be *named* to survive it. **D11** — `app.inject()`
+  normalises the request target, so it cannot falsify a claim about the raw request line;
+  absolute-form targets (RFC 9112 §3.2.2) bypassed the ingress limiter for **all five**
+  providers, and a surviving mutant means dead logic **or** a hole in the harness.
+- **Invoke `document-feature`** for the docs/reference sweep.
+- **Domain sweep** — three glossary terms were coined here (Unsubscribe redemption, Success
+  receipt, Neutral page); confirm nothing drifted during implementation.
+- **Entropy counter** — increment the merge counter in `.claude/reference/arch-review-log.md`.
+
+## Open follow-ups, both filed with full context
+
+| Ticket | What | Why not here |
+|---|---|---|
+| **#651** | Isolate redemption behind a dedicated bounded DB pool | Needs `src/lib/db/server.ts` (outside the surface), an ADR-0009 connection-budget re-derivation and a staging burst drill. Owner decision. |
+| **#652** | `redeemUnsubscribeToken` should take `Sql` and own its transaction | Removes two unenforceable caller obligations. Interface change across both surfaces plus the single-flight — architectural, and step 7's findings were otherwise not. |
+
+## Review record — every pass, for the PR description
+
+| Pass | Verdict |
+|---|---|
+| Plan reviews ×6 (pre-implementation) | all REVISE / needs-attention → plan revision 7 |
+| T1a spec / quality / re-review | ✅ / **1 Critical fixed** / ✅ Approved |
+| T1b spec / quality | ✅ / Approved, 8 follow-ups closed |
+| T1c spec / quality | ✅ zero findings / Changes needed, 8 closed |
+| **Step 6 adversarial** (`/codex:adversarial-review`) | **needs-attention, 2 × [high] — both closed** |
+| **Step 7 spec & correctness** | ✅ faithful to the intake |
+| **Step 7 standards & maintainability** | ✅ no structural regression, 12 fixes closed |
+
+**Two live production bypasses were closed as side effects**, both affecting Stripe, Resend,
+Telegram, Twilio and Zernio — percent-encoded ingress paths, and absolute-form request targets.
+Neither is a #644 concern; both were reachable before this branch.
+
+---
+
+## Historical — step 4 execution detail
+
+### Next actions
 
 **Step 4 is under way.** Phase, HEAD and commit count come from `state.json` as always —
 not restated here.
