@@ -53,14 +53,36 @@ function redactQueryString(query: string): string {
   return `${leading}${redacted}`;
 }
 
+// Approval tokens are one path segment and the surrounding contracts depend on
+// it: `/api/approve/<token>/edit` must keep `/edit`, and the console-message
+// form `GET /approve/tok 200` must keep the status. Segment-bounded, and it
+// stays that way.
+const APPROVE_TOKEN_PATH_RE = /(\/approve\/)[^/?#\s]+/gi;
+
+// Unsubscribe tokens get their own rule because they must be redacted ACROSS
+// `/`: a token carrying `%2F` decodes into a second path segment, which a
+// segment-bounded rule would leave half-exposed. Longest prefix first so
+// `/api/u/` matches as a whole rather than via the `/u/` alternative. Still
+// stops at `?`, `#` and whitespace, preserving the console-message contract.
+const UNSUBSCRIBE_TOKEN_PATH_RE = /(\/ingress\/unsubscribe\/|\/api\/u\/|\/u\/)[^?#\s]+/gi;
+
 /**
- * Mask sensitive values inside a URL string before it reaches Sentry. The
- * key-based object scrubber can't reach these because they are VALUES, not keys:
- *   - the path segment after `/approve/` (single-use approval tokens), and
+ * Mask sensitive values inside a URL string before it reaches Sentry or the
+ * Fastify request logger. The key-based object scrubber can't reach these
+ * because they are VALUES, not keys:
+ *   - the path segment after `/approve/` (single-use approval tokens),
+ *   - everything after an unsubscribe prefix (#644 Unsubscribe tokens,
+ *     invariant #5), and
  *   - query-param values whose key looks sensitive (token/code/otp/…).
  *
  * Pure + total: never throws (no `new URL()`, which rejects relative inputs),
  * handles absolute and relative URLs, and returns non-matching input unchanged.
+ *
+ * The input MUST be URL-SHAPED. Everything after the first `?` is treated as a
+ * query string, so over free prose this mangles the message: `"Zernio ingest
+ * failed? code=X batch=7"` loses `batch=7`. Use `redactSensitiveTokenPaths`
+ * below for prose — `msg`, `err.message`, `err.stack`. Callers that hold a real
+ * URL (`request.url`, `event.transaction`, breadcrumb URLs) want this one.
  */
 export function redactSensitivePathsAndQueries(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -73,10 +95,71 @@ export function redactSensitivePathsAndQueries(url: string): string {
   const path = qIdx === -1 ? beforeHash : beforeHash.slice(0, qIdx);
   const query = qIdx === -1 ? '' : beforeHash.slice(qIdx + 1);
 
-  const redactedPath = path.replace(/(\/approve\/)[^/?#\s]+/gi, '$1[REDACTED]');
   const redactedQuery = query ? `?${redactQueryString(query)}` : '';
 
-  return `${redactedPath}${redactedQuery}${fragment}`;
+  return `${redactTokenPaths(path)}${redactedQuery}${redactTokenPaths(fragment)}`;
+}
+
+/**
+ * The PROSE-SAFE half: token paths only, no query-string handling at all.
+ *
+ * Written for the Fastify ingress logger's pino censor, which feeds it `msg`,
+ * `err.message` and `err.stack` — free text from Stripe, Resend, Telegram,
+ * Twilio and Zernio, not URLs. `redactSensitivePathsAndQueries` treats
+ * everything after the first `?` as a query string, so on a message like
+ * `"Zernio ingest failed? code=REVIEW_CREATED batch=7"` it deleted `batch=7`,
+ * and one `key=` inside a stack frame deleted every frame after it. Invariant #5
+ * needs only PATH redaction there: the token is a path segment and is never a
+ * query parameter on either surface.
+ *
+ * No span-splitting is needed because both token regexes already stop at `?`,
+ * `#` and whitespace — so a `?` in prose bounds the match rather than
+ * reinterpreting the remainder. Total: never throws, returns non-matching input
+ * byte-for-byte unchanged.
+ *
+ * Sentry keeps the full URL+query treatment; do NOT swap this in there, or
+ * `?api_key=SECRET` starts reaching the event.
+ */
+export function redactSensitiveTokenPaths(text: string): string {
+  if (typeof text !== 'string' || text.length === 0) return text;
+  return redactTokenPaths(text);
+}
+
+/**
+ * Both token rules over one span. Applying it to the fragment as well as the
+ * path is purely additive: a real URL fragment never reaches a server, so it
+ * cannot carry a live token, and neither shipped fragment contract
+ * (`/approve/tok#section`, `/u/tok#done`) contains a redactable prefix.
+ */
+function redactTokenPaths(span: string): string {
+  if (span.length === 0) return span;
+  return redactUnsubscribeToken(span.replace(APPROVE_TOKEN_PATH_RE, '$1[REDACTED]'));
+}
+
+/**
+ * An encoded prefix (`/ingress/%75nsubscribe/…`) routes correctly but misses a
+ * literal regex, so the raw spelling alone is not enough. Matching on a decoded
+ * copy and redacting the raw string would be wrong — the offsets don't
+ * correspond — so the decoded form is what gets returned when only it matches.
+ * That is safe precisely because the token is replaced in the same step.
+ *
+ * The decode pass is single-depth by design: a doubly-encoded prefix
+ * (`/ingress/%2575nsubscribe/…`) cannot route, so no genuine token can arrive
+ * in that shape.
+ */
+function redactUnsubscribeToken(path: string): string {
+  const redacted = path.replace(UNSUBSCRIBE_TOKEN_PATH_RE, '$1[REDACTED]');
+  if (redacted !== path) return redacted;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return path; // malformed percent-encoding — nothing more we can match on
+  }
+
+  const decodedRedacted = decoded.replace(UNSUBSCRIBE_TOKEN_PATH_RE, '$1[REDACTED]');
+  return decodedRedacted === decoded ? path : decodedRedacted;
 }
 
 // Array-of-[key,value]-pairs form of query_string: rebuild with the value masked

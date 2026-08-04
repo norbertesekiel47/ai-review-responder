@@ -102,6 +102,21 @@ const serverSchema = z.object({
   // undefined and FLIP the throw branch. requirePresent-based asserts (if any
   // wire up later) still treat whitespace as absent, independent of the field.
   SESSION_COOKIE_SECRET: rawOpt,
+  // The OUTGOING signing key during a SESSION_COOKIE_SECRET rollover (#644).
+  // Optional and empty in the steady state; set to the previous value in the SAME
+  // deploy that sets the new SESSION_COOKIE_SECRET, then cleared once every
+  // already-delivered unsubscribe link has outlived CAN-SPAM's ≥30-day operating
+  // window. Verification-only — nothing is ever minted under it. rawOptionalVar
+  // for the same reason as its sibling above: the reader
+  // (src/lib/solicitation/unsubscribe.ts) does `if (!secret)` then a RAW
+  // Buffer.byteLength >= 32 check, so a whitespace '   ' must stay truthy and
+  // reach the length check rather than collapsing to undefined and silently
+  // reading as "not rotating". Server lane only, exactly like
+  // SESSION_COOKIE_SECRET: getSessionCookieSecret() and the previous-key reader
+  // both go through getServerConfig() on BOTH surfaces, so a worker-lane copy
+  // would be a second declaration with no reader. No NEXT_PUBLIC_* companion
+  // (invariant #13).
+  SESSION_COOKIE_SECRET_PREVIOUS: rawOpt,
   CSRF_SECRET: rawOpt,
   IMPERSONATION_COOKIE_SECRET: rawOpt,
   CONTACT_NOTIFY_TO: rawOpt, // migrated raw read (contact-notify resolveContactNotifyTo ?.trim()) — #7
@@ -166,6 +181,16 @@ const serverSchema = z.object({
   EMAIL_SEND_TIMEOUT_MS: rawOpt,
   LIST_UNSUBSCRIBE_URL: rawOpt,
   LIST_UNSUBSCRIBE_EMAIL: rawOpt,
+  // #644 §5.4: the mailto: opt-out address the Neutral page advertises so a
+  // recipient whose link no longer works never dead-ends. NEW optional config,
+  // so the COLLAPSING `opt`: an address that is empty or whitespace is not an
+  // address, and "unset" must reach the page as undefined — it renders the line
+  // only when there is a real mailbox behind it, because a dead `mailto:` turns
+  // "no alternative offered" into "an alternative that silently fails".
+  // Server-only, NO NEXT_PUBLIC_ companion (invariant #13). Distinct from
+  // LIST_UNSUBSCRIBE_EMAIL above (different sender, different §7.2 servicing
+  // obligation) — do not collapse them.
+  SOLICITATION_UNSUBSCRIBE_MAILTO: opt,
   // ── Stage-3 out-of-guard batch (scattered src/app server-side route config) ──
   // Migrated raw reads from server-side process.env reads in src/app/** (Next route
   // handlers + one landing Server Component) that live OUTSIDE the process-env

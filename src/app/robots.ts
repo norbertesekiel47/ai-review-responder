@@ -21,6 +21,10 @@ export default function robots(): MetadataRoute.Robots {
           '/mfa',
           // Per-prospect demo pages are tokenized one-offs, not marketing pages.
           '/demo',
+          // Unsubscribe landing pages are per-recipient tokens. Trailing slash
+          // so the rule covers `/u/<token>` without claiming every future path
+          // that merely starts with "u".
+          '/u/',
         ],
       },
     ],
