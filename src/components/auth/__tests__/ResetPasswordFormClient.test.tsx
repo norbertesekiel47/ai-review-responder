@@ -280,4 +280,81 @@ describe('ResetPasswordFormClient portal variants', () => {
       expect(screen.getByText(/reset link expired/i)).toBeTruthy();
     });
   });
+
+  it('disables the submit button and shows "Verifying…" while the step-up is in flight', async () => {
+    mockListFactors.mockResolvedValue({
+      data: { totp: [{ id: 'factor-1', friendly_name: 'Phone', status: 'verified' }] },
+      error: null,
+    });
+    // Hold the challenge request open so we can observe the busy state before
+    // it resolves — this is exactly the window in which an unguarded button
+    // would let a second click fire against a stale code.
+    let resolveChallenge: (value: unknown) => void = () => {};
+    const challengePromise = new Promise((resolve) => {
+      resolveChallenge = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValueOnce(challengePromise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/authenticator code/i)).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByLabelText(/new password/i), {
+      target: { value: 'a-new-strong-password' },
+    });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: 'a-new-strong-password' },
+    });
+    fireEvent.change(screen.getByLabelText(/authenticator code/i), {
+      target: { value: '123456' },
+    });
+    fireEvent.submit(screen.getByRole('button', { name: /update password/i }));
+
+    const button = await screen.findByRole('button', { name: /verifying/i });
+    expect(button).toBeDisabled();
+
+    // Release the held challenge so the test doesn't leave a dangling promise;
+    // the failure shape just ends the attempt cleanly.
+    resolveChallenge({ ok: false, status: 400, json: async () => ({}) });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /update password/i })).not.toBeDisabled();
+    });
+  });
+
+  it('re-prompts for a code on a 403 mfa_required instead of dead-ending', async () => {
+    mockListFactors.mockResolvedValue({
+      data: { totp: [{ id: 'factor-1', friendly_name: 'Phone', status: 'verified' }] },
+      error: null,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ challengeId: 'chal-1' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) })
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'mfa_required' }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/authenticator code/i)).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByLabelText(/new password/i), {
+      target: { value: 'a-new-strong-password' },
+    });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: 'a-new-strong-password' },
+    });
+    fireEvent.change(screen.getByLabelText(/authenticator code/i), {
+      target: { value: '123456' },
+    });
+    fireEvent.submit(screen.getByRole('button', { name: /update password/i }));
+
+    // Still on the code-required surface with a cleared code, not a dead end.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/authenticator code/i)).toHaveValue('');
+    });
+    expect(routerPush).not.toHaveBeenCalled();
+  });
 });

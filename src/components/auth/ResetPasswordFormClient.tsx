@@ -150,10 +150,10 @@ function AdminResetPassword({
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || stepUp.busy}
             className="w-full bg-blue-600 text-white font-medium py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Updating...' : 'Update password'}
+            {stepUp.busy ? 'Verifying...' : loading ? 'Updating...' : 'Update password'}
           </button>
         </form>
       </div>
@@ -216,6 +216,13 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
         // submit — flip to the expired-link state rather than a transient error.
         if (res.status === 401) {
           setSessionExpiredFallback(true);
+          return;
+        }
+        if (res.status === 403 && body.error === 'mfa_required') {
+          // The server's AAL read failed or the step-up lapsed. Re-prompt for a
+          // code rather than dead-ending — verify() would otherwise short-circuit
+          // to true forever and only a reload would recover.
+          stepUp.requireStepUp();
           return;
         }
         setError(mapResetPasswordError(body));
@@ -347,8 +354,12 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
           <p className="text-sm text-rw-error" aria-hidden="true">{stepUp.error}</p>
         )}
         {error && <p className="text-sm text-rw-error" aria-hidden="true">{error}</p>}
-        <button type="submit" disabled={loading} className={authPrimaryButtonClass}>
-          {loading ? 'Updating...' : 'Update password'}
+        <button
+          type="submit"
+          disabled={loading || stepUp.busy}
+          className={authPrimaryButtonClass}
+        >
+          {stepUp.busy ? 'Verifying...' : loading ? 'Updating...' : 'Update password'}
         </button>
       </form>
     </AuthCardShell>
