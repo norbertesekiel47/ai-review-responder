@@ -5,7 +5,7 @@
 // component, just shared building blocks."
 
 export const inputClass =
-  'rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400';
+  'rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900';
 
 export const textareaClass = `${inputClass} resize-y min-h-[80px]`;
 

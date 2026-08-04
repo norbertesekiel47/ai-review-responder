@@ -13,13 +13,15 @@ export default async function CsvImportPage() {
   // Defense-in-depth behind src/proxy.ts's /admin gate. No read data — this page
   // is an upload form, so "server-first" means the chrome renders in the RSC
   // payload.
-  await requireAdminPage(sql, { from: '/admin/locations/csv-import' });
+  // aal2: api/admin/locations/csv-import is gated by requireAdminWithAal2 —
+  // step up before the upload form renders, not after a file is chosen.
+  await requireAdminPage(sql, { from: '/admin/locations/csv-import', aal2: true });
 
   return (
     <AdminPage
       group="Businesses"
       title="Locations import"
-      description="Bulk-add locations to an existing account from a CSV"
+      description="Bulk-add up to 100 Google Business locations to one billing account from a CSV"
       actions={
         <a
           href={CSV_TEMPLATE_HREF}

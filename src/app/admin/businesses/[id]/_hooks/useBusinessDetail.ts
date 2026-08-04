@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelEnrollmentRow, DetailData } from '../types';
 
@@ -32,6 +33,7 @@ export function useBusinessDetail(
   { initialDetail, initialChannels }: UseBusinessDetailOptions = {},
 ): UseBusinessDetailResult {
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
@@ -75,6 +77,10 @@ export function useBusinessDetail(
     // Owner-email edits upsert channel_enrollments inside the PATCH txn; the
     // Channels table must refresh to show the new handle.
     void queryClient.invalidateQueries({ queryKey: ['admin-business-channels', businessId] });
+    // The page <h1> and description are server-rendered from business.name /
+    // .category, which ProfileEditor can edit. Invalidating the react-query
+    // cache alone leaves the chrome showing the pre-edit name until a reload.
+    router.refresh();
   };
 
   const clearBounceFlag = async () => {

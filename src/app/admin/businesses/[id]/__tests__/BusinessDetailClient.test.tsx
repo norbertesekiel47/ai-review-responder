@@ -2,6 +2,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// useBusinessDetail calls router.refresh() from invalidate(), so an edited
+// name/category reaches the server-rendered page chrome. jsdom mounts no app
+// router, so stub next/navigation.
+const { mockRefresh } = vi.hoisted(() => ({ mockRefresh: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
+}));
+
 import { BusinessDetailClient } from '../BusinessDetailClient';
 import type { ChannelEnrollmentRow, DetailData } from '../types';
 

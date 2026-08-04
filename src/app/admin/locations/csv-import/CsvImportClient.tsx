@@ -136,7 +136,7 @@ export function CsvImportClient() {
     // AdminPage owns the page width, padding and background now.
     <div className="max-w-3xl">
       <p className="mb-4 text-sm text-gray-600">
-        Upload up to 100 Google Business locations for one billing account.
+        Locations are matched to the account by ID; existing locations are skipped.
       </p>
 
       <form
@@ -157,7 +157,7 @@ export function CsvImportClient() {
               value={accountId}
               onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
               placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             />
           </div>
 
@@ -182,7 +182,7 @@ export function CsvImportClient() {
             </p>
             <a
               href={CSV_README_HREF}
-              className="mt-2 inline-block text-xs text-gray-600 hover:underline"
+              className="mt-2 inline-block text-xs text-gray-600 underline hover:text-gray-900"
             >
               View template notes
             </a>
@@ -217,7 +217,7 @@ export function CsvImportClient() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-50"
+              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:opacity-50"
             >
               {submitting ? 'Importing…' : 'Import locations'}
             </button>
@@ -242,7 +242,7 @@ export function CsvImportClient() {
               </ul>
               <Link
                 href="/help/contact"
-                className="mt-4 inline-block text-sm font-medium text-gray-900 hover:underline"
+                className="mt-4 inline-block text-sm font-medium text-gray-900 underline hover:text-gray-700"
               >
                 Contact support
               </Link>
