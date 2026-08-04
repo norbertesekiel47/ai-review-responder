@@ -15,10 +15,18 @@ therefore both claiming 098: the ADR-0011 collision class the map's
 ONE-migration-in-flight rule exists to prevent.
 
 **Resolution (owner call, 2026-08-03):** **#656 takes migration 099. #645 keeps
-098 and merges FIRST.** #645 is materially ahead — plan approved at review round
-2, gate green, three docs-only commits — while #656 had written nothing.
-Renumbering the not-yet-started ticket is free; renumbering #645 would have cost
-a plan revision and a test-file rename mid-flight on the ticket further along.
+098 and merges FIRST.** #645 is materially ahead — committed plan, one revision
+round applied, gate green in docs-only mode, three commits — while #656 had
+written nothing. Renumbering the not-yet-started ticket is free; renumbering
+#645 would have cost a plan revision and a test-file rename mid-flight on the
+ticket further along.
+
+> **Correction (2026-08-03, from the #645 session).** This entry originally said
+> #645's plan was "approved at review round 2." That was wrong: round 1 returned
+> **REVISE** and was addressed in `711575f4`; round 2 was stopped before it
+> produced a verdict. No approval ever happened. Corrected here so the two
+> branches' records agree — the 098-keeps-#645 call is unaffected, standing on
+> the grounds above rather than on an approval that did not exist.
 
 **Not counted as an `allowed_edit_surface` amendment.** The surface still covers
 exactly one migration file in a directory it already covered — this is a
