@@ -30,7 +30,8 @@ continue: the handoff doc's claims are hints; git state is the truth.
      checks below.
    - The round counters are CUMULATIVE across sessions — a resumed review
      continues from the recorded count under feature.md's caps (1 full +
-     2 verification-only rounds, then escalate to me). Never restart at
+     2 verification-only rounds, then feature.md's round-3 rule — escalate
+     on RISK = high, decide-and-record on normal). Never restart at
      round 1 because the transcript is gone; uncounted rounds are how a
      "max 3" review reached round 5.
    - `git log --oneline $(git merge-base HEAD origin/main)..HEAD` — do the
