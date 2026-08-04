@@ -304,7 +304,92 @@
       "src/app/(authenticated)/settings/channels/page.tsx",
       "src/app/(authenticated)/settings/locations/page.tsx",
       "src/app/(authenticated)/settings/voice/VoiceClient.tsx",
-      "src/app/api/account/settings/route.ts"
+      "src/app/api/account/settings/route.ts",
+
+      // ── Admin console redesign Phase 3 (relocations + mechanical palette/formatter touches) ──
+      // Phase 3 made every admin page server-first: the old client `page.tsx`
+      // bodies moved VERBATIM into sibling `*Client.tsx` files while the page
+      // became a ~30-line RSC shell, and the console palette sweep (indigo/blue →
+      // the neutral console greys) plus the shared `formatAdminDateTime` import
+      // touched many pre-existing files. fallow's `--gate new-only` scopes by
+      // changed FILE, not changed FUNCTION, so both classes pull long-standing
+      // findings into scope for the first time. Verified against `origin/main`
+      // with a coverage-informed `fallow health` baseline — each entry below
+      // records main's numbers so a reviewer can confirm nothing grew. Same
+      // precedent as the "Settings IA optimization" block above.
+      //
+      // NOT suppressed, fixed instead: `GET /api/admin/businesses` (0% tested →
+      // 18 new handler tests) and `useBusinessDetail.clearBounceFlag` (0% tested
+      // → 7 new jsdom tests). Both drop off the report on merit.
+      //
+      // (a) FAITHFUL RELOCATIONS — new filename, pre-existing body.
+      // Glob note: the `[id]`/`[sessionId]` segments are spelled `*` because a
+      // literal `[id]` is a glob character class, matching one of 'i'/'d'.
+      //
+      // BusinessDetailClient.tsx ← src/app/admin/businesses/[id]/page.tsx, which
+      // was 300 lines on main with `BusinessDetailPage` at 269 lines / 15
+      // cyclomatic / 240 CRAP (fallow-CRITICAL on main). The relocated component
+      // is 266 lines / 18 cyclomatic. The +3 cyclomatic is honest and named: the
+      // single `if (isLoading)` / `if (isError || !data)` pair became
+      // `if (isLoading && !data)` / `if (isError && !data)` / `if (!data)` plus a
+      // non-blocking `{isError && <ErrorState/>}` banner — the spec §4 rule that
+      // a page holding server-rendered data must never blank itself on a
+      // background refetch failure. That is 4 short guards in a presentational
+      // component that was already over every threshold on main; extracting them
+      // would not move the finding.
+      "src/app/admin/businesses/*/BusinessDetailClient.tsx",
+      // NewBusinessClient.tsx ← src/app/admin/businesses/new/page.tsx (152 lines
+      // on main; git scores the move at 63% similarity). Flagged `onSubmit` is
+      // unchanged: 9 cyclomatic / 8 cognitive / 52 lines / 90 CRAP on BOTH sides.
+      "src/app/admin/businesses/new/NewBusinessClient.tsx",
+      // DemosClient.tsx ← src/app/admin/demos/page.tsx (276 lines on main; git
+      // scores the move at 65% similarity). Flagged `mutationFn` is unchanged:
+      // 6 cyclomatic / 5 cognitive / 24 lines / 42 CRAP on BOTH sides.
+      "src/app/admin/demos/DemosClient.tsx",
+      //
+      // (b) PRE-EXISTING FILES, MECHANICAL TOUCH ONLY — the exact edit is named
+      // per file; in every case the flagged function's metrics are identical to
+      // main (or lower), so nothing here is masking growth.
+      //
+      // ProfileEditor.tsx — `bg-indigo-600` → `bg-gray-900` on the save button
+      // and the two date cells switched to `formatAdminDateTime`. Its
+      // `ProfileEditor` went 10 → 9 cyclomatic (287 lines both sides) and
+      // `mutationFn` is identical at 8/7/42, 72 CRAP.
+      "src/app/admin/businesses/*/_components/ProfileEditor.tsx",
+      // ManualRankingSection.tsx — palette swap only (indigo → gray on the
+      // submit button + table chrome); 203 lines on both sides. `reducer`
+      // (8/1/18, 72 CRAP) and `submit` (7/7/28, 56 CRAP) are byte-identical to
+      // main.
+      "src/app/admin/businesses/*/_components/ManualRankingSection.tsx",
+      // TrackedKeywordsSection.tsx — palette swap only; 107 lines on both sides.
+      // `save` is identical at 5/5/21, 30 CRAP.
+      "src/app/admin/businesses/*/_components/TrackedKeywordsSection.tsx",
+      // ReviewsList.tsx — one `formatAdminDateTime` import replacing an inline
+      // `toLocaleDateString` (+1 line net). The flagged row-render arrow is
+      // identical at 6/5/38, 42 CRAP.
+      "src/app/admin/businesses/*/_components/ReviewsList.tsx",
+      // ZernioConnectionPanel.tsx — palette swap only (489 → 488 lines).
+      // `handleDisconnect` is identical at 6/6/28, 42 CRAP (main :369, here
+      // :368). NOTE: this file was already listed under `duplicates.ignore`
+      // below; that block does NOT suppress complexity, which is why the health
+      // entry is needed here too.
+      "src/app/admin/businesses/*/_components/ZernioConnectionPanel.tsx",
+      // BusinessInfoSection.tsx — a single `_shared` import line changed. The
+      // flagged `BusinessInfoSection` is identical at 12/6/121, 156 CRAP.
+      "src/app/admin/businesses/new/_components/BusinessInfoSection.tsx",
+      // csv-import/CsvImportClient.tsx — palette swap + `formatAdminDateTime`
+      // (357 → 346 lines). `parseCsvRecords` (15/25/51, 63.6 CRAP) and
+      // `handleSubmit` (12/11/59, 43.1 CRAP) are identical to main; the CSV
+      // tokeniser's inherent branchiness is already acknowledged for this file
+      // in the PR-C block above and under `duplicates.ignore` below — the latter
+      // is dupes-scoped only and never covered complexity.
+      "src/app/admin/locations/csv-import/CsvImportClient.tsx",
+      // impersonate/[sessionId]/view/page.tsx — this one IMPROVED: the locations
+      // table was extracted into ImpersonationLocationsTable.tsx, taking
+      // `AdminImpersonationViewPage` from 12 cyclomatic / 141 lines / 156 CRAP on
+      // main down to 11 / 104 / 132. Still over threshold, so it is acknowledged
+      // rather than left to fail a gate it was already failing before the PR.
+      "src/app/admin/impersonate/*/view/page.tsx"
     ]
   },
   "duplicates": {
@@ -613,7 +698,53 @@
       // the pre-existing clone into fallow's changed-file scope. Acknowledged —
       // extracting a shared fetch helper would be a thin pass-through the design
       // rules reject.
-      "src/lib/google/owner-leads-sheet.ts"
+      "src/lib/google/owner-leads-sheet.ts",
+
+      // ── Admin console redesign Phase 3 (relocations + mechanical palette/formatter touches) ──
+      // Five 2-instance clone groups, ALL of them byte-identical pairs that
+      // already existed on `origin/main` (verified block-by-block with
+      // `git show origin/main:<path>`). None is new copy-paste — Phase 3 only
+      // pulled them into the changed-file scope of `--gate new-only`. Following
+      // the convention used for the CsvImportClient / RankingTrackingWorker /
+      // redis-connection entries above, exactly ONE side of each pair is listed,
+      // which drops the group below `minOccurrences: 2` while leaving the other
+      // side visible to anyone running `fallow dupes` locally.
+      //
+      // BusinessDetailClient.tsx:31-47 ↔ admin/overview/OverviewClient.tsx:32-47
+      // — the HEALTH_BADGE_STYLES/LABELS maps + the `HealthBadge` span. This pair
+      // is verbatim on main between `businesses/[id]/page.tsx:17-31` and the same
+      // OverviewClient block; the relocation to BusinessDetailClient.tsx renamed
+      // one side, nothing more. Churn health is a derived engagement score, not a
+      // subscription/job status, so it is deliberately NOT the shared StatusBadge
+      // (the component's own comment says so). Ignoring the detail side keeps the
+      // Overview copy on the radar.
+      "src/app/admin/businesses/*/BusinessDetailClient.tsx",
+      // ManualRankingSection.tsx covers two groups, both pre-existing on main:
+      //   :114-124 ↔ ChannelsPanel.tsx:74-84 — the `overflow-x-auto` + `<thead>`
+      //     table-header scaffold. Present verbatim on main (ChannelsPanel:41-48
+      //     / ManualRankingSection:114-121); the columns differ (Channel/Handle/
+      //     Status/Last activity vs Date/Keyword/Rank/Source), so the clone is
+      //     the Tailwind chrome only. Phase 3 already routed the LIST tables onto
+      //     the shared DataTable primitive; these two are in-panel sub-tables
+      //     that DataTable's column/paging model does not fit.
+      //   :88-97 ↔ TrackedKeywordsSection.tsx:25-30 — the standard
+      //     `if (!res.ok) { json.catch(() => ({})); throw new Error(error ?? HTTP n) }`
+      //     fetch-error idiom. Present once each on main in ProfileEditor,
+      //     TrackedKeywordsSection and ManualRankingSection; extracting it would
+      //     be the thin pass-through the design rules reject.
+      "src/app/admin/businesses/*/_components/ManualRankingSection.tsx",
+      // TrackedKeywordsSection.tsx:25-30 ↔ ProfileEditor.tsx:157-162 — the same
+      // pre-existing fetch-error idiom as above, third instance.
+      "src/app/admin/businesses/*/_components/TrackedKeywordsSection.tsx",
+      // ReviewsList.tsx:16-21 (`formatStars`) ↔
+      // src/lib/notifications/email/templates/shared.ts:14-19 (`renderStars`) —
+      // the clamped `'★'.repeat()` guard. Byte-identical on main on both sides
+      // (only the comments differ, each naming its own crash mode: the admin
+      // reviews list vs an email send). They sit on opposite sides of the
+      // UI/worker-template boundary and are 6 lines; sharing them would couple an
+      // admin React component to the email template module. Ignoring the admin
+      // side keeps the email helper visible.
+      "src/app/admin/businesses/*/_components/ReviewsList.tsx"
     ]
   }
 }

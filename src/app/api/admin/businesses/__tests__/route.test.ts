@@ -10,10 +10,17 @@ const {
   mockInviteUserByEmail,
   mockDeleteUser,
   mockTopLevelSqlCalls,
+  mockGetAdminBusinessesList,
   linkUpdateState,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockRequireCurrentAal2FromSupabase: vi.fn(),
+  // GET delegates its two queries + row mapping to
+  // src/lib/admin/businesses-list-service (admin console Phase 3). That service
+  // has its own unit suite, so these route tests mock it and assert the
+  // handler's OWN contract: the admin gate, query-param clamping, the response
+  // envelope, and the 500 mapping.
+  mockGetAdminBusinessesList: vi.fn(),
   mockTxCalls: [] as unknown[][],
   mockInviteUserByEmail: vi.fn(),
   mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
@@ -94,6 +101,10 @@ vi.mock('@/lib/db/server', () => {
   };
 });
 
+vi.mock('@/lib/admin/businesses-list-service', () => ({
+  getAdminBusinessesList: mockGetAdminBusinessesList,
+}));
+
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
 }));
@@ -108,7 +119,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 // Import AFTER mocks + env
-import { POST } from '../route';
+import { GET, POST } from '../route';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -367,5 +378,178 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     expect(res.status).toBe(500);
     expect(mockDeleteUser).toHaveBeenCalledWith('invited-auth-uuid-123');
     consoleSpy.mockRestore();
+  });
+});
+
+// ── GET /api/admin/businesses ───────────────────────────────────────
+//
+// The handler is thin by design (Phase 3 moved the SQL into
+// businesses-list-service so the /admin/businesses server page can read the
+// same data without an HTTP hop), but it still owns three things nothing else
+// covers: the plain-admin gate (no AAL2 — reads are not control-plane
+// mutations), the limit/offset parse+clamp, and the `{...data, limit, offset}`
+// envelope the client pager depends on.
+
+function makeGetRequest(query = ''): NextRequest {
+  return new NextRequest(`http://localhost/api/admin/businesses${query}`, {
+    method: 'GET',
+  });
+}
+
+const LIST_FIXTURE = {
+  businesses: [
+    {
+      id: '01890000-0000-7000-8000-0000000000aa',
+      name: 'Test Cafe',
+      category: 'Cafe',
+      subscriptionStatus: 'active',
+      lastSyncAt: '2026-08-01T10:00:00.000Z',
+      pendingCount: 2,
+    },
+  ],
+  total: 1,
+};
+
+describe('GET /api/admin/businesses', () => {
+  beforeEach(() => {
+    mockRequireRole.mockReset();
+    mockGetAdminBusinessesList.mockReset();
+    mockRequireRole.mockResolvedValue({
+      id: '01890000-0000-7000-8000-000000000001',
+      name: 'Admin User',
+      email: 'admin@repworth.com',
+      role: 'admin',
+      accountId: null,
+      locationId: null,
+    });
+    mockGetAdminBusinessesList.mockResolvedValue(LIST_FIXTURE);
+  });
+
+  it('gates on the admin role and returns 401 without querying', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(401);
+    expect(mockGetAdminBusinessesList).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when the caller is authenticated but not an admin', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(403);
+    expect(mockGetAdminBusinessesList).not.toHaveBeenCalled();
+  });
+
+  it('requires the "admin" role specifically (not owner)', async () => {
+    await GET(makeGetRequest());
+    expect(mockRequireRole).toHaveBeenCalledWith(expect.anything(), 'admin');
+  });
+
+  it('returns the service payload plus the echoed limit/offset — and nothing else', async () => {
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // Pin the envelope: the pager reads limit/offset back off the response, so
+    // an accidental extra/renamed key is a client-visible break.
+    expect(Object.keys(body).sort()).toEqual(
+      ['businesses', 'limit', 'offset', 'total'].sort(),
+    );
+    expect(body.businesses).toEqual(LIST_FIXTURE.businesses);
+    expect(body.total).toBe(1);
+    expect(body.limit).toBe(20);
+    expect(body.offset).toBe(0);
+  });
+
+  it('defaults to limit=20 offset=0 when no query params are supplied', async () => {
+    await GET(makeGetRequest());
+    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(expect.anything(), {
+      limit: 20,
+      offset: 0,
+    });
+  });
+
+  it('passes through in-range limit/offset', async () => {
+    const res = await GET(makeGetRequest('?limit=50&offset=100'));
+
+    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(expect.anything(), {
+      limit: 50,
+      offset: 100,
+    });
+    const body = await res.json();
+    expect(body.limit).toBe(50);
+    expect(body.offset).toBe(100);
+  });
+
+  it.each([
+    // [query, expectedLimit, why]
+    ['?limit=500', 100, 'clamps above the 100 ceiling'],
+    ['?limit=-5', 1, 'clamps negatives to the floor of 1'],
+    ['?limit=abc', 20, 'NaN falls back to the 20 default'],
+    ['?limit=', 20, 'empty string falls back to the 20 default'],
+  ])('limit %s → %i (%s)', async (query, expected) => {
+    await GET(makeGetRequest(query));
+    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ limit: expected }),
+    );
+  });
+
+  it('limit=0 resolves to 20, not 1 — parseInt yields 0 which is falsy', async () => {
+    // Documents the exact operator order in the handler:
+    //   (parseInt('0') || 20) === 20, then max(20,1) → 20, then min(20,100) → 20.
+    // A future refactor to `?? 20` would change this to 1; pin it either way.
+    await GET(makeGetRequest('?limit=0'));
+    const call = mockGetAdminBusinessesList.mock.calls[0]?.[1] as { limit: number };
+    expect(call.limit).toBe(20);
+  });
+
+  it.each([
+    ['?offset=-10', 0, 'clamps negatives to 0'],
+    ['?offset=abc', 0, 'NaN falls back to 0'],
+    ['?offset=250', 250, 'has no upper bound'],
+  ])('offset %s → %i (%s)', async (query, expected) => {
+    await GET(makeGetRequest(query));
+    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ offset: expected }),
+    );
+  });
+
+  it('echoes the CLAMPED values, not the raw query params', async () => {
+    const res = await GET(makeGetRequest('?limit=9999&offset=-1'));
+    const body = await res.json();
+    expect(body.limit).toBe(100);
+    expect(body.offset).toBe(0);
+  });
+
+  it('maps a service throw to a 500 without leaking the error message', async () => {
+    mockGetAdminBusinessesList.mockRejectedValue(new Error('connection terminated'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'Failed to fetch businesses' });
+    expect(JSON.stringify(body)).not.toContain('connection terminated');
+
+    consoleSpy.mockRestore();
+  });
+
+  it('serialises an empty result set without special-casing', async () => {
+    mockGetAdminBusinessesList.mockResolvedValue({ businesses: [], total: 0 });
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ businesses: [], total: 0, limit: 20, offset: 0 });
   });
 });
