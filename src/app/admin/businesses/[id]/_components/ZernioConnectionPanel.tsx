@@ -7,6 +7,7 @@ import type {
   AwaitingOwnerConnectResponse,
   ZernioFinalizeIncident,
 } from '../types';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 interface ZernioConnectionPanelProps {
   businessId: string;
@@ -36,15 +37,6 @@ const ZERNIO_CONNECTION_BADGE_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
   not_connected: 'Not connected',
 };
-
-function formatTimestamp(iso: string | null): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
 
 function truncate(text: string | null, max: number): string {
   if (!text) return '';
@@ -79,14 +71,14 @@ function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Connected at
             </p>
-            <p className="mt-0.5 text-gray-800">{formatTimestamp(connection.connectedAt)}</p>
+            <p className="mt-0.5 text-gray-800">{formatAdminDateTime(connection.connectedAt)}</p>
           </div>
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Disconnected at
             </p>
             <p className="mt-0.5 text-gray-800">
-              {formatTimestamp(connection.disconnectedAt)}
+              {formatAdminDateTime(connection.disconnectedAt)}
             </p>
           </div>
           {connection.disconnectReason && (
@@ -103,7 +95,7 @@ function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary
                 Last error
                 {connection.lastErrorAt && (
                   <span className="ml-2 font-normal normal-case text-gray-400">
-                    {formatTimestamp(connection.lastErrorAt)}
+                    {formatAdminDateTime(connection.lastErrorAt)}
                   </span>
                 )}
               </p>
@@ -198,7 +190,7 @@ function AwaitingQueueSection({
               <span className="text-rw-teal">{formatStars(r.starRating)}</span>
               <span className="font-medium text-gray-700">{r.reviewerName}</span>
               <span className="text-xs text-gray-400">
-                Queued {formatTimestamp(r.createdAt)}
+                Queued {formatAdminDateTime(r.createdAt)}
               </span>
               <button
                 type="button"
@@ -248,7 +240,7 @@ function IncidentsSection({
             <div className="flex flex-wrap gap-3">
               <span className="text-red-700">
                 <span className="font-medium">Opened:</span>{' '}
-                {formatTimestamp(i.finalizeUnknownAt)}
+                {formatAdminDateTime(i.finalizeUnknownAt)}
               </span>
               <span className="text-red-700">
                 <span className="font-medium">Flow:</span>{' '}

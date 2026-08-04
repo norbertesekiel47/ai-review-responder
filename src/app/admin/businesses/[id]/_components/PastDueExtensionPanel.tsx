@@ -2,6 +2,7 @@
 
 import { FormEvent, useReducer } from 'react';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { ADMIN_TIME_ZONE_LABEL, formatAdminDate } from '@/components/admin/ui/format';
 
 interface PastDueExtensionPanelProps {
   accountId: string;
@@ -9,11 +10,6 @@ interface PastDueExtensionPanelProps {
   onGranted: () => void;
 }
 
-const EXTENSION_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric',
-});
 
 interface ExtensionState {
   days: string;
@@ -113,7 +109,7 @@ export function PastDueExtensionPanel({
 
       const expiresAt = json.extension?.expires_at;
       const formatted = expiresAt
-        ? EXTENSION_DEADLINE_FORMATTER.format(new Date(expiresAt))
+        ? `${formatAdminDate(expiresAt)} ${ADMIN_TIME_ZONE_LABEL}`
         : 'the updated deadline';
       dispatch({ type: 'submitSuccess', message: `Extension granted until ${formatted}.` });
       onGranted();

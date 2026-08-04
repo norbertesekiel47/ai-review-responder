@@ -12,6 +12,7 @@ import type { AdminJobsData } from '@/lib/admin/jobs-service';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminCount, formatAdminDateTime } from '@/components/admin/ui/format';
 
 // Local HTTP-boundary mirror; canonical owner is src/lib/shared/pool-wait.ts (PoolWait).
 type PoolWaitPayload = { waitMs: number; timedOut: boolean; saturating: boolean; max: number };
@@ -52,7 +53,7 @@ const columns: DataTableColumn<FailedJob>[] = [
     ),
   },
   { key: 'attempts', header: 'Attempts', render: (j) => `${j.attempts}/${j.maxAttempts}` },
-  { key: 'created', header: 'Created', render: (j) => new Date(j.createdAt).toLocaleString() },
+  { key: 'created', header: 'Created', render: (j) => formatAdminDateTime(j.createdAt) },
 ];
 
 function JobsContent({
@@ -76,17 +77,17 @@ function JobsContent({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatTile
           label="Pending"
-          value={data.outbox.pending.toLocaleString()}
+          value={formatAdminCount(data.outbox.pending)}
           alert={data.outbox.pending > 10}
         />
-        <StatTile label="Dispatching" value={data.outbox.dispatching.toLocaleString()} />
-        <StatTile label="Dispatched" value={data.outbox.dispatched.toLocaleString()} />
+        <StatTile label="Dispatching" value={formatAdminCount(data.outbox.dispatching)} />
+        <StatTile label="Dispatched" value={formatAdminCount(data.outbox.dispatched)} />
         <StatTile
           label="Failed"
-          value={data.outbox.failed.toLocaleString()}
+          value={formatAdminCount(data.outbox.failed)}
           alert={data.outbox.failed > 0}
         />
-        <StatTile label="Completed Today" value={data.outbox.completedToday.toLocaleString()} />
+        <StatTile label="Completed Today" value={formatAdminCount(data.outbox.completedToday)} />
       </div>
 
       {/* BullMQ queue depth */}
@@ -109,7 +110,7 @@ function JobsContent({
               title={`Shared pool wait (max ${pool.max} connections)`}
             >
               Pool wait: {pool.timedOut ? '≥' : ''}
-              {pool.waitMs.toLocaleString()} ms
+              {formatAdminCount(pool.waitMs)} ms
             </span>
           )}
         </div>
@@ -147,7 +148,7 @@ function JobsContent({
       {/* Failed jobs table */}
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-gray-800">
-          Failed Outbox Jobs ({data.failedTotal.toLocaleString()})
+          Failed Outbox Jobs ({formatAdminCount(data.failedTotal)})
         </h2>
         <div className="mt-3">
           <DataTable

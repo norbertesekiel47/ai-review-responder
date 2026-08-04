@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export interface DataTableColumn<T> {
   key: string;
@@ -57,6 +57,20 @@ function pageCountOf(totalRows: number, pageSize: number): number {
  * calling, card lists do not, so a page index past the end renders a
  * disabled-Next footer here and a clamped one there. Both keep Previous
  * reachable, which is the property that matters.
+ *
+ * TWO GUARDS, both from CF-2, both against count⇄list skew (the count query and
+ * the row query are separate reads, and a 30s poll can land between them):
+ *
+ *   1. `show` requires a page to actually be reachable from another page —
+ *      `pageCount > 1 || page > 0`. The old rule `totalRows > rowsOnPage` fired
+ *      on a SINGLE-page result whose list came back short (`{page: 0,
+ *      pageSize: 50, rowsOnPage: 3, totalRows: 10}`), rendering a footer that
+ *      claimed 7 more rows with Previous AND Next both disabled — a dead end
+ *      with nothing to click.
+ *   2. A `page` past the end makes `start > totalRows`, which used to print the
+ *      inverted `Showing 101–90 of 90`. That page genuinely holds no rows, so
+ *      it takes the honest empty label and (via guard 1, `page > 0`) keeps
+ *      Previous live to walk back.
  */
 export function serverPaginationFooterState({
   page,
@@ -72,13 +86,13 @@ export function serverPaginationFooterState({
   const pageCount = pageCountOf(totalRows, pageSize);
   const start = page * pageSize + 1;
   const end = Math.min(start + rowsOnPage - 1, totalRows);
+  const hasRenderableRange = rowsOnPage > 0 && start <= totalRows;
   return {
     pageCount,
-    label:
-      rowsOnPage > 0
-        ? `Showing ${start}–${end} of ${totalRows}`
-        : `No rows on this page (${totalRows} total)`,
-    show: totalRows > rowsOnPage || pageCount > 1,
+    label: hasRenderableRange
+      ? `Showing ${start}–${end} of ${totalRows}`
+      : `No rows on this page (${totalRows} total)`,
+    show: pageCount > 1 || page > 0,
   };
 }
 
@@ -145,6 +159,21 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
   // it's in range.
   const currentPage = Math.min(serverPagination ? serverPagination.page : page, pageCount - 1);
   const visible = serverPagination ? sorted : sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+
+  // CF-2: clamping for DISPLAY is not enough. The caller still holds the
+  // out-of-range page number, so it keeps refetching an empty page, and once
+  // `pageCount` collapses to 1 the footer disappears (nothing is reachable) —
+  // leaving no control that can put the caller back in range. Push the clamp
+  // back so the caller's state converges. Idempotent: after the caller adopts
+  // it the condition is false, and a caller that ignores it re-renders no more
+  // than it already would.
+  const serverPage = serverPagination?.page;
+  const serverOnPageChange = serverPagination?.onPageChange;
+  const clampedServerPage = serverPage === undefined ? 0 : Math.min(serverPage, pageCount - 1);
+  useEffect(() => {
+    if (serverPage === undefined || serverOnPageChange === undefined) return;
+    if (serverPage > clampedServerPage) serverOnPageChange(clampedServerPage);
+  }, [serverPage, clampedServerPage, serverOnPageChange]);
 
   function toggleSort(key: string) {
     if (!serverPagination) setPage(0);

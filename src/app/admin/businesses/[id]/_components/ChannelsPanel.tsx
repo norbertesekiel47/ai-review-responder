@@ -4,6 +4,8 @@ import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentW
 import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentWidget';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import type { BusinessDetail, ChannelEnrollmentRow } from '../types';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
+import { ErrorState } from '@/components/admin/ui/states';
 
 // Deliberately NOT the shared `StatusBadge` (src/components/admin/ui/StatusBadge.tsx):
 // none of these four keys exist in the shared map, so every one of them would
@@ -35,15 +37,36 @@ interface ChannelsPanelProps {
   business: BusinessDetail;
   businessId: string;
   enrollments: ChannelEnrollmentRow[];
+  /** The channels query is separate from the detail query — see useBusinessDetail. */
+  channelsLoading: boolean;
+  channelsError: boolean;
 }
 
-export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPanelProps) {
+export function ChannelsPanel({
+  business,
+  businessId,
+  enrollments,
+  channelsLoading,
+  channelsError,
+}: ChannelsPanelProps) {
   return (
     <>
       {/* Channels */}
       <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Channels</h2>
-        {enrollments.length === 0 ? (
+        {/* An empty list and a failed fetch are NOT the same fact: "no
+            enrollments" means this business cannot be notified, which is an
+            operational finding; a 500 means we do not know. `useBusinessDetail`
+            has always exposed these two flags separately — this is the panel
+            that consumes them. */}
+        {enrollments.length === 0 && channelsError ? (
+          <ErrorState
+            title="Channels failed to load"
+            detail={`GET /api/admin/businesses/${businessId}/channels failed — enrollment state is unknown, not empty.`}
+          />
+        ) : enrollments.length === 0 && channelsLoading ? (
+          <p className="text-sm text-gray-500">Loading channel enrollments…</p>
+        ) : enrollments.length === 0 ? (
           <p className="text-sm text-gray-500">
             No channel enrollments; business cannot receive approval notifications.
           </p>
@@ -65,15 +88,7 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
                     <td className="py-2 font-mono text-gray-700">{e.handle}</td>
                     <td className="py-2"><ChannelEnrollmentBadge status={e.status} /></td>
                     <td className="py-2 text-gray-700">
-                      {e.last_activity_at
-                        ? new Date(e.last_activity_at).toLocaleString('en-GB', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : '—'}
+                      {formatAdminDateTime(e.last_activity_at)}
                     </td>
                   </tr>
                 ))}

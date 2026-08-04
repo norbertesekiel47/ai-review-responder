@@ -3,6 +3,7 @@
 import { useEffect, useReducer } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BusinessDetail } from '../types';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 /**
  * Defensive anchor href sanitizer. The schema validator rejects non-http(s)
@@ -233,7 +234,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           <div>
             <dt className="font-medium text-gray-500">Last Sync</dt>
             <dd className="text-gray-900">
-              {business.lastSyncAt ? new Date(business.lastSyncAt).toLocaleString() : 'Never'}
+              {formatAdminDateTime(business.lastSyncAt, 'Never')}
             </dd>
           </div>
           <div className="sm:col-span-2">

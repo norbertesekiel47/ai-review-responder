@@ -6,6 +6,7 @@ import type { AdminFlaggedData } from '@/lib/admin/flagged-service';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { PaginationFooter, serverPaginationFooterState } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 type FlaggedData = AdminFlaggedData & { limit: number; offset: number };
 
@@ -71,7 +72,7 @@ function FlaggedContent({
                   {item.starRating}★ from {item.reviewerName}
                 </span>
                 <span className="ml-auto text-xs text-gray-400">
-                  {new Date(item.createdAt).toLocaleString()}
+                  {formatAdminDateTime(item.createdAt)}
                 </span>
               </div>
 

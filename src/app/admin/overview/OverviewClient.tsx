@@ -11,6 +11,7 @@ import { StatTile } from '@/components/admin/ui/StatTile';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminCount } from '@/components/admin/ui/format';
 
 export const PAGE_SIZE = 20;
 
@@ -145,18 +146,18 @@ function OverviewContent({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatTile
           label="Pending Outbox"
-          value={systemHealth.pendingOutbox.toLocaleString()}
+          value={formatAdminCount(systemHealth.pendingOutbox)}
           alert={systemHealth.pendingOutbox > 10}
         />
         <StatTile
           label="Failed Jobs"
-          value={systemHealth.failedJobs.toLocaleString()}
+          value={formatAdminCount(systemHealth.failedJobs)}
           alert={systemHealth.failedJobs > 0}
         />
         <StatTile label="Today's API Cost" value={`$${systemHealth.todayCostUsd.toFixed(2)}`} />
         <StatTile
           label="Notif Failures (24h)"
-          value={systemHealth.notificationFailures24h.toLocaleString()}
+          value={formatAdminCount(systemHealth.notificationFailures24h)}
           alert={systemHealth.notificationFailures24h > 0}
         />
         <StatTile
@@ -190,7 +191,7 @@ function OverviewContent({
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-gray-800">
-          Businesses ({data.totalBusinesses.toLocaleString()})
+          Businesses ({formatAdminCount(data.totalBusinesses)})
         </h2>
         <div className="mt-3">
           <DataTable

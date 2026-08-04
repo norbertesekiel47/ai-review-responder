@@ -13,6 +13,7 @@ import type {
 } from '@/lib/admin/offboardings-service';
 import { PaginationFooter, serverPaginationFooterState } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 export const PAGE_SIZE = 50 as const;
 
@@ -240,7 +241,7 @@ function OffboardingCard({
           </p>
         </div>
         <div className="text-right text-xs text-gray-500">
-          <div>Requested {formatDateTime(item.requestedAt)}</div>
+          <div>Requested {formatAdminDateTime(item.requestedAt)}</div>
           <div>Subscription {item.subscriptionStatus.replace(/_/g, ' ')}</div>
         </div>
       </div>
@@ -294,7 +295,7 @@ function OffboardingCard({
                     <div>{entry.scrubbed_resource_reference}</div>
                     <div>{entry.reason}</div>
                     <div className="text-gray-500">
-                      {formatDateTime(entry.recorded_at)}
+                      {formatAdminDateTime(entry.recorded_at)}
                       {entry.ticket ? ` · ${entry.ticket}` : ''}
                     </div>
                   </div>
@@ -432,13 +433,9 @@ function DueDate({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="rounded border border-gray-200 bg-white px-3 py-2">
       <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className="mt-1 text-sm text-gray-900">{value ? formatDateTime(value) : '-'}</div>
+      <div className="mt-1 text-sm text-gray-900">{formatAdminDateTime(value, '-')}</div>
     </div>
   );
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString();
 }
 
 function shortId(value: string): string {

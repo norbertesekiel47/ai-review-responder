@@ -9,6 +9,7 @@ import type { CostData as CostReportData } from '@/lib/admin/cost-report-service
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminCount } from '@/components/admin/ui/format';
 
 export const PAGE_SIZE = 20;
 const DEFAULT_DAYS = 30;
@@ -101,7 +102,7 @@ function CostMiniTable<T>({
             <tr key={rowKey(row)} className="hover:bg-gray-50">
               <td className={`px-4 py-2 ${primaryClassName}`}>{primaryLabel(row)}</td>
               <td className="px-4 py-2 text-right text-gray-700">${totalUsd(row).toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-gray-500">{callCount(row).toLocaleString()}</td>
+              <td className="px-4 py-2 text-right text-gray-500">{formatAdminCount(callCount(row))}</td>
             </tr>
           ))}
         </tbody>
@@ -134,7 +135,7 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
       key: 'calls',
       header: 'Calls',
       className: 'text-right',
-      render: (row) => row.callCount.toLocaleString(),
+      render: (row) => formatAdminCount(row.callCount),
       sortValue: (row) => row.callCount,
     },
     {
@@ -371,7 +372,7 @@ function CostsContent({
       {/* By Business */}
       <div className="mt-6">
         <h2 className="text-lg font-semibold text-gray-800">
-          By Business ({days}d): {data.totalBusinesses.toLocaleString()} businesses
+          By Business ({days}d): {formatAdminCount(data.totalBusinesses)} businesses
         </h2>
         <div className="mt-3">
           <DataTable

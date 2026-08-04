@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
 import { PlaceAutocomplete, type PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { ADMIN_TIME_ZONE_LABEL, formatAdminDate } from '@/components/admin/ui/format';
 
 export function DemosClient({ initialData }: { initialData: DemoListItem[] }) {
   return (
@@ -63,7 +64,10 @@ function GenerateForm() {
   });
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
+    // CF-5, the mixed form+list case: measure the FORM at max-w-2xl (its inputs
+    // are unfillable stretched to the max-w-7xl page width) and leave DemoList
+    // full width below. See the content-measure rule on <AdminPage>.
+    <div className="mb-8 max-w-2xl rounded-lg border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
         Generate New Demo
       </h2>
@@ -283,11 +287,10 @@ function DemoRow({ demo }: { demo: DemoListItem }) {
             </a>
           )}
           <span>{demo.viewCount} views</span>
+          {/* Inline date with no column header to carry the zone, so the label
+              rides along (see src/components/admin/ui/format.ts). */}
           <span>
-            {new Date(demo.createdAt).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-            })}
+            {formatAdminDate(demo.createdAt)} {ADMIN_TIME_ZONE_LABEL}
           </span>
         </div>
         {demo.generationError && (

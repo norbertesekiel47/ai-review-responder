@@ -6,6 +6,7 @@ import type { AdminNotificationsData } from '@/lib/admin/notifications-service';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 // Mirrors src/app/api/admin/notifications/route.ts's NotifData exactly: the
 // delivery log + businesses dropdown come from AdminNotificationsData (single
@@ -17,16 +18,6 @@ type Delivery = NotifData['notifications'][number];
 
 export const PAGE_SIZE = 20 as const;
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {
   if (d.deliveredAt) return 'delivered';
@@ -39,7 +30,7 @@ const columns: DataTableColumn<Delivery>[] = [
   { key: 'channel', header: 'Channel', render: (d) => <span className="capitalize text-gray-700">{d.channel}</span> },
   { key: 'recipient', header: 'Recipient', render: (d) => <span className="font-mono text-xs text-gray-500">{d.recipient}</span> },
   { key: 'template', header: 'Template', render: (d) => <span className="text-gray-700">{d.template}</span> },
-  { key: 'sent', header: 'Sent', render: (d) => <span className="whitespace-nowrap text-gray-600">{formatDate(d.sentAt)}</span> },
+  { key: 'sent', header: 'Sent', render: (d) => <span className="whitespace-nowrap text-gray-600">{formatAdminDateTime(d.sentAt)}</span> },
   {
     key: 'status',
     header: 'Status',

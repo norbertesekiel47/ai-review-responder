@@ -2,6 +2,7 @@
 
 import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
 import type { AutoApprovalDiagnostics } from '../types';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Runtime flag off',
@@ -28,10 +29,6 @@ function sourceLabel(source: string): string {
   if (source === 'location_override') return 'Location override';
   if (source === 'account_default') return 'Account default';
   return 'None';
-}
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString();
 }
 
 export function AutoApprovalDiagnosticsPanel({
@@ -154,7 +151,7 @@ function AuditGrid({ diagnostics }: { diagnostics: AutoApprovalDiagnostics }) {
         rows={diagnostics.recentApprovalAudit.map((row) => ({
           id: row.id,
           label: row.action.replace(/_/g, ' '),
-          meta: `${row.responseId} · ${fmt(row.createdAt)}`,
+          meta: `${row.responseId} · ${formatAdminDateTime(row.createdAt)}`,
         }))}
       />
       <AuditList
@@ -163,7 +160,7 @@ function AuditGrid({ diagnostics }: { diagnostics: AutoApprovalDiagnostics }) {
         rows={diagnostics.recentPolicyChanges.map((row) => ({
           id: row.id,
           label: row.eventType.replace(/_/g, ' '),
-          meta: `${row.locationId ?? 'account'} · ${fmt(row.createdAt)}`,
+          meta: `${row.locationId ?? 'account'} · ${formatAdminDateTime(row.createdAt)}`,
         }))}
       />
     </div>

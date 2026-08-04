@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 interface Rate {
   numerator: number;
@@ -144,7 +145,7 @@ function FlagEvidenceList({ verdicts }: { verdicts: FlagEvidence[] }) {
               : 'Flagged without categories'}
           </p>
           <p className="mt-1 font-mono">Response {verdict.responseId}</p>
-          <p className="mt-1">{new Date(verdict.createdAt).toLocaleString()}</p>
+          <p className="mt-1">{formatAdminDateTime(verdict.createdAt)}</p>
         </li>
       ))}
     </ul>
@@ -174,7 +175,7 @@ function SuspensionRow({
         </span>
         <p className="mt-2 leading-5 text-gray-800">{item.suspendedReason ?? 'No reason recorded.'}</p>
         <p className="mt-2 text-xs text-gray-500">
-          {new Date(item.suspendedAt).toLocaleString()}
+          {formatAdminDateTime(item.suspendedAt)}
         </p>
       </td>
       <td className="whitespace-nowrap px-4 py-4 text-xs leading-6 text-gray-500">

@@ -9,6 +9,7 @@ import {
   resolveImpersonationViewSession,
 } from '@/lib/admin/impersonation/view';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 import { EndImpersonationButton } from './EndImpersonationButton';
 import {
   ImpersonationLocationsTable,
@@ -16,13 +17,6 @@ import {
 } from './ImpersonationLocationsTable';
 
 export const dynamic = 'force-dynamic';
-
-const IMPERSONATION_EXPIRES_FORMATTER = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-});
 
 interface PageProps {
   params: Promise<{ sessionId: string }>;
@@ -66,7 +60,7 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
 
   const { session, admin } = resolution;
   const locations = await loadImpersonationAccountLocations(sql, session.accountId);
-  const expiresAt = IMPERSONATION_EXPIRES_FORMATTER.format(session.expiresAt);
+  const expiresAt = formatAdminDateTime(session.expiresAt);
   // Derived server-side so the client table receives plain strings only — no
   // `Date` crosses the RSC boundary (convention #2).
   const locationRows: ImpersonationLocationRow[] = locations.map((location) => ({

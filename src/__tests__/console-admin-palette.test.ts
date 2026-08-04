@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // 2026-05 launch audit P1 #14 (doc retired) + repworth-brand-design rubric: amber, orange, and
@@ -36,6 +36,8 @@ const SWEPT_FILES = [
   'src/app/admin/flagged/page.tsx',
   'src/app/admin/flagged/FlaggedClient.tsx',
   'src/app/admin/autonomy/AutonomySuspensionsClient.tsx',
+  'src/app/admin/runbook/page.tsx',
+  'src/app/admin/businesses/page.tsx',
   'src/app/admin/businesses/BusinessesClient.tsx',
   'src/app/admin/businesses/[id]/BusinessDetailClient.tsx',
   'src/app/admin/businesses/[id]/_components/PastDueExtensionPanel.tsx',
@@ -88,5 +90,37 @@ describe('Console + Admin carry no banned amber/orange/stone palette (P1 #14)', 
     for (const { label, re } of BANNED) {
       expect(text, `${relPath} still contains a ${label}`).not.toMatch(re);
     }
+  });
+});
+
+/**
+ * CF-4. Phases 2/3 moved chrome markup — and the `actions`-slot buttons — OUT of
+ * the client components and INTO the server pages, so a SWEPT_FILES list that
+ * only names `*Client.tsx` goes blind exactly where the Tailwind moved. This
+ * derives the obligation from the filesystem instead of trusting the list:
+ * every `src/app/admin/**\/page.tsx` that carries a `className` must be swept.
+ */
+function adminPagesWithClassNames(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === 'page.tsx' && readFileSync(full, 'utf-8').includes('className')) {
+        out.push(relative(process.cwd(), full));
+      }
+    }
+  };
+  walk(resolve(process.cwd(), 'src/app/admin'));
+  return out.sort();
+}
+
+describe('every admin page.tsx that carries Tailwind is swept (CF-4)', () => {
+  it('finds admin pages to check', () => {
+    expect(adminPagesWithClassNames().length).toBeGreaterThan(0);
+  });
+
+  it.each(adminPagesWithClassNames())('%s is listed in SWEPT_FILES', (relPath) => {
+    expect(SWEPT_FILES, `${relPath} carries Tailwind but is not in SWEPT_FILES`).toContain(relPath);
   });
 });

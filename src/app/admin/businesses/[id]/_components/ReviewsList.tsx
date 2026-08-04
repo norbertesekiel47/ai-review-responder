@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReviewRow } from '../types';
+import { ADMIN_TIME_ZONE_LABEL, formatAdminDate } from '@/components/admin/ui/format';
 
 const RESPONSE_BADGE_COLORS: Record<string, string> = {
   new: 'bg-gray-100 text-gray-600',
@@ -61,7 +62,7 @@ export function ReviewsList({ reviews, totalCount }: ReviewsListProps) {
                 <span className="font-medium text-gray-700">{review.reviewerName}</span>
                 {review.reviewDate && (
                   <span className="text-gray-400">
-                    {new Date(review.reviewDate).toLocaleDateString()}
+                    {formatAdminDate(review.reviewDate)} {ADMIN_TIME_ZONE_LABEL}
                   </span>
                 )}
                 {review.detectedLanguage && (

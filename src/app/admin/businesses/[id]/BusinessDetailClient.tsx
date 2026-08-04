@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState } from '@/components/admin/ui/states';
+import { formatAdminDateTime } from '@/components/admin/ui/format';
 import { ProfileEditor } from './_components/ProfileEditor';
 import { TrackedKeywordsSection } from './_components/TrackedKeywordsSection';
 import { ManualRankingSection } from './_components/ManualRankingSection';
@@ -59,7 +60,7 @@ const approvalAuditColumns: DataTableColumn<ApprovalAuditLogEntry>[] = [
     key: 'date',
     header: 'Date',
     render: (entry) => (
-      <span className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleString()}</span>
+      <span className="whitespace-nowrap">{formatAdminDateTime(entry.createdAt)}</span>
     ),
     sortValue: (entry) => entry.createdAt,
   },
@@ -85,7 +86,7 @@ function accountAuditColumns(account: AccountContext): DataTableColumn<AccountAu
       key: 'date',
       header: 'Date',
       render: (entry) => (
-        <span className="whitespace-nowrap">{new Date(entry.createdAt).toLocaleString()}</span>
+        <span className="whitespace-nowrap">{formatAdminDateTime(entry.createdAt)}</span>
       ),
       sortValue: (entry) => entry.createdAt,
     },
@@ -103,8 +104,17 @@ export function BusinessDetailClient({
   initialDetail,
   initialChannels,
 }: BusinessDetailClientProps) {
-  const { data, isLoading, isError, error, enrollments, invalidate, clearBounceFlag } =
-    useBusinessDetail(businessId, { initialDetail, initialChannels });
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    enrollments,
+    channelsLoading,
+    channelsError,
+    invalidate,
+    clearBounceFlag,
+  } = useBusinessDetail(businessId, { initialDetail, initialChannels });
 
   const failedRequest = `GET /api/admin/businesses/${businessId}`;
 
@@ -308,7 +318,13 @@ export function BusinessDetailClient({
       <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
 
       {/* Channels (table + flag-gated Telegram / WhatsApp enrollment) */}
-      <ChannelsPanel business={business} businessId={businessId} enrollments={enrollments} />
+      <ChannelsPanel
+        business={business}
+        businessId={businessId}
+        enrollments={enrollments}
+        channelsLoading={channelsLoading}
+        channelsError={channelsError}
+      />
 
       {/* Zernio connection panel — auto-publishing state, queued reconnects, ops incidents */}
       <ZernioConnectionPanel

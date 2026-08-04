@@ -9,6 +9,7 @@ import type { AdminBusinessesList } from '@/lib/admin/businesses-list-service';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { formatAdminDate } from '@/components/admin/ui/format';
 
 // Mirrors src/app/api/admin/businesses/route.ts's GET body: the list + total
 // come from AdminBusinessesList (single owner: businesses-list-service.ts);
@@ -21,15 +22,6 @@ type BusinessListData = AdminBusinessesList & {
 type BusinessRow = BusinessListData['businesses'][number];
 
 export const PAGE_SIZE = 20 as const;
-
-function formatDate(iso: string | null): string {
-  if (!iso) return 'Never';
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
 
 const columns: DataTableColumn<BusinessRow>[] = [
   {
@@ -48,7 +40,10 @@ const columns: DataTableColumn<BusinessRow>[] = [
     header: 'Status',
     render: (b) => <StatusBadge status={b.subscriptionStatus} />,
   },
-  { key: 'lastSync', header: 'Last Sync', render: (b) => formatDate(b.lastSyncAt) },
+  // Header carries the zone: `formatAdminDate` deliberately does not self-label
+  // (see src/components/admin/ui/format.ts), and repeating "UTC" per row would
+  // be noise in a date-only column.
+  { key: 'lastSync', header: 'Last Sync (UTC)', render: (b) => formatAdminDate(b.lastSyncAt, 'Never') },
   {
     key: 'pending',
     header: 'Pending',

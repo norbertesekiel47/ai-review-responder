@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { DataTable, type DataTableColumn } from '../DataTable';
+import { DataTable, serverPaginationFooterState, type DataTableColumn } from '../DataTable';
 import { EmptyState } from '../states';
 
 interface Row { id: string; name: string; spend: number }
@@ -142,5 +142,73 @@ describe('DataTable', () => {
     expect(screen.getByText('No rows yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+  });
+
+  // CF-2. A DataTable whose caller sits on a page that `totalRows` has shrunk
+  // past used to display-clamp silently: the footer's own buttons were both
+  // dead and the caller kept refetching an empty page with no way back.
+  it('server pagination: pushes the clamp back to the caller when its page runs past the end', () => {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="No rows yet" />}
+        serverPagination={{ page: 2, pageSize: 20, totalRows: 10, onPageChange }}
+      />,
+    );
+    expect(onPageChange).toHaveBeenCalledWith(0);
+  });
+
+  it('server pagination: leaves an in-range caller page alone', () => {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        emptyState={<EmptyState title="none" />}
+        serverPagination={{ page: 1, pageSize: 3, totalRows: 8, onPageChange }}
+      />,
+    );
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('serverPaginationFooterState (CF-2)', () => {
+  it('keeps today’s label and visibility for an ordinary middle page', () => {
+    expect(serverPaginationFooterState({ page: 1, pageSize: 3, rowsOnPage: 3, totalRows: 8 })).toEqual({
+      pageCount: 3,
+      label: 'Showing 4–6 of 8',
+      show: true,
+    });
+  });
+
+  it('hides the footer when a short list on a single page has nowhere to go', () => {
+    // Count/list skew: `totalRows` says 10, the page returned 3, and pageSize 50
+    // means there is no second page. The old rule showed a footer advertising 7
+    // unreachable rows with Previous AND Next both disabled.
+    expect(serverPaginationFooterState({ page: 0, pageSize: 50, rowsOnPage: 3, totalRows: 10 })).toEqual({
+      pageCount: 1,
+      label: 'Showing 1–3 of 10',
+      show: false,
+    });
+  });
+
+  it('never inverts the range when the caller page runs past totalRows', () => {
+    // Previously `Showing 101–90 of 90`.
+    const state = serverPaginationFooterState({ page: 2, pageSize: 50, rowsOnPage: 5, totalRows: 90 });
+    expect(state.label).toBe('No rows on this page (90 total)');
+    expect(state.show).toBe(true); // Previous stays reachable
+    expect(state.pageCount).toBe(2);
+  });
+
+  it('keeps the empty-page-with-rows-behind-you footer', () => {
+    expect(serverPaginationFooterState({ page: 2, pageSize: 50, rowsOnPage: 0, totalRows: 120 })).toEqual({
+      pageCount: 3,
+      label: 'No rows on this page (120 total)',
+      show: true,
+    });
   });
 });
