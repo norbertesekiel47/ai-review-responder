@@ -75,6 +75,7 @@
     "src/lib/solicitation/suppression.ts",
     "src/lib/solicitation/contacts-repo.ts",
     "src/lib/solicitation/__tests__/**",
+    "src/lib/shared/__tests__/**",
     "src/lib/admin/suppressions-service.ts",
     "src/lib/admin/__tests__/**",
     "src/app/api/admin/suppressions/**",
