@@ -485,8 +485,8 @@ describeWithDb(
       });
       const input = { ...ownerInput(contactId), actorUserId: staffUserId };
       expect(await markContactDoNotContact(sql(), input)).toBe('marked');
-      const [marked] = await sql()<{ id: string }[]>`
-        SELECT id FROM solicitation_suppressions
+      const [marked] = await sql()<{ id: string; suppressed_at: string }[]>`
+        SELECT id, suppressed_at::text AS suppressed_at FROM solicitation_suppressions
         WHERE channel = 'email' AND normalized_handle = ${contactEmail}
       `;
 
@@ -522,8 +522,56 @@ describeWithDb(
       // on the serialized text, which is the shape §9.5 constrains.
       const payload = entries[0]!.payload;
       const serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
-      expect(JSON.parse(serialized)).toEqual({ channel: 'email', scope: 'account' });
+      expect(JSON.parse(serialized)).toEqual({
+        channel: 'email',
+        scope: 'account',
+        markedByUserId: staffUserId,
+        markedAt: marked!.suppressed_at,
+      });
+      // The whole point of §9.5: the entry names users, an account and a
+      // location — never the recipient.
       expect(serialized).not.toContain(contactEmail);
+    });
+
+    it('owner clear records who marked the suppression, not only who cleared it', async () => {
+      const contactEmail = freshHandle();
+      const contactId = await seedContact({
+        name: 'Two Actor Clear',
+        email: contactEmail,
+        visitDates: ['2026-03-15'],
+      });
+
+      // Marked by the staff member, cleared by the account owner. The DELETE is
+      // the last read of the removed row, so if the audit entry does not carry
+      // the marker forward nothing in the system can say who put it there —
+      // exactly the evidence the Correction path snapshots (D-A11).
+      expect(await markContactDoNotContact(sql(), {
+        ...ownerInput(contactId),
+        actorUserId: staffUserId,
+      })).toBe('marked');
+      const [marked] = await sql()<{ id: string; suppressed_at: string }[]>`
+        SELECT id, suppressed_at::text AS suppressed_at FROM solicitation_suppressions
+        WHERE channel = 'email' AND normalized_handle = ${contactEmail}
+      `;
+
+      expect(await clearContactDoNotContact(sql(), ownerInput(contactId))).toBe('cleared');
+
+      const [entry] = await sql()<{ actor_user_id: string | null; payload: unknown }[]>`
+        SELECT actor_user_id, payload FROM account_audit_log
+        WHERE account_id = ${seed().accountId}::uuid
+          AND event_type = 'solicitation_do_not_contact_cleared'
+      `;
+      const payload = entry!.payload;
+      const parsed = JSON.parse(
+        typeof payload === 'string' ? payload : JSON.stringify(payload),
+      ) as { markedByUserId: string | null; markedAt: string };
+
+      // Two different users, and the entry keeps them apart: the actor cleared,
+      // the payload names the one who marked.
+      expect(entry!.actor_user_id).toBe(seed().userId);
+      expect(parsed.markedByUserId).toBe(staffUserId);
+      expect(parsed.markedByUserId).not.toBe(entry!.actor_user_id);
+      expect(parsed.markedAt).toBe(marked!.suppressed_at);
     });
 
     it('owner clear rolls back the suppression delete when the audit insert fails', async () => {

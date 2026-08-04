@@ -291,13 +291,24 @@ export async function clearContactDoNotContact(
     if (row === undefined) return 'not_found';
     if (row.email === null) return 'no_email_handle';
 
-    const deleted = await tx<{ id: string }[]>`
+    // The removed row is the ONLY place the marker's identity still exists: this
+    // DELETE is the last read of it, and afterwards nothing in the system can
+    // answer "who put this here?". The Correction path snapshots exactly this
+    // evidence into its record (D-A11); an owner clear is the other removal path
+    // and gets the same treatment, or the two disagree about what a removal is
+    // worth remembering. `suppressed_at` comes back as ::text so the audit keeps
+    // full microsecond precision instead of a JS Date's truncated milliseconds.
+    const deleted = await tx<{
+      id: string;
+      created_by_user_id: string | null;
+      suppressed_at: string;
+    }[]>`
       DELETE FROM solicitation_suppressions
       WHERE channel = 'email'
         AND normalized_handle = ${row.email}
         AND scope = 'account'
         AND account_id = ${input.accountId}::uuid
-      RETURNING id
+      RETURNING id, created_by_user_id, suppressed_at::text AS suppressed_at
     `;
     const removed = deleted[0];
     if (removed === undefined) return 'not_marked';
@@ -309,8 +320,16 @@ export async function clearContactDoNotContact(
       eventType: 'solicitation_do_not_contact_cleared',
       entityType: 'solicitation_suppression',
       entityId: removed.id,
-      // NEVER the Normalized handle (§9.5) — the entity id is the correlation key.
-      payload: { channel: 'email', scope: 'account' },
+      // NEVER the Normalized handle (§9.5) — the entity id is the correlation
+      // key. Who marked it and when are user/account facts, not recipient
+      // identity, so they are safe here and are what makes the entry readable
+      // without a ledger row to join back to.
+      payload: {
+        channel: 'email',
+        scope: 'account',
+        markedByUserId: removed.created_by_user_id,
+        markedAt: removed.suppressed_at,
+      },
     });
 
     return 'cleared';

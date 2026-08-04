@@ -48,14 +48,19 @@ const CORRECTION_ALREADY_REMOVED_COPY =
  * unreadable at best, and — as `not_found` proved — a token carries no
  * statement at all about who is still suppressed. Clause-shaped, no trailing
  * period, because the Correction path composes onto it.
+ *
+ * A Map, not an object literal: `code` is server-supplied, and an object lookup
+ * on `'constructor'` or `'toString'` resolves to a prototype member — rendering
+ * a function where a sentence belongs. Unreachable today; unreachable by
+ * construction now.
  */
-const ERROR_COPY: Record<string, string> = {
-  invalid_handle: INVALID_HANDLE_COPY,
-  invalid_body: 'The request was malformed — reload the page and try again',
-  forbidden: 'That request was refused — reload the page and try again',
-  mfa_required: 'Your admin session needs a fresh MFA step-up',
-  internal_error: 'Something went wrong on our side',
-};
+const ERROR_COPY = new Map<string, string>([
+  ['invalid_handle', INVALID_HANDLE_COPY],
+  ['invalid_body', 'The request was malformed — reload the page and try again'],
+  ['forbidden', 'That request was refused — reload the page and try again'],
+  ['mfa_required', 'Your admin session needs a fresh MFA step-up'],
+  ['internal_error', 'Something went wrong on our side'],
+]);
 
 /**
  * Never render `body.error` directly: an unrecognised code falls back to a
@@ -63,7 +68,7 @@ const ERROR_COPY: Record<string, string> = {
  */
 function errorSentence(code: string | undefined, fallback: string): string {
   if (code === undefined) return fallback;
-  return ERROR_COPY[code] ?? fallback;
+  return ERROR_COPY.get(code) ?? fallback;
 }
 
 const ENTRY_NOTE_HELPER =
