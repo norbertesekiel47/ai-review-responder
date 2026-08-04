@@ -1,11 +1,13 @@
-'use client';
-
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
+
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { AdminPage } from '@/components/admin/ui/AdminPage';
 
 interface Scenario {
   id: string;
   customerSays: string;
-  firstCheck: string;
+  firstCheck: ReactNode;
   fix: string;
 }
 
@@ -45,12 +47,25 @@ function DocRef({ filename }: { filename: string }) {
   );
 }
 
+function AdminLink({ href }: { href: string }) {
+  return (
+    <Link href={href} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+      {href}
+    </Link>
+  );
+}
+
 const SCENARIOS: Scenario[] = [
   {
     id: 'A1',
     customerSays: 'I never got the approval email.',
-    firstCheck:
-      '/admin/notifications → filter by business → read failure_reason. If no row, check /admin/jobs for stuck send_notification outbox. Also check owner_email_bounced on the business detail page.',
+    firstCheck: (
+      <>
+        <AdminLink href="/admin/notifications" /> → filter by business → read failure_reason. If no
+        row, check <AdminLink href="/admin/jobs" /> for stuck send_notification outbox. Also check
+        owner_email_bounced on the business detail page.
+      </>
+    ),
     fix: 'Verify the owner email address. If wrong, update via Business Profile editor (Edit → Owner Email), then clear the bounce flag via the red banner button. Never clear the flag before verifying.',
   },
   {
@@ -77,24 +92,27 @@ const SCENARIOS: Scenario[] = [
   {
     id: 'A5',
     customerSays: "My reviews aren't being picked up.",
-    firstCheck:
-      'Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?), subscription_status (cancelled?). Check /admin/jobs for failed ingest_zernio_review or zernio_initial_backfill rows. Check zernio_backfill_runs.completed_at for first-connect status.',
+    firstCheck: (
+      <>
+        Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?),
+        subscription_status (cancelled?). Check <AdminLink href="/admin/jobs" /> for failed
+        ingest_zernio_review or zernio_initial_backfill rows. Check
+        zernio_backfill_runs.completed_at for first-connect status.
+      </>
+    ),
     fix: 'Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. If first-connect backfill never completed (zernio_backfill_runs.completed_at IS NULL), re-enqueue zernio_initial_backfill outbox row.',
   },
 ];
 
 export default function RunbookPage() {
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Operational Runbook</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Quick reference for the five most common customer-facing issues.
-          For the full runbook (daily health check, debugging SQL,
-          incident response, weekly maintenance), see{' '}
-          <DocRef filename="docs/operational-runbook.md" /> in the repo.
-        </p>
-      </header>
+    <AdminPage group="Operate" title="Runbook" description="First-response playbook for support scenarios">
+      <p className="mb-6 text-sm text-gray-600">
+        Quick reference for the five most common customer-facing issues. For
+        the full runbook (daily health check, debugging SQL, incident
+        response, weekly maintenance), see{' '}
+        <DocRef filename="docs/operational-runbook.md" /> in the repo.
+      </p>
 
       <section className="rounded-lg border border-gray-200 bg-white">
         <div className="border-b border-gray-200 px-6 py-4">
@@ -167,6 +185,6 @@ export default function RunbookPage() {
           </li>
         </ul>
       </section>
-    </div>
+    </AdminPage>
   );
 }
