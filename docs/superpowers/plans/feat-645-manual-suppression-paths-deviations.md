@@ -189,3 +189,100 @@ mid-suite and would leave two owners of one fact. The other two Step 5 extras
 two new routes are now in the shared table that future contacts routes join.
 
 **Verdict:** ACCEPT — follows the repo convention the target file documents.
+
+---
+
+## D-A8 · 2026-08-03 · T7 — the confirm step is on the safe direction, not the risky one
+
+**What:** the plan puts a confirm step on **marking** do-not-contact and none on
+**clearing** it. T7 implemented it exactly as specified and flagged the
+asymmetry rather than silently "fixing" it.
+
+**Why it is backwards:** marking is the safe direction — it stops mail, and a
+mis-click costs one click to undo. Clearing is the direction with consequences:
+it resumes review requests to a contact the owner deliberately marked
+do-not-contact, and a mis-click is not visible anywhere afterwards. Guarding the
+harmless direction while leaving the consequential one one-click is the wrong way
+round.
+
+**Resolution:** put a confirm step on clearing too, with **different copy** from
+the marking confirm. §7.6 requires the two controls not read as the same thing,
+so identical confirm dialogs would themselves be a defect — the clear confirm
+names what resumes ("We'll start including this contact in review requests
+again"), the mark confirm names what stops.
+
+Note this is an owner clearing THEIR OWN account-scoped row. A global row still
+renders no control at all, so no confirm can exist on that path by construction.
+
+**Verdict:** ACCEPT — implemented as a T7 follow-up, in scope for §7.6.
+
+---
+
+## D-A9 · 2026-08-03 · gate harness — two integration suites collide on one coverage directory
+
+**What:** `scripts/verify-gate.sh --review` reported
+`integration-src-lib-solicitation---tests---contacts-` **FAIL** with
+`ENOENT: lstat '.feature/coverage/src-lib-solicitation---tests---contacts-/.tmp'`.
+Not a test failure: the same run showed TWO rows with that identical name, only
+ONE log file existed, and four coverage directories existed for five suites.
+
+**Root cause:** the gate derives a per-suite key by sanitizing the test path and
+truncating it (~40 chars). `contacts-do-not-contact.integration.test.ts` and the
+pre-existing `contacts-repo.integration.test.ts` both live in
+`src/lib/solicitation/__tests__/`, so both truncate to
+`src-lib-solicitation---tests---contacts-`. The two suites then share one
+coverage output directory and race on `.tmp`. Only reproducible with coverage
+enabled (`--review`), which is why the four earlier plain-gate runs were green.
+
+**Fix applied here:** renamed the new suite to
+`owner-do-not-contact.integration.test.ts` (key
+`src-lib-solicitation---tests---owner-do`). In-surface, no test title changed,
+and it is the better name anyway — the suite covers the owner do-not-contact
+paths, not contacts generally. Plan references updated in the same change.
+
+**The underlying harness bug is NOT fixed** and will recur for any two suites in
+one directory sharing a ~40-character prefix. `scripts/verify-gate.sh` is outside
+this feature's `allowed_edit_surface`, and widening it would have burned the
+second surface amendment on unrelated tooling. **Promote at step 8**: the
+sanitizer should hash or use the full relative path rather than truncate, and a
+collision should be a loud gate error rather than an ENOENT from a racing
+coverage writer.
+
+**Verdict:** ACCEPT the rename; the harness fix is a separate follow-up.
+
+---
+
+## D-A10 · 2026-08-03 · production estimate missed by 2.5x — the `reclassify` trigger fired
+
+**What:** `estimated_prod_lines` was ±750. Actual non-test added lines: **1901**
+(1649 TS/TSX, 82 SQL, 170 markdown). The gate's `reclassify` row fired at >2x.
+The test bucket was 2824 against ±1600 — 1.77x, under threshold.
+
+**Where the estimate broke — both UI, both the same mistake:**
+
+| File | Estimated | Actual |
+|---|---|---|
+| `SuppressionsClient.tsx` | ~230 | 547 |
+| `ContactList.tsx` | ~60 | 345 |
+| `suppressions-service.ts` | ~105 | 216 |
+
+`ContactList.tsx` was sized as *an edit to an existing file* and became a
+refactor: props restructure, a suppression hook, a badge, a three-state control
+and two confirm-copy variants. `SuppressionsClient.tsx` was sized as one form and
+is three regions with their own error, empty and confirm states. Backend
+estimates were within tolerance.
+
+**Owner call: record and proceed** (2026-08-03). The trigger exists to catch a
+feature pushed through controls too light for it; that is not what happened here.
+RISK=high with a staging ride is already the heaviest non-epic lane, and the only
+heavier routing is EPIC — decompose, don't implement — which would mean tearing
+down eight completed, tested, gate-green tasks. The lane was right; the estimate
+was wrong.
+
+**Lesson to promote at step 8:** when estimating a `/feature` intake, an admin
+console client with lookup + entry + a confirmed destructive action runs
+**400-550 lines**, not 230; and "add a control to an existing list component"
+should be estimated as a **refactor of that component**, not as a diff against
+it — the props threading alone exceeded the whole original estimate.
+
+**Verdict:** ACCEPT — estimate defect, not a lane defect.

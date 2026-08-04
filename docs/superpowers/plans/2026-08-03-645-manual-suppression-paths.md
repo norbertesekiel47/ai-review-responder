@@ -67,7 +67,7 @@ gets spent on a misunderstanding.
 - Create: `src/lib/admin/__tests__/suppressions-correction.integration.test.ts`
 - Create: `src/app/api/admin/suppressions/__tests__/route.test.ts`
 - Create: `src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts`
-- Create: `src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts`
+- Create: `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts`
 
 Every title below is a **verbatim** entry in `.feature/intake.json` → `tests_to_add`; the gate's `promised-tests` row matches them as exact strings. Do not reword, re-case, or re-punctuate them.
 
@@ -94,7 +94,7 @@ authored, and those tasks then make them pass without editing the assertions.
 | `src/lib/admin/__tests__/suppressions-correction.integration.test.ts` | is idempotent against the global partial unique index… · deletes the suppression row and writes the correction record… · rolls back the delete… · corrects a global row whose account_id is NULL · reports not-found instead of writing an orphan… | T4 Step 5 |
 | `src/app/api/admin/suppressions/__tests__/route.test.ts` | requires admin AAL2 on every suppression admin route | T4 Step 6 |
 | `src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts` | returns a uniform 404 for a contact belonging to another account · refuses to clear a global row through the owner path | T5 Step 5 |
-| `src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts` | writes an owner_manual account-scoped row… · refuses an owner do-not-contact on a contact with no email handle · clears only the account row owned by the caller's account… | T5 Step 4 |
+| `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts` | writes an owner_manual account-scoped row… · refuses an owner do-not-contact on a contact with no email handle · clears only the account row owned by the caller's account… | T5 Step 4 |
 
 Shape, using the display file as the worked example — note the import of a
 symbol that does not exist yet, which is what makes the file red:
@@ -124,7 +124,7 @@ cannot exist until its task, mark that ONE test `it.todo` with a trailing
 ```bash
 pnpm vitest run \
   src/lib/solicitation/__tests__/suppression-display.test.ts \
-  src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts \
+  src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts \
   src/lib/admin/__tests__/suppressions-service.test.ts \
   src/lib/admin/__tests__/suppressions-correction.integration.test.ts \
   src/app/api/admin/suppressions/__tests__/route.test.ts \
@@ -1191,7 +1191,7 @@ git commit -m "feat(#645): admin manual entry, lookup, and the audited Correctio
 **Files:**
 - Modify: `src/lib/solicitation/contacts-repo.ts`
 - Create: `src/app/api/dashboard/contacts/[id]/suppression/route.ts`
-- Modify: `src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts`, `src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts`
+- Modify: `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts`, `src/app/api/dashboard/contacts/__tests__/suppression-route.test.ts`
 - Modify: `src/lib/solicitation/__tests__/contacts-repo.integration.test.ts` (the `listContacts` shape gains a field)
 
 **Precedent to mirror:** `src/app/api/dashboard/contacts/[id]/route.ts` — `requireContactsWriteAccess` + `resolveContactsScopedId` + `withSameOrigin()`, flag gate inherited from `requireContactsWriteAccess`. Confirm by reading it before writing the new route; if the flag gate is NOT inside that helper, add `if (!solicitationWatchEnabled()) return errorResponse('Not found', 404);` as the first line, matching `src/app/api/dashboard/contacts/route.ts`.
@@ -1439,7 +1439,7 @@ export const DELETE = withSameOrigin()(clear);
 
 - [ ] **Step 4: Write the live-DB owner suite**
 
-`src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts`, harness mirroring `contacts-repo.integration.test.ts`:
+`src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts`, harness mirroring `contacts-repo.integration.test.ts`:
 
 ```typescript
 it('writes an owner_manual account-scoped row for the caller\'s own account', async () => {
@@ -1575,7 +1575,7 @@ it('returns the feature-disabled 404 before attempting owner authentication', as
 - [ ] **Step 6: Run**
 
 ```bash
-pnpm vitest run src/lib/solicitation/__tests__/contacts-do-not-contact.integration.test.ts src/lib/solicitation/__tests__/contacts-repo.integration.test.ts
+pnpm vitest run src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts src/lib/solicitation/__tests__/contacts-repo.integration.test.ts
 pnpm vitest run src/app/api/dashboard/contacts/__tests__/
 ```
 Expected: PASS. `contacts-repo.integration.test.ts` may need its `listContacts` assertions updated for the new `suppression` field — update them, do not weaken them.
