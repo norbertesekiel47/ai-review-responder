@@ -107,16 +107,37 @@ WARNs by design (owner decision, D-A10).
 7. ✅ **All 14 CI checks green on `dbca3180`**; `mergeStateStatus: CLEAN`.
    `staging` fast-forwarded to the same sha so it matches what merges.
 
+8. ✅ **UI smoke on staging — 11/11 PASS.** Driven through Chrome against the
+   real stack. **Admin** (`/admin/suppressions`, AAL2): entry → lookup →
+   duplicate-entry (green "Already suppressed — no change", DB kept the ORIGINAL
+   note) → correction confirm copy → correction + auto-re-read → blank-reason
+   guard (whitespace ⇒ suppression SURVIVED, 0 corrections). **Owner**
+   (`/dashboard/requests/contacts`): mark wrote `scope='account'` /
+   `owner_manual` / non-null `account_id` — never `global`; §7.4 badge "You
+   marked this contact do-not-contact"; §7.6 mark/clear copy verified DISTINCT in
+   both sentence and button label; clear wrote
+   `solicitation_do_not_contact_cleared` to **`account_audit_log`** (P-4) with
+   `markedByUserId` + `markedAt` and **no handle** (§9.5) — the `0aead24b`
+   round-2 fix confirmed live; a seeded `global` row flipped the badge to "Opted
+   out of RepWorth review requests" and the clear control went **absent from the
+   a11y tree** (G3 — an owner structurally cannot clear a global row);
+   phone-only contact returned "This contact has no email address to suppress"
+   with nothing written. Smoke data removed; staging back to 0 suppressions /
+   0 corrections / 43 contacts intact. One `account_audit_log` row from the
+   clear was deliberately left (audit records are not tidied away).
+9. ✅ **`main` merged again** — `805cd6d8` (#660 MFA step-up in password
+   recovery) landed mid-smoke. Clean auto-merge, gate GREEN.
+
 **Remaining:**
 
-8. ⏸️ **UI-half smoke needs an AAL2 admin session** — the `/admin/suppressions`
-   lookup → manual entry → correction ritual, and the owner mark/clear on
-   `/dashboard/requests/contacts`. Route *deployment* is verified (302 not 404 on
-   the pages; all three admin POSTs return 401 unauthed both before and after the
-   refactor, so the gate is live and the handlers exist), but the click-through
-   ritual has NOT been exercised. This is the one gap in the staging evidence —
-   **do not describe the smoke as complete.**
-9. ⏸️ **PAUSE for explicit merge approval** (high-RISK lane). Not yet given.
+10. ⏸️ **PAUSE for explicit merge approval** (high-RISK lane). Not yet given.
+
+**Two low-severity observations from the smoke** (neither blocking, no ticket yet):
+- The admin manual-entry section keeps its stale "Already suppressed — no
+  change" line after a correction, while the lookup directly above correctly
+  reads "Not suppressed". Same family as #644's "a receipt is necessary, never
+  sufficient" — but here the authoritative panel is adjacent and truthful.
+- `PRIOR CORRECTIONS` renders `REMOVED BY` as a raw UUID.
 10. ⏸️ At promotion: apply 098 to prod Supabase (`udeyaqnvpojbwgoaxwdg`) in
     lockstep, then add `PRODUCTION <date>` to the 098 migrations-log entry.
 11. **Merge order is fixed: #645 → #656** (D-A3 — #656 renumbered its migration to
