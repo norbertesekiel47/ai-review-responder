@@ -5,9 +5,11 @@ import './globals.css';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://repworth.net';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+// 200/300 exist for the landing hero's display type (light-weight editorial
+// register); 400-800 are the established app/marketing weights.
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ['200', '300', '400', '500', '600', '700', '800'],
   variable: '--font-plus-jakarta',
   display: 'swap',
 });

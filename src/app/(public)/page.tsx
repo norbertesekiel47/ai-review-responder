@@ -31,5 +31,11 @@ export default function LandingPage() {
     ? `Start your ${resolveTrialDays()}-day free trial`
     : 'Get early access';
 
-  return <LandingExperience primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />;
+  return (
+    <LandingExperience
+      primaryCtaHref={primaryCtaHref}
+      primaryCtaLabel={primaryCtaLabel}
+      selfServeEnabled={selfServeEnabled}
+    />
+  );
 }

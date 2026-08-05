@@ -1,0 +1,342 @@
+/* ==========================================================================
+   Closing CTA — full-bleed night clip, copy set LEFT.
+
+   The mirror image of the hero, on purpose: the page opens on a daylight frame
+   with the copy right, and closes on the same world at night with the copy
+   left. Everything here that looks like a copy of hero.css is a MIRROR of it,
+   not a duplicate — the gradient direction, the inner padding side, and the
+   narrow-viewport `object-position` are all reversed.
+
+   NAMING — `.rw-lp-` prefix, never `.rw-cta-` or `.rw-hero-`. `globals.css`
+   owns a `.rw-hero` block whose `.rw-hero h1 { color: var(--rw-ink) }` is
+   specificity 0,1,1 and would beat a single-class title rule, rendering the
+   headline near-black on this dark scrim. Same trap the hero documents.
+
+   Contrast — WORST case, measured the only way that is valid here: the scrim
+   alpha evaluated at each glyph's own x, composited over the BRIGHTEST video
+   pixel under that text band, sampled at t = 0.5/3/6/9/11.5s.
+     title 12.30 (needs 3)   accent 7.83 (needs 3)   eyebrow 8.59 (needs 4.5)
+     sub 13.93 (4.5)         action 14.72 (4.5)      note 14.04 (4.5)
+   Measuring against flat ink instead inflates every one of these and would
+   have hidden the previous source's accent at 4.93. Re-measure by the same
+   method if any scrim opacity below is lowered, the copy column moves, or the
+   clip is swapped.
+   ========================================================================== */
+
+.rw-lp-cta {
+  --rw-lp-cta-ink: #14201c;
+  --rw-lp-cta-text: #f4f2ec;
+  /* Owned by `.rw-lp` in landing-experience.css so the accent and the focus
+     ring cannot drift apart; the literal is only a standalone fallback. */
+  --rw-lp-cta-accent: var(--rw-lp-accent, #dcc489);
+  --rw-lp-cta-rule: rgb(var(--rw-lp-text-rgb) / 0.28);
+
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  isolation: isolate;
+  background: var(--rw-lp-cta-ink);
+}
+
+/* ---------- media layer ---------- */
+
+.rw-lp-cta-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.rw-lp-cta-poster,
+.rw-lp-cta-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* `center` is correct and also the only option on the X axis: at any viewport
+     wider than the clip's 16:9, cover scales by width and the horizontal
+     overflow is exactly zero, so `object-position`'s X has no travel. The
+     framing has to come from the clip itself, which is why the source was
+     chosen with the character already at x 58-85% — clear of the copy column.
+     The Y axis does have travel, and centre is where the character
+     (y 21-63% of frame) sits fully in view. */
+  object-position: center;
+}
+
+.rw-lp-cta-video {
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.rw-lp-cta-video[data-ready='true'] {
+  opacity: 1;
+}
+
+/* ---------- scrim ---------- */
+
+.rw-lp-cta-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.rw-lp-cta-scrim::before,
+.rw-lp-cta-scrim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* The copy panel. `to right` means 0% is the LEFT edge, so gradient position
+   50% IS x=50% — the exact mirror of the hero's `to left`.
+
+   The stop ladder is the hero's, reversed. Its shape is not arbitrary: the
+   fade has to be effectively zero by the midline so the right half of the
+   frame keeps its own light, while still reaching ~0.5 under the copy's right
+   edge at 45%. The steep run between 45% and 50% is what buys both.
+
+   What it is holding back is the CITY, not the character: this clip puts the
+   lit terraces on the left, directly under the copy, and they are the brightest
+   thing in frame. The character is clear at x 58-85% and needs no scrim at all.
+   Lowering these values costs headline contrast against the terrace lights;
+   raising them flattens the left edge to solid ink. */
+.rw-lp-cta-scrim::before {
+  background: linear-gradient(
+    to right,
+    rgb(var(--rw-lp-ink-rgb) / 0.95) 0%,
+    rgb(var(--rw-lp-ink-rgb) / 0.92) 18%,
+    rgb(var(--rw-lp-ink-rgb) / 0.86) 30%,
+    rgb(var(--rw-lp-ink-rgb) / 0.74) 38%,
+    rgb(var(--rw-lp-ink-rgb) / 0.65) 42%,
+    rgb(var(--rw-lp-ink-rgb) / 0.54) 45%,
+    rgb(var(--rw-lp-ink-rgb) / 0.42) 46.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.3) 47.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.18) 48.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.08) 49.3%,
+    rgb(var(--rw-lp-ink-rgb) / 0) 50%
+  );
+}
+
+/* Top and bottom fades into the page ink. Unlike the hero's, these are not
+   holding a nav off a bright sky — this section has no chrome over it. They
+   exist so the clip does not start and end on a hard horizontal seam against
+   the ink-coloured section above and the footer below. */
+.rw-lp-cta-scrim::after {
+  background:
+    linear-gradient(to bottom, rgb(var(--rw-lp-ink-rgb) / 0.95) 0%, rgb(var(--rw-lp-ink-rgb) / 0) 20%),
+    linear-gradient(to top, rgb(var(--rw-lp-ink-rgb) / 0.9) 0%, rgb(var(--rw-lp-ink-rgb) / 0) 24%);
+}
+
+/* ---------- copy ---------- */
+
+/* Anchored to the viewport's midline, NOT centred in a container — the mirror
+   of the hero's reasoning. A centred container moves the copy's right edge
+   with the container rather than with the midline, so the copy and the point
+   where the scrim reaches zero drift apart as the viewport widens. */
+.rw-lp-cta-inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding-left: var(--rw-lp-edge, clamp(1.25rem, 3vw, 3rem));
+  padding-right: 55%;
+  display: flex;
+}
+
+.rw-lp-cta-copy {
+  width: 100%;
+  max-width: 44rem;
+}
+
+.rw-lp-cta-eyebrow {
+  margin: 0 0 clamp(0.75rem, 1.6vw, 1.125rem);
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--rw-lp-cta-accent);
+}
+
+/* Scales off the viewport, like the hero's, because the copy column is a slice
+   of it (45% minus the edge gutter, capped at 44rem). Held one step below the
+   hero's 3.8vw/3.6rem: this is the page's closing statement, not its opening
+   one, and matching the hero exactly makes the two read as the same slide. */
+.rw-lp-cta-title {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.875rem, 3.4vw, 3.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--rw-lp-cta-text);
+}
+
+/* Hand-set line breaks. Both collapse to inline below 900px, where the
+   measured widths no longer hold. */
+.rw-lp-cta-title-line,
+.rw-lp-cta-line {
+  display: block;
+}
+
+.rw-lp-cta-title-accent {
+  color: var(--rw-lp-cta-accent);
+}
+
+.rw-lp-cta-rule {
+  width: 3.5rem;
+  height: 1px;
+  margin: clamp(1.25rem, 2.6vw, 2rem) 0 clamp(1rem, 2.2vw, 1.5rem);
+  background: var(--rw-lp-cta-rule);
+}
+
+.rw-lp-cta-sub {
+  margin: 0;
+  max-width: 32rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: clamp(0.9375rem, 1.15vw, 1.0625rem);
+  line-height: 1.7;
+  /* Opaque, not alpha-faded — the same trap the hero documents. Hierarchy here
+     is carried by size and weight, never by transparency, because alpha over a
+     mid-strength scrim is where the contrast failures on this page have come
+     from. */
+  color: var(--rw-lp-cta-text);
+}
+
+/* ---------- action ---------- */
+
+.rw-lp-cta-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.125rem;
+  margin-top: clamp(1.75rem, 3vw, 2.5rem);
+  color: var(--rw-lp-cta-text);
+  text-decoration: none;
+}
+
+.rw-lp-cta-action-ring {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 3.25rem;
+  height: 3.25rem;
+  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.42);
+  border-radius: 50%;
+  transition:
+    background-color 240ms ease,
+    border-color 240ms ease,
+    color 240ms ease;
+}
+
+.rw-lp-cta-arrow {
+  width: 1.25rem;
+  height: 1.25rem;
+  transition: transform 240ms ease;
+}
+
+.rw-lp-cta-action-label {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.rw-lp-cta-action:hover .rw-lp-cta-action-ring,
+.rw-lp-cta-action:focus-visible .rw-lp-cta-action-ring {
+  background: var(--rw-lp-cta-accent);
+  border-color: var(--rw-lp-cta-accent);
+  color: var(--rw-lp-cta-ink);
+}
+
+.rw-lp-cta-action:hover .rw-lp-cta-arrow,
+.rw-lp-cta-action:focus-visible .rw-lp-cta-arrow {
+  transform: translateX(3px);
+}
+
+/* Asserted by src/__tests__/focus-visible-marketing.test.ts — adding a new
+   control here means adding it there too. */
+.rw-lp-cta-action:focus-visible {
+  outline: 2px solid var(--rw-lp-cta-accent);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+/* ---------- truth anchor ----------
+   Subordinate by design: the headline closes, this keeps the claim accurate.
+   See cta-copy.ts for the shipped-vs-future contract it satisfies. */
+
+.rw-lp-cta-note {
+  margin: clamp(1.5rem, 2.6vw, 2rem) 0 0;
+  max-width: 26rem;
+  padding-left: 0.875rem;
+  border-left: 1px solid rgb(var(--rw-lp-text-rgb) / 0.2);
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--rw-lp-cta-text);
+}
+
+/* ---------- narrow viewports ----------
+   Side-by-side stops working once the copy column and the character compete
+   for the same width, so the copy drops to the bottom and the scrim flips to a
+   bottom-up wash — the same resolution the hero uses. */
+
+@media (max-width: 900px) {
+  .rw-lp-cta {
+    align-items: flex-end;
+  }
+
+  .rw-lp-cta-inner {
+    padding-right: var(--rw-lp-edge, clamp(1.25rem, 3vw, 3rem));
+    padding-bottom: clamp(2.25rem, 5vw, 3rem);
+    padding-top: clamp(4rem, 12vh, 7rem);
+  }
+
+  .rw-lp-cta-copy {
+    max-width: 34rem;
+  }
+
+  .rw-lp-cta-title-line,
+  .rw-lp-cta-line {
+    display: inline;
+  }
+
+  /* Here the X axis DOES have travel — a portrait viewport crops a 16:9 clip
+     hard horizontally, so there is overflow to pan through. 71% centres the
+     character (x 58-85% of frame) over the copy, which is the composition the
+     side-by-side desktop layout cannot give it. */
+  .rw-lp-cta-poster,
+  .rw-lp-cta-video {
+    object-position: 71% center;
+  }
+
+  .rw-lp-cta-scrim::before {
+    background: linear-gradient(
+      to top,
+      rgb(var(--rw-lp-ink-rgb) / 0.95) 0%,
+      rgb(var(--rw-lp-ink-rgb) / 0.88) 42%,
+      rgb(var(--rw-lp-ink-rgb) / 0.5) 66%,
+      rgb(var(--rw-lp-ink-rgb) / 0) 88%
+    );
+  }
+}
+
+/* ---------- reduced motion ----------
+   The video is never mounted in this state (see CtaBackdrop), so this only has
+   to settle the CSS-driven pieces. */
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-cta-video {
+    transition: none;
+  }
+
+  .rw-lp-cta-action-ring,
+  .rw-lp-cta-arrow {
+    transition: none;
+  }
+}
