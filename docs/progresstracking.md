@@ -1457,3 +1457,69 @@ after a second branch rode it mid-flight, so reconciling meant moving staging
 forward.
 
 ---
+
+## 2026-08-05 — importReview keystone #674 (consented review import map #667) — PR #682
+
+### What shipped
+
+`importReview` in `src/lib/reviews/process-review.ts` — the **Review import**
+lane. Insert-only: stores a review as *inventory*, classifies sentiment at the
+write site (`deterministic_star_v1`), writes **and completes** a
+`review_ingested` run-spine record inside the insert transaction, enqueues **no**
+`generate_response` (so it writes no `job_outbox` row on any path), and never
+mutates an existing review row — both "row already existed" and "lost the insert
+race" return `'unchanged'` with zero writes.
+
+The shared new-review `INSERT` moved into a **private** `insertNewReviewRow`
+seam, now used by both entry points. `startReviewRun` gained a `string | null`
+return so the import can complete its own run; `processReview`'s two call sites
+discard it, which is behaviour-neutral.
+
+**No migration, no feature flag, zero callers** — inert on merge; the caller is
+#675. One new file: `src/lib/reviews/__tests__/import-review.integration.test.ts`.
+
+### Decisions that shaped it
+
+- **A separate entry point, not a `skipGeneration` flag.** `importReview`
+  structurally cannot reach `processExistingReview`, so "no behaviour change for
+  existing callers" is a property of the code rather than a claim tests defend.
+- **No `SELECT … FOR UPDATE` probe.** An existing row means zero writes, so the
+  INSERT's `ON CONFLICT` is the whole decision; taking no lock keeps a 100-review
+  import from contending with live-ingest work.
+- **The run completes in the insert transaction (D3).** No downstream worker
+  would ever complete it, so it would read as `stalled` after 48h. The
+  counter-argument — that a never-handled review then reports `completed` — is
+  real, was raised in branch review, and is owner-decided as ship-as-is (D16).
+- **`first_review_ingested` fires from the import**, sharing
+  `maybeEnqueueFirstReviewIngested` with the live lane.
+
+### Gotchas worth keeping
+
+Promoted to `lab-notes.md` under "2026-08-05":
+
+- A hazard described too narrowly is worse than one not described at all — the
+  deferred lost-draft hazard was written as a *race* when it needs no
+  concurrency, and a correction must reach **every** copy (the plan embeds the
+  implementation code).
+- `describeWithDb` does **not** assert schema, and asserting what a suite *reads*
+  is not enough — assert what the code under test **writes**.
+- Plan-embedded code is unlinted, untypechecked and unexecuted until a subagent
+  runs it, yet is then executed nearly verbatim.
+
+### Staging proof
+
+Rode `staging` at `6c8cc892`: Railway deploy SUCCESS, health `HTTP 200`,
+`[boot] readiness cure complete`, `ZernioRecentReviewPoller` registered clean.
+Honest caveat recorded at the time — with no migration, flag or caller, the ride
+proves the worker still boots and nothing more.
+
+### Follow-ups
+
+**#675 inherits three comments**: the CORRECTED lost-draft hazard (no race
+required); imported reviews counting as unanswered in `MonthlyImpactWorker.ts:168`
+and the `src/lib/kpi/*` response rate; and a later owner-generated response
+opening a second run for the same review. **#667**: `CONTEXT.md` still has no
+**Origin lane** entry, which the map's reuse note #2 cites and #678 depends on.
+The staging-reconcile item recurred a **fourth** time (#647, #654, #659, #682).
+
+---

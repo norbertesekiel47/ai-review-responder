@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05)
+**Merges since last architecture pass: 5 — THRESHOLD REACHED, a review is due** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05; #682 — #674 importReview keystone, 2026-08-05)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
 
@@ -98,6 +98,44 @@ code-shaped finding:
   not flag it at all. Anyone refactoring to satisfy local fallow is chasing a number
   CI does not compute. Candidate fix: make `ci:fallow` refuse to run without a
   coverage file, or label estimated findings as non-gating in the output.
+
+Added by #682 (#674), for the next pass to weigh. **The staging-reconcile item is now
+on its FOURTH consecutive occurrence** (#647, #654, #659, #682) — `staging` ended 21
+ahead / 1 behind and needed the `deployment-guide.md` §5 `reset --hard origin/main` +
+`--force-with-lease`. feature.md step 8 *still* says "fast-forward `staging` onto
+`main`". Four occurrences is no longer a finding to weigh; it is a one-line doc fix
+that keeps being deferred. Three findings, all about **checks that cannot see what
+they claim to check**:
+
+- **`describeWithDb` asserts nothing about the schema, and the convention text reads
+  as though it does.** CLAUDE.md says live-DB suites "**assert** their schema
+  (`assertSchemaReady`) instead of applying migrations", which is a statement about
+  the *convention*; `src/__tests__/helpers/describe-with-db.ts` only gates on
+  `TEST_DATABASE_POOL_URL`. #674's plan asserted the helper "handles the schema
+  assertion" and shipped a suite with no assertion; the nearest precedent
+  (`read.integration.test.ts`) has the same gap, so copying the neighbour propagates
+  it. 32 suites do call it, so the convention is real but unenforced. **The pass
+  should ask whether `ci:live-db-suites` — which already parses every live-DB suite —
+  should require an `assertSchemaReady` call**, and whether the requirement should be
+  checked against what the transaction under test *writes* rather than what the suite
+  reads (#674 shipped a first fix asserting 071 for tables it reads, missing
+  `agent_runs.parent_run_id` from 088 that the code under test writes).
+- **`ci:live-db-suites` enumerates via `git ls-files` and is blind to untracked
+  files, and its pass output cannot evidence otherwise.** A new suite audited before
+  staging passes vacuously; and because `scripts/ci/live-db-suites-audit.ts` prints
+  filenames only in its failure branch, no passing run can ever show *which* files it
+  inspected. This is the #590 "checks that appear to run but exercise nothing" class,
+  in a check added to close that class. Candidate fix: print the inspected count on
+  success, and fail when a `*.integration.test.ts` in the working tree is untracked.
+- **Plan-embedded code is a third-class citizen of every quality gate.** Three plan
+  review rounds on #674 accumulated a wrong column name (`run_id` for `agent_run_id`),
+  a missing assertion, a dead type cast, and a vacuous audit step — none visible to
+  lint, tsc, or any test, because a plan is prose to every tool in the repo. It is
+  then executed nearly verbatim by a subagent. **The pass should ask whether plans
+  containing fenced `sql`/`typescript` blocks deserve any mechanical check at all** —
+  even just extracting identifiers and grepping them against the migrations would have
+  caught the one defect that would have stopped the keystone's only live-DB suite from
+  running.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
