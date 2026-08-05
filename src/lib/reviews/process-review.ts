@@ -14,7 +14,7 @@ import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
 import { replyEditingFlagEnabled } from '@/lib/past-replies/flags';
-import { startOrGetActiveRun, recordStep } from '@/lib/agents/run-spine';
+import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
 import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
@@ -42,7 +42,9 @@ export async function processReview(
   const suppressNotification = options?.suppressNotification ?? false;
   const newReviewOriginLane = options?.originLane ?? GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW;
   const updateOriginLane = options?.originLane ?? GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_UPDATE;
-  const { review, identity, contentHash } = monitored;
+  // `review` / `contentHash` are consumed by insertNewReviewRow and
+  // processExistingReview, both of which take `monitored` whole.
+  const { identity } = monitored;
 
   return await sql.begin(async (tx) => {
     // Try to lock existing review by provider identity (unique constraint)
@@ -61,27 +63,9 @@ export async function processReview(
     if (!existing) {
       // ── NEW review — insert with ON CONFLICT guard for concurrent writers ──
       const reviewId = uuidv7();
-      const sentiment = classifySentiment(review.starRating);
+      const insertedCount = await insertNewReviewRow(tx, reviewId, businessId, monitored);
 
-      const inserted = await tx<{ id: string }[]>`
-        INSERT INTO reviews (
-          id, business_id, provider, provider_review_id,
-          provider_review_name, provider_location_name, google_review_name,
-          reviewer_name, star_rating, review_text, review_date,
-          detected_language, review_content_hash, status, detected_at,
-          sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
-        ) VALUES (
-          ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
-          ${identity.providerReviewName}, ${identity.providerLocationName}, ${identity.googleReviewName},
-          ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
-          ${review.detectedLanguage}, ${contentHash}, ${REVIEW_STATUS.NEW}, NOW(),
-          ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
-        )
-        ON CONFLICT (provider, provider_review_name) DO NOTHING
-        RETURNING id
-      `;
-
-      if (inserted.count > 0) {
+      if (insertedCount > 0) {
         // We won the race — start the agent run, then enqueue response generation
         await startReviewRun(tx, {
           reviewId,
@@ -150,6 +134,43 @@ export async function processReview(
   });
 }
 
+// ── Shared new-review INSERT (internal seam) ─────────────────────────
+// Used by both entry points. Returns the number of rows inserted: 0 means
+// the review already existed (or a concurrent writer won the race), since
+// ON CONFLICT (provider, provider_review_name) DO NOTHING is the dedup.
+// Sentiment is classified here so every insert site classifies identically.
+// Private by design — not part of the module's interface.
+
+async function insertNewReviewRow(
+  tx: TxClient,
+  reviewId: string,
+  businessId: string,
+  monitored: MonitoredReview,
+): Promise<number> {
+  const { review, identity, contentHash } = monitored;
+  const sentiment = classifySentiment(review.starRating);
+
+  const inserted = await tx<{ id: string }[]>`
+    INSERT INTO reviews (
+      id, business_id, provider, provider_review_id,
+      provider_review_name, provider_location_name, google_review_name,
+      reviewer_name, star_rating, review_text, review_date,
+      detected_language, review_content_hash, status, detected_at,
+      sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
+    ) VALUES (
+      ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
+      ${identity.providerReviewName}, ${identity.providerLocationName}, ${identity.googleReviewName},
+      ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
+      ${review.detectedLanguage}, ${contentHash}, ${REVIEW_STATUS.NEW}, NOW(),
+      ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
+    )
+    ON CONFLICT (provider, provider_review_name) DO NOTHING
+    RETURNING id
+  `;
+
+  return inserted.count;
+}
+
 // ── Agent run spine (WS1) ────────────────────────────────────────────
 // Starts (or joins) the review_handler run for a review and records the
 // ingest/update step, inside the SAME transaction as the review write —
@@ -165,14 +186,14 @@ async function startReviewRun(
     correlationId?: string;
     stepKey: 'review_ingested' | 'review_updated';
   },
-): Promise<void> {
+): Promise<string | null> {
   const [biz] = await tx<{ account_id: string }[]>`
     SELECT account_id FROM businesses WHERE id = ${input.businessId}
   `;
   // Defensive: unreachable today — reviews.business_id FK guarantees the row
   // exists (KEY SHARE from the INSERT / cascade blocks behind our review lock).
   // Skip rather than fail ingest if that ever changes.
-  if (!biz) return;
+  if (!biz) return null;
 
   const { runId } = await startOrGetActiveRun(tx, {
     kind: 'review_handler',
@@ -183,6 +204,7 @@ async function startReviewRun(
     correlationId: input.correlationId,
   });
   await recordStep(tx, { runId, stepKey: input.stepKey });
+  return runId;
 }
 
 async function maybeEnqueueFirstReviewIngested(
@@ -448,4 +470,73 @@ async function processExistingReview(
   });
 
   return 'updated' as const;
+}
+
+// ── Review import (#674, spec §6.2) ──────────────────────────────────
+
+/**
+ * Store a review as inventory — insert and stop.
+ *
+ * The consented **Review import** stores reviews without writing replies for
+ * them (spec D2). Sentiment is classified at the write site and the run spine
+ * records `review_ingested`, but **no `generate_response` is enqueued** — so
+ * this path writes no `job_outbox` row at all, and nothing it stores can reach
+ * Google (invariant #3).
+ *
+ * Insert-only by construction. An existing review row is left completely
+ * untouched — no content update, no supersede, no `review_exceptions`, no
+ * admin notify — so a bulk import can never mutate a row the live-ingest lane
+ * already owns. A genuinely edited review is picked up by the live lane's next
+ * poll instead.
+ *
+ * There is deliberately no `SELECT … FOR UPDATE` probe: because an existing row
+ * means zero writes, the INSERT's `ON CONFLICT` is the whole decision, and
+ * taking no review lock keeps a 100-review import from contending with
+ * concurrent live-ingest work. `'unchanged'` therefore covers both "the row
+ * already existed" and "a concurrent writer won the race" — the two collapse to
+ * the same skip, and neither falls through to `processExistingReview`.
+ *
+ * The run is **completed in this same transaction**. An imported review has no
+ * draft and no publish, so no downstream worker would ever complete its run and
+ * it would surface as `stalled` after 48h (`deriveRunDisplayState`,
+ * `src/lib/agents/read.ts`). The import's work genuinely is finished when the
+ * row lands; #678's on-demand Generate opens a fresh run per owner action.
+ *
+ * KNOWN HAZARD (deviations D4, owned by #675): if this call wins the identity
+ * race against a concurrent live-ingest `processReview`, the loser re-reads
+ * this row, finds the hash matches, and returns `'unchanged'` without
+ * enqueueing — so that review is stored and never drafted.
+ *
+ * Callers screen reviews (PHI, normalization) before calling; precedent is the
+ * `processUnansweredReview` closure inside `handleZernioBackfill`.
+ */
+export async function importReview(
+  sql: Sql,
+  monitored: MonitoredReview,
+  businessId: string,
+  correlationId?: string,
+): Promise<'new' | 'unchanged'> {
+  return await sql.begin(async (tx) => {
+    const reviewId = uuidv7();
+    const insertedCount = await insertNewReviewRow(tx, reviewId, businessId, monitored);
+
+    if (insertedCount === 0) {
+      return 'unchanged' as const;
+    }
+
+    const runId = await startReviewRun(tx, {
+      reviewId,
+      businessId,
+      correlationId,
+      stepKey: 'review_ingested',
+    });
+
+    if (runId) {
+      await completeRun(tx, runId, 'completed');
+    }
+
+    await maybeEnqueueFirstReviewIngested(tx, { businessId, reviewId });
+
+    return 'new' as const;
+  });
 }
