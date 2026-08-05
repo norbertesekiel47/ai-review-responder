@@ -335,3 +335,36 @@ D1's premise is marked superseded above; the plan header now cites `main` as the
 spec's owner.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D13 — Task 1: the test file has a THIRD block the plan did not name
+
+**When:** Task 1 execution (2026-08-05).
+
+**What:** Task 1 step 3 says to append the new block "after the existing
+`describe('processReview', …)` closes". That is not the end of the file:
+`src/lib/reviews/__tests__/process-review.test.ts` also carries
+`describe('generate_response producer static guard')` after it. The new
+`describe('importReview')` block was appended at the true end of file, which
+satisfies both readings and leaves the guard untouched.
+
+**Why it matters to Task 2, not Task 1.** That guard is a static assertion over
+the *source text* of `src/lib/reviews/process-review.ts`: it requires the file to
+contain `enqueueGenerateResponse` and to NOT contain a raw
+``tx`INSERT INTO job_outbox … 'generate_response'` ``. Task 2 adds `importReview`
+and extracts `insertNewReviewRow` in that same file, so it must keep **both**
+halves true. The guard is a pre-existing invariant, is not part of this ticket's
+eight new tests, and would be an easy casualty of the extraction.
+
+**Resolution:** no plan change needed — the append point is unambiguous in
+practice. Recorded so Task 2's implementer treats the guard as a constraint
+rather than discovering it as a surprise failure.
+
+Task 1's red was verified independently of the subagent's report: 8 failed /
+29 passed (37 total), every failure `TypeError: importReview is not a function`,
+and the commit (`d100970e`) touches exactly one file whose only deletions are the
+two extended import lines — so the `describe('processReview')` block is
+mechanically confirmed byte-for-byte untouched.
+
+**Verdict:** _(pending step 6)_
