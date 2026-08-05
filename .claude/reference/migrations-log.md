@@ -987,18 +987,22 @@ Revisit triggers:
   `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §8.2).
   One new table, one handle-leading index, RLS enabled with zero policies.
 
-  **Applied to staging Supabase (`kubdiqdhqbhwmqfditeg`) 2026-08-04**, ahead of
-  the `staging` push, per the high-RISK ship lane. **PRODUCTION: not yet
-  applied** — it goes in lockstep at promotion, and this line becomes
-  `Applied to … PRODUCTION <date>` in that same change. Verified by schema
-  introspection, not the migration ledger (2026-06-20 lab note): 13 columns in
-  declaration order with exactly three nullable — `account_id`,
+  **Applied to STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-04 and PRODUCTION
+  (`udeyaqnvpojbwgoaxwdg`) 2026-08-05**, staging first per the high-RISK ship
+  lane, prod in lockstep at promotion of PR #659. Verified on **both** by schema
+  introspection, not the migration ledger (2026-06-20 lab note), with identical
+  results: 13 columns with exactly three nullable — `account_id`,
   `created_by_user_id`, `note`, the D-A11 evidence trio; `relrowsecurity = true`
   with **0** `pg_policies` rows (deny-all, not merely enabled); the handle-leading
   `idx_solicitation_suppression_corrections_handle` on
   `(channel, normalized_handle, created_at DESC)`; and all four CHECKs present,
   including `reason ~ '[^[:space:]]'` — the D-A4 predicate, not the
   `length(btrim(reason)) > 0` draft that a tab-only reason defeats.
+
+  Staging additionally carries a live exercise of the shipped `correctSuppression`
+  CTE (#645 smoke): correct → `corrected`; replay → `not_found` with **no orphan
+  record**; tab-only reason → CHECK aborts the whole statement so the suppression
+  **survives**. That last case is the D-A4 predicate earning its keep.
 
   **One row per admin-removed Suppression ledger row**, written by the same
   single statement that performs the DELETE (a data-modifying CTE, so the
