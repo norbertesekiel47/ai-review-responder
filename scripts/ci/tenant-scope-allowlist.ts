@@ -35,7 +35,7 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 416;
+export const ALLOWLIST_BASELINE = 420;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -171,6 +171,12 @@ const SUSPENSION_FLAG_EVIDENCE_SQL =
 // bound to ${businessId}; two of the three predicates sit inside CTE bodies.
 const NAMED_RIVAL_LANE_SQL =
   "WITH ctx AS ( SELECT ${primaryTrackedKeywordSql(db)} AS keyword, CASE WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL THEN b.google_place_lat::text || ',' || b.google_place_lng::text ELSE b.ranking_search_location END AS search_location, b.rival_place_id, b.rival_title_snapshot FROM businesses b WHERE b.id = ${businessId} ), dates AS ( SELECT rs.snapshot_date FROM ranking_snapshots rs, ctx WHERE rs.business_id = ${businessId} AND rs.keyword = ctx.keyword AND rs.search_location = ctx.search_location ORDER BY rs.snapshot_date DESC LIMIT 2 ) SELECT ctx.keyword, ctx.search_location, ctx.rival_place_id, ctx.rival_title_snapshot, d.snapshot_date::text AS window_date, cs.snapshot_date::text AS snapshot_date, cs.rank_position, cs.place_id, cs.title, cs.review_count, cs.is_self FROM ctx LEFT JOIN dates d ON true LEFT JOIN competitor_snapshots cs ON cs.business_id = ${businessId} AND cs.keyword = ctx.keyword AND cs.search_location IS NOT DISTINCT FROM ctx.search_location AND cs.snapshot_date = d.snapshot_date ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST";
+
+// #645 §7.3 admin servicing lookup. One statement the audit attributes to two
+// tables (solicitation_suppressions + the accounts display-name join), so it is
+// hoisted here once rather than copy-pasted into both entries.
+const ADMIN_SUPPRESSION_LOOKUP_SQL =
+  "SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source, s.account_id, a.display_name AS account_name, s.created_by_user_id, s.note, s.suppressed_at::text FROM solicitation_suppressions s LEFT JOIN accounts a ON a.id = s.account_id WHERE s.channel = 'email' AND s.normalized_handle = ${handle} ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3120,9 +3126,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/solicitation/suppression.ts",
     table: "solicitation_suppressions",
-    sqlSnippet: "SELECT s.source, s.suppressed_at FROM solicitation_suppressions s WHERE s.channel = ${channel} AND s.normalized_handle = ${handleColumn} AND ( s.scope = 'global' OR (s.scope = 'account' AND s.account_id = ${accountId}::uuid) ) ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC LIMIT 1",
+    sqlSnippet: "SELECT s.scope, s.source, s.suppressed_at FROM solicitation_suppressions s WHERE s.channel = ${channel} AND s.normalized_handle = ${handleColumn} AND ( s.scope = 'global' OR (s.scope = 'account' AND s.account_id = ${accountId}::uuid) ) ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC LIMIT 1",
     category: 'tenant-root-lookup',
-    reason: "suppressionMatchSql is the single owner of the Suppression ledger's §1.2 lookup and takes accountId as a required parameter — the caller has already established owner scope, and that id IS the tenant boundary for the `account` arm. The `global` arm is deliberately unscoped and cannot be account-filtered: a global row records what the RECIPIENT (or the mail ecosystem on their behalf) revoked against the one shared sender identity, so it must match for every tenant. Scoping it would silently resume sending to someone who opted out. Read-only, returns only source + suppressed_at — never the account_id provenance §7.4 forbids surfacing.",
+    reason: "suppressionMatchSql is the single owner of the Suppression ledger's §1.2 lookup and takes accountId as a required parameter — the caller has already established owner scope, and that id IS the tenant boundary for the `account` arm. The `global` arm is deliberately unscoped and cannot be account-filtered: a global row records what the RECIPIENT (or the mail ecosystem on their behalf) revoked against the one shared sender identity, so it must match for every tenant. Scoping it would silently resume sending to someone who opted out. Read-only, returns only scope + source + suppressed_at — never the account_id provenance §7.4 forbids surfacing (#645 T3 added scope, which is what lets an owner surface tell their own reversible row from a global one).",
   },
   {
     file: "src/lib/solicitation/unsubscribe.ts",
@@ -3158,5 +3164,38 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM solicitation_suppressions WHERE channel = ${target.channel} AND normalized_handle = ${target.normalizedHandle} AND scope = 'global' ) AS suppressed",
     category: 'pre-auth-token',
     reason: "hasLiveGlobalSuppression — the single owner of \"does the recipient's own global opt-out stand?\", shared by the spent branch and the §1.8 render-time check so the two can never disagree. Cross-tenant BY DESIGN and narrower than suppressionMatchSql on purpose: scope='global' rows key on (channel, normalized_handle) across every tenant, so an account filter would be meaningless, and the account-scoped arm is deliberately excluded because an owner's do-not-contact would satisfy that fragment while falsifying the §5.5 sentence. Read-only existence check, returns one boolean and no provenance.",
+  },
+  {
+    file: "src/lib/admin/suppressions-service.ts",
+    table: "solicitation_suppressions",
+    sqlSnippet: ADMIN_SUPPRESSION_LOOKUP_SQL,
+    category: 'admin-after-require-role',
+    reason: "#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.",
+  },
+  {
+    file: "src/lib/admin/suppressions-service.ts",
+    table: "accounts",
+    sqlSnippet: ADMIN_SUPPRESSION_LOOKUP_SQL,
+    category: 'admin-after-require-role',
+    reason: "#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.",
+  },
+  {
+    file: "src/lib/admin/suppressions-service.ts",
+    table: "solicitation_suppression_corrections",
+    sqlSnippet: "SELECT id, suppression_id, scope, source, removed_by_user_id, reason, created_at::text FROM solicitation_suppression_corrections WHERE channel = 'email' AND normalized_handle = ${handle} ORDER BY created_at DESC LIMIT 20",
+    category: 'admin-after-require-role',
+    reason: "#645 §7.3 admin suppression servicing — the prior-corrections leg of the lookup, cross-tenant by design behind requireAdminWithAal2 and keyed on the Normalized handle, which is the only identifier a correction record shares with anything. Scoping it by account_id would hide exactly the records the servicing view exists to show: a `global` correction carries account_id only as provenance and may carry none at all. Read-only, and it returns no account_id.",
+  },
+  // #645 §8.2 Correction path. ONE data-modifying CTE (P-9) that both removes
+  // the ledger row and writes its audit record, carrying the removed row's
+  // account_id, created_by_user_id and note through to it (D-A11). Inline: the
+  // audit attributes the statement to solicitation_suppressions only, so this
+  // is its single entry — a hoisted constant here would imply a second one.
+  {
+    file: "src/lib/admin/suppressions-service.ts",
+    table: "solicitation_suppressions",
+    sqlSnippet: "WITH removed AS ( DELETE FROM solicitation_suppressions WHERE id = ${input.suppressionId}::uuid RETURNING id, channel, normalized_handle, scope, account_id, source, suppressed_at, created_by_user_id, note ) INSERT INTO solicitation_suppression_corrections (id, suppression_id, channel, normalized_handle, scope, account_id, source, suppressed_at, created_by_user_id, note, removed_by_user_id, reason) SELECT ${uuidv7()}, removed.id, removed.channel, removed.normalized_handle, removed.scope, removed.account_id, removed.source, removed.suppressed_at, removed.created_by_user_id, removed.note, ${input.adminUserId}::uuid, ${input.reason} FROM removed RETURNING suppression_id",
+    category: 'admin-after-require-role',
+    reason: "#645 §7.3/§8.2 admin suppression servicing — cross-tenant by design behind requireAdminWithAal2; a handle-keyed compliance record has no tenant to scope to.",
   },
 ];

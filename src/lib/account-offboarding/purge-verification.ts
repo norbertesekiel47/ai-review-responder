@@ -662,6 +662,31 @@ export function verificationQuery(
            OR business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
       `;
 
+    // Retained WHOLE, account_id included (D-A11). The purge deletes nothing
+    // here and scrubs nothing, so this arm looks for the OPPOSITE violation to
+    // the two above: not a row that survived, but a row that survived having
+    // lost the evidence it exists to hold. §1.2 makes account_id non-null by
+    // construction for a `scope='account'` ledger row, and 098 copies that
+    // value verbatim — so a correction record at account scope with a NULL
+    // account_id cannot be produced by the Correction path and can only mean a
+    // purge stage started scrubbing a compliance record.
+    //
+    // Scoped through users rather than through the table's own account_id
+    // precisely because that column is the thing under suspicion: a scrub that
+    // nulled it would make the row invisible to a predicate that reads it.
+    // users survive the purge tombstoned with account_id intact, which is what
+    // the solicitation_suppressions arm above already relies on.
+    case 'solicitation_suppression_corrections':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM solicitation_suppression_corrections
+        WHERE scope = 'account'
+          AND account_id IS NULL
+          AND created_by_user_id IN (
+            SELECT id FROM users WHERE account_id = ${accountId}::uuid
+          )
+      `;
+
     default:
       throw new Error(`missing_purge_verification_sql:${table}`);
   }

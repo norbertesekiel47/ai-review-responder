@@ -25,6 +25,10 @@ import { POST as uploadsPost } from '../uploads/route';
 import { GET as uploadStatusGet } from '../uploads/[id]/route';
 import { GET as contactsListGet } from '../route';
 import { DELETE as contactDelete } from '../[id]/route';
+import {
+  DELETE as suppressionClear,
+  POST as suppressionMark,
+} from '../[id]/suppression/route';
 
 const UPLOAD_ID = '01900000-0000-7000-8000-000000000001';
 const CONTACT_ID = '01900000-0000-7000-8000-000000000002';
@@ -59,6 +63,26 @@ const routes: ReadonlyArray<{ name: string; invoke: () => Promise<Response> }> =
       new NextRequest(`http://localhost:3000/api/dashboard/contacts/${CONTACT_ID}`, {
         method: 'DELETE',
       }),
+      { params: Promise.resolve({ id: CONTACT_ID }) },
+    ),
+  },
+  {
+    name: 'POST /api/dashboard/contacts/[id]/suppression',
+    invoke: () => suppressionMark(
+      new NextRequest(
+        `http://localhost:3000/api/dashboard/contacts/${CONTACT_ID}/suppression`,
+        { method: 'POST' },
+      ),
+      { params: Promise.resolve({ id: CONTACT_ID }) },
+    ),
+  },
+  {
+    name: 'DELETE /api/dashboard/contacts/[id]/suppression',
+    invoke: () => suppressionClear(
+      new NextRequest(
+        `http://localhost:3000/api/dashboard/contacts/${CONTACT_ID}/suppression`,
+        { method: 'DELETE' },
+      ),
       { params: Promise.resolve({ id: CONTACT_ID }) },
     ),
   },

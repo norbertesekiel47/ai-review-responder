@@ -16,6 +16,7 @@ import {
 import {
   assertSchemaReady,
   MIGRATION_093_SOLICITATION_CONSENT,
+  MIGRATION_096_SOLICITATION_SUPPRESSIONS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { deleteContact, listContacts } from '../contacts-repo';
@@ -130,7 +131,12 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
     const databaseUrl = assertExactLocalDatabaseUrl(testDatabaseUrl);
     featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
     db = postgres(databaseUrl, { max: 1, prepare: false });
-    await assertSchemaReady(db, [MIGRATION_093_SOLICITATION_CONSENT]);
+    // listContacts composes suppressionMatchSql (#645 §7.4), so this suite now
+    // depends on the Suppression ledger's schema as well as the consent ledger's.
+    await assertSchemaReady(db, [
+      MIGRATION_093_SOLICITATION_CONSENT,
+      MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Contacts Repo Integration Owner',
       accountDisplayName: 'Contacts Repo Integration Account',
@@ -292,6 +298,9 @@ describeWithDb('contacts repo against live local Postgres', { timeout: 30_000 },
       phone: null,
       lastVisitDate: '2026-03-01',
       visitCount: 2,
+      // §7.4: an unsuppressed contact carries an explicit null, never a missing
+      // key — the owner surface reads one field for "may we contact them".
+      suppression: null,
     });
 
     const secondPage = await listContacts(

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **097** — next migration is **098**
+Current head: **098** — next migration is **099**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -48,6 +48,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `solicitation_outreach` | **Row kept; body redacted.** `rendered_subject`/`rendered_body` NULLed and `interpolation_inputs` emptied to `'{}'`, with `body_redacted_at` stamped, 90 days after the body existed — the send *fact* (status, disposition, provider id, bounce/complaint signals) is retained indefinitely for suppression, over-contact history and the daily cap, while the *content* ages out. **One window, two clocks (092):** a `sent` row ages from `sent_at`; a row that went terminal WITHOUT sending (`withheld`/`cancelled`/`failed`/`unknown`) has no `sent_at` and ages from `rendered_at`. A live row (`rendered`/`queued`/`sending`) is never redactable at any age — a bodyless live attempt can neither send nor settle. Hard-deletes with its batch on account purge | ArchivalPoller arms 9 + 10 (migrations 091/092, indexes `idx_solicitation_outreach_redaction_sweep` and `idx_solicitation_outreach_unsent_terminal_redaction_sweep`); purge via `solicitation_batches` cascade |
 | `solicitation_suppressions` | **No TTL — an opt-out never expires (§2.1)**; a time limit on an opt-out is a violation with a cron job attached. Splits on **Suppression scope** at offboarding purge (D7): `scope='global'` rows are **retained** with `account_id` intact — the recipient's revocation against our one shared sending identity is not the account's data, and deleting one would let us mail a person who opted out (#535 §6 through a different door) — while `scope='account'` (`owner_manual`) rows hard-delete with the account. The only removal path for a retained row is the admin-only, audited **Correction path** (#645) | ArchivalPoller deliberately untouched; offboarding purge content stage + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention` — ONE entry for both scopes, #643 G2) |
 | `solicitation_unsubscribe_tokens` | **No TTL, no expiry** (§2.2): CAN-SPAM §7704(a)(3) requires the link operate ≥30 days, and there is no expiry value better than none. **Row kept; provenance scrubbed.** The offboarding purge NULLs `account_id`/`business_id`/`ask_id` and keeps `token_hash`, `normalized_handle`, `channel` and `sent_at`, so redemption still works after the sender is gone (§5.2). `outreach_id` nulls independently via `ON DELETE SET NULL` (#643 G1) whenever its outreach row is deleted, account alive or not | ArchivalPoller deliberately untouched; offboarding purge token scrub + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`) |
+| `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Retains `normalized_handle` indefinitely — the minimum needed to identify WHICH opt-out was removed, since `suppression_id` points at a deleted row — matching the retention posture of the `scope='global'` ledger rows it describes (spec D7). **Row kept WHOLE**, including the corrected row's `account_id`, `created_by_user_id` and `note` (D-A11): those are the evidence the removed assertion was legitimate, and for a `scope='account'` row `account_id` is the **Suppression scope** key rather than provenance | No poller touches it; the offboarding purge neither deletes nor scrubs it. Classified in `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`), and its purge-verification arm inverts the siblings above — it counts a record that survived having LOST its evidence, not one that survived at all |
 
 Revisit triggers:
 
@@ -980,6 +981,131 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **098** — `solicitation_suppression_corrections`: the **Correction path**'s
+  audit sink (#645; locked spec
+  `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md` §8.2).
+  One new table, one handle-leading index, RLS enabled with zero policies.
+
+  **Applied to staging Supabase (`kubdiqdhqbhwmqfditeg`) 2026-08-04**, ahead of
+  the `staging` push, per the high-RISK ship lane. **PRODUCTION: not yet
+  applied** — it goes in lockstep at promotion, and this line becomes
+  `Applied to … PRODUCTION <date>` in that same change. Verified by schema
+  introspection, not the migration ledger (2026-06-20 lab note): 13 columns in
+  declaration order with exactly three nullable — `account_id`,
+  `created_by_user_id`, `note`, the D-A11 evidence trio; `relrowsecurity = true`
+  with **0** `pg_policies` rows (deny-all, not merely enabled); the handle-leading
+  `idx_solicitation_suppression_corrections_handle` on
+  `(channel, normalized_handle, created_at DESC)`; and all four CHECKs present,
+  including `reason ~ '[^[:space:]]'` — the D-A4 predicate, not the
+  `length(btrim(reason)) > 0` draft that a tab-only reason defeats.
+
+  **One row per admin-removed Suppression ledger row**, written by the same
+  single statement that performs the DELETE (a data-modifying CTE, so the
+  removal and its record cannot separate even if a call site forgets a
+  transaction). The record answers exactly three questions — WHICH opt-out was
+  removed, by WHOM, and WHY — so `reason` is `NOT NULL` with a
+  `reason ~ '[^[:space:]]'` CHECK: a blank "why" is the one input that would
+  make the record worthless, and the CHECK is what aborts the whole statement
+  (and therefore the DELETE) when it arrives. The predicate is spelled as
+  "contains a non-whitespace character" rather than `length(btrim(reason)) > 0`
+  because one-argument `btrim` strips SPACES ONLY — a tab- or newline-only
+  reason passes it, which is a blank reason wearing a different character (the
+  plan's own shape test caught this; see the #645 deviations file). The route's
+  zod schema trims with JS `.trim()`, which strips all whitespace, so the DB
+  backstop and the request gate now agree. Exactly three columns are nullable —
+  `account_id`, `created_by_user_id`, `note` — and each for a stated reason
+  (see the evidence paragraph below). `channel`, `scope` and `source` re-spell 096's
+  closed value sets so a correction cannot describe a row the ledger could not
+  have held, and the migration shape suite drives them from the same `as const`
+  arrays in `src/lib/solicitation/suppression.ts` that 096's suite uses. PK is
+  UUIDv7, app-supplied (repo convention, no DB default). The record is
+  **immutable** — no `updated_at`, no soft-delete column; a correction that was
+  itself wrong is a new suppression row via §7.3, never an edit here.
+
+  **Why not `account_audit_log`** (plan P-1). §8.2's posture is
+  `writeAccountAuditLog`'s — the audit record in the SAME transaction as the
+  delete — but not its table: `account_audit_log.account_id` is
+  `NOT NULL REFERENCES accounts(id) ON DELETE CASCADE`, and the rows §8.2 exists
+  to correct carry no account. An `admin_manual` global row entered from a
+  forwarded mailbox reply has no account to attribute (the §7.3 input is an
+  address and a note), and a `provider_suppressed` mirror originating on the
+  transactional side (§3.3) has none either — two of the three cases §8.2 names.
+  The CASCADE would additionally delete the compliance record along with the
+  account it merely names as provenance. §7.6's owner-clearing path is the
+  deliberate counterpart and **does** write `account_audit_log` (plan P-4): an
+  owner reversing their own account-scoped preference is account-scoped with a
+  non-null `account_id`; an admin removing a recipient's revocation is the
+  compliance act. Separate sinks keep the two acts structurally distinct.
+
+  **No foreign keys anywhere** (plan P-2/P-3). `suppression_id`'s referent is
+  DELETEd by the very statement that writes the row, so an FK to it is
+  impossible; `account_id`, `created_by_user_id` and `removed_by_user_id` all
+  follow 096's `created_by_user_id` posture — plain UUIDs, because a compliance
+  record must outlive the rows it names, and an FK to `accounts(id)` would let an
+  offboarding purge CASCADE the record away with the account.
+  `normalized_handle` **stays** precisely because `suppression_id` points at a
+  deleted row: without it the record cannot say which opt-out was removed, and
+  an audit record that cannot identify its subject is not one.
+
+  **It carries the corrected row's `account_id`, `created_by_user_id` and
+  `note`** — deviation **D-A11**, which supersedes plan P-2 and is the reason
+  this LOCAL-ONLY migration was **edited in place rather than superseded** (the
+  log's own convention exempts unpromoted migrations from
+  `migration-immutability-guard.sh`; 099 is claimed by #656). P-2 justified
+  dropping `account_id` as "provenance for a row being deleted", which is true
+  for a `global` row and **false** for `scope='account'`, where `account_id` is
+  the **Suppression scope** key itself and non-null by construction (§1.2) — so
+  an account-scoped correction could not say whose do-not-contact was removed.
+  `created_by_user_id` and `note` are what §7.3 makes required of a manual
+  entry: who entered the opt-out and the originating message reference proving
+  it was real. A correction DELETEs the assertion; these three columns are the
+  evidence it was legitimate, and nothing can backfill them afterwards. All
+  three are nullable because machine sources (bounce, complaint,
+  `provider_suppressed`, the unsubscribe paths) write no author and no note, and
+  a `global` row may name no account.
+
+  They make the table account-linked to `accountLinkedTablesFromMigrations()` in
+  `src/lib/account-offboarding/__tests__/table-disposition.test.ts`, and that
+  obligation is **discharged, not dodged**: the table is listed in
+  `TENANT_TABLES` and classified in `TABLE_DISPOSITIONS` as
+  `retain_compliance_limited_pii` / `allowed_limited_retention` — the same
+  disposition `solicitation_suppressions` and `solicitation_unsubscribe_tokens`
+  already carry for this class of data (D7) — with a purge-verification arm in
+  `src/lib/account-offboarding/purge-verification.ts` that inverts the sibling
+  arms: it counts a record that survived having LOST its evidence
+  (`scope='account'` with a NULL `account_id`), scoped through `users` precisely
+  because the column under suspicion is the one a scrub would null.
+  `original_account_id` / `original_created_by_user_id` would have slipped past
+  the detector on a word-boundary technicality and were **rejected**: naming
+  data to dodge a governance check is worse than the gap it hides.
+
+  RLS deny-all is the `auto_approval_policies` posture (invariant #14), matching
+  096 — not decorative: a row names a recipient's **Normalized handle**, so a
+  direct client read would expose that an identified person's opt-out was
+  removed. The single index
+  `idx_solicitation_suppression_corrections_handle (channel, normalized_handle, created_at DESC)`
+  is handle-leading because the admin lookup is the only way this table is ever
+  queried — it shows prior corrections for a handle alongside its live ledger
+  rows, so a re-entry after a correction is visible rather than a surprise. Gets
+  a retention-policy row (above): **no TTL**, nothing reads or prunes it.
+  Shape suite:
+  `src/lib/shared/__tests__/migration-098-suppression-corrections.integration.test.ts`
+  (exact column set with nullability and the app-supplied PK default, the
+  account-linked-therefore-classified assertion, the channel/scope/source value
+  sets exercised behaviourally from the exported enums, the empty FK set, the
+  index definition, the blank-reason CHECK across five whitespace spellings, and
+  RLS-with-zero-policies); schema-ready entry
+  `MIGRATION_098_SUPPRESSION_CORRECTIONS`, which names the three evidence
+  columns explicitly — the index-presence shortcut proves the file ran once, not
+  that it ran in its post-D-A11 form, so a container provisioned before the edit
+  must fail with the `pnpm test:db:setup` message rather than an
+  undefined-column error.
+
+  **Rollback:** revert the app deploy FIRST (the two `requireAdminWithAal2`
+  routes under `src/app/api/admin/suppressions` are the only writers), then
+  `DROP TABLE`. Safe while empty; drops only correction history when not.
+  Nothing in the ledger, the batch build or the offboarding purge reads it.
 
 - **097** — `suppression_analytics_events`: extends the
   `analytics_events.event_name` DB CHECK allowlist with

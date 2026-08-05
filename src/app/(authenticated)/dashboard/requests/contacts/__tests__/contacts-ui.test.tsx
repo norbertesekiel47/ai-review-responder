@@ -151,7 +151,38 @@ describe('ContactList', () => {
     phone: '+14155552671',
     lastVisitDate: '2026-01-05',
     visitCount: 2,
+    suppression: null,
   };
+
+  /** The §7.4 display seam's own output, hand-built: the component's contract is
+   *  that it renders `label`/`detail` verbatim and branches only on
+   *  `clearableByOwner`, so it must never re-derive copy of its own. Mirrors
+   *  SUPPRESSION_DISPLAY_COPY without importing the server module. */
+  const GLOBAL_DISPLAY = {
+    state: 'global',
+    label: 'Opted out of RepWorth review requests',
+    detail: 'This person opted out of review requests. We will not contact them.',
+    clearableByOwner: false,
+  };
+  const ACCOUNT_DISPLAY = {
+    state: 'account',
+    label: 'You marked this contact do-not-contact',
+    detail: 'You asked us not to send this contact review requests. You can undo this.',
+    clearableByOwner: true,
+  };
+
+  /** Exactly what `withSolicitationScope` builds for each mutation. Written out
+   *  in full because the whole hazard is these two being confused: the first
+   *  changes whether we may mail a handle, the second erases a customer. */
+  const SUPPRESSION_URL = '/api/dashboard/contacts/c1/suppression?scope=loc-1';
+  const CONTACT_DELETE_URL = '/api/dashboard/contacts/c1?scope=loc-1';
+
+  const urlsOf = (mock: ReturnType<typeof vi.fn>) =>
+    mock.mock.calls.map((call) => String(call[0]));
+
+  /** One-contact page whose suppression field is whatever the API sent. */
+  const page = (suppression: unknown) =>
+    jsonResponse(200, { contacts: [{ ...contact, suppression }], total: 1 });
 
   it('renders the fetched page with formatted visit date and total', async () => {
     vi.stubGlobal(
@@ -204,5 +235,165 @@ describe('ContactList', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/contacts/c1?scope=loc-1');
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: 'DELETE' });
+  });
+
+  // ── §7.4 suppression state + the do-not-contact controls (#645) ───────────
+
+  it('shows an opted-out contact as opted out and offers no way to undo a global row', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page(GLOBAL_DISPLAY)));
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+
+    expect(await screen.findByText(GLOBAL_DISPLAY.label)).toBeInTheDocument();
+    // §7.6: not a disabled clear control, not a tooltip explaining why — NOTHING.
+    // A greyed-out button would present clearing a recipient's own revocation
+    // and clearing the owner's preference as the same act.
+    expect(
+      screen.queryByRole('button', { name: /allow|undo|clear/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /don'?t contact/i }),
+    ).not.toBeInTheDocument();
+    // The copy states the opt-out honestly and never as a scheduling accident.
+    expect(document.body.textContent?.toLowerCase()).not.toContain('skipped');
+  });
+
+  it('offers the owner a way to undo their own do-not-contact', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page(ACCOUNT_DISPLAY)));
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+
+    expect(await screen.findByText(ACCOUNT_DISPLAY.label)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /allow requests again/i }),
+    ).toBeInTheDocument();
+    // Already marked: the surface must not offer to mark it a second time.
+    expect(
+      screen.queryByRole('button', { name: /don'?t contact/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('never renders another account name on a suppressed contact', async () => {
+    // The API excludes provenance by construction (the display seam returns a
+    // closed four-key object). This asserts the component does not reintroduce
+    // it: extra keys are fed in exactly as a widened API would ship them.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        page({
+          ...GLOBAL_DISPLAY,
+          accountName: 'Sunrise Diner',
+          accountId: '11111111-2222-3333-4444-555555555555',
+          source: 'complaint',
+          note: 'forwarded mailbox reply',
+        }),
+      ),
+    );
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+
+    expect(await screen.findByText(GLOBAL_DISPLAY.label)).toBeInTheDocument();
+    const rendered = document.body.innerHTML;
+    for (const leak of [
+      'Sunrise Diner',
+      '11111111-2222-3333-4444-555555555555',
+      'complaint',
+      'forwarded mailbox reply',
+    ]) {
+      expect(rendered).not.toContain(leak);
+    }
+  });
+
+  it('marking do-not-contact posts to the suppression endpoint and never hard-deletes the contact', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(page(null))
+      .mockResolvedValueOnce(jsonResponse(200, { state: 'marked', alreadyMarked: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onRefresh = vi.fn();
+    render(<ContactList epoch={0} onRefresh={onRefresh} />);
+
+    await user.click(await screen.findByRole('button', { name: /don'?t contact ada/i }));
+    // Same confirm-step pattern as the delete control: nothing is sent yet.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: /stop sending requests/i }));
+
+    expect(urlsOf(fetchMock)).toContain(SUPPRESSION_URL);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: 'POST' });
+    // The hazard this test exists for: wiring the mark button to the contact
+    // endpoint would erase a customer record instead of suppressing a handle.
+    expect(urlsOf(fetchMock)).not.toContain(CONTACT_DELETE_URL);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('clearing owner do-not-contact deletes the suppression endpoint and never deletes the contact endpoint', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(page(ACCOUNT_DISPLAY))
+      .mockResolvedValueOnce(jsonResponse(200, { state: 'cleared' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onRefresh = vi.fn();
+    render(<ContactList epoch={0} onRefresh={onRefresh} />);
+
+    await user.click(await screen.findByRole('button', { name: /allow requests again/i }));
+    await user.click(screen.getByRole('button', { name: /start sending requests/i }));
+
+    expect(urlsOf(fetchMock)).toContain(SUPPRESSION_URL);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: 'DELETE' });
+    // Mirrored hazard: the clear control shares a verb with the hard delete.
+    expect(urlsOf(fetchMock)).not.toContain(CONTACT_DELETE_URL);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires a confirm step before clearing, and does not reuse the marking prompt', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(page(ACCOUNT_DISPLAY));
+    vi.stubGlobal('fetch', fetchMock);
+    const onRefresh = vi.fn();
+    render(<ContactList epoch={0} onRefresh={onRefresh} />);
+
+    await user.click(await screen.findByRole('button', { name: /allow requests again/i }));
+
+    // One click resumes review requests to somebody the owner deliberately
+    // marked, so it must send nothing on its own — only the list fetch happened.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onRefresh).not.toHaveBeenCalled();
+    // §7.6: the two directions are not the same act, so their confirm steps may
+    // not read the same either. This one names what RESUMES.
+    expect(
+      screen.getByText(/start including ada lovelace in review requests again/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/we will stop sending/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: /allow requests again/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('a failed suppression mutation does not refresh into an apparently successful state', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(page(null))
+      .mockResolvedValueOnce(jsonResponse(500, { error: 'Failed to update contact' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onRefresh = vi.fn();
+    render(<ContactList epoch={0} onRefresh={onRefresh} />);
+
+    await user.click(await screen.findByRole('button', { name: /don'?t contact ada/i }));
+    await user.click(screen.getByRole('button', { name: /stop sending requests/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to update contact');
+    // Bumping the epoch here would refetch an unchanged page and re-render the
+    // row as though the change landed.
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(screen.queryByText(GLOBAL_DISPLAY.label)).not.toBeInTheDocument();
+    expect(screen.queryByText(ACCOUNT_DISPLAY.label)).not.toBeInTheDocument();
+    // Still retryable, still not marked.
+    expect(
+      screen.getByRole('button', { name: /stop sending requests/i }),
+    ).toBeInTheDocument();
   });
 });
