@@ -3,9 +3,10 @@
 **Branch:** `feat-656-postal-address-attestation`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-656-postal-address-attestation`
 **Lane:** RISK=high · SURFACE=mixed · `db_touching: true` → staging ride before `main`.
-**Current step:** 3 (plan). Rounds 1 and 2 both returned REVISE; **both revisions are
-written and committed**, and the one escalated question is **answered**. Next action
-is the round-3 **verification-only** dispatch — the CAP. `planReviewRounds` is **2**.
+**Current step:** 4 (execution). **Plan review is CLOSED** — three rounds, all
+REVISE, all dispositions applied; the owner approved the plan on 2026-08-04 rather
+than spend a fourth round on two wording edits. `planReviewRounds` is **3** (the
+cap, respected). Next action is **Task 1, dispatched alone**.
 
 A resumed session bootstraps from this doc → plan → deviations → review findings.
 **Never re-read the grilling conversation; everything locked is on disk.**
@@ -169,18 +170,16 @@ copies byte-identical) — the exact step D4 skipped in v1.
 
 ## Next actions
 
-1. ✅ **Plan revised twice** (round 1 and round 2, both 2026-08-04). Do not re-open
-   either round's findings, and do not re-open the owner-decided defect 1.
-2. Dispatch round **3** as **verification-only** against
-   `plan-review-round2-triage.md`: confirm the four applied dispositions hold, that
-   the narrowed defect-1 guarantee is stated honestly, and that intake v3's 47th
-   title is wired into T1 Step 6 / T4. Reuse `<scratchpad>/codex-brief-656-r2.md`
-   as the base and swap the checklist. **Run it in the background with stdin
-   closed** — the first round-1 dispatch died at the harness 10-minute wall.
-   `incr-round plan` FIRST.
-3. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then
-   step 4 — `set-phase executing` and dispatch Task 1 **alone** (its enforcement
-   spot check proves the guard binds for subagent tool calls).
+1. ✅ **Plan review CLOSED.** Three rounds, all REVISE, every disposition applied.
+   Owner approved 2026-08-04. **Do not re-open any round's findings**, and do not
+   re-open the owner-decided defect 1 (the digest guarantee is narrow *by
+   decision*, not by oversight) — see `plan-review-round3-triage.md` for both
+   owner decisions on the record.
+2. ✅ Phase advanced to `executing`. **Task 1 dispatched alone** — its enforcement
+   spot check is what proves the edit-surface guard binds for subagent tool calls,
+   so nothing may be dispatched in parallel until T1 lands.
+3. After T1: **T7, T8, T9 are parallel-dispatchable once T2 lands**; **T4 and T6
+   once T3 lands**; T4→T5 serial; T10 after T2–T9; **T11 last and alone**.
 4. Tasks 4, 6, 7, 8 are mutually independent and parallel-dispatchable; T4→T5 is
    serial; docs task last.
 5. Gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7.

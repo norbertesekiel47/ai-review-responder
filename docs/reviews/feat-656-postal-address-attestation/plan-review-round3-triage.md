@@ -45,3 +45,11 @@ Both round-3 items were accepted and applied; nothing was rejected on scope or o
 merit. The only open question is procedural — whether the applied fixes are
 sufficient to treat the plan as approved, or whether a fourth round (outside the
 cap) should confirm them.
+
+> **✅ OWNER DECISION 2026-08-04: treat the plan as APPROVED and begin execution.**
+> No fourth round. The reasoning on the record: round 3 raised nothing
+> substantive, and a fourth round would be reviewing two sentences of wording
+> written in response to round 3 itself. `planReviewRounds` stays at **3** — the
+> cap was respected, not exceeded. Phase advanced `plan_approved` → `executing`;
+> Task 1 dispatched alone so its enforcement spot check proves the edit-surface
+> guard binds for subagent tool calls before any parallel dispatch.
