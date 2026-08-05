@@ -91,6 +91,23 @@ fewer files in the surface. Writes still go to the dedicated
 **Auto-approved** under step 2's amendment rule (narrowing only). Both intake
 copies updated.
 
+> **Correction from T5 execution (2026-08-04).** The narrowing is right; the word
+> "beside" is not. `ProfilePanel.tsx:79` **renders `<DeleteDataPanel />` itself**,
+> so the delete-data danger zone lives *inside* the component this deviation puts
+> out of surface. There is therefore no slot "beside `ProfilePanel`" that lands
+> between the identity card and the danger zone — the only two reachable
+> positions are above the whole thing, or below the danger zone.
+>
+> **Resolved: the attestation panel renders FIRST.** It is the page's only
+> actionable section (everything in `ProfilePanel` is locked), and a destructive
+> action must stay terminal — putting a compliance form *after* "delete my data"
+> would be a worse page. The reasoning is written into `ProfileClient.tsx` so it
+> is not re-litigated by sight.
+>
+> Also: making `postalAddress` a required prop forces edits to the two existing
+> `render(<ProfileClient />)` calls in `ProfileClient.test.tsx`. The plan counted
+> that file as "Extend (+1)"; it is +1 promised title **and** two fixture repairs.
+
 ## D4 — Surface amendment #1 (of 2 before abort criteria fire): the send-handoff log seam
 
 **Added to `allowed_edit_surface`:** `worker/jobs/solicitation-batch/index.ts`.
