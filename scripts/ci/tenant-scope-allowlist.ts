@@ -2220,7 +2220,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/zernio/ZernioBackfillWorker.ts",
     table: "zernio_backfill_runs",
-    sqlSnippet: "UPDATE zernio_backfill_runs SET gap_processed_count = ${gapProcessed}, historical_processed_count = ${historicalProcessed}, gap_skipped_count = ${gapSkipped}, historical_skipped_count = ${historicalSkipped}, oldest_skipped_create_time = ${oldestSkipped}, updated_at = NOW() WHERE id = ${run.id}",
+    sqlSnippet: "UPDATE zernio_backfill_runs SET gap_processed_count = ${gapProcessed}, historical_processed_count = ${historicalProcessed}, gap_skipped_count = ${gapSkipped}, historical_skipped_count = ${historicalSkipped}, imported_count = ${importedCount}, skipped_count = ${skippedCount}, oldest_skipped_create_time = ${oldestSkipped}, updated_at = NOW() WHERE id = ${run.id}",
     category: 'worker-job-scoped',
     reason: "ZernioBackfillWorker updates the run row id loaded by correlation id for the current business-scoped backfill job.",
   },

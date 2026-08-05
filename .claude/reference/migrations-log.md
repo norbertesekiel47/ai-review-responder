@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **099** — next migration is **100**
+Current head: **100** — next migration is **101**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -982,6 +982,55 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **100** — `import_consent_and_backfill_counters`: **Consented Review Import**
+  schema (#673, epic #667; ADR 0015 + spec
+  `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §4,
+  §8a R3/R4). Three additive columns on `businesses` — `import_decision` TEXT
+  `NOT NULL DEFAULT 'pending'` under the named CHECK
+  `businesses_import_decision_check` (`pending|accepted|declined|expired`),
+  plus nullable TIMESTAMPTZ `import_decision_at` / `import_offer_expires_at`.
+  Deliberately NO cross-column CHECK (the #677 decision API and #679 expiry
+  sweep own those semantics — owner decision 2026-08-05) and NO index (#679
+  adds one if its sweep needs it). Plus the ADD half of the locked counter
+  collapse on `zernio_backfill_runs`: `imported_count` + `skipped_count`
+  INTEGER `NOT NULL DEFAULT 0`; the four legacy `gap_*`/`historical_*`
+  counters stay until the #680 cleanup migration so `git revert` of any epic
+  PR never leaves the worker writing to a dropped column (§8a R4).
+  `ZernioBackfillWorker` dual-writes both sets from this PR (imported = gap +
+  historical processed; skipped = gap + historical skipped); tenant-scope
+  allowlist re-pinned. **Dual-write contract scope (adversarial-review R1
+  amendment):** the legacy writer contract ends at **#675** — once selection
+  becomes newest-100/12-month there is no truthful gap/historical
+  decomposition, so legacy counters freeze at DEFAULT 0 for new runs — and
+  the #680 DROP requires a **reconciliation preflight** (collapsed = legacy
+  sums on every pre-#675 row, abort on mismatch). DEFAULT `'pending'` is exact: both environments held
+  zero `businesses` rows (§8a R3) — backdating was rejected. No new relation →
+  no retention-policy row, no RLS change. `SET lock_timeout = '5s'` (099
+  precedent). Shape suite
+  `src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts`;
+  schema-ready entry `MIGRATION_100_IMPORT_CONSENT`.
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **PRODUCTION 2026-08-05** (`udeyaqnvpojbwgoaxwdg`, applied at
+  PR #685 promotion BEFORE merge — 099's order) — lockstep complete; prod
+  verified by the same introspection (identical column shapes + CHECK
+  definition; `businesses` and `zernio_backfill_runs` both zero rows at
+  apply, so §8a R3 held exactly on prod). Staging verification via
+  `information_schema.columns` + `pg_get_constraintdef` (never
+  `list_migrations`): all five columns present with exact shapes
+  (`import_decision` text NOT NULL default `'pending'::text`, both timestamps
+  nullable timestamptz, both collapsed counters integer NOT NULL DEFAULT 0
+  alongside the four still-present legacy counters), and
+  `businesses_import_decision_check` renders exactly the four-state
+  `= ANY (ARRAY[...])` predicate. The dual-write observability proof
+  (`imported_count = gap + historical processed` on a real row) awaits the
+  first staging backfill run — `zernio_backfill_runs` was verified empty at
+  apply time. Apply-time reality check: `businesses` held **2 rows** (staging
+  smoke businesses created earlier that day, after the 2026-08-05 reset), so
+  the §8a R3 "zero rows at migration time" premise was stale by hours —
+  harmless, because DEFAULT `'pending'` is the truthful state for a location
+  that never answered and no backdating occurred (both rows verified
+  `pending` / NULL / NULL). Recorded as deviation D8.
+
 - **099** — `solicitation_postal_address`: the **Attested postal address** on
   `businesses` (#656; locked spec
   `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §7.5/§7.6,
@@ -994,8 +1043,10 @@ Revisit triggers:
   is not a no-op). No retention-policy row: it adds no relation, and the
   columns live and die with the `businesses` row that carries them.
   **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
-  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
-  promotion, completing the lockstep. Staging verification went past "it
+  container, and **PRODUCTION** (all five columns verified present on
+  `udeyaqnvpojbwgoaxwdg` 2026-08-05 during the #673 promotion — this entry
+  had gone stale, still reading NOT YET PRODUCTION after #666's promotion).
+  Staging verification went past "it
   applied": 5 columns present, both CHECKs `convalidated`, zero FKs on
   `_attested_by_user_id`, all existing rows NULL; then a behavioural probe in a
   `DO` block ending in `RAISE` (so it always rolls back) seeded a valid attested

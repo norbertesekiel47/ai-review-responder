@@ -1,0 +1,65 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Migration 100: ADD import-consent columns (import_decision, import_decision_at, import_offer_expires_at) on businesses and ADD the collapsed backfill counters (imported_count, skipped_count) on zernio_backfill_runs — additive-only per spec §8a R4 — with the ZernioBackfillWorker counters UPDATE dual-writing both column sets and the tenant-scope allowlist entry re-pinned to the new verbatim SQL.",
+  "non_goals": [
+    "No DROP of the four legacy gap_*/historical_* counters — that is #680's cleanup migration, blocked by every epic ticket",
+    "No consent-column writers or readers — the decision API (#677), consent gate (#676), backfill selection (#675), and expiry sweep (#679) own those",
+    "No backfill/backdating clause — both environments hold zero businesses rows (§8a R3); backdating consent to 'accepted' was explicitly rejected at #668",
+    "No cross-column CHECK between import_decision and import_decision_at — 'expired' stamping semantics belong to #679 and are not locked yet (owner decision this run)",
+    "No index for the expiry sweep — #679 adds a partial index if needed (099 precedent: no speculative indexes)",
+    "No feature flag (ADR 0015 R1)"
+  ],
+  "user_visible_behavior": [
+    "None — schema plus internal counter dual-write only; no product surface reads any of these columns yet"
+  ],
+  "invariants": [
+    "Migration 100 is additive-only: git revert of any epic PR must never leave the deployed worker writing to a dropped column (§8a R4, the 42703 class)",
+    "import_decision is NOT NULL DEFAULT 'pending' (exact per #668) and CHECK-constrained to pending|accepted|declined|expired",
+    "The counters UPDATE works against BOTH column sets while the gap/historical split exists: imported_count = gapProcessed + historicalProcessed, skipped_count = gapSkipped + historicalSkipped, written in the SAME statement as the legacy counters. The legacy WRITER contract ends at #675 (selection semantics replaced); the legacy COLUMNS stay until #680, whose DROP requires a reconciliation preflight (collapsed = legacy sums on pre-#675 rows) — D7",
+    "oldest_skipped_create_time is unchanged in name, type, and write path",
+    "Migration immutability: 100 is authored once; any fix is migration 101+ (LOCAL-ONLY marker until promotion)",
+    "Lockstep promotion: staging Supabase first, then prod, verified by information_schema introspection — never the Supabase migration ledger"
+  ],
+  "edge_cases": [
+    "Both INSERT branches (initial + reactivation) stay untouched — the new counters take DEFAULT 0, proven by the shape suite, so no column-list edits are needed",
+    "Retry of a half-finished run: dual-written sums stay consistent because they derive from the same in-memory counters in the same UPDATE statement",
+    "ci:tenant-scope pins the UPDATE verbatim — the allowlist sqlSnippet must byte-match the new SQL or the audit fails",
+    "CHECK constraints pass NULL — import_decision pairs CHECK with NOT NULL DEFAULT 'pending' (new-migration skill checklist)"
+  ],
+  "existing_patterns_to_follow": [
+    "supabase/migrations/099_solicitation_postal_address.sql — additive businesses columns: header design notes, COMMENT ON COLUMN, CHECK constraints, SET lock_timeout, rollback note",
+    "src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts — post-#573 migration-shape suite (assertSchemaReady + MIGRATION_* registry entry, rolled-back probes, no run-time DDL; supersedes the 076 reference — 076 predates #573 and applies migration SQL)",
+    "worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts — mocked-sql worker test style (createMockSql helpers)"
+  ],
+  "allowed_edit_surface": [
+    "supabase/migrations/100_*.sql",
+    ".claude/reference/migrations-log.md",
+    "worker/jobs/zernio/ZernioBackfillWorker.ts",
+    "worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts",
+    "src/lib/shared/__tests__/helpers/schema-ready.ts"
+  ],
+  "tests_to_add": [
+    "businesses.import_decision defaults to 'pending' and rejects values outside the four-state enum",
+    "import_decision_at and import_offer_expires_at are nullable timestamptz with no cross-column constraint",
+    "zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 alongside the four legacy counters",
+    "migration 100 executable SQL is additive-only — no data rewrite, no DROP COLUMN, no ALTER COLUMN, no CREATE INDEX",
+    "counters UPDATE dual-writes imported_count and skipped_count as sums of the gap and historical counters"
+  ],
+  "verification_commands": [
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "estimated_prod_lines": "~100 (migration ~70 incl. header/comments, worker ~6, allowlist ~2, migrations-log ~20)",
+  "estimated_test_lines": "~260 (shape suite ~200 following the 099 precedent with strengthened introspection probes, worker test ~60)",
+  "dependencies_added": [],
+  "rollback_plan": "Additive-only by design: `git revert` of the PR restores the old worker UPDATE, which only names the legacy columns — still present until #680, so no 42703. The applied migration stays in place; the new columns are inert without code (NOT NULL DEFAULT 'pending' / DEFAULT 0 need no writer). No down migration (099 precedent). migrations-log entry carries LOCAL-ONLY until staging/prod promotion; promotion order is staging first, prod at PR merge, both verified via information_schema.columns.",
+  "observability": [
+    "After the first staging backfill run: the zernio_backfill_runs row satisfies imported_count = gap_processed_count + historical_processed_count AND skipped_count = gap_skipped_count + historical_skipped_count — the one-query dual-write proof",
+    "Migration-applied proof on each env: information_schema.columns shows businesses.import_decision with column_default 'pending'::text and the two zernio_backfill_runs counters"
+  ],
+  "open_questions": []
+}
