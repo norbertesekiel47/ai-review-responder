@@ -32,13 +32,14 @@ vi.mock('@/lib/analytics/enqueue', () => ({
 vi.mock('@/lib/agents/run-spine', () => ({
   startOrGetActiveRun: vi.fn().mockResolvedValue({ runId: 'run-1', created: true }),
   recordStep: vi.fn(),
+  completeRun: vi.fn(),
 }));
 
 // Imports after mocks are wired
-import { processReview } from '../process-review';
+import { processReview, importReview } from '../process-review';
 import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
-import { startOrGetActiveRun, recordStep } from '@/lib/agents/run-spine';
+import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
@@ -788,5 +789,232 @@ describe('generate_response producer static guard', () => {
     const source = readFileSync(resolve(process.cwd(), file), 'utf8');
     expect(source).not.toMatch(/tx`\s*INSERT\s+INTO\s+job_outbox[\s\S]*?'generate_response'/);
     expect(source).toContain('enqueueGenerateResponse');
+  });
+});
+
+// ── importReview (#674) ───────────────────────────────────────────────
+//
+// Insert-only import path. Deliberately duplicates the tx harness rather
+// than hoisting a shared helper: the existing describe('processReview')
+// block above must stay byte-for-byte untouched, because "no behaviour
+// change for any existing caller" is this ticket's hard requirement and the
+// unmodified block is the visible evidence for it.
+
+describe('importReview', () => {
+  let tx: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedJsonbPayloads.splice(0);
+
+    tx = vi.fn();
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => {
+      capturedJsonbPayloads.push(v);
+      return v;
+    });
+
+    (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin =
+      vi.fn().mockImplementation(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+  });
+
+  // tx call sequence on the insert path — THREE calls. There is no
+  // SELECT FOR UPDATE probe (an existing row means zero writes, so the
+  // INSERT's ON CONFLICT is the whole decision) and no job_outbox INSERT
+  // (nothing is enqueued). startOrGetActiveRun / recordStep / completeRun are
+  // mocked at the seam and issue no tagged-template calls of their own:
+  //   1. INSERT reviews … ON CONFLICT DO NOTHING RETURNING id
+  //   2. SELECT account_id FROM businesses          (startReviewRun)
+  //   3. SELECT account_id, EXISTS(…)               (maybeEnqueueFirstReviewIngested)
+  function mockInsertWon(earlierExists = true) {
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: earlierExists }], 1));
+  }
+
+  function joinedSql(): string {
+    return tx.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray | undefined)?.join('?') ?? '')
+      .join('\n');
+  }
+
+  it('importReview inserts the review and writes no job_outbox row', async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon();
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('new');
+    expect(tx).toHaveBeenCalledTimes(3);
+
+    const allSql = joinedSql();
+    expect(allSql).toContain('INSERT INTO reviews');
+    // Invariants #2 and #3: the import has no follow-up work, so nothing is
+    // enqueued and nothing from this path can reach Google.
+    // enqueueGenerateResponse is deliberately NOT mocked in this suite, so a
+    // stray enqueue would appear here as a real job_outbox INSERT.
+    expect(allSql).not.toContain('job_outbox');
+  });
+
+  it('importReview classifies sentiment at the write site', async () => {
+    const monitored = makeMonitoredReview({ starRating: 1 });
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    const insertCall = tx.mock.calls[0] as unknown[];
+    const insertSql = (insertCall[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('sentiment_score');
+    expect(insertSql).toContain('sentiment_label');
+    expect(insertSql).toContain('sentiment_source');
+
+    // classifySentiment(1) → { score: -1, label: 'negative',
+    //                          source: 'deterministic_star_v1' }
+    const params = insertCall.slice(1);
+    expect(params).toContain(-1);
+    expect(params).toContain('negative');
+    expect(params).toContain('deterministic_star_v1');
+  });
+
+  it('importReview binds the review INSERT parameters in the canonical order', async () => {
+    // Guards the Task 2 extraction. Moving 17 bindings out of processReview
+    // into a shared helper could transpose two same-typed neighbours (e.g.
+    // provider_review_id ↔ provider_review_name, or the two sentiment strings)
+    // and still produce an identical tx call count and order — every other test
+    // in this file would pass while stored identity/dedup data is corrupted.
+    const monitored = makeMonitoredReview({ starRating: 5 });
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    const [, ...params] = tx.mock.calls[0] as unknown[];
+    // params[0] is the uuidv7 PK minted inside importReview.
+    expect(typeof params[0]).toBe('string');
+    expect(params.slice(1)).toEqual([
+      'biz-1',                    // business_id
+      'zernio',                   // provider
+      'r1',                       // provider_review_id
+      'zernio://loc1/reviews/r1', // provider_review_name
+      'zernio://loc1',            // provider_location_name
+      null,                       // google_review_name
+      'Alice',                    // reviewer_name
+      5,                          // star_rating
+      'Great!',                   // review_text
+      '2026-04-28',               // review_date
+      'en',                       // detected_language
+      'hash-abc',                 // review_content_hash
+      REVIEW_STATUS.NEW,          // status
+      1,                          // sentiment_score  — (5 - 3) / 2
+      'positive',                 // sentiment_label
+      'deterministic_star_v1',    // sentiment_source
+    ]);
+  });
+
+  it('importReview records the review_ingested run-spine step and completes the run', async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        kind: 'review_handler',
+        subjectType: 'review',
+        accountId: 'acct-1',
+        businessId: 'biz-1',
+        correlationId: 'corr-1',
+      }),
+    );
+    expect(recordStep).toHaveBeenCalledWith(tx, {
+      runId: 'run-1',
+      stepKey: 'review_ingested',
+    });
+    // An imported review has no draft and no publish, so nothing downstream
+    // would ever complete this run — it would read as 'stalled' after 48h
+    // (deriveRunDisplayState, src/lib/agents/read.ts:127). The import's work
+    // genuinely is finished when the row lands, so it completes its own run.
+    expect(completeRun).toHaveBeenCalledWith(tx, 'run-1', 'completed');
+  });
+
+  it('importReview does all of its work in exactly one transaction', async () => {
+    const monitored = makeMonitoredReview();
+    // earlierExists=false so maybeEnqueueFirstReviewIngested actually reaches
+    // its enqueue — with the default (true) it returns early and the
+    // enqueueAnalyticsEvent assertion below could never hold.
+    mockInsertWon(false);
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    // Invariant #2: one transaction, no post-commit follow-up. Without this,
+    // an implementation could open a second sql.begin for the spine writes and
+    // every other test in this block would still pass.
+    const begin = (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin;
+    expect(begin).toHaveBeenCalledTimes(1);
+
+    // Every spine writer received the SAME tx handle, not the pool client.
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(tx, expect.anything());
+    expect(recordStep).toHaveBeenCalledWith(tx, expect.anything());
+    expect(completeRun).toHaveBeenCalledWith(tx, expect.anything(), expect.anything());
+    expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(tx, expect.anything());
+  });
+
+  it("importReview enqueues first_review_ingested for the account's first review", async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon(false);
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        eventName: 'first_review_ingested',
+        accountId: 'acct-1',
+        businessId: 'biz-1',
+      }),
+    );
+  });
+
+  it('importReview returns unchanged and performs no writes when the review already exists', async () => {
+    const monitored = makeMonitoredReview();
+    // INSERT … ON CONFLICT DO NOTHING matched the existing row → zero rows.
+    tx.mockResolvedValueOnce(withCount([], 0));
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('unchanged');
+    // Exactly one statement — the INSERT that did nothing. An import never
+    // mutates a row the live-ingest lane already owns.
+    expect(tx).toHaveBeenCalledTimes(1);
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(completeRun).not.toHaveBeenCalled();
+    expect(enqueueAnalyticsEvent).not.toHaveBeenCalled();
+  });
+
+  it('importReview returns unchanged when a concurrent writer wins the insert race', async () => {
+    const monitored = makeMonitoredReview();
+    // Race loss is mechanically identical to "row already existed" — the
+    // INSERT returns zero rows either way. This test pins the DESIGN CLAIM
+    // that the race is not special-cased: importReview must NOT re-read the
+    // winner row and fall through to processReview's existing-row state
+    // machine, which would update content, supersede responses and open
+    // review_exceptions on behalf of an import.
+    tx.mockResolvedValueOnce(withCount([], 0));
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('unchanged');
+    expect(tx).toHaveBeenCalledTimes(1);
+
+    const allSql = joinedSql();
+    expect(allSql).not.toContain('FOR UPDATE');
+    expect(allSql).not.toContain('UPDATE reviews');
+    expect(allSql).not.toContain('UPDATE responses');
+    expect(allSql).not.toContain('review_exceptions');
+    expect(recordStep).not.toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ stepKey: 'review_updated' }),
+    );
   });
 });
