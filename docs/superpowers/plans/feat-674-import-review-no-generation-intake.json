@@ -1,0 +1,66 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Add importReview to src/lib/reviews/process-review.ts — an insert-only path that stores a review with sentiment classification and a review_ingested run-spine step, enqueues no generate_response, and never mutates an existing review row.",
+  "non_goals": [
+    "Any behaviour change to processReview for the live-ingest, update, regenerate, or backfill lanes — byte-for-byte unaffected",
+    "Consolidating the near-duplicate insertImportedReview in worker/jobs/zernio/zernio-ingest-shared.ts:364 (recorded as a note for #675)",
+    "Calling importReview from any worker, poller, or route — the caller is #675",
+    "Consent gating, offer expiry, the newest-100 cap / 12-month floor, and the reviews list (owned by #673/#675/#676/#677/#678/#679)",
+    "Any migration, feature flag, or env var",
+    "PHI screening — the caller screens reviews before handing them over (precedent: ZernioBackfillWorker.processUnansweredReview)"
+  ],
+  "user_visible_behavior": [
+    "None. importReview ships with zero callers and is inert until #675 wires it."
+  ],
+  "invariants": [
+    "No behaviour change for any existing processReview caller — the live-ingest, update, and regenerate lanes are unaffected",
+    "Invariant #2 (transactional outbox): the review insert and its run-spine + analytics writes happen in ONE sql.begin transaction; importReview has no follow-up work, so it writes no job_outbox row on any path",
+    "Invariant #3 (no unapproved posting): a review stored by importReview produces no responses row and no generate_response job, so nothing from this path can reach Google",
+    "Invariant #15: importReview takes its Sql client as an explicit parameter, matching processReview",
+    "Sentiment is classified at the write site (deterministic_star_v1), as at every other review-content write site",
+    "An import never mutates a review row the live lane already owns — an existing row means zero writes"
+  ],
+  "edge_cases": [
+    "Review already exists (ingested live earlier) → return 'unchanged', zero writes, even when the content hash differs",
+    "Concurrent writer wins the ON CONFLICT race → return 'unchanged', no re-read, no fall-through to the existing-row state machine",
+    "businesses row missing for businessId → the run-spine write is skipped rather than failing the insert (mirrors startReviewRun's existing defensive skip)",
+    "Account's first-ever review → first_review_ingested fires once; later reviews in the same import do not re-fire (earlier_exists guard + ON CONFLICT (event_key) DO NOTHING)",
+    "Import of a review whose row exists but whose content changed → left for the live lane's next poll; the import does not update it"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/reviews/process-review.ts:61-108 — the new-review insert (uuidv7 PK, classifySentiment, ON CONFLICT (provider, provider_review_name) DO NOTHING RETURNING id)",
+    "src/lib/reviews/process-review.ts:160-186 — startReviewRun, including its defensive missing-business skip",
+    "src/lib/reviews/process-review.ts:188-226 — maybeEnqueueFirstReviewIngested",
+    "src/lib/reviews/__tests__/process-review.test.ts:1-125 — mocked sql.begin + positional tx-call harness, makeMonitoredReview/withCount fixtures",
+    "worker/jobs/zernio/zernio-ingest-shared.ts:364-409 — insertImportedReview, the existing insert-without-generation shape (reference only; not modified)"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/reviews/process-review.ts",
+    "src/lib/reviews/__tests__/process-review.test.ts",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "importReview inserts the review and writes no job_outbox row",
+    "importReview classifies sentiment at the write site",
+    "importReview records the review_ingested run-spine step",
+    "importReview enqueues first_review_ingested for the account's first review",
+    "importReview returns unchanged and performs no writes when the review already exists",
+    "importReview returns unchanged when a concurrent writer wins the insert race",
+    "importReview skips the run-spine write when the business row is missing"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "80",
+  "estimated_test_lines": "240",
+  "dependencies_added": [],
+  "rollback_plan": "Not db_touching. importReview ships callerless, so reverting the single commit is operationally a no-op — no flag to flip, no migration to undo, no data to back out.",
+  "observability": [
+    "The review_handler run row + its review_ingested step in agent_run_steps is the proof an imported review was stored (same signal as live ingest, so an import is visible on the existing spine).",
+    "Absence of a generate_response row in job_outbox for the imported review_id is the proof nothing was auto-drafted — assertable in test and queryable in staging.",
+    "No new log line: the function ships callerless. #675 owns the worker-level import counter/log signal; the map records epic-level observability as still open."
+  ],
+  "open_questions": []
+}
