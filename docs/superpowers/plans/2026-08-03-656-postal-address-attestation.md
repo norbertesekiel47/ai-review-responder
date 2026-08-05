@@ -41,14 +41,21 @@ Two terms this plan **coins** (T10 writes them into `CONTEXT.md`):
 Round 1 found the v1 plan cited the wrong auth helpers and under-specified the schema. These are the corrected calls, each with the verified evidence.
 
 **1. The schema binds the attestation to the bytes, not merely to tuple completeness.**
-The all-or-nothing CHECK enforces *completeness*. An address-only `UPDATE` on an already-attested row keeps all four original columns non-NULL, passes that CHECK, and leaves an attestation dated before bytes it never covered — the precise defect this feature exists to prevent. `attestPostalAddress` being well-behaved constrains no other writer. The fix is schema-level and trigger-free: a fifth column `solicitation_postal_address_attested_digest` CHECKed to equal `encode(sha256(convert_to(solicitation_postal_address,'UTF8')),'hex')`. An address-only UPDATE by **any** writer then fails closed.
+The all-or-nothing CHECK enforces *completeness*. An address-only `UPDATE` on an already-attested row keeps all four original columns non-NULL, passes that CHECK, and leaves an attestation dated before bytes it never covered — the precise defect this feature exists to prevent. `attestPostalAddress` being well-behaved constrains no other writer. The fix is schema-level and trigger-free: a fifth column `solicitation_postal_address_attested_digest` CHECKed to equal `encode(sha256(convert_to(solicitation_postal_address,'UTF8')),'hex')`. An address-only UPDATE by **any** writer then fails closed — verified empirically against the test DB, not merely reasoned about.
+
+> **Scope of the guarantee, stated exactly** (round 2, defect 1). The digest CHECK guarantees that *no writer can change the stored address without also recomputing sha256 of the new bytes.* It does **not** make the attestation metadata total: a writer that sets the address **and** recomputes the digest while preserving the old `_attested_at` / `_attested_by_user_id` / `_attestation_version` satisfies both constraints. This was reproduced on the live test DB. Closing that residual needs `OLD` vs `NEW`, which a CHECK cannot see — it is a `BEFORE UPDATE` trigger. The accidental path (a future `UPDATE … SET solicitation_postal_address = $1` that forgets the attestation) is closed; the residual path requires lifting the digest expression out of the migration and deliberately keeping a stale timestamp, which is forgery rather than oversight. **Do not restate the guarantee more broadly than this paragraph does.**
 
 **2. The route's auth helper is `resolveOwnerScope`, not `requireSettingsOwner`.**
 Verified in `src/lib/auth/route-helpers.ts:221-238`: `requireSettingsOwner` resolves **no location** and — per its own doc comment at :217-220 — **deliberately skips the writable-subscription gate** ("settings reads and rival/auto-approval writes stay available to past-due accounts"). The intake demands both a cookie-resolved active location *and* a non-writable-subscription refusal, and `requireSettingsOwner` supplies neither.
 
 `src/lib/auth/resolve-owner-scope.ts:93` supplies all three facts this route needs in one call: `{ accountId, locationId, userId }` — where `locationId` is the `rw_location_scope` cookie resolved through `getRequestScope` (falling back to primary), and `userId` is `users.id`, the app-user PK the attestation column stores (**not** the Supabase Auth UID). It gates the subscription itself (`past_due_read_only` → 402, non-full-access → 403). Its own doc comment states it does **not** do CSRF, so the route still wraps with `withSameOrigin()`.
 
-*What we give up, stated openly:* the `/api/settings/*` family gate's `?accountId` rejection and its operational-UI offboarding block. Neither is load-bearing here. The route reads **no** query parameters at all, so an `?accountId` param is inert rather than half-honoured; and an account far enough into offboarding to be operationally blocked is not `active`/`trialing`, so `assertSubscriptionAllowsOwnerScope` already refuses it with `subscription_inactive`. Precedent for this shape: `src/app/api/dashboard/past-replies/draft/[responseId]/route.ts`.
+*What we give up, and what we must add back.* Dropping `requireSettingsOwner` also drops two of its behaviours:
+
+- The `?accountId` rejection. **Safe to lose:** this route reads no query parameters at all, so the parameter is inert rather than half-honoured.
+- The operational-UI offboarding block. **NOT safe to lose — the route must re-add it explicitly.** Round 2 disproved the earlier claim that the subscription gate covers it: `isFullBlockState` returns true for `mode === 'delete_data'` at *any* status (`src/lib/account-offboarding/gate.ts:212-215`), and confirming offboarding does not itself cancel the subscription — Stripe is the source of truth and cancellation is a separate async step. So an account in `delete_data/pending` is still `active`, sails through `assertSubscriptionAllowsOwnerScope`, and would be able to mutate its sender address mid-teardown.
+
+The precedent handles this exactly the same way: `src/app/api/dashboard/past-replies/draft/[responseId]/route.ts:103-106` calls `resolveOwnerScope` and *then* applies `getOffboardingState` + `isOperationalUIBlocked` itself. T4 does the same.
 
 `src/app/api/settings/competitors/route.ts` remains the precedent for the route's **shape** — `z.strictObject`, one module call, `jsonResponse`, `export const PUT = withSameOrigin()(handler)` — but **not** for its auth. It takes an explicit `businessId` because it is a multi-location picker; ours must write the location the owner is *currently looking at*.
 
@@ -349,11 +356,15 @@ git add -A && git commit -m "test(#656): eval task — 46 promised tests as fail
 
 ```bash
 test -f supabase/migrations/098_solicitation_suppression_corrections.sql \
-  && grep -q "Current head: \*\*098\*\*" .claude/reference/migrations-log.md \
-  && echo OK || echo "STOP — 098 not at head"
+  || { echo "STOP — migration 098 is absent; this branch is not rebased onto merged #645"; exit 1; }
+grep -q "Current head: \*\*098\*\*" .claude/reference/migrations-log.md \
+  || { echo "STOP — migrations-log head is not 098"; exit 1; }
+echo OK
 ```
 
-If this prints anything but `OK`, **STOP** and report: the branch is not rebased onto merged #645 and recording head 099 would corrupt the log. (Expected `OK` — deviations D1 records the resolution at `4a16bcfd`. The check exists so a resumed session proves it rather than trusting prose.)
+A non-zero exit **stops the task**: the branch is not rebased onto merged #645 and recording head 099 would corrupt the log. (Expected `OK` — deviations D1 records the resolution at `4a16bcfd`. The check exists so a resumed session proves it rather than trusting prose.)
+
+> Written as two guarded statements with explicit `exit 1`, not as `A && B && echo OK || echo STOP`. That one-liner exits **0** on failure — the `echo` succeeds — so it *reports* a failure without *being* one, and a runner that checks the exit code sails past. Round 2 caught exactly that.
 
 - [ ] **Step 2: Re-read the migration rules**
 
@@ -391,9 +402,15 @@ ALTER TABLE businesses
 
 -- The attestation covers THESE BYTES, not merely "some address". Completeness
 -- is not coverage: an address-only UPDATE keeps the quartet non-NULL and passes
--- the constraint above. sha256()/convert_to()/encode() are all IMMUTABLE, so
--- this is expressible as a CHECK — no trigger, and it binds EVERY writer, not
--- just attestPostalAddress.
+-- the constraint above.
+--
+-- Volatility, precisely: sha256() and encode() are IMMUTABLE, but convert_to()
+-- is STABLE (provolatile 's') because its result depends on server_encoding.
+-- Postgres does NOT reject a STABLE function in a CHECK the way it rejects one
+-- in an index predicate, and this database is UTF8 — an encoding that cannot
+-- change under a live table — so the expression is deterministic in practice.
+-- Verified empirically: both constraints create, and an address-only UPDATE is
+-- rejected. Do NOT copy this expression into an index.
 ALTER TABLE businesses
   DROP CONSTRAINT IF EXISTS businesses_solicitation_postal_address_digest;
 ALTER TABLE businesses
@@ -610,6 +627,16 @@ async function putPostalAddress(request: NextRequest): Promise<NextResponse> {
     }
     throw error;
   }
+
+  // resolveOwnerScope gates the SUBSCRIPTION, not offboarding — and the two come
+  // apart: `delete_data/pending` is operationally blocked while the subscription
+  // is still `active`. Without this the owner can edit the sender address
+  // mid-teardown. Same shape as the draft route (:103-106).
+  const offboardingState = await getOffboardingState(scope.accountId, sql);
+  if (isOperationalUIBlocked(offboardingState)) {
+    return jsonResponse({ error: 'account_offboarding_blocked' }, 403);
+  }
+
   // … parse body → attestPostalAddress(sql, {
   //      accountId: scope.accountId,
   //      businessId: scope.locationId,   // cookie-resolved, NOT the primary location
@@ -620,6 +647,8 @@ async function putPostalAddress(request: NextRequest): Promise<NextResponse> {
 
 export const PUT = withSameOrigin()(putPostalAddress);
 ```
+
+The offboarding read runs **before** the body parse and before any write, and its test asserts zero writes like every other rejection.
 
 Map the result: `attested` → 200, `invalid` → 400 with `reason`, `actor_not_in_account` → 403, `business_not_found` → 404. No business logic in the handler (working rule: entry points orchestrate).
 
@@ -748,7 +777,9 @@ Both are exact-match assertions that widening the shape invalidates. This is not
 1. `worker/jobs/solicitation-batch/__tests__/index.test.ts:100` asserts the log object with `toHaveBeenCalledWith(...)` — an **exact** object. Add `send_handoff` to it, and add the new promised test (`the solicitation batch worker logs the send handoff status and location-level reason`) covering the withheld case.
 2. `src/lib/solicitation/__tests__/batch-builder.test.ts` — `pushConstructionPreamble()` pushes `mkTaggedResult([{ category: 'automotive' }])` at ~:426, ~:594 and ~:773. Those rows must gain `owner_email_bounced: false` and a non-null `solicitation_postal_address_attested_at`; otherwise the existing test *"enqueues generate_solicitation_asks inside the built_at transaction after the CAS when the flag is on"* (~:663) sees `undefined` for both, withholds, and fails.
 
-The integration suite's result assertions use `toMatchObject` (verified at :453, :515, :552), so they tolerate the new field. Do not "fix" them.
+3. `src/lib/solicitation/__tests__/batch-builder.integration.test.ts` — the shared `beforeAll` business fixture (~:365-374) inserts **no** postal address, and *"flag-on build with send asks enqueues one generation row and the real 091 index dedups a second enqueue"* (~:508) asserts `generationRows` has length 1. Under the new gate that build is **withheld**, so the assertion sees zero rows. Attest the fixture before the flag-on build, and reset all five attestation columns plus `owner_email_bounced` between cases so the new withheld-path tests do not leak state into it.
+
+The integration suite's **result-shape** assertions use `toMatchObject` (verified at :453, :515, :552), so they tolerate the new `sendHandoff` field — do not "fix" those. It is the **enqueue** assertion inside that same test that breaks, not the shape assertion; keep the distinction straight while editing.
 
 - [ ] **Step 6: Run and commit**
 
@@ -902,7 +933,10 @@ git add -A && git commit -m "test(#656): final verification — zero pending, ga
 
 | Round | Reviewer | Verdict | Artifacts |
 |---|---|---|---|
-| 1 | `codex exec`, read-only sandbox | **REVISE** — 3 Critical, 5 High, 2 Medium, 1 Low; 11 ACCEPT / 1 REJECT | `docs/reviews/feat-656-postal-address-attestation/plan-review-round1-codex.md` + `-triage.md` |
-| 2 | *(pending — verification-only)* | | |
+| 1 | `codex exec`, read-only sandbox | **REVISE** — 3 Critical, 5 High, 2 Medium, 1 Low; 11 ACCEPT / 1 REJECT | `plan-review-round1-codex.md` + `-triage.md` |
+| 2 | `codex exec`, read-only sandbox, verification-only | **REVISE** — 7/11 findings ADDRESSED, 3 PARTIAL, 1 NOT; 4 defects introduced by fixes; all 4 miscitations corrected; all 12 new citations verified | `plan-review-round2-codex.md` + `-triage.md` |
+| 3 | *(pending — verification-only, final round)* | | |
 
-Round 2 is **verification-only** under feature.md's cap: it verifies each round-1 finding is addressed and may flag a defect a fix introduced, but may **not** open new fronts against unchanged plan sections. `planReviewRounds` is cumulative across sessions and lives in `.feature/state.json`.
+Rounds 2 and 3 are **verification-only** under feature.md's cap: each verifies the prior round's findings are addressed and may flag a defect a fix introduced, but may **not** open new fronts against unchanged plan sections. `planReviewRounds` is cumulative across sessions and lives in `.feature/state.json` — round 3 is the cap, and this branch is `RISK=high`, so a disagreement surviving round 3 escalates to the owner rather than being decided by the runner.
+
+**Round-2 dispositions applied to this document:** defect 2 (offboarding block) → "Design decisions" #2 rewritten and T4 Step 2 gains the explicit gate; defect 3 (third broken fixture) → T6 Step 5 item 3; defect 4 (`convert_to` is STABLE) → T2 Step 3 migration comment; finding 10 (non-blocking pre-flight) → T2 Step 1 rewritten with `exit 1`. Defect 1's **fact** is accepted and the guarantee narrowed in "Design decisions" #1; its suggested **remedy** (a trigger) is escalated to the owner, not applied.
