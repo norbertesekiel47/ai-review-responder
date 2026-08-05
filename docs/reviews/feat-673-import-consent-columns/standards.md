@@ -78,3 +78,29 @@ Considered and rejected as inferior to the shipped shape:
 - No boundary leak / canonical-helper duplication in production code — met (Finding 1 is test-local)
 
 **APPROVE** with Finding 1 as an optional test-only cleanup.
+
+## Round 2 verification (2026-08-05)
+
+Scope: verify the fix for round 1's single accepted STANDARDS finding (Low — duplicated
+test predicates in `worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts`), landed
+in commit `14704a19`.
+
+- **Duplication removed.** `findBackfillInsertCalls()` is defined at lines 160–166,
+  directly after `findCountsCalls()`, and replaces both inline copies of the
+  INSERT-template predicate (reactivation test line 247, initial-branch `it.each`
+  line 437). The diff-touched Copilot counts test now calls `findCountsCalls()`
+  (line 341). No inline copy of either extracted predicate remains in any
+  diff-touched test; the surviving inline `gap_processed_count` predicates
+  (lines 392, 528, 563, 575) are in unchanged pre-existing tests or the negated
+  variant — outside this finding's scope.
+- **Helpers used correctly.** Single-call sites destructure `[first]` and assert
+  `toBeDefined()` (lines 247, 341, 581); multi-call sites keep the array and assert
+  length (lines 429, 437). Semantics match the replaced `.find(...)` calls.
+- **Style consistent.** Same `find*Calls(): any[][]` naming/signature and
+  `mockSql.mock.calls.filter` shape as the file's existing `findCountsCalls()`.
+- **Tests pass.** `npx vitest run worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts`
+  → 1 file, 14/14 passed (vitest 4.1.7, 185ms).
+- **Nothing new introduced.** The fix commit touched only the three sites plus the
+  helper definition in this file; no behavior or assertion strength changed.
+
+**VERDICT: fix VERIFIED — round 1 STANDARDS finding closed.**

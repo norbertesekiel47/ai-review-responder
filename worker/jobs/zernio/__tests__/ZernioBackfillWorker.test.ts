@@ -404,7 +404,8 @@ describe('ZernioBackfillWorker', () => {
   });
 
   // #673 dual-write transition (spec §8a R4): the collapsed counters ride the
-  // same UPDATE as the legacy four until #680 drops the legacy set.
+  // same UPDATE as the legacy four until #675 ends the legacy writer contract
+  // (the columns themselves DROP in #680, after a reconciliation preflight).
   it.each([
     { gapTotal: 28, histTotal: 52, expected: [25, 50, 3, 2, 75, 5] },
     { gapTotal: 27, histTotal: 51, expected: [25, 50, 2, 1, 75, 3] },
