@@ -17,7 +17,7 @@
   "invariants": [
     "Migration 100 is additive-only: git revert of any epic PR must never leave the deployed worker writing to a dropped column (§8a R4, the 42703 class)",
     "import_decision is NOT NULL DEFAULT 'pending' (exact per #668) and CHECK-constrained to pending|accepted|declined|expired",
-    "The counters UPDATE works against BOTH column sets until #680: imported_count = gapProcessed + historicalProcessed, skipped_count = gapSkipped + historicalSkipped, written in the SAME statement as the legacy counters",
+    "The counters UPDATE works against BOTH column sets while the gap/historical split exists: imported_count = gapProcessed + historicalProcessed, skipped_count = gapSkipped + historicalSkipped, written in the SAME statement as the legacy counters. The legacy WRITER contract ends at #675 (selection semantics replaced); the legacy COLUMNS stay until #680, whose DROP requires a reconciliation preflight (collapsed = legacy sums on pre-#675 rows) — D7",
     "oldest_skipped_create_time is unchanged in name, type, and write path",
     "Migration immutability: 100 is authored once; any fix is migration 101+ (LOCAL-ONLY marker until promotion)",
     "Lockstep promotion: staging Supabase first, then prod, verified by information_schema introspection — never the Supabase migration ledger"

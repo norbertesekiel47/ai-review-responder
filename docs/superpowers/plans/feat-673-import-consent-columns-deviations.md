@@ -60,3 +60,22 @@ receive this file triaged.
   change was needed. **VERDICT: ACCEPT** — plan-authoring slip, caught by the
   plan's own constraint; the fix restores the constraint with zero semantic
   change to the migration.
+- **D7 (2026-08-05, step 7 adversarial review F2 — dual-write contract
+  re-scoped, wording only).** "Dual-write until #680" over-promised: #675
+  replaces selection with newest-100/12-month, after which no truthful
+  gap/historical decomposition exists to dual-write. Corrected contract, in
+  the migration COMMENT, migrations-log 100 entry, and intake invariant 3:
+  the legacy WRITER contract ends at #675 (legacy counters freeze at DEFAULT
+  0 for new runs), the legacy COLUMNS stay until #680, and the #680 DROP
+  requires a reconciliation preflight (collapsed = legacy sums on every
+  pre-#675 row, abort on mismatch). No code change — this PR's dual-write is
+  correct under both phrasings. Companion constraints posted to #675/#680;
+  adversarial F1 (version-skew) rejected for this PR (promotion procedure
+  already orders migration-before-code, both envs empty, single-replica
+  worker) with its reconciliation kernel folded into the #680 constraint;
+  F3 (consent identity/transition races) rejected for this PR (additive
+  unused columns foreclose nothing, transition contract deliberately
+  deferred by the signed intake) with the archive→re-add loophole and the
+  atomic transition predicates posted as constraints on #676/#677/#679.
+  **VERDICT: ACCEPT (F2 wording); REJECT F1/F3 for this PR (recorded, with
+  follow-up constraints posted).**

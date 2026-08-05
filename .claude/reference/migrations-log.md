@@ -998,7 +998,12 @@ Revisit triggers:
   PR never leaves the worker writing to a dropped column (§8a R4).
   `ZernioBackfillWorker` dual-writes both sets from this PR (imported = gap +
   historical processed; skipped = gap + historical skipped); tenant-scope
-  allowlist re-pinned. DEFAULT `'pending'` is exact: both environments held
+  allowlist re-pinned. **Dual-write contract scope (adversarial-review R1
+  amendment):** the legacy writer contract ends at **#675** — once selection
+  becomes newest-100/12-month there is no truthful gap/historical
+  decomposition, so legacy counters freeze at DEFAULT 0 for new runs — and
+  the #680 DROP requires a **reconciliation preflight** (collapsed = legacy
+  sums on every pre-#675 row, abort on mismatch). DEFAULT `'pending'` is exact: both environments held
   zero `businesses` rows (§8a R3) — backdating was rejected. No new relation →
   no retention-policy row, no RLS change. `SET lock_timeout = '5s'` (099
   precedent). Shape suite

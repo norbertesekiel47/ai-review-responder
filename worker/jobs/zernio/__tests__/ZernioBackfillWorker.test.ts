@@ -157,6 +157,14 @@ function findCountsCalls(): any[][] {
   });
 }
 
+function findBackfillInsertCalls(): any[][] {
+  return mockSql.mock.calls.filter((call: any[]) => {
+    const template = call[0];
+    return Array.isArray(template) &&
+      template.some((s: string) => s.includes('INSERT INTO zernio_backfill_runs'));
+  });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('ZernioBackfillWorker', () => {
@@ -236,11 +244,7 @@ describe('ZernioBackfillWorker', () => {
 
     // #673 locked decision 5 (reactivation branch): DEFAULT 0 owns the
     // collapsed counters — the explicit-zero column list stays legacy-only.
-    const reactivationInsert = mockSql.mock.calls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) &&
-        template.some((s: string) => s.includes('INSERT INTO zernio_backfill_runs'));
-    });
+    const [reactivationInsert] = findBackfillInsertCalls();
     expect(reactivationInsert).toBeDefined();
     const reactivationJoined = (reactivationInsert![0] as readonly string[]).join('?');
     expect(reactivationJoined).not.toContain('imported_count');
@@ -333,13 +337,8 @@ describe('ZernioBackfillWorker', () => {
     }
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
 
-    // Verify counts update call — the 3rd SQL call after insert + select_run + select_biz is counts update
-    const sqlCalls = mockSql.mock.calls;
-    // Find the UPDATE counts call (has gap_processed_count in query)
-    const countsCallStrings = sqlCalls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
-    });
+    // Verify the counts UPDATE (the call naming gap_processed_count).
+    const [countsCallStrings] = findCountsCalls();
     expect(countsCallStrings).toBeDefined();
     expect(countsCallStrings!.slice(1)).toEqual([0, 3, 0, 0, 3, 0, null, 'run-1']);
   });
@@ -435,11 +434,7 @@ describe('ZernioBackfillWorker', () => {
 
       // Locked decision 5 (initial branch): the INSERT does not name the
       // collapsed counters — DEFAULT 0 owns initialization.
-      const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
-        const template = call[0];
-        return Array.isArray(template) &&
-          template.some((s: string) => s.includes('INSERT INTO zernio_backfill_runs'));
-      });
+      const insertCalls = findBackfillInsertCalls();
       expect(insertCalls.length).toBeGreaterThan(0);
       for (const call of insertCalls) {
         const insertJoined = (call[0] as readonly string[]).join('?');

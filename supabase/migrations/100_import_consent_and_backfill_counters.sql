@@ -67,6 +67,6 @@ ALTER TABLE zernio_backfill_runs
   ADD COLUMN IF NOT EXISTS skipped_count  INTEGER NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN zernio_backfill_runs.imported_count IS
-  'Collapsed successor of gap_processed_count + historical_processed_count (map #667). ADD half of the two-migration collapse (§8a R4) — the legacy four DROP in #680. Dual-written by ZernioBackfillWorker until then.';
+  'Collapsed successor of gap_processed_count + historical_processed_count (map #667). ADD half of the two-migration collapse (§8a R4). Dual-written by ZernioBackfillWorker while the gap/historical split exists — that legacy writer contract ends when #675 replaces the selection semantics (legacy counters then freeze at DEFAULT 0 for new runs), and the #680 DROP must be preceded by a reconciliation preflight proving collapsed = legacy sums on pre-#675 rows.';
 COMMENT ON COLUMN zernio_backfill_runs.skipped_count IS
   'Collapsed successor of gap_skipped_count + historical_skipped_count (map #667). Same two-migration collapse as imported_count — oldest_skipped_create_time is unchanged.';
