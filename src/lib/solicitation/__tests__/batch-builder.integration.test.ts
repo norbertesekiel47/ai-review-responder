@@ -23,6 +23,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
   MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+  MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
@@ -356,6 +357,9 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
       MIGRATION_093_SOLICITATION_CONSENT,
       MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+      // The Send-handoff precondition reads the attestation off the business
+      // row this suite seeds (#656 T6); a behind-head DB must say so.
+      MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
     ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',

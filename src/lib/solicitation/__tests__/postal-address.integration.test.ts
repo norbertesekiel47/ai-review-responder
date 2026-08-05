@@ -1,8 +1,24 @@
-import { describe, it } from 'vitest';
+import { afterAll, beforeAll, it } from 'vitest';
+import postgres from 'postgres';
+import type postgresType from 'postgres';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  acquireLiveDbLock,
+  assertLocalTestDatabaseUrl,
+  LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
+  resolveTestDatabaseUrl,
+  type LiveDbLock,
+} from '@/lib/shared/__tests__/helpers/live-db-lock';
+import {
+  assertSchemaReady,
+  MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 
 // The Attested postal address WRITE path against the real schema (#656 T3).
 // Written as pending placeholders by T1 (the eval task); T3 fills them in once
-// `src/lib/solicitation/postal-address.ts` exists.
+// `src/lib/solicitation/postal-address.ts` exists. T2 added the live-DB harness
+// below — the schema assertion is T2's obligation, the fixtures and the
+// assertions are T3's.
 //
 // Applies NO migration SQL (#573): `pnpm test:db:setup` provisions to head and
 // this suite asserts MIGRATION_099_SOLICITATION_POSTAL_ADDRESS with
@@ -33,12 +49,37 @@ import { describe, it } from 'vitest';
 //    cross-tenant UUID being stamped as legal provenance — collapsing the two
 //    statuses would hide which guard fired.
 
-describe('postal address attestation writes', () => {
-  it.todo('attestPostalAddress writes the whole attestation tuple in one account-scoped UPDATE');
-  it.todo('attestPostalAddress re-attests on edit so the attestation never covers stale bytes');
-  it.todo('attestPostalAddress records the new actor on re-attestation');
-  it.todo('a failed re-attestation preserves the previous attestation tuple byte-for-byte');
-  it.todo("attestPostalAddress rejects an attesting user outside the caller's account");
-  it.todo("attestPostalAddress refuses to write for a business outside the caller's account");
-  it.todo('readPostalAddressState returns no data for a business outside the supplied account');
-});
+const testDatabaseUrl = resolveTestDatabaseUrl();
+
+let db: postgresType.Sql | undefined;
+let featureDatabaseLock: LiveDbLock | undefined;
+
+describeWithDb(
+  'postal address attestation writes',
+  { enabled: Boolean(testDatabaseUrl), timeout: 120_000 },
+  () => {
+    beforeAll(async () => {
+      const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
+      featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
+      db = postgres(databaseUrl, { max: 1, prepare: false });
+      await assertSchemaReady(db, [MIGRATION_099_SOLICITATION_POSTAL_ADDRESS]);
+    }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
+
+    afterAll(async () => {
+      try {
+        if (db) await db.end({ timeout: 5 });
+      } finally {
+        await featureDatabaseLock?.release();
+        featureDatabaseLock = undefined;
+      }
+    }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
+
+    it.todo('attestPostalAddress writes the whole attestation tuple in one account-scoped UPDATE');
+    it.todo('attestPostalAddress re-attests on edit so the attestation never covers stale bytes');
+    it.todo('attestPostalAddress records the new actor on re-attestation');
+    it.todo('a failed re-attestation preserves the previous attestation tuple byte-for-byte');
+    it.todo("attestPostalAddress rejects an attesting user outside the caller's account");
+    it.todo("attestPostalAddress refuses to write for a business outside the caller's account");
+    it.todo('readPostalAddressState returns no data for a business outside the supplied account');
+  },
+);

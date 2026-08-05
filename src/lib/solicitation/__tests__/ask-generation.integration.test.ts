@@ -15,6 +15,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
   MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
+  MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   cleanupTenantAccount,
@@ -182,6 +183,10 @@ describeWithDb(
         MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
         MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
         MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
+        // Ask generation reads solicitation_postal_address directly once the
+        // to_jsonb shim is retired (#656 T7) — a behind-head DB must fail with
+        // the setup message, not an undefined-column error.
+        MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
       ]);
 
       tenant = await seedTenantAccount(db, {

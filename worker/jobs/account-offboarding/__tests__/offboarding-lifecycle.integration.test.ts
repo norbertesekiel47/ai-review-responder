@@ -117,6 +117,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
   MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+  MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
 } from '../../../../src/lib/shared/__tests__/helpers/schema-ready';
 import { verifyAccountOffboardingPurge } from '../../../../src/lib/account-offboarding/purge-verification';
 // Type-only: the closed enums are owned by suppression.ts, so no source or
@@ -148,6 +149,11 @@ beforeAll(async () => {
     MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
     MIGRATION_093_SOLICITATION_CONSENT,
     MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+    // The purge clears the five attestation columns in the same statement that
+    // NULLs google_place_address (#656 T8) — and the all-or-nothing CHECK means
+    // a partial clear is rejected outright, so a behind-head DB must say which
+    // objects are missing rather than fail mid-purge.
+    MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
   ]);
 });
 
