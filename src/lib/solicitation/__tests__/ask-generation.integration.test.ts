@@ -31,10 +31,13 @@ import { checksum } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 // exactly what the test measures. Applies NO migration SQL (#573):
 // `pnpm test:db:setup` provisions to head; assertSchemaReady asserts it.
 //
-// NOTE (#627 inert-landing): businesses.solicitation_postal_address does not
-// exist at head 092, so the context loader's to_jsonb projection reads NULL
-// and the freshly generated child withholds lint_failed /
-// missing_required_element — asserted below as the fail-closed postal path.
+// NOTE (#656): businesses.solicitation_postal_address exists as of migration
+// 099 and the context loader reads it DIRECTLY — the #627-era to_jsonb shim is
+// gone. The shared business fixture is seeded UNATTESTED, so the column reads
+// NULL and freshly generated children withhold lint_failed /
+// missing_required_element — the fail-closed postal path asserted below. The
+// last test attests the fixture and resets it, proving the direct read returns
+// real bytes rather than always-NULL.
 
 const llmMocks = vi.hoisted(() => ({ runLlmTask: vi.fn() }));
 const costMocks = vi.hoisted(() => ({
@@ -312,8 +315,8 @@ describeWithDb(
       expect(llmMocks.runLlmTask).toHaveBeenCalledTimes(1);
       expect(result.skippedExisting).toBe(2);
 
-      // Head is 092: businesses.solicitation_postal_address does not exist yet,
-      // so the third child fails CLOSED — withheld lint_failed with
+      // The fixture business is UNATTESTED, so its postal address reads NULL
+      // and the third child fails CLOSED — withheld lint_failed with
       // missing_required_element and NULL bodies (#622 §7.6), proven against
       // the real 091 constraints.
       expect(result).toMatchObject({ rendered: 0, withheld: 1, failed: 0 });
@@ -374,8 +377,8 @@ describeWithDb(
     });
 
     it('terminalizes the send parent failed with generation_failed when every render fails or is withheld', async () => {
-      // Two fresh asks, no prior renders. At head 092 the postal-address
-      // column is absent, so BOTH freshly generated children withhold
+      // Two fresh asks, no prior renders. The fixture business is unattested,
+      // so the postal address reads NULL and BOTH freshly generated children withhold
       // lint_failed (fail-closed footer) — zero rows stay releasable, which is
       // exactly D14's "nothing to approve" settle: the finale's k = 0 arm
       // hands closeBatchIfSettled the generation_failed failure.
@@ -448,14 +451,78 @@ describeWithDb(
       });
     });
 
-    // #656 T7 — the to_jsonb shim exists SOLELY because
+    // #656 T7 — the to_jsonb shim existed SOLELY because
     // businesses.solicitation_postal_address did not exist; migration 099
-    // creates it, so the projection becomes a direct column read and the shim
-    // is DELETED, not left as a fallback. (The shim's comment cites #627 as the
-    // migration that would land the column; #656 is the ticket that actually
-    // does. Its purpose is unchanged — delete it, do not correct it.) The
-    // suite's own header note about head 092 reading NULL goes with it.
-    // Pending placeholder written by T1 (the eval task).
-    it.todo('ask generation reads solicitation_postal_address directly without the to_jsonb shim');
+    // creates it, so the projection is a direct column read and the shim is
+    // DELETED, not left as a fallback.
+    //
+    // The two tests above only prove the loader yields NULL for an unattested
+    // location — which a permanently-broken projection also does. This one is
+    // the other half: with the column populated, the loader must surface those
+    // exact bytes, and they must reach the assembled footer verbatim.
+    it('ask generation reads solicitation_postal_address directly without the to_jsonb shim', async () => {
+      const postalAddress = '123 Main St\nAustin, TX 78701';
+      // Raw fixture write: this test is about what the READ does with a
+      // populated column. The digest is computed server-side from the same
+      // bound parameter the column stores, so migration 099's all-or-nothing
+      // and digest CHECKs both hold — an address-only UPDATE would be rejected.
+      await sql()`
+        UPDATE businesses
+        SET solicitation_postal_address = ${postalAddress},
+            solicitation_postal_address_attested_at = NOW(),
+            solicitation_postal_address_attested_by_user_id = ${tenant!.userId}::uuid,
+            solicitation_postal_address_attestation_version = 'postal_address_attestation_v1',
+            solicitation_postal_address_attested_digest =
+              encode(sha256(convert_to(${postalAddress}::text, 'UTF8')), 'hex')
+        WHERE id = ${businessId}::uuid
+          AND account_id = ${accountId()}::uuid
+      `;
+
+      try {
+        const askId = await seedSendAsk(1);
+        const handle = await seedDispatchedOutboxRow();
+
+        const result = await generateAsksForBatch(sql(), {
+          batchId,
+          businessId,
+          outboxHandle: handle,
+        });
+
+        // With the address present the render no longer fails closed: the
+        // direct column read returned real bytes, not the shim's NULL.
+        expect(result).toMatchObject({ rendered: 1, withheld: 0, failed: 0 });
+
+        const [row] = await sql()<
+          { delivery_status: string; disposition_reason: string | null; rendered_body: string | null }[]
+        >`
+          SELECT delivery_status, disposition_reason, rendered_body
+          FROM solicitation_outreach
+          WHERE ask_id = ${askId}::uuid
+            AND account_id = ${accountId()}::uuid
+            AND business_id = ${businessId}::uuid
+        `;
+        expect(row).toMatchObject({
+          delivery_status: 'rendered',
+          disposition_reason: null,
+        });
+        // Verbatim, both lines — the footer bakes the stored bytes in as-is, so
+        // a projection that trimmed, folded or re-encoded them would show here.
+        expect(row!.rendered_body).toContain(postalAddress);
+      } finally {
+        // Reset the whole tuple so the two fail-closed tests above stay valid
+        // in any execution order. All five together — the all-or-nothing CHECK
+        // rejects a partial clear.
+        await sql()`
+          UPDATE businesses
+          SET solicitation_postal_address = NULL,
+              solicitation_postal_address_attested_at = NULL,
+              solicitation_postal_address_attested_by_user_id = NULL,
+              solicitation_postal_address_attestation_version = NULL,
+              solicitation_postal_address_attested_digest = NULL
+          WHERE id = ${businessId}::uuid
+            AND account_id = ${accountId()}::uuid
+        `;
+      }
+    });
   },
 );
