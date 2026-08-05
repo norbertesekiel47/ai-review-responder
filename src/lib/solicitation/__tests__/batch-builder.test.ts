@@ -58,6 +58,28 @@ import {
   buildSolicitationBatch,
 } from '../batch-builder';
 
+/**
+ * The `businesses` row construction loads. #656 T6 widened that SELECT with the
+ * two location-level Send-handoff facts, so every fixture standing in for the
+ * row must spell them out: an absent key reads `undefined`, which
+ * `sendHandoffWithheldReason` treats as "missing" and withholds — deliberately,
+ * so a narrowed projection fails closed rather than sending. Three call sites
+ * push this row and all three go through here.
+ */
+function businessRow(
+  overrides: {
+    owner_email_bounced?: boolean;
+    solicitation_postal_address_attested_at?: Date | null;
+  } = {},
+) {
+  return {
+    category: 'automotive',
+    owner_email_bounced: false,
+    solicitation_postal_address_attested_at: new Date('2026-08-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   resetMockSql();
   mockSql.mockClear();
@@ -423,7 +445,7 @@ describe('solicitation batch candidate loader', () => {
         category: 'automotive',
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
-      mkTaggedResult([{ category: 'automotive' }]),
+      mkTaggedResult([businessRow()]),
       mkTaggedResult([{
         contact_id: 'contact-1',
         last_visit_date: '2026-07-23',
@@ -591,7 +613,7 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
         built_at: null,
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
-      mkTaggedResult([{ category: 'automotive' }]),
+      mkTaggedResult([businessRow()]),
     );
   }
 
@@ -708,15 +730,69 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
   // ON. Without it the watch-only lane — the only lane running in production
   // today — would have no coverage of the new gate at all.
   //
-  // NOTE for T6: `pushConstructionPreamble()` pushes the business row as
-  // `mkTaggedResult([{ category: 'automotive' }])`. Widening the SELECT makes
-  // that row's two new columns read `undefined`, which withholds the handoff
-  // and breaks the flag-on enqueue case above — the fixture must widen in the
-  // same change.
-  //
-  // Pending placeholders written by T1 (the eval task).
-  it.todo('batch build scopes the postal precondition read by business_id and account_id');
-  it.todo('send handoff is not_applicable when SOLICITATION_SEND_ENABLED is off');
+  // The business row every construction fixture pushes now goes through
+  // `businessRow()` (top of file): widening the SELECT makes an omitted column
+  // read `undefined`, which withholds the handoff and would have broken the
+  // flag-on enqueue case above.
+  it('batch build scopes the postal precondition read by business_id and account_id', async () => {
+    mocks.solicitationSendEnabled.mockReturnValue(true);
+    pushPreparationResults();
+    pushConstructionPreamble();
+    pushSendCandidateResults();
+
+    await expect(
+      buildSolicitationBatch(mockSql as unknown as Sql, {
+        batchId: 'batch-1',
+        businessId: 'business-1',
+        outboxId: 'outbox-1',
+        attempt: 2,
+      }),
+    ).resolves.toMatchObject({
+      status: 'built',
+      sendHandoff: { status: 'enqueued' },
+    });
+
+    const businessReads = sqlCalls.filter((call) =>
+      call.text.includes('FROM businesses'),
+    );
+    // ONE read, not a second query bolted on beside the category read: the
+    // precondition rides the SELECT construction already runs.
+    expect(businessReads).toHaveLength(1);
+    const businessRead = businessReads[0]!;
+    expect(businessRead.text).toContain('owner_email_bounced');
+    expect(businessRead.text).toContain('solicitation_postal_address_attested_at');
+    // Both tenant predicates survive the widening — the row is the account's
+    // own location or it is nothing.
+    expect(businessRead.text).toContain('id = ?::uuid');
+    expect(businessRead.text).toContain('account_id = ?::uuid');
+    expect(businessRead.values).toEqual(['business-1', 'account-1']);
+  });
+
+  it('send handoff is not_applicable when SOLICITATION_SEND_ENABLED is off', async () => {
+    // beforeEach default: solicitationSendEnabled() === false. This is the
+    // watch-only lane — the only lane running in production today — and the one
+    // path the integration cases cannot cover, since every one of them turns
+    // the flag ON.
+    pushPreparationResults();
+    pushConstructionPreamble();
+    pushSendCandidateResults();
+
+    const result = await buildSolicitationBatch(mockSql as unknown as Sql, {
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      outboxId: 'outbox-1',
+      attempt: 2,
+    });
+
+    // A flag-off build has no handoff to withhold: `not_applicable`, never a
+    // withheld reason, even though this fixture IS attested and deliverable.
+    expect(result).toMatchObject({
+      status: 'built',
+      sendCount: 1,
+      sendHandoff: { status: 'not_applicable' },
+    });
+    expect(mocks.enqueueGenerateSolicitationAsks).not.toHaveBeenCalled();
+  });
 });
 
 // The solicitation_batch lane's source roots. The advisory-lock KEY may be
@@ -792,7 +868,7 @@ describe('solicitation_batch advisory lock', () => {
         built_at: null,
       }]),
       mkTaggedResult([{ subscription_status: 'active' }]),
-      mkTaggedResult([{ category: 'automotive' }]),
+      mkTaggedResult([businessRow()]),
       mkTaggedResult([]),
       mkTaggedResult([{ pool_count: 0 }]),
       mkTaggedResult([{ id: 'batch-1' }]),

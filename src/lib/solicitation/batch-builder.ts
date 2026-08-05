@@ -34,6 +34,10 @@ import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
 import { MAX_DATA_ROWS } from './contacts-csv';
 import { solicitationSendEnabled, solicitationWatchEnabled } from './flags';
 import {
+  sendHandoffWithheldReason,
+  type SendHandoffWithheldReason,
+} from './postal-address';
+import {
   evaluateBatch,
   WITHHOLD_REASONS,
   type AskCandidate,
@@ -59,6 +63,21 @@ export interface BuiltSolicitationBatchResult {
   sendCount: number;
   withholdCount: number;
   withheldByReason: Record<WithholdReason, number>;
+  /**
+   * The **Send handoff** (#656): what happened to the one point where this
+   * batch becomes send-mode work. Deliberately NOT a `withheldByReason` entry —
+   * that map is PER-CANDIDATE and its keys are the closed `WITHHOLD_REASONS`
+   * enum, versioned by `RESTRAINT_POLICY_VERSION`; this is one PER-LOCATION
+   * fact and adding a member would invalidate comparability with every existing
+   * watch-mode evidence row.
+   *
+   * `not_applicable` covers both "no send asks exist" and "the send flag is
+   * off" — in neither case is there a handoff to withhold.
+   */
+  sendHandoff:
+    | { status: 'enqueued' }
+    | { status: 'not_applicable' }
+    | { status: 'withheld'; reason: SendHandoffWithheldReason };
 }
 
 type ClosedGateReason =
@@ -512,10 +531,16 @@ function emptyReasonCounts(): Record<WithholdReason, number> {
   ) as Record<WithholdReason, number>;
 }
 
+/**
+ * Pure over the per-candidate decisions, and deliberately blind to the business
+ * row: the Send handoff is a location-level fact `constructBatch` derives and
+ * merges on top (`{ ...summary, sendHandoff }`). Keeping it out of here is what
+ * guarantees the watch-mode counts cannot move when the precondition changes.
+ */
 function summarize(
   decisions: readonly AskDecision[],
   poolCount: number,
-): BuiltSolicitationBatchResult {
+): Omit<BuiltSolicitationBatchResult, 'sendHandoff'> {
   const withheldByReason = emptyReasonCounts();
   let sendCount = 0;
   for (const decision of decisions) {
@@ -702,8 +727,16 @@ async function constructBatch(
       };
     }
 
-    const [business] = await tx<{ category: string | null }[]>`
-      SELECT category
+    // One SELECT, widened rather than duplicated (#656 T6): the vertical the
+    // restraint policy needs AND the two location-level facts the Send handoff
+    // precondition reads. Both tenant predicates stay — the row is the account's
+    // location or it is nothing.
+    const [business] = await tx<{
+      category: string | null;
+      owner_email_bounced: boolean | null;
+      solicitation_postal_address_attested_at: Date | null;
+    }[]>`
+      SELECT category, owner_email_bounced, solicitation_postal_address_attested_at
       FROM businesses
       WHERE id = ${businessId}::uuid
         AND account_id = ${accountId}::uuid
@@ -763,15 +796,32 @@ async function constructBatch(
     // CAS: zero send asks means no generation work exists — no enqueue, no
     // send parent, watch-mode report unchanged. A `null` return (in-flight
     // generation row already exists) is fine — an idempotent build retry.
+    //
+    // #656 T6 — the precondition withholds THIS handoff and nothing else. The
+    // batch is already built above and the Spoilage report is already committed;
+    // an unattested postal address (CAN-SPAM §7704(a)(5)) or a bounced owner
+    // email stops the send-mode work, never the watch-mode evaluation. The
+    // enqueue stays inside this transaction (invariant #2), so a failure here
+    // rolls the whole build back rather than leaving a built batch with no
+    // generation work.
+    let sendHandoff: BuiltSolicitationBatchResult['sendHandoff'] = {
+      status: 'not_applicable',
+    };
     if (summary.sendCount > 0 && solicitationSendEnabled()) {
-      await enqueueGenerateSolicitationAsks(tx, {
-        batchId: batch.id,
-        businessId: batch.business_id,
-        correlationId: input.correlationId,
-      });
+      const withheldReason = sendHandoffWithheldReason(business);
+      if (withheldReason !== null) {
+        sendHandoff = { status: 'withheld', reason: withheldReason };
+      } else {
+        await enqueueGenerateSolicitationAsks(tx, {
+          batchId: batch.id,
+          businessId: batch.business_id,
+          correlationId: input.correlationId,
+        });
+        sendHandoff = { status: 'enqueued' };
+      }
     }
 
-    return summary;
+    return { ...summary, sendHandoff };
   });
 }
 
