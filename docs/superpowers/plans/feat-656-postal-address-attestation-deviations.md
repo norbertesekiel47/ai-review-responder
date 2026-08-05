@@ -116,3 +116,29 @@ commands were malformed — `-r` is ripgrep's *replace* flag, so `-rn` meant
 "replace with n". One returned empty output that was briefly read as a real
 answer. Re-run with `-n` and a `grep` filter. Worth remembering: an empty
 ripgrep result is only evidence if the flags were right.
+
+## D5 — Tasks executed SEQUENTIALLY, not in parallel as the plan permits
+
+**Found at:** execution, immediately after T1. **Not an intake or surface change.**
+
+The plan's dependency graph is correct about *logical* independence — T7, T8 and
+T9 touch disjoint files once T2 lands, as do T4 and T6 once T3 lands. But
+"logically independent" is not "safe to dispatch concurrently **into one git
+worktree**":
+
+- Every task's commit step is `git add -A && git commit`. Two agents running that
+  concurrently stage **each other's** in-progress files, so a half-written T8
+  lands inside T7's commit — silently, with a plausible-looking message.
+- Concurrent `git commit` also contends on `.git/index.lock`, which fails
+  noisily and is the *lucky* outcome; the staging race is the one that corrupts
+  history quietly.
+
+**Resolution: run every task sequentially in the dependency order.** It is slower
+and buys back correctness that would be expensive to unpick — an interleaved
+commit is only visible by reading each diff against its task.
+
+The parallelism in the plan is not wrong, it is just conditional: it is safe only
+with per-task worktree isolation (`isolation: 'worktree'`) or a commit step
+narrowed to that task's own paths. Neither is in the plan, so neither is assumed
+here. **If a future session wants the parallel speedup, change the commit steps to
+explicit paths FIRST** — `git add <path> …`, never `-A`.

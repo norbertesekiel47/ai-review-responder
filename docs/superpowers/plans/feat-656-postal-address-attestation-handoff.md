@@ -11,6 +11,28 @@ cap, respected). Next action is **Task 1, dispatched alone**.
 A resumed session bootstraps from this doc → plan → deviations → review findings.
 **Never re-read the grilling conversation; everything locked is on disk.**
 
+## ⚠ Two traps T1 discovered — a later task WILL trip on these
+
+Found while authoring the eval suite, not predicted by the plan. Both are now
+load-bearing facts about the test code:
+
+1. **The gate-integrity guard must assemble its marker strings, never spell them.**
+   It lives in `src/lib/solicitation/__tests__/postal-address.test.ts`, which is
+   one of the eleven files it scans. Writing `it.todo(` or `it.skip(` literally
+   anywhere in that file — *including inside a comment explaining the guard* —
+   makes it fail on itself forever and prove nothing about the other ten. It
+   builds the four markers from `['it','describe'] × ['todo','skip']`. **T11 must
+   not "simplify" that back to literals.** For the same reason, the placeholder
+   comments in the other ten files say "pending placeholder" rather than naming
+   the marker.
+
+2. **Three promised titles contain apostrophes, and `verify-gate.sh` matches with
+   `grep -F` against raw bytes.** They are written with double-quoted JS strings:
+   `"…outside the caller's account"` (×2) and `"…another account's attested postal
+   address untouched"`. A later task converting those `todo`s to real assertions
+   **must keep the double quotes** — reflowing to `'…caller\'s…'` silently breaks
+   the `promised-tests` gate row while the test itself still passes.
+
 ## Read these, by path — do not restate them here
 
 | What | Path |
