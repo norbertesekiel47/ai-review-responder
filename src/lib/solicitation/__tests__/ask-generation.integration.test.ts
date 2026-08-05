@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -508,6 +510,19 @@ describeWithDb(
         // Verbatim, both lines — the footer bakes the stored bytes in as-is, so
         // a projection that trimmed, folded or re-encoded them would show here.
         expect(row!.rendered_body).toContain(postalAddress);
+
+        // Provenance leg — WITHOUT this the title over-promises. Once migration
+        // 099 exists, `to_jsonb(b) ->> 'solicitation_postal_address'` returns
+        // BYTE-IDENTICAL output to the direct column read, so every assertion
+        // above stays green with the shim reinstated. Behaviour cannot
+        // distinguish them; only the source can. (Branch review, standards
+        // axis — the same class of gap T5 closed for the attestation label.)
+        const loaderSource = await readFile(
+          resolve(process.cwd(), 'src/lib/solicitation/ask-generation.ts'),
+          'utf-8',
+        );
+        expect(loaderSource).not.toContain('to_jsonb');
+        expect(loaderSource).toContain('b.solicitation_postal_address AS postal_address');
       } finally {
         // Reset the whole tuple so the two fail-closed tests above stay valid
         // in any execution order. All five together — the all-or-nothing CHECK

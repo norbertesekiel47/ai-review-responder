@@ -58,13 +58,13 @@ ALTER TABLE businesses
 COMMENT ON COLUMN businesses.solicitation_postal_address IS
   'Owner-attested CAN-SPAM sender address for this location, baked VERBATIM into every ask footer (#656 §7.5). NULL = the Send handoff is withheld. Never google_place_address.';
 COMMENT ON COLUMN businesses.solicitation_postal_address_attested_at IS
-  'When the owner attested the CURRENT bytes. The single "may this location send" test.';
+  'Writer-recorded moment of attestation, and the single "may this location send" test. NOT schema-proven to cover the currently stored bytes — see the digest CHECK caveat below for exactly what is and is not guaranteed.';
 COMMENT ON COLUMN businesses.solicitation_postal_address_attested_by_user_id IS
   'users.id of the attesting owner, captured point-in-time. PLAIN UUID, NO FK (093 lesson) — the writer verifies account membership instead.';
 COMMENT ON COLUMN businesses.solicitation_postal_address_attestation_version IS
   'POSTAL_ADDRESS_ATTESTATION_VERSION of the text the owner assented to. Changing the wording bumps the version.';
 COMMENT ON COLUMN businesses.solicitation_postal_address_attested_digest IS
-  'sha256 hex of the attested address bytes. CHECKed against the stored address so an address-only UPDATE by ANY writer fails closed.';
+  'sha256 hex of the CURRENTLY STORED address. CHECKed against that address, so an address-only UPDATE by ANY writer fails closed. It binds the digest to the bytes — it does not prove the attestation metadata ever covered them.';
 
 -- All-or-nothing over the tuple: a stored address always carries a complete
 -- attestation, so no reader ever branches on "is this attested".
