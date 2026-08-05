@@ -100,6 +100,7 @@
     "PUT /api/settings/postal-address rejects unauthenticated and non-owner callers before writing",
     "PUT /api/settings/postal-address rejects cross-origin mutation requests",
     "PUT /api/settings/postal-address refuses writes for a non-writable subscription",
+    "PUT /api/settings/postal-address refuses writes while the account is offboarding",
     "PUT /api/settings/postal-address rejects a request that omits the attestation",
     "PUT /api/settings/postal-address rejects an unknown attestation version without writing",
     "PUT /api/settings/postal-address rejects an address that fails the lint",
