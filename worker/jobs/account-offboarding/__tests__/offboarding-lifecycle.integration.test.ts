@@ -25,6 +25,9 @@
 
 import { it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
+// A second, short-lived client with a `debug` hook — the only way to assert the
+// purge clears the postal-address tuple in ONE statement (#656 T8).
+import postgres from 'postgres';
 
 // ── Point the production `sql` singleton at the test DB BEFORE app imports ───
 // Mirrors integration-edit-existing-reply.test.ts: `src/lib/db/server.ts`
@@ -100,7 +103,11 @@ import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboar
 import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
 import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
-import { runContentPurgeStage, type AccountOffboardingPurgeRow } from '../purge-stages';
+import {
+  runContentPurgeStage,
+  runParentTombstonePurgeStage,
+  type AccountOffboardingPurgeRow,
+} from '../purge-stages';
 import { acquireCsvIngestLock } from '../../../../src/lib/solicitation/ingest';
 import { acquireSolicitationBatchLock } from '../../../../src/lib/solicitation/batch-builder';
 import { supabaseServerBounded } from '../../../../src/lib/db/server';
@@ -512,6 +519,87 @@ async function readUnsubscribeToken(tokenId: string): Promise<
     WHERE id = ${tokenId}::uuid
   `;
   return row;
+}
+
+// ── #656 T8 fixtures: the Attested postal address ───────────────────────────
+
+/** The five columns migration 099 binds all-or-nothing to one another. */
+interface PostalAttestationTuple {
+  solicitation_postal_address: string | null;
+  solicitation_postal_address_attested_at: string | null;
+  solicitation_postal_address_attested_by_user_id: string | null;
+  solicitation_postal_address_attestation_version: string | null;
+  solicitation_postal_address_attested_digest: string | null;
+}
+
+/**
+ * Writes one complete attestation tuple. The digest is computed HERE with
+ * node:crypto (invariant #10) rather than by the server expression, so the
+ * fixture only lands if the JS-side bytes agree with what 099's CHECK
+ * recomputes — a seed that disagreed would be rejected rather than silently
+ * weakening every assertion below.
+ */
+async function seedAttestedPostalAddress(input: {
+  businessId: string;
+  accountId: string;
+  userId: string;
+  address: string;
+}): Promise<void> {
+  const sql = getE2eSql();
+  await sql`
+    UPDATE businesses
+    SET google_place_address = 'Austin, TX, USA',
+        solicitation_postal_address = ${input.address},
+        solicitation_postal_address_attested_at = NOW(),
+        solicitation_postal_address_attested_by_user_id = ${input.userId}::uuid,
+        solicitation_postal_address_attestation_version = 'postal_address_attestation_v1',
+        solicitation_postal_address_attested_digest = ${createHash('sha256')
+          .update(input.address)
+          .digest('hex')}
+    WHERE id = ${input.businessId}::uuid
+      AND account_id = ${input.accountId}::uuid
+  `;
+}
+
+async function readPostalAttestationTuple(
+  businessId: string,
+): Promise<PostalAttestationTuple | undefined> {
+  const sql = getE2eSql();
+  const [row] = await sql<PostalAttestationTuple[]>`
+    SELECT solicitation_postal_address,
+           solicitation_postal_address_attested_at::text
+             AS solicitation_postal_address_attested_at,
+           solicitation_postal_address_attested_by_user_id::text
+             AS solicitation_postal_address_attested_by_user_id,
+           solicitation_postal_address_attestation_version,
+           solicitation_postal_address_attested_digest
+    FROM businesses
+    WHERE id = ${businessId}::uuid
+  `;
+  return row;
+}
+
+const CLEARED_POSTAL_ATTESTATION: PostalAttestationTuple = {
+  solicitation_postal_address: null,
+  solicitation_postal_address_attested_at: null,
+  solicitation_postal_address_attested_by_user_id: null,
+  solicitation_postal_address_attestation_version: null,
+  solicitation_postal_address_attested_digest: null,
+};
+
+/** A second location under an existing account, so "every location" has one. */
+async function seedSecondLocation(seed: OwnerOffboardingSeedData): Promise<string> {
+  const sql = getE2eSql();
+  const id = randomUUID();
+  await sql`
+    INSERT INTO businesses (
+      id, name, owner_name, owner_email, account_id, subscription_status, category
+    ) VALUES (
+      ${id}::uuid, 'Second Location', 'Second Owner',
+      ${`second-${id}@test.local`}, ${seed.accountId}::uuid, 'active', 'retail'
+    )
+  `;
+  return id;
 }
 
 // 30s per test: TEST_DATABASE_POOL_URL may be a remote Supabase pooler where
@@ -1504,8 +1592,138 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
   // assertion in this suite to sit alongside — so T8 seeds the attested tuple
   // itself.
   //
-  // Pending placeholders written by T1 (the eval task).
-  it.todo('the offboarding purge clears a populated attestation tuple in one statement');
-  it.todo('the offboarding purge clears the attestation for every location in the account');
-  it.todo("the offboarding purge leaves another account's attested postal address untouched");
+  it('the offboarding purge clears a populated attestation tuple in one statement', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    // A recorder client so "one statement" is a STATEMENT-COUNT claim, not an
+    // outcome restatement: an implementation that split the five columns into a
+    // second UPDATE would clear the tuple just as well, and only the count says
+    // so. `runParentTombstonePurgeStage` takes its client as an explicit
+    // parameter (invariant #15), which is what makes this substitution possible.
+    const recorded: string[] = [];
+    const recorder = postgres(testDbUrl!, {
+      max: 1,
+      prepare: false,
+      debug: (_connection, query) => {
+        recorded.push(query);
+      },
+    });
+    try {
+      await seedAttestedPostalAddress({
+        businessId: seed.businessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '123 Main St\nAustin, TX 78701',
+      });
+      const before = await readPostalAttestationTuple(seed.businessId);
+      expect(before?.solicitation_postal_address).toBe('123 Main St\nAustin, TX 78701');
+
+      await runParentTombstonePurgeStage(
+        recorder,
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      const businessUpdates = recorded.filter((query) => /UPDATE\s+businesses/i.test(query));
+      expect(businessUpdates).toHaveLength(1);
+      const [statement] = businessUpdates;
+      for (const column of [
+        'solicitation_postal_address',
+        'solicitation_postal_address_attested_at',
+        'solicitation_postal_address_attested_by_user_id',
+        'solicitation_postal_address_attestation_version',
+        'solicitation_postal_address_attested_digest',
+      ]) {
+        expect(statement).toContain(`${column} = NULL`);
+      }
+      // Same statement, same scope — never a bare account-wide UPDATE bolted on
+      // beside the tombstone.
+      expect(statement).toMatch(/WHERE\s+account_id\s*=/i);
+      // The pre-existing `google_place_address = NULL` rides it too, which is
+      // what makes this the EXISTING statement rather than a new one.
+      expect(statement).toContain('google_place_address = NULL');
+
+      expect(await readPostalAttestationTuple(seed.businessId)).toEqual(
+        CLEARED_POSTAL_ATTESTATION,
+      );
+    } finally {
+      await recorder.end({ timeout: 5 });
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('the offboarding purge clears the attestation for every location in the account', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    try {
+      const secondBusinessId = await seedSecondLocation(seed);
+      // Deliberately DIFFERENT bytes per location: a purge that cleared only
+      // the primary would leave a tuple that still reads as attested, and the
+      // distinct address makes which one survived unambiguous.
+      await seedAttestedPostalAddress({
+        businessId: seed.businessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '123 Main St\nAustin, TX 78701',
+      });
+      await seedAttestedPostalAddress({
+        businessId: secondBusinessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '999 Other Rd\nSuite 4\nAustin, TX 78702',
+      });
+
+      await runParentTombstonePurgeStage(
+        getE2eSql(),
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      expect(await readPostalAttestationTuple(seed.businessId)).toEqual(
+        CLEARED_POSTAL_ATTESTATION,
+      );
+      expect(await readPostalAttestationTuple(secondBusinessId)).toEqual(
+        CLEARED_POSTAL_ATTESTATION,
+      );
+    } finally {
+      // cleanupAccountCascade unions a live `SELECT id FROM businesses WHERE
+      // account_id = …` with the seed handle, so the second location is swept.
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it("the offboarding purge leaves another account's attested postal address untouched", async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const bystander = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    try {
+      await seedAttestedPostalAddress({
+        businessId: seed.businessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '123 Main St\nAustin, TX 78701',
+      });
+      await seedAttestedPostalAddress({
+        businessId: bystander.businessId,
+        accountId: bystander.accountId,
+        userId: bystander.userId,
+        address: '77 Bystander Way\nAustin, TX 78703',
+      });
+      const bystanderBefore = await readPostalAttestationTuple(bystander.businessId);
+
+      await runParentTombstonePurgeStage(
+        getE2eSql(),
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      expect(await readPostalAttestationTuple(seed.businessId)).toEqual(
+        CLEARED_POSTAL_ATTESTATION,
+      );
+      // Byte-for-byte, all five columns including the timestamp: the statement
+      // is scoped by `account_id`, so a widened predicate would show up as a
+      // cleared — or merely re-stamped — bystander tuple.
+      expect(await readPostalAttestationTuple(bystander.businessId)).toEqual(bystanderBefore);
+      expect(bystanderBefore?.solicitation_postal_address).toBe(
+        '77 Bystander Way\nAustin, TX 78703',
+      );
+    } finally {
+      await cleanupOwnerOffboardingSeed(bystander);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
 });
