@@ -1,17 +1,14 @@
 # Handoff — feat-674-import-review-no-generation
 
-**Checkpoint:** step 4 (owner gate cleared, execution starting).
+**Checkpoint:** step 8 (ship). Implementation, gate and both review phases are DONE.
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation`
-**Branch:** `feat-674-import-review-no-generation` · rebased onto `origin/main` @ `6bd45cfe` (see D12)
-**Phase file:** `.feature/state.json` → `executing`, `planReviewRounds=3`
+**Branch:** `feat-674-import-review-no-generation`, rebased onto `origin/main` @ `6bd45cfe`
+**Phase file:** `.feature/state.json` → `reviewed`, `planReviewRounds=3`, `branchReviewRounds=2`
+**Gate:** GREEN, 23/23, `lastGreenGateSha` == HEAD.
 
-> **Resume note (2026-08-05):** the owner cleared the D11 gate and approved the
-> rebase. Enforcement is **ARMED** — `.feature/intake.json` is restored. The
-> "FIRST ACTION ON RESUME" section below is **done**; it is kept only as the
-> record of why the branch was ever disarmed.
-
-A resumed session bootstraps from this file and reads the artefacts below. It
-does **not** need the prior transcript.
+Hashes in this file are post-rebase. Anything quoted in the round-1/2/3 **plan**
+review reports is from the pre-rebase base and no longer resolves —
+`git log origin/main..HEAD` is the authority.
 
 ## Read these, in order
 
@@ -19,82 +16,100 @@ does **not** need the prior transcript.
 |---|---|
 | Intake contract (arming copy) | `.feature/intake.json` |
 | Intake contract (committed audit copy) | `docs/superpowers/plans/feat-674-import-review-no-generation-intake.json` |
-| Implementation plan (4 tasks, full code) | `docs/superpowers/plans/2026-08-05-674-import-review-no-generation.md` |
-| Deviations (D1–D9, all pending step-6 verdicts) | `docs/superpowers/plans/feat-674-import-review-no-generation-deviations.md` |
-| Design of record (epic level) | `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` |
-| Plan review reports | `docs/reviews/feat-674-import-review-no-generation/plan-round-{1,2,3}.md` |
-| Glossary | `CONTEXT.md` — **Review import** is added by plan Task 3, not yet present |
+| Implementation plan (4 tasks) | `docs/superpowers/plans/2026-08-05-674-import-review-no-generation.md` |
+| Deviations D1–D16, **all ACCEPT** | `docs/superpowers/plans/feat-674-import-review-no-generation-deviations.md` |
+| Branch review round 1 triage | `docs/reviews/feat-674-import-review-no-generation/branch-round-1-triage.md` |
+| Branch review round 2 triage | `docs/reviews/feat-674-import-review-no-generation/branch-round-2-triage.md` |
+| Design of record (epic) | `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` — **owned by `main` via #681**, not by this branch (D12) |
+| Glossary | `CONTEXT.md` → **Review import** (added by this branch) |
 
 Ticket [#674](https://github.com/RepWorth/ai-review-responder/issues/674),
 map [#667](https://github.com/RepWorth/ai-review-responder/issues/667).
 
+## What shipped
+
+`importReview` in `src/lib/reviews/process-review.ts` — insert-only, classifies
+sentiment at the write site, writes AND completes a `review_ingested` run-spine
+record in the insert transaction, enqueues nothing, never mutates an existing
+row. Plus a **private** `insertNewReviewRow` seam shared with `processReview`.
+
+**No migration. No feature flag. Zero callers** — the caller is #675.
+
+- Production surface: one file.
+- Tests: 37/37 unit (mocked bindings) + 4/4 live-Postgres (proves the SQL runs).
+- `user_visible_behavior: none` is literally true.
+
 ## State
 
-- **Classification:** RISK=high · SURFACE=backend · SIZE=normal. Full pipeline, staging ride before `main`.
-- **Commits so far:** seven, **all docs — no implementation code yet.** Every pre-rebase hash quoted in this file, in the deviations, and in the round-1/2/3 reports is from the old base and no longer resolves; `git log origin/main..HEAD` is the authority. Post-rebase: `13c42bea` (docs + spec), `1b2f5a74` (round-2 revisions), `cc34f372` (round-3 fixes).
-- **Gate:** last GREEN was `docs_only` mode on the pre-rebase base. That mode skips test/build/promised-tests/diff-coverage, so it is **not** review-ready evidence. It is also legitimately RED right now — `verification_commands` names Task 4's suite, which Task 4 creates ("No test files found"). Re-run `scripts/verify-gate.sh` after Task 2, and `--review` before step 7.
-- **Amendment budget: EXHAUSTED (2 of 2).** See deviations D8. A third `allowed_edit_surface` change during implementation MUST trigger the step-5 abort path — that decision was already reasoned around once and must not be again.
-- **Plan review rounds: 3 of 3 EXHAUSTED.** All three returned `REVISE` (codex session `019fd129-092f-7e93-8409-854489caac01`). **A round 4 is forbidden by the step 3 protocol.** Every round-3 finding was a verified factual defect with no counter-position and all are fixed at `cc34f372` — see deviations **D10** (the `agent_run_id` column error that would have stopped the Task 4 suite running at all, plus three smaller ones) and **D11**.
-- **OWNER GATE — CLEARED 2026-08-05.** The plan never earned an `APPROVED` verdict: round 3's `REVISE` fixes were not themselves reviewed and no round remained. Per protocol the owner's call substitutes, and the owner **approved starting Task 1** on the reasoning that all four round-3 findings were "this suite cannot run" defects in plan-embedded test code — which Task 4 executing against a live database falsifies more decisively than a fourth read-only pass would. All four fixes were verified present at `cc34f372` before the gate was put to the owner. Round 3 also positively confirmed the two items it re-checked (the one-transaction test now passes a correct implementation, with all eight `mockInsertWon()` calls individually audited; the Provenance-of-decisions table is accurate row by row). **Do not re-litigate this gate on a later resume.**
+- **Classification:** RISK=high · SURFACE=backend · SIZE=normal.
+- **Plan review: 3 rounds, exhausted at REVISE.** Owner cleared the D11 gate.
+- **Branch review: 2 rounds** (round 1 full three-axis; round 2 verification-only).
+  Spec axis found **nothing** at ≥80% confidence in round 1.
+- **Amendment budget: EXHAUSTED (2 of 2, D8) — and never spent again.**
+  Implementation and both review rounds required no third `allowed_edit_surface`
+  change. This is why `docs/directory.md` was NOT updated here (see below).
 
-## FIRST ACTION ON RESUME — restore enforcement
+## Step 8 — remaining
 
-The feature is **parked**: `.feature/intake.json` was renamed to
-`.feature/intake.parked.json` at this checkpoint, which disarms the edit-surface
-guard and the stop gate. This was deliberate — the gate is legitimately RED
-because `verification_commands` names Task 4's integration suite, which does not
-exist until Task 4 runs ("No test files found"). It is the expected
-pre-implementation state, not a failure.
+1. ~~Ride `staging`~~ / 2. ~~Verify~~ / 3. Open PR → **PAUSE for owner merge approval.**
 
-**Restore it before touching any code, or the entire implementation phase runs
-unguarded:**
+**Honest note on the staging ride:** there is no migration, no flag, and no
+caller, so the ride redeploys the stack but exercises **nothing** at runtime that
+CI has not already proven. It is done because RISK=high prescribes it, not
+because it is evidence.
 
-```bash
-cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
-  mv .feature/intake.parked.json .feature/intake.json && \
-  bash scripts/arm-check.sh
-```
+## MUST happen at ship time — do not drop these
 
-`arm-check.sh` must report ARMED. Any DISARMED output means STOP and report.
+**Three comments on #675** (it inherits every one of these):
 
-## Next action
+1. **The CORRECTED D4** — a review stored by `importReview` is never drafted by
+   any lane, and **this needs no race**. The live lane enqueues only on INSERT or
+   content-hash change; a later `processReview` matches the hash and returns
+   `'unchanged'`. All three Zernio lanes converge on that same `processReview`.
+   The original "race" framing would send an implementer after a narrow
+   concurrency guard and leave the real gap open. **Do not paste the old wording.**
+2. **KPI consequence** — imported reviews (`status='new'`, no `responses` row)
+   count as unanswered in `MonthlyImpactWorker.ts:168` and the `src/lib/kpi/*`
+   response rate. Same class as the D3 stalled-run catch.
+3. **Audit-trail fragmentation** — a later owner-generated response opens a
+   SECOND run for the same review (D16 / A2's secondary clause).
 
-Step 4. Set phase (`bash scripts/feature-state.sh set-phase executing`), then
-dispatch per-task subagents via `subagent-driven-development`:
+**One comment on map #667:** `CONTEXT.md` has no **Origin lane** entry, which the
+map's reuse note #2 cites and #678 depends on.
 
-1. **Task 1 runs ALONE** (eval — the failing tests). After it completes, diff
-   `git status --porcelain` against `allowed_edit_surface`; an out-of-surface
-   file means enforcement did not bind for subagent tool calls — STOP and report.
-2. **Tasks 2 and 3** are mutually independent (disjoint file sets) — may run concurrently.
-3. **Task 4** is blocked by Task 2.
+**`docs/directory.md` is stale** (module description covers only `processReview`;
+the second entry point and the new integration suite are absent). It is
+deliberately NOT fixed on this branch — it is outside `allowed_edit_surface`, and
+adding it would be the third amendment, which D8 says MUST trigger the abort
+path. It belongs to the post-merge `document-feature` sweep.
 
-Each subagent prompt must carry the CONTEXT.md glossary excerpt, the task's spec
-slice, its blocking-edge context, the `existing_patterns_to_follow` paths, and
-the failing tests it turns green.
+**Lab-notes promotion candidates** (from the deviations file):
+
+- The zernio suite's misleading `.integration.` name (D7) — it mocks `sql` and
+  the whole `process-review` module, so it proves nothing about real SQL.
+- `describeWithDb` does **not** assert schema; a live-DB suite must call
+  `assertSchemaReady` itself, and must assert what the code under test **writes**,
+  not only what the suite reads (round 2 V1 — 071 vs `agent_runs.parent_run_id`
+  from 088).
+- Plan-embedded code is neither linted nor executed until a subagent runs it;
+  schema identifiers in a plan need the same "look it up, don't guess" discipline
+  as production code (D10).
+- A "the output must mention X" check is only non-vacuous if the tool prints X on
+  success (D15).
+- Correcting a hazard means correcting **every** copy — the plan embeds the
+  implementation code, so the JSDoc lives in two places (round 2 V2).
 
 ## Things a resumed session will otherwise get wrong
 
-- **Do not fix the cross-lane lost-draft race** (deviations D4, plan "Hazards").
-  It is a real defect, deliberately deferred to #675 by owner decision. File it
-  as a comment on #675 at ship time.
-- **Do not refactor the existing `describe('processReview')` test block.** Its
-  being byte-for-byte untouched is this ticket's regression evidence. The single
-  permitted shared-harness edit is adding `completeRun` to the module-scope
-  run-spine mock factory.
-- **`worker/jobs/zernio/__tests__/zernio-end-to-end.integration.test.ts` is not a
-  live-DB suite** despite the name — it mocks `sql` and mocks `process-review`
-  wholesale. It proves nothing about this change (deviations D7). The real
-  evidence is plan Task 4's new suite.
-- **`db_touching: true`** — the gate provisions the test DB itself. Never put
+- **Do not re-litigate the D11 owner gate or the D16 A2 decision.** Both are
+  owner-decided and recorded.
+- **Do not "fix" the D4 hazard.** Deliberately deferred to #675; fixing it means
+  editing `processReview`'s existing-row branch, the behaviour change this ticket
+  forbids.
+- **Do not refactor the existing `describe('processReview')` block.** Byte-for-byte
+  untouched is this ticket's regression evidence.
+- **A `SKIP` on the integration suite is a FAILURE, not a pass.** A bare
+  `pnpm vitest run <path>` skips — the DB URL must be exported.
+  `scripts/verify-gate.sh` hydrates it itself, so the gate is immune (D15).
+- **`db_touching: true`** — the gate provisions the test DB. Never put
   `pnpm test:db:setup` in `verification_commands`.
-- A `SKIP` on the Task 4 integration suite is a **failure**, not a pass: it means
-  `TEST_DATABASE_POOL_URL` was unset and the keystone's SQL was never executed.
-
-## Open at ship time (step 8)
-
-- Comment the D4 hazard on #675.
-- Comment on map #667 that `CONTEXT.md` has no **Origin lane** entry, which the
-  map's reuse note #2 cites and #678 depends on.
-- Promote durable lessons from the deviations file into
-  `.claude/reference/lab-notes.md` (candidates: the zernio suite's misleading
-  `.integration.` name; the run-spine stall for runs with no downstream completer).
