@@ -528,3 +528,42 @@ identified a vacuous check and prescribed a remedy whose evidence the tool canno
 emit — the fix was right, its receipt was not.
 
 **Verdict:** ACCEPT
+
+---
+
+## D16 — Branch review: a completed run for a review that will never be handled
+
+**When:** branch review round 1, adversarial axis (2026-08-05).
+
+**What:** `importReview` completes a `review_handler` run whose only step is
+`review_ingested`. The timeline maps a terminal run to `completed` — so a review
+with no triage, draft, moderation, notification, post or outcome positively
+reports success. Compounding with the corrected **D4**: the reviews being
+reported `completed` are exactly the ones that will never be drafted, so the run
+status actively conceals the gap it sits on top of.
+
+This is a direct counter-argument to **D3**, which completed the run precisely to
+stop imported reviews reading as `stalled` after 48h. D3 is not wrong — it traded
+a false-negative signal for a false-positive one, and the reviewer's point is
+that the trade is worse than it looked when D3 was decided, because D4 turned out
+to be broader than a race.
+
+**Options and their costs:**
+
+| Option | Cost |
+|---|---|
+| Leave the run `running` (pre-D3) | a 100-review import shows 100 `stalled` runs after 48h |
+| Complete it (shipped) | a never-drafted review reports `completed` |
+| Distinct run kind / outcome | needs a new `AGENT_RUN_KINDS` member ⇒ **a migration**, out of scope, and the stated reason D3 rejected `recordOutcome` |
+| Create no run at all | loses import attribution from the spine entirely; contradicts a locked intake invariant |
+
+**Resolution:** owner decision (2026-08-05) — **ship as-is, carry to #675.**
+Nothing is misreported today because `importReview` has zero callers. The
+reviewer's preferred representation is *through the import batch record*, which
+is #675's to define; building a spine representation here for a batch concept
+this ticket cannot see would be guesswork. A1 and A2 are one problem — the
+completed run is misleading only *because* the review is never drafted — so both
+go on #675 as a single coherent problem statement rather than being half-fixed
+across two tickets.
+
+**Verdict:** ACCEPT (escalated, owner-decided; not silently absorbed)

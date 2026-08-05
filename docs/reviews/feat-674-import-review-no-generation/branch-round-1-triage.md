@@ -11,7 +11,7 @@ Reports: `branch-round-1-spec.md` · `branch-round-1-standards.md` · `branch-ro
 | # | Axis | Sev | Finding | Verdict |
 |---|---|---|---|---|
 | A1 | adversarial | high | Import suppresses live drafting with **no race** — broader than D4 | **ACCEPT** as a characterization defect · **REJECT** as a code change |
-| A2 | adversarial | medium | Completed `review_handler` run misreports unhandled inventory | **ESCALATED** to owner |
+| A2 | adversarial | medium | Completed `review_handler` run misreports unhandled inventory | **ESCALATED → owner decided: ship as-is, carry to #675** |
 | S1 | standards | medium | Integration suite's 4 `it` blocks share state; one alone throws `TypeError` | **REJECT** — deliberate, plan-locked |
 | S2 | standards | low | No `assertSchemaReady` call | **ACCEPT — FIXED** |
 | S3 | standards | low | Test file crosses 1k lines | **REJECT** — waivable; noted for #675 |
@@ -39,13 +39,31 @@ deviations D4 (with the verification trace), the plan's Hazards section, and the
 statement — the original framing would send an implementer after a narrow
 concurrency guard and leave the real gap open.
 
-### A2 — ESCALATED
+### A2 — ESCALATED → owner decision: ship as-is, carry to #675
 
 Genuine design tension with D3, and the two adversarial findings compound: the
 completed run is what hides the never-drafted review. Every alternative costs
 something (see `branch-round-1-adversarial.md` for the option table), and the
 reviewer's preferred fix — a distinct run kind — requires an `AGENT_RUN_KINDS`
 migration that is explicitly out of scope. Owner's call, not the orchestrator's.
+
+**Owner decision (2026-08-05): ship as-is.** Reasoning recorded so #675 inherits
+it rather than re-deriving it:
+
+- Nothing is misreported **today** — `importReview` has zero callers, so no
+  imported review exists to be misrepresented in any timeline.
+- The reviewer's own preferred representation is *"through the import batch
+  record"*, and that record belongs to **#675**. Fixing it here would mean
+  inventing a spine representation for a batch concept this ticket cannot see.
+- A1 and A2 are one problem, not two: the completed run is only misleading
+  *because* the review is never drafted. Splitting them across two tickets would
+  half-fix the symptom in #674 and leave the cause in #675.
+- The signature is already documented and derivable — the intake's
+  `observability` section names *"a completed `review_handler` run carrying a
+  `review_ingested` step, with no `responses` row"* as the import's fingerprint.
+
+Recorded as deviation **D16**. Both A1 and A2 go on #675 at ship time as a single
+coherent problem statement.
 
 ### S1 — REJECT
 
