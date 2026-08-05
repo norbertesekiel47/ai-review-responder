@@ -1008,7 +1008,25 @@ Revisit triggers:
   no retention-policy row, no RLS change. `SET lock_timeout = '5s'` (099
   precedent). Shape suite
   `src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts`;
-  schema-ready entry `MIGRATION_100_IMPORT_CONSENT`. **LOCAL-ONLY**
+  schema-ready entry `MIGRATION_100_IMPORT_CONSENT`.
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
+  promotion, completing the lockstep. Staging verification via
+  `information_schema.columns` + `pg_get_constraintdef` (never
+  `list_migrations`): all five columns present with exact shapes
+  (`import_decision` text NOT NULL default `'pending'::text`, both timestamps
+  nullable timestamptz, both collapsed counters integer NOT NULL DEFAULT 0
+  alongside the four still-present legacy counters), and
+  `businesses_import_decision_check` renders exactly the four-state
+  `= ANY (ARRAY[...])` predicate. The dual-write observability proof
+  (`imported_count = gap + historical processed` on a real row) awaits the
+  first staging backfill run — `zernio_backfill_runs` was verified empty at
+  apply time. Apply-time reality check: `businesses` held **2 rows** (staging
+  smoke businesses created earlier that day, after the 2026-08-05 reset), so
+  the §8a R3 "zero rows at migration time" premise was stale by hours —
+  harmless, because DEFAULT `'pending'` is the truthful state for a location
+  that never answered and no backdating occurred (both rows verified
+  `pending` / NULL / NULL). Recorded as deviation D8.
 
 - **099** — `solicitation_postal_address`: the **Attested postal address** on
   `businesses` (#656; locked spec

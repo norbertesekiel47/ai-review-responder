@@ -79,3 +79,17 @@ receive this file triaged.
   atomic transition predicates posted as constraints on #676/#677/#679.
   **VERDICT: ACCEPT (F2 wording); REJECT F1/F3 for this PR (recorded, with
   follow-up constraints posted).**
+- **D8 (2026-08-05, step 8 staging apply — "zero businesses rows" premise
+  stale at apply time).** The intake (non-goal 3), spec §8a R3, and the
+  migration 100 header all state both environments hold zero `businesses`
+  rows at migration time (staging fully reset 2026-08-05). At staging apply
+  (2026-08-05 ~20:07Z), `businesses` held **2 rows** — smoke businesses
+  created post-reset the same morning (15:45Z, 16:30Z). No consequence for
+  the migration's decisions: the zero-rows premise was sufficient-but-not-
+  necessary for "no backfill clause, no backdating" — DEFAULT `'pending'` is
+  the truthful state for a location that never answered, both rows verified
+  `pending` / NULL / NULL post-apply, and `zernio_backfill_runs` was empty as
+  assumed. The immutable migration header keeps the stale sentence (guard
+  re-armed at staging apply); the accurate apply-time record lives in the
+  migrations-log 100 entry. **VERDICT: ACCEPT (record-only, no code or SQL
+  change).**
