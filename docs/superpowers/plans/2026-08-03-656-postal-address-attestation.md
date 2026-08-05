@@ -4,7 +4,7 @@
 
 **Goal:** Land the owner-**Attested postal address** on `businesses` (migration **099**) with a per-location attestation surface on `settings/profile`, and withhold the **Send handoff** for any location whose address is unattested or whose owner email has bounced.
 
-**Architecture:** One new domain module (`src/lib/solicitation/postal-address.ts`) owns the attestation-text version, the light lint, the atomic attestation write, the read model, and the withheld-reason rule. Migration 099 adds **five** nullable columns to `businesses` under **two** CHECKs — one all-or-nothing over the tuple, one binding the attestation to the *current bytes* via a stored SHA-256 digest — so no caller ever branches on "is this attested" and no writer can leave a stale attestation over new bytes. Everything else is a thin edit at an existing seam: the settings page server-fetches and passes props, the batch builder widens a `SELECT` it already runs, the worker adds one log field, the purge adds five columns to a `SET` it already writes, and ask-generation **deletes** its `to_jsonb` shim.
+**Architecture:** One new domain module (`src/lib/solicitation/postal-address.ts`) owns the attestation-text version, the light lint, the atomic attestation write, the read model, and the withheld-reason rule. Migration 099 adds **five** nullable columns to `businesses` under **two** CHECKs — one all-or-nothing over the tuple, one binding the attestation to the *current bytes* via a stored SHA-256 digest — so no caller ever branches on "is this attested" and an address-only UPDATE by any writer fails closed. Everything else is a thin edit at an existing seam: the settings page server-fetches and passes props, the batch builder widens a `SELECT` it already runs, the worker adds one log field, the purge adds five columns to a `SET` it already writes, and ask-generation **deletes** its `to_jsonb` shim.
 
 **Tech Stack:** Postgres.js (`postgres`) for writes, Supabase for auth, Next.js 16 App Router server components, Vitest + a live test DB for the integration lane.
 
@@ -12,10 +12,10 @@
 - Migration number is **099**. ✅ The #645/098 merge blocker is **cleared** — see deviations D1. T2 still runs the existence check, so a resumed session never re-derives this.
 - Locked spec: `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §7.5, §7.6, §2.4.
 - Amended by: `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` — **T9 writes the §7.6.1/§2.4 override into it.**
-- Intake contract (the drift detector): `.feature/intake.json` — **v2**, 46 promised tests, 20 surface globs.
+- Intake contract (the drift detector): `.feature/intake.json` — **v3**, 47 promised tests, 20 surface globs (v3 widened the test list only — the surface is untouched, so the amendment budget stays at #1 of 2).
 - Deviations so far: `docs/superpowers/plans/feat-656-postal-address-attestation-deviations.md` — read D1–D4 before starting.
 
-**Revision history:** this document is the **intake-v2 plan**. It supersedes the intake-v1 plan that plan review round 1 returned **REVISE** on (3 Critical / 5 High / 2 Medium / 1 Low, all ACCEPTED; one finding REJECTED). Findings and triage verdicts: `docs/reviews/feat-656-postal-address-attestation/`. Round-1 post-mortem: `feat-656-postal-address-attestation-postmortem.md`. Every claim below that cites a file, line, helper or export was re-verified against the working tree at `32e8c84e` before this revision was written — the round-1 report's central lesson was that four plan citations were false.
+**Revision history:** this document is the **intake-v3 plan**. It supersedes the intake-v1 plan that plan review round 1 returned **REVISE** on (3 Critical / 5 High / 2 Medium / 1 Low, all ACCEPTED; one finding REJECTED). Findings and triage verdicts: `docs/reviews/feat-656-postal-address-attestation/`. Round-1 post-mortem: `feat-656-postal-address-attestation-postmortem.md`. Every claim below that cites a file, line, helper or export was re-verified against the working tree at `32e8c84e` before this revision was written — the round-1 report's central lesson was that four plan citations were false.
 
 ---
 
@@ -31,7 +31,7 @@ Existing terms this plan consumes, from `CONTEXT.md` → "Solicitation (watch-mo
 
 Two terms this plan **coins** (T10 writes them into `CONTEXT.md`):
 
-- **Attested postal address** — the owner-attested `businesses.solicitation_postal_address` plus its attestation quartet (`_attested_at`, `_attested_by_user_id`, `_attestation_version`, `_attested_digest`): the CAN-SPAM §7704(a)(5) sender address baked **verbatim** into every ask footer, and a send precondition. Deliberately **not** `google_place_address`, which is Google's `formattedAddress` — it can be a service-area value like `"Austin, TX, USA"`, is not owner-attested, cannot express a USPS-registered PO box, and is NULLed by the offboarding purge (spec §7.5). Address and attestation are **all-or-nothing by DB CHECK**, and the attestation is welded to the address's **current bytes** by a second CHECK over `_attested_digest` — so no code path can read an unattested address as attested, and no writer can edit the address while leaving an older attestation standing. `_attested_by_user_id` is a **plain UUID with no FK** — a point-in-time capture, per migration 093's written lesson that 086's `ON DELETE CASCADE` meant deleting a staff member deleted their uploads. Because there is no FK, the *writer* verifies the actor. _Avoid_: business address, mailing address, footer address.
+- **Attested postal address** — the owner-attested `businesses.solicitation_postal_address` plus its attestation quartet (`_attested_at`, `_attested_by_user_id`, `_attestation_version`, `_attested_digest`): the CAN-SPAM §7704(a)(5) sender address baked **verbatim** into every ask footer, and a send precondition. Deliberately **not** `google_place_address`, which is Google's `formattedAddress` — it can be a service-area value like `"Austin, TX, USA"`, is not owner-attested, cannot express a USPS-registered PO box, and is NULLed by the offboarding purge (spec §7.5). Address and attestation are **all-or-nothing by DB CHECK**, and the attestation is welded to the address's **current bytes** by a second CHECK over `_attested_digest` — so no code path can read an unattested address as attested, and no writer can change the stored bytes without recomputing that digest (see "Design decisions" #1 for the exact scope of that guarantee — it is narrower than "the attestation is always current"). `_attested_by_user_id` is a **plain UUID with no FK** — a point-in-time capture, per migration 093's written lesson that 086's `ON DELETE CASCADE` meant deleting a staff member deleted their uploads. Because there is no FK, the *writer* verifies the actor. _Avoid_: business address, mailing address, footer address.
 - **Send handoff** — the `enqueueGenerateSolicitationAsks` call at the end of batch construction (`batch-builder.ts:766`): the single point where a **Solicitation batch** becomes send-mode work. It is **withheld** — not the batch, and not the individual **Asks** — when the location has no **Attested postal address** or `owner_email_bounced` is TRUE. This is why a missing address is not a **Withhold reason**: it is one per-location fact, not 25 per-candidate decisions (spec §7.6, as overridden — see T9). _Avoid_: send gate, generation gate, dispatch gate (that last is #630's, a different thing).
 
 ---
@@ -96,7 +96,7 @@ The precedent handles this exactly the same way: `src/app/api/dashboard/past-rep
 | `src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts` | Create (mirrors `migration-096-*`) | 4 |
 | `src/lib/solicitation/__tests__/postal-address.test.ts` | Create (gate guard + pure lint) | 6 |
 | `src/lib/solicitation/__tests__/postal-address.integration.test.ts` | Create (attestation writes + read model) | 7 |
-| `src/app/api/settings/postal-address/__tests__/route.test.ts` | Create | 8 |
+| `src/app/api/settings/postal-address/__tests__/route.test.ts` | Create | 9 |
 | `src/components/dashboard/settings/__tests__/solicitation-address-panel.test.tsx` | Create | 5 |
 | `src/app/(authenticated)/settings/profile/__tests__/ProfileClient.test.tsx` | **Extend** | 1 |
 | `src/lib/solicitation/__tests__/batch-builder.integration.test.ts` | **Extend** | 8 |
@@ -104,7 +104,7 @@ The precedent handles this exactly the same way: `src/app/api/dashboard/past-rep
 | `worker/jobs/solicitation-batch/__tests__/index.test.ts` | **Extend** (+ fixture repair) | 1 |
 | `src/lib/solicitation/__tests__/ask-generation.integration.test.ts` | **Extend** | 1 |
 | `worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts` | **Extend** | 3 |
-| | | **46** |
+| | | **47** |
 
 > **Live-DB convention (#573, `ci:live-db-suites`):** a suite touching the live DB MUST be named `*.integration.test.ts` and MUST NOT apply migration SQL. Provision with `pnpm test:db:setup`; assert with `assertSchemaReady` from `src/lib/shared/__tests__/helpers/schema-ready.ts`. `acquireLiveDbLock` is a **separate** module — `src/lib/shared/__tests__/helpers/live-db-lock.ts` — and migration-**shape** suites are the sanctioned exception that must hold it. Follow `src/lib/shared/__tests__/migration-096-solicitation-suppressions.integration.test.ts` exactly; its import block (lines 1-21) is the template.
 
@@ -133,7 +133,7 @@ T1 runs **alone** — the first-task enforcement spot check depends on it.
 
 ---
 
-## Task 1: Eval — author all 46 promised tests as failing tests
+## Task 1: Eval — author all 47 promised tests as failing tests
 
 The `tests_to_add` titles in `.feature/intake.json` are the failable definition of done, and the gate's `promised-tests` row matches them **verbatim**. Write every one now. Slices not yet buildable use `it.todo(...)` with the exact title; the gate accepts a `todo` as present, and each later task converts its own todos to real assertions. **T11 proves none survived.**
 
@@ -157,7 +157,7 @@ First test in `src/lib/solicitation/__tests__/postal-address.test.ts`, title ver
 every #656 promised test is executable with zero pending cases
 ```
 
-It reads this branch's eleven test files off disk and asserts none contains `it.todo(`, `describe.todo(`, `it.skip(` or `describe.skip(`. It is expected to **fail** from T1 until T11. That is the point: it is the only thing standing between "the gate found 46 titles" and "46 tests actually ran".
+It reads this branch's eleven test files off disk and asserts none contains `it.todo(`, `describe.todo(`, `it.skip(` or `describe.skip(`. It is expected to **fail** from T1 until T11. That is the point: it is the only thing standing between "the gate found 47 titles" and "47 tests actually ran".
 
 - [ ] **Step 3: The migration-099 shape suite** — 4 tests, titles verbatim
 
@@ -245,7 +245,7 @@ Notes that decide whether these tests are real:
 - *failed re-attestation preserves the previous tuple byte-for-byte* — drive the failure with a lint-invalid address and an actor outside the account; snapshot all five columns before and after and `toEqual` them.
 - the two rejections must be **distinguishable**: `{ status: 'actor_not_in_account' }` vs `{ status: 'business_not_found' }`.
 
-- [ ] **Step 6: The route suite** — 8 tests, titles verbatim
+- [ ] **Step 6: The route suite** — 9 tests, titles verbatim
 
 `src/app/api/settings/postal-address/__tests__/route.test.ts`:
 
@@ -253,6 +253,7 @@ Notes that decide whether these tests are real:
 PUT /api/settings/postal-address rejects unauthenticated and non-owner callers before writing
 PUT /api/settings/postal-address rejects cross-origin mutation requests
 PUT /api/settings/postal-address refuses writes for a non-writable subscription
+PUT /api/settings/postal-address refuses writes while the account is offboarding
 PUT /api/settings/postal-address rejects a request that omits the attestation
 PUT /api/settings/postal-address rejects an unknown attestation version without writing
 PUT /api/settings/postal-address rejects an address that fails the lint
@@ -338,12 +339,12 @@ Expected: FAIL — `Cannot find module '../postal-address'`. A failure for any *
 ```bash
 bash scripts/verify-gate.sh
 ```
-Read only the `promised-tests` row. Expected: PASS — all **46** titles found verbatim. (Other rows will be red; that is expected at T1.)
+Read only the `promised-tests` row. Expected: PASS — all **47** titles found verbatim. (Other rows will be red; that is expected at T1.)
 
 - [ ] **Step 12: Commit**
 
 ```bash
-git add -A && git commit -m "test(#656): eval task — 46 promised tests as failing spec"
+git add -A && git commit -m "test(#656): eval task — 47 promised tests as failing spec"
 ```
 
 ---
@@ -593,7 +594,7 @@ git add -A && git commit -m "feat(#656): postal-address domain module — lint, 
 
 ## Task 4: `PUT /api/settings/postal-address`
 
-**Blocking edge:** T3. **Turns green:** the eight route tests. **Independent of T6, T7, T8, T9.**
+**Blocking edge:** T3. **Turns green:** the nine route tests. **Independent of T6, T7, T8, T9.**
 
 - [ ] **Step 1: Read the precedents — both of them**
 
@@ -655,7 +656,7 @@ Map the result: `attested` → 200, `invalid` → 400 with `reason`, `actor_not_
 - [ ] **Step 3: Run and commit**
 
 ```bash
-pnpm vitest run src/app/api/settings/postal-address/__tests__/route.test.ts   # 8 PASS
+pnpm vitest run src/app/api/settings/postal-address/__tests__/route.test.ts   # 9 PASS
 git add -A && git commit -m "feat(#656): PUT /api/settings/postal-address attestation route"
 ```
 
@@ -880,7 +881,7 @@ git add -A && git commit -m "docs(#656): glossary terms, code map, migrations-lo
 
 **Blocking edge:** T10. **Runs alone, last.** Turns green: `every #656 promised test is executable with zero pending cases`.
 
-The gate's `promised-tests` row matches titles, and `it.todo` satisfies it. Without this task the branch can present 46 green rows with the feature absent.
+The gate's `promised-tests` row matches titles, and `it.todo` satisfies it. Without this task the branch can present 47 green rows with the feature absent.
 
 - [ ] **Step 1: Zero pending**
 
@@ -919,7 +920,7 @@ git add -A && git commit -m "test(#656): final verification — zero pending, ga
 
 **Spec coverage.** §7.5 columns + no-`google_place_address` rationale → T2, T3. §7.5 attestation checkbox + editable prefill → T4, T5. §7.5 light lint / no international validation → T3. §7.6 point 1 (as overridden) → T6, **recorded in the spec directory by T9**. §2.4 `owner_email_bounced` → T6. Purge interaction (§7.5's "not even a stable field") → T8. §7.6 points 2 and 3 are **out of scope** by intake — #628 and #630 own them.
 
-**Round-1 findings, disposition.** All eleven ACCEPTED findings are actioned: digest column (#3 → T2/T3, and its own promised test); route auth against the real helpers (#5 → design decision 2, T4, T5); actor validation without an FK (#6 → T3); `it.todo` gate integrity (#7 → T1 step 2, T11); broken fixtures (#8 → T6 step 5); schema requirement (#9 → T2 step 4); pre-T2 098 check (#10 → T2 step 1); dependency graph + the "two new test files" contradiction (#11 → graph, file table). Findings #1 and #2 (v1's `098` test titles and the missing surface entries) were fixed by the **intake v2 re-issue**, which is why this plan has 46 promised tests and needs no amendment. The four miscitations are corrected in place: the watch-mode decision cites **#656/#617 and T9**, not D2; the offboarding suite has **no existing `google_place_address` assertion**; there is **no flag-stubbing helper**; `acquireLiveDbLock` is in **`helpers/live-db-lock.ts`**. The REJECTED finding (`subagent-driven-development` / `executing-plans` "do not exist" — they are user-level skills; codex searched only the repo) is not actioned.
+**Round-1 findings, disposition.** All eleven ACCEPTED findings are actioned: digest column (#3 → T2/T3, and its own promised test); route auth against the real helpers (#5 → design decision 2, T4, T5); actor validation without an FK (#6 → T3); `it.todo` gate integrity (#7 → T1 step 2, T11); broken fixtures (#8 → T6 step 5); schema requirement (#9 → T2 step 4); pre-T2 098 check (#10 → T2 step 1); dependency graph + the "two new test files" contradiction (#11 → graph, file table). Findings #1 and #2 (v1's `098` test titles and the missing surface entries) were fixed by the **intake v2 re-issue**, which is why this plan has 47 promised tests (v2 had 46; round 2 added the offboarding refusal) and needs no SURFACE amendment. The four miscitations are corrected in place: the watch-mode decision cites **#656/#617 and T9**, not D2; the offboarding suite has **no existing `google_place_address` assertion**; there is **no flag-stubbing helper**; `acquireLiveDbLock` is in **`helpers/live-db-lock.ts`**. The REJECTED finding (`subagent-driven-development` / `executing-plans` "do not exist" — they are user-level skills; codex searched only the repo) is not actioned.
 
 **Placeholder scan.** No TBDs. Every code step carries real code or a named precedent file verified to exist. The two places showing signatures rather than bodies (T3's module, T5's panel) pin the exact exported names, types and asserted behaviors, and the T1 tests are the executable spec for both.
 
