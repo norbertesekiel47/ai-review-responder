@@ -58,7 +58,7 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingExperience`. |
+| `page.tsx` | Landing page. Resolves three server-authoritative values and delegates everything else to `LandingExperience`: `SELF_SERVE_SIGNUP_ENABLED` (gates the nav's Log in / Sign up pair — both routes `notFound()` without it, so hiding them is correctness), the CTA target (`/signup`, else `/book-a-demo`), and the CTA label (the trial offer only when `TRIAL_ENABLED` **and** self-serve are both on — there is no signup to start a trial from otherwise). No `NEXT_PUBLIC_*` companion for any of them (invariant #13). It does **not** read an `x-coming-soon` header; the `comingSoon` prop still exists on `SiteShell`/`SiteNav` for the other public pages, but the landing page has never consumed it. |
 | `login/page.tsx` | Owner login page. Renders `LoginFormClient`. |
 | `login/error.tsx` | Error boundary for the login flow. |
 | `signup/page.tsx` | Self-serve signup entry. Collects email. |
