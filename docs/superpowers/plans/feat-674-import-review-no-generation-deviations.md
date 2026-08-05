@@ -359,12 +359,51 @@ eight new tests, and would be an easy casualty of the extraction.
 
 **Resolution:** no plan change needed — the append point is unambiguous in
 practice. Recorded so Task 2's implementer treats the guard as a constraint
-rather than discovering it as a surprise failure.
+rather than discovering it as a surprise failure. (Task 2 confirmed the guard
+still passes after the extraction.)
 
 Task 1's red was verified independently of the subagent's report: 8 failed /
 29 passed (37 total), every failure `TypeError: importReview is not a function`,
 and the commit (`d100970e`) touches exactly one file whose only deletions are the
 two extended import lines — so the `describe('processReview')` block is
 mechanically confirmed byte-for-byte untouched.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D14 — Task 2: the extraction orphaned two destructure bindings
+
+**When:** Task 2 execution (2026-08-05).
+
+**What:** Task 2 step 3 replaces `processReview`'s lines 63-84 — the inline
+`INSERT` and its `const sentiment = classifySentiment(…)` — with a call to
+`insertNewReviewRow`. It never mentions **line 45**, where `processReview`
+destructures `const { review, identity, contentHash } = monitored;`. Removing the
+inline INSERT was the last consumer of `review` and `contentHash` in that scope,
+so the extraction left two unused bindings and `pnpm lint` failed:
+
+```
+45:11  error  'review' is assigned a value but never used.
+45:29  error  'contentHash' is assigned a value but never used.
+```
+
+**Resolution:** narrowed the destructure to `const { identity } = monitored;`
+with a comment recording that `review`/`contentHash` are now consumed by
+`insertNewReviewRow` and `processExistingReview`, both of which take `monitored`
+whole. No statement was moved and no `tx` call was added or reordered, so the
+positional-mock premise of the existing tests is intact — re-verified green
+after the change.
+
+**Why this is a fix and not a behaviour change:** narrowing a destructure cannot
+alter runtime behaviour when the dropped bindings have no remaining readers, and
+`tsc --noEmit` passing is the proof that they have none — an unresolved
+identifier is a type error, not a silent read.
+
+**Lesson (candidate for step 8):** a plan that moves a statement out of a scope
+should name every binding that statement was the last reader of. The plan's
+"replace lines X-Y" framing is precise about what leaves and silent about what
+that leaves behind; lint caught it, but only because the orphans were
+`const` declarations rather than, say, a now-dead import.
 
 **Verdict:** _(pending step 6)_
