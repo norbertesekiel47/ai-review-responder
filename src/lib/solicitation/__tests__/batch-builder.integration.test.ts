@@ -1463,4 +1463,54 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       withheld_reason: 'suppressed',
     });
   });
+
+  // ── #656 T6: the Send handoff ─────────────────────────────────────────────
+  //
+  // `buildSolicitationBatch` is ONE builder shared by watch-mode and send-mode,
+  // so the postal-address / bounced-email precondition attaches to the
+  // send-only seam — the `enqueueGenerateSolicitationAsks` call at the end of
+  // construction — and never to `closedGateReason`. The batch still builds and
+  // the Spoilage report is unchanged; only the handoff is withheld. (Spec §7.6
+  // point 1's "no batch produced" predates the shared builder; T9 records the
+  // override in the spec directory. The decision itself is on ticket #656 and
+  // wayfinder map #617.)
+  //
+  // This is deliberately NOT a Withhold reason: that enum is closed,
+  // precedence-ordered and versioned by RESTRAINT_POLICY_VERSION, and every
+  // member is a PER-CANDIDATE decision, while this is one PER-LOCATION fact.
+  //
+  // The load-bearing cases:
+  //
+  //  - "still produces a watch-mode batch" is the watch-mode regression guard:
+  //    status 'built', a NON-ZERO candidateCount, and an intact withheldByReason.
+  //
+  //  - "does not change any per-candidate decision or reason count" runs the
+  //    IDENTICAL fixture cohort twice — once attested, once not — and compares
+  //    the two withheldByReason maps and the two sendCount/withholdCount pairs
+  //    for byte-identity. "No new key appeared" is insufficient: the failure
+  //    mode is a candidate leaking into an existing bucket like no_consent.
+  //
+  //  - "an enqueue failure rolls back the batch build" makes
+  //    enqueueGenerateSolicitationAsks throw and then asserts `built_at IS NULL`
+  //    and zero ask rows. Still one transaction (invariant #2) — a built batch
+  //    with no generation work is not a reachable state.
+  //
+  // NOTE for T6: the shared beforeAll business fixture inserts NO postal
+  // address, and the existing flag-on case above asserts exactly one generation
+  // row. Under the new gate that build is WITHHELD and sees zero. Attest the
+  // fixture before the flag-on build, and reset all five attestation columns
+  // plus owner_email_bounced between cases so these withheld-path tests do not
+  // leak state into it. The result-SHAPE assertions use toMatchObject and
+  // tolerate the new sendHandoff field — it is the ENQUEUE assertion that
+  // breaks, not the shape assertion.
+  //
+  // Pending placeholders written by T1 (the eval task).
+  it.todo('batch build still produces a watch-mode batch when the location has no attested postal address');
+  it.todo('batch build withholds the send handoff when the location has no attested postal address');
+  it.todo('batch build withholds the send handoff when owner_email_bounced is TRUE');
+  it.todo('postal_address_missing wins when the postal address is missing and owner email has bounced');
+  it.todo('a withheld send handoff creates no generate_solicitation_asks outbox row');
+  it.todo('withholding the send handoff does not change any per-candidate decision or reason count');
+  it.todo('batch build performs the send handoff when the address is attested and the owner email is deliverable');
+  it.todo('a send-handoff enqueue failure rolls back the batch build');
 });

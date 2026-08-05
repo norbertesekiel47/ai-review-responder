@@ -695,6 +695,28 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
       mocks.enqueueGenerateSolicitationAsks.mock.invocationCallOrder[0]!,
     );
   });
+
+  // ── #656 T6: the Send-handoff precondition ────────────────────────────────
+  //
+  // The precondition is read from the business row the builder ALREADY loads —
+  // one widened SELECT, no new query, both tenant predicates intact. That is
+  // what the scoping case pins.
+  //
+  // The not_applicable case is this suite's default (`solicitationSendEnabled()`
+  // returns false in beforeEach, mirroring prod) and it is the one path the
+  // integration cases cannot cover, because every one of them turns the flag
+  // ON. Without it the watch-only lane — the only lane running in production
+  // today — would have no coverage of the new gate at all.
+  //
+  // NOTE for T6: `pushConstructionPreamble()` pushes the business row as
+  // `mkTaggedResult([{ category: 'automotive' }])`. Widening the SELECT makes
+  // that row's two new columns read `undefined`, which withholds the handoff
+  // and breaks the flag-on enqueue case above — the fixture must widen in the
+  // same change.
+  //
+  // Pending placeholders written by T1 (the eval task).
+  it.todo('batch build scopes the postal precondition read by business_id and account_id');
+  it.todo('send handoff is not_applicable when SOLICITATION_SEND_ENABLED is off');
 });
 
 // The solicitation_batch lane's source roots. The advisory-lock KEY may be

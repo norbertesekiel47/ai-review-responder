@@ -1480,4 +1480,26 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       await cleanupOwnerOffboardingSeed(seed);
     }
   });
+
+  // ── #656 T8: the purge clears the Attested postal address ─────────────────
+  //
+  // The purge already NULLs `google_place_address` in one account-scoped
+  // `UPDATE businesses … WHERE account_id = …`. All five attestation columns
+  // join THAT SAME statement — all five together, or the all-or-nothing CHECK
+  // rejects the row — and no second statement is added. "In one statement" is
+  // therefore a real claim about the purge's shape, not a stylistic note.
+  //
+  // The tenant case is the one that matters: the statement is scoped by
+  // `account_id`, so it must reach EVERY location under the account and NO
+  // location outside it. Seed a second account with its own attested address
+  // and assert its tuple is untouched.
+  //
+  // These three are freestanding — there is no existing `google_place_address`
+  // assertion in this suite to sit alongside — so T8 seeds the attested tuple
+  // itself.
+  //
+  // Pending placeholders written by T1 (the eval task).
+  it.todo('the offboarding purge clears a populated attestation tuple in one statement');
+  it.todo('the offboarding purge clears the attestation for every location in the account');
+  it.todo("the offboarding purge leaves another account's attested postal address untouched");
 });

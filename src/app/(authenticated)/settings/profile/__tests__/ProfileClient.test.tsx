@@ -28,4 +28,10 @@ describe('ProfileClient', () => {
     expect(screen.getByDisplayValue('ChIJ123')).toBeInTheDocument();
     expect(screen.getByTestId('delete-data')).toBeInTheDocument();
   });
+
+  // #656 T5 — the page server-fetches the Attested postal address state for the
+  // COOKIE-RESOLVED active location and passes it as a prop, so ProfileClient
+  // renders SolicitationAddressPanel beside ProfilePanel. Pending placeholder
+  // written by T1 (the eval task).
+  it.todo('the profile page renders the active location postal-address state');
 });

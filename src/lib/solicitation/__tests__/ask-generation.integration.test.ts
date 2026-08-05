@@ -442,5 +442,15 @@ describeWithDb(
         withheld: 2,
       });
     });
+
+    // #656 T7 — the to_jsonb shim exists SOLELY because
+    // businesses.solicitation_postal_address did not exist; migration 099
+    // creates it, so the projection becomes a direct column read and the shim
+    // is DELETED, not left as a fallback. (The shim's comment cites #627 as the
+    // migration that would land the column; #656 is the ticket that actually
+    // does. Its purpose is unchanged — delete it, do not correct it.) The
+    // suite's own header note about head 092 reading NULL goes with it.
+    // Pending placeholder written by T1 (the eval task).
+    it.todo('ask generation reads solicitation_postal_address directly without the to_jsonb shim');
   },
 );

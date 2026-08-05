@@ -146,6 +146,16 @@ describe('Solicitation batch worker success path', () => {
     ).resolves.toBeUndefined();
     expect(mocks.buildSolicitationBatch).toHaveBeenCalledOnce();
   });
+
+  // #656 T6 — the withheld Send handoff rides the EXISTING structured log
+  // object as one more field (`send_handoff`), carrying a status and a reason
+  // code and no address: the signal that a location is silently not sending.
+  // The worker is the emitter, not batch-builder.ts, which returns results and
+  // deliberately does no logging (deviations D4). Note the success-path
+  // assertion above is an EXACT `toHaveBeenCalledWith` object — T6 must widen
+  // it in the same change, or this suite goes red on the new field.
+  // Pending placeholder written by T1 (the eval task).
+  it.todo('the solicitation batch worker logs the send handoff status and location-level reason');
 });
 
 describe('Solicitation batch worker exhausted failure path', () => {
