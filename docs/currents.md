@@ -7,7 +7,67 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-03 (Unsubscribe opt-out #644 SHIPPED — PR #654, **no migration**: the Suppression ledger now has its first writer. RFC 8058 one-click ingress on Railway + the `/u/<token>` recipient landing path on Vercel, both live and both proven on staging with `SOLICITATION_SEND_ENABLED` **off** (DR1). Two live pre-existing limiter bypasses closed as side effects — percent-encoded ingress paths and absolute-form request targets — affecting Stripe, Resend, Telegram, Twilio and Zernio alike. `SESSION_COOKIE_SECRET` is now boot-asserted on deployed worker lanes and **deliberately unset on Railway prod** until the Solicitation agent ships; that worker has never successfully deployed, so the gate has nothing to crash-loop. Earlier: Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-08-05 (Manual suppression paths #645 SHIPPED — PR #659, **migration 098 staging+prod lockstep**: the Suppression ledger is now writable *and fixable* by humans. Admin manual entry (§7.3) and the audited **Correction path** (§8.2) behind AAL2 at `/admin/suppressions`; owner do-not-contact mark/clear (§7.5/§7.6) on `/dashboard/requests/contacts`. A correction is ONE data-modifying CTE, so a removal cannot commit without its audit record — and a blank "why" aborts the whole statement, leaving the opt-out in place. An owner may never clear a `global` row: the control is not rendered at all. Proven end-to-end on staging through the browser. Earlier: Unsubscribe opt-out #644 SHIPPED — PR #654, **no migration**: the Suppression ledger now has its first writer. RFC 8058 one-click ingress on Railway + the `/u/<token>` recipient landing path on Vercel, both live and both proven on staging with `SOLICITATION_SEND_ENABLED` **off** (DR1). Two live pre-existing limiter bypasses closed as side effects — percent-encoded ingress paths and absolute-form request targets — affecting Stripe, Resend, Telegram, Twilio and Zernio alike. `SESSION_COOKIE_SECRET` is now boot-asserted on deployed worker lanes and **deliberately unset on Railway prod** until the Solicitation agent ships; that worker has never successfully deployed, so the gate has nothing to crash-loop. Earlier: Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Manual suppression paths (2026-08-05, PR #659)
+
+#643 built the Suppression ledger, #644 gave recipients a way in. #645 gives
+**humans** a way in — and, crucially, a way to fix a mistake without inventing a
+re-subscribe.
+
+**Three manual paths, two very different acts.**
+
+- **Admin manual entry** (§7.3). Someone replies "stop emailing me" to the
+  mailbox instead of clicking the link. An admin records it at
+  `/admin/suppressions` — `scope='global'`, `source='admin_manual'`, with a
+  required *originating message reference* so the entry is auditable ten business
+  days later. Re-entering the same address is a **no-op success**, not an error:
+  first-write-wins means the state is already correct.
+- **The Correction path** (§8.2). The one that needed the most care. An admin
+  typo, or a `provider_suppressed` mirror that came from the transactional side,
+  produces a suppression that is simply *factually wrong* — and "no re-subscribe,
+  ever" without a fix path means the answer to "please put me back" is "we
+  cannot, ever", which is a worse story than the rule was avoiding. So: admin-only,
+  audited, framed everywhere as **error correction, never re-subscribe**. No owner
+  entry point, no recipient entry point, no self-serve anything.
+- **Owner do-not-contact** (§7.5/§7.6). An owner marks their own customer
+  "don't contact" on `/dashboard/requests/contacts`, and can clear it again. This
+  writes `scope='account'` — never `global`, because a global row would let one
+  owner silently degrade every other tenant's reach with no recipient having
+  spoken.
+
+**The two acts are deliberately not interchangeable.** A Correction is a
+compliance record and lands in `solicitation_suppression_corrections`
+(migration 098). Owner clearing is an owner changing their mind about their own
+customer and lands in `account_audit_log`. Different act, different sink. An
+owner may **never** clear a `global` row, and the UI does not render the control
+for one at all — not greyed out, absent.
+
+**Why a correction cannot lose its audit record.** `correctSuppression` is a
+single data-modifying CTE whose `DELETE … RETURNING` feeds the `INSERT`. The
+removal cannot commit without the record even if a call site forgets a
+transaction, and a row that is already gone returns `not_found` rather than
+writing an orphan. The record snapshots the removed row's handle, account,
+original creator and note — the evidence that the assertion being corrected was
+legitimate when it was made. `reason` is `NOT NULL` with a
+`reason ~ '[^[:space:]]'` CHECK, so a blank "why" aborts the whole statement and
+**the opt-out survives** (a tab-only reason defeats the obvious
+`length(btrim(...)) > 0` spelling — one-argument `btrim` strips spaces only).
+
+**The new shape**
+
+| Path | What it is |
+|---|---|
+| `supabase/migrations/098_solicitation_suppression_corrections.sql` | The §8.2 audit sink. No FKs — a compliance record must outlive every referent it names. RLS deny-all, zero policies. |
+| `src/lib/admin/suppressions-service.ts` | `lookupSuppressions`, `recordAdminManualSuppression`, `correctSuppression` (the one CTE). Cross-tenant, `ci:tenant-scope`-allowlisted. |
+| `src/app/admin/suppressions/{page,SuppressionsClient}.tsx` | The §7.2 servicing surface under **Safety**, AAL2-gated. Fetches nothing on load — there is deliberately no browsable list of every opted-out recipient. |
+| `src/app/api/admin/suppressions/{route,lookup/route,correct/route}.ts` | Three POSTs. Lookup is a POST *for a read* on purpose: §9.5 forbids logging the raw handle and a query string is logged by construction. |
+| `src/app/api/admin/suppressions/_guard.ts` | Shared body parsing only. The AAL2 gate stays spelled out in each route so `ci:admin-aal2` can still see it. |
+| `src/app/api/dashboard/contacts/[id]/suppression/route.ts` | Owner POST (mark) / DELETE (clear), both through `withScopedContact`. |
+| `src/lib/solicitation/suppression.ts` | Gains the §7.4 display seam — a closed four-key object, so `account_id` and `source` cannot reach an owner surface. |
+
+**Flags:** none. Deliberately not flag-gated — a statutory 10-business-day
+obligation behind a feature flag is a violation waiting for a flag flip.
 
 ## Quick summary — Unsubscribe opt-out path (2026-08-03, PR #654)
 

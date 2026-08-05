@@ -1361,3 +1361,99 @@ predicted** — `staging` ended 61 ahead / 1 behind and needed `reset --hard
 origin/main` + `--force-with-lease`.
 
 ---
+
+## 2026-08-05 — Manual suppression paths #645 (send-mode map #617) — PR #659
+
+Migration **098** `solicitation_suppression_corrections`, applied **staging
+2026-08-04 / production 2026-08-05** in lockstep. Follow-up bookkeeping PR #661.
+Wayfinder map #617. Spec §7 + §8.2 of
+`docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md`.
+
+### What shipped
+
+- **Admin manual entry (§7.3)** — `POST /api/admin/suppressions`, AAL2-gated.
+  `scope='global'` / `source='admin_manual'`, `account_id` deliberately NULL (a
+  forwarded mailbox reply names no account and guessing one writes false
+  provenance). Required note = the originating message reference. Re-entry is a
+  **no-op success** per first-write-wins, rendered green, not as a failure.
+- **The Correction path (§8.2)** — `POST /api/admin/suppressions/correct`. The
+  admin-only audited removal of a factually-wrong row. Error correction, **never
+  re-subscribe**: no owner or recipient entry point.
+- **Lookup** — `POST /api/admin/suppressions/lookup`. A POST *for a read*: §9.5
+  forbids logging the raw handle and a query string is logged by construction
+  (access logs, log drains, browser history). Returns live rows **plus prior
+  corrections**, so a re-entry after a correction is visible rather than a surprise.
+- **Owner do-not-contact (§7.5/§7.6)** — `POST`/`DELETE
+  /api/dashboard/contacts/[id]/suppression`. `scope='account'` /
+  `owner_manual`. Mark and clear both confirm, with **distinct copy** in each
+  direction.
+- **§7.4 display seam** — `toSuppressionDisplay` returns a closed four-key
+  object, so `account_id` and `source` cannot reach an owner surface.
+- **`/admin/suppressions`** under the **Safety** nav group, AAL2 like
+  `/admin/flagged`. Fetches nothing on load: there is deliberately no browsable
+  list of every opted-out recipient — a cross-tenant liability with no use.
+
+### Decisions that shaped it
+
+- **The ticket said "no migration"; that was amended with owner sign-off.**
+  §8.2's audit record has no existing sink that accepts an account-less row —
+  `account_audit_log.account_id` is `NOT NULL REFERENCES accounts(id) ON DELETE
+  CASCADE`, and both cases §8.2 exists to correct carry `account_id = NULL`. A
+  CASCADE would additionally delete the compliance record along with the account
+  it merely names as provenance.
+- **Atomicity is structural, not conventional.** `correctSuppression` is ONE
+  data-modifying CTE whose `DELETE … RETURNING` feeds the INSERT. Zero rows back
+  = `not_found`: nothing deleted, no orphan record, no third outcome.
+- **D-A11 reversed the original schema.** The plan had let detector-avoidance
+  shape the table (`original_*` column names slip past
+  `accountLinkedTablesFromMigrations()` on a word-boundary technicality). Two
+  HIGH adversarial findings killed that: the record now carries the removed row's
+  `account_id`, `created_by_user_id` and `note` under **honest names**, and the
+  table is **classified** (`retain_compliance_limited_pii`) rather than renamed
+  to evade classification. Naming data to dodge a governance check is worse than
+  the gap it hides.
+- **`reason` CHECK is `reason ~ '[^[:space:]]'`, not `length(btrim(reason)) > 0`**
+  — one-argument `btrim` strips SPACES ONLY, so a tab- or newline-only reason
+  passes it. The plan's own shape test caught this (D-A4).
+
+### Gotchas worth keeping
+
+Promoted to `lab-notes.md` under **2026-08-05**:
+
+- **A legal refactor can blind a file-level `ci:*` security audit.** Extracting
+  the routes' shared preamble into a `withAal2JsonBody` wrapper typechecked,
+  passed every route test, and turned `ci:admin-aal2` RED on all three routes —
+  that audit text-scans for `requireAdminWithAal2`. The gate now stays spelled
+  out per route; only body parsing is shared.
+- **`fallow` is a CI-only gate** — `verify-gate.sh` does not run it, so a fully
+  green local gate does not predict it. And **local fallow invents findings**:
+  without `--coverage` it estimates CRAP from export references and reported a
+  HIGH the coverage-informed CI run did not have.
+- **A design fact restated in a second place needs a grep for the fact.** The
+  D-A11 resync swept the rows it edited; a stale claim ~1000 lines away in
+  `docs/directory.md` survived two review rounds.
+
+### Staging proof
+
+Migration verified on both projects by **schema introspection**, not the Supabase
+migration ledger. The shipped CTE was then exercised against live staging
+Postgres — correct → `corrected`; replay → `not_found` with **no orphan**;
+tab-only reason → CHECK aborts and **the suppression survives**. Then the full
+browser ritual, **11/11**: admin entry → lookup → duplicate-entry → correction
+confirm copy → correction + auto-re-read → blank-reason guard; owner mark →
+§7.4 badge → clear with distinct copy → audit payload carrying the original
+marker and **no handle** → a seeded `global` row making the clear control
+**absent from the a11y tree**. Smoke data removed; staging left at 0 suppressions
+/ 0 corrections / 43 contacts intact.
+
+### Follow-ups
+
+**#662** — two low-severity UI observations (stale entry receipt after a
+correction; `REMOVED BY` rendered as a raw UUID). Deferred, still open: extract
+`PRIMARY_BUTTON` into `src/components/admin/ui/` now that #658 has merged. The
+staging-reconcile item recurred a **third** time (#647, #654, #659) and this
+time in the inverse direction — `staging` held an *older* auth tree than `main`
+after a second branch rode it mid-flight, so reconciling meant moving staging
+forward.
+
+---

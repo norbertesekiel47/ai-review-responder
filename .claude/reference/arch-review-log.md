@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03)
+**Merges since last architecture pass: 4** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
 
@@ -64,6 +64,40 @@ that cannot work. One code finding and two workflow-mechanism findings:
   guard rules — same checkout for containment, no intake for arming — and needs no
   launch-time env var. Candidate fix: document park-and-branch as the sanctioned route, and
   note that the branch must come off `origin/main`, since local `main` lags every squash merge.
+
+Added by #659 (#645), for the next pass to weigh. **The staging-reconcile item is now
+on its THIRD consecutive occurrence** (#647, #654, #659) — it is not a hypothesis and
+not bad luck, it is what the high-RISK lane structurally produces. #659 additionally
+hit the *inverse* shape: `staging` was left holding an OLDER auth tree than `main`
+because a second branch rode staging mid-flight and landed on main as a squash, so
+"reconcile" meant moving staging **forward**, not discarding work. feature.md step 8
+still says "fast-forward `staging` onto `main`". Two workflow findings and one
+code-shaped finding:
+
+- **A refactor can blind a static security audit, and the type checker will not
+  notice.** Extracting the three admin suppressions routes' shared preamble into a
+  `withAal2JsonBody` wrapper typechecked, passed every route test, and turned
+  `ci:admin-aal2` RED on all three routes — that audit is a file-level TEXT scan for
+  `requireAdminWithAal2`, so three genuinely gated routes read as ungated. The audit
+  exposes a `GATED_SHARED_HELPERS` allowlist that would have silenced it; taking it
+  would have traded a greppable gate for a shorter file. **The pass should ask which
+  other `ci:*` audits are text scans whose premise a legal refactor can void** —
+  `ci:static-policy`, `ci:tenant-scope` and `ci:outbox-seam` are all string-matching
+  audits over source, and none has a test proving it still fires after its target is
+  wrapped, aliased, or re-exported.
+- **`fallow` is a CI-only gate and nothing local tells you so.** `verify-gate.sh`
+  runs 28 checks and not this one; CLAUDE.md says `ci:fallow` "gates nothing", which
+  is true of that script but not of `fallow.yml`'s `ci:fallow:coverage`, which is a
+  PR check. #645 was fully green locally through two review rounds and failed fallow
+  the first time a PR existed. Candidate fix: either add fallow to `verify-gate.sh`
+  or say plainly in CLAUDE.md that a green local gate does not predict the fallow
+  check.
+- **Local `fallow` and CI `fallow` disagree, and the local one invents findings.**
+  Without `--coverage`, CRAP is estimated from export references; locally that
+  reported `ContactRow` as HIGH (63.6 CRAP) while the coverage-informed CI run did
+  not flag it at all. Anyone refactoring to satisfy local fallow is chasing a number
+  CI does not compute. Candidate fix: make `ci:fallow` refuse to run without a
+  coverage file, or label estimated findings as non-gating in the output.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
