@@ -1,0 +1,578 @@
+# importReview — store a review without enqueueing generation (#674)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add `importReview` to `src/lib/reviews/process-review.ts` — an insert-only path that stores a review with sentiment classification and a **completed** `review_ingested` run-spine record, enqueues no `generate_response`, and never mutates an existing review row.
+
+**Architecture:** We deepen one existing module rather than adding a seam. `src/lib/reviews/process-review.ts` gains a second named entry point, `importReview`, beside `processReview`; the two share a new **private** helper, `insertNewReviewRow`, which is an *internal* seam (used by the implementation, never exposed in the interface). `importReview` structurally cannot reach `processExistingReview`, so "no behaviour change for existing callers" is a property of the code rather than a claim the tests must defend. Two deliberate departures from `processReview`, both justified below: there is **no `SELECT … FOR UPDATE` probe** (an existing row means zero writes, so the INSERT's `ON CONFLICT` is the whole decision, and taking no lock keeps a 100-review import from contending with live-ingest work), and the run **completes inside the insert transaction** (nothing downstream would ever complete it, so it would otherwise read as `stalled`).
+
+**Tech Stack:** TypeScript, Postgres.js (tagged templates on a `TransactionSql`), vitest with a mocked `sql.begin`, uuidv7 PKs.
+
+**Ticket:** [#674](https://github.com/RepWorth/ai-review-responder/issues/674) (KEYSTONE) · **Map:** [#667](https://github.com/RepWorth/ai-review-responder/issues/667) · **Spec:** `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.2 (committed on this branch — see deviations D1) · **Intake:** `docs/superpowers/plans/feat-674-import-review-no-generation-intake.json` · **Deviations:** `docs/superpowers/plans/feat-674-import-review-no-generation-deviations.md`
+
+**Plan review:** round 1 codex session `019fd129-092f-7e93-8409-854489caac01` → `REVISE`; this revision addresses it. Verdicts in the Review appendix.
+
+---
+
+## Glossary (CONTEXT.md language — use verbatim)
+
+- **Review import** — the consented, one-time storage of an owner's newest 100 Google reviews as *inventory*. It stores reviews; it writes no replies (spec D2). The user-facing noun is **import**, never "backfill", even though the mechanism keeps its `zernio_initial_backfill` topic name.
+- **Run spine** — `agent_runs` / `agent_run_steps` / `agent_outcomes`, written only through `src/lib/agents/run-spine.ts`.
+- **Live-ingest lane** — the existing webhook/poller path through `processReview` that drafts a reply for every new review.
+
+## File structure
+
+| File | Responsibility | Change |
+|---|---|---|
+| `src/lib/reviews/process-review.ts` | The review-write module: dedup by provider identity, content-hash state machine, and (new) insert-only import | Modify — extract `insertNewReviewRow`, have `startReviewRun` return its `runId`, add exported `importReview` |
+| `src/lib/reviews/__tests__/process-review.test.ts` | Unit tests for both entry points | Modify — one line in the run-spine mock factory, plus a sibling `describe('importReview')` block |
+| `CONTEXT.md` | Project glossary | Modify — add the **Review import** term |
+
+**No new files.** `docs/directory.md` needs no entry: no file is created.
+
+**Deliberate non-DRY:** the new `describe('importReview')` block duplicates ~12 lines of the existing `beforeEach` tx harness instead of hoisting a shared `setupTxHarness()`. For a KEYSTONE ticket whose hard requirement is "no behaviour change for any existing caller", leaving the existing `describe('processReview')` block **byte-for-byte untouched** is visible regression evidence in the diff, and that is worth more than 12 lines of deduplication. Do not refactor the existing block. The **only** shared-harness edit in this plan is adding `completeRun` to the module-scope `vi.mock('@/lib/agents/run-spine')` factory — required because `importReview` imports it, and behaviour-neutral for the existing tests since `processReview` never calls it.
+
+## Hazards — known, deliberately not fixed here
+
+**Cross-lane lost draft (deviations D4).** If `importReview` wins the identity race against a concurrent live-ingest `processReview` for the same review, the loser re-reads the winner's row, finds the content hash matches, returns `'unchanged'` — and **never enqueues `generate_response`**. That review is stored and never drafted. The pattern is safe today only because every winner of that race enqueues; `importReview` is the first winner that does not. Fixing it means editing `processReview`'s race-loss branch, which is exactly the behaviour change this ticket forbids, and the race is unreachable until #675 wires a caller. Owner decision (2026-08-05): document and file on #675. **Do not "fix" this while implementing.**
+
+## Task graph
+
+- **Task 1** (eval) — no blocking edges. Runs alone.
+- **Task 2** — blocked by Task 1.
+- **Task 3** — no blocking edges, disjoint file set (`CONTEXT.md` only). **Mutually independent with Task 2**; may run as a concurrent subagent.
+
+---
+
+### Task 1: Eval — the eight failing tests
+
+**Files:**
+- Modify: `src/lib/reviews/__tests__/process-review.test.ts`
+
+- [ ] **Step 1: Add `completeRun` to the run-spine mock factory**
+
+The file mocks the run-spine seam at lines 32-35. `importReview` calls `completeRun`, so the factory must export it or the import resolves to `undefined`. Replace that factory with:
+
+```typescript
+vi.mock('@/lib/agents/run-spine', () => ({
+  startOrGetActiveRun: vi.fn().mockResolvedValue({ runId: 'run-1', created: true }),
+  recordStep: vi.fn(),
+  completeRun: vi.fn(),
+}));
+```
+
+This is the only edit to shared harness. It cannot affect the existing `processReview` tests — that path never calls `completeRun`.
+
+- [ ] **Step 2: Extend the imports**
+
+Two existing lines change. The entry-point import (line 38):
+
+```typescript
+import { processReview, importReview } from '../process-review';
+```
+
+and the run-spine import (line 41):
+
+```typescript
+import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
+```
+
+Leave every other import, mock factory, and fixture (`makeMonitoredReview`, `withCount`, `capturedJsonbPayloads`) exactly as-is — the new block reuses them.
+
+- [ ] **Step 3: Append the new describe block**
+
+Append at the end of the file, after the existing `describe('processReview', …)` closes:
+
+```typescript
+// ── importReview (#674) ───────────────────────────────────────────────
+//
+// Insert-only import path. Deliberately duplicates the tx harness rather
+// than hoisting a shared helper: the existing describe('processReview')
+// block above must stay byte-for-byte untouched, because "no behaviour
+// change for any existing caller" is this ticket's hard requirement and the
+// unmodified block is the visible evidence for it.
+
+describe('importReview', () => {
+  let tx: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedJsonbPayloads.splice(0);
+
+    tx = vi.fn();
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => {
+      capturedJsonbPayloads.push(v);
+      return v;
+    });
+
+    (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin =
+      vi.fn().mockImplementation(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+  });
+
+  // tx call sequence on the insert path — THREE calls. There is no
+  // SELECT FOR UPDATE probe (an existing row means zero writes, so the
+  // INSERT's ON CONFLICT is the whole decision) and no job_outbox INSERT
+  // (nothing is enqueued). startOrGetActiveRun / recordStep / completeRun are
+  // mocked at the seam and issue no tagged-template calls of their own:
+  //   1. INSERT reviews … ON CONFLICT DO NOTHING RETURNING id
+  //   2. SELECT account_id FROM businesses          (startReviewRun)
+  //   3. SELECT account_id, EXISTS(…)               (maybeEnqueueFirstReviewIngested)
+  function mockInsertWon(earlierExists = true) {
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: earlierExists }], 1));
+  }
+
+  function joinedSql(): string {
+    return tx.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray | undefined)?.join('?') ?? '')
+      .join('\n');
+  }
+
+  it('importReview inserts the review and writes no job_outbox row', async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon();
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('new');
+    expect(tx).toHaveBeenCalledTimes(3);
+
+    const allSql = joinedSql();
+    expect(allSql).toContain('INSERT INTO reviews');
+    // Invariants #2 and #3: the import has no follow-up work, so nothing is
+    // enqueued and nothing from this path can reach Google.
+    // enqueueGenerateResponse is deliberately NOT mocked in this suite, so a
+    // stray enqueue would appear here as a real job_outbox INSERT.
+    expect(allSql).not.toContain('job_outbox');
+  });
+
+  it('importReview classifies sentiment at the write site', async () => {
+    const monitored = makeMonitoredReview({ starRating: 1 });
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    const insertCall = tx.mock.calls[0] as unknown[];
+    const insertSql = (insertCall[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('sentiment_score');
+    expect(insertSql).toContain('sentiment_label');
+    expect(insertSql).toContain('sentiment_source');
+
+    // classifySentiment(1) → { score: -1, label: 'negative',
+    //                          source: 'deterministic_star_v1' }
+    const params = insertCall.slice(1);
+    expect(params).toContain(-1);
+    expect(params).toContain('negative');
+    expect(params).toContain('deterministic_star_v1');
+  });
+
+  it('importReview binds the review INSERT parameters in the canonical order', async () => {
+    // Guards the Task 2 extraction. Moving 17 bindings out of processReview
+    // into a shared helper could transpose two same-typed neighbours (e.g.
+    // provider_review_id ↔ provider_review_name, or the two sentiment strings)
+    // and still produce an identical tx call count and order — every other test
+    // in this file would pass while stored identity/dedup data is corrupted.
+    const monitored = makeMonitoredReview({ starRating: 5 });
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    const [, ...params] = tx.mock.calls[0] as unknown[];
+    // params[0] is the uuidv7 PK minted inside importReview.
+    expect(typeof params[0]).toBe('string');
+    expect(params.slice(1)).toEqual([
+      'biz-1',                    // business_id
+      'zernio',                   // provider
+      'r1',                       // provider_review_id
+      'zernio://loc1/reviews/r1', // provider_review_name
+      'zernio://loc1',            // provider_location_name
+      null,                       // google_review_name
+      'Alice',                    // reviewer_name
+      5,                          // star_rating
+      'Great!',                   // review_text
+      '2026-04-28',               // review_date
+      'en',                       // detected_language
+      'hash-abc',                 // review_content_hash
+      REVIEW_STATUS.NEW,          // status
+      1,                          // sentiment_score  — (5 - 3) / 2
+      'positive',                 // sentiment_label
+      'deterministic_star_v1',    // sentiment_source
+    ]);
+  });
+
+  it('importReview records the review_ingested run-spine step and completes the run', async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        kind: 'review_handler',
+        subjectType: 'review',
+        accountId: 'acct-1',
+        businessId: 'biz-1',
+        correlationId: 'corr-1',
+      }),
+    );
+    expect(recordStep).toHaveBeenCalledWith(tx, {
+      runId: 'run-1',
+      stepKey: 'review_ingested',
+    });
+    // An imported review has no draft and no publish, so nothing downstream
+    // would ever complete this run — it would read as 'stalled' after 48h
+    // (deriveRunDisplayState, src/lib/agents/read.ts:127). The import's work
+    // genuinely is finished when the row lands, so it completes its own run.
+    expect(completeRun).toHaveBeenCalledWith(tx, 'run-1', 'completed');
+  });
+
+  it('importReview does all of its work in exactly one transaction', async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon();
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    // Invariant #2: one transaction, no post-commit follow-up. Without this,
+    // an implementation could open a second sql.begin for the spine writes and
+    // every other test in this block would still pass.
+    const begin = (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin;
+    expect(begin).toHaveBeenCalledTimes(1);
+
+    // Every spine writer received the SAME tx handle, not the pool client.
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(tx, expect.anything());
+    expect(recordStep).toHaveBeenCalledWith(tx, expect.anything());
+    expect(completeRun).toHaveBeenCalledWith(tx, expect.anything(), expect.anything());
+    expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(tx, expect.anything());
+  });
+
+  it("importReview enqueues first_review_ingested for the account's first review", async () => {
+    const monitored = makeMonitoredReview();
+    mockInsertWon(false);
+
+    await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        eventName: 'first_review_ingested',
+        accountId: 'acct-1',
+        businessId: 'biz-1',
+      }),
+    );
+  });
+
+  it('importReview returns unchanged and performs no writes when the review already exists', async () => {
+    const monitored = makeMonitoredReview();
+    // INSERT … ON CONFLICT DO NOTHING matched the existing row → zero rows.
+    tx.mockResolvedValueOnce(withCount([], 0));
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('unchanged');
+    // Exactly one statement — the INSERT that did nothing. An import never
+    // mutates a row the live-ingest lane already owns.
+    expect(tx).toHaveBeenCalledTimes(1);
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(completeRun).not.toHaveBeenCalled();
+    expect(enqueueAnalyticsEvent).not.toHaveBeenCalled();
+  });
+
+  it('importReview returns unchanged when a concurrent writer wins the insert race', async () => {
+    const monitored = makeMonitoredReview();
+    // Race loss is mechanically identical to "row already existed" — the
+    // INSERT returns zero rows either way. This test pins the DESIGN CLAIM
+    // that the race is not special-cased: importReview must NOT re-read the
+    // winner row and fall through to processReview's existing-row state
+    // machine, which would update content, supersede responses and open
+    // review_exceptions on behalf of an import.
+    tx.mockResolvedValueOnce(withCount([], 0));
+
+    const result = await importReview(sql, monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('unchanged');
+    expect(tx).toHaveBeenCalledTimes(1);
+
+    const allSql = joinedSql();
+    expect(allSql).not.toContain('FOR UPDATE');
+    expect(allSql).not.toContain('UPDATE reviews');
+    expect(allSql).not.toContain('UPDATE responses');
+    expect(allSql).not.toContain('review_exceptions');
+    expect(recordStep).not.toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ stepKey: 'review_updated' }),
+    );
+  });
+});
+```
+
+- [ ] **Step 4: Run the new block and verify it fails**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts 2>&1 | tail -30
+```
+Expected: the eight `importReview` tests FAIL. Because `importReview` is not exported yet, the failure surfaces as `TypeError: importReview is not a function` (or an esbuild "No matching export" error). Either is a valid red. **The existing `processReview` tests must still PASS** — if any changed status, stop: the mock-factory edit was not behaviour-neutral.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git add src/lib/reviews/__tests__/process-review.test.ts docs/ .feature/intake.json && \
+git commit -m "test(#674): failing eval for importReview insert-only path"
+```
+
+(`.feature/intake.json` is gitignored by design; `git add` on it is a no-op and is listed only so the command is copy-pasteable. The `docs/` entry commits the plan, the deviations file, the intake audit copy, and the design of record.)
+
+---
+
+### Task 2: Implement `importReview` and the shared insert helper
+
+**Blocked by:** Task 1.
+
+**Files:**
+- Modify: `src/lib/reviews/process-review.ts`
+
+- [ ] **Step 1: Extend the run-spine import**
+
+Line 17 currently reads `import { startOrGetActiveRun, recordStep } from '@/lib/agents/run-spine';`. Replace with:
+
+```typescript
+import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
+```
+
+- [ ] **Step 2: Extract the shared insert into a private helper**
+
+Add this function immediately after the `processReview` function closes (i.e. before the `// ── Agent run spine (WS1) ──` banner at line 153). The SQL is moved verbatim from lines 66-82 — do not reword it, reorder columns, reorder bindings, or change the `ON CONFLICT` clause:
+
+```typescript
+// ── Shared new-review INSERT (internal seam) ─────────────────────────
+// Used by both entry points. Returns the number of rows inserted: 0 means
+// the review already existed (or a concurrent writer won the race), since
+// ON CONFLICT (provider, provider_review_name) DO NOTHING is the dedup.
+// Sentiment is classified here so every insert site classifies identically.
+// Private by design — not part of the module's interface.
+
+async function insertNewReviewRow(
+  tx: TxClient,
+  reviewId: string,
+  businessId: string,
+  monitored: MonitoredReview,
+): Promise<number> {
+  const { review, identity, contentHash } = monitored;
+  const sentiment = classifySentiment(review.starRating);
+
+  const inserted = await tx<{ id: string }[]>`
+    INSERT INTO reviews (
+      id, business_id, provider, provider_review_id,
+      provider_review_name, provider_location_name, google_review_name,
+      reviewer_name, star_rating, review_text, review_date,
+      detected_language, review_content_hash, status, detected_at,
+      sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
+    ) VALUES (
+      ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
+      ${identity.providerReviewName}, ${identity.providerLocationName}, ${identity.googleReviewName},
+      ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
+      ${review.detectedLanguage}, ${contentHash}, ${REVIEW_STATUS.NEW}, NOW(),
+      ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
+    )
+    ON CONFLICT (provider, provider_review_name) DO NOTHING
+    RETURNING id
+  `;
+
+  return inserted.count;
+}
+```
+
+- [ ] **Step 3: Point `processReview` at the helper**
+
+Replace lines 63-84 of `src/lib/reviews/process-review.ts` — everything from `const reviewId = uuidv7();` through `if (inserted.count > 0) {` — with:
+
+```typescript
+      const reviewId = uuidv7();
+      const insertedCount = await insertNewReviewRow(tx, reviewId, businessId, monitored);
+
+      if (insertedCount > 0) {
+```
+
+This deletes the now-duplicated `const sentiment = classifySentiment(...)` line and the inline `INSERT`. Everything after it (the `startReviewRun` call, `enqueueGenerateResponse`, `maybeEnqueueFirstReviewIngested`, `return 'new'`, the race-loss re-read) is **unchanged**. The number and order of `tx` calls is identical to before, which is why the existing positional-mock tests stay green.
+
+- [ ] **Step 4: Have `startReviewRun` return its run id**
+
+`importReview` needs the `runId` to complete the run. Change the signature and the two returns (`src/lib/reviews/process-review.ts:160-186`) — the body is otherwise untouched:
+
+```typescript
+async function startReviewRun(
+  tx: TxClient,
+  input: {
+    reviewId: string;
+    businessId: string;
+    correlationId?: string;
+    stepKey: 'review_ingested' | 'review_updated';
+  },
+): Promise<string | null> {
+```
+
+and inside it, `if (!biz) return;` becomes `if (!biz) return null;`, and after the `recordStep` call add `return runId;`.
+
+`processReview`'s two call sites ignore the returned value and are **not** edited — adding a return value to a function whose callers discard it is behaviour-neutral.
+
+- [ ] **Step 5: Run the existing tests to prove Steps 2-4 are behaviour-neutral**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts -t 'processReview' 2>&1 | tail -20
+```
+Expected: every `processReview` test PASSES. If any fails, the extraction changed the tx call sequence — revert and redo Steps 2-4 without moving statements.
+
+- [ ] **Step 6: Add the `importReview` entry point**
+
+Append at the end of `src/lib/reviews/process-review.ts`:
+
+```typescript
+// ── Review import (#674, spec §6.2) ──────────────────────────────────
+
+/**
+ * Store a review as inventory — insert and stop.
+ *
+ * The consented **Review import** stores reviews without writing replies for
+ * them (spec D2). Sentiment is classified at the write site and the run spine
+ * records `review_ingested`, but **no `generate_response` is enqueued** — so
+ * this path writes no `job_outbox` row at all, and nothing it stores can reach
+ * Google (invariant #3).
+ *
+ * Insert-only by construction. An existing review row is left completely
+ * untouched — no content update, no supersede, no `review_exceptions`, no
+ * admin notify — so a bulk import can never mutate a row the live-ingest lane
+ * already owns. A genuinely edited review is picked up by the live lane's next
+ * poll instead.
+ *
+ * There is deliberately no `SELECT … FOR UPDATE` probe: because an existing row
+ * means zero writes, the INSERT's `ON CONFLICT` is the whole decision, and
+ * taking no review lock keeps a 100-review import from contending with
+ * concurrent live-ingest work. `'unchanged'` therefore covers both "the row
+ * already existed" and "a concurrent writer won the race" — the two collapse to
+ * the same skip, and neither falls through to `processExistingReview`.
+ *
+ * The run is **completed in this same transaction**. An imported review has no
+ * draft and no publish, so no downstream worker would ever complete its run and
+ * it would surface as `stalled` after 48h (`deriveRunDisplayState`,
+ * `src/lib/agents/read.ts`). The import's work genuinely is finished when the
+ * row lands; #678's on-demand Generate opens a fresh run per owner action.
+ *
+ * KNOWN HAZARD (deviations D4, owned by #675): if this call wins the identity
+ * race against a concurrent live-ingest `processReview`, the loser re-reads
+ * this row, finds the hash matches, and returns `'unchanged'` without
+ * enqueueing — so that review is stored and never drafted.
+ *
+ * Callers screen reviews (PHI, normalization) before calling; precedent is the
+ * `processUnansweredReview` closure inside `handleZernioBackfill`.
+ */
+export async function importReview(
+  sql: Sql,
+  monitored: MonitoredReview,
+  businessId: string,
+  correlationId?: string,
+): Promise<'new' | 'unchanged'> {
+  return await sql.begin(async (tx) => {
+    const reviewId = uuidv7();
+    const insertedCount = await insertNewReviewRow(tx, reviewId, businessId, monitored);
+
+    if (insertedCount === 0) {
+      return 'unchanged' as const;
+    }
+
+    const runId = await startReviewRun(tx, {
+      reviewId,
+      businessId,
+      correlationId,
+      stepKey: 'review_ingested',
+    });
+
+    if (runId) {
+      await completeRun(tx, runId, 'completed');
+    }
+
+    await maybeEnqueueFirstReviewIngested(tx, { businessId, reviewId });
+
+    return 'new' as const;
+  });
+}
+```
+
+- [ ] **Step 7: Run the whole file green**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts 2>&1 | tail -20
+```
+Expected: PASS, all tests in both describe blocks.
+
+- [ ] **Step 8: Lint and typecheck**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm lint && pnpm typecheck 2>&1 | tail -20
+```
+Expected: no errors. Note `importReview` is intentionally exported with no caller in this branch — its caller is #675. If lint flags it as unused, that is a false positive on an exported symbol; report it rather than deleting the export.
+
+- [ ] **Step 9: Commit**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git add src/lib/reviews/process-review.ts && \
+git commit -m "feat(#674): importReview — store a review without enqueueing generation"
+```
+
+---
+
+### Task 3: Glossary entry for **Review import**
+
+**Blocking edges:** none. Disjoint file set from Task 2 — may run concurrently.
+
+**Files:**
+- Modify: `CONTEXT.md`
+
+- [ ] **Step 1: Add the term**
+
+`CONTEXT.md` opens with an H1 and then a run of `- **Term**: definition` bullets before its first `##` section heading. Insert the new bullet as the **last entry of that opening bullet list, immediately before the first `##` heading in the file**. Match the house style of the later entries — definition, then `_Avoid_:`, then the provenance parenthetical:
+
+```markdown
+- **Review import**: the consented, one-time storage of an owner's newest 100 Google reviews as inventory — it stores reviews and writes **no** replies (design D2). Entry point `importReview` (`src/lib/reviews/process-review.ts`), distinct from `processReview`'s live-ingest lane which drafts a reply for every new review. Insert-only: an existing review row is never mutated by an import, so a bulk import cannot supersede a response, open a `review_exceptions` row, or notify admin on behalf of the live lane; both "row already existed" and "lost the insert race" return `'unchanged'` with zero writes. It enqueues no `job_outbox` row at all, so nothing it stores can reach Google (invariant #3), and it completes its own run spine in the insert transaction because no downstream worker ever would. The mechanism keeps its existing names (`zernio_initial_backfill` topic, `zernio_backfill_runs` table, `origin_lane='backfill'`) — only the semantics changed. _Avoid_: backfill (the user-facing noun is **import**), historical sync, review sync. *(coined in #674; map #667, spec `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.2)*
+```
+
+- [ ] **Step 2: Verify placement and no duplicate term**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && rg -n -i "review import" CONTEXT.md && rg -n "^## " CONTEXT.md | head -1
+```
+Expected: exactly one hit for the term, on a line number **lower** than the first `## ` heading.
+
+- [ ] **Step 3: Commit**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git add CONTEXT.md && \
+git commit -m "docs(#674): CONTEXT.md glossary entry for Review import"
+```
+
+---
+
+## Out of scope for this plan (do not do these)
+
+- Do **not** fix the cross-lane lost-draft hazard (see Hazards above). It is #675's.
+- Do **not** modify `worker/jobs/zernio/zernio-ingest-shared.ts`. Its private `insertImportedReview` (line 364) is a near-duplicate of the new path but has different semantics (`ON CONFLICT … DO UPDATE` to return the id, sets `external_reply_ingested_at`, writes no run-spine row) and a live caller. Converging them belongs to #675.
+- Do **not** wire `importReview` into any worker, poller, or route.
+- Do **not** add an `originLane` or `suppressNotification` option to `importReview` — neither is meaningful when nothing is enqueued.
+- Do **not** call `recordOutcome` — a new `AGENT_OUTCOME_KINDS` member would need a migration.
+- Do **not** add a feature flag, env var, or migration.
+- Do **not** refactor the existing `describe('processReview')` test block.
+
+## Review appendix
+
+- **Round 1** (codex `019fd129-092f-7e93-8409-854489caac01`) — `VERDICT: REVISE`. Accepted: missing spec on disk (D1), stalled runs (D3), positional-swap blind spot (new param-order test), no one-transaction assertion (new test), FK-impossible Test 7 (removed), cited-symbol correction (D6). Rejected with reasoning: CONTEXT.md format objection, `job_outbox` assertion objection (D5). Deferred by owner decision: cross-lane lost draft (D4 → #675).
+- **Round 2** — _(pending)_
