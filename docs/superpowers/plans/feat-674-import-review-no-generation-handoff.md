@@ -31,6 +31,26 @@ map [#667](https://github.com/RepWorth/ai-review-responder/issues/667).
 - **Amendment budget: EXHAUSTED (2 of 2).** See deviations D8. A third `allowed_edit_surface` change during implementation MUST trigger the step-5 abort path — that decision was already reasoned around once and must not be again.
 - **Plan review rounds: 3 of 3 used.** Round 1 `REVISE`, round 2 `REVISE`, round 3 dispatched at checkpoint (codex session `019fd129-092f-7e93-8409-854489caac01`). **If round 3 returned `REVISE`, do not run a round 4** — surface both positions to the owner; their call substitutes for `APPROVED`.
 
+## FIRST ACTION ON RESUME — restore enforcement
+
+The feature is **parked**: `.feature/intake.json` was renamed to
+`.feature/intake.parked.json` at this checkpoint, which disarms the edit-surface
+guard and the stop gate. This was deliberate — the gate is legitimately RED
+because `verification_commands` names Task 4's integration suite, which does not
+exist until Task 4 runs ("No test files found"). It is the expected
+pre-implementation state, not a failure.
+
+**Restore it before touching any code, or the entire implementation phase runs
+unguarded:**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+  mv .feature/intake.parked.json .feature/intake.json && \
+  bash scripts/arm-check.sh
+```
+
+`arm-check.sh` must report ARMED. Any DISARMED output means STOP and report.
+
 ## Next action
 
 Step 4. Set phase (`bash scripts/feature-state.sh set-phase executing`), then
