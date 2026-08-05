@@ -1012,6 +1012,24 @@ Revisit triggers:
   that order; **production must be too — apply 099 to prod Supabase BEFORE
   merging the PR**, not after.
 
+  **✅ LOCKSTEP COMPLETE.** Applied to **staging** (`kubdiqdhqbhwmqfditeg`)
+  2026-08-05 07:02:33 UTC and to **production** (`udeyaqnvpojbwgoaxwdg`)
+  2026-08-05 08:12:18 UTC, both as `099_solicitation_postal_address`, both
+  BEFORE the code merge. Prod carried **0 `businesses` rows** at apply time, so there was
+  nothing to lock, backfill, or violate.
+
+  Verified on prod by **schema introspection, never the ledger** (`list_migrations`
+  does not track RepWorth's `0xx` migrations): all five columns present and
+  nullable, both CHECK constraints present, both `convalidated = true`, and
+  `md5(pg_get_constraintdef(oid))` **identical to staging** on both constraints
+  (`c29ddfbe…` attested, `a8aaec82…` digest). `server_encoding` is UTF8 on both,
+  which is the premise the digest CHECK's STABLE `convert_to` note relies on.
+
+  Staging additionally proved it **behaviourally** with a live batch build on
+  2026-08-05 07:57 UTC — batch `019fd0ed-385d-76bf-bc09-0afb81f7ba46` returned
+  `status:"built"` with `send_handoff` on the log line and no `42703`. Details:
+  `docs/superpowers/plans/feat-656-postal-address-attestation-handoff.md`.
+
   The columns are `solicitation_postal_address` plus the attestation quartet
   `_attested_at` / `_attested_by_user_id` / `_attestation_version` /
   `_attested_digest`. This is the CAN-SPAM §7704(a)(5) sender address baked
