@@ -407,3 +407,56 @@ that leaves behind; lint caught it, but only because the orphans were
 `const` declarations rather than, say, a now-dead import.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D15 — Task 4: both of its verification steps were wrong about their own tools
+
+**When:** Task 4 execution (2026-08-05). The suite itself was correct — every
+round-3 fix held up against the real database. What was wrong was the plan's
+instructions for *checking* it.
+
+**1. Step 3 skips as written.** `pnpm vitest run <path>` does not see
+`TEST_DATABASE_POOL_URL`: nothing in `vitest.setup.ts` hydrates `.env.local`, and
+the suite follows `read.integration.test.ts` in reading `process.env` directly
+rather than `resolveTestDatabaseUrl()` (which does have a disk fallback). Run
+verbatim, step 3 yields `4 skipped` — which the plan itself defines as a FAILURE
+of the task. Confirmed not to be a defect in the new file: the precedent suite
+`src/lib/agents/__tests__/read.integration.test.ts` skips identically when run
+the same way.
+
+**This does NOT compromise the gate**, which is the part that matters.
+`scripts/verify-gate.sh:73-78` resolves the URL from the environment first and
+falls back to reading `.env.local`, then exports it before running any
+`verification_commands` — the comment at line 73 says so explicitly ("so changed
+integration suites never SKIP"). So the intake's single verification command
+executes for real. The defect is confined to a human following step 3 by hand.
+
+**2. Step 4's success criterion is unsatisfiable.** It requires
+`pnpm ci:live-db-suites` output to "actually mention the new suite", as the
+non-vacuousness proof that round 3 asked for. But
+`scripts/ci/live-db-suites-audit.ts` prints filenames **only** in its
+`findings.length > 0` failure branch; a pass prints exactly one summary line.
+Absence of the filename is therefore not evidence of a no-op, and no passing run
+can ever satisfy the stated criterion.
+
+The underlying concern — that the audit enumerates via `git ls-files` and is
+blind to an untracked file — is real, and staging first (which round 3 added) is
+the correct fix. Only the *evidence* the plan asked for was impossible. Task 4
+proved enumeration positively instead: `git ls-files` lists the new suite, and
+invoking the audit's own exported `listTestFiles`/`auditLiveDbSuite` shows the
+file is enumerated, is recognised as a live-DB suite via its
+`TEST_DATABASE_POOL_URL` + `helpers/describe-with-db` markers (so it clears the
+early return and rule R1 is genuinely evaluated), and returns zero findings.
+
+**Resolution:** no code change. Both are plan-text defects with no effect on the
+shipped artefact. Corrected in the plan so a re-run does not inherit them:
+step 3 now carries the export, step 4 now expects the summary line plus a
+`git ls-files` confirmation.
+
+**Lesson (candidate for step 8):** "the output must mention X" is only a
+non-vacuousness proof if the tool actually prints X on success. Round 3 correctly
+identified a vacuous check and prescribed a remedy whose evidence the tool cannot
+emit — the fix was right, its receipt was not.
+
+**Verdict:** _(pending step 6)_

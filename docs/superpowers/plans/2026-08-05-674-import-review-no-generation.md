@@ -816,11 +816,20 @@ Note the four `it` blocks run in file order and share state deliberately: the fi
 
 - [ ] **Step 3: Run it**
 
-Run:
+The suite reads `process.env.TEST_DATABASE_POOL_URL` directly (following its
+precedent `read.integration.test.ts`), and **nothing in `vitest.setup.ts`
+hydrates `.env.local`** — so a bare `pnpm vitest run <path>` skips. Export it:
+
 ```bash
-cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm vitest run src/lib/reviews/__tests__/import-review.integration.test.ts 2>&1 | tail -25
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+export TEST_DATABASE_POOL_URL=$(grep -E '^TEST_DATABASE_POOL_URL=' .env.local | tail -1 | cut -d= -f2-) && \
+pnpm vitest run src/lib/reviews/__tests__/import-review.integration.test.ts 2>&1 | tail -25
 ```
-Expected: 4 passed. A `SKIP` here is a FAILURE of this task — it means `TEST_DATABASE_POOL_URL` is unset and the suite proved nothing. Set it and re-run.
+Expected: 4 passed. A `SKIP` here is a FAILURE of this task — it means `TEST_DATABASE_POOL_URL` is unset and the suite proved nothing.
+
+(`scripts/verify-gate.sh` does this hydration itself before running
+`verification_commands`, so the gate never inherits this skip — see deviations
+D15.)
 
 - [ ] **Step 4: Stage the file, THEN run the live-DB convention audit**
 
@@ -833,8 +842,20 @@ cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-r
 git add src/lib/reviews/__tests__/import-review.integration.test.ts && \
 pnpm ci:live-db-suites 2>&1 | tail -10
 ```
-Expected: PASS, and the output must actually mention the new suite. If it does
-not appear, the file is still untracked and the check was a no-op.
+Expected: `live-db-suites-audit: passed`.
+
+**Do not expect the suite to be named in that output** — the audit prints
+filenames only in its failure branch, so a pass is always a single summary line
+and the filename can never appear (deviations D15). Confirm non-vacuousness the
+way the tool actually permits:
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git ls-files '*.test.ts' | grep import-review
+```
+Expected: the new suite is listed. That is what proves the audit's `git ls-files`
+enumeration can see it; an empty result means the file is still untracked and the
+check was a no-op.
 
 - [ ] **Step 5: Commit**
 
