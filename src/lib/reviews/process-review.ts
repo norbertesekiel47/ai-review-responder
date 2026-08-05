@@ -502,10 +502,19 @@ async function processExistingReview(
  * `src/lib/agents/read.ts`). The import's work genuinely is finished when the
  * row lands; #678's on-demand Generate opens a fresh run per owner action.
  *
- * KNOWN HAZARD (deviations D4, owned by #675): if this call wins the identity
- * race against a concurrent live-ingest `processReview`, the loser re-reads
- * this row, finds the hash matches, and returns `'unchanged'` without
- * enqueueing — so that review is stored and never drafted.
+ * KNOWN HAZARD (deviations D4, owned by #675) — **a review stored here is never
+ * drafted by the live lane, and this needs no race.** The live lane enqueues
+ * `generate_response` only when it INSERTS a review or when the content hash
+ * CHANGES; a later `processReview` for a row this function already stored takes
+ * the existing-row path, matches the hash, and returns `'unchanged'` without
+ * enqueueing (`processExistingReview`, the `existingHash === contentHash`
+ * branch). The zernio backfill lane routes through the same `processReview`, so
+ * it is not a rescue either. The concurrent INSERT race is merely the
+ * simultaneous instance of this; the sequential case (import runs first, live
+ * lane polls later) is the common one. Fixing it means giving the live lane a
+ * durable "generation still owed" claim — a behaviour change to
+ * `processReview` that #674 forbids, in code with no caller until #675 wires
+ * one. #675 owns *when* the import runs and therefore owns this.
  *
  * Callers screen reviews (PHI, normalization) before calling; precedent is the
  * `processUnansweredReview` closure inside `handleZernioBackfill`.

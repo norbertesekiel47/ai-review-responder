@@ -154,7 +154,43 @@ the import runs.
 **Resolution:** owner decision (2026-08-05) — document here, in the plan's
 Hazards section, and as a comment on #675 at ship time. Do **not** fix in #674.
 
-**Verdict:** ACCEPT
+### CORRECTION (branch review round 1, 2026-08-05) — the hazard is much broader than "a race"
+
+The adversarial reviewer found that **no concurrency is required**, and this is
+correct — verified against the code, not accepted on assertion:
+
+- The live lane enqueues `generate_response` only when it **inserts** a review
+  or when the **content hash changes**.
+- A later `processReview` for a row `importReview` already stored takes the
+  existing-row path and hits `processExistingReview`'s
+  `existingHash === contentHash` branch, which returns `'unchanged'` with no
+  enqueue.
+- `ZernioBackfillWorker.processUnansweredReview` calls the same `processReview`,
+  so the backfill lane is not a rescue.
+
+So the general property is: **any review `importReview` stores will never be
+drafted by any lane**, unless the reviewer later edits their text. The
+concurrent INSERT race described above is merely the simultaneous instance of
+this; the sequential case — import runs first, live lane polls later — is the
+**common** one, not the exotic one.
+
+**Why this correction matters more than the original entry.** The deferral to
+#675 still stands (see below), but a #675 implementer reading only the original
+race framing would add a narrow concurrency guard and ship systematically
+undrafted reviews believing the hazard was closed. The deferral is defensible
+only when what is being deferred is stated accurately.
+
+**Still deferred, and the reasoning is unchanged by the correction:** the fix is
+a durable "generation still owed" claim consulted by `processReview`'s
+existing-row branch — a behaviour change to the live lane that this ticket
+forbids, guarding a hazard with no caller on this branch. `importReview` remains
+correct against its locked contract. #675 owns *when* the import runs and
+therefore owns this.
+
+Corrected in the `importReview` JSDoc and the plan's Hazards section. The #675
+comment at ship time must carry the **corrected** statement.
+
+**Verdict:** ACCEPT (deferral holds; characterization corrected)
 
 ---
 

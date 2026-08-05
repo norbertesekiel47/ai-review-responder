@@ -17,6 +17,10 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_071_RUN_SPINE,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { importReview } from '../process-review';
 import type { MonitoredReview } from '../types';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
@@ -58,6 +62,11 @@ function makeMonitored(): MonitoredReview {
 describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    // Live-DB suites ASSERT their schema rather than applying migrations
+    // (CLAUDE.md gotcha). Without this a behind-head container surfaces as
+    // `relation "agent_runs" does not exist` inside afterAll cleanup instead
+    // of a loud, named schema failure. 071 is the run spine this suite reads.
+    await assertSchemaReady(db, [MIGRATION_071_RUN_SPINE]);
     tenant = await seedTenantAccount(db, {
       userName: 'Import Review Owner',
       accountDisplayName: 'Import Review Account',

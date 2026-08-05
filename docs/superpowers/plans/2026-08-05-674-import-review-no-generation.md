@@ -56,7 +56,9 @@ spec violation:
 
 ## Hazards — known, deliberately not fixed here
 
-**Cross-lane lost draft (deviations D4).** If `importReview` wins the identity race against a concurrent live-ingest `processReview` for the same review, the loser re-reads the winner's row, finds the content hash matches, returns `'unchanged'` — and **never enqueues `generate_response`**. That review is stored and never drafted. The pattern is safe today only because every winner of that race enqueues; `importReview` is the first winner that does not. Fixing it means editing `processReview`'s race-loss branch, which is exactly the behaviour change this ticket forbids, and the race is unreachable until #675 wires a caller. Owner decision (2026-08-05): document and file on #675. **Do not "fix" this while implementing.**
+**Cross-lane lost draft (deviations D4, as corrected in branch review round 1).** A review stored by `importReview` is **never drafted by any lane**, and this needs **no race**. The live lane enqueues `generate_response` only when it INSERTS a review or when the content hash CHANGES; a later `processReview` for an already-imported row takes the existing-row path, matches the hash, and returns `'unchanged'` without enqueueing (`processExistingReview`, the `existingHash === contentHash` branch). `ZernioBackfillWorker.processUnansweredReview` routes through the same `processReview`, so it is not a rescue either. The concurrent INSERT race is merely the simultaneous instance of this; the **sequential** case — import runs first, live lane polls later — is the common one.
+
+Fixing it means giving the live lane a durable "generation still owed" claim consulted in `processReview`'s existing-row branch — exactly the behaviour change this ticket forbids, guarding a hazard with no caller on this branch. Owner decision (2026-08-05): document and file on #675, which owns *when* the import runs. **Do not "fix" this while implementing.** The #675 comment must carry the corrected (non-race) statement — the original framing would send an implementer after a narrow concurrency guard.
 
 ## Task graph
 
