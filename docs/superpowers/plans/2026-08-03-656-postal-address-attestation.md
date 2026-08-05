@@ -401,9 +401,18 @@ ALTER TABLE businesses
      AND solicitation_postal_address_attested_digest    IS NOT NULL)
   );
 
--- The attestation covers THESE BYTES, not merely "some address". Completeness
--- is not coverage: an address-only UPDATE keeps the quartet non-NULL and passes
--- the constraint above.
+-- Binds the stored digest to the stored bytes. Completeness is not coverage: an
+-- address-only UPDATE keeps the quartet non-NULL and passes the constraint
+-- above, leaving an attestation over bytes it never saw. This CHECK makes that
+-- update fail closed.
+--
+-- What it does NOT do, stated so no future reader over-reads it: it proves the
+-- digest matches the CURRENT address, not that the preserved _attested_at /
+-- _attested_by_user_id / _attestation_version ever covered those bytes. A
+-- writer that changes the address AND recomputes the digest while keeping the
+-- old metadata still passes. Closing that needs OLD vs NEW — a trigger — and
+-- was deliberately declined (owner decision, 2026-08-04; plan "Design
+-- decisions" #1). The accidental path is closed; the residual is forgery.
 --
 -- Volatility, precisely: sha256() and encode() are IMMUTABLE, but convert_to()
 -- is STABLE (provolatile 's') because its result depends on server_encoding.
@@ -920,7 +929,7 @@ git add -A && git commit -m "test(#656): final verification — zero pending, ga
 
 **Spec coverage.** §7.5 columns + no-`google_place_address` rationale → T2, T3. §7.5 attestation checkbox + editable prefill → T4, T5. §7.5 light lint / no international validation → T3. §7.6 point 1 (as overridden) → T6, **recorded in the spec directory by T9**. §2.4 `owner_email_bounced` → T6. Purge interaction (§7.5's "not even a stable field") → T8. §7.6 points 2 and 3 are **out of scope** by intake — #628 and #630 own them.
 
-**Round-1 findings, disposition.** All eleven ACCEPTED findings are actioned: digest column (#3 → T2/T3, and its own promised test); route auth against the real helpers (#5 → design decision 2, T4, T5); actor validation without an FK (#6 → T3); `it.todo` gate integrity (#7 → T1 step 2, T11); broken fixtures (#8 → T6 step 5); schema requirement (#9 → T2 step 4); pre-T2 098 check (#10 → T2 step 1); dependency graph + the "two new test files" contradiction (#11 → graph, file table). Findings #1 and #2 (v1's `098` test titles and the missing surface entries) were fixed by the **intake v2 re-issue**, which is why this plan has 47 promised tests (v2 had 46; round 2 added the offboarding refusal) and needs no SURFACE amendment. The four miscitations are corrected in place: the watch-mode decision cites **#656/#617 and T9**, not D2; the offboarding suite has **no existing `google_place_address` assertion**; there is **no flag-stubbing helper**; `acquireLiveDbLock` is in **`helpers/live-db-lock.ts`**. The REJECTED finding (`subagent-driven-development` / `executing-plans` "do not exist" — they are user-level skills; codex searched only the repo) is not actioned.
+**Round-1 findings, disposition.** All eleven ACCEPTED findings are actioned: digest column (#3 → T2/T3, and its own promised test); route auth against the real helpers (#5 → design decision 2, T4, T5); actor validation without an FK (#6 → T3); `it.todo` gate integrity (#7 → T1 step 2, T11); broken fixtures (#8 → T6 step 5); schema requirement (#9 → T2 step 4); pre-T2 098 check (#10 → T2 step 1); dependency graph + the "two new test files" contradiction (#11 → graph, file table). Findings #1 and #2 (v1's `098` test titles and the missing surface entries) were fixed by the **intake v2 re-issue**, which is why this plan has 47 promised tests (v2 promised one fewer; round 2 added the offboarding refusal) and needs no SURFACE amendment. The four miscitations are corrected in place: the watch-mode decision cites **#656/#617 and T9**, not D2; the offboarding suite has **no existing `google_place_address` assertion**; there is **no flag-stubbing helper**; `acquireLiveDbLock` is in **`helpers/live-db-lock.ts`**. The REJECTED finding (`subagent-driven-development` / `executing-plans` "do not exist" — they are user-level skills; codex searched only the repo) is not actioned.
 
 **Placeholder scan.** No TBDs. Every code step carries real code or a named precedent file verified to exist. The two places showing signatures rather than bodies (T3's module, T5's panel) pin the exact exported names, types and asserted behaviors, and the T1 tests are the executable spec for both.
 
@@ -936,8 +945,10 @@ git add -A && git commit -m "test(#656): final verification — zero pending, ga
 |---|---|---|---|
 | 1 | `codex exec`, read-only sandbox | **REVISE** — 3 Critical, 5 High, 2 Medium, 1 Low; 11 ACCEPT / 1 REJECT | `plan-review-round1-codex.md` + `-triage.md` |
 | 2 | `codex exec`, read-only sandbox, verification-only | **REVISE** — 7/11 findings ADDRESSED, 3 PARTIAL, 1 NOT; 4 defects introduced by fixes; all 4 miscitations corrected; all 12 new citations verified | `plan-review-round2-codex.md` + `-triage.md` |
-| 3 | *(pending — verification-only, final round)* | | |
+| 3 | `codex exec`, read-only sandbox, verification-only — **CAP** | **REVISE** — d2/d3/d4/f10 ADDRESSED; d1 PARTIAL (one of four statement sites still over-read); intake v3 clean on 6/7; 1 Low. Both items accepted and applied. **No design defect, no missing test, no false citation.** | `plan-review-round3-codex.md` + `-triage.md` |
 
 Rounds 2 and 3 are **verification-only** under feature.md's cap: each verifies the prior round's findings are addressed and may flag a defect a fix introduced, but may **not** open new fronts against unchanged plan sections. `planReviewRounds` is cumulative across sessions and lives in `.feature/state.json` — round 3 is the cap, and this branch is `RISK=high`, so a disagreement surviving round 3 escalates to the owner rather than being decided by the runner.
 
-**Round-2 dispositions applied to this document:** defect 2 (offboarding block) → "Design decisions" #2 rewritten and T4 Step 2 gains the explicit gate; defect 3 (third broken fixture) → T6 Step 5 item 3; defect 4 (`convert_to` is STABLE) → T2 Step 3 migration comment; finding 10 (non-blocking pre-flight) → T2 Step 1 rewritten with `exit 1`. Defect 1's **fact** is accepted and the guarantee narrowed in "Design decisions" #1; its suggested **remedy** (a trigger) is escalated to the owner, not applied.
+**Round-2 dispositions applied to this document:** defect 2 (offboarding block) → "Design decisions" #2 rewritten and T4 Step 2 gains the explicit gate; defect 3 (third broken fixture) → T6 Step 5 item 3; defect 4 (`convert_to` is STABLE) → T2 Step 3 migration comment; finding 10 (non-blocking pre-flight) → T2 Step 1 rewritten with `exit 1`. Defect 1's **fact** is accepted and the guarantee narrowed in "Design decisions" #1; its suggested **remedy** (a trigger) was **owner-decided on 2026-08-04: declined**, keeping the two CHECKs and the narrowed claim.
+
+**Round-3 dispositions applied to this document:** d1 PARTIAL → the T2 migration comment, the fourth statement site, rewritten to say what the digest CHECK binds *and* what it does not; Low defect 1 → the historical v2-count parenthetical reworded so no numeral in this document can be misread as a live count. Round 3 also **confirmed no fourth fixture breaks**: exactly two flag-on/send-positive paths exist (`batch-builder.test.ts:662`, `batch-builder.integration.test.ts:508`), both covered by T6 Step 5; the third flag-on unit case (`:618`) has zero sends, so the gate is never evaluated there.
