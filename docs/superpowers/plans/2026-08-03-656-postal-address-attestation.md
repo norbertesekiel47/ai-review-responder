@@ -508,8 +508,8 @@ export type PostalAddressLintResult =
  *  the LAST non-empty line (so "12345 Elm St" is a street number, not a ZIP).
  *  US-first by decision — do NOT add structured international address
  *  validation; the spec names it a trap. Normalization is minimal because the
- *  address is baked into the footer VERBATIM: CRLF -> LF, strip per-line
- *  trailing whitespace, drop empty lines at the edges, trim. Nothing else. */
+ *  address is baked into the footer VERBATIM: CRLF -> LF, trim EACH line on
+ *  BOTH sides, drop empty lines at the edges. Nothing else. */
 export function lintPostalAddress(raw: string): PostalAddressLintResult;
 
 export type AttestPostalAddressResult =
@@ -530,7 +530,16 @@ export type AttestPostalAddressResult =
  *
  *  On zero rows updated, one read-only diagnostic SELECT classifies the failure
  *  for the caller's status code. The security property lives entirely in the
- *  UPDATE's predicates; the diagnostic only picks a string. */
+ *  UPDATE's predicates; the diagnostic only picks a string.
+ *
+ *  That diagnostic probes ONLY `users` — never `businesses`. Two reasons, and
+ *  the second is a hard CI constraint: the actor predicate is the only one that
+ *  cannot be inferred from the caller's own inputs (the other two failures both
+ *  mean "not this account's location", which is ONE status); and
+ *  `scripts/ci/tenant-scope-audit.ts` runs `stripSelectSubqueries` BEFORE
+ *  extracting predicates, so a `businesses` reference living only inside an
+ *  EXISTS subquery leaves the outer statement with no WHERE and fails
+ *  `ci:tenant-scope` with "missing account_id or business_id scope". */
 export async function attestPostalAddress(
   sql: Sql | TransactionSql,
   params: { accountId: string; businessId: string; userId: string; address: string },
