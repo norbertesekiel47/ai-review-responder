@@ -37,6 +37,16 @@ implicit. Both intake copies and `rollback_plan` were updated and re-armed.
 **Binding on this branch:** do not open the PR to `main` until #645 has merged.
 099 must land after 098.
 
+> **✅ RESOLVED 2026-08-04.** #645 merged (PR #659), migration 098 applied to
+> staging and production in lockstep (PR #661), post-merge sweep landed (#663).
+> This branch was rebased onto `origin/main` at `4a16bcfd` — clean, 10 commits
+> replayed. `supabase/migrations/098_solicitation_suppression_corrections.sql` is
+> present and `.claude/reference/migrations-log.md` now reads
+> **"Current head: 098 — next migration is 099"**, exactly matching this plan.
+> The PR blocker is lifted and round-1 finding 10 (the pre-T2 existence check) is
+> satisfied by fact rather than by a check we still need to write — keep the
+> check anyway, since a future resumed session must not re-derive this.
+
 ## D2 — Residual surface overlap: `scripts/ci/tenant-scope-allowlist.ts`
 
 Shared with `feat-645-manual-suppression-paths`. This is the standing
@@ -48,6 +58,13 @@ semantically.
 merged #645 and re-appends its own entries if the allowlist needs them at all —
 #656 may well need no entry, since it adds columns to `businesses` rather than a
 new table.
+
+> **✅ RESOLVED 2026-08-04.** #645 merged and this branch rebased onto it; its
+> three `suppression_corrections` allowlist entries are now on `main` and were
+> absorbed cleanly with no conflict. If #656 turns out to need entries of its
+> own, append them and **recompute `ALLOWLIST_BASELINE` from the actual entry
+> count** — never reuse #645's number. The audit fails on a mismatch in either
+> direction, so a botched resolution is caught by CI rather than shipped.
 
 ## D3 — Surface NARROWED at plan time after the `codebase-design` consult
 

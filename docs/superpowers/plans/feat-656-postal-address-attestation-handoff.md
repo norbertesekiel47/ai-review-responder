@@ -27,8 +27,10 @@ and **Send handoff**. Use them verbatim in commits, tests and code comments.
 
 ## Hard constraints a resumed session must not rediscover
 
-1. **Migration number is 099, not 098.** 098 belongs to sibling branch #645
-   (deviations D1). **Do not open the PR to `main` until #645 has merged.**
+1. **Migration number is 099.** ✅ **Blocker cleared 2026-08-04** — #645 merged
+   (PR #659), 098 applied to staging + prod (PR #661). This branch is rebased
+   onto `origin/main` @ `4a16bcfd`; `migrations-log.md` reads "head: 098 — next
+   is 099". The PR to `main` is no longer blocked.
 2. **Do not block batch construction.** `buildSolicitationBatch` is ONE builder
    shared by watch-mode and send-mode. The precondition withholds the **Send
    handoff** at `batch-builder.ts:766`, never the build — spec §7.6 point 1's
@@ -42,9 +44,9 @@ and **Send handoff**. Use them verbatim in commits, tests and code comments.
 5. **The attestation surface is `settings/profile`, not `settings/locations`** —
    the latter is gated by `MULTI_LOCATION_ENABLED`, unset→off in prod, which
    would make a CAN-SPAM precondition unreachable (recorded on #656 and #617).
-6. `scripts/ci/tenant-scope-allowlist.ts` is shared with #645 — append-only,
-   rebase and re-append, recompute the baseline from the actual entry count
-   (deviations D2).
+6. `scripts/ci/tenant-scope-allowlist.ts` — ✅ **overlap resolved**; #645's three
+   entries are on `main` and were absorbed by the rebase. If #656 needs entries,
+   append and **recompute `ALLOWLIST_BASELINE` from the actual count** (D2).
 
 ## ⚠ Intake was RE-ISSUED (v2) — the plan has NOT yet been revised to match
 
