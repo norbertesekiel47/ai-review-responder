@@ -1010,8 +1010,11 @@ Revisit triggers:
   `src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts`;
   schema-ready entry `MIGRATION_100_IMPORT_CONSENT`.
   **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
-  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
-  promotion, completing the lockstep. Staging verification via
+  container, and **PRODUCTION 2026-08-05** (`udeyaqnvpojbwgoaxwdg`, applied at
+  PR #685 promotion BEFORE merge — 099's order) — lockstep complete; prod
+  verified by the same introspection (identical column shapes + CHECK
+  definition; `businesses` and `zernio_backfill_runs` both zero rows at
+  apply, so §8a R3 held exactly on prod). Staging verification via
   `information_schema.columns` + `pg_get_constraintdef` (never
   `list_migrations`): all five columns present with exact shapes
   (`import_decision` text NOT NULL default `'pending'::text`, both timestamps
@@ -1040,8 +1043,10 @@ Revisit triggers:
   is not a no-op). No retention-policy row: it adds no relation, and the
   columns live and die with the `businesses` row that carries them.
   **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
-  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
-  promotion, completing the lockstep. Staging verification went past "it
+  container, and **PRODUCTION** (all five columns verified present on
+  `udeyaqnvpojbwgoaxwdg` 2026-08-05 during the #673 promotion — this entry
+  had gone stale, still reading NOT YET PRODUCTION after #666's promotion).
+  Staging verification went past "it
   applied": 5 columns present, both CHECKs `convalidated`, zero FKs on
   `_attested_by_user_id`, all existing rows NULL; then a behavioural probe in a
   `DO` block ending in `RAISE` (so it always rolls back) seeded a valid attested
