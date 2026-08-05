@@ -3,6 +3,38 @@
 Entries are things the plan did not anticipate. Each gets a triage verdict at
 step 6 (ACCEPT / RE-PLAN) before review agents see this file.
 
+## Step 6 triage — 2026-08-05
+
+**All fifteen: ACCEPT. Zero RE-PLAN.** The gate is GREEN at `7c4f343f` with all
+23 checks passing, including `promised-tests` (every one of the twelve
+`tests_to_add` titles exists) and the live-DB suite actually executing.
+
+RE-PLAN means a deviation invalidated the plan. None did, and the distribution is
+the reason to believe that rather than a reason to distrust the sweep:
+
+- **D1, D2, D3, D5, D6, D7, D9, D10** are plan-review findings — discovered in
+  the phase whose entire job is to find them, and all resolved *before* any code
+  existed. That is the process working, not drift.
+- **D4** is a real defect deliberately left unfixed by owner decision, with a
+  named owner (#675) and a ship-time action. Accepting it accepts a documented
+  hazard, not an unknown one.
+- **D8** is the one that flirted with teardown (2nd surface amendment). It was
+  surfaced to the owner rather than waived, and the budget it exhausted was
+  **never spent again**: implementation required no third `allowed_edit_surface`
+  change, so the abort trigger it armed never fired.
+- **D11** was closed by the owner's call substituting for `APPROVED`, which is
+  exactly what the protocol prescribes when rounds are exhausted.
+- **D12** is external drift (`main` took the spec), resolved by rebase.
+- **D13, D14, D15** are the implementation-phase entries, and all three are
+  *plan-text* defects rather than design defects — a describe block the plan
+  did not name, two destructure bindings it did not account for, and two
+  verification steps that were wrong about their own tools. None changed the
+  shipped design; each is corrected in place so a re-run does not inherit it.
+
+The honest summary: the shipped artefact matches the locked intake, and every
+deviation was either absorbed without design change or is a documented,
+owner-approved deferral.
+
 ---
 
 ## D1 — `allowed_edit_surface` AMENDMENT #1: the design of record was untracked
@@ -32,7 +64,7 @@ this branch no longer carries a copy of it. The amendment itself stands (the
 path stays in `allowed_edit_surface`, harmlessly); only its *premise* — that the
 document existed nowhere in git — has expired.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -60,7 +92,7 @@ than counted against the amendment budget.
 3. **Estimates raised** 80→95 prod / 240→280 test lines to cover the run
    completion and the two added tests.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -87,7 +119,7 @@ Generate opens a fresh `review_handler` run per owner action instead of joining 
 stale one. No `recordOutcome` — that would need a new `AGENT_OUTCOME_KINDS`
 member and therefore a migration, which is out of scope.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -122,7 +154,7 @@ the import runs.
 **Resolution:** owner decision (2026-08-05) — document here, in the plan's
 Hazards section, and as a comment on #675 at ship time. Do **not** fix in #674.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -144,7 +176,7 @@ Hazards section, and as a comment on #675 at ship time. Do **not** fix in #674.
   subsumed by D3's fix: a completed run is not an active run, so
   `startOrGetActiveRun` opens a fresh one.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -177,7 +209,7 @@ test database and asserts the row's columns, the terminal agent run, the absent
 `verification_commands` points at the new suite. Four test titles added to
 `tests_to_add`; `estimated_test_lines` 280 → 480.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -209,7 +241,7 @@ in silence.** Reasoning:
 change during implementation is a genuine signal and MUST trigger the abort
 path — no further reasoning-around.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -227,7 +259,7 @@ The kernel worth keeping: a reader could confuse the two. The plan now carries a
 **"Provenance of decisions"** table naming, row by row, which decisions come from
 the spec and which from this ticket.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -264,7 +296,7 @@ gate and not executed by anything until a subagent runs it. Schema identifiers i
 a plan deserve the same "look it up, don't guess" discipline as production code —
 all four of these were verifiable with one `rg` against the migration.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -286,7 +318,7 @@ themselves been reviewed, and the protocol provides no further round in which to
 review them. Recorded for the owner's call rather than self-certified as
 APPROVED.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -297,7 +329,7 @@ is a closure inside `handleZernioBackfill`
 (`worker/jobs/zernio/ZernioBackfillWorker.ts:210-246`). The intake's PHI-screening
 precedent reference was reworded accordingly.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -334,7 +366,7 @@ contains the spec at all.
 D1's premise is marked superseded above; the plan header now cites `main` as the
 spec's owner.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -368,7 +400,7 @@ and the commit (`d100970e`) touches exactly one file whose only deletions are th
 two extended import lines — so the `describe('processReview')` block is
 mechanically confirmed byte-for-byte untouched.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -406,7 +438,7 @@ should name every binding that statement was the last reader of. The plan's
 that leaves behind; lint caught it, but only because the orphans were
 `const` declarations rather than, say, a now-dead import.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
 
 ---
 
@@ -459,4 +491,4 @@ non-vacuousness proof if the tool actually prints X on success. Round 3 correctl
 identified a vacuous check and prescribed a remedy whose evidence the tool cannot
 emit — the fix was right, its receipt was not.
 
-**Verdict:** _(pending step 6)_
+**Verdict:** ACCEPT
