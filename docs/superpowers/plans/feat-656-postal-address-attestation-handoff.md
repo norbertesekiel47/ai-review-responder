@@ -3,14 +3,75 @@
 **Branch:** `feat-656-postal-address-attestation`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-656-postal-address-attestation`
 **Lane:** RISK=high · SURFACE=mixed · `db_touching: true` → staging ride before `main`.
-**Current step:** 5 complete → **6 (branch review) is the next action.**
+## ▶ RESUME HERE — staging soak, then merge
+
+**Everything through the staging ride is DONE.** A fresh session picks up at the
+soak. Do **not** re-run the plan, the reviews, or the migration.
+
+### State as of 2026-08-05
+
+| Thing | State |
+|---|---|
+| PR | **[#666](https://github.com/RepWorth/ai-review-responder/pull/666)** → `main`, open, CI running at last check |
+| Branch HEAD | `924dc295` (main merged in; only `docs/directory.md` overlapped, auto-merged) |
+| Gate | **GREEN**, full `--review` mode |
+| `staging` branch | fast-forwarded to `924dc295` and pushed |
+| Railway staging deploy | `de752b82` — **SUCCESS**, booted 07:10 clean, **0 errors / 0 warns** |
+| Migration 099 → **staging** Supabase (`kubdiqdhqbhwmqfditeg`) | ✅ **APPLIED + verified behaviourally** |
+| Migration 099 → **prod** Supabase (`udeyaqnvpojbwgoaxwdg`) | ❌ **NOT applied — do this BEFORE merging** |
+| `planReviewRounds` / `branchReviewRounds` | 3 / 1 — both closed, do not reopen |
+
+### What the soak still needs to prove
+
+The widened `businesses` SELECT was verified by **direct query** against staging
+(returns cleanly, no `42703`), but **no live batch build has exercised it** —
+nothing enqueues `build_solicitation_batch` on staging by itself. That is the one
+gap between "deployed" and "proven".
+
+To close it, trigger a real staging batch and confirm from the worker log:
+- `'solicitation batch build finished'` carries the new **`send_handoff`** field;
+- its value is `{"status":"withheld","reason":"postal_address_missing"}` for a
+  location with no attested address — every staging location is in that state
+  today (`owner_email_bounced=false`, `_attested_at=null`);
+- `status` is still `built` with a real `candidate_count`, and `withheld_by_reason`
+  is unchanged — **watch-mode must not regress**;
+- **zero** `generate_solicitation_asks` rows in `job_outbox` for that batch.
+
+Optionally then attest an address on a staging location via
+`PUT /api/settings/postal-address` (or the `settings/profile` panel) and rebuild,
+expecting `send_handoff.status = "enqueued"`. Note `SOLICITATION_SEND_ENABLED` is
+**off** on staging, so the handoff reports `not_applicable` unless that flag is
+turned on for the test — check it before reading the result as a failure.
+
+### Merge sequence, in this order
+
+1. Confirm PR #666 CI is green.
+2. **Apply 099 to PRODUCTION Supabase FIRST** (`udeyaqnvpojbwgoaxwdg`), same SQL
+   as `supabase/migrations/099_solicitation_postal_address.sql`. Migration before
+   code — a prod deploy against a 099-less database throws `42703` on every batch
+   build.
+3. Merge PR #666 into `main` (squash).
+4. `git checkout staging && git merge --ff-only main && git push` so staging never drifts.
+5. Update `.claude/reference/migrations-log.md` to record prod application.
+6. Consider the `/document-feature` sweep.
+
+### Do NOT fix these on this branch
+
+- **#665** — `purge-verification.ts` is blind to the five new columns. Purge itself
+  is correct and tested three ways; only the detector is blind (D6).
+- `src/lib/solicitation/ask-render.ts:42` cites #627 for the column's provenance.
+- Locked spec §2.4 cross-references §6.3 where it means §7.5/§7.6.
+
+---
+
+**Historical step record (all complete):** step 6 branch review closed at round 1; step 7 staging ride done.
 
 **ALL 11 TASKS ARE DONE.** Gate is **GREEN in full `--review` mode at HEAD**:
 29 rows, zero non-PASS, `promised-tests` matching all **47** titles, and five
 dedicated live-DB integration rows that **ran** (no SKIP — the `test` row's
 "TEST_DATABASE_POOL_URL unset" line is the gate's own #563/#520 mitigation, and
 `merge-coverage` folds the dedicated rows' coverage back in). `planReviewRounds`
-is **3**; `branchReviewRounds` is **0** — branch review has not started.
+is **3** and `branchReviewRounds` is **1** — both closed; see the RESUME block.
 
 Plan review is CLOSED: three rounds, all REVISE, every disposition applied; the
 owner approved on 2026-08-04 rather than spend a fourth round on two wording
@@ -46,17 +107,17 @@ load-bearing facts about the test code:
 | What | Path |
 |---|---|
 | Intake contract (the drift detector) | `.feature/intake.json` |
-| Implementation plan (9 tasks, dependency graph, glossary) | `docs/superpowers/plans/2026-08-03-656-postal-address-attestation.md` |
-| Deviations D1–D4 — **read before touching anything** | `docs/superpowers/plans/feat-656-postal-address-attestation-deviations.md` |
+| Implementation plan (**11** tasks, dependency graph, glossary) | `docs/superpowers/plans/2026-08-03-656-postal-address-attestation.md` |
+| Deviations **D1–D6** — **read before touching anything** | `docs/superpowers/plans/feat-656-postal-address-attestation-deviations.md` |
 | Locked spec §7.5 / §7.6 / §2.4 | `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` |
 | Binding amendments over that spec | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` |
 | Ticket | `gh issue view 656` |
 | Parent wayfinder map | `gh issue view 617` |
 | Glossary (existing terms consumed) | `CONTEXT.md` → "Solicitation (watch-mode)" + "Solicitation (send-mode)" |
 
-Two glossary terms are **coined by this branch** and live in the plan's Glossary
-section until Task 9 writes them into `CONTEXT.md`: **Attested postal address**
-and **Send handoff**. Use them verbatim in commits, tests and code comments.
+Two glossary terms are **coined by this branch** and were written into
+`CONTEXT.md` by T10: **Attested postal address** and **Send handoff**. Use them
+verbatim in commits, tests and code comments.
 
 ## Hard constraints a resumed session must not rediscover
 
@@ -66,7 +127,7 @@ and **Send handoff**. Use them verbatim in commits, tests and code comments.
    is 099". The PR to `main` is no longer blocked.
 2. **Do not block batch construction.** `buildSolicitationBatch` is ONE builder
    shared by watch-mode and send-mode. The precondition withholds the **Send
-   handoff** at `batch-builder.ts:766`, never the build — spec §7.6 point 1's
+   handoff** at the `enqueueGenerateSolicitationAsks` call in `batch-builder.ts`, never the build — spec §7.6 point 1's
    "no batch produced" predates the shared builder (deviations D2).
 3. **No new `WITHHOLD_REASONS` member.** That enum is closed, precedence-ordered
    and versioned by `RESTRAINT_POLICY_VERSION`; every member is a per-candidate

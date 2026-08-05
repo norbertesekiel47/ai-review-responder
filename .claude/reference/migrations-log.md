@@ -993,12 +993,24 @@ Revisit triggers:
   re-validate existing rows, so the end state is idempotent but the execution
   is not a no-op). No retention-policy row: it adds no relation, and the
   columns live and die with the `businesses` row that carries them.
-  **LOCAL-ONLY** — applied only to the rebuildable local test container.
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
+  promotion, completing the lockstep. Staging verification went past "it
+  applied": 5 columns present, both CHECKs `convalidated`, zero FKs on
+  `_attested_by_user_id`, all existing rows NULL; then a behavioural probe in a
+  `DO` block ending in `RAISE` (so it always rolls back) seeded a valid attested
+  tuple and attempted both failure modes — `partial_rejected=t
+  address_only_rejected=t`, with a follow-up query confirming **zero residue**.
 
   **Merge order:** 098 (#645) landed FIRST and is already on staging and prod;
-  this migration takes 099 per deviations D1. At promotion it applies to
-  **staging Supabase first, then production in lockstep**, and the LOCAL-ONLY
-  marker above is removed in that same change.
+  this migration takes 099 per deviations D1.
+
+  **Ordering that matters and is easy to get backwards:** the migration must
+  reach a database BEFORE the code does. `batch-builder.ts` selects
+  `solicitation_postal_address_attested_at`, so a code deploy against a
+  099-less database throws `42703` on every batch build. Staging was done in
+  that order; **production must be too — apply 099 to prod Supabase BEFORE
+  merging the PR**, not after.
 
   The columns are `solicitation_postal_address` plus the attestation quartet
   `_attested_at` / `_attested_by_user_id` / `_attestation_version` /
