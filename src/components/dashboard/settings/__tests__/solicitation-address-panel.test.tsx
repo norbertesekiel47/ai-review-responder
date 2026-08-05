@@ -173,6 +173,108 @@ describe('SolicitationAddressPanel', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // The failure surface. `messageForFailure` is the panel's only branching
+  // logic, and every branch ends in a sentence an owner reads, so the cases
+  // below assert the CONTRACT its doc comment states — "never surfaces a raw
+  // code" — rather than re-copying the prose. The maps are deliberately not
+  // exported (the panel owns the wording), so a value-equality test here would
+  // be a hand-copied literal that drifts silently; a distinctive fragment plus
+  // the never-leak invariant survives a rewording that keeps the meaning.
+  //
+  // Failures announce through role=alert, not role=status: an owner who cannot
+  // see the red paragraph still has to learn the write did not land.
+
+  /** Drives one failed PUT and returns the sentence the panel announced. */
+  async function announcedFailure(response: {
+    ok: boolean;
+    status: number;
+    json: () => Promise<unknown>;
+  }): Promise<string> {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(response);
+    render(<SolicitationAddressPanel state={postalAddressState({ suggestion: SUGGESTION })} />);
+    fireEvent.click(attestationCheckbox());
+    fireEvent.click(submitButton());
+    const alert = await screen.findByRole('alert');
+    return alert.textContent ?? '';
+  }
+
+  function failedResponse(status: number, body: unknown) {
+    return { ok: false, status, json: async () => body };
+  }
+
+  it('a lint rejection is shown as the fix, never as the reason code', async () => {
+    const message = await announcedFailure(
+      failedResponse(400, { error: 'invalid_address', reason: 'single_line' }),
+    );
+
+    // The prose explains what to DO about a service-area string...
+    expect(message).toMatch(/service area/i);
+    // ...and the wire vocabulary stays on the wire.
+    expect(message).not.toContain('single_line');
+    expect(message).not.toContain('invalid_address');
+  });
+
+  it('a mapped error code is shown as its sentence, never as the code', async () => {
+    const message = await announcedFailure(
+      failedResponse(409, { error: 'account_offboarding_blocked' }),
+    );
+
+    expect(message).toMatch(/read-only/i);
+    expect(message).not.toContain('account_offboarding_blocked');
+  });
+
+  it('an unrecognized error code falls back to the status sentence rather than leaking the code', async () => {
+    const message = await announcedFailure(failedResponse(500, { error: 'kaboom_unmapped' }));
+
+    // The fallback carries the status so a support conversation has a handle.
+    expect(message).toContain('(500)');
+    expect(message).not.toContain('kaboom_unmapped');
+  });
+
+  it('an invalid_address whose reason is unrecognized falls through instead of dead-ending', async () => {
+    // Both lookups miss: `invalid_address` is absent from the error map because
+    // its sentence is supposed to come from the lint map. A future lint reason
+    // that ships server-side before this panel knows it must still say
+    // something, not render an empty paragraph.
+    const message = await announcedFailure(
+      failedResponse(400, { error: 'invalid_address', reason: 'reason_from_a_newer_server' }),
+    );
+
+    expect(message).toContain('(400)');
+    expect(message).not.toContain('reason_from_a_newer_server');
+    expect(message.trim()).not.toBe('');
+  });
+
+  it('a body that is not JSON still produces a sentence', async () => {
+    // The panel catches the parse and treats the body as `{}`; the status is
+    // then the only thing it knows, and it has to be enough.
+    const message = await announcedFailure({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON');
+      },
+    });
+
+    expect(message).toContain('(502)');
+  });
+
+  it('a transport failure is reported as a connection problem, not a silent no-op', async () => {
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<SolicitationAddressPanel state={postalAddressState({ suggestion: SUGGESTION })} />);
+
+    fireEvent.click(attestationCheckbox());
+    fireEvent.click(submitButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/connection/i);
+    // The button has to come back, or a flaky network strands the owner with a
+    // permanently disabled control and an address they cannot save.
+    await waitFor(() => expect(submitButton()).toBeEnabled());
+  });
+
   it('the profile settings checkbox uses POSTAL_ADDRESS_ATTESTATION_TEXT verbatim', () => {
     render(<SolicitationAddressPanel state={attestedState()} />);
 

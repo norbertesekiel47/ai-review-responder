@@ -193,3 +193,44 @@ single `IS NOT NULL` probe would suffice for detection.
   enforcement class as the missing postal address (**§6.3**)". §6.3 is the
   unsubscribe owner-copy section; the postal address is §7.5/§7.6. Recorded as a
   mechanical fix inside T9's amendment entry rather than editing the locked spec.
+
+## D7 — Six unpromised tests added post-review to clear the Fallow gate
+
+**Found at:** step 7 (ship lane), from CI — **not** from the plan, the gate, or
+either review. `scripts/verify-gate.sh` does not run fallow; `ci:fallow:coverage`
+lives in its own `fallow.yml` job. So the branch could be, and was, GREEN locally
+and on all six **required** checks while `fallow` failed.
+
+**The finding was real.** `messageForFailure`
+(`SolicitationAddressPanel.tsx:72`) came out of T5 at **0% coverage** —
+cyclomatic 6, cognitive 7, **CRAP 42.0** — because the panel suite's five
+promised tests all drive the *success* path or assert pre-submit state, and none
+of them makes the route fail. Its four branches, and the `catch` beside it, were
+the only untested logic the branch added.
+
+**Six cases added** to `solicitation-address-panel.test.tsx`: a lint rejection, a
+mapped error code, an unrecognized code, an `invalid_address` whose *reason* is
+unrecognized (both lookups miss — the fall-through), a non-JSON body, and a
+transport rejection. Fallow after: **"✓ No issues in 40 changed files."**
+
+**They assert the contract, not the prose.** `LINT_MESSAGES` / `ERROR_MESSAGES`
+are deliberately unexported — the panel owns the wording — so a value-equality
+test would be a hand-copied literal free to drift. Each case asserts a
+distinctive fragment **plus** the doc comment's actual promise, that the raw
+`error` / `reason` code never reaches the owner. They read the message off
+`role="alert"`, which is both unique in the DOM (the visible `<p>` and the
+`LiveRegion` carry the same string) and the accessibility half of the contract.
+
+**Why this is not a surface amendment:** both
+`src/components/dashboard/settings/SolicitationAddressPanel.tsx` and
+`src/components/dashboard/settings/__tests__/**` are already in
+`allowed_edit_surface`, and no production code changed — the panel is untouched.
+The `promised-tests` gate row is a **superset** check ("every `tests_to_add`
+entry must appear"), so adding cases beyond the 47 cannot break it and the intake
+was NOT re-issued. **The amendment budget stays at #1 of 2.**
+
+**The transferable lesson:** a green `verify-gate.sh` is not a green CI board on
+this repo. `fallow` is advisory — it is not among `main`'s six required checks
+(`lint`, `typecheck`, `test`, `build`, `deploy-install`, `llm-eval`) — so it can
+fail without ever blocking a merge, and a branch that only ever consults the
+feature gate will not hear about it.
