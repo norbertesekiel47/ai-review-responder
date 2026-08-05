@@ -43,3 +43,15 @@ receive this file triaged.
   legacy column contains it). 3a's INSERT-absence assertions are unchanged —
   the initial branch names no counter columns at all, so the plan's literal
   form is correct there.
+- **D6 (2026-08-05, Task 2 step 1 — one semicolon removed from a COMMENT
+  literal).** The plan's verbatim SQL for the
+  `zernio_backfill_runs.skipped_count` COMMENT reads `…as imported_count;
+  oldest_skipped_create_time is unchanged.` — a semicolon inside the literal,
+  violating the plan's own authoring constraint (migration header + shape test
+  4 split executable SQL on `';'`). Left as-is, the split yields a dangling
+  fragment `oldest_skipped_create_time is unchanged.'` that fails the
+  additive-only allowlist. Replaced the semicolon with an em dash
+  (`…as imported_count — oldest_skipped_create_time is unchanged.`); no other
+  byte of the plan's SQL changed. The CHECK-definition full-equality pin held
+  as planned (PG16 rendered exactly the predicted literal), so no test-file
+  change was needed.

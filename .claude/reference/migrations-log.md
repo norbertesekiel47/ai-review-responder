@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **099** — next migration is **100**
+Current head: **100** — next migration is **101**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,29 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **100** — `import_consent_and_backfill_counters`: **Consented Review Import**
+  schema (#673, epic #667; ADR 0015 + spec
+  `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §4,
+  §8a R3/R4). Three additive columns on `businesses` — `import_decision` TEXT
+  `NOT NULL DEFAULT 'pending'` under the named CHECK
+  `businesses_import_decision_check` (`pending|accepted|declined|expired`),
+  plus nullable TIMESTAMPTZ `import_decision_at` / `import_offer_expires_at`.
+  Deliberately NO cross-column CHECK (the #677 decision API and #679 expiry
+  sweep own those semantics — owner decision 2026-08-05) and NO index (#679
+  adds one if its sweep needs it). Plus the ADD half of the locked counter
+  collapse on `zernio_backfill_runs`: `imported_count` + `skipped_count`
+  INTEGER `NOT NULL DEFAULT 0`; the four legacy `gap_*`/`historical_*`
+  counters stay until the #680 cleanup migration so `git revert` of any epic
+  PR never leaves the worker writing to a dropped column (§8a R4).
+  `ZernioBackfillWorker` dual-writes both sets from this PR (imported = gap +
+  historical processed; skipped = gap + historical skipped); tenant-scope
+  allowlist re-pinned. DEFAULT `'pending'` is exact: both environments held
+  zero `businesses` rows (§8a R3) — backdating was rejected. No new relation →
+  no retention-policy row, no RLS change. `SET lock_timeout = '5s'` (099
+  precedent). Shape suite
+  `src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts`;
+  schema-ready entry `MIGRATION_100_IMPORT_CONSENT`. **LOCAL-ONLY**
 
 - **099** — `solicitation_postal_address`: the **Attested postal address** on
   `businesses` (#656; locked spec
