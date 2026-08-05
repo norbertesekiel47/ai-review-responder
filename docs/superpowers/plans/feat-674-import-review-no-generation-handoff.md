@@ -29,7 +29,8 @@ map [#667](https://github.com/RepWorth/ai-review-responder/issues/667).
 - **Commits so far:** `c0cd0ad8` (docs + spec), `d1f4e184` (round-2 revisions). **No implementation code yet.**
 - **Gate:** last run GREEN at `c0cd0ad8` in `docs_only` mode. That mode skips test/build/promised-tests/diff-coverage, so it is **not** review-ready evidence — re-run `scripts/verify-gate.sh` after Task 2, and `--review` before step 7.
 - **Amendment budget: EXHAUSTED (2 of 2).** See deviations D8. A third `allowed_edit_surface` change during implementation MUST trigger the step-5 abort path — that decision was already reasoned around once and must not be again.
-- **Plan review rounds: 3 of 3 used.** Round 1 `REVISE`, round 2 `REVISE`, round 3 dispatched at checkpoint (codex session `019fd129-092f-7e93-8409-854489caac01`). **If round 3 returned `REVISE`, do not run a round 4** — surface both positions to the owner; their call substitutes for `APPROVED`.
+- **Plan review rounds: 3 of 3 EXHAUSTED.** All three returned `REVISE` (codex session `019fd129-092f-7e93-8409-854489caac01`). **A round 4 is forbidden by the step 3 protocol.** Every round-3 finding was a verified factual defect with no counter-position and all are fixed at `08c17bbf` — see deviations **D10** (the `agent_run_id` column error that would have stopped the Task 4 suite running at all, plus three smaller ones) and **D11**.
+- **OWNER GATE — the plan has no `APPROVED` verdict.** The fixes to round 3's `REVISE` have not themselves been reviewed, and no round remains in which to review them. Per protocol the owner's call substitutes for `APPROVED`. **Ask before starting Task 1**; do not self-certify. Round 3 did positively confirm the two items it re-checked (the one-transaction test now passes a correct implementation, with all eight `mockInsertWon()` calls individually audited; the Provenance-of-decisions table is accurate row by row).
 
 ## FIRST ACTION ON RESUME — restore enforcement
 
