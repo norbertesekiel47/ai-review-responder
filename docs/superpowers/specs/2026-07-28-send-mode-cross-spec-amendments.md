@@ -326,6 +326,56 @@ Shipped as **migration 092** plus a tenth `ArchivalPoller` arm. It had to land
 **before #630**: nothing writes those four statuses until the send worker
 exists, so the pre-#636 exposure was zero by sequencing alone, not by design.
 
+### B13. §7.6 point 1 withholds the SEND HANDOFF, not the batch (#656 implementation decision)
+
+**Overrides** `2026-07-28-sender-deliverability-design.md` (#622) **§7.6 point 1** — "No
+attested address ⇒ **no batch produced**, with a location-level reason" — and the **§2.4**
+`owner_email_bounced` interaction that §7.6's closing line binds to the same treatment
+("Same class, same treatment: `owner_email_bounced = TRUE` (§2.4)"). §2.4's own framing,
+"a batch-build precondition failure", is overridden with it.
+
+**The new rule.** `buildSolicitationBatch` is **ONE builder shared by watch-mode and
+send-mode**. The precondition withholds the **Send handoff** — the
+`enqueueGenerateSolicitationAsks` call at the end of batch construction
+(`src/lib/solicitation/batch-builder.ts:815` as of #656; cite the symbol, not the line) —
+and nothing else:
+
+- The batch still **builds**: `built_at` is stamped, every candidate is still evaluated,
+  and the **Spoilage report** is byte-identical to what the same cohort produces with an
+  attested address. Watch-mode is the product surface a Copilot account lives on; a
+  location that has never opened send-mode would otherwise lose it to a send-mode
+  precondition.
+- The withheld state is reported as a **location-level** fact on the build result
+  (`sendHandoff: { status: 'withheld', reason }`), first-match precedence with
+  `postal_address_missing` ahead of `owner_email_bounced` — the CAN-SPAM one wins. The
+  worker emits it as one `send_handoff` field on the existing
+  `'solicitation batch build finished'` log object.
+- §7.6 **points 2 and 3 are untouched**: render still fails closed (#628), and dispatch
+  still re-asserts the byte-match (#630). This resolution narrows point 1 only.
+
+**Why "no batch produced" was written.** It predates the shared watch/send builder. When
+§7.6 was locked, "batch build" and "send-mode work" were not yet the same function, so
+refusing to produce a batch cost watch-mode nothing. Reading it literally today would make
+an unattested address suppress the watch-mode evaluation as collateral damage.
+
+**Why this is still NOT a Withhold reason.** §7.6's own reasoning stands and is
+strengthened, not weakened, by this override: `WITHHOLD_REASONS`
+(`src/lib/solicitation/restraint-policy.ts`) is closed, precedence-ordered and versioned by
+`RESTRAINT_POLICY_VERSION`, so a new member invalidates comparability with existing
+watch-mode evidence. Every member is a **per-candidate** reason; this is **one
+per-location fact**, and encoding it per-candidate would mark all 25 candidates
+individually withheld for one location-level cause. It stays outside the enum, now as a
+handoff precondition rather than a build precondition.
+
+**Mechanical cross-reference fix** (B8 class): §2.4's "Same enforcement class as the
+missing postal address (**§6.3**)" points at the unsubscribe copy section. The postal
+address is **§7.5/§7.6**.
+
+**Provenance:** ticket **#656**, wayfinder map **#617**, owner call **2026-08-03**.
+Recorded here because it lived only on the ticket and the map — the #643 lesson: a binding
+decision outside `docs/superpowers/specs/` leaves a reader of the locked spec with "no
+batch produced".
+
 ## C. Codex findings triage summary
 
 | Codex finding | Triage |
@@ -360,6 +410,10 @@ call; B3's cap number (10) if a different deliverability posture is wanted.
   dispatch-versus-purge race under #624's lock order, with a
   claim-versus-purge test (B11). Depends on **#626** for the token row's
   `outreach_id` (B9).
+- **#656**: owns `businesses.solicitation_postal_address` and its attestation quartet
+  (migration **099** — #622 §7.5 assigned the migration to #627; #656 is the ticket that
+  landed it). Implements §7.6 point 1 **as amended by B13**: the Send handoff is withheld,
+  the batch still builds.
 - **#625/#626**: unchanged by this doc except #626 reads `unsubscribed_at`
   effects on outreach, the token-mint move, and **#626's
   `solicitation_unsubscribe_tokens` `CREATE TABLE` now carries
