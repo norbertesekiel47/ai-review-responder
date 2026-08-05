@@ -1,9 +1,14 @@
 # Handoff — feat-674-import-review-no-generation
 
-**Checkpoint:** step 3→4 boundary (plan locked, execution not started).
+**Checkpoint:** step 4 (owner gate cleared, execution starting).
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation`
-**Branch:** `feat-674-import-review-no-generation` · **HEAD at checkpoint:** `d1f4e184`
-**Phase file:** `.feature/state.json` → `plan_approved`, `planReviewRounds=3`
+**Branch:** `feat-674-import-review-no-generation` · rebased onto `origin/main` @ `6bd45cfe` (see D12)
+**Phase file:** `.feature/state.json` → `executing`, `planReviewRounds=3`
+
+> **Resume note (2026-08-05):** the owner cleared the D11 gate and approved the
+> rebase. Enforcement is **ARMED** — `.feature/intake.json` is restored. The
+> "FIRST ACTION ON RESUME" section below is **done**; it is kept only as the
+> record of why the branch was ever disarmed.
 
 A resumed session bootstraps from this file and reads the artefacts below. It
 does **not** need the prior transcript.
@@ -26,11 +31,11 @@ map [#667](https://github.com/RepWorth/ai-review-responder/issues/667).
 ## State
 
 - **Classification:** RISK=high · SURFACE=backend · SIZE=normal. Full pipeline, staging ride before `main`.
-- **Commits so far:** `c0cd0ad8` (docs + spec), `d1f4e184` (round-2 revisions). **No implementation code yet.**
-- **Gate:** last run GREEN at `c0cd0ad8` in `docs_only` mode. That mode skips test/build/promised-tests/diff-coverage, so it is **not** review-ready evidence — re-run `scripts/verify-gate.sh` after Task 2, and `--review` before step 7.
+- **Commits so far:** seven, **all docs — no implementation code yet.** Every pre-rebase hash quoted in this file, in the deviations, and in the round-1/2/3 reports is from the old base and no longer resolves; `git log origin/main..HEAD` is the authority. Post-rebase: `13c42bea` (docs + spec), `1b2f5a74` (round-2 revisions), `cc34f372` (round-3 fixes).
+- **Gate:** last GREEN was `docs_only` mode on the pre-rebase base. That mode skips test/build/promised-tests/diff-coverage, so it is **not** review-ready evidence. It is also legitimately RED right now — `verification_commands` names Task 4's suite, which Task 4 creates ("No test files found"). Re-run `scripts/verify-gate.sh` after Task 2, and `--review` before step 7.
 - **Amendment budget: EXHAUSTED (2 of 2).** See deviations D8. A third `allowed_edit_surface` change during implementation MUST trigger the step-5 abort path — that decision was already reasoned around once and must not be again.
-- **Plan review rounds: 3 of 3 EXHAUSTED.** All three returned `REVISE` (codex session `019fd129-092f-7e93-8409-854489caac01`). **A round 4 is forbidden by the step 3 protocol.** Every round-3 finding was a verified factual defect with no counter-position and all are fixed at `08c17bbf` — see deviations **D10** (the `agent_run_id` column error that would have stopped the Task 4 suite running at all, plus three smaller ones) and **D11**.
-- **OWNER GATE — the plan has no `APPROVED` verdict.** The fixes to round 3's `REVISE` have not themselves been reviewed, and no round remains in which to review them. Per protocol the owner's call substitutes for `APPROVED`. **Ask before starting Task 1**; do not self-certify. Round 3 did positively confirm the two items it re-checked (the one-transaction test now passes a correct implementation, with all eight `mockInsertWon()` calls individually audited; the Provenance-of-decisions table is accurate row by row).
+- **Plan review rounds: 3 of 3 EXHAUSTED.** All three returned `REVISE` (codex session `019fd129-092f-7e93-8409-854489caac01`). **A round 4 is forbidden by the step 3 protocol.** Every round-3 finding was a verified factual defect with no counter-position and all are fixed at `cc34f372` — see deviations **D10** (the `agent_run_id` column error that would have stopped the Task 4 suite running at all, plus three smaller ones) and **D11**.
+- **OWNER GATE — CLEARED 2026-08-05.** The plan never earned an `APPROVED` verdict: round 3's `REVISE` fixes were not themselves reviewed and no round remained. Per protocol the owner's call substitutes, and the owner **approved starting Task 1** on the reasoning that all four round-3 findings were "this suite cannot run" defects in plan-embedded test code — which Task 4 executing against a live database falsifies more decisively than a fourth read-only pass would. All four fixes were verified present at `cc34f372` before the gate was put to the owner. Round 3 also positively confirmed the two items it re-checked (the one-transaction test now passes a correct implementation, with all eight `mockInsertWon()` calls individually audited; the Provenance-of-decisions table is accurate row by row). **Do not re-litigate this gate on a later resume.**
 
 ## FIRST ACTION ON RESUME — restore enforcement
 

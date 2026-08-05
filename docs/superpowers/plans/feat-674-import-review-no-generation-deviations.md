@@ -27,6 +27,11 @@ from the repo.
 **Amendment budget:** this is amendment **1 of 2**. A second amendment of
 `allowed_edit_surface` triggers the step 5 abort criteria.
 
+**SUPERSEDED 2026-08-05 by #681 — see D12.** `main` now owns the spec file, so
+this branch no longer carries a copy of it. The amendment itself stands (the
+path stays in `allowed_edit_surface`, harmlessly); only its *premise* — that the
+document existed nowhere in git — has expired.
+
 **Verdict:** _(pending step 6)_
 
 ---
@@ -291,5 +296,42 @@ APPROVED.
 is a closure inside `handleZernioBackfill`
 (`worker/jobs/zernio/ZernioBackfillWorker.ts:210-246`). The intake's PHI-screening
 precedent reference was reworded accordingly.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D12 — `main` took ownership of the spec while this branch was parked
+
+**When:** resume, before Task 1 (2026-08-05).
+
+**What:** #681 (`6bd45cfe`) landed
+`docs/superpowers/specs/2026-08-05-consented-review-import-design.md` on `main`,
+the same file D1 committed here because it existed nowhere in git. The two copies
+had diverged: this branch carried 280 lines, `main` carries 303 — a strict
+superset adding **§8a Rollout posture** (ADR 0015: no feature flag, ordering
+replaces it, no existing-rows clause, backout is `git revert` with migration 100
+additive-only) and reworking the counter-collapse paragraph at spec lines 133-137.
+
+**Resolution:** owner decision (2026-08-05) — rebased the seven docs commits onto
+`origin/main`, resolving the add/add conflict by taking `main`'s version verbatim
+and dropping this branch's copy. The branch's diff against `main` no longer
+contains the spec at all.
+
+**Why nothing else moved:**
+
+- **§8a does not change #674's scope.** R1 (no feature flag) is already an intake
+  non-goal; R4's migration 100 belongs to #675. Nothing in §8a touches
+  `importReview`'s contract, its lock policy, or its run-spine completion.
+- **No citation drift.** The plan cites the spec **by section** (§6.2), never by
+  line number, so the +3 line shift is inert. The round-3 review report does carry
+  line numbers, but it is a historical artefact of a review already answered and
+  is deliberately left as written.
+- **Not an amendment.** No `allowed_edit_surface` change — the spec path stays
+  listed and is simply no longer edited. The budget remains exhausted at 2 of 2
+  per D8; this does not spend a third.
+
+D1's premise is marked superseded above; the plan header now cites `main` as the
+spec's owner.
 
 **Verdict:** _(pending step 6)_

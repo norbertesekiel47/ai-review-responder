@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Postgres.js (tagged templates on a `TransactionSql`), vitest with a mocked `sql.begin`, uuidv7 PKs.
 
-**Ticket:** [#674](https://github.com/RepWorth/ai-review-responder/issues/674) (KEYSTONE) · **Map:** [#667](https://github.com/RepWorth/ai-review-responder/issues/667) · **Spec:** `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.2 (committed on this branch — see deviations D1) · **Intake:** `docs/superpowers/plans/feat-674-import-review-no-generation-intake.json` · **Deviations:** `docs/superpowers/plans/feat-674-import-review-no-generation-deviations.md`
+**Ticket:** [#674](https://github.com/RepWorth/ai-review-responder/issues/674) (KEYSTONE) · **Map:** [#667](https://github.com/RepWorth/ai-review-responder/issues/667) · **Spec:** `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.2 (now owned by `main` via #681 — see deviations D1/D12) · **Intake:** `docs/superpowers/plans/feat-674-import-review-no-generation-intake.json` · **Deviations:** `docs/superpowers/plans/feat-674-import-review-no-generation-deviations.md`
 
 **Plan review:** round 1 codex session `019fd129-092f-7e93-8409-854489caac01` → `REVISE`; this revision addresses it. Verdicts in the Review appendix.
 
