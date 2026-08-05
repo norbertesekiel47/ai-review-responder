@@ -365,6 +365,8 @@ echo OK
 
 A non-zero exit **stops the task**: the branch is not rebased onto merged #645 and recording head 099 would corrupt the log. (Expected `OK` — deviations D1 records the resolution at `4a16bcfd`. The check exists so a resumed session proves it rather than trusting prose.)
 
+> ⚠ **This check is self-invalidating, and that is fine.** Step 6 rewrites the log to `Current head: **099**`, so re-running Step 1 *after* T2 has landed prints `STOP — migrations-log head is not 098`. That means **T2 is already done**, not that anything is broken. Check `git log` for the 099 commit before reacting to it.
+
 > Written as two guarded statements with explicit `exit 1`, not as `A && B && echo OK || echo STOP`. That one-liner exits **0** on failure — the `echo` succeeds — so it *reports* a failure without *being* one, and a runner that checks the exit code sails past. Round 2 caught exactly that.
 
 - [ ] **Step 2: Re-read the migration rules**
