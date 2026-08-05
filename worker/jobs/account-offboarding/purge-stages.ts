@@ -674,6 +674,17 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
           google_place_lat = NULL,
           google_place_lng = NULL,
           ranking_search_location = NULL,
+          -- The owner-Attested postal address and its whole attestation tuple
+          -- (#656, migration 099). All FIVE together: 099's all-or-nothing
+          -- CHECK rejects a partial clear, so they cannot be split off into a
+          -- second statement or a later stage. They ride this statement's
+          -- existing account_id predicate below — every location in the
+          -- account, never across tenants.
+          solicitation_postal_address = NULL,
+          solicitation_postal_address_attested_at = NULL,
+          solicitation_postal_address_attested_by_user_id = NULL,
+          solicitation_postal_address_attestation_version = NULL,
+          solicitation_postal_address_attested_digest = NULL,
           website = NULL,
           display_label = NULL,
           archived_at = COALESCE(archived_at, NOW()),

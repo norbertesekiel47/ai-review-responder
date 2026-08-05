@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -23,6 +23,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_093_SOLICITATION_CONSENT,
   MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+  MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
@@ -32,8 +33,33 @@ import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { buildSolicitationBatch } from '../batch-builder';
 import { readLatestBatch } from '../batch-view';
 import { ingestContactsCsvUpload } from '../ingest';
+import { POSTAL_ADDRESS_ATTESTATION_VERSION } from '../postal-address';
 import { BATCH_CAP } from '../restraint-policy';
 import { recordSuppression, type SuppressionSource } from '../suppression';
+
+/**
+ * #656 T6 — the only way to prove "a send-handoff enqueue failure rolls back the
+ * batch build" is to make that one enqueue fail, and nothing in the schema can
+ * be nudged into failing it on demand. Every other case in this suite runs the
+ * REAL helper against the REAL migration-091 partial index — the dedup case
+ * below depends on the live planner inferring it — so this wrapper delegates by
+ * default and throws only while a test has armed `enqueueFailure.error`.
+ */
+const enqueueFailure = vi.hoisted(() => ({ error: null as Error | null }));
+
+vi.mock('@/lib/shared/job-outbox-helpers', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/shared/job-outbox-helpers')>();
+  return {
+    ...actual,
+    enqueueGenerateSolicitationAsks: async (
+      ...args: Parameters<typeof actual.enqueueGenerateSolicitationAsks>
+    ): Promise<string | null> => {
+      if (enqueueFailure.error !== null) throw enqueueFailure.error;
+      return actual.enqueueGenerateSolicitationAsks(...args);
+    },
+  };
+});
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
@@ -284,6 +310,92 @@ async function build(batch: SeedBatchResult, forBusinessId: string = businessId)
   });
 }
 
+/** Narrows the build union so a case can read `sendHandoff` without `?.`, and
+ *  fails loudly with the actual status when the build did not happen at all. */
+function builtBatch(
+  result: Awaited<ReturnType<typeof build>>,
+): Extract<Awaited<ReturnType<typeof build>>, { status: 'built' }> {
+  if (result.status !== 'built') {
+    throw new Error(`expected a built batch, got status '${result.status}'`);
+  }
+  return result;
+}
+
+/** The **Attested postal address** these cases write. Two non-empty lines with
+ *  a ZIP on the last one — the shape `lintPostalAddress` accepts. */
+const FIXTURE_POSTAL_ADDRESS = '123 Main St\nAustin, TX 78701';
+
+/**
+ * Writes the whole migration-099 attestation tuple straight onto the shared
+ * fixture business. Deliberately raw SQL rather than `attestPostalAddress`:
+ * this suite's subject is the batch builder, and routing the fixture through
+ * another module's writer would make these cases fail for that module's
+ * reasons. The digest is computed by the same server-side expression 099's
+ * CHECK recomputes, so the row is legal by construction — a hand-written digest
+ * would be rejected.
+ */
+async function attestFixturePostalAddress(): Promise<void> {
+  await sql()`
+    UPDATE businesses
+    SET solicitation_postal_address = ${FIXTURE_POSTAL_ADDRESS},
+        solicitation_postal_address_attested_at = NOW(),
+        solicitation_postal_address_attested_by_user_id = ${tenant!.userId}::uuid,
+        solicitation_postal_address_attestation_version =
+          ${POSTAL_ADDRESS_ATTESTATION_VERSION},
+        solicitation_postal_address_attested_digest =
+          encode(sha256(convert_to(${FIXTURE_POSTAL_ADDRESS}::text, 'UTF8')), 'hex')
+    WHERE id = ${businessId}::uuid
+  `;
+}
+
+async function setFixtureOwnerEmailBounced(bounced: boolean): Promise<void> {
+  await sql()`
+    UPDATE businesses
+    SET owner_email_bounced = ${bounced}
+    WHERE id = ${businessId}::uuid
+  `;
+}
+
+/**
+ * Back to the `beforeAll` shape — unattested address, deliverable owner email.
+ * Runs in `afterEach` because the fixture business is SHARED across every case
+ * in this suite: without it a withheld-path case would leak its state into the
+ * next test's send and turn a real regression into a green run.
+ */
+async function resetFixturePostalAddress(): Promise<void> {
+  await sql()`
+    UPDATE businesses
+    SET solicitation_postal_address = NULL,
+        solicitation_postal_address_attested_at = NULL,
+        solicitation_postal_address_attested_by_user_id = NULL,
+        solicitation_postal_address_attestation_version = NULL,
+        solicitation_postal_address_attested_digest = NULL,
+        owner_email_bounced = FALSE
+    WHERE id = ${businessId}::uuid
+  `;
+}
+
+async function readGenerationOutboxRows(
+  batchId: string,
+): Promise<{ status: string }[]> {
+  return sql()<{ status: string }[]>`
+    SELECT status
+    FROM job_outbox
+    WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+      AND aggregate_id = ${batchId}::uuid
+  `;
+}
+
+async function readBuiltAt(batchId: string): Promise<string | null> {
+  const [row] = await sql()<{ built_at: string | null }[]>`
+    SELECT built_at::text AS built_at
+    FROM solicitation_batches
+    WHERE id = ${batchId}::uuid
+  `;
+  if (!row) throw new Error(`batch ${batchId} was not found`);
+  return row.built_at;
+}
+
 async function seedParentRun(batchId: string): Promise<string> {
   return sql().begin(async (tx) => {
     const parent = await startOrGetActiveRun(tx, {
@@ -356,6 +468,9 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
       MIGRATION_093_SOLICITATION_CONSENT,
       MIGRATION_096_SOLICITATION_SUPPRESSIONS,
+      // The Send-handoff precondition reads the attestation off the business
+      // row this suite seeds (#656 T6); a behind-head DB must say so.
+      MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
     ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Batch Builder Integration Owner',
@@ -377,6 +492,12 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
     delete process.env.SOLICITATION_SEND_ENABLED;
+    enqueueFailure.error = null;
+    // The five #656 attestation columns plus owner_email_bounced, back to the
+    // beforeAll shape. The business row is shared by every case here, and the
+    // Send handoff reads it — a leaked attestation would silently un-withhold
+    // the next test.
+    await resetFixturePostalAddress();
     // Generation rows carry no business_id in their payload (batch_id only),
     // so they need their own batch-scoped delete — and it must run before the
     // uploads delete below cascades the batches away.
@@ -508,6 +629,12 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('flag-on build with send asks enqueues one generation row and the real 091 index dedups a second enqueue', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     process.env.SOLICITATION_SEND_ENABLED = 'true';
+    // #656 T6: the Send handoff is now a precondition, not an unconditional
+    // consequence of `sendCount > 0`. Without an Attested postal address this
+    // build would be WITHHELD and the generation-row assertion below would see
+    // zero — so the fixture attests first. The precondition itself is proven by
+    // the dedicated cases at the end of this file.
+    await attestFixturePostalAddress();
     const uploadId = await seedCompletedUpload();
     await seedContact(uploadId, new Date().toISOString().slice(0, 10));
     const batch = await seedBatch();
@@ -515,6 +642,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     await expect(build(batch)).resolves.toMatchObject({
       status: 'built',
       sendCount: 1,
+      sendHandoff: { status: 'enqueued' },
     });
 
     // The build transaction enqueued exactly one pending generation row keyed
@@ -1462,5 +1590,260 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       status: 'withhold',
       withheld_reason: 'suppressed',
     });
+  });
+
+  // ── #656 T6: the Send handoff ─────────────────────────────────────────────
+  //
+  // `buildSolicitationBatch` is ONE builder shared by watch-mode and send-mode,
+  // so the postal-address / bounced-email precondition attaches to the
+  // send-only seam — the `enqueueGenerateSolicitationAsks` call at the end of
+  // construction — and never to `closedGateReason`. The batch still builds and
+  // the Spoilage report is unchanged; only the handoff is withheld. (Spec §7.6
+  // point 1's "no batch produced" predates the shared builder; T9 records the
+  // override in the spec directory. The decision itself is on ticket #656 and
+  // wayfinder map #617.)
+  //
+  // This is deliberately NOT a Withhold reason: that enum is closed,
+  // precedence-ordered and versioned by RESTRAINT_POLICY_VERSION, and every
+  // member is a PER-CANDIDATE decision, while this is one PER-LOCATION fact.
+  //
+  // The load-bearing cases:
+  //
+  //  - "still produces a watch-mode batch" is the watch-mode regression guard:
+  //    status 'built', a NON-ZERO candidateCount, and an intact withheldByReason.
+  //
+  //  - "does not change any per-candidate decision or reason count" runs the
+  //    IDENTICAL fixture cohort twice — once attested, once not — and compares
+  //    the two withheldByReason maps and the two sendCount/withholdCount pairs
+  //    for byte-identity. "No new key appeared" is insufficient: the failure
+  //    mode is a candidate leaking into an existing bucket like no_consent.
+  //
+  //  - "an enqueue failure rolls back the batch build" makes
+  //    enqueueGenerateSolicitationAsks throw and then asserts `built_at IS NULL`
+  //    and zero ask rows. Still one transaction (invariant #2) — a built batch
+  //    with no generation work is not a reachable state.
+  //
+  // The shared beforeAll business fixture inserts NO postal address, and the
+  // flag-on case above asserts exactly one generation row — so it attests
+  // first, and `afterEach` resets all five attestation columns plus
+  // owner_email_bounced so these withheld-path cases cannot leak into it. The
+  // result-SHAPE assertions there use toMatchObject and tolerate the new
+  // sendHandoff field; it was the ENQUEUE assertion that needed the fixture.
+
+  /** Both lanes on: watch-mode evaluates, and the Send handoff is live so the
+   *  precondition is actually reached. */
+  function enableWatchAndSend(): void {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+  }
+
+  it('batch build still produces a watch-mode batch when the location has no attested postal address', async () => {
+    enableWatchAndSend();
+    const uploadId = await seedCompletedUpload();
+    const sendableContactId = await seedContact(uploadId, daysAgoUtc(1));
+    const withheldContactId = await seedContact(uploadId, daysAgoUtc(1), {
+      consent: false,
+    });
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+
+    // The regression guard for the whole task: no Attested postal address, and
+    // the batch is STILL built, still evaluated the whole cohort, and still
+    // reports its per-candidate reasons. Only the handoff is withheld.
+    expect(result).toMatchObject({
+      status: 'built',
+      candidateCount: 2,
+      sendCount: 1,
+      withholdCount: 1,
+      sendHandoff: { status: 'withheld', reason: 'postal_address_missing' },
+    });
+    expect(result.withheldByReason).toEqual({
+      no_consent: 1,
+      suppressed: 0,
+      already_reviewed: 0,
+      stale_visit: 0,
+      over_contacted: 0,
+      velocity_banked: 0,
+    });
+    expect(await readBuiltAt(batch.batchId)).not.toBeNull();
+    // The authoritative asks are on disk, decision by decision — the Spoilage
+    // report an owner reads is untouched by the withheld handoff.
+    const asks = await readAsks(batch.batchId);
+    expect(asks).toHaveLength(2);
+    expect(asks.find((ask) => ask.contact_id === sendableContactId)).toMatchObject({
+      status: 'send',
+      withheld_reason: null,
+    });
+    expect(asks.find((ask) => ask.contact_id === withheldContactId)).toMatchObject({
+      status: 'withhold',
+      withheld_reason: 'no_consent',
+    });
+  });
+
+  it('batch build withholds the send handoff when the location has no attested postal address', async () => {
+    enableWatchAndSend();
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+
+    expect(result.sendCount).toBe(1);
+    expect(result.sendHandoff).toEqual({
+      status: 'withheld',
+      reason: 'postal_address_missing',
+    });
+  });
+
+  it('batch build withholds the send handoff when owner_email_bounced is TRUE', async () => {
+    enableWatchAndSend();
+    // Address attested and current: the ONLY thing wrong with this location is
+    // that its owner email hard-bounced (§2.4).
+    await attestFixturePostalAddress();
+    await setFixtureOwnerEmailBounced(true);
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+
+    expect(result.sendCount).toBe(1);
+    expect(result.sendHandoff).toEqual({
+      status: 'withheld',
+      reason: 'owner_email_bounced',
+    });
+    expect(await readGenerationOutboxRows(batch.batchId)).toHaveLength(0);
+  });
+
+  it('postal_address_missing wins when the postal address is missing and owner email has bounced', async () => {
+    enableWatchAndSend();
+    // BOTH facts are wrong. First-match precedence, and the postal address is
+    // first because it is the CAN-SPAM one.
+    await setFixtureOwnerEmailBounced(true);
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+
+    expect(result.sendHandoff).toEqual({
+      status: 'withheld',
+      reason: 'postal_address_missing',
+    });
+  });
+
+  it('a withheld send handoff creates no generate_solicitation_asks outbox row', async () => {
+    enableWatchAndSend();
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+    expect(result.sendHandoff).toMatchObject({ status: 'withheld' });
+
+    // Nothing downstream can pick this batch up: no generation row exists at
+    // ANY status, so there is no in-flight work and nothing for the OutboxPoller
+    // to dispatch.
+    expect(await readGenerationOutboxRows(batch.batchId)).toEqual([]);
+    // …and the batch itself committed. A withheld handoff is not a failed build.
+    expect(await readBuiltAt(batch.batchId)).not.toBeNull();
+    expect(await readAsks(batch.batchId)).toHaveLength(1);
+  });
+
+  it('withholding the send handoff does not change any per-candidate decision or reason count', async () => {
+    enableWatchAndSend();
+    const uploadId = await seedCompletedUpload();
+    const firstSendableId = await seedContact(uploadId, daysAgoUtc(1));
+    const secondSendableId = await seedContact(uploadId, daysAgoUtc(2));
+    const withheldId = await seedContact(uploadId, daysAgoUtc(1), {
+      consent: false,
+    });
+
+    // Run 1: the IDENTICAL cohort, unattested.
+    const unattestedBatch = await seedBatch();
+    const unattested = builtBatch(await build(unattestedBatch));
+    const unattestedAsks = await readAsks(unattestedBatch.batchId);
+
+    // Erase every trace of run 1's evaluation before run 2. Leaving the asks in
+    // place would give run 2 a prior-send history run 1 never had, and the two
+    // cohorts would stop being comparable — `over_contacted` instead of `send`.
+    await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
+    await sql()`
+      DELETE FROM agent_runs
+      WHERE account_id = ${tenant!.accountId}::uuid
+        AND kind IN ('solicitation_batch', 'solicitation_ask')
+    `;
+    await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
+
+    // Run 2: same contacts, same visits, same consent — only the location-level
+    // fact changed.
+    await attestFixturePostalAddress();
+    const attestedBatch = await seedBatch();
+    const attested = builtBatch(await build(attestedBatch));
+    const attestedAsks = await readAsks(attestedBatch.batchId);
+
+    // The handoff is the ONLY field that moved. Comparing the rest with a single
+    // toEqual is what makes "byte-identical" a claim rather than a hope:
+    // asserting merely that no new key appeared would miss the real failure
+    // mode, a candidate leaking into an existing bucket like no_consent.
+    const { sendHandoff: unattestedHandoff, ...unattestedRest } = unattested;
+    const { sendHandoff: attestedHandoff, ...attestedRest } = attested;
+    expect(attestedRest).toEqual(unattestedRest);
+    expect(unattestedHandoff).toEqual({
+      status: 'withheld',
+      reason: 'postal_address_missing',
+    });
+    expect(attestedHandoff).toEqual({ status: 'enqueued' });
+
+    // And the same claim at the row level: every stored per-candidate decision
+    // and reason is identical across the two runs.
+    const decisionOf = (ask: StoredAskRow) => ({
+      contact_id: ask.contact_id,
+      status: ask.status,
+      withheld_reason: ask.withheld_reason,
+    });
+    expect(attestedAsks.map(decisionOf)).toEqual(unattestedAsks.map(decisionOf));
+    expect(unattestedAsks).toHaveLength(3);
+    expect(
+      unattestedAsks.filter((ask) => ask.status === 'send').map((ask) => ask.contact_id).sort(),
+    ).toEqual([firstSendableId, secondSendableId].sort());
+    expect(unattestedAsks.find((ask) => ask.contact_id === withheldId)).toMatchObject({
+      withheld_reason: 'no_consent',
+    });
+  });
+
+  it('batch build performs the send handoff when the address is attested and the owner email is deliverable', async () => {
+    enableWatchAndSend();
+    await attestFixturePostalAddress();
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+
+    expect(result.sendCount).toBe(1);
+    expect(result.sendHandoff).toEqual({ status: 'enqueued' });
+    const generationRows = await readGenerationOutboxRows(batch.batchId);
+    expect(generationRows).toHaveLength(1);
+    expect(generationRows[0]).toMatchObject({ status: 'pending' });
+  });
+
+  it('a send-handoff enqueue failure rolls back the batch build', async () => {
+    enableWatchAndSend();
+    await attestFixturePostalAddress();
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+    enqueueFailure.error = new Error('generation enqueue unavailable');
+
+    await expect(build(batch)).rejects.toThrow('generation enqueue unavailable');
+
+    // The handoff is inside the built_at CAS transaction (invariant #2), so its
+    // failure takes the whole build with it: a built batch whose generation work
+    // was never enqueued is not a reachable state.
+    expect(await readBuiltAt(batch.batchId)).toBeNull();
+    expect(await readAsks(batch.batchId)).toHaveLength(0);
+    expect(await readGenerationOutboxRows(batch.batchId)).toEqual([]);
   });
 });

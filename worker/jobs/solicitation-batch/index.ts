@@ -42,6 +42,12 @@ export async function handleSolicitationBatch(
         send_count: result.sendCount,
         withhold_count: result.withholdCount,
         withheld_by_reason: result.withheldByReason,
+        // #656 — the Send handoff's outcome: a status and, when withheld, a
+        // location-level reason code. Never the address itself; this object is
+        // the PII-free aggregate line. batch-builder.ts returns the fact and
+        // does no logging of its own (deviations D4), so this is its one
+        // emitter.
+        send_handoff: result.sendHandoff,
       });
       return;
     }

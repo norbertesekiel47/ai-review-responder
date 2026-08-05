@@ -80,6 +80,7 @@ beforeEach(() => {
       over_contacted: 1,
       velocity_banked: 2,
     },
+    sendHandoff: { status: 'not_applicable' },
   });
 });
 
@@ -115,6 +116,7 @@ describe('Solicitation batch worker success path', () => {
         over_contacted: 1,
         velocity_banked: 2,
       },
+      send_handoff: { status: 'not_applicable' },
     });
     const loggedAggregate = mocks.logger.log.mock.calls[0]![1];
     expect(loggedAggregate).toMatchObject({
@@ -145,6 +147,57 @@ describe('Solicitation batch worker success path', () => {
       handleSolicitationBatch(mockSql as unknown as Sql, job),
     ).resolves.toBeUndefined();
     expect(mocks.buildSolicitationBatch).toHaveBeenCalledOnce();
+  });
+
+  // #656 T6 — the withheld Send handoff rides the EXISTING structured log
+  // object as one more field (`send_handoff`), carrying a status and a reason
+  // code and no address: the signal that a location is silently not sending.
+  // The worker is the emitter, not batch-builder.ts, which returns results and
+  // deliberately does no logging (deviations D4). Note the success-path
+  // assertion above is an EXACT `toHaveBeenCalledWith` object — T6 widened it
+  // in the same change, or this suite would go red on the new field.
+  it('the solicitation batch worker logs the send handoff status and location-level reason', async () => {
+    mocks.buildSolicitationBatch.mockResolvedValue({
+      status: 'built',
+      candidateCount: 4,
+      poolCount: 4,
+      sendCount: 3,
+      withholdCount: 1,
+      withheldByReason: {
+        no_consent: 1,
+        suppressed: 0,
+        already_reviewed: 0,
+        stale_visit: 0,
+        over_contacted: 0,
+        velocity_banked: 0,
+      },
+      sendHandoff: { status: 'withheld', reason: 'postal_address_missing' },
+    });
+
+    await handleSolicitationBatch(vi.fn() as unknown as Sql, job);
+
+    const loggedAggregate = mocks.logger.log.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect(loggedAggregate.send_handoff).toEqual({
+      status: 'withheld',
+      reason: 'postal_address_missing',
+    });
+    // The batch still built and still reported its per-candidate counts: the
+    // precondition withholds the handoff, never the build.
+    expect(loggedAggregate).toMatchObject({
+      status: 'built',
+      send_count: 3,
+      withhold_count: 1,
+    });
+    // A status and a reason code and NOTHING else — the address itself must
+    // never reach a log line. Asserting the key set (not merely "it does not
+    // contain a ZIP") is what keeps a future widening of the field honest.
+    expect(Object.keys(loggedAggregate.send_handoff as object).sort()).toEqual([
+      'reason',
+      'status',
+    ]);
   });
 });
 

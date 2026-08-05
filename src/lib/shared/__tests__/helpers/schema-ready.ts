@@ -344,6 +344,38 @@ export const MIGRATION_098_SUPPRESSION_CORRECTIONS: SchemaRequirement = {
 };
 
 /**
+ * 099 adds the Attested postal address to `businesses` — five nullable columns
+ * under two CHECKs. It creates no relation and no index, so the columns are the
+ * presence proof.
+ *
+ * Both CHECKs are named EXPLICITLY alongside them, and the digest one is the
+ * reason: the columns can exist without it (any container provisioned from a
+ * draft of this migration that stopped at the ALTER), and in that state the
+ * attestation is complete-but-uncovered — the exact defect the feature exists
+ * to prevent. Column presence proves the ALTER ran, not that the file ran to
+ * the end, so without these a behind-head container fails as
+ * "expected the UPDATE to be rejected, it was accepted" instead of the
+ * actionable `pnpm test:db:setup` message. Same lesson as 098's D-A11 entry
+ * above.
+ */
+export const MIGRATION_099_SOLICITATION_POSTAL_ADDRESS: SchemaRequirement = {
+  migration: '099_solicitation_postal_address',
+  tables: ['businesses'],
+  columns: [
+    'businesses.solicitation_postal_address',
+    'businesses.solicitation_postal_address_attested_at',
+    'businesses.solicitation_postal_address_attested_by_user_id',
+    'businesses.solicitation_postal_address_attestation_version',
+    'businesses.solicitation_postal_address_attested_digest',
+  ],
+  indexes: [],
+  constraints: [
+    { table: 'businesses', name: 'businesses_solicitation_postal_address_attested' },
+    { table: 'businesses', name: 'businesses_solicitation_postal_address_digest' },
+  ],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.

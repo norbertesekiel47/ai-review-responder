@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **098** — next migration is **099**
+Current head: **099** — next migration is **100**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,130 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **099** — `solicitation_postal_address`: the **Attested postal address** on
+  `businesses` (#656; locked spec
+  `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §7.5/§7.6,
+  amended by `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`).
+  Five additive nullable columns under **two** CHECKs. No new table, no index,
+  no FK, no backfill, no `CONCURRENTLY`; the whole file applies in one
+  transaction, guarded by `SET lock_timeout = '5s'` (089's precedent — the two
+  `ADD CONSTRAINT`s take a brief ACCESS EXCLUSIVE lock on `businesses` and
+  re-validate existing rows, so the end state is idempotent but the execution
+  is not a no-op). No retention-policy row: it adds no relation, and the
+  columns live and die with the `businesses` row that carries them.
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **NOT YET PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at
+  promotion, completing the lockstep. Staging verification went past "it
+  applied": 5 columns present, both CHECKs `convalidated`, zero FKs on
+  `_attested_by_user_id`, all existing rows NULL; then a behavioural probe in a
+  `DO` block ending in `RAISE` (so it always rolls back) seeded a valid attested
+  tuple and attempted both failure modes — `partial_rejected=t
+  address_only_rejected=t`, with a follow-up query confirming **zero residue**.
+
+  **Merge order:** 098 (#645) landed FIRST and is already on staging and prod;
+  this migration takes 099 per deviations D1.
+
+  **Ordering that matters and is easy to get backwards:** the migration must
+  reach a database BEFORE the code does. `batch-builder.ts` selects
+  `solicitation_postal_address_attested_at`, so a code deploy against a
+  099-less database throws `42703` on every batch build. Staging was done in
+  that order; **production must be too — apply 099 to prod Supabase BEFORE
+  merging the PR**, not after.
+
+  **✅ LOCKSTEP COMPLETE.** Applied to **staging** (`kubdiqdhqbhwmqfditeg`)
+  2026-08-05 07:02:33 UTC and to **production** (`udeyaqnvpojbwgoaxwdg`)
+  2026-08-05 08:12:18 UTC, both as `099_solicitation_postal_address`, both
+  BEFORE the code merge. Prod carried **0 `businesses` rows** at apply time, so there was
+  nothing to lock, backfill, or violate.
+
+  Verified on prod by **schema introspection, never the ledger** (`list_migrations`
+  does not track RepWorth's `0xx` migrations): all five columns present and
+  nullable, both CHECK constraints present, both `convalidated = true`, and
+  `md5(pg_get_constraintdef(oid))` **identical to staging** on both constraints
+  (`c29ddfbe…` attested, `a8aaec82…` digest). `server_encoding` is UTF8 on both,
+  which is the premise the digest CHECK's STABLE `convert_to` note relies on.
+
+  Staging additionally proved it **behaviourally** with a live batch build on
+  2026-08-05 07:57 UTC — batch `019fd0ed-385d-76bf-bc09-0afb81f7ba46` returned
+  `status:"built"` with `send_handoff` on the log line and no `42703`. Details:
+  `docs/superpowers/plans/feat-656-postal-address-attestation-handoff.md`.
+
+  The columns are `solicitation_postal_address` plus the attestation quartet
+  `_attested_at` / `_attested_by_user_id` / `_attestation_version` /
+  `_attested_digest`. This is the CAN-SPAM §7704(a)(5) sender address baked
+  **verbatim** into every ask footer and a send precondition: a location with no
+  attested address still builds its watch-mode batch, but the **Send handoff**
+  is withheld. Deliberately **not** `google_place_address` (§7.5) — that column
+  is Google's `formattedAddress`, which can be a service-area value like
+  `"Austin, TX, USA"`, is not owner-attested, cannot express a USPS-registered
+  PO box, and is NULLed by the offboarding purge.
+
+  **CHECK #1, `businesses_solicitation_postal_address_attested`**, is
+  all-or-nothing over the five columns, so no reader ever branches on "is this
+  attested" — a single non-NULL `_attested_at` is the whole test.
+
+  **CHECK #2, `businesses_solicitation_postal_address_digest`, is the one that
+  matters.** Completeness is not coverage: an address-only `UPDATE` leaves all
+  four attestation columns non-NULL, passes CHECK #1, and stamps an attestation
+  over bytes it never saw — the precise defect this feature exists to prevent.
+  The digest column is CHECKed to equal
+  `encode(sha256(convert_to(solicitation_postal_address, 'UTF8')), 'hex')`, so
+  such an UPDATE by **any** writer fails closed. Stated exactly, because the
+  migration header states it exactly: this proves the digest matches the
+  **current** address; it does **not** prove the preserved `_attested_at` /
+  `_attested_by_user_id` / `_attestation_version` ever covered those bytes. A
+  writer that changes the address AND recomputes the digest while keeping the
+  old metadata still passes. Closing that residual needs `OLD` vs `NEW`, which a
+  CHECK cannot see — a `BEFORE UPDATE` trigger — and was **deliberately declined
+  (owner decision, 2026-08-04)**. The accidental path is closed; the residual is
+  forgery, not oversight. Do not restate the guarantee more broadly than this.
+
+  **Volatility:** `sha256()` and `encode()` are IMMUTABLE but `convert_to()` is
+  **STABLE** (`provolatile = 's'`, because its result depends on
+  `server_encoding`). Postgres does not reject a STABLE function in a CHECK the
+  way it rejects one in an index predicate, and this database is UTF8, so the
+  expression is deterministic in practice. Verified empirically on the local
+  test container: both constraints create `convalidated = true`, and an
+  address-only UPDATE is rejected with SQLSTATE 23514 naming the digest
+  constraint. **Do NOT copy this expression into an index** — the CLAUDE.md
+  gotcha about IMMUTABLE index predicates applies there and not here.
+
+  **No foreign key on `solicitation_postal_address_attested_by_user_id`**,
+  deliberately — migration 093's written lesson: 086 declared
+  `contact_csv_uploads.attested_by_user_id REFERENCES users(id) ON DELETE
+  CASCADE`, so offboarding one staff member deleted their uploads. The quartet
+  is a point-in-time CAPTURE (the pattern invariant #9a mandates for billing)
+  and must outlive the user it names. Because there is no FK, the **writer**
+  verifies the actor: `attestPostalAddress` carries the account-membership
+  predicate on the same scoped UPDATE.
+
+  No index: every read is scoped by `businesses.id` (PK) or `account_id`
+  (existing index), and the batch builder reads the precondition off a row it
+  already loads. RLS is unchanged — `businesses`' existing policies cover the
+  new columns, all writes come from the owner-scoped Next.js route over the
+  direct Postgres connection, and the offboarding purge clears all five in the
+  same statement that NULLs `google_place_address` (a partial clear is rejected
+  by CHECK #1).
+
+  Shape suite:
+  `src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts`
+  (an EXHAUSTIVE 2^5 = 32-permutation nullability matrix with exactly two legal
+  combinations, the mismatched-digest rejection, the address-only-UPDATE
+  rejection asserted by constraint name, the empty FK set asserted from both
+  `pg_constraint` and the checked-in SQL, and the tuple surviving its attester's
+  deletion). Schema-ready entry `MIGRATION_099_SOLICITATION_POSTAL_ADDRESS`,
+  which names the five columns **and both constraint names**: column presence
+  proves the ALTER ran, not that the file ran to the end, and a container
+  holding the columns without the digest CHECK is complete-but-uncovered — it
+  must fail with the `pnpm test:db:setup` message, not as a mysterious
+  "expected the UPDATE to be rejected".
+
+  **Rollback:** revert the app deploy FIRST (the attestation route, the domain
+  module, the batch builder's precondition read and the purge stage are the only
+  code that touches these columns), then `DROP` the columns if desired. They are
+  inert with the code reverted, so no down migration is required, and
+  `SOLICITATION_SEND_ENABLED` is off in every environment.
 
 - **098** — `solicitation_suppression_corrections`: the **Correction path**'s
   audit sink (#645; locked spec

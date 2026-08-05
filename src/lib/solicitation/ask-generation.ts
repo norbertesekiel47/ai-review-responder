@@ -185,12 +185,7 @@ async function loadBatchContext(
       a.subscription_tier,
       b.name AS business_name,
       b.category AS business_category,
-      -- #627 lands businesses.solicitation_postal_address; until that
-      -- migration is at head everywhere, this jsonb projection reads NULL
-      -- instead of raising 42703 — the lane stays inert-but-executable and a
-      -- NULL postal address fails the render closed (missing_required_element,
-      -- #622 §7.6). Replace with a direct column read once #627 has landed.
-      to_jsonb(b) ->> 'solicitation_postal_address' AS postal_address,
+      b.solicitation_postal_address AS postal_address,
       sb.built_at,
       sb.approved_at,
       sb.veto_deadline_at,
