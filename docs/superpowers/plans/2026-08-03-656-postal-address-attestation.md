@@ -55,7 +55,9 @@ Verified in `src/lib/auth/route-helpers.ts:221-238`: `requireSettingsOwner` reso
 - The `?accountId` rejection. **Safe to lose:** this route reads no query parameters at all, so the parameter is inert rather than half-honoured.
 - The operational-UI offboarding block. **NOT safe to lose — the route must re-add it explicitly.** Round 2 disproved the earlier claim that the subscription gate covers it: `isFullBlockState` returns true for `mode === 'delete_data'` at *any* status (`src/lib/account-offboarding/gate.ts:212-215`), and confirming offboarding does not itself cancel the subscription — Stripe is the source of truth and cancellation is a separate async step. So an account in `delete_data/pending` is still `active`, sails through `assertSubscriptionAllowsOwnerScope`, and would be able to mutate its sender address mid-teardown.
 
-The precedent handles this exactly the same way: `src/app/api/dashboard/past-replies/draft/[responseId]/route.ts:103-106` calls `resolveOwnerScope` and *then* applies `getOffboardingState` + `isOperationalUIBlocked` itself. T4 does the same.
+The precedent uses the same **mechanism**: `src/app/api/dashboard/past-replies/draft/[responseId]/route.ts:103-106` calls `resolveOwnerScope` and *then* applies `getOffboardingState` + `isOperationalUIBlocked` itself.
+
+> **T4 differs from it in ORDERING, deliberately.** The draft route runs its check at `:103-106` — *after* the body parse (`:89-96`) and after `authorizeEditReplyResponse` (`:99`). T4 runs it **before the body parse**, which is stricter: a blocked account gets `403 account_offboarding_blocked` even for a malformed body, rather than a 400 that leaks "your body was the problem" to an account that may not write at all. Do not read "same as the draft route" as "same position" — copy the mechanism, keep T4's order. *(Corrected after T4 found the two readings diverge.)*
 
 `src/app/api/settings/competitors/route.ts` remains the precedent for the route's **shape** — `z.strictObject`, one module call, `jsonResponse`, `export const PUT = withSameOrigin()(handler)` — but **not** for its auth. It takes an explicit `businessId` because it is a multi-location picker; ours must write the location the owner is *currently looking at*.
 
@@ -262,6 +264,8 @@ PUT /api/settings/postal-address writes the cookie-resolved active location
 ```
 
 Every rejection asserts **zero writes** — `expect(mockAttest).not.toHaveBeenCalled()` — not merely a status code. Follow `src/app/api/dashboard/past-replies/__tests__/cross-origin.test.ts` for the same-origin case and `.../draft.test.ts` for the `resolveOwnerScope` mocking shape.
+
+> **One documented exception: `rejects an address that fails the lint`.** `attestPostalAddress` **is** the linter — it takes the RAW address precisely so no code path can store an unlinted one — so the module is reached by design and returns `{ status: 'invalid' }` before its own UPDATE. Satisfying the zero-writes letter here would mean re-implementing the lint in the handler: a second author for one fact, and a violation of invariant #12. That test instead asserts (a) 400 carrying the **real** lint reason, (b) the **raw** address reached the module unchanged — proving the route neither pre-lints nor normalizes — and (c) a lint-clean address through the identical handler returns 200, so the 400 is the lint's verdict and not a hard-coded refusal. The other eight rejections do assert `not.toHaveBeenCalled()`. *(Found by T4; the unqualified rule was wrong.)*
 
 The last two are the round-1 High: mock `resolveOwnerScope` to return a `locationId` that is **not** the account's primary location and a `userId` that is the `users.id`, then assert those exact values reach `attestPostalAddress`.
 
@@ -652,7 +656,8 @@ async function putPostalAddress(request: NextRequest): Promise<NextResponse> {
   // resolveOwnerScope gates the SUBSCRIPTION, not offboarding — and the two come
   // apart: `delete_data/pending` is operationally blocked while the subscription
   // is still `active`. Without this the owner can edit the sender address
-  // mid-teardown. Same shape as the draft route (:103-106).
+  // mid-teardown. Same MECHANISM as the draft route (:103-106), but placed
+  // BEFORE the body parse rather than after it — see "Design decisions" #2.
   const offboardingState = await getOffboardingState(scope.accountId, sql);
   if (isOperationalUIBlocked(offboardingState)) {
     return jsonResponse({ error: 'account_offboarding_blocked' }, 403);
