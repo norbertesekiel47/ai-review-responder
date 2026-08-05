@@ -1,0 +1,465 @@
+/* ==========================================================================
+   Landing hero — full-bleed RepWorth character video, copy set right.
+
+   Palette note: the landing page is deliberately unlocked from the Island
+   system (PRODUCT.md, "Exception agreed 2026-08-03"), so this section owns a
+   small set of hero-scoped tokens instead of consuming sage/teal/peach. Every
+   value below is sampled from, or lifted off, heroVideo.mp4 itself — whose
+   master now lives outside the repo, in
+   `~/Developer/startups/RepWorth-media/masters/` (everything under `public/`
+   ships on every deploy, so only the transcodes stay there):
+
+     --rw-lp-hero-ink     near-black green, sits with the clip's foliage (#597868)
+     --rw-lp-hero-accent  the RW mark's gold (#AE9B4D) lifted for AA on the scrim
+     --rw-lp-hero-text    warm near-white, not pure #fff, to match the clip's light
+
+   Contrast, measured against the BRIGHTEST pixel under each glyph band across
+   20 frames of the clip — not against a nominal composited scrim, which is the
+   mistake the earlier version of this comment made (it claimed ~8.3:1 for an
+   accent that was actually at 2.89):
+     headline #F4F2EC  4.99:1     headline accent #DCC489  3.38:1  (floor 3)
+     subhead  #F4F2EC  5.59:1     note @72%               7.00:1  (floor 4.5)
+   All clear AA. Re-measure with the method in §6 of
+   docs/design/landing-page.md if the scrim opacities below are lowered.
+
+   NAMING — do not shorten these to `.rw-hero-*`. `globals.css` already owns a
+   `.rw-hero` block (the /features hero, via SiteShell + FeaturesContent), and
+   its `.rw-hero h1 { color: var(--rw-ink) }` is specificity 0,1,1 — it beats a
+   single-class `.rw-hero-title` and silently renders this headline near-black
+   on the dark scrim. The `rw-lp-` prefix (landing page) is what keeps the two
+   apart; `landing-experience.css` uses it for the chrome for the same reason.
+   ========================================================================== */
+
+.rw-lp-hero {
+  --rw-lp-hero-ink: #14201c;
+  --rw-lp-hero-text: #f4f2ec;
+  --rw-lp-hero-text-soft: rgb(var(--rw-lp-text-rgb) / 0.72);
+  /* Owned by `.rw-lp` in landing-experience.css so the accent and the focus
+     ring cannot drift apart; the literal is only a standalone fallback. */
+  --rw-lp-hero-accent: var(--rw-lp-accent, #dcc489);
+  --rw-lp-hero-rule: rgb(var(--rw-lp-text-rgb) / 0.28);
+  --rw-lp-hero-gutter: clamp(1.5rem, 4vw, 4rem);
+
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  isolation: isolate;
+  background: var(--rw-lp-hero-ink);
+}
+
+/* ---------- media layer ---------- */
+
+.rw-lp-hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.rw-lp-hero-poster,
+.rw-lp-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Pulls the frame left so the character clears the copy column's scrim.
+     At 1440x900 this puts the character's screen (the RW mark) at roughly
+     x 14-29%, where the gradient below has already faded to ~0. Lower values
+     slide it right, back under the type. */
+  object-position: 70% center;
+}
+
+.rw-lp-hero-video {
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.rw-lp-hero-video[data-ready='true'] {
+  opacity: 1;
+}
+
+/* ---------- scrim ----------
+   ::before is the copy panel — a directional wash entering from the right so
+   the type has a ground to sit on while the character (x 15-38%) stays clean.
+   ::after lifts the nav and the scroll cue off the sky and the foliage. */
+
+.rw-lp-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.rw-lp-hero-scrim::before,
+.rw-lp-hero-scrim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* The fade begins at the viewport's exact midline and deepens rightward.
+   `to left` means 0% is the RIGHT edge, so gradient position 50% IS x=50%.
+
+   Why the copy starts at 54% and not at the midline: the clip is bright right
+   across its middle. Measured against the headline band, the scrim opacity
+   needed for AA-large is 0.33 at x=40%, 0.38 at x=50%, 0.40 at x=60% — so a
+   gradient that is zero AT the midline cannot darken text sitting on it. The
+   4% offset is what lets this reach under the headline's first glyph while
+   still reading as zero at 50%.
+
+   ── The 42-49.3% stops were RAISED, and here is why ───────────────────────
+   The numbers above were derived for the near-white line. The GOLD line under
+   it is darker, so the same ground buys it less contrast, and nobody checked
+   it separately. Sampling the brightest pixel under the gold glyphs across 20
+   frames of the clip put `.rw-lp-hero-title-accent` at 2.89:1 — under the 3:1
+   large-text floor — while the white line above it on the same band measured
+   4.23:1 and passed. The failing pixels are the first characters of "Your",
+   which sit over the brightest thing in the frame.
+
+   The fix is here rather than on the gold because ONE gold across the page is
+   load-bearing (§2 of docs/design/landing-page.md): lifting the token would have split the
+   headline's gold from the CTA ring's in the same viewport. Deepening the
+   ramp costs nothing anywhere else — every other run in this column only gets
+   further clear of its floor.
+
+   Consequences of editing: the 50% stop must stay at zero (raising it pushes
+   the fade past the midline and onto the character, whose right edge is at
+   x=38%); moving the copy left of 54% under-scrims the first characters (at
+   x=44.8% the raw video measured 1.4:1 — effectively invisible). Re-measure
+   with the brightest-pixel method in §6 after any change, not against the
+   mean ground — the mean reports 7.82:1 for text that is actually at 2.89. */
+.rw-lp-hero-scrim::before {
+  background: linear-gradient(
+    to left,
+    rgb(var(--rw-lp-ink-rgb) / 0.94) 0%,
+    rgb(var(--rw-lp-ink-rgb) / 0.9) 18%,
+    rgb(var(--rw-lp-ink-rgb) / 0.83) 30%,
+    rgb(var(--rw-lp-ink-rgb) / 0.75) 38%,
+    rgb(var(--rw-lp-ink-rgb) / 0.68) 42%,
+    rgb(var(--rw-lp-ink-rgb) / 0.6) 45%,
+    rgb(var(--rw-lp-ink-rgb) / 0.48) 46.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.35) 47.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.22) 48.5%,
+    rgb(var(--rw-lp-ink-rgb) / 0.1) 49.3%,
+    rgb(var(--rw-lp-ink-rgb) / 0) 50%
+  );
+}
+
+/* Holds the nav and the scroll cue.
+   The top band HOLDS near-full strength across the nav's own height and only
+   then falls away, rather than decaying from the very first pixel. That shape
+   matters: the brand lockup sits at roughly 6% of viewport height over the
+   brightest part of the frame (sky and white terraces), and a linear decay
+   left it at ~0.33 there — 2.43:1, a contrast failure on the company name.
+   Holding ~0.64 through 8% takes it to ~6:1.
+   It still has to clear the character, whose top edge is near 14%, so the
+   falloff is fast and complete by 19%. Both ends are load-bearing. */
+.rw-lp-hero-scrim::after {
+  background:
+    linear-gradient(
+      to bottom,
+      rgb(var(--rw-lp-ink-rgb) / 0.74) 0%,
+      rgb(var(--rw-lp-ink-rgb) / 0.64) 8%,
+      rgb(var(--rw-lp-ink-rgb) / 0.24) 13%,
+      rgb(var(--rw-lp-ink-rgb) / 0) 19%
+    ),
+    linear-gradient(to top, rgb(var(--rw-lp-ink-rgb) / 0.32) 0%, rgb(var(--rw-lp-ink-rgb) / 0) 22%);
+}
+
+/* ---------- copy ---------- */
+
+/* Deliberately NOT a centred 86rem container. The copy is anchored to the
+   viewport's midline instead, because that is the only way the fade can start
+   at exactly 50% and still have the text sit on enough scrim — a centred
+   container moves the copy's left edge with the container, not with the
+   midline, so the two drift apart as the viewport widens. */
+.rw-lp-hero-inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding-left: 55%;
+  padding-right: var(--rw-lp-edge, clamp(1.25rem, 3vw, 3rem));
+  display: flex;
+}
+
+/* 44rem, not 40: the longest headline line ("department you could") measures
+   676px at the 64px display size, which overflowed a 640px column and dropped
+   "could" onto an orphan fourth line. Re-measure if the headline copy changes. */
+.rw-lp-hero-copy {
+  width: 100%;
+  max-width: 44rem;
+}
+
+/* Scales off the viewport because the copy column is now a slice of it
+   (46% minus the edge gutter, capped at 44rem). The longest line, "Your whole
+   reputation.", measures 671px at 64px — i.e. 10.48x the font size — so the
+   ceiling has to keep 3.8vw x 10.48 inside the column at every width. Verified
+   from 901px (the breakpoint) up: 34.2px in a 371px column, through 54.2px in
+   612px at 1425, to the 3.6rem cap once the column tops out. Raise the cap or
+   the vw factor and the second line orphans at mid-desktop widths. */
+.rw-lp-hero-title {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(2rem, 3.8vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--rw-lp-hero-text);
+}
+
+/* Hand-set line breaks for the headline, subhead and scope note. Both collapse
+   to inline below 900px, where the measured widths no longer hold. */
+.rw-lp-hero-title-line,
+.rw-lp-hero-line {
+  display: block;
+}
+
+.rw-lp-hero-title-accent {
+  color: var(--rw-lp-hero-accent);
+}
+
+.rw-lp-hero-rule {
+  width: 3.5rem;
+  height: 1px;
+  margin: clamp(1.5rem, 3vw, 2.25rem) 0 clamp(1.25rem, 2.4vw, 1.75rem);
+  background: var(--rw-lp-hero-rule);
+}
+
+.rw-lp-hero-sub {
+  margin: 0;
+  max-width: 30rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: clamp(0.9375rem, 1.15vw, 1.0625rem);
+  line-height: 1.7;
+  /* Opaque, not `--rw-lp-hero-text-soft`. At the copy's new position the scrim
+     is ~0.54 rather than the ~0.72 it used to sit on, and 0.72-alpha text
+     measured 2.80:1 there against a required 4.5. Hierarchy is carried by size
+     and weight instead (17px/400 under a 55px/200 headline). Re-measure before
+     reintroducing any alpha here. */
+  color: var(--rw-lp-hero-text);
+}
+
+/* ---------- CTA ---------- */
+
+.rw-lp-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.125rem;
+  margin-top: clamp(2rem, 3.4vw, 2.75rem);
+  color: var(--rw-lp-hero-text);
+  text-decoration: none;
+}
+
+.rw-lp-hero-cta-ring {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 3.25rem;
+  height: 3.25rem;
+  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.42);
+  border-radius: 50%;
+  transition:
+    background-color 240ms ease,
+    border-color 240ms ease,
+    color 240ms ease;
+}
+
+.rw-lp-hero-cta-arrow {
+  width: 1.25rem;
+  height: 1.25rem;
+  transition: transform 240ms ease;
+}
+
+.rw-lp-hero-cta-label {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.rw-lp-hero-cta:hover .rw-lp-hero-cta-ring,
+.rw-lp-hero-cta:focus-visible .rw-lp-hero-cta-ring {
+  background: var(--rw-lp-hero-accent);
+  border-color: var(--rw-lp-hero-accent);
+  color: var(--rw-lp-hero-ink);
+}
+
+.rw-lp-hero-cta:hover .rw-lp-hero-cta-arrow,
+.rw-lp-hero-cta:focus-visible .rw-lp-hero-cta-arrow {
+  transform: translateX(3px);
+}
+
+.rw-lp-hero-cta:focus-visible {
+  outline: 2px solid var(--rw-lp-hero-accent);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+/* ---------- truth anchor ----------
+   Subordinate by design: the vision leads, this keeps the claim accurate.
+   See hero-copy.ts for the shipped-vs-future contract it satisfies. */
+
+.rw-lp-hero-note {
+  margin: clamp(1.75rem, 3vw, 2.25rem) 0 0;
+  max-width: 26rem;
+  padding-left: 0.875rem;
+  border-left: 1px solid rgb(var(--rw-lp-text-rgb) / 0.2);
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  /* Also opaque, for the same reason as the subhead — at 13px this is the most
+     contrast-sensitive text in the hero. It stays subordinate through size and
+     the rule to its left, not through fading. */
+  color: var(--rw-lp-hero-text);
+}
+
+/* ---------- scroll cue ---------- */
+
+/* Bottom-RIGHT, aligned to the same page edge as the nav so the chrome frames
+   the viewport corners consistently. `--rw-lp-edge` is owned by `.rw-lp` in
+   landing-experience.css; the literal is a standalone fallback. */
+.rw-lp-hero-scroll {
+  position: absolute;
+  z-index: 2;
+  right: var(--rw-lp-edge, clamp(1.25rem, 3vw, 3rem));
+  bottom: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.875rem;
+}
+
+.rw-lp-hero-scroll-label {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.6);
+}
+
+.rw-lp-hero-scroll-track {
+  position: relative;
+  width: 1px;
+  height: 3.5rem;
+  background: rgb(var(--rw-lp-text-rgb) / 0.22);
+  overflow: hidden;
+}
+
+.rw-lp-hero-scroll-dot {
+  position: absolute;
+  left: -1px;
+  width: 3px;
+  height: 0.75rem;
+  border-radius: 2px;
+  background: var(--rw-lp-hero-accent);
+  animation: rw-lp-hero-scroll-run 2.4s ease-in-out infinite;
+}
+
+@keyframes rw-lp-hero-scroll-run {
+  0% {
+    transform: translateY(-0.75rem);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(3.5rem);
+    opacity: 0;
+  }
+}
+
+/* ---------- narrow viewports ----------
+   Side-by-side stops working once the copy column and the character compete
+   for the same width, so the copy drops to the bottom and the scrim flips to a
+   bottom-up wash. The character keeps the upper half of the frame. */
+
+@media (max-width: 900px) {
+  .rw-lp-hero {
+    align-items: flex-end;
+  }
+
+  /* At portrait aspects the clip's height matches the viewport exactly, so
+     `object-position`'s Y axis has no travel and the character's vertical
+     position is fixed. The only lever is how far down the copy sits — keep
+     this small so the headline clears the character's screen (the RW mark)
+     rather than landing on it. */
+  /* Resets the 54% midline anchor — there is no left/right split down here,
+     the copy sits under the character across the full width. */
+  .rw-lp-hero-inner {
+    justify-content: flex-start;
+    padding-left: var(--rw-lp-edge, clamp(1.25rem, 3vw, 3rem));
+    padding-bottom: clamp(2.25rem, 5vw, 3rem);
+  }
+
+  .rw-lp-hero-copy {
+    max-width: 34rem;
+  }
+
+  /* Hand-set line breaks only hold at the width they were measured for. Below
+     the breakpoint the headline flows naturally instead of forcing three
+     blocks into a column too narrow for them. */
+  .rw-lp-hero-title-line,
+  .rw-lp-hero-line {
+    display: inline;
+  }
+
+  /* Cropping a 16:9 clip into a portrait viewport is severe, so the character
+     — not the city — becomes the mobile subject, and these values are what
+     centre it. Solved from the character's source position (x 15-38%) against
+     the cover overflow at each aspect; phones land near 18%, tablets near 10%.
+     The desktop 70% would push the character off the left edge entirely. */
+  .rw-lp-hero-poster,
+  .rw-lp-hero-video {
+    object-position: 10% center;
+  }
+
+  .rw-lp-hero-scrim::before {
+    background: linear-gradient(
+      to top,
+      rgb(var(--rw-lp-ink-rgb) / 0.95) 0%,
+      rgb(var(--rw-lp-ink-rgb) / 0.88) 38%,
+      rgb(var(--rw-lp-ink-rgb) / 0.5) 62%,
+      rgb(var(--rw-lp-ink-rgb) / 0) 88%
+    );
+  }
+
+  .rw-lp-hero-scroll {
+    display: none;
+  }
+}
+
+/* Phone aspect ratios crop harder than tablet ones, so the character needs to
+   sit further right again. See the note in the 900px block above. */
+@media (max-width: 560px) {
+  .rw-lp-hero-poster,
+  .rw-lp-hero-video {
+    object-position: 18% center;
+  }
+}
+
+/* ---------- reduced motion ----------
+   The video is never mounted at all in this state (see HeroBackdrop), so this
+   only has to settle the CSS-driven pieces. */
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-hero-video {
+    transition: none;
+  }
+
+  .rw-lp-hero-scroll-dot {
+    animation: none;
+    transform: translateY(1.25rem);
+  }
+
+  .rw-lp-hero-cta-ring,
+  .rw-lp-hero-cta-arrow {
+    transition: none;
+  }
+}

@@ -89,7 +89,7 @@ Next.js App Router pages, grouped by access level.
 
 **Shared public-page components (live under `src/components/`, not `(public)/`):**
 
-- `sections/landing/LandingExperience.tsx` — the entire scroll-morph landing page (#436): one pinned, scroll-linked stage that crossfades hero video → full-bleed morph → final glass tilt card. Styled by its colocated `sections/landing/landing-experience.css`.
+- `sections/landing/**` — the landing page, rewritten 2026-08 (replacing the #436 scroll-morph stage). `LandingExperience.tsx` is a composition root owning only the chrome — nav, the single `<main id="main-content">` landmark, the chapter rail, the footer — plus a numbered section map; each narrative section is its own module under `sections/landing/<section>/` with colocated CSS and a `*-copy.ts` carrying its shipped-vs-roadmap accuracy contract. Shared: `agent-flip-card.tsx` (sections 3–4), `reveal.tsx`, `ambient-motion.tsx` (the WCAG 2.2.2 pause control, plus the `AmbientVideo` that every looping background clip must use so none can escape it), `scroll/` (snap, chapter rail, section transitions). **This page is deliberately unlocked from the Island system** — read [`docs/design/landing-page.md`](./design/landing-page.md) before changing anything in it; most of the values in that folder are measurements with a documented failure mode, not preferences.
 - `ui/PageShell.tsx` — header + footer wrapper used by all public pages.
 - `ui/SiteNav.tsx` — navigation bar with logo and links.
 - `ui/marketing-links.ts` — **(A+ campaign)** single owner of `NAV_LINKS` / `MARKETING_LINKS`; imported by SiteNav, SiteFooter, and LandingExperience (closed the Q1 nav-link duplication).

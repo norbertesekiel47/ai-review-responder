@@ -1,0 +1,610 @@
+/* ==========================================================================
+   Fleet constellation — central media node, agents orbiting, SVG connectors.
+
+   Palette note: this section takes its STRUCTURE from the supplied reference
+   (dot grid, glassmorphism, bezier connectors, central glow) but stays in the
+   hero's world rather than the reference's own palette. Deliberate — the
+   reference specified #0a0a0a, Playfair Display Italic and #a78b71 gold, which
+   would have read as a different site one scroll below the hero. The ink and
+   the gold are inherited from `.rw-lp`, so the two sections cannot drift.
+   ========================================================================== */
+
+/* ── Fitting one screen ───────────────────────────────────────────────────
+   Sections 2-5 are each meant to occupy exactly one viewport at 16:9. That
+   only works if the VERTICAL rhythm responds to viewport HEIGHT — sizing in
+   `vw`/`rem` alone means a short-but-wide window overflows, which is what a
+   1440x810 laptop actually is. Every vertical value below is therefore a
+   `vh`-aware clamp, and the section centres its content rather than stacking
+   from the top. Re-check with the measurement script before changing any of
+   them; the budget at 810px is genuinely tight. */
+.rw-lp-fleet {
+  --rw-lp-fleet-glass: rgba(255, 255, 255, 0.035);
+  --rw-lp-fleet-glass-strong: rgba(255, 255, 255, 0.055);
+  --rw-lp-fleet-edge: rgba(255, 255, 255, 0.1);
+  --rw-lp-fleet-edge-bright: rgb(var(--rw-lp-accent-rgb) / 0.38);
+  --rw-lp-fleet-wire-bright: rgb(var(--rw-lp-accent-rgb) / 0.85);
+  --rw-lp-fleet-wire-dim: rgb(var(--rw-lp-accent-rgb) / 0.12);
+  --rw-lp-fleet-text: #f4f2ec;
+  --rw-lp-fleet-muted: rgb(var(--rw-lp-text-rgb) / 0.66);
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  background: var(--rw-lp-ink, #14201c);
+  overflow: hidden;
+}
+
+/* Contour rings radiating from the media card — replaces the reference spec's
+   32px dot grid.
+
+   The dot grid was decoration that meant nothing: tiled at a fixed pitch, it
+   would have looked identical behind any content on any site, which is exactly
+   why it reads as generated. These rings are generated FROM the centre of the
+   diagram, so the background states the same thing the wires do — everything
+   converges here. Move the centre and the background follows.
+
+   Kept deliberately faint (5%, 1px every 89px). Tighter spacing moirés against
+   the wires; heavier opacity turns it into radar. */
+.rw-lp-fleet-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: repeating-radial-gradient(
+    circle at 50% 47%,
+    transparent 0 88px,
+    rgb(var(--rw-lp-accent-rgb) / 0.05) 88px 89px
+  );
+  /* Fades out at the edges so no ring terminates on a hard rectangle. */
+  mask-image: radial-gradient(ellipse 78% 62% at 50% 47%, #000 22%, transparent 100%);
+}
+
+/* Film grain. Carries the tactile depth the dot field was really providing,
+   without any geometry to read as a pattern — it is felt, not seen. */
+.rw-lp-fleet-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.rw-lp-fleet-inner {
+  /* `width: 100%` is load-bearing. The section is a column flex container, so
+     this is a flex item; its `margin: 0 auto` then wins over the default
+     `align-self: stretch` and collapses the block to fit-content, silently
+     narrowing every grid inside it. */
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  max-width: var(--rw-lp-inner-max, 102rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+}
+
+/* ---------- intro ---------- */
+
+.rw-lp-fleet-intro {
+  max-width: 42rem;
+  margin: 0 auto clamp(1rem, 3vh, 2.25rem);
+  text-align: center;
+}
+
+.rw-lp-fleet-eyebrow {
+  margin: 0 0 1.125rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-fleet-heading {
+  /* Height-aware: a 1440x810 laptop is wide but short, so `vw` alone sizes
+     this for a screen that is not there. The `vh` term is what keeps the
+     section inside one viewport. */
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--rw-lp-fleet-text);
+}
+
+.rw-lp-fleet-heading-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-fleet-lead {
+  margin: clamp(0.75rem, 1.8vh, 1.25rem) auto 0;
+  max-width: 40rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: clamp(0.875rem, 1.05vw, 1rem);
+  line-height: 1.6;
+  color: var(--rw-lp-fleet-muted);
+}
+
+/* ---------- stage ---------- */
+
+/* The gap is deliberately tight. A constellation only argues anything if it can
+   be taken in at once — at the original rhythm the stage ran 953px against a
+   900px laptop viewport, so the two tiers were never on screen together and it
+   read as three unrelated rows. */
+.rw-lp-fleet-stage {
+  position: relative;
+  display: grid;
+  gap: clamp(0.875rem, 2.2vh, 1.75rem);
+  justify-items: center;
+}
+
+/* The connector layer spans the whole stage and is painted UNDER the nodes.
+   Paths are measured in JS against this element's box, so it must share the
+   stage's exact geometry — do not add padding or transforms here. */
+.rw-lp-fleet-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.rw-lp-fleet-wire {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.55;
+  animation: rw-lp-fleet-pulse 4.5s ease-in-out infinite;
+}
+
+/* The dashed overlay that gives the connectors their sense of flow. */
+.rw-lp-fleet-wire-flow {
+  fill: none;
+  stroke: var(--rw-lp-accent, #dcc489);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 15;
+  opacity: 0.4;
+  animation: rw-lp-fleet-flow 3.2s linear infinite;
+}
+
+/* An agent that has not shipped gets a dashed, dimmer connector — the line
+   itself carries the roadmap signal, not just the card. */
+.rw-lp-fleet-wires g[data-status='next'] .rw-lp-fleet-wire {
+  stroke-dasharray: 3 9;
+  opacity: 0.28;
+  animation: none;
+}
+
+.rw-lp-fleet-wires g[data-status='next'] .rw-lp-fleet-wire-flow {
+  display: none;
+}
+
+@keyframes rw-lp-fleet-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes rw-lp-fleet-flow {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+/* ---------- tiers ---------- */
+
+.rw-lp-fleet-tier {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+  width: 100%;
+}
+
+/* Watchdogs sit wider apart than the personas so the oversight tier reads as a
+   span above the action tier rather than a row of the same thing. */
+.rw-lp-fleet-tier[data-tier='watchdog'] {
+  gap: clamp(2rem, 12vw, 12rem);
+}
+
+/* ---------- agent nodes ---------- */
+
+/* The node cap, NOT the container, is what decides how wide the constellation
+   draws: the tiers are `justify-content: center` flex rows, so a wider
+   `-inner` only adds empty space around a cluster of the same size.
+
+   Widening the node BUYS height rather than costing it — these are text cards,
+   not the aspect-locked flip cards, so a wider node wraps its role copy to
+   fewer lines. At 1920x812 this took the section's vertical slack from 9px to
+   45px while spanning 1504px instead of 1172px. */
+.rw-lp-fleet-node {
+  flex: 1 1 13rem;
+  max-width: 21rem;
+  padding: clamp(0.75rem, 1.9vh, 1.125rem) 1.25rem;
+  background: var(--rw-lp-fleet-glass);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--rw-lp-fleet-edge);
+  border-radius: 1.25rem;
+  transition:
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rw-lp-fleet-node:hover {
+  background: var(--rw-lp-fleet-glass-strong);
+  border-color: var(--rw-lp-fleet-edge-bright);
+  transform: translateY(-3px);
+}
+
+/* The roadmap treatment. Reference doc §3.2 forbids a future agent sharing the
+   shipped agents' styling — this is that separation, and it must stay visible
+   enough to read as deliberate rather than as a rendering bug. */
+.rw-lp-fleet-node[data-status='next'] {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.rw-lp-fleet-node[data-status='next'] .rw-lp-fleet-node-name,
+.rw-lp-fleet-node[data-status='next'] .rw-lp-fleet-node-role {
+  opacity: 0.6;
+}
+
+.rw-lp-fleet-node-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.3125rem;
+}
+
+.rw-lp-fleet-node-name {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: 0.01em;
+  color: var(--rw-lp-fleet-text);
+}
+
+.rw-lp-fleet-node-role {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--rw-lp-fleet-muted);
+}
+
+.rw-lp-fleet-tag {
+  padding: 0.1875rem 0.5rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+  border: 1px solid rgb(var(--rw-lp-accent-rgb) / 0.35);
+  border-radius: 999px;
+}
+
+/* ---------- centre ---------- */
+
+.rw-lp-fleet-centre {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.5rem, 1.4vh, 1rem);
+  width: 100%;
+  /* Capped by viewport HEIGHT, not just width. At 16:9 the media's height is
+     width x 0.5625, so bounding the width in `vh` is what actually bounds its
+     height — 62vh of width lands the clip at ~35vh tall. */
+  max-width: min(40rem, 43vh);
+}
+
+.rw-lp-fleet-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.4375rem 0.9375rem;
+  background: var(--rw-lp-fleet-glass);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--rw-lp-fleet-edge);
+  border-radius: 999px;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--rw-lp-fleet-text);
+}
+
+/* Static, and gold rather than a pulsing green "LIVE" dot. The reference's
+   breathing indicator implied a real-time system readout this page does not
+   have; see CENTRE_PILL in fleet-copy.ts. */
+.rw-lp-fleet-pill-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-fleet-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--rw-lp-fleet-edge);
+  border-radius: 1.5rem;
+  /* The central glow from the reference spec, in the hero's gold. */
+  box-shadow: 0 0 100px rgb(var(--rw-lp-accent-rgb) / 0.14);
+}
+
+.rw-lp-fleet-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---------- click-to-open film ----------
+   The centre holds the narrated explainer (2m26s, with audio), so it is a
+   POSTER + a control rather than an inline loop. Nothing is fetched until the
+   button is pressed — see the note in VideoLightbox.tsx. */
+
+/* A centred column of [ring, label], with the poster behind it. The label is
+   stacked under the ring rather than pinned to the bottom edge, because
+   `.rw-lp-fleet-media-label` ("THE RUN SPINE") already owns bottom-left of this
+   same box — pinning both to the bottom overlaps them. */
+.rw-lp-fleet-play {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.625rem, 1.4vh, 0.9375rem);
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.rw-lp-fleet-play-poster {
+  object-fit: cover;
+  /* Held back so the play control and the label stay the focal point; the
+     poster is context, not the subject. Lifts on hover. */
+  opacity: 0.55;
+  transition: opacity 320ms ease, transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rw-lp-fleet-play:hover .rw-lp-fleet-play-poster,
+.rw-lp-fleet-play:focus-visible .rw-lp-fleet-play-poster {
+  opacity: 0.75;
+  transform: scale(1.03);
+}
+
+.rw-lp-fleet-play-ring {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: clamp(3rem, 6vh, 4rem);
+  height: clamp(3rem, 6vh, 4rem);
+  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.5);
+  border-radius: 50%;
+  background: rgb(var(--rw-lp-ink-rgb) / 0.45);
+  backdrop-filter: blur(6px);
+  color: var(--rw-lp-text, #f4f2ec);
+  transition:
+    background-color 240ms ease,
+    border-color 240ms ease,
+    color 240ms ease;
+}
+
+.rw-lp-fleet-play-ring svg {
+  width: 45%;
+  height: 45%;
+  /* Optical centring: a triangle's visual mass sits left of its bounding box,
+     so a mathematically centred glyph reads as off-centre in a circle. */
+  margin-left: 6%;
+}
+
+.rw-lp-fleet-play:hover .rw-lp-fleet-play-ring,
+.rw-lp-fleet-play:focus-visible .rw-lp-fleet-play-ring {
+  background: var(--rw-lp-accent, #dcc489);
+  border-color: var(--rw-lp-accent, #dcc489);
+  color: var(--rw-lp-ink, #14201c);
+}
+
+.rw-lp-fleet-play-label {
+  position: relative;
+  z-index: 1;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgb(var(--rw-lp-text-rgb) / 0.82);
+  /* Doing contrast work, not decoration: this sits over an arbitrary video
+     frame whose brightness is not knowable at build time. */
+  text-shadow: 0 1px 4px rgb(var(--rw-lp-ink-rgb) / 0.95);
+}
+
+/* Asserted by src/__tests__/focus-visible-marketing.test.ts — adding a new
+   control here means adding it there too. */
+.rw-lp-fleet-play:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 4px;
+  border-radius: 1.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-fleet-play-poster,
+  .rw-lp-fleet-play-ring {
+    transition: none;
+  }
+
+  .rw-lp-fleet-play:hover .rw-lp-fleet-play-poster,
+  .rw-lp-fleet-play:focus-visible .rw-lp-fleet-play-poster {
+    transform: none;
+  }
+}
+
+.rw-lp-fleet-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  /* A soft interior glow rather than a second tiled dot field — this element
+     is temporary (it is replaced the moment `videoSrc` is passed), so it only
+     has to read as "media goes here", not carry a pattern of its own. */
+  background-image: radial-gradient(
+    ellipse 60% 70% at 50% 50%,
+    rgb(var(--rw-lp-accent-rgb) / 0.05),
+    transparent 70%
+  );
+}
+
+.rw-lp-fleet-placeholder-ratio {
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  letter-spacing: 0.06em;
+  color: rgb(var(--rw-lp-text-rgb) / 0.42);
+}
+
+.rw-lp-fleet-placeholder-hint {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.34);
+}
+
+.rw-lp-fleet-media-label {
+  position: absolute;
+  left: 1.25rem;
+  bottom: 1.125rem;
+  margin: 0;
+  padding: 0.375rem 0.75rem;
+  background: rgb(var(--rw-lp-ink-rgb) / 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--rw-lp-fleet-edge);
+  border-radius: 999px;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rw-lp-fleet-text);
+}
+
+.rw-lp-fleet-caption {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  max-width: 34rem;
+  text-align: center;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--rw-lp-fleet-muted);
+}
+
+/* ---------- narrow viewports ----------
+   The constellation is abandoned, not shrunk: six nodes radiating from a
+   centre cannot be read at phone widths. JS stops drawing connectors at the
+   same breakpoint (see FleetSection), so nothing is left dangling. */
+
+@media (max-width: 900px) {
+  .rw-lp-fleet-intro {
+    text-align: left;
+  }
+
+  .rw-lp-fleet-lead {
+    margin-left: 0;
+  }
+
+  .rw-lp-fleet-stage {
+    gap: 1.75rem;
+  }
+
+  .rw-lp-fleet-tier,
+  .rw-lp-fleet-tier[data-tier='watchdog'] {
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  /* `flex: 1 1 13rem` is for the desktop row. Once the tier becomes a column
+     that grow factor stretches every card to equal height, leaving a block of
+     dead space under the shorter ones. */
+  .rw-lp-fleet-node {
+    flex: 0 0 auto;
+    max-width: none;
+    width: 100%;
+  }
+
+  /* Personas before watchdogs on mobile: the reading order becomes "here is
+     what acts, and here is what supervises it", which is the same argument the
+     stacked diagram makes top-to-bottom on desktop. */
+  .rw-lp-fleet-tier[data-tier='watchdog'] {
+    order: 3;
+  }
+
+  .rw-lp-fleet-centre {
+    order: 1;
+  }
+
+  .rw-lp-fleet-tier[data-tier='persona'] {
+    order: 2;
+  }
+
+  /* Needs an explicit order: everything else in the stage is ordered, and an
+     unset `order` defaults to 0 — which floated the caption above the video. */
+  .rw-lp-fleet-caption {
+    order: 4;
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-fleet-wire,
+  .rw-lp-fleet-wire-flow {
+    animation: none;
+  }
+
+  .rw-lp-fleet-node {
+    transition: none;
+  }
+
+  .rw-lp-fleet-node:hover {
+    transform: none;
+  }
+}
