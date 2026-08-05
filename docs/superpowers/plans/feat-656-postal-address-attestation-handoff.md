@@ -3,10 +3,18 @@
 **Branch:** `feat-656-postal-address-attestation`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-656-postal-address-attestation`
 **Lane:** RISK=high · SURFACE=mixed · `db_touching: true` → staging ride before `main`.
-**Current step:** 4 (execution). **Plan review is CLOSED** — three rounds, all
-REVISE, all dispositions applied; the owner approved the plan on 2026-08-04 rather
-than spend a fourth round on two wording edits. `planReviewRounds` is **3** (the
-cap, respected). Next action is **Task 1, dispatched alone**.
+**Current step:** 5 complete → **6 (branch review) is the next action.**
+
+**ALL 11 TASKS ARE DONE.** Gate is **GREEN in full `--review` mode at HEAD**:
+29 rows, zero non-PASS, `promised-tests` matching all **47** titles, and five
+dedicated live-DB integration rows that **ran** (no SKIP — the `test` row's
+"TEST_DATABASE_POOL_URL unset" line is the gate's own #563/#520 mitigation, and
+`merge-coverage` folds the dedicated rows' coverage back in). `planReviewRounds`
+is **3**; `branchReviewRounds` is **0** — branch review has not started.
+
+Plan review is CLOSED: three rounds, all REVISE, every disposition applied; the
+owner approved on 2026-08-04 rather than spend a fourth round on two wording
+edits. **Do not re-open it.**
 
 A resumed session bootstraps from this doc → plan → deviations → review findings.
 **Never re-read the grilling conversation; everything locked is on disk.**
@@ -197,11 +205,26 @@ copies byte-identical) — the exact step D4 skipped in v1.
    re-open the owner-decided defect 1 (the digest guarantee is narrow *by
    decision*, not by oversight) — see `plan-review-round3-triage.md` for both
    owner decisions on the record.
-2. ✅ Phase advanced to `executing`. **Task 1 dispatched alone** — its enforcement
-   spot check is what proves the edit-surface guard binds for subagent tool calls,
-   so nothing may be dispatched in parallel until T1 lands.
-3. After T1: **T7, T8, T9 are parallel-dispatchable once T2 lands**; **T4 and T6
-   once T3 lands**; T4→T5 serial; T10 after T2–T9; **T11 last and alone**.
+2. ✅ **All 11 tasks executed and committed**, sequentially per D5. Every task
+   found at least one place the plan and the code disagreed; each correction is
+   committed as its own `docs(#656): T<n> findings` commit next to the task, so
+   the plan on disk is the corrected one.
+3. ➡️ **Branch review (step 6)** — has NOT run. `branchReviewRounds` is 0.
+4. Then **step 7, the ship lane**: `db_touching: true` + `RISK=high`, so this
+   **rides `staging` before `main`**, and migration 099 applies to **both**
+   Supabase projects in lockstep, **staging first**. `main` is protected — land
+   via PR, never a direct push.
+
+## Deferred by owner decision — do NOT "fix" these on this branch
+
+- **Issue #665** — `src/lib/account-offboarding/purge-verification.ts` is blind to
+  the five attestation columns. The purge itself is correct and tested three ways;
+  only the detector is blind (D6). Out of surface; fixing it would have been
+  amendment #2 of 2.
+- `src/lib/solicitation/ask-render.ts:42` still cites **#627** for the column's
+  provenance; **#656** landed it. Out of surface (D6).
+- Locked spec #622 **§2.4** cross-references **§6.3** where it means §7.5/§7.6.
+  Recorded inside T9's amendment entry rather than editing the locked spec (D6).
 4. Tasks 4, 6, 7, 8 are mutually independent and parallel-dispatchable; T4→T5 is
    serial; docs task last.
 5. Gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7.
