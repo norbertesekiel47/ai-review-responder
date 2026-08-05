@@ -159,3 +159,37 @@ with per-task worktree isolation (`isolation: 'worktree'`) or a commit step
 narrowed to that task's own paths. Neither is in the plan, so neither is assumed
 here. **If a future session wants the parallel speedup, change the commit steps to
 explicit paths FIRST** — `git add <path> …`, never `-A`.
+
+## D6 — Known gap deferred to #665: the purge VERIFIER is blind to the new columns
+
+**Found at:** T7–T9 execution. **Owner-decided 2026-08-04: file a ticket, do not
+spend surface amendment #2.**
+
+`src/lib/account-offboarding/purge-verification.ts` is the read-side residue
+check paired with T8's write-side purge. Its `businesses` case lists 17 columns
+including `google_place_address`, but **none of the five attestation columns**.
+
+**The purge itself is correct** — T8 clears all five in the same account-scoped
+statement, proven by a statement-count assertion, falsified by splitting the
+columns (the count assertion catches it; the outcome assertions do not), and
+tenant-checked against a bystander account with `toEqual` including timestamps.
+Only the *detector* is blind, so a **future** regression that stopped clearing a
+physical postal address would verify clean.
+
+**Why not fixed here:** the file is outside `allowed_edit_surface`. Adding it is
+amendment **#2 of 2**, which fires the abort trigger, and would also need a 48th
+promised test plus an intake re-issue — at the end of execution, for a defect
+that does not exist yet. The budget stays at **#1 of 2**.
+
+**Tracked:** https://github.com/RepWorth/ai-review-responder/issues/665, which
+carries the evidence and the fix, including why the all-or-nothing CHECK means a
+single `IS NOT NULL` probe would suffice for detection.
+
+### Two smaller residues, both out of surface, both recorded not fixed
+
+- `src/lib/solicitation/ask-render.ts:42` still cites **#627** as the provenance
+  of `solicitation_postal_address`. **#656** is the ticket that landed it (099).
+- Locked spec #622 **§2.4** says the bounced-owner precondition is "same
+  enforcement class as the missing postal address (**§6.3**)". §6.3 is the
+  unsubscribe owner-copy section; the postal address is §7.5/§7.6. Recorded as a
+  mechanical fix inside T9's amendment entry rather than editing the locked spec.
