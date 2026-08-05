@@ -32,7 +32,7 @@ Existing terms this plan consumes, from `CONTEXT.md` → "Solicitation (watch-mo
 Two terms this plan **coins** (T10 writes them into `CONTEXT.md`):
 
 - **Attested postal address** — the owner-attested `businesses.solicitation_postal_address` plus its attestation quartet (`_attested_at`, `_attested_by_user_id`, `_attestation_version`, `_attested_digest`): the CAN-SPAM §7704(a)(5) sender address baked **verbatim** into every ask footer, and a send precondition. Deliberately **not** `google_place_address`, which is Google's `formattedAddress` — it can be a service-area value like `"Austin, TX, USA"`, is not owner-attested, cannot express a USPS-registered PO box, and is NULLed by the offboarding purge (spec §7.5). Address and attestation are **all-or-nothing by DB CHECK**, and the attestation is welded to the address's **current bytes** by a second CHECK over `_attested_digest` — so no code path can read an unattested address as attested, and no writer can change the stored bytes without recomputing that digest (see "Design decisions" #1 for the exact scope of that guarantee — it is narrower than "the attestation is always current"). `_attested_by_user_id` is a **plain UUID with no FK** — a point-in-time capture, per migration 093's written lesson that 086's `ON DELETE CASCADE` meant deleting a staff member deleted their uploads. Because there is no FK, the *writer* verifies the actor. _Avoid_: business address, mailing address, footer address.
-- **Send handoff** — the `enqueueGenerateSolicitationAsks` call at the end of batch construction (`batch-builder.ts:766`): the single point where a **Solicitation batch** becomes send-mode work. It is **withheld** — not the batch, and not the individual **Asks** — when the location has no **Attested postal address** or `owner_email_bounced` is TRUE. This is why a missing address is not a **Withhold reason**: it is one per-location fact, not 25 per-candidate decisions (spec §7.6, as overridden — see T9). _Avoid_: send gate, generation gate, dispatch gate (that last is #630's, a different thing).
+- **Send handoff** — the `enqueueGenerateSolicitationAsks` call at the end of `constructBatch` in `src/lib/solicitation/batch-builder.ts`: the single point where a **Solicitation batch** becomes send-mode work. It is **withheld** — not the batch, and not the individual **Asks** — when the location has no **Attested postal address** or `owner_email_bounced` is TRUE. This is why a missing address is not a **Withhold reason**: it is one per-location fact, not 25 per-candidate decisions (spec §7.6, as overridden — see T9). _Avoid_: send gate, generation gate, dispatch gate (that last is #630's, a different thing).
 
 ---
 
@@ -769,7 +769,7 @@ export interface BuiltSolicitationBatchResult {
 
 **Not** a `withheldByReason` entry — that map is per-candidate and its keys are the closed `WITHHOLD_REASONS` enum (see Glossary).
 
-- [ ] **Step 3: Gate the handoff at `:766`**
+- [ ] **Step 3: Gate the handoff at the `enqueueGenerateSolicitationAsks` call**
 
 ```ts
 let sendHandoff: BuiltSolicitationBatchResult['sendHandoff'] = { status: 'not_applicable' };
@@ -874,7 +874,7 @@ Round-1 finding 4: the decision to withhold the **Send handoff** rather than blo
 
 - [ ] **Step 1:** Add a binding entry to `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`, in the file's existing amendment format, stating:
   - **Overrides:** `2026-07-28-sender-deliverability-design.md` §7.6 point 1 ("no batch produced") and the §2.4 `owner_email_bounced` interaction.
-  - **New rule:** `buildSolicitationBatch` is ONE builder shared by watch-mode and send-mode. The postal-address / bounced-email precondition withholds the **Send handoff** at `batch-builder.ts:766`; the batch still builds and the Spoilage report is unchanged. "No batch produced" predates the shared builder.
+  - **New rule:** `buildSolicitationBatch` is ONE builder shared by watch-mode and send-mode. The postal-address / bounced-email precondition withholds the **Send handoff** at the `enqueueGenerateSolicitationAsks` call in `batch-builder.ts`; the batch still builds and the Spoilage report is unchanged. "No batch produced" predates the shared builder.
   - **Why not a Withhold reason:** the enum is closed, precedence-ordered and versioned by `RESTRAINT_POLICY_VERSION`; every member is a per-candidate reason and this is one per-location fact.
   - **Provenance:** ticket #656, wayfinder map #617, owner call 2026-08-03.
 
