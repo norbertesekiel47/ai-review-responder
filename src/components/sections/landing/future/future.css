@@ -1,0 +1,475 @@
+/* ==========================================================================
+   Where this is going.
+
+   The section's whole job is to be exciting WITHOUT reading as available. Only
+   the COMMITTED tier is on the page now (the exploring tier was cut), so all
+   of the honesty load sits on this one group of cards. Three devices carry it,
+   and they are deliberately redundant:
+
+     1. The tier header states "Not available yet" above the whole grid.
+     2. Every card wears a dashed edge rather than the solid ring the shipped
+        sections use, so even a skim registers "not yet" before a word is read.
+     3. Every card FRONT carries the `Planned` tag.
+
+   (3) is the one that is easy to delete by accident. These are flip cards, so
+   the body copy — and every future-tense "will" in it — is hidden until the
+   visitor interacts. Without the tag, a skim sees four confident product names
+   and nothing marking them as unbuilt. Do not remove it, and do not give these
+   cards the solid ring treatment.
+   ========================================================================== */
+
+.rw-lp-future {
+  --rw-lp-future-text: #f4f2ec;
+  --rw-lp-future-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
+
+  /* ---- pointer-tracked glow ----
+     `--rw-lp-glow-x/y` are VIEWPORT pixels, written by one rAF-coalesced
+     pointermove listener in FutureSection.tsx. They start far off-screen so
+     the cards render unlit before the first pointer event, and stay there
+     under `prefers-reduced-motion`, where the listener never attaches.
+
+     The hue is derived rather than fixed: `--rw-lp-glow-xp` is the pointer's
+     horizontal position as 0..1, so the light warms slightly as it travels.
+     The spread is 16 degrees, NOT the reference's 200 — this page has a
+     load-bearing gold/teal split (gold acts, teal watches), and a light that
+     sweeps 200 degrees of hue would drive straight through the teal and make
+     the temperature argument meaningless. 34-50 stays inside gold. */
+  --rw-lp-glow-x: -9999;
+  --rw-lp-glow-y: -9999;
+  --rw-lp-glow-xp: 0.5;
+  --rw-lp-glow-hue: calc(34 + (var(--rw-lp-glow-xp) * 16));
+  --rw-lp-glow-size: 300;
+  --rw-lp-glow-ring: 1.5px;
+
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 100%, rgb(var(--rw-lp-accent-rgb) / 0.07), transparent 70%),
+    var(--rw-lp-ink, #14201c);
+}
+
+.rw-lp-future-inner {
+  /* `width: 100%` is load-bearing. The section is a column flex container, so
+     this is a flex item; its `margin: 0 auto` then wins over the default
+     `align-self: stretch` and collapses the block to fit-content, silently
+     narrowing every grid inside it. */
+  width: 100%;
+  max-width: var(--rw-lp-inner-max, 102rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+}
+
+/* ---------- two columns ----------
+   Argument left, committed work right. Single-column left roughly a third of
+   the row empty at 16:9 while the card bodies wrapped to four lines; splitting
+   it spends that width on the cards instead. The left column is the narrower
+   of the two because it holds prose, which has a reading measure — the cards
+   are what should take the extra room. */
+
+.rw-lp-future-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: center;
+}
+
+.rw-lp-future-argument {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- intro ---------- */
+
+.rw-lp-future-intro {
+  max-width: 34rem;
+}
+
+.rw-lp-future-eyebrow {
+  margin: 0 0 0.625rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-heading {
+  /* Height-aware: a 1440x810 laptop is wide but short, so `vw` alone sizes
+     this for a screen that is not there. The `vh` term is what keeps the
+     section inside one viewport. */
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.625rem, min(3.2vw, 4.9vh), 2.75rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  color: var(--rw-lp-future-text);
+}
+
+.rw-lp-future-heading-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-lead {
+  margin: clamp(0.5rem, 1.4vh, 1rem) 0 0;
+  max-width: 34rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: clamp(0.875rem, 1.05vw, 1rem);
+  line-height: 1.6;
+  color: var(--rw-lp-future-muted);
+}
+
+/* ---------- tier header ---------- */
+
+.rw-lp-future-tier-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: clamp(0.625rem, 1.6vh, 1rem);
+  padding-bottom: clamp(0.5rem, 1.2vh, 0.875rem);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rw-lp-future-tier-label {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+/* The disclaimer sits ON the tier header, not in a footnote, so it cannot be
+   scrolled past independently of the items it qualifies.
+
+   Do not fade this further. It measured 4.70:1 at 0.5 alpha — passing, but
+   only just, and this is the text that keeps the section honest. It should be
+   comfortably readable, not technically compliant. */
+.rw-lp-future-tier-note {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgb(var(--rw-lp-text-rgb) / 0.6);
+}
+
+/* Discoverability, not decoration: the card bodies are behind a flip, so
+   without this the only way to find them is to hover by accident. */
+/* 0.55 alpha, not the 0.45 used for similar micro-labels elsewhere: composited
+   over the ink this measures 5.40:1, where 0.45 gives 4.07 and fails the 4.5
+   required at 10px. Alpha must be composited over the background before the
+   ratio is computed — reading the RGB alone reports a passing number for text
+   that is actually failing. */
+.rw-lp-future-tier-hint {
+  margin: 0 0 0 auto;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+/* ---------- committed: 2x2 flip cards ---------- */
+
+.rw-lp-future-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.875rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The card is the GLOW HOST, and the flip lives inside it. That split is
+   required, not stylistic: the glow gradients are `background-attachment:
+   fixed`, which a transformed ancestor silently degrades to `scroll`. The
+   inner wrapper is what carries `rotateY`, so the glow layers have to sit on
+   an element outside that transform or the highlight stops tracking the
+   cursor the moment a card flips. Keep the pseudo-elements on THIS element. */
+.rw-lp-future-card {
+  position: relative;
+  /* Height-aware, like every other vertical value on this page. Two rows plus
+     the tier header have to live inside `100svh`, so the card takes a share of
+     the viewport rather than a fixed size: 37vh leaves ~90px of slack at
+     1920x812 and ~77px at the tighter 1920x760. The 20rem ceiling stops the
+     cards ballooning on a tall display, where 37vh would be over 500px. */
+  min-height: clamp(11rem, 37vh, 20rem);
+  border-radius: 1.25rem;
+  /* Dashed, not the solid ring the shipped sections use. It lives on the card
+     rather than a face so it survives the flip — the roadmap signal must not
+     depend on which side is showing. */
+  outline: 1px dashed rgb(var(--rw-lp-accent-rgb) / 0.22);
+  outline-offset: -1px;
+}
+
+/* The soft wash — a wide, low-alpha pool of light that reaches beyond the card
+   edge so neighbouring cards catch the spill. No `filter: blur()`: a radial
+   gradient already has a soft falloff, and a filter here would create a
+   containing block that breaks the fixed attachment this depends on. */
+.rw-lp-future-card::before {
+  content: '';
+  position: absolute;
+  inset: -0.875rem;
+  z-index: 0;
+  border-radius: 1.75rem;
+  pointer-events: none;
+  background-image: radial-gradient(
+    calc(var(--rw-lp-glow-size) * 1px) calc(var(--rw-lp-glow-size) * 1px) at
+      calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
+    hsl(var(--rw-lp-glow-hue) 55% 70% / 0.22),
+    transparent 65%
+  );
+  background-attachment: fixed;
+}
+
+/* The border spotlight — the effect's signature. Same punched-ring idiom as
+   `.rw-lp-glass::before`: an inset box is padded, filled, then has its
+   interior masked out, leaving only the stroke. `-webkit-` prefixes are
+   load-bearing; Safari still needs them for mask-composite (as `xor`). */
+.rw-lp-future-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: var(--rw-lp-glow-ring);
+  pointer-events: none;
+  /* Two stacked gradients, both anchored to the pointer: a tight white core
+     inside a wider gold falloff. First listed paints on top, so the core sits
+     over the gold. The reference gets this with `filter: brightness(2)` on a
+     single gradient — that is avoided here because a filter would make this
+     pseudo-element a containing block and degrade the fixed attachment the
+     whole effect rides on. Raising lightness directly is the same picture with
+     none of that risk. */
+  background-image:
+    radial-gradient(
+      calc(var(--rw-lp-glow-size) * 0.22px) calc(var(--rw-lp-glow-size) * 0.22px) at
+        calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
+      rgba(255, 255, 255, 0.85),
+      transparent 100%
+    ),
+    radial-gradient(
+      calc(var(--rw-lp-glow-size) * 0.75px) calc(var(--rw-lp-glow-size) * 0.75px) at
+        calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
+      hsl(var(--rw-lp-glow-hue) 82% 76%),
+      transparent 100%
+    );
+  background-attachment: fixed;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.rw-lp-future-flip {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  perspective: 1200px;
+}
+
+/* Asserted by src/__tests__/focus-visible-marketing.test.ts — adding a new
+   control here means adding it there too. */
+.rw-lp-future-flip:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 5px;
+  border-radius: 1.25rem;
+}
+
+.rw-lp-future-flip-inner {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 620ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* All three selectors are required — :hover for pointers, [data-flipped] for
+   touch (which has no hover state), :focus-visible for keyboard. Drop any one
+   and a whole input class loses the card bodies. */
+.rw-lp-future-flip:hover .rw-lp-future-flip-inner,
+.rw-lp-future-flip:focus-visible .rw-lp-future-flip-inner,
+.rw-lp-future-flip[data-flipped='true'] .rw-lp-future-flip-inner {
+  transform: rotateY(180deg);
+}
+
+.rw-lp-future-flip .rw-lp-future-flip-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: clamp(0.875rem, 2.2vh, 1.25rem);
+  border-radius: 1.25rem;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* Deliberately thin. The glow wash lives BEHIND the faces, on the card, so
+     an opaque face would hide the effect entirely. */
+  background: rgba(255, 255, 255, 0.022);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.rw-lp-future-flip .rw-lp-future-flip-back {
+  transform: rotateY(180deg);
+  justify-content: center;
+}
+
+.rw-lp-future-card-tag {
+  align-self: flex-start;
+  margin-bottom: auto;
+  padding: 0.1875rem 0.5rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+  border: 1px dashed rgb(var(--rw-lp-accent-rgb) / 0.4);
+  border-radius: 999px;
+}
+
+.rw-lp-future-card-name {
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.25rem, 1.9vw, 1.625rem);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--rw-lp-future-text);
+}
+
+.rw-lp-future-card-back-name {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-card-body {
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgb(var(--rw-lp-text-rgb) / 0.82);
+}
+
+/* ---------- closing statement ----------
+   Left column, under the lead. It is the argument's conclusion, so it belongs
+   with the argument rather than centred under the grid. */
+
+.rw-lp-future-closing {
+  margin: clamp(1rem, 3vh, 2rem) 0 0;
+  padding: clamp(0.875rem, 2.2vh, 1.25rem) 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  max-width: 34rem;
+}
+
+.rw-lp-future-closing-quote {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(0.9375rem, min(1.5vw, 2.2vh), 1.25rem);
+  line-height: 1.45;
+  letter-spacing: -0.015em;
+  color: var(--rw-lp-future-text);
+}
+
+.rw-lp-future-closing-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+/* ---------- reduced motion ----------
+   A 3D rotation is precisely what this preference exists to suppress, so the
+   card cross-fades instead. The glow is also inert in this branch — the
+   listener never attaches, so the coordinates keep their off-screen defaults
+   and nothing chases the cursor. */
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-future-flip-inner {
+    transition: none;
+    transform: none !important;
+  }
+
+  .rw-lp-future-flip .rw-lp-future-flip-face {
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+    transition: opacity 220ms ease;
+  }
+
+  .rw-lp-future-flip .rw-lp-future-flip-back {
+    transform: none;
+    opacity: 0;
+  }
+
+  .rw-lp-future-flip:hover .rw-lp-future-flip-front,
+  .rw-lp-future-flip:focus-visible .rw-lp-future-flip-front,
+  .rw-lp-future-flip[data-flipped='true'] .rw-lp-future-flip-front {
+    opacity: 0;
+  }
+
+  .rw-lp-future-flip:hover .rw-lp-future-flip-back,
+  .rw-lp-future-flip:focus-visible .rw-lp-future-flip-back,
+  .rw-lp-future-flip[data-flipped='true'] .rw-lp-future-flip-back {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .rw-lp-future-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1.5rem, 4vh, 2.5rem);
+  }
+
+  .rw-lp-future-intro,
+  .rw-lp-future-lead,
+  .rw-lp-future-closing {
+    max-width: none;
+  }
+
+  /* Stacked, the cards no longer sit BESIDE the argument — they sit under it,
+     so the two now share one vertical budget instead of each owning their own.
+     37vh a row was sized for the side-by-side case and overflows here by 151px
+     at 1100x800; 22vh is the same layout inside the height that is left. */
+  .rw-lp-future-card {
+    min-height: clamp(9rem, 22vh, 12rem);
+  }
+}
+
+@media (max-width: 640px) {
+  .rw-lp-future-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rw-lp-future-tier-hint {
+    margin-left: 0;
+  }
+}

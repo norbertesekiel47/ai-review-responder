@@ -13,6 +13,18 @@ surface; never mix them on the same screen.
 | Token source of truth | [`src/app/globals.css`](../../src/app/globals.css) `:root` | [`src/app/(authenticated)/_styles/tokens.css`](../../src/app/(authenticated)/_styles/tokens.css) `:root` |
 | How to build one | [`brand-island.md`](./brand-island.md) (mirrors the `repworth-brand-design` skill) | [`dashboard-redesign/design-spec.md`](./dashboard-redesign/design-spec.md) |
 
+## One documented exception: the landing page
+
+`/` is **deliberately unlocked** from the Island system (agreed 2026-08-03,
+recorded in `PRODUCT.md`). It establishes its own world — ink `#14201c`, a gold
+accent, a cooler teal reserved for the watchdog tier, Plus Jakarta at 200/300 —
+and the rest of the site does **not** follow it. Do not "restore"
+sage/teal/peach there.
+
+Its design system, its load-bearing measurements, and how to re-measure them:
+[`landing-page.md`](./landing-page.md). Read that before editing
+`src/components/sections/landing/**`.
+
 ## Tokens live in code, not in this doc
 
 This README points at the owners. It deliberately does not list hex values, so it

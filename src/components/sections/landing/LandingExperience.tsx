@@ -1,437 +1,290 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef } from 'react';
-import { TiltCard } from '@/components/ui/be-ui-tilt-card';
-import { COMPANY_LINKS, LEGAL_LINKS, NAV_LINKS } from '@/components/ui/marketing-links';
+import { LazyMotion, domAnimation } from 'motion/react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { BrandLogo } from '@/components/ui/BrandLogo';
+import { NAV_LINKS } from '@/components/ui/marketing-links';
+import {
+  AmbientMotionProvider,
+  AmbientMotionToggle,
+  useAmbientMotionPaused,
+} from './ambient-motion';
+import { CtaSection } from './cta/CtaSection';
+import { LandingFooter } from './footer/LandingFooter';
+import { FleetSection } from './fleet/FleetSection';
+import { FutureSection } from './future/FutureSection';
+import { HeroSection } from './hero/HeroSection';
+import { PersonasSection } from './personas/PersonasSection';
+import { ChapterRail } from './scroll/ChapterRail';
+import { SectionTransition } from './scroll/SectionTransition';
+import { WatchdogsSection } from './watchdogs/WatchdogsSection';
+import './agent-flip-card.css';
+import './cta/cta.css';
+import './footer/footer.css';
+import './fleet/fleet.css';
+import './fleet/video-lightbox.css';
+import './future/future.css';
+import './hero/hero.css';
+import './personas/personas.css';
+import './scroll/scroll-experience.css';
+import './watchdogs/watchdogs.css';
 import './landing-experience.css';
 
 /**
- * RepWorth landing page: one continuous, scroll-linked pinned stage.
+ * RepWorth landing page.
  *
- * The whole page is a single fixed stage whose contents crossfade as you scroll
- * (no section-to-section hand-off, so nothing "jumps"):
+ * Composition root for the marketing page: it owns the chrome (nav, the single
+ * `<main id="main-content">` landmark the public layout's skip link targets,
+ * and the footer) and nothing else. Each narrative section is its own module
+ * under `./<section>/`, so this file stays a table of contents as sections land
+ * rather than growing back into a monolith.
  *
- *   1. Hero      - a frosted glass card on the right (copy) over the fixed,
- *                  looping /video/heroVideo.mp4.
- *   2. Expand    - that same card grows to full-bleed, its copy crossfades out
- *                  and /video/hero2Video.mp4 in, then the three agent-persona
- *                  cards (Reply / Guardian / Insights) reveal on top.
- *   3. Final     - the media crossfades to the mirrored /video/hero3Video.mp4,
- *                  the persona cards fade out, and the closing glass tilt card
- *                  fades in on the left.
+ * Sections, per the narrative spine in the website design reference §3.4:
+ *   1. Hero                    <- built
+ *   2. Meet the fleet          <- built (constellation + run-spine centre)
+ *   3. The agents that act     <- built (four personas, in depth)
+ *   4. The agents that watch   <- built (Judge + Governor, cooler register)
+ *   5. Where this is going     <- built (committed vs exploring, two tiers)
+ *   6. The problem             <- pending, if still wanted
+ *   7. The pipeline            <- pending
+ *   8. Copilot vs Autopilot    <- pending
+ *   9. CTA                     <- built (night bookend to the hero)
  *
- * Geometry + every cross-fade are written imperatively from one rAF-coalesced
- * scroll listener. Same-origin /video/* keeps the clips inside the production
- * CSP (`default-src 'self'`, no `media-src`).
+ * 1 and 9 are a deliberate pair: the same world, opened in daylight with the
+ * copy set RIGHT and closed at night with it set LEFT. They are the only two
+ * full-bleed video sections, and they mirror rather than repeat.
  *
- * Visual direction (Variant A, "Editorial"): serif-led display type, paper
- * surfaces, ink-first hierarchy. The signature motif is a hand-drawn ink
- * underline (see InkUnderline) that recurs once per act.
+ * Accent temperature is load-bearing across 3 and 4: the acting agents are
+ * GOLD, the supervising agents are TEAL. That contrast is what makes the
+ * oversight layer read as a different tier rather than more of the same.
+ *
+ * Nav positioning note: the nav is absolute over the hero rather than sticky,
+ * because with one section on the page there is no scrolled state to design
+ * against yet. Revisit when section 2 lands.
  */
-
-const HERO_VIDEO_SRC = '/video/heroVideo.mp4';
-const MORPH_VIDEO_SRC = '/video/hero2Video.mp4';
-const FINAL_VIDEO_SRC = '/video/hero3Video.mp4';
 
 interface LandingExperienceProps {
   /** Where every CTA points. `/signup` when self-serve signup is live, else the
-   *  lead-capture route (`/signup` 404s when the flag is off). */
+   *  lead-capture route (`/signup` 404s when the flag is off). Resolved on the
+   *  server — invariant #13, no `NEXT_PUBLIC_*` flag companion. */
   primaryCtaHref: string;
-  /** CTA label for the nav, hero, and closing card (reflects the trial offer
-   *  when one is live). */
+  /** CTA label, reflecting the trial offer when one is live. */
   primaryCtaLabel: string;
+  /**
+   * `SELF_SERVE_SIGNUP_ENABLED`, resolved on the server (invariant #13 — no
+   * `NEXT_PUBLIC_*` companion). Gates the nav's Log in / Sign up pair.
+   *
+   * Both routes are gated the same way at the route level: `/login` and
+   * `/signup` each call `notFound()` when the flag is off. So this is not a
+   * cosmetic hide — showing either link with the flag off would link straight
+   * to a 404, which is why Log in is gated too even though "log in" normally
+   * outlives a closed signup.
+   */
+  selfServeEnabled: boolean;
 }
 
 /**
- * The editorial motif: a slightly bowed, hand-ruled underline drawn in the
- * brand teal. It appears exactly once per act (hero headline, the "team"
- * annotation in act 2, the closing headline) so the accent stays decisive
- * rather than decorative. The stroke draws itself in on load; reduced-motion
- * renders it already drawn.
+ * The provider is a separate outer component for one reason: the paused state
+ * has to reach BOTH the clips (through context) and the page root as a data
+ * attribute (so CSS can pause the three infinite keyframe animations). A
+ * component cannot read a context it is itself providing, so the root element
+ * lives one level in.
  */
-function InkUnderline() {
+export function LandingExperience(props: LandingExperienceProps) {
   return (
-    <svg
-      className="rw-le-ink"
-      viewBox="0 0 120 8"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        d="M2 6.2 C 28 2.4, 64 2.2, 118 4.6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        pathLength="1"
-      />
-    </svg>
+    // One provider for the whole page. `domAnimation` is animations + gestures,
+    // which is exactly what this page uses — `whileInView` lives in the gesture
+    // set, and `useScroll`/`useTransform` are hooks that need no feature at all.
+    // `strict` makes a `motion.*` component throw instead of silently pulling
+    // the full feature bundle back in, which is the regression this migration
+    // exists to prevent.
+    <LazyMotion features={domAnimation} strict>
+      <AmbientMotionProvider>
+        <LandingChrome {...props} />
+      </AmbientMotionProvider>
+    </LazyMotion>
   );
 }
 
-export function LandingExperience({ primaryCtaHref, primaryCtaLabel }: LandingExperienceProps) {
-  const heroVideoRef = useRef<HTMLVideoElement>(null);
-  const morphVideoRef = useRef<HTMLVideoElement>(null);
-  const finalVideoRef = useRef<HTMLVideoElement>(null);
-  const trackRef = useRef<HTMLElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const glassRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const cueRef = useRef<HTMLDivElement>(null);
-  const cardsRef = useRef<HTMLDivElement>(null);
-  const finalBgRef = useRef<HTMLDivElement>(null);
-  const finalHolderRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLElement>(null);
+function LandingChrome({
+  primaryCtaHref,
+  primaryCtaLabel,
+  selfServeEnabled,
+}: LandingExperienceProps) {
+  const ambientMotionPaused = useAmbientMotionPaused();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    const clamp = (n: number) => Math.max(0, Math.min(1, n));
-
-    // Muted autoplay (set as property for Safari) on every clip so each is
-    // already playing when it fades in.
-    for (const v of [heroVideoRef.current, morphVideoRef.current, finalVideoRef.current]) {
-      if (!v) continue;
-      v.muted = true;
-      const playback = v.play();
-      if (playback && typeof playback.catch === 'function') playback.catch(() => {});
-    }
-
-    let frame = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const track = trackRef.current;
-        const panel = panelRef.current;
-        if (!track || !panel) return;
-
-        const vh = window.innerHeight || 800;
-        const vw = window.innerWidth || 1200;
-        const rect = track.getBoundingClientRect();
-        const total = Math.max(1, rect.height - vh);
-        const progress = clamp(-rect.top / total);
-
-        // ---- Act 1 → 2: the hero card grows to full-bleed ----
-        // Rest footprint (matches the hero card); centred on small screens.
-        const isMobile = vw < 820;
-        const w0 = isMobile ? Math.min(520, vw * 0.9) : Math.min(940, vw * 0.52);
-        const h0 = isMobile ? Math.min(560, vh * 0.68) : Math.min(620, vh * 0.74);
-        const left0 = isMobile ? (vw - w0) / 2 : vw * 0.95 - w0;
-        const top0 = (vh - h0) / 2;
-        const e = clamp(progress / 0.32); // expansion done at 32% of the track
-        panel.style.width = `${w0 + e * (vw - w0)}px`;
-        panel.style.height = `${h0 + e * (vh - h0)}px`;
-        panel.style.left = `${left0 * (1 - e)}px`;
-        panel.style.top = `${top0 * (1 - e)}px`;
-        panel.style.borderRadius = `${16 * (1 - e)}px`;
-
-        const glass = glassRef.current;
-        if (glass) glass.style.opacity = String(clamp(1 - e * 2.2));
-        const morph = morphVideoRef.current;
-        if (morph) morph.style.opacity = String(clamp((e - 0.08) / 0.42));
-        const content = contentRef.current;
-        if (content) content.style.opacity = String(clamp(1 - progress / 0.12));
-        const cue = cueRef.current;
-        if (cue) cue.style.opacity = String(clamp(1 - progress / 0.05));
-
-        // ---- Act 2 → 3: crossfade to the final video + card ----
-        const a3 = clamp((progress - 0.62) / 0.18); // hero3 video fades in
-        const finalP = clamp((progress - 0.72) / 0.16); // final card fades in
-
-        const cards = cardsRef.current;
-        if (cards) {
-          const reveal = clamp((progress - 0.38) / 0.1);
-          const opacity = reveal * (1 - a3); // reveal in act 2, fade out into act 3
-          cards.style.opacity = String(opacity);
-          cards.style.transform = `translateY(${(1 - reveal) * 28}px)`;
-          cards.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
-          cards.inert = opacity <= 0.5;
-        }
-
-        const finalBg = finalBgRef.current;
-        if (finalBg) finalBg.style.opacity = String(a3);
-        const finalHolder = finalHolderRef.current;
-        if (finalHolder) {
-          finalHolder.style.opacity = String(finalP);
-          finalHolder.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
-          finalHolder.inert = finalP <= 0.5;
-        }
-
-        // Footer bar rides the act-3 crossfade; reuses the already-computed
-        // finalP with no timing of its own (the one sanctioned driver addition).
-        const footer = footerRef.current;
-        if (footer) {
-          footer.style.opacity = String(finalP);
-          footer.style.pointerEvents = finalP > 0.5 ? 'auto' : 'none';
-          footer.inert = finalP <= 0.5;
-        }
-      });
-    };
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll);
-    onScroll();
-
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-      cancelAnimationFrame(frame);
-    };
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    menuButtonRef.current?.focus();
   }, []);
 
-  return (
-    <div className="rw-le">
-      {/* Fixed, fully-opaque looping hero video (act 1 backdrop, behind the stage). */}
-      <div className="rw-le-bg" aria-hidden="true">
-        <video
-          className="rw-le-video"
-          ref={heroVideoRef}
-          src={HERO_VIDEO_SRC}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          tabIndex={-1}
-        />
-      </div>
+  // Escape closes the mobile menu and returns focus to the trigger. Bound only
+  // while open so the landing page adds no idle key listener.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen, closeMenu]);
 
-      <nav className="rw-le-nav" aria-label="Primary">
-        <div className="rw-le-nav-left">
-          <Link className="rw-le-brand" href="/">
-            RepWorth
-          </Link>
-          <div className="rw-le-nav-links">
-            {NAV_LINKS.map((link) => (
-              <Link key={link.href} href={link.href}>{link.label}</Link>
-            ))}
-          </div>
-        </div>
-        <Link className="rw-le-cta" href={primaryCtaHref}>
-          {primaryCtaLabel}
+  return (
+    // The attribute, not a class, because it is state rather than styling —
+    // and it is on the ROOT so one rule in landing-experience.css can halt
+    // every keyframe animation on the page without enumerating them.
+    <div className="rw-lp" data-ambient-motion={ambientMotionPaused ? 'paused' : 'running'}>
+      <nav className="rw-lp-nav" aria-label="Primary">
+        {/* Mark + wordmark together. The logo's own gold (#e2c38b) is within a
+            hair of `--rw-lp-accent`, so the pair reads as one lockup against
+            the hero rather than two borrowed assets. */}
+        <Link href="/" className="rw-lp-wordmark">
+          <BrandLogo size={30} className="rw-lp-wordmark-mark" />
+          <span className="rw-lp-wordmark-text">RepWorth</span>
         </Link>
+
+        <ul className="rw-lp-nav-links">
+          {NAV_LINKS.map((link) => (
+            <li key={link.href}>
+              <Link href={link.href} className="rw-lp-nav-link">
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+
+        {/* Owner auth. Mirrors SiteNav's cluster on the other marketing pages —
+            same order (Log in, then Sign up), same labels, same flag — so the
+            two navs cannot drift into offering different doors. Short labels on
+            purpose: the offer-bearing label ("Start your 30-day free trial")
+            lives on the hero and closing CTAs, and would not fit a nav pill. */}
+        {selfServeEnabled ? (
+          <div className="rw-lp-nav-auth">
+            <Link href="/login" className="rw-lp-nav-link rw-lp-nav-login">
+              Log in
+            </Link>
+            <Link href="/signup" className="rw-lp-nav-signup">
+              Sign up
+            </Link>
+          </div>
+        ) : null}
+
+        {/* WCAG 2.2.2: eight clips and three keyframe animations start on
+            their own and loop forever, so the page owes the visitor a way to
+            stop them.
+
+            It lives in the nav MARKUP but is `position: fixed` from 901px up —
+            see the placement note in landing-experience.css for why the same
+            control is docked here on narrow viewports and floats on wide
+            ones. */}
+        <AmbientMotionToggle />
+
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className="rw-lp-menu-button"
+          aria-expanded={menuOpen}
+          aria-controls={menuId}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
+          <span
+            className="rw-lp-menu-bars"
+            data-open={menuOpen ? 'true' : 'false'}
+            aria-hidden="true"
+          >
+            <span />
+            <span />
+          </span>
+        </button>
+
+        <div
+          id={menuId}
+          className="rw-lp-menu-panel"
+          data-open={menuOpen ? 'true' : 'false'}
+          hidden={!menuOpen}
+        >
+          <ul>
+            {NAV_LINKS.map((link) => (
+              <li key={link.href}>
+                <Link href={link.href} className="rw-lp-menu-link" onClick={closeMenu}>
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+            {/* Not both. With self-serve on, `primaryCtaHref` IS `/signup`, so
+                rendering the primary CTA alongside "Sign up" would put two
+                differently-labelled links to one destination in a short menu.
+                Flag on → the auth pair; flag off → the lead-capture CTA, which
+                is then the only door there is. */}
+            {selfServeEnabled ? (
+              <>
+                <li>
+                  <Link href="/login" className="rw-lp-menu-link" onClick={closeMenu}>
+                    Log in
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/signup" className="rw-lp-menu-link" onClick={closeMenu}>
+                    Sign up
+                  </Link>
+                </li>
+              </>
+            ) : (
+              <li>
+                <Link href={primaryCtaHref} className="rw-lp-menu-link" onClick={closeMenu}>
+                  {primaryCtaLabel}
+                </Link>
+              </li>
+            )}
+          </ul>
+        </div>
       </nav>
 
-      <main id="main-content" className="rw-le-scroll">
-        <section ref={trackRef} className="rw-le-morph-track" aria-label="RepWorth">
-          <div className="rw-le-morph-stage">
-            {/* Act 1-2: the hero card morphs into the full-bleed hero2 video. */}
-            <div ref={panelRef} className="rw-le-morph-panel">
-              <video
-                ref={morphVideoRef}
-                className="rw-le-morph-video"
-                src={MORPH_VIDEO_SRC}
-                muted
-                loop
-                playsInline
-                preload="auto"
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-              <div ref={glassRef} className="rw-le-morph-glass" aria-hidden="true" />
-              <div ref={contentRef} className="rw-le-morph-content">
-                <p className="rw-le-eyebrow">
-                  <span className="rw-le-eyebrow-rule" aria-hidden="true" />
-                  An AI agent team for Google reviews
-                </p>
-                <h1 className="rw-le-title">
-                  Put a{' '}
-                  <span className="rw-le-uword">
-                    team
-                    <InkUnderline />
-                  </span>{' '}
-                  on your&nbsp;reviews.
-                </h1>
-                <p className="rw-le-sub">
-                  Reply drafts an answer to every review in your voice. Guardian holds anything
-                  negative and brings it to you first. Insights files the weekly brief. Nothing
-                  posts without your say, and around fifteen hours of typing a week comes off
-                  your desk.
-                </p>
-                <div className="rw-le-hero-ctas">
-                  <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-                    {primaryCtaLabel} <span aria-hidden="true">→</span>
-                  </Link>
-                  <Link className="rw-le-btn-ghost" href="/how-it-works">
-                    How the team works <span aria-hidden="true">→</span>
-                  </Link>
-                </div>
-              </div>
-            </div>
+      <ChapterRail />
 
-            {/* Act 3 backdrop: mirrored final video, crossfades in over the panel. */}
-            <div ref={finalBgRef} className="rw-le-final-bg" aria-hidden="true">
-              <video
-                className="rw-le-final-video"
-                ref={finalVideoRef}
-                src={FINAL_VIDEO_SRC}
-                muted
-                loop
-                playsInline
-                preload="auto"
-                tabIndex={-1}
-              />
-            </div>
+      <main id="main-content">
+        {/* Each section is wrapped, never modified: the wrapper carries the id,
+            the snap point and the scroll-linked dissolve, so the scroll
+            experience is entirely additive. Ids come from `SCROLL_CHAPTERS`,
+            which the rail also reads — the two cannot drift apart. */}
+        <SectionTransition id="top">
+          <HeroSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
+        </SectionTransition>
 
-            {/* Act 2: the agent-persona cards over the expanded media. */}
-            <div ref={cardsRef} className="rw-le-morph-cards">
-              <div className="rw-le-cards-frame">
-                <p className="rw-le-cards-kicker">
-                  Meet the{' '}
-                  <span className="rw-le-uword">
-                    team
-                    <InkUnderline />
-                  </span>
-                </p>
+        <SectionTransition id="fleet">
+          <FleetSection
+            videoSrc="/video/repworth-explainer.mp4"
+            videoPoster="/video/repworth-explainer-poster.jpg"
+            videoTitle="Watch the film"
+          />
+        </SectionTransition>
 
-                <div className="rw-le-morph-cards-grid">
-                  {/* Reserved 16:9 slot for the act-2 explainer film. To ship the
-                      real clip, replace the placeholder <div> below with
-                        <video className="rw-le-plate-video" src="/video/howItWorksVideo.mp4"
-                               muted loop playsInline preload="auto" tabIndex={-1} />
-                      - same-origin /video/*.mp4 keeps it inside the production CSP
-                      (`default-src 'self'`, no `media-src`). */}
-                  <figure className="rw-le-plate">
-                    <div className="rw-le-plate-media" aria-hidden="true">
-                      <svg
-                        className="rw-le-plate-glyph"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        aria-hidden="true"
-                        focusable="false"
-                      >
-                        <circle cx="12" cy="12" r="10.5" stroke="currentColor" strokeWidth="1" />
-                        <path
-                          d="M10 8.5v7l6-3.5z"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-                    <figcaption className="rw-le-plate-caption">
-                      How it works: film coming soon
-                    </figcaption>
-                  </figure>
+        <SectionTransition id="agents-that-act">
+          <PersonasSection />
+        </SectionTransition>
 
-                  <article className="rw-le-persona rw-le-persona-reply">
-                    <h3 className="rw-le-persona-name">Reply</h3>
-                    <p className="rw-le-persona-role">the writer</p>
-                    <p className="rw-le-persona-body">
-                      Drafts an answer to every Google review in your voice, then posts the moment
-                      you approve. On Autopilot, 4–5★ unflagged replies go out on their own,
-                      after a veto window you can cancel.
-                    </p>
-                    <p className="rw-le-persona-log">
-                      <span className="rw-le-log-dot" aria-hidden="true" />
-                      review → draft → approve → post
-                    </p>
-                  </article>
+        <SectionTransition id="agents-that-watch">
+          <WatchdogsSection />
+        </SectionTransition>
 
-                  <article className="rw-le-persona rw-le-persona-guardian">
-                    <h3 className="rw-le-persona-name">Guardian</h3>
-                    <p className="rw-le-persona-role">the gatekeeper</p>
-                    <p className="rw-le-persona-body">
-                      Reads severity first. A negative or flagged review is held, escalated to
-                      your channel with context and a recommended move, and tracked until it is
-                      resolved.
-                    </p>
-                    <p className="rw-le-persona-note">
-                      Negative reviews are never auto-posted. On any plan.
-                    </p>
-                  </article>
+        {/* `transform={false}` is load-bearing: the future cards' glow is built
+            on `background-attachment: fixed`, which a transformed ancestor
+            silently downgrades to `scroll`. It dissolves, it does not drift. */}
+        <SectionTransition id="where-this-is-going" transform={false}>
+          <FutureSection />
+        </SectionTransition>
 
-                  <article className="rw-le-persona rw-le-persona-insights">
-                    <h3 className="rw-le-persona-name">Insights</h3>
-                    <p className="rw-le-persona-role">the analyst</p>
-                    <p className="rw-le-persona-body">
-                      Files a weekly brief: your sentiment trend, the numbers that moved, the
-                      reviews worth reading, and what the team did about them.
-                    </p>
-                    <p className="rw-le-persona-caption">the weekly brief</p>
-                    <div className="rw-le-persona-brief" aria-hidden="true">
-                      <span className="rw-le-brief-line" />
-                      <span className="rw-le-brief-line" />
-                      <span className="rw-le-brief-line" />
-                    </div>
-                  </article>
-                </div>
-
-                <p className="rw-le-cards-foot">
-                  <Link className="rw-le-btn-ghost rw-le-btn-ghost-light" href="/pricing">
-                    Compare Copilot and Autopilot <span aria-hidden="true">→</span>
-                  </Link>
-                </p>
-              </div>
-            </div>
-
-            {/* Act 3: closing glass tilt card, crossfades in on the left. */}
-            <div ref={finalHolderRef} className="rw-le-final-holder">
-              <TiltCard className="rw-le-final-card">
-                <div className="rw-le-final-inner">
-                  <p className="rw-le-final-kicker">The last word is yours</p>
-                  <h2 className="rw-le-final-title">
-                    Consider it{' '}
-                    <span className="rw-le-uword">
-                      handled
-                      <InkUnderline />
-                    </span>
-                    .
-                  </h2>
-                  <p className="rw-le-final-sub">
-                    Reply writes, Guardian watches, Insights reports: the evenings you spent
-                    typing go back to the business. Approve everything on Copilot, or set the
-                    policy on Autopilot and keep the veto.
-                  </p>
-                  <Link className="rw-le-btn-primary" href={primaryCtaHref}>
-                    {primaryCtaLabel} <span aria-hidden="true">→</span>
-                  </Link>
-                </div>
-              </TiltCard>
-            </div>
-
-            {/* Act 3: slim footer bar, rides finalP alongside the closing card. */}
-            <footer ref={footerRef} className="rw-le-footer">
-              <span className="rw-le-footer-copy" suppressHydrationWarning>
-                © {new Date().getFullYear()} RepWorth. All rights reserved.
-              </span>
-              <div className="rw-le-footer-links">
-                {NAV_LINKS.map((link) => (
-                  <Link key={link.href} href={link.href}>{link.label}</Link>
-                ))}
-                <span className="rw-le-footer-sep" aria-hidden="true" />
-                {LEGAL_LINKS.map((link) => (
-                  <Link key={link.href} href={link.href}>{link.label}</Link>
-                ))}
-                {COMPANY_LINKS.map((link) => (
-                  <Link key={link.href} href={link.href}>{link.label}</Link>
-                ))}
-              </div>
-            </footer>
-
-            <div ref={cueRef} className="rw-le-morph-cue" aria-hidden="true">
-              <span className="rw-le-cue-pill">
-                <span className="rw-le-cue-label">keep reading</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="12"
-                  height="12"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-                  />
-                </svg>
-              </span>
-            </div>
-          </div>
-        </section>
+        <SectionTransition id="early-access">
+          <CtaSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
+        </SectionTransition>
       </main>
+
+      <LandingFooter />
     </div>
   );
 }

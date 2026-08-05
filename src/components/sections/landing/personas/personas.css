@@ -1,0 +1,130 @@
+/* ==========================================================================
+   The acting agents — a grid of flip cards.
+
+   Card mechanics (3D flip, hover/tap/keyboard, reduced-motion cross-fade) live
+   in ../agent-flip-card.css, shared with the watchdog section. This file owns
+   only the section frame and the grid.
+
+   GOLD is this section's accent. The watchdog section deliberately answers in
+   TEAL: the reference doc asks for the oversight layer to read "cooler, more
+   architectural" than the worker layer, and a temperature shift carries that
+   distinction without a word of copy. Keep the two apart.
+   ========================================================================== */
+
+.rw-lp-personas {
+  --rw-lp-personas-text: #f4f2ec;
+  --rw-lp-personas-muted: rgb(var(--rw-lp-text-rgb) / 0.66);
+
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  background: var(--rw-lp-ink, #14201c);
+}
+
+.rw-lp-personas-inner {
+  /* `width: 100%` is load-bearing. The section is a column flex container, so
+     this is a flex item; its `margin: 0 auto` then wins over the default
+     `align-self: stretch` and collapses the block to fit-content, silently
+     narrowing every grid inside it. */
+  width: 100%;
+  max-width: var(--rw-lp-inner-max, 102rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+}
+
+/* ---------- intro ---------- */
+
+.rw-lp-personas-intro {
+  max-width: 46rem;
+  margin-bottom: clamp(1.25rem, 3.5vh, 2.5rem);
+}
+
+.rw-lp-personas-eyebrow {
+  margin: 0 0 1.125rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-personas-heading {
+  /* Height-aware: a 1440x810 laptop is wide but short, so `vw` alone sizes
+     this for a screen that is not there. The `vh` term is what keeps the
+     section inside one viewport. */
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--rw-lp-personas-text);
+}
+
+.rw-lp-personas-heading-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-personas-lead {
+  margin: clamp(0.75rem, 2vh, 1.25rem) 0 0;
+  max-width: 38rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
+  line-height: 1.7;
+  color: var(--rw-lp-personas-muted);
+}
+
+/* Tells the visitor the cards have a back before they discover it by accident.
+   Without this the duties are only found by hovering, which is not a
+   discoverable affordance on any device. */
+.rw-lp-personas-column-note {
+  margin: 0 0 1.25rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  /* 0.55, not the 0.45 this shipped with. Composited over this section's ground
+     (#14201c) that alpha measures 4.07:1 — below the 4.5 AA floor for text this
+     small. 0.55 measures 5.40:1. The ratio MUST be computed on the composited
+     colour: reading the rgba() channels alone reports ~15:1 for text that is
+     actually at 4.07, which is how it passed review the first time. */
+  color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+/* ---------- card grid ---------- */
+
+/* Height-aware, because the cards are `aspect-ratio: 3/4` — width here is spent
+   as height, and the section is bound to `100svh`. Four cards plus three 1rem
+   gaps means a card is `(G - 3rem) / 4` wide and a third of that again tall, so
+   capping card height at 45svh caps the grid at `180svh + 3rem`.
+   `min(100%, ...)` lets the grid fill the container on any viewport tall enough
+   to afford it, and pull in only on the short ones: at 1920x812 it is not
+   binding (grid fills all 1504px), at 1920x760 it holds the grid to 1416px and
+   keeps 35px of slack instead of 6px.
+
+   Left-aligned, not centred — when the cap does bite, the row must stay flush
+   with the heading above it. */
+.rw-lp-personas-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: min(100%, calc(180svh + 3rem));
+}
+
+@media (max-width: 1100px) {
+  .rw-lp-personas-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .rw-lp-personas-list {
+    grid-template-columns: 1fr;
+  }
+}

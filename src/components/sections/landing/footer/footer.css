@@ -1,0 +1,262 @@
+/* ==========================================================================
+   Landing footer.
+
+   Adapted from a hover-reveal footer pattern; see the note in
+   LandingFooter.tsx for what was kept and what was replaced. The short version
+   for styling: the source's `#3ca2fa` blue and its five-stop rainbow reveal are
+   both gone. Gold on this page means "an agent that acts" and teal means "an
+   agent that watches" — a rainbow sweeping through both would turn a
+   load-bearing distinction into decoration.
+
+   NAMING — `.rw-lp-foot-`, never `.rw-foot-`. `globals.css` owns a `.rw-foot`
+   block (SiteFooter, used on every OTHER marketing page) whose rules include
+   `.rw-foot > a`; a shorter prefix here would collide with it. Same trap the
+   hero documents for `.rw-hero`.
+   ========================================================================== */
+
+.rw-lp-foot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(2.5rem, 6vh, 4.5rem) 0 clamp(1.25rem, 2.5vh, 2rem);
+  background: var(--rw-lp-ink, #14201c);
+}
+
+/* The ground. The source uses a blue-tinted radial from the top; this is the
+   same shape in the page's own gold, kept very low-alpha because it sits
+   directly under the CTA section's night clip and must not read as a second
+   light source competing with it. */
+.rw-lp-foot-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    125% 125% at 50% 8%,
+    rgb(var(--rw-lp-ink-rgb) / 0) 45%,
+    rgb(var(--rw-lp-accent-rgb) / 0.07) 100%
+  );
+}
+
+.rw-lp-foot-inner {
+  /* `width: 100%` for the same reason every other `-inner` on this page has it,
+     and the shared column token so the footer's left edge lines up with the
+     sections above it rather than floating at its own width. */
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: var(--rw-lp-inner-max, 102rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+}
+
+/* ---------- top: brand + columns ---------- */
+
+.rw-lp-foot-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+
+.rw-lp-foot-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.875rem;
+  max-width: 30rem;
+}
+
+.rw-lp-foot-brand-name {
+  font-family: var(--rw-font-display);
+  font-weight: 300;
+  font-size: clamp(1.25rem, 1.8vw, 1.5rem);
+  letter-spacing: -0.01em;
+  color: var(--rw-lp-text, #f4f2ec);
+  text-decoration: none;
+}
+
+.rw-lp-foot-blurb {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  /* 0.66 alpha measures 6.6:1 composited over the ink. The 0.45-0.5 range used
+     for micro-labels elsewhere fails at this size — see the tier-hint note in
+     future.css for the same trap. */
+  color: rgb(var(--rw-lp-text-rgb) / 0.66);
+}
+
+.rw-lp-foot-mail {
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: var(--rw-lp-accent, #dcc489);
+  text-decoration: none;
+  border-bottom: 1px solid rgb(var(--rw-lp-accent-rgb) / 0.35);
+  /* `padding-top` only, taking the target from 22px to 25px. It cannot go on
+     the bottom: the border there IS the underline, and padding would push it
+     off the baseline. 3px, not 2 — at 2px the box computed to 23.98px and was
+     still (just) under the 24px floor. */
+  padding-top: 3px;
+  padding-bottom: 1px;
+  transition: border-color 200ms ease;
+}
+
+.rw-lp-foot-mail:hover {
+  border-bottom-color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-foot-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1.5rem, 3vw, 3rem);
+}
+
+.rw-lp-foot-column-heading {
+  margin: 0 0 1rem;
+  font-family: var(--rw-font-display);
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+.rw-lp-foot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The vertical padding is a TARGET-SIZE fix, not spacing.
+
+   These links set at 18px tall. That already passed WCAG 2.5.8 through the
+   spacing exception — 34.3px centre-to-centre clears the 24px requirement —
+   but passing on a technicality is not the same as being comfortable to hit,
+   and this is a thumb-sized column on a phone.
+
+   Padding on an INLINE element grows the hit box without entering layout: the
+   line box, the `gap` between rows and the footer's measured height are all
+   unchanged, and the boxes still clear each other (10px gap, 3px of padding a
+   side). Do not "tidy" this into `display: block` + padding — that would add
+   6px per link to a footer whose height was deliberately cut 816px -> 705px. */
+.rw-lp-foot-link {
+  padding: 3px 0;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.875rem;
+  color: rgb(var(--rw-lp-text-rgb) / 0.72);
+  text-decoration: none;
+  transition: color 200ms ease;
+}
+
+.rw-lp-foot-link:hover {
+  color: var(--rw-lp-text, #f4f2ec);
+}
+
+/* Asserted by src/__tests__/focus-visible-marketing.test.ts — adding a new
+   control here means adding it there too. */
+.rw-lp-foot-link:focus-visible,
+.rw-lp-foot-mail:focus-visible,
+.rw-lp-foot-brand-name:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ---------- the wordmark ---------- */
+
+/* No negative margins. The viewBox is sized to the type (see LandingFooter.tsx),
+   so there is no dead band to claw back — which also means these values do not
+   need re-tuning per breakpoint the way a margin-based fix would. */
+.rw-lp-foot-wordmark-wrap {
+  margin: clamp(1.5rem, 3.5vw, 3rem) 0 clamp(1rem, 2vw, 1.75rem);
+  padding: 0;
+  line-height: 0;
+}
+
+.rw-lp-foot-wordmark {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  user-select: none;
+}
+
+.rw-lp-foot-wordmark-base,
+.rw-lp-foot-wordmark-fill {
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: 4.25rem;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  fill: transparent;
+  stroke-width: 0.35;
+}
+
+/* Always on, so the wordmark is a graphic in its own right rather than an
+   empty space that only exists while hovered. */
+.rw-lp-foot-wordmark-base {
+  stroke: rgb(var(--rw-lp-text-rgb) / 0.16);
+}
+
+.rw-lp-foot-wordmark-fill {
+  stroke: var(--rw-lp-accent, #dcc489);
+  opacity: 0;
+  transition: opacity 320ms ease;
+}
+
+.rw-lp-foot-wordmark-fill[data-hovered='true'] {
+  opacity: 1;
+}
+
+/* ---------- bottom bar ---------- */
+
+.rw-lp-foot-bottom {
+  position: relative;
+  z-index: 1;
+  padding-top: clamp(1rem, 2vh, 1.5rem);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 900px) {
+  .rw-lp-foot-top {
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(2rem, 5vh, 3rem);
+  }
+
+  .rw-lp-foot-wordmark-wrap {
+    margin: clamp(1.25rem, 3vh, 2rem) 0 clamp(0.75rem, 2vh, 1.25rem);
+  }
+}
+
+@media (max-width: 560px) {
+  .rw-lp-foot-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.75rem 1.25rem;
+  }
+}
+
+/* ---------- reduced motion ----------
+   The draw-on is skipped in the component (the layer renders at its final
+   state instead), so this only settles the CSS-driven pieces. */
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-foot-wordmark-fill,
+  .rw-lp-foot-mail,
+  .rw-lp-foot-link {
+    transition: none;
+  }
+}
