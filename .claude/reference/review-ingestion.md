@@ -359,12 +359,14 @@ governs the Wave 2 activation funnel. The first-review and first-draft signals
 fire from the ingest / response-generation workers, which BullMQ may retry, so
 they must be exactly-once per account:
 
-- **`first_review_ingested`** — enqueued from `processReview` with
-  `event_key = first_review_ingested:<account_id>`. The "is this the account's
+- **`first_review_ingested`** — enqueued from `processReview` **and from
+  `importReview`** (#674 — both call the shared `maybeEnqueueFirstReviewIngested`)
+  with `event_key = first_review_ingested:<account_id>`. The "is this the account's
   first review?" check is an account-scoped `EXISTS` subquery, but correctness
   does **not** depend on that read winning a race: the account-scoped key plus
   `analytics_events.event_key UNIQUE` + `ON CONFLICT DO NOTHING` is the real
-  dedup, so concurrent first reviews collapse to one row.
+  dedup, so concurrent first reviews collapse to one row — including a live
+  ingest and an import racing on the same account's first review.
 - **`first_response_drafted`** — same pattern, `event_key =
   first_response_drafted:<account_id>`, enqueued after the response row commits.
   A retry-after-commit re-runs the check, sees the committed sibling, and the
