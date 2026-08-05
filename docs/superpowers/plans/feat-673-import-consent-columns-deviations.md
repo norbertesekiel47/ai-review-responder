@@ -42,7 +42,10 @@ receive this file triaged.
   `imported_count` absence check keeps the plan's plain `not.toContain` (no
   legacy column contains it). 3a's INSERT-absence assertions are unchanged —
   the initial branch names no counter columns at all, so the plan's literal
-  form is correct there.
+  form is correct there. **VERDICT: ACCEPT** — the regex form pins exactly the
+  invariant locked decision 5 states (collapsed counters never join the INSERT
+  column lists) without false-failing on legacy names; no intake decision
+  touched.
 - **D6 (2026-08-05, Task 2 step 1 — one semicolon removed from a COMMENT
   literal).** The plan's verbatim SQL for the
   `zernio_backfill_runs.skipped_count` COMMENT reads `…as imported_count;
@@ -54,4 +57,6 @@ receive this file triaged.
   (`…as imported_count — oldest_skipped_create_time is unchanged.`); no other
   byte of the plan's SQL changed. The CHECK-definition full-equality pin held
   as planned (PG16 rendered exactly the predicted literal), so no test-file
-  change was needed.
+  change was needed. **VERDICT: ACCEPT** — plan-authoring slip, caught by the
+  plan's own constraint; the fix restores the constraint with zero semantic
+  change to the migration.
