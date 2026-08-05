@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { AuthFlow } from '@/lib/shared/auth-flow';
-import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import {
   AuthCardShell,
   authFieldClass,
@@ -14,6 +13,11 @@ import {
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
 import { MIN_PASSWORD_LENGTH } from '@/lib/shared/schemas';
+import {
+  useRecoveryStepUp,
+  type UseRecoveryStepUp,
+} from '@/components/auth/useRecoveryStepUp';
+import { RecoveryStepUpField } from '@/components/auth/RecoveryStepUpField';
 
 export interface ResetPasswordFormProps {
   portal: AuthFlow;
@@ -38,6 +42,10 @@ const RESET_PASSWORD_ERROR_COPY: Record<string, string> = {
   not_found: 'This page is not available right now.',
   account_incomplete:
     'We could not find your account. Please contact support.',
+  mfa_required:
+    'Enter the current code from your authenticator app to continue.',
+  mfa_check_failed:
+    'We could not verify your security settings. Please try again in a moment.',
 };
 
 const RESET_PASSWORD_FALLBACK =
@@ -63,6 +71,7 @@ interface AdminResetPasswordProps {
   error: string;
   loading: boolean;
   handleSubmit: (e: React.FormEvent) => Promise<void>;
+  stepUp: UseRecoveryStepUp;
 }
 
 /** Renders the unchanged utilitarian gray/blue card for the admin portal. */
@@ -75,6 +84,7 @@ function AdminResetPassword({
   error,
   loading,
   handleSubmit,
+  stepUp,
 }: AdminResetPasswordProps) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -124,13 +134,26 @@ function AdminResetPassword({
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+          {stepUp.status === 'code-required' ? (
+            <RecoveryStepUpField
+              factors={stepUp.factors}
+              selectedFactorId={stepUp.selectedFactorId}
+              onSelectFactor={stepUp.selectFactor}
+              code={stepUp.code}
+              onCodeChange={stepUp.setCode}
+              labelClassName="block text-sm font-medium text-gray-700 mb-1"
+              inputClassName="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              supportLinkClassName="mt-2 block text-sm text-blue-600 hover:underline"
+            />
+          ) : null}
+          {stepUp.error && <p className="text-sm text-red-600">{stepUp.error}</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || stepUp.busy}
             className="w-full bg-blue-600 text-white font-medium py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Updating...' : 'Update password'}
+            {stepUp.busy ? 'Verifying...' : loading ? 'Updating...' : 'Update password'}
           </button>
         </form>
       </div>
@@ -138,47 +161,30 @@ function AdminResetPassword({
   );
 }
 
+// This component renders THREE distinct full-page layouts from one state
+// machine (owner card, admin card, expired-link dead-end for each portal)
+// because both reset cards must share the step-up probe/verify state (see
+// the comment on `stepUp` below); splitting it into wrapper components would
+// still need every branch here to select among them, only with the
+// branching moved up a level and the shared state threaded through props
+// instead of read directly.
+// fallow-ignore-next-line complexity
 export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordFormProps) {
   const [password, setPassword] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [confirmTouched, setConfirmTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // null = still checking; true/false = recovery session present or not.
-  const [sessionReady, setSessionReady] = useState<boolean | null>(null);
+  const [sessionExpiredFallback, setSessionExpiredFallback] = useState(false);
   const router = useRouter();
 
-  // Mount-time recovery-session probe (owner flow only — the admin card keeps
-  // its existing, unchanged behavior). The callback handler exchanges the
-  // recovery code into a session cookie before this page renders; if the link
-  // was already used or has expired there is no session, so we show the
-  // expired-link state up front instead of letting the user type a password
-  // that the server will reject with a 401.
-  const supabase = useMemo(
-    () => (portal === 'owner' ? createBrowserSupabaseClient() : null),
-    [portal],
-  );
-
-  useEffect(() => {
-    if (!supabase) return;
-    let cancelled = false;
-    async function probeSession() {
-      try {
-        const {
-          data: { user },
-        } = await supabase!.auth.getUser();
-        if (!cancelled) setSessionReady(Boolean(user));
-      } catch {
-        // Treat any probe failure as "no usable recovery session" — the worst
-        // case is an extra trip through forgot-password, never a stuck form.
-        if (!cancelled) setSessionReady(false);
-      }
-    }
-    void probeSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase]);
+  // Owns the recovery-session probe AND the MFA step-up for BOTH portals. The
+  // callback handler exchanges the recovery code into a session cookie before
+  // this page renders; if the link was already used or has expired there is no
+  // session, so we show the expired-link state up front instead of letting the
+  // user type a password the server will reject.
+  const stepUp = useRecoveryStepUp();
+  const sessionExpired = stepUp.status === 'no-session' || sessionExpiredFallback;
 
   const passwordsMatch = password.length > 0 && password === confirmPw;
   const showMismatch = confirmTouched && confirmPw.length > 0 && !passwordsMatch;
@@ -196,6 +202,14 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
     }
     setLoading(true);
     try {
+      // Step up FIRST. A mistyped code stops here and never reaches the reset
+      // route, which keeps a bad code off the reset route's 5/hr budget — it
+      // spends the challenge route's 8/hr verify budget instead. No-ops and
+      // reports success when the account has no factor, or when a previous
+      // submit already cleared the session to AAL2.
+      const cleared = await stepUp.verify();
+      if (!cleared) return;
+
       const res = await fetchWithTimeout('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -209,7 +223,14 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
         // A 401 here means the recovery session lapsed between mount and
         // submit — flip to the expired-link state rather than a transient error.
         if (res.status === 401) {
-          setSessionReady(false);
+          setSessionExpiredFallback(true);
+          return;
+        }
+        if (res.status === 403 && body.error === 'mfa_required') {
+          // The server's AAL read failed or the step-up lapsed. Re-prompt for a
+          // code rather than dead-ending — verify() would otherwise short-circuit
+          // to true forever and only a reload would recover.
+          stepUp.requireStepUp();
           return;
         }
         setError(mapResetPasswordError(body));
@@ -223,6 +244,46 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
     }
   }
 
+  // Expired / missing recovery session: dead-end both portals with a clear path
+  // to request a fresh link. Previously owner-only — the admin card had no
+  // probe at all and let the user type a password into a dead session.
+  if (sessionExpired) {
+    const href = portal === 'admin' ? '/admin/forgot-password' : '/forgot-password';
+    if (portal === 'admin') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+          <div className="w-full max-w-sm">
+            <h1 className="text-2xl font-bold text-gray-900 text-center mb-8">
+              {brandName}
+            </h1>
+            <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+              <h2 className="text-base font-medium text-gray-900">
+                Reset link expired
+              </h2>
+              <p className="text-sm text-gray-600">{SESSION_EXPIRED_COPY}</p>
+              <Link href={href} className="text-sm font-medium text-blue-600 hover:underline">
+                Request a new reset link
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <AuthCardShell width="sm">
+        <LiveRegion level="assertive" message={SESSION_EXPIRED_COPY} />
+        <h1 className="text-2xl font-semibold text-rw-ink">Reset link expired</h1>
+        <p className="mt-2 text-rw-ink-soft">{SESSION_EXPIRED_COPY}</p>
+        <Link
+          href={href}
+          className="mt-6 inline-block text-sm font-medium text-rw-teal-strong hover:underline"
+        >
+          Request a new reset link
+        </Link>
+      </AuthCardShell>
+    );
+  }
+
   if (portal === 'admin') {
     return (
       <AdminResetPassword
@@ -234,31 +295,14 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
         error={error}
         loading={loading}
         handleSubmit={handleSubmit}
+        stepUp={stepUp}
       />
-    );
-  }
-
-  // Expired / missing recovery session: dead-end the form with a clear path to
-  // request a fresh link.
-  if (sessionReady === false) {
-    return (
-      <AuthCardShell width="sm">
-        <LiveRegion level="assertive" message={SESSION_EXPIRED_COPY} />
-        <h1 className="text-2xl font-semibold text-rw-ink">Reset link expired</h1>
-        <p className="mt-2 text-rw-ink-soft">{SESSION_EXPIRED_COPY}</p>
-        <Link
-          href="/forgot-password"
-          className="mt-6 inline-block text-sm font-medium text-rw-teal-strong hover:underline"
-        >
-          Request a new reset link
-        </Link>
-      </AuthCardShell>
     );
   }
 
   return (
     <AuthCardShell width="sm">
-      <LiveRegion level="assertive" message={error} />
+      <LiveRegion level="assertive" message={error || stepUp.error || ''} />
       <form onSubmit={handleSubmit} className="space-y-4">
         <h1 className="text-2xl font-semibold text-rw-ink">Set a new password</h1>
         <div>
@@ -302,9 +346,28 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
             ) : null}
           </p>
         </div>
+        {stepUp.status === 'code-required' ? (
+          <RecoveryStepUpField
+            factors={stepUp.factors}
+            selectedFactorId={stepUp.selectedFactorId}
+            onSelectFactor={stepUp.selectFactor}
+            code={stepUp.code}
+            onCodeChange={stepUp.setCode}
+            labelClassName={authLabelClass}
+            inputClassName={authFieldClass}
+            supportLinkClassName="mt-2 block text-sm font-medium text-rw-teal-strong hover:underline"
+          />
+        ) : null}
+        {stepUp.error && (
+          <p className="text-sm text-rw-error" aria-hidden="true">{stepUp.error}</p>
+        )}
         {error && <p className="text-sm text-rw-error" aria-hidden="true">{error}</p>}
-        <button type="submit" disabled={loading} className={authPrimaryButtonClass}>
-          {loading ? 'Updating...' : 'Update password'}
+        <button
+          type="submit"
+          disabled={loading || stepUp.busy}
+          className={authPrimaryButtonClass}
+        >
+          {stepUp.busy ? 'Verifying...' : loading ? 'Updating...' : 'Update password'}
         </button>
       </form>
     </AuthCardShell>

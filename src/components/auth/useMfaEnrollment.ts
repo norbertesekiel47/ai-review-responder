@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
+import { collectFactors } from '@/lib/auth/mfa';
 
 export interface MfaFactor {
   id: string;
@@ -46,19 +47,12 @@ function normalizeFactor(raw: unknown): MfaFactor | null {
   };
 }
 
+// Shares only the collect-and-dedupe traversal with the challenge path. The
+// projection stays local and deliberately keeps EVERY factor regardless of
+// status, because these surfaces must render an unverified factor so the user
+// can finish or abandon that enrollment — the challenge path drops those.
 function normalizeFactors(data: unknown): MfaFactor[] {
-  if (!data || typeof data !== 'object') return [];
-  const record = data as Record<string, unknown>;
-  const candidates = [
-    ...(Array.isArray(record.totp) ? record.totp : []),
-    ...(Array.isArray(record.all) ? record.all : []),
-  ];
-  const unique = new Map<string, MfaFactor>();
-  for (const candidate of candidates) {
-    const factor = normalizeFactor(candidate);
-    if (factor) unique.set(factor.id, factor);
-  }
-  return [...unique.values()];
+  return collectFactors(data, normalizeFactor);
 }
 
 interface InternalState {

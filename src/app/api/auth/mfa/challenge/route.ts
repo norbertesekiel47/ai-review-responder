@@ -212,7 +212,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (body.action === 'unenroll') {
     // Removing a factor is account-takeover-sensitive: require a currently
     // stepped-up (AAL2) session, not merely an enrolled factor. A lost factor
-    // is handled by the documented support path, not an AAL1 self-serve removal.
+    // is handled by the break-glass procedure in
+    // `docs/runbooks/mfa-factor-reset.md`, not an AAL1 self-serve removal.
     const aal = await requireCurrentAal2FromSupabase(
       supabase as unknown as SupabaseMfaAalClient,
     );
