@@ -226,6 +226,65 @@ the spec and which from this ticket.
 
 ---
 
+## D10 — Round 3: the live-DB suite had the exact defect it was added to catch
+
+**When:** plan review round 3 (final), same codex session.
+
+**What:** Task 4's suite — added in D7 precisely because nothing else executes
+`importReview`'s SQL — itself referenced `agent_run_steps.run_id`. The real
+column is **`agent_run_id`** (migration `071_agent_run_spine.sql`; writer at
+`src/lib/agents/run-spine.ts:304`). Verified independently before accepting.
+The suite would have failed to run at all, and the `afterAll` cleanup would have
+thrown on the same error before deleting anything else. `run_id` is the name the
+run-spine writers use for the local *variable*, which is what makes it an easy
+slip — and is itself an argument for the suite existing.
+
+Three smaller round-3 findings, all accepted:
+
+1. The suite claimed to prove every binding landed correctly but never asserted
+   `sentiment_score`. A score binding that landed in the wrong column would have
+   passed. Now asserts `Number(sentiment_score) === -0.5` for the 2-star fixture
+   (`classifySentiment(2)` → `(2-3)/2`), with a note that postgres.js returns
+   NUMERIC as a string.
+2. Task 4's own `pnpm ci:live-db-suites` step was **vacuous**:
+   `scripts/ci/live-db-suites-audit.ts` enumerates via `git ls-files` and cannot
+   see an untracked file, so the check would have passed without inspecting the
+   new suite. The step now stages the file first and requires the suite to
+   appear in the output.
+3. The `as MonitoredReview` cast on the fixture was unnecessary and would
+   suppress future excess-property/structural checking. Removed.
+
+**Lesson worth promoting at step 8:** plan-embedded code is not reviewed by the
+gate and not executed by anything until a subagent runs it. Schema identifiers in
+a plan deserve the same "look it up, don't guess" discipline as production code —
+all four of these were verifiable with one `rg` against the migration.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D11 — Plan review rounds exhausted without APPROVED
+
+Three rounds used (`REVISE`, `REVISE`, `REVISE`). The step 3 protocol forbids a
+round 4: "After round 3: STOP. Surface the remaining disagreement to me with both
+positions — my call substitutes for APPROVED."
+
+There is, however, **no disagreement to surface**. Every round-3 finding was a
+verified factual defect with no counter-position, and all four are fixed above.
+Round 3 also positively confirmed the two items it was asked to re-check: the
+one-transaction test now passes a correct implementation (and all eight
+`mockInsertWon()` calls were audited individually for the same defect class), and
+the Provenance-of-decisions table is accurate row by row.
+
+What is genuinely outstanding is that the fixes to a `REVISE` verdict have not
+themselves been reviewed, and the protocol provides no further round in which to
+review them. Recorded for the owner's call rather than self-certified as
+APPROVED.
+
+**Verdict:** _(pending step 6)_
+
+---
+
 ## D6 — Cited-symbol correction
 
 `ZernioBackfillWorker.processUnansweredReview` is not a module-level export — it

@@ -669,7 +669,7 @@ function makeMonitored(): MonitoredReview {
       identityStrategy: 'zernio_id',
     },
     contentHash: 'import-fixture-hash',
-  } as MonitoredReview;
+  };
 }
 
 describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => {
@@ -694,7 +694,7 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
     if (!db) return;
     if (tenant) {
       await sql()`DELETE FROM analytics_events WHERE account_id = ${tenant.accountId}::uuid`;
-      await sql()`DELETE FROM agent_run_steps WHERE run_id IN (
+      await sql()`DELETE FROM agent_run_steps WHERE agent_run_id IN (
         SELECT id FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid
       )`;
       await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
@@ -718,13 +718,15 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
       reviewer_name: string;
       star_rating: number;
       status: string;
+      sentiment_score: string | number;
       sentiment_label: string;
       sentiment_source: string;
       review_content_hash: string;
     }[]>`
       SELECT business_id, provider, provider_review_id, provider_review_name,
              reviewer_name, star_rating, status,
-             sentiment_label, sentiment_source, review_content_hash
+             sentiment_score, sentiment_label, sentiment_source,
+             review_content_hash
       FROM reviews
       WHERE provider_review_name = ${providerReviewName}
     `;
@@ -739,7 +741,12 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
     expect(row!.star_rating).toBe(2);
     expect(row!.status).toBe(REVIEW_STATUS.NEW);
     expect(row!.review_content_hash).toBe('import-fixture-hash');
-    // Sentiment is classified at the write site: 2 stars → negative.
+    // Sentiment is classified at the write site: classifySentiment(2) →
+    // { score: (2-3)/2 = -0.5, label: 'negative' }. Assert the SCORE too — the
+    // label alone would still pass if the score binding landed in the wrong
+    // column, which is the whole point of this suite. NUMERIC comes back as a
+    // string from postgres.js, so compare numerically.
+    expect(Number(row!.sentiment_score)).toBe(-0.5);
     expect(row!.sentiment_label).toBe('negative');
     expect(row!.sentiment_source).toBe('deterministic_star_v1');
   });
@@ -758,8 +765,12 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
     expect(run!.status).toBe('completed');
     expect(run!.ended_at).not.toBeNull();
 
+    // The FK column is `agent_run_id`, NOT `run_id` (migration 071; writer at
+    // src/lib/agents/run-spine.ts:304). `run_id` is the name used for the local
+    // variable in the run-spine writers, which is what makes this an easy
+    // mistake — and exactly the kind of error only a live-DB suite catches.
     const steps = await sql()<{ step_key: string }[]>`
-      SELECT step_key FROM agent_run_steps WHERE run_id = ${run!.id}::uuid
+      SELECT step_key FROM agent_run_steps WHERE agent_run_id = ${run!.id}::uuid
     `;
     expect(steps.map((s) => s.step_key)).toContain('review_ingested');
   });
@@ -811,19 +822,24 @@ cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-r
 ```
 Expected: 4 passed. A `SKIP` here is a FAILURE of this task — it means `TEST_DATABASE_POOL_URL` is unset and the suite proved nothing. Set it and re-run.
 
-- [ ] **Step 4: Confirm the live-DB convention audit passes**
+- [ ] **Step 4: Stage the file, THEN run the live-DB convention audit**
 
-Run:
+`scripts/ci/live-db-suites-audit.ts` enumerates files via `git ls-files`, so it
+is **blind to an untracked file** — running it before staging would pass
+vacuously and prove nothing. Stage first:
+
 ```bash
-cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm ci:live-db-suites 2>&1 | tail -10
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git add src/lib/reviews/__tests__/import-review.integration.test.ts && \
+pnpm ci:live-db-suites 2>&1 | tail -10
 ```
-Expected: PASS (the suite is correctly named and applies no migration SQL).
+Expected: PASS, and the output must actually mention the new suite. If it does
+not appear, the file is still untracked and the check was a no-op.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
-git add src/lib/reviews/__tests__/import-review.integration.test.ts && \
 git commit -m "test(#674): live-Postgres proof that importReview executes"
 ```
 
