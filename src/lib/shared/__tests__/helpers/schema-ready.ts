@@ -376,6 +376,31 @@ export const MIGRATION_099_SOLICITATION_POSTAL_ADDRESS: SchemaRequirement = {
 };
 
 /**
+ * 100 adds the Consented Review Import state to `businesses` and the ADD half
+ * of the backfill-counter collapse to `zernio_backfill_runs` (#673, epic
+ * #667; spec 2026-08-05-consented-review-import-design.md §4, §8a R4). It
+ * creates no relation and no index, so the five columns are the presence
+ * proof. The enum CHECK is named explicitly: `import_decision` can exist
+ * without it (a container provisioned from a draft that stopped at the
+ * ALTER), and in that state an invalid decision INSERTs fine — the shape
+ * suite's rejection probes would then fail as "expected 23514, got success"
+ * instead of the actionable `pnpm test:db:setup` message (099's lesson).
+ */
+export const MIGRATION_100_IMPORT_CONSENT: SchemaRequirement = {
+  migration: '100_import_consent_and_backfill_counters',
+  tables: ['businesses', 'zernio_backfill_runs'],
+  columns: [
+    'businesses.import_decision',
+    'businesses.import_decision_at',
+    'businesses.import_offer_expires_at',
+    'zernio_backfill_runs.imported_count',
+    'zernio_backfill_runs.skipped_count',
+  ],
+  indexes: [],
+  constraints: [{ table: 'businesses', name: 'businesses_import_decision_check' }],
+};
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.

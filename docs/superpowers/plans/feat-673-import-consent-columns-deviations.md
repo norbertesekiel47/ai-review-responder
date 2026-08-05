@@ -28,3 +28,18 @@ receive this file triaged.
   `verification_commands`) — REJECTED: the verify gate's own rule runs build
   only for ui surfaces; typecheck covers this backend diff and GitHub CI
   builds every PR as the backstop. **VERDICT: REJECT (recorded).**
+- **D5 (2026-08-05, Task 1 step 3c — assertion form corrected).** The plan's
+  3c block asserts `expect(reactivationJoined).not.toContain('skipped_count')`,
+  but the reactivation INSERT branch legitimately names the legacy
+  `gap_skipped_count` / `historical_skipped_count` columns, which CONTAIN that
+  substring — so the literal assertion fails against the exact existing
+  behavior 3c is meant to pin (contradicting the plan's own step-4 expectation
+  that 3c passes red) and would stay red forever under locked decision 5
+  (INSERT branches untouched). Replaced with a standalone-identifier match,
+  `expect(reactivationJoined).not.toMatch(/(?<![A-Za-z0-9_])skipped_count/)`,
+  which passes against the legacy-prefixed columns and still fails if the
+  collapsed `skipped_count` is ever added to the column list. The
+  `imported_count` absence check keeps the plan's plain `not.toContain` (no
+  legacy column contains it). 3a's INSERT-absence assertions are unchanged —
+  the initial branch names no counter columns at all, so the plan's literal
+  form is correct there.

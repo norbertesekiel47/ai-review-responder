@@ -139,6 +139,24 @@ function pushCompletedUpdate() {
   sqlReturnQueue.push(mkTaggedResult([]));
 }
 
+// #673 dual-write contract: the ONE counts UPDATE, exactly this shape, until
+// #680 drops the legacy set. Normalized against Task 3 Step 1's statement.
+const DUAL_WRITE_TEMPLATE =
+  'UPDATE zernio_backfill_runs SET gap_processed_count = ?, historical_processed_count = ?, ' +
+  'gap_skipped_count = ?, historical_skipped_count = ?, imported_count = ?, skipped_count = ?, ' +
+  'oldest_skipped_create_time = ?, updated_at = NOW() WHERE id = ?';
+
+function normalizeTemplate(template: readonly string[]): string {
+  return template.join('?').replace(/\s+/g, ' ').trim();
+}
+
+function findCountsCalls(): any[][] {
+  return mockSql.mock.calls.filter((call: any[]) => {
+    const template = call[0];
+    return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
+  });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('ZernioBackfillWorker', () => {
@@ -215,6 +233,22 @@ describe('ZernioBackfillWorker', () => {
     const firstSqlText = firstSql?.join('?') ?? '';
     expect(firstSqlText).toContain('run_reason');
     expect(firstSqlText).toContain('ON CONFLICT (correlation_id)');
+
+    // #673 locked decision 5 (reactivation branch): DEFAULT 0 owns the
+    // collapsed counters — the explicit-zero column list stays legacy-only.
+    const reactivationInsert = mockSql.mock.calls.find((call: any[]) => {
+      const template = call[0];
+      return Array.isArray(template) &&
+        template.some((s: string) => s.includes('INSERT INTO zernio_backfill_runs'));
+    });
+    expect(reactivationInsert).toBeDefined();
+    const reactivationJoined = (reactivationInsert![0] as readonly string[]).join('?');
+    expect(reactivationJoined).not.toContain('imported_count');
+    // Standalone-identifier match, NOT a bare substring check: this branch
+    // legitimately names the legacy gap_skipped_count/historical_skipped_count
+    // columns, which CONTAIN 'skipped_count' — reject the collapsed column
+    // only when it appears unprefixed (deviation D5).
+    expect(reactivationJoined).not.toMatch(/(?<![A-Za-z0-9_])skipped_count/);
   });
 
   // Archived-location guard (mirrors the ingest worker's skip-as-success):
@@ -370,6 +404,51 @@ describe('ZernioBackfillWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
+  // #673 dual-write transition (spec §8a R4): the collapsed counters ride the
+  // same UPDATE as the legacy four until #680 drops the legacy set.
+  it.each([
+    { gapTotal: 28, histTotal: 52, expected: [25, 50, 3, 2, 75, 5] },
+    { gapTotal: 27, histTotal: 51, expected: [25, 50, 2, 1, 75, 3] },
+  ])(
+    'counters UPDATE dual-writes imported_count and skipped_count as sums of the gap and historical counters (gap=$gapTotal hist=$histTotal)',
+    async ({ gapTotal, histTotal, expected }) => {
+      pushStandardSqlSetup();
+      pushCountsUpdate();
+      pushCompletedUpdate();
+
+      // gapTotal gap reviews (after activation; GAP_CAP=25) + histTotal
+      // historical (before activation; HISTORICAL_CAP=50).
+      const reviews = [
+        ...Array.from({ length: gapTotal }, (_, i) => makeReview(`rev-gap-${i}`, ACTIVATED_MS + (i + 1) * 60_000)),
+        ...Array.from({ length: histTotal }, (_, i) => makeReview(`rev-hist-${i}`, ACTIVATED_MS - (i + 1) * 3_600_000)),
+      ];
+      mockListAllReviews.mockResolvedValueOnce(reviews);
+
+      await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
+
+      // Exactly ONE counts UPDATE, exactly the contract template.
+      const countsCalls = findCountsCalls();
+      expect(countsCalls).toHaveLength(1);
+      expect(normalizeTemplate(countsCalls[0]![0])).toBe(DUAL_WRITE_TEMPLATE);
+      // Positional: legacy four, collapsed sums, oldestSkipped, runId.
+      expect(countsCalls[0]!.slice(1)).toEqual([...expected, expect.anything(), 'run-1']);
+
+      // Locked decision 5 (initial branch): the INSERT does not name the
+      // collapsed counters — DEFAULT 0 owns initialization.
+      const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
+        const template = call[0];
+        return Array.isArray(template) &&
+          template.some((s: string) => s.includes('INSERT INTO zernio_backfill_runs'));
+      });
+      expect(insertCalls.length).toBeGreaterThan(0);
+      for (const call of insertCalls) {
+        const insertJoined = (call[0] as readonly string[]).join('?');
+        expect(insertJoined).not.toContain('imported_count');
+        expect(insertJoined).not.toContain('skipped_count');
+      }
+    },
+  );
+
   // Test 5: createTime DESC sort applied BEFORE slice — newest 25 processed, not first 25 returned
   it('sort applied before slice: the 25 newest gap reviews are processed', async () => {
     pushStandardSqlSetup();
@@ -501,5 +580,14 @@ describe('ZernioBackfillWorker', () => {
         !template.some((s: string) => s.includes('gap_processed_count'));
     });
     expect(completedAtUpdateCall).toBeUndefined();
+
+    // #673: the dual-write rides the partial-counts UPDATE that precedes the
+    // reconcile-failure throw — retries must never persist legacy-only counts.
+    const [reconcileCounts] = findCountsCalls();
+    expect(reconcileCounts).toBeDefined();
+    expect(normalizeTemplate(reconcileCounts![0])).toBe(DUAL_WRITE_TEMPLATE);
+    const v = reconcileCounts!.slice(1) as number[];
+    expect(v[4]).toBe(v[0]! + v[1]!); // imported = gap + historical processed
+    expect(v[5]).toBe(v[2]! + v[3]!); // skipped = gap + historical skipped
   });
 });
