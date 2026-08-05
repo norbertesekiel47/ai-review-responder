@@ -116,12 +116,12 @@ when the worker finishes. The click must not block on the fetch.
 
 ## 4. Data model
 
-New per-location consent record (exact table/column naming to be settled in
-implementation; it may live on `businesses` or in a small dedicated table):
+New per-location consent record, as columns on the existing `businesses` row
+(owner call at charting, map #667; migration 100 / #673):
 
 | Field | Purpose |
 |---|---|
-| `import_decision` | `pending` \| `accepted` \| `declined` \| `expired` |
+| `import_decision` | `pending` \| `accepted` \| `declined` — no stored `expired` value; expiry is derived (§5.3, #670) |
 | `import_decision_at` | when the owner answered |
 | `import_offer_expires_at` | prompt creation + 7 days |
 
@@ -169,6 +169,49 @@ where no completed backfill exists (`worker/ingress/stripe/shared.ts:66-90`).
 Under this design a declined import leaves no completed run — so **the next
 `past_due → active` transition would silently import the reviews the owner
 refused.** That predicate must consult the consent record.
+
+### 5.3 Expiry mechanism and enforcement locus (locked — #670, 2026-08-05)
+
+Two coupled decisions, resolved together.
+
+**Expiry is derived, never materialised.** "Expired" means
+`import_decision = 'pending' AND import_offer_expires_at <= now()`, computed
+on read. No poller, and no stored `expired` state — §4's decision enum is
+three-valued. Nothing happens *at* the expiry moment (no notification, no side
+effect), so a poller would materialise state with no consumer, and every reader
+would still need the defensive predicate for the poller-lag window anyway. One
+predicate helper owns the derivation (the `suppressionMatchSql` pattern: a
+single named owner imported by every call site); the prompt UI, the decision
+API, the three §5 enqueue gates, and the worker check all consult it. A late
+click — the owner answering after the deadline — is rejected by the decision
+API on the same predicate; there is no lazy write-back of an `expired` value.
+
+**The block lives in the worker, fail-closed.** The admin re-enqueue path is
+manual SQL — a runbook instruction (`src/app/admin/runbook/page.tsx`), not a
+route; `/admin/jobs` is read-only — so no enqueue-time gate can ever cover it.
+The one chokepoint every path shares (product enqueues, admin hand-inserts,
+future code) is `ZernioBackfillWorker` itself. A consent gate joins the
+existing pre-flight guards (`guardZernioJobEligibility`,
+`worker/jobs/zernio/job-eligibility.ts`): the run proceeds **only** on
+`import_decision = 'accepted'`; declined, derived-expired, and pending all
+no-op-complete the outbox row with a logged reason, leaving
+`zernio_backfill_runs.completed_at` untouched. Fail-closed rather than
+block-listed: under D9 an enqueue exists only after a Yes, so anything other
+than `accepted` reaching the worker is a hand-inserted row or a bug — and a
+`pending` row that ran would import without consent (D1).
+
+Accepted-but-never-completed stays retryable exactly as §5.1 requires: the
+gate passes on `accepted`, and the `completed_at IS NULL` sentinel keeps the
+recovery path open.
+
+#676's three enqueue gates import the same predicate helper — written once,
+enforced twice: at enqueue time (no pointless rows) and at run time
+(authoritative, admin path included).
+
+The runbook instruction ("re-enqueue zernio_initial_backfill outbox row")
+becomes conditional and is updated by #679: re-enqueue only when consent is
+`accepted` and no completed run exists; declined or derived-expired is
+permanent (D8), admin path included.
 
 ---
 
