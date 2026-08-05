@@ -341,7 +341,7 @@ describe('ZernioBackfillWorker', () => {
       return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
     });
     expect(countsCallStrings).toBeDefined();
-    expect(countsCallStrings!.slice(1)).toEqual([0, 3, 0, 0, null, 'run-1']);
+    expect(countsCallStrings!.slice(1)).toEqual([0, 3, 0, 0, 3, 0, null, 'run-1']);
   });
 
   // Autopilot receives the same non-autonomy backfill capability.

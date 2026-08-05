@@ -253,12 +253,20 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   }
 
   // Always update partial counts so ops can audit even on retry.
+  // Dual-write transition (#673, spec §8a R4): the collapsed counters ride
+  // the same UPDATE as the legacy four until the #680 cleanup migration
+  // drops the legacy set. Mapping locked at map #667:
+  // imported = gap + historical processed; skipped = gap + historical skipped.
+  const importedCount = gapProcessed + historicalProcessed;
+  const skippedCount = gapSkipped + historicalSkipped;
   await sql`
     UPDATE zernio_backfill_runs
     SET gap_processed_count = ${gapProcessed},
         historical_processed_count = ${historicalProcessed},
         gap_skipped_count = ${gapSkipped},
         historical_skipped_count = ${historicalSkipped},
+        imported_count = ${importedCount},
+        skipped_count = ${skippedCount},
         oldest_skipped_create_time = ${oldestSkipped},
         updated_at = NOW()
     WHERE id = ${run.id}
