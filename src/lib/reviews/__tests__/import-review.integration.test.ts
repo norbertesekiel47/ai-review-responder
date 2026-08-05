@@ -20,6 +20,7 @@ import {
 import {
   assertSchemaReady,
   MIGRATION_071_RUN_SPINE,
+  MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { importReview } from '../process-review';
 import type { MonitoredReview } from '../types';
@@ -65,8 +66,18 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
     // Live-DB suites ASSERT their schema rather than applying migrations
     // (CLAUDE.md gotcha). Without this a behind-head container surfaces as
     // `relation "agent_runs" does not exist` inside afterAll cleanup instead
-    // of a loud, named schema failure. 071 is the run spine this suite reads.
-    await assertSchemaReady(db, [MIGRATION_071_RUN_SPINE]);
+    // of a loud, named schema failure.
+    //
+    // 071 is the run spine this suite READS. 088 is here for what the code
+    // under test WRITES: startOrGetActiveRun binds `agent_runs.parent_run_id`
+    // (run-spine.ts:120), a column 088 adds — asserting 071 alone would pass on
+    // a DB at head 071-087 and then fail at the first `it` with the raw
+    // `column "parent_run_id" does not exist`, which is the failure mode this
+    // assertion exists to eliminate. Same pairing as run-spine.integration.test.ts.
+    await assertSchemaReady(db, [
+      MIGRATION_071_RUN_SPINE,
+      MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Import Review Owner',
       accountDisplayName: 'Import Review Account',

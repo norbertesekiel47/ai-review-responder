@@ -67,15 +67,20 @@ coherent problem statement.
 
 ### S1 — REJECT
 
-The plan locks this explicitly: *"the four `it` blocks run in file order and
-share state deliberately… Do not add `beforeEach` isolation — the shared fixture
-**is** the scenario."* The four tests are one narrative (import → observe → observe
-→ re-import to prove dedup). Hoisting the import into `beforeAll` would make
-test #1 — *"stores the review against the live schema and returns new"* — assert
-on state produced outside itself, which trades one smell for another. The
-diagnostic cost the reviewer names (running one test alone throws rather than
-failing meaningfully) is real but confined to interactive debugging of a 4-test
-suite. Noted for #675 if the suite grows.
+The four tests are one narrative (import → observe → observe → re-import to prove
+dedup). Hoisting the import into `beforeAll` would make test #1 — whose
+intake-locked title is *"importReview stores the review against the live schema
+and returns new"* — assert on state produced outside itself, which trades one
+smell for another. The diagnostic cost the reviewer names (running one test alone
+throws rather than failing meaningfully) is real but confined to interactive
+debugging of a 4-test suite. Noted for #675 if the suite grows.
+
+> **Corrected in round 2:** this rejection originally leaned on the plan's line
+> *"Do not add `beforeEach` isolation — the shared fixture is the scenario."*
+> That citation does not actually answer the finding: round 1 proposed a
+> `beforeAll` **hoist**, not `beforeEach` isolation, so the quoted line forbids
+> something else. The rejection stands on the second reason above, which is the
+> load-bearing one.
 
 ### S2 — ACCEPT, fixed
 
@@ -99,10 +104,15 @@ plan's "Deliberate non-DRY" note). Should not be re-waived silently at #675.
 ### S4 — REJECT
 
 `Promise<string | null>` is genuinely narrower, and the reviewer is right on the
-principle. But the signature is plan-locked, survived three plan-review rounds,
-and changing it ripples into the canonical-order binding test — which exists
-precisely to catch positional drift in this INSERT. Not worth that churn
-post-gate for a LOW design nicety. Recorded for #675.
+principle. But the signature is plan-locked (plan `:387-392`) and survived three
+plan-review rounds. Not worth the churn post-gate for a LOW design nicety.
+Recorded for #675.
+
+> **Corrected in round 2:** this rejection originally also claimed the change
+> "ripples into the canonical-order binding test". That is overstated —
+> `process-review.test.ts:890-893` asserts `typeof params[0] === 'string'`, which
+> survives either signature; only the adjacent comment would need updating. The
+> rejection rests on the plan-lock alone.
 
 ### S5 — DEFERRED, and it may not be fixed here
 
