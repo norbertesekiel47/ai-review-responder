@@ -30,7 +30,7 @@
   ],
   "existing_patterns_to_follow": [
     "supabase/migrations/099_solicitation_postal_address.sql — additive businesses columns: header design notes, COMMENT ON COLUMN, CHECK constraints, SET lock_timeout, rollback note",
-    "src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts — migration-shape integration suite (acquireLiveDbLock, assertSchemaReady posture, *.integration.test.ts naming)",
+    "src/lib/shared/__tests__/migration-099-solicitation-postal-address.integration.test.ts — post-#573 migration-shape suite (assertSchemaReady + MIGRATION_* registry entry, rolled-back probes, no run-time DDL; supersedes the 076 reference — 076 predates #573 and applies migration SQL)",
     "worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts — mocked-sql worker test style (createMockSql helpers)"
   ],
   "allowed_edit_surface": [
@@ -39,12 +39,14 @@
     "worker/jobs/zernio/ZernioBackfillWorker.ts",
     "worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
-    "src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts"
+    "src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts",
+    "src/lib/shared/__tests__/helpers/schema-ready.ts"
   ],
   "tests_to_add": [
     "businesses.import_decision defaults to 'pending' and rejects values outside the four-state enum",
     "import_decision_at and import_offer_expires_at are nullable timestamptz with no cross-column constraint",
     "zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 alongside the four legacy counters",
+    "migration 100 executable SQL is additive-only — no data rewrite, no DROP COLUMN, no ALTER COLUMN, no CREATE INDEX",
     "counters UPDATE dual-writes imported_count and skipped_count as sums of the gap and historical counters"
   ],
   "verification_commands": [
@@ -52,7 +54,7 @@
     "pnpm ci:rls-audit"
   ],
   "estimated_prod_lines": "~100 (migration ~70 incl. header/comments, worker ~6, allowlist ~2, migrations-log ~20)",
-  "estimated_test_lines": "~180 (shape suite ~130 following 076 precedent, worker test ~50)",
+  "estimated_test_lines": "~260 (shape suite ~200 following the 099 precedent with strengthened introspection probes, worker test ~60)",
   "dependencies_added": [],
   "rollback_plan": "Additive-only by design: `git revert` of the PR restores the old worker UPDATE, which only names the legacy columns — still present until #680, so no 42703. The applied migration stays in place; the new columns are inert without code (NOT NULL DEFAULT 'pending' / DEFAULT 0 need no writer). No down migration (099 precedent). migrations-log entry carries LOCAL-ONLY until staging/prod promotion; promotion order is staging first, prod at PR merge, both verified via information_schema.columns.",
   "observability": [
