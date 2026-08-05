@@ -44,6 +44,7 @@
   "allowed_edit_surface": [
     "src/lib/reviews/process-review.ts",
     "src/lib/reviews/__tests__/process-review.test.ts",
+    "src/lib/reviews/__tests__/import-review.integration.test.ts",
     "CONTEXT.md",
     "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
     "docs/superpowers/plans/**",
@@ -57,15 +58,19 @@
     "importReview returns unchanged and performs no writes when the review already exists",
     "importReview returns unchanged when a concurrent writer wins the insert race",
     "importReview binds the review INSERT parameters in the canonical order",
-    "importReview does all of its work in exactly one transaction"
+    "importReview does all of its work in exactly one transaction",
+    "importReview stores the review against the live schema and returns new",
+    "importReview leaves the agent run terminal, not running",
+    "importReview writes no job_outbox row against the live database",
+    "importReview is idempotent on a second call for the same review"
   ],
   "verification_commands": [
-    "pnpm vitest run worker/jobs/zernio/__tests__/zernio-end-to-end.integration.test.ts"
+    "pnpm vitest run src/lib/reviews/__tests__/import-review.integration.test.ts"
   ],
   "estimated_prod_lines": "95",
-  "estimated_test_lines": "280",
+  "estimated_test_lines": "480",
   "dependencies_added": [],
-  "rollback_plan": "No migration and no schema change. importReview ships callerless, so reverting the single commit is operationally a no-op — no flag to flip, no data to back out. db_touching is set true only so the gate provisions the test DB for the zernio end-to-end integration suite, which exercises the refactored INSERT.",
+  "rollback_plan": "No migration and no schema change. importReview ships callerless, so reverting the single commit is operationally a no-op — no flag to flip, no data to back out. db_touching is true because src/lib/reviews/__tests__/import-review.integration.test.ts genuinely requires a provisioned test database.",
   "observability": [
     "A completed review_handler run carrying a review_ingested step, with no responses row for the review, is the signature of an imported review — distinguishable from a live-ingest review, whose run stays open pending its draft.",
     "Absence of a generate_response row in job_outbox for the imported review_id is the proof nothing was auto-drafted — assertable in test and queryable in staging.",

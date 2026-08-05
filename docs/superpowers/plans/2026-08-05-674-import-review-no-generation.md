@@ -20,15 +20,37 @@
 - **Run spine** — `agent_runs` / `agent_run_steps` / `agent_outcomes`, written only through `src/lib/agents/run-spine.ts`.
 - **Live-ingest lane** — the existing webhook/poller path through `processReview` that drafts a reply for every new review.
 
+## Provenance of decisions — what the spec settles vs. what this ticket settles
+
+The spec is an **epic-level** document. Its §6.2 states the requirement only —
+"storing a review as inventory needs a path that inserts and stops… sentiment
+classification still runs at the write site" — and its §2 locks D2 ("nothing is
+auto-drafted"). Everything below is a **ticket-level** design decision made in
+this run's grilling session and signed off by the owner on 2026-08-05; do not
+read them back into the spec, and do not treat a conflict with them as a
+spec violation:
+
+| Decision | Source |
+|---|---|
+| Insert-and-stop path exists; sentiment at the write site; nothing auto-drafted | spec §6.2 + D2 |
+| A separate `importReview` entry point rather than a `skipGeneration` flag | this ticket |
+| Existing row ⇒ zero writes, never the update state machine | this ticket |
+| `'new'` / `'unchanged'` return contract, race collapses to `'unchanged'` | this ticket |
+| No `SELECT … FOR UPDATE` probe | this ticket |
+| Run spine written **and completed** in the insert transaction | this ticket (deviations D3) |
+| `first_review_ingested` fires from the import | this ticket |
+| Cross-lane lost-draft race deferred to #675 | this ticket (deviations D4) |
+
 ## File structure
 
 | File | Responsibility | Change |
 |---|---|---|
 | `src/lib/reviews/process-review.ts` | The review-write module: dedup by provider identity, content-hash state machine, and (new) insert-only import | Modify — extract `insertNewReviewRow`, have `startReviewRun` return its `runId`, add exported `importReview` |
 | `src/lib/reviews/__tests__/process-review.test.ts` | Unit tests for both entry points | Modify — one line in the run-spine mock factory, plus a sibling `describe('importReview')` block |
+| `src/lib/reviews/__tests__/import-review.integration.test.ts` | Live-Postgres proof that the new path actually executes | **Create** |
 | `CONTEXT.md` | Project glossary | Modify — add the **Review import** term |
 
-**No new files.** `docs/directory.md` needs no entry: no file is created.
+**One new file, justified.** `importReview` ships with **no callers**, so nothing in the repository executes its SQL — a wrong column name, a constraint violation, or a broken `ON CONFLICT` would pass every mocked gate and be inherited as a broken keystone by #675. The mocked suite asserts the *bindings*; only a live-DB suite asserts the statement *runs*. It cannot live in `process-review.test.ts`: live-DB suites must be named `*.integration.test.ts` so vitest serializes them into the `integration` project (concurrent DDL against sibling suites deadlocks with 40P01 — see the CLAUDE.md gotcha and lab-notes "#573"). `docs/directory.md` needs no entry — it maps production code, and every sibling `__tests__/` directory is already covered by its parent entry.
 
 **Deliberate non-DRY:** the new `describe('importReview')` block duplicates ~12 lines of the existing `beforeEach` tx harness instead of hoisting a shared `setupTxHarness()`. For a KEYSTONE ticket whose hard requirement is "no behaviour change for any existing caller", leaving the existing `describe('processReview')` block **byte-for-byte untouched** is visible regression evidence in the diff, and that is worth more than 12 lines of deduplication. Do not refactor the existing block. The **only** shared-harness edit in this plan is adding `completeRun` to the module-scope `vi.mock('@/lib/agents/run-spine')` factory — required because `importReview` imports it, and behaviour-neutral for the existing tests since `processReview` never calls it.
 
@@ -41,6 +63,7 @@
 - **Task 1** (eval) — no blocking edges. Runs alone.
 - **Task 2** — blocked by Task 1.
 - **Task 3** — no blocking edges, disjoint file set (`CONTEXT.md` only). **Mutually independent with Task 2**; may run as a concurrent subagent.
+- **Task 4** — blocked by Task 2 (it calls the real `importReview`).
 
 ---
 
@@ -231,7 +254,10 @@ describe('importReview', () => {
 
   it('importReview does all of its work in exactly one transaction', async () => {
     const monitored = makeMonitoredReview();
-    mockInsertWon();
+    // earlierExists=false so maybeEnqueueFirstReviewIngested actually reaches
+    // its enqueue — with the default (true) it returns early and the
+    // enqueueAnalyticsEvent assertion below could never hold.
+    mockInsertWon(false);
 
     await importReview(sql, monitored, 'biz-1', 'corr-1');
 
@@ -558,6 +584,247 @@ Expected: exactly one hit for the term, on a line number **lower** than the firs
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
 git add CONTEXT.md && \
 git commit -m "docs(#674): CONTEXT.md glossary entry for Review import"
+```
+
+---
+
+### Task 4: Live-Postgres proof that `importReview` executes
+
+**Blocked by:** Task 2.
+
+**Why this exists:** `importReview` ships callerless. Nothing else in the repo runs its SQL, so the mocked suite could be entirely green while the statement fails against the real schema. This task is the only evidence that it runs at all.
+
+**Files:**
+- Create: `src/lib/reviews/__tests__/import-review.integration.test.ts`
+
+**Live-DB suite conventions (CLAUDE.md gotcha + lab-notes "#573") — do not violate:**
+- Name MUST end `.integration.test.ts` (puts it in vitest's serialized `integration` project).
+- The suite MUST NOT apply migration SQL. Provision once with `pnpm test:db:setup`; `describeWithDb` handles the schema assertion and skips cleanly when no database is configured.
+- Precedent to copy: `src/lib/agents/__tests__/read.integration.test.ts`.
+
+- [ ] **Step 1: Provision the test database**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm test:db:setup 2>&1 | tail -5
+```
+Expected: completes without error, schema at migrations head.
+
+- [ ] **Step 2: Write the suite**
+
+Create `src/lib/reviews/__tests__/import-review.integration.test.ts`:
+
+```typescript
+// src/lib/reviews/__tests__/import-review.integration.test.ts
+//
+// Live-Postgres proof for importReview (#674). The mocked suite in
+// process-review.test.ts asserts the BINDINGS; this asserts the statement
+// actually RUNS — every column exists, no constraint is violated, the
+// ON CONFLICT dedup really dedupes, the agent run lands terminal, and no
+// job_outbox row is written. importReview ships with no callers, so without
+// this nothing in the repo ever executes its SQL.
+//
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import postgres from 'postgres';
+import type postgresType from 'postgres';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import {
+  cleanupTenantAccount,
+  seedTenantAccount,
+  type TenantSeed,
+} from '@/lib/shared/__tests__/live-db-tenant';
+import { importReview } from '../process-review';
+import type { MonitoredReview } from '../types';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
+
+const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+
+let db: postgresType.Sql | undefined;
+let tenant: TenantSeed | undefined;
+const businessId = randomUUID();
+const providerReviewId = `import-${randomUUID()}`;
+const providerReviewName = `zernio://import-test/reviews/${providerReviewId}`;
+
+function sql(): postgresType.Sql {
+  if (!db) throw new Error('import-review integration database was not initialized');
+  return db;
+}
+
+function makeMonitored(): MonitoredReview {
+  return {
+    review: {
+      reviewerName: 'Import Fixture Reviewer',
+      starRating: 2,
+      reviewText: 'Imported inventory review.',
+      reviewDate: '2026-07-01T12:00:00.000Z',
+      detectedLanguage: 'en',
+    },
+    identity: {
+      provider: 'zernio',
+      providerReviewId,
+      providerReviewName,
+      providerLocationName: 'zernio://import-test/locations/1',
+      googleReviewName: null,
+      identityStrategy: 'zernio_id',
+    },
+    contentHash: 'import-fixture-hash',
+  } as MonitoredReview;
+}
+
+describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => {
+  beforeAll(async () => {
+    db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    tenant = await seedTenantAccount(db, {
+      userName: 'Import Review Owner',
+      accountDisplayName: 'Import Review Account',
+    });
+
+    await sql()`
+      INSERT INTO businesses (
+        id, name, owner_name, owner_email, account_id, subscription_status
+      ) VALUES (
+        ${businessId}::uuid, 'Import Review Location', 'Import Review Owner',
+        ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active'
+      )
+    `;
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    if (tenant) {
+      await sql()`DELETE FROM analytics_events WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM agent_run_steps WHERE run_id IN (
+        SELECT id FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid
+      )`;
+      await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM reviews WHERE business_id = ${businessId}::uuid`;
+      await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+      await cleanupTenantAccount(sql(), tenant);
+    }
+    await db.end({ timeout: 5 });
+  });
+
+  it('importReview stores the review against the live schema and returns new', async () => {
+    const result = await importReview(sql(), makeMonitored(), businessId, 'corr-import-1');
+
+    expect(result).toBe('new');
+
+    const [row] = await sql()<{
+      business_id: string;
+      provider: string;
+      provider_review_id: string;
+      provider_review_name: string;
+      reviewer_name: string;
+      star_rating: number;
+      status: string;
+      sentiment_label: string;
+      sentiment_source: string;
+      review_content_hash: string;
+    }[]>`
+      SELECT business_id, provider, provider_review_id, provider_review_name,
+             reviewer_name, star_rating, status,
+             sentiment_label, sentiment_source, review_content_hash
+      FROM reviews
+      WHERE provider_review_name = ${providerReviewName}
+    `;
+
+    expect(row).toBeDefined();
+    // Every binding landed in the column it was meant for — the assertion the
+    // mocked suite structurally cannot make.
+    expect(row!.business_id).toBe(businessId);
+    expect(row!.provider).toBe('zernio');
+    expect(row!.provider_review_id).toBe(providerReviewId);
+    expect(row!.reviewer_name).toBe('Import Fixture Reviewer');
+    expect(row!.star_rating).toBe(2);
+    expect(row!.status).toBe(REVIEW_STATUS.NEW);
+    expect(row!.review_content_hash).toBe('import-fixture-hash');
+    // Sentiment is classified at the write site: 2 stars → negative.
+    expect(row!.sentiment_label).toBe('negative');
+    expect(row!.sentiment_source).toBe('deterministic_star_v1');
+  });
+
+  it('importReview leaves the agent run terminal, not running', async () => {
+    const [run] = await sql()<{ id: string; status: string; ended_at: Date | null }[]>`
+      SELECT id, status, ended_at
+      FROM agent_runs
+      WHERE account_id = ${tenant!.accountId}::uuid
+        AND kind = 'review_handler'
+    `;
+
+    expect(run).toBeDefined();
+    // An imported review has no draft and no publish, so nothing downstream
+    // would ever complete this run — it would read as 'stalled' after 48h.
+    expect(run!.status).toBe('completed');
+    expect(run!.ended_at).not.toBeNull();
+
+    const steps = await sql()<{ step_key: string }[]>`
+      SELECT step_key FROM agent_run_steps WHERE run_id = ${run!.id}::uuid
+    `;
+    expect(steps.map((s) => s.step_key)).toContain('review_ingested');
+  });
+
+  it('importReview writes no job_outbox row against the live database', async () => {
+    const [reviewRow] = await sql()<{ id: string }[]>`
+      SELECT id FROM reviews WHERE provider_review_name = ${providerReviewName}
+    `;
+
+    const outbox = await sql()<{ id: string }[]>`
+      SELECT id FROM job_outbox WHERE aggregate_id::text = ${reviewRow!.id}
+    `;
+    // Cast the COLUMN, not the parameter — job_outbox.aggregate_id's declared
+    // type must not silently decide whether this comparison type-checks.
+
+    // Invariants #2 and #3: no follow-up work, so nothing this path stores
+    // can ever reach Google.
+    expect(outbox).toHaveLength(0);
+  });
+
+  it('importReview is idempotent on a second call for the same review', async () => {
+    const result = await importReview(sql(), makeMonitored(), businessId, 'corr-import-2');
+
+    // ON CONFLICT (provider, provider_review_name) DO NOTHING really dedupes.
+    expect(result).toBe('unchanged');
+
+    const rows = await sql()<{ id: string }[]>`
+      SELECT id FROM reviews WHERE provider_review_name = ${providerReviewName}
+    `;
+    expect(rows).toHaveLength(1);
+
+    // The skip wrote nothing: still exactly one run, not two.
+    const runs = await sql()<{ id: string }[]>`
+      SELECT id FROM agent_runs
+      WHERE account_id = ${tenant!.accountId}::uuid AND kind = 'review_handler'
+    `;
+    expect(runs).toHaveLength(1);
+  });
+});
+```
+
+Note the four `it` blocks run in file order and share state deliberately: the first imports, the rest observe what it produced and then re-import to prove the dedup. Do not add `beforeEach` isolation — the shared fixture *is* the scenario.
+
+- [ ] **Step 3: Run it**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm vitest run src/lib/reviews/__tests__/import-review.integration.test.ts 2>&1 | tail -25
+```
+Expected: 4 passed. A `SKIP` here is a FAILURE of this task — it means `TEST_DATABASE_POOL_URL` is unset and the suite proved nothing. Set it and re-run.
+
+- [ ] **Step 4: Confirm the live-DB convention audit passes**
+
+Run:
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && pnpm ci:live-db-suites 2>&1 | tail -10
+```
+Expected: PASS (the suite is correctly named and applies no migration SQL).
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-674-import-review-no-generation && \
+git add src/lib/reviews/__tests__/import-review.integration.test.ts && \
+git commit -m "test(#674): live-Postgres proof that importReview executes"
 ```
 
 ---

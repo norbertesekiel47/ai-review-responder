@@ -143,6 +143,89 @@ Hazards section, and as a comment on #675 at ship time. Do **not** fix in #674.
 
 ---
 
+## D7 — Round 2: the designated "verification" suite proved nothing
+
+**When:** plan review round 2 (same codex session `019fd129-…`).
+
+**What:** D2 added
+`worker/jobs/zernio/__tests__/zernio-end-to-end.integration.test.ts` to
+`verification_commands` and flipped `db_touching` to `true` on the claim that
+the suite "exercises the INSERT this ticket refactors". **Both claims were
+false.** That file's own header says it is not a real-Postgres harness; it mocks
+`sql`, `sql.begin`, *and* the entire `process-review` module
+(`vi.mock('…/src/lib/reviews/process-review', …)`), so its ingest assertions only
+prove a mock was called. It ran green in the docs-only gate at `c0cd0ad8` and
+that pass carried no information about this change.
+
+Worse, the search it prompted found that **no** live-DB suite executes
+`processReview`'s INSERT — the other `*.integration.test.ts` files that mention
+`reviews` insert fixture rows directly. Since `importReview` also ships with no
+callers, nothing in the repository would ever have executed its SQL: a wrong
+column name or constraint violation would have passed every gate and been
+inherited by #675 as a broken keystone.
+
+**Resolution:** owner decision (2026-08-05) — add
+`src/lib/reviews/__tests__/import-review.integration.test.ts` (plan Task 4), a
+real `describeWithDb` suite that calls `importReview` against the provisioned
+test database and asserts the row's columns, the terminal agent run, the absent
+`job_outbox` row, and the `ON CONFLICT` dedup. `db_touching: true` is now honest;
+`verification_commands` points at the new suite. Four test titles added to
+`tests_to_add`; `estimated_test_lines` 280 → 480.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D8 — AMENDMENT #2 and the abort criteria (flagged, not silently waived)
+
+D7's fix required adding
+`src/lib/reviews/__tests__/import-review.integration.test.ts` to
+`allowed_edit_surface`. That is the **second** amendment, and step 5's abort
+criteria nominate a 2nd surface amendment as a teardown trigger: write a
+post-mortem, destroy the branch, restart at step 1.
+
+**Not applied here, deliberately, and surfaced to the owner rather than waived
+in silence.** Reasoning:
+
+- The criteria are written for the implement→gate loop ("stop *patching*").
+  This branch has **zero implementation commits** — only docs. Nothing has been
+  patched.
+- Both amendments are additive *documentation and test* surfaces discovered by
+  adversarial plan review, which is precisely the phase whose job is to find
+  them. Neither is implementation sprawl, the drift the rule exists to catch.
+- The trigger's stated remedy is "the lane was wrong — re-run step 0 in the
+  heavier lane." This feature is already in the heaviest lane (RISK=high, full
+  pipeline, staging ride). There is no heavier lane to escalate into.
+- Restarting would re-run a grilling session whose answers are all still
+  correct, and would discard two rounds of review findings that are already
+  fixed. The teardown would cost the learning, not capture it.
+
+**The amendment budget is now exhausted.** Any third `allowed_edit_surface`
+change during implementation is a genuine signal and MUST trigger the abort
+path — no further reasoning-around.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D9 — Round 2: rejected finding
+
+**"Spec §6.2 is materially narrower than the plan represents."** Rejected as
+stated. §6.2 is an epic-level *requirement* ("a path that inserts and stops…
+sentiment classification still runs at the write site"), and §2's D2 locks
+"nothing is auto-drafted" — the plan cites both accurately. The naming, the
+`'new'`/`'unchanged'` contract, the no-lock policy and the run completion are
+**this ticket's** design decisions, made in grilling with the owner and recorded
+in the intake, not claims about what the spec says.
+
+The kernel worth keeping: a reader could confuse the two. The plan now carries a
+**"Provenance of decisions"** table naming, row by row, which decisions come from
+the spec and which from this ticket.
+
+**Verdict:** _(pending step 6)_
+
+---
+
 ## D6 — Cited-symbol correction
 
 `ZernioBackfillWorker.processUnansweredReview` is not a module-level export — it
