@@ -3,53 +3,79 @@
 **Branch:** `feat-656-postal-address-attestation`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-656-postal-address-attestation`
 **Lane:** RISK=high · SURFACE=mixed · `db_touching: true` → staging ride before `main`.
-## ▶ RESUME HERE — staging soak, then merge
+## ▶ RESUME HERE — apply 099 to prod, then merge
 
-**Everything through the staging ride is DONE.** A fresh session picks up at the
-soak. Do **not** re-run the plan, the reviews, or the migration.
+**The staging soak is DONE and PASSED (2026-08-05 07:57 UTC).** Do **not** re-run
+the plan, the reviews, the migration, or the soak. What is left is the prod
+migration and the merge.
 
 ### State as of 2026-08-05
 
 | Thing | State |
 |---|---|
-| PR | **[#666](https://github.com/RepWorth/ai-review-responder/pull/666)** → `main`, open, CI running at last check |
-| Branch HEAD | `924dc295` (main merged in; only `docs/directory.md` overlapped, auto-merged) |
-| Gate | **GREEN**, full `--review` mode |
-| `staging` branch | fast-forwarded to `924dc295` and pushed |
-| Railway staging deploy | `de752b82` — **SUCCESS**, booted 07:10 clean, **0 errors / 0 warns** |
-| Migration 099 → **staging** Supabase (`kubdiqdhqbhwmqfditeg`) | ✅ **APPLIED + verified behaviourally** |
-| Migration 099 → **prod** Supabase (`udeyaqnvpojbwgoaxwdg`) | ❌ **NOT applied — do this BEFORE merging** |
+| PR | **[#666](https://github.com/RepWorth/ai-review-responder/pull/666)** → `main`, open |
+| Branch HEAD | `a608559b` (D7 fallow fix on top of the `924dc295` main merge) |
+| Gate | **GREEN**, full `--review` mode, 29 rows at `a608559b` |
+| `staging` branch | fast-forwarded to `924dc295` — **now one commit behind the branch** (`a608559b` is test+docs only, no worker code; re-ff optional) |
+| Railway staging deploy | `de752b82` — SUCCESS, booted clean, 0 errors / 0 warns |
+| **Staging soak** | ✅ **PASSED** — live batch build, see below |
+| Migration 099 → **staging** Supabase (`kubdiqdhqbhwmqfditeg`) | ✅ **APPLIED + proven by a live build** |
+| Migration 099 → **prod** Supabase (`udeyaqnvpojbwgoaxwdg`) | ❌ **NOT applied — re-verified absent 2026-08-05. Do this BEFORE merging.** |
 | `planReviewRounds` / `branchReviewRounds` | 3 / 1 — both closed, do not reopen |
 
-### What the soak still needs to prove
+### The soak — what actually ran, and what it proved
 
-The widened `businesses` SELECT was verified by **direct query** against staging
-(returns cleanly, no `42703`), but **no live batch build has exercised it** —
-nothing enqueues `build_solicitation_batch` on staging by itself. That is the one
-gap between "deployed" and "proven".
+Triggered the real pipeline rather than a direct query: one synthetic
+`contact_csv_uploads` row + its `csv_ingest` outbox job written as a **single
+data-modifying CTE** (atomic, invariant #2), then the worker did the rest —
+OutboxPoller → ingest → `createSolicitationBatchTrigger` → build enqueue → build.
 
-To close it, trigger a real staging batch and confirm from the worker log:
-- `'solicitation batch build finished'` carries the new **`send_handoff`** field;
-- its value is `{"status":"withheld","reason":"postal_address_missing"}` for a
-  location with no attested address — every staging location is in that state
-  today (`owner_email_bounced=false`, `_attested_at=null`);
-- `status` is still `built` with a real `candidate_count`, and `withheld_by_reason`
-  is unchanged — **watch-mode must not regress**;
-- **zero** `generate_solicitation_asks` rows in `job_outbox` for that batch.
+Target: **Tancia Resort** `019f877f-2352-722c-94e6-7018319c5513`
+(`owner_email_bounced=false`, `_attested_at=NULL`, `trialing`).
+Upload `019fd0ec-fbda-7ebc-ba65-cf4aaca45c4e` → batch
+**`019fd0ed-385d-76bf-bc09-0afb81f7ba46`**.
 
-Optionally then attest an address on a staging location via
-`PUT /api/settings/postal-address` (or the `settings/profile` panel) and rebuild,
-expecting `send_handoff.status = "enqueued"`. Note `SOLICITATION_SEND_ENABLED` is
-**off** on staging, so the handoff reports `not_applicable` unless that flag is
-turned on for the test — check it before reading the result as a failure.
+```
+solicitation batch build finished  status="built"
+  selected_count=46  pool_count=46  send_count=3  withhold_count=43
+  withheld_by_reason={no_consent:39, suppressed:0, already_reviewed:0,
+                      stale_visit:0, over_contacted:4, velocity_banked:0}
+  send_handoff={"status":"not_applicable"}
+```
+
+- **No `42703`.** `status:"built"` means `constructBatch` ran the widened SELECT
+  to completion against the migrated schema. That SELECT is **unconditional** —
+  it also feeds `business.category` to the restraint policy — so it executes on
+  every build regardless of the send flag. This is the deployment risk the soak
+  existed to retire, and it is retired.
+- `send_handoff` is present on the log line.
+- **Watch-mode did not regress**: still `built`, a real count, and
+  `withheld_by_reason` still carries exactly the six existing members — no new
+  `WITHHOLD_REASONS` entry (hard constraint 3).
+- **Zero** `generate_solicitation_asks` rows — 0 for the batch, 0 globally.
+
+**Why `not_applicable` and not `withheld`:** `SOLICITATION_SEND_ENABLED` is off
+on staging (confirmed via the Railway CLI; `SOLICITATION_WATCH_ENABLED=true`), so
+the guard `summary.sendCount > 0 && solicitationSendEnabled()` short-circuits and
+`sendHandoff` stays at its `not_applicable` initializer. **`send_count` was 3,
+i.e. > 0** — the flag was the *sole* thing keeping this run out of the withheld
+branch. With it on, `sendHandoffWithheldReason(business)` would have run and
+returned `postal_address_missing`. Owner decision 2026-08-05: **do not flip the
+flag** on shared staging for one log line; the withheld VALUE is already covered
+by the integration suites. Read `not_applicable` here as expected, not as failure.
+
+**Residue left on staging (additive, harmless):** 3 synthetic contacts at
+`@example.invalid` (RFC 2606 — unroutable by construction), 1 upload, 1 batch, 46
+watch-mode ask decision rows. Nothing was sent; send is off. Delete by
+`source_upload_id` / `batch_id` above if you want staging pristine.
 
 ### Merge sequence, in this order
 
-1. Confirm PR #666 CI is green.
+1. Confirm PR #666 CI is green (`fallow` is **not** a required check — see D7).
 2. **Apply 099 to PRODUCTION Supabase FIRST** (`udeyaqnvpojbwgoaxwdg`), same SQL
    as `supabase/migrations/099_solicitation_postal_address.sql`. Migration before
    code — a prod deploy against a 099-less database throws `42703` on every batch
-   build.
+   build, and the soak above is exactly what that failure would have looked like.
 3. Merge PR #666 into `main` (squash).
 4. `git checkout staging && git merge --ff-only main && git push` so staging never drifts.
 5. Update `.claude/reference/migrations-log.md` to record prod application.
