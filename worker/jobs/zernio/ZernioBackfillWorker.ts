@@ -110,7 +110,7 @@ export function selectImportWindow(
  *  so it is persisted TERMINALLY (markOutboxFailed + Sentry, no BullMQ
  *  retry churn); completed_at stays NULL so the run remains claimable after
  *  ops bumps ZERNIO_IMPORT_MAX_PAGES (admin re-enqueue, consent permitting). */
-export class ZernioImportPaginationCapExhaustedError extends Error {
+class ZernioImportPaginationCapExhaustedError extends Error {
   constructor(
     readonly businessId: string,
     readonly cap: number,

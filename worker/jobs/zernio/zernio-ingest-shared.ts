@@ -30,6 +30,7 @@ import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
 import { normalizeGoogleReviewName } from '../../../src/lib/reviews/zernio-normalize';
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
+import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
 type SqlExecutor = postgres.Sql | TxClient;
@@ -303,25 +304,21 @@ export async function reconcileExternallyAnsweredReview(
         logger.log(`External reply branch reached but reviewReply null — no-op for review row(s) ${reviewIds.join(',')}`);
         return;
       }
-      if (targetPhi.matched) {
-        await openPhiReviewException(tx, {
-          businessId,
-          accountId,
-          locationId,
-          review: target,
-          reasons: targetPhi.reasons,
-          source: 'external_reply_import',
-        }, logger);
-        logger.warn(
-          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
-        );
-        return;
-      }
       const targetReviewRowId = matchedRows[0]!.id;
-      await importExternalReplyOntoRow(tx, businessId, targetReviewRowId, null, target.reviewReply, logger, {
-        inserted: `Imported external reply onto existing review row ${targetReviewRowId}`,
-        notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`,
-      });
+      await phiGateAndImportExternalReply(tx, {
+        businessId,
+        accountId,
+        locationId,
+        target,
+        targetPhi,
+        targetComment,
+        reviewRowId: targetReviewRowId,
+        externalReply: target.reviewReply,
+        messages: {
+          inserted: `Imported external reply onto existing review row ${targetReviewRowId}`,
+          notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`,
+        },
+      }, logger);
       return;
     }
 
@@ -376,25 +373,21 @@ export async function reconcileExternallyAnsweredReview(
     // represented locally; inserting an imported posted row would duplicate
     // it (r2 fix-defect on the mixed protected+stale case).
     if (opts?.consentedImport === true && target.reviewReply && protectedIds.size === 0) {
-      if (targetPhi.matched) {
-        await openPhiReviewException(tx, {
-          businessId,
-          accountId,
-          locationId,
-          review: target,
-          reasons: targetPhi.reasons,
-          source: 'external_reply_import',
-        }, logger);
-        logger.warn(
-          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
-        );
-        return;
-      }
       const targetReviewRowId = matchedRows[0]!.id;
-      await importExternalReplyOntoRow(tx, businessId, targetReviewRowId, null, target.reviewReply, logger, {
-        inserted: `Imported external reply onto review row ${targetReviewRowId} after superseding active draft(s)`,
-        notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped after superseding active draft(s)`,
-      });
+      await phiGateAndImportExternalReply(tx, {
+        businessId,
+        accountId,
+        locationId,
+        target,
+        targetPhi,
+        targetComment,
+        reviewRowId: targetReviewRowId,
+        externalReply: target.reviewReply,
+        messages: {
+          inserted: `Imported external reply onto review row ${targetReviewRowId} after superseding active draft(s)`,
+          notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped after superseding active draft(s)`,
+        },
+      }, logger);
     }
   });
 }
@@ -525,6 +518,45 @@ async function bumpExternalReplyIngestedCount(
         updated_at = NOW()
     WHERE business_id = ${businessId} AND completed_at IS NULL
   `;
+}
+
+/**
+ * PHI-gate then import for a matched review row — shared by branch 2 (no
+ * active responses) and the branch-3 consented tail (active responses
+ * superseded, none protected). A PHI match opens the exception row, warns,
+ * and skips the import; otherwise the reply lands via
+ * importExternalReplyOntoRow with the caller's own wording.
+ */
+async function phiGateAndImportExternalReply(
+  tx: TxClient,
+  args: {
+    businessId: string;
+    accountId: string;
+    locationId: string;
+    target: ZernioReview;
+    targetPhi: PhiDetection;
+    targetComment: string;
+    reviewRowId: string;
+    externalReply: { comment: string; updateTime: string };
+    messages: { inserted: string; notBumped: string };
+  },
+  logger: WorkerLogger,
+): Promise<void> {
+  if (args.targetPhi.matched) {
+    await openPhiReviewException(tx, {
+      businessId: args.businessId,
+      accountId: args.accountId,
+      locationId: args.locationId,
+      review: args.target,
+      reasons: args.targetPhi.reasons,
+      source: 'external_reply_import',
+    }, logger);
+    logger.warn(
+      `Likely PHI detected for matched review ${args.target.id}; review_text=${redactPhiForLog(args.targetComment)}; skipping external reply import`,
+    );
+    return;
+  }
+  await importExternalReplyOntoRow(tx, args.businessId, args.reviewRowId, null, args.externalReply, logger, args.messages);
 }
 
 /**

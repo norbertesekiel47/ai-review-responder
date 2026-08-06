@@ -31,6 +31,10 @@ Verdict vocabulary: ACCEPT (adaptation sound) / RE-PLAN (invalidates a locked de
 
 - **D13 — Stale precedent line in the same doc comment also corrected.** The plan's Task 6 rewrote only the KNOWN HAZARD paragraph, but the doc comment's closing line still cited "the `processUnansweredReview` closure inside `handleZernioBackfill`" — a closure Task 5 deleted. Reworded to "the unanswered-review path inside `handleZernioBackfill`". Doc-comment accuracy fix, zero code change. **ACCEPT.**
 
+## Step 8 ship (2026-08-06)
+
+- **D14 — CI `fallow` new-findings gate red on the PR (#689); mechanical remediation, no behavior change.** Three findings the local gate cannot see (`verify-gate.sh` excludes `ci:fallow*` by design): (1) `ZernioImportPaginationCapExhaustedError` exported with no importing consumer — tests assert on the error's *name string* in the failed outbox row, not the class — fixed by dropping `export` (merit fix per the `.fallowrc.jsonc` precedent, no suppression); (2) a 19-line clone — the deliberately-mirrored PHI-gate + reply-import tail of reconcile branches 2 and 3 (the D3 fix mirrored branch 2 verbatim) — dissolved into module-private `phiGateAndImportExternalReply`, per-branch log messages passed through byte-identical (same shape as the review-r1 F1 fix); (3) the reconcile tx arrow at HIGH complexity (22 cyclomatic / 25 cognitive / 176 lines) — the extraction drops it to 20/21/168, back under the new-findings thresholds. Full gate re-run GREEN after the fix; log strings unchanged (grep-verified by the suites). Branch review rounds stay at 2 of 3 — per the round-3 rule (RISK = high → escalate), this fix is surfaced to the owner at the merge pause instead of self-reviewed. **ACCEPT.**
+
 ## Standing plan notes (pre-decided, restated for reviewers)
 
 - Answered reviews are not PHI-screened worker-side; reconcile owns PHI on its import branches. An answered PHI review counts imported; the PHI exception row is the audit trail.
