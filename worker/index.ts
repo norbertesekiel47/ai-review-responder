@@ -215,10 +215,11 @@ const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
   { ...workerOpts, concurrency: 5 },
 );
 
-// Zernio first-connect backfill. Concurrency 1 — each backfill is heavy
-// (up to 4× listAllReviews pages + up to 75 processReview calls). This is a
-// pacing cap, not a guarded single-consumer invariant — deliberately NOT
-// assertSingleConcurrencyWorker (that guard means "double-running corrupts state").
+// Zernio first-connect consented Review import (#675). Concurrency 1 — each
+// run is heavy (up to ZERNIO_IMPORT_MAX_PAGES listReviews pages + up to 100
+// import writes). This is a pacing cap, not a guarded single-consumer
+// invariant — deliberately NOT assertSingleConcurrencyWorker (that guard
+// means "double-running corrupts state").
 const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
   QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL,
   (job) => handleZernioBackfill(sql, job),

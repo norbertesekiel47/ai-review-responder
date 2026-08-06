@@ -1575,3 +1575,96 @@ sits on #676/#677. The staging-reconcile item hit its **fifth** occurrence
 **6, threshold reached**, an architecture pass is due.
 
 ---
+
+## Consented Review Import — selection (#675, PR #689, no migration, 2026-08-06)
+
+`ZernioBackfillWorker` rewritten from the auto-drafting 50-cap backfill into the
+consented Review import executor (spec §6.1; design
+`docs/superpowers/specs/2026-08-05-consented-review-import-design.md`, plan
+`docs/superpowers/plans/2026-08-05-feat-675-consented-import-selection.md`).
+Squash commit `3219bf02`; branch commits `28bc7ecc..d2a0d221` (13); ~2,760
+insertions across 21 files, ~4:1 test:prod.
+
+### What shipped
+
+1. **Glossary first** (T1): **Import window** (`createTime ∈ [now − 12 months,
+   live-ingest cutoff)`) and **Live-ingest cutoff** (`connected_at −
+   ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS`, default 5 min) coined in
+   `CONTEXT.md`; 30 promised-test stubs landed before any implementation.
+2. **`liveIngestCutoff` seam** (T2): single owner in `zernio-ingest-shared.ts`;
+   `ZernioRecentReviewPoller` delegates (`isRecentForConnection`, ≥ cutoff),
+   the import consumes it as the window's upper bound (< cutoff). Null
+   `connected_at` → null cutoff; poller owns nothing, import unbounded above.
+   Grace complementarity is promised-tested on both sides.
+3. **`selectImportWindow`** (T3): pure selection — in-window filter, defensive
+   newest-first re-sort (Zernio ordering is verified but undocumented), take
+   100, `capOverflow` seeds `skipped_count`, `oldestSkippedCreateTime` by epoch
+   comparison (never lexicographic RFC3339). Property-tested.
+4. **`consentedImport` option** (T4): `reconcileExternallyAnsweredReview`
+   imports answered rows unconditionally in the consented lane (flag-independent);
+   branch 3 gained the consented tail — after superseding stale drafts, the
+   external reply is stored unless one of the active responses was OUR OWN
+   posted reply (`protectedIds`), which would duplicate it.
+5. **The executor** (T5): pages `listReviews` (pageSize 50) up to
+   `ZERNIO_IMPORT_MAX_PAGES` (default 6, new env var), dedupes by review id
+   across page boundaries, early-stops on target-met or floor-passed ONLY while
+   ordering is clean; a non-descending page disables both early stops for the
+   run (dirty mode pages to feed end or cap). Unanswered → `importReview`
+   (draft-free since #674); answered → reconcile; PHI-matched unanswered →
+   exception row + skip. Cap exhausted with `nextPageToken` set and <100
+   in-window → **terminal** `ZernioImportPaginationCapExhaustedError`
+   (markOutboxFailed + Sentry; `completed_at` NULL keeps the run claimable
+   after an ops cap bump). Collapsed counters only; the four legacy
+   `gap_*`/`historical_*` freeze at DEFAULT 0 (#680 drops them).
+6. **Docs truth-up** (T6): the importReview KNOWN HAZARD paragraph rewritten —
+   the lost-draft hazard is resolved by disjoint lane ownership, not by a guard.
+
+### Decisions that shaped it
+
+- **Dirty-ordering cap-out with ≥100 candidates proceeds best-effort** (locked
+  intake edge case; codex holds it should be terminal — recorded disagreement,
+  owner merged without overruling; both positions in
+  `docs/reviews/feat-675-consented-import-selection/adversarial-codex-r1.md` §3).
+- **Cap exhaustion is TERMINAL worker-side, not thrown** (D1): the backfill
+  queue has no failed-hook; BullMQ retries would refetch identical pages.
+- **Out-of-window reviews are not "skipped"** — `skipped_count` counts cap
+  overflow + PHI/malformed only; the window is selection, not skipping.
+- **Release sequencing**: this branch alone is strictly safer than the status
+  quo (nothing drafted, nothing posted, zero outbox writes), but **#679's
+  fail-closed `import_decision='accepted'` pre-flight must land before real
+  customers**; enqueue gates are #676. Prod has zero customers (ADR 0015 R1).
+
+### Reviews & deviations
+
+Plan: 3 codex rounds → APPROVED. Branch: standards r1 (5 accepted, fixed
+`7bbc0224`), spec-correctness r1 PASS, adversarial codex r1 (3 HIGHs, all
+rejected with verification — two carried to the PR as the sequencing note +
+recorded disagreement), standards r2 verification CLEAN. Deviations D1–D14
+all ACCEPT, no RE-PLAN; D12 consumed surface amendment #1
+(`scripts/ci/tenant-scope-allowlist.ts`). **D14** post-open: the CI fallow
+new-findings gate went red (unconsumed export, the mirrored PHI-gate clone,
+arrow complexity) — remediated in `d2a0d221` (de-export;
+`phiGateAndImportExternalReply` extraction, log strings byte-identical; arrow
+22→20 cyclomatic), lab-notes lesson recorded.
+
+### Staging proof
+
+Two runs on the reused test location (deploys `da602877`, `d2a0d221` —
+identical results): `Import complete … imported=29 skipped=0 pages=4
+window=[2025-08-06…, 2026-08-06T00:36:14.101Z)` with cutoff exactly
+`connected_at − 5 min`; fresh run row with collapsed counters set and all four
+legacy counters 0; zero `generate_response` / `send_notification` / other
+outbox writes; 66 list rows, the 16 externally-answered as `posted` responses.
+The dirty-ordering lane fired live (sandbox pages are non-descending in
+practice) and proceeded best-effort as specified.
+
+### Follow-ups
+
+**#679 next** (fail-closed pre-flight — release constraint), then #677 → #676
+→ #678 → #680 (drops the frozen legacy counters). Recorded, not scheduled: F3
+`ZernioBackfillWorker.test.ts` split (2,100+ lines), F2 pagination-collector
+extraction ONLY if a second caller appears, pre-#675 helper shadows in the
+poller suite. Entropy counter now **7 — the architecture pass due since 6 is
+still owed.**
+
+---
