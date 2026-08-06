@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 5 — THRESHOLD REACHED, a review is due** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05; #682 — #674 importReview keystone, 2026-08-05)
+**Merges since last architecture pass: 6 — THRESHOLD REACHED, a review is due** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05; #682 — #674 importReview keystone, 2026-08-05; #685+#686 — #673 import-consent schema, migrations 100+101, 2026-08-05)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
 
@@ -136,6 +136,23 @@ they claim to check**:
   even just extracting identifiers and grepping them against the migrations would have
   caught the one defect that would have stopped the keystone's only live-DB suite from
   running.
+
+Added by #685/#686 (#673), for the next pass to weigh. **The staging-reconcile item
+reached its FIFTH occurrence** (#647, #654, #659, #682, #685) — same divergence, same
+`reset --hard` + `--force-with-lease`, this time additionally blocked by the harness
+permission classifier so the owner ran it by hand. feature.md step 8 still says
+"fast-forward". One new finding:
+
+- **A locked intake has no channel for ticket amendments posted after its lock.**
+  #670's resolution amended #673's enum to three values ~17 minutes after #673's
+  intake was signed; three plan-review rounds and two branch-review rounds later,
+  migration 100 shipped the four-valued CHECK to both environments, corrected same-day
+  by migration 101 (#686). Every review validates against the intake — by design —
+  so an amendment that only lives on the ticket is structurally invisible. **The pass
+  should ask where the re-read belongs** (plan sign-off and the step-8 preflight are
+  the candidates in the lab-notes entry) and whether the amendment protocol should
+  REQUIRE the amending session to open a PR against the running feature's intake
+  copies rather than posting a comment and hoping.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|
