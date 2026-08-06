@@ -14,6 +14,7 @@ import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { externalReplyImportEnabled } from '../../../src/lib/publishing/flags';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -29,12 +30,32 @@ import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
 import { normalizeGoogleReviewName } from '../../../src/lib/reviews/zernio-normalize';
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
+import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
 type SqlExecutor = postgres.Sql | TxClient;
 
 const FLAG_ON = (): boolean =>
   externalReplyImportEnabled();
+
+// ── Live-ingest cutoff (CONTEXT.md glossary) ─────────────────────────────
+// connected_at − grace: the instant from which the live lane (webhook +
+// recent poller) owns review handling. The recent poller processes only
+// createTime >= cutoff (isRecentForConnection); the consented Review import
+// selects only createTime < cutoff. Disjoint by construction — this is what
+// makes the #674 lost-draft hazard structurally impossible. Null connected_at
+// → null; each caller interprets null per its own fail direction (poller:
+// owns nothing; import: no upper bound).
+const DEFAULT_CONNECT_GRACE_MS = 5 * 60_000;
+
+export function liveIngestCutoff(connectedAt: Date | null): Date | null {
+  if (!connectedAt) return null;
+  const connectedMs = connectedAt.getTime();
+  if (!Number.isFinite(connectedMs)) return null;
+  const parsed = parseInt(getWorkerConfig().ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS ?? '', 10);
+  const graceMs = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CONNECT_GRACE_MS;
+  return new Date(connectedMs - graceMs);
+}
 
 export interface IngestErrorContext {
   business_id: string;
@@ -176,6 +197,10 @@ export async function openPhiReviewException(
  * The IN clause MUST NOT include 'awaiting_manual_post' — that status is
  * decommissioned in migration 029 (spec §6.12b). Spec §13 grep acceptance
  * criterion enforces this.
+ *
+ * consentedImport: the consented Review import lane (D5) imports answered
+ * rows unconditionally — EXTERNAL_REPLY_IMPORT_ENABLED governs only the live
+ * lane's posture.
  */
 export async function reconcileExternallyAnsweredReview(
   sql: postgres.Sql,
@@ -184,6 +209,7 @@ export async function reconcileExternallyAnsweredReview(
   accountId: string,
   locationId: string,
   logger: WorkerLogger,
+  opts?: { consentedImport?: boolean },
 ): Promise<void> {
   const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
   // Use the canonical field-match predicate from zernio-field-match.ts.
@@ -214,7 +240,8 @@ export async function reconcileExternallyAnsweredReview(
     `;
 
     if (matchedRows.length === 0) {
-      if (!FLAG_ON()) {
+      const importAllowed = FLAG_ON() || opts?.consentedImport === true;
+      if (!importAllowed) {
         logger.log(`External reply on previously-unseen review ${target.id} — not ingesting`);
         return;
       }
@@ -268,7 +295,8 @@ export async function reconcileExternallyAnsweredReview(
     // re-introduction.
 
     if (activeResponses.length === 0) {
-      if (!FLAG_ON()) {
+      const importAllowed = FLAG_ON() || opts?.consentedImport === true;
+      if (!importAllowed) {
         logger.log(`External reply detected but no active responses for review row(s) ${reviewIds.join(',')} — no-op`);
         return;
       }
@@ -276,28 +304,21 @@ export async function reconcileExternallyAnsweredReview(
         logger.log(`External reply branch reached but reviewReply null — no-op for review row(s) ${reviewIds.join(',')}`);
         return;
       }
-      if (targetPhi.matched) {
-        await openPhiReviewException(tx, {
-          businessId,
-          accountId,
-          locationId,
-          review: target,
-          reasons: targetPhi.reasons,
-          source: 'external_reply_import',
-        }, logger);
-        logger.warn(
-          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
-        );
-        return;
-      }
       const targetReviewRowId = matchedRows[0]!.id;
-      const inserted = await insertImportedResponse(tx, businessId, targetReviewRowId, null, target.reviewReply);
-      if (inserted) {
-        await bumpExternalReplyIngestedCount(tx, businessId);
-        logger.log(`Imported external reply onto existing review row ${targetReviewRowId}`);
-      } else {
-        logger.log(`External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`);
-      }
+      await phiGateAndImportExternalReply(tx, {
+        businessId,
+        accountId,
+        locationId,
+        target,
+        targetPhi,
+        targetComment,
+        reviewRowId: targetReviewRowId,
+        externalReply: target.reviewReply,
+        messages: {
+          inserted: `Imported external reply onto existing review row ${targetReviewRowId}`,
+          notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`,
+        },
+      }, logger);
       return;
     }
 
@@ -342,6 +363,31 @@ export async function reconcileExternallyAnsweredReview(
         `replied externally on Google. Protected ${protectedIds.size} ` +
         `matching response(s) (our reply).`,
       );
+    }
+
+    // Consented import runs ONCE per review — it cannot rely on the live
+    // lane's eventual convergence, so store the external reply now (D5).
+    // Mirrors branch 2: PHI gate, then insertImportedResponse + counter.
+    // protectedIds.size > 0 means one of the active responses IS our own
+    // reply (approved_text matches the external text) — the reply is already
+    // represented locally; inserting an imported posted row would duplicate
+    // it (r2 fix-defect on the mixed protected+stale case).
+    if (opts?.consentedImport === true && target.reviewReply && protectedIds.size === 0) {
+      const targetReviewRowId = matchedRows[0]!.id;
+      await phiGateAndImportExternalReply(tx, {
+        businessId,
+        accountId,
+        locationId,
+        target,
+        targetPhi,
+        targetComment,
+        reviewRowId: targetReviewRowId,
+        externalReply: target.reviewReply,
+        messages: {
+          inserted: `Imported external reply onto review row ${targetReviewRowId} after superseding active draft(s)`,
+          notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped after superseding active draft(s)`,
+        },
+      }, logger);
     }
   });
 }
@@ -472,4 +518,69 @@ async function bumpExternalReplyIngestedCount(
         updated_at = NOW()
     WHERE business_id = ${businessId} AND completed_at IS NULL
   `;
+}
+
+/**
+ * PHI-gate then import for a matched review row — shared by branch 2 (no
+ * active responses) and the branch-3 consented tail (active responses
+ * superseded, none protected). A PHI match opens the exception row, warns,
+ * and skips the import; otherwise the reply lands via
+ * importExternalReplyOntoRow with the caller's own wording.
+ */
+async function phiGateAndImportExternalReply(
+  tx: TxClient,
+  args: {
+    businessId: string;
+    accountId: string;
+    locationId: string;
+    target: ZernioReview;
+    targetPhi: PhiDetection;
+    targetComment: string;
+    reviewRowId: string;
+    externalReply: { comment: string; updateTime: string };
+    messages: { inserted: string; notBumped: string };
+  },
+  logger: WorkerLogger,
+): Promise<void> {
+  if (args.targetPhi.matched) {
+    await openPhiReviewException(tx, {
+      businessId: args.businessId,
+      accountId: args.accountId,
+      locationId: args.locationId,
+      review: args.target,
+      reasons: args.targetPhi.reasons,
+      source: 'external_reply_import',
+    }, logger);
+    logger.warn(
+      `Likely PHI detected for matched review ${args.target.id}; review_text=${redactPhiForLog(args.targetComment)}; skipping external reply import`,
+    );
+    return;
+  }
+  await importExternalReplyOntoRow(tx, args.businessId, args.reviewRowId, null, args.externalReply, logger, args.messages);
+}
+
+/**
+ * Shared tail for the "matched review, active-response set resolved" branches
+ * (branch 2: no active responses; branch-3 tail: active responses superseded,
+ * none protected): insert the imported 'posted' response, bump the counter
+ * ONLY on an actual insert (an ON CONFLICT no-op must not inflate the metric),
+ * and log the outcome using the caller's own wording so each branch keeps its
+ * exact current log messages.
+ */
+async function importExternalReplyOntoRow(
+  tx: TxClient,
+  businessId: string,
+  reviewRowId: string,
+  reviewLanguage: string | null,
+  externalReply: { comment: string; updateTime: string },
+  logger: WorkerLogger,
+  messages: { inserted: string; notBumped: string },
+): Promise<void> {
+  const inserted = await insertImportedResponse(tx, businessId, reviewRowId, reviewLanguage, externalReply);
+  if (inserted) {
+    await bumpExternalReplyIngestedCount(tx, businessId);
+    logger.log(messages.inserted);
+  } else {
+    logger.log(messages.notBumped);
+  }
 }

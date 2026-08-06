@@ -13,6 +13,7 @@ vi.mock('@sentry/node', () => ({
 
 import {
   handleZernioIngestError,
+  liveIngestCutoff,
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from '../zernio-ingest-shared';
@@ -23,6 +24,7 @@ import {
   ZernioValidationError,
 } from '@/lib/zernio/errors';
 import type { ZernioReview } from '@/lib/zernio/types';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
@@ -636,5 +638,237 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(reviewInsert.values).toContain('deterministic_star_v1');
     // rating=5 → score = (5−3)/2 = 1
     expect(reviewInsert.values).toContain(1);
+  });
+});
+
+// ── #675 shared test fixtures ────────────────────────────────────────────
+// mkTaggedResult / mkRecordingTx / mkReview are shared by BOTH #675 describe
+// blocks below ("consentedImport option" + "consented import seams") —
+// hoisted here to module scope after the two blocks accreted separate copies
+// of the same three helpers.
+type RecordedCall = { sql: string; values: unknown[] };
+
+const mkTaggedResult = <T = unknown>(rows: T[]) => {
+  const arr = rows as unknown as T[] & { count: number };
+  arr.count = rows.length;
+  return arr;
+};
+
+const mkRecordingTx = (handlers: Array<(rec: RecordedCall) => unknown[]>) => {
+  const calls: RecordedCall[] = [];
+  let idx = 0;
+  const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const rec: RecordedCall = { sql: strings.join('?'), values };
+    calls.push(rec);
+    const handler = handlers[idx];
+    idx += 1;
+    const rows = handler ? handler(rec) : [];
+    return Promise.resolve(mkTaggedResult(rows));
+  });
+  // Identity pass-through for openPhiReviewException's `db.json(...)` bind.
+  (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+  return { tx, calls };
+};
+
+const mkReview = (overrides: Partial<ZernioReview> = {}): ZernioReview => ({
+  id: 'rev-1',
+  name: 'accounts/A/locations/L/reviews/rev-1',
+  reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+  rating: 5,
+  starRating: 'FIVE',
+  comment: 'Great!',
+  createTime: '2026-04-01T00:00:00Z',
+  updateTime: '2026-04-01T00:00:00Z',
+  reviewReply: { comment: 'Thanks for the review!', updateTime: '2026-04-02T00:00:00Z' },
+  ...overrides,
+});
+
+// ── #675 Task 4 — consentedImport option ──────────────────────────────────
+// D5: the consented Review import lane imports answered rows UNCONDITIONALLY;
+// EXTERNAL_REPLY_IMPORT_ENABLED continues to govern only the live lane's
+// posture. All tests below run with the flag unset/false to prove the
+// `{ consentedImport: true }` option — not the flag — drives the behavior.
+describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', () => {
+  const ORIGINAL_FLAG = process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_FLAG === undefined) {
+      delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+    } else {
+      process.env.EXTERNAL_REPLY_IMPORT_ENABLED = ORIGINAL_FLAG;
+    }
+  });
+
+  it('(a) previously-unseen answered review + consentedImport:true → review row inserted + imported posted response inserted', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [],                          // 1. SELECT matched rows → none.
+      () => [{ id: 'new-review-uuid' }], // 2. INSERT INTO reviews … RETURNING id.
+      () => [{}],                        // 3. INSERT INTO responses … RETURNING 1.
+      () => [],                          // 4. UPDATE zernio_backfill_runs (counter bump).
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      sql, mkReview(), 'B', 'A', 'L', logger as any, { consentedImport: true },
+    );
+
+    expect(calls).toHaveLength(4);
+    expect(calls[1]!.sql).toContain('INSERT INTO reviews');
+    expect(calls[2]!.sql).toContain('INSERT INTO responses');
+    expect(calls[2]!.sql).toContain("'posted'");
+    expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
+  });
+
+  it('(b) matched row with no active responses + consentedImport:true → imported response inserted onto the existing row', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [{ id: 'rev-row-1', provider: 'zernio' }], // 1. SELECT matched rows.
+      () => [],                                        // 2. SELECT active responses → none.
+      () => [{}],                                       // 3. INSERT INTO responses … RETURNING 1.
+      () => [],                                        // 4. UPDATE zernio_backfill_runs (counter bump).
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      sql, mkReview(), 'B', 'A', 'L', logger as any, { consentedImport: true },
+    );
+
+    expect(calls).toHaveLength(4);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO reviews'))).toBe(true);
+    expect(calls[2]!.sql).toContain('INSERT INTO responses');
+    expect(calls[2]!.values).toContain('rev-row-1');
+    expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply onto existing review'));
+  });
+
+  it('(c) no opts passed → existing silent no-op behavior preserved (regression guard)', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [], // 1. SELECT matched rows → none.
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(sql, mkReview(), 'B', 'A', 'L', logger as any);
+
+    expect(calls).toHaveLength(1);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO'))).toBe(true);
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('previously-unseen'));
+  });
+
+  it('(e) matched row with active draft + PHI-flagged review text + consentedImport:true → PHI exception opened, no response insert', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [{ id: 'rev-row-1', provider: 'zernio' }],                                     // 1. SELECT matched rows.
+      () => [{ id: 'resp-1', status: 'pending_approval', approved_text: 'Different text' }], // 2. SELECT active responses (stale, non-matching).
+      () => [{ id: 'resp-1' }],                                                             // 3. UPDATE responses (supersede).
+      // 4. INSERT INTO review_exceptions — handler left undefined so it
+      //    returns [] (mirrors the "already-open exception" shortcut used
+      //    by the existing branch-2 PHI tests above).
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      sql,
+      mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
+      'B', 'A', 'L', logger as any, { consentedImport: true },
+    );
+
+    expect(calls).toHaveLength(4);
+    expect(calls[3]!.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(JSON.stringify(calls[3])).not.toContain('MRN 12345');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
+  });
+
+  it('(f) mixed protected + stale active responses + consentedImport:true → stale superseded, protected kept, NO imported response inserted', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [{ id: 'rev-row-1', provider: 'zernio' }], // 1. SELECT matched rows.
+      () => [                                          // 2. SELECT active responses.
+        { id: 'resp-protected', status: 'approved', approved_text: 'Thanks for the review!' },
+        { id: 'resp-stale', status: 'approved', approved_text: 'Old draft text' },
+      ],
+      () => [{ id: 'resp-stale' }],                     // 3. UPDATE responses (supersede stale only — protected is excluded).
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      sql, mkReview(), 'B', 'A', 'L', logger as any, { consentedImport: true },
+    );
+
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.sql).toContain('UPDATE responses');
+    expect(calls[2]!.values).toContainEqual(['resp-stale']);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Superseded 1 active response'));
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Protected 1'));
+  });
+});
+
+// ── #675 consented import seams ───────────────────────────────────────────
+describe('consented import seams (#675)', () => {
+  it('(d) stores the external posted response when a consented answered import supersedes an active draft', async () => {
+    const sql = makeSqlMock();
+    const { tx, calls } = mkRecordingTx([
+      () => [{ id: 'rev-row-1', provider: 'zernio' }],                                                  // 1. SELECT matched rows.
+      () => [{ id: 'resp-1', status: 'pending_approval', approved_text: 'Draft text not sent yet' }],    // 2. SELECT active responses (stale draft).
+      () => [{ id: 'resp-1' }],                                                                          // 3. UPDATE responses (supersede).
+      () => [{}],                                                                                        // 4. INSERT INTO responses (imported posted reply).
+      () => [],                                                                                          // 5. UPDATE zernio_backfill_runs (counter bump).
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      sql, mkReview(), 'B', 'A', 'L', logger as any, { consentedImport: true },
+    );
+
+    expect(calls).toHaveLength(5);
+    expect(calls[2]!.sql).toContain('UPDATE responses');
+    expect(calls[3]!.sql).toContain('INSERT INTO responses');
+    expect(calls[3]!.sql).toContain("'posted'");
+    expect(calls[4]!.sql).toContain('UPDATE zernio_backfill_runs');
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Superseded 1 active response'));
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
+  });
+
+  describe('liveIngestCutoff', () => {
+    const ORIGINAL_GRACE = process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
+
+    afterEach(() => {
+      if (ORIGINAL_GRACE === undefined) {
+        delete process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
+      } else {
+        process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = ORIGINAL_GRACE;
+      }
+      resetWorkerConfigForTests();
+    });
+
+    it('honors configured ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS in liveIngestCutoff', () => {
+      process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = '120000';
+      resetWorkerConfigForTests();
+
+      const connectedAt = new Date('2026-05-10T06:28:15.000Z');
+      const cutoff = liveIngestCutoff(connectedAt);
+
+      // NOT the 5-minute default — the configured 120s grace.
+      expect(cutoff).toEqual(new Date(connectedAt.getTime() - 120_000));
+      expect(liveIngestCutoff(null)).toBeNull();
+    });
   });
 });

@@ -45,10 +45,20 @@ vi.mock('../../../../src/lib/reviews/process-review', () => ({
   processReview: mockProcessReview,
 }));
 
-vi.mock('../../../jobs/zernio/zernio-ingest-shared', () => ({
-  reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
-  openPhiReviewException: mockOpenPhiReviewException,
-}));
+// liveIngestCutoff must stay the REAL implementation (re-exported via
+// vi.importActual) so the ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS config seam
+// stays live for this suite — a hard-coded 5-min reimplementation here would
+// silently stop covering the poller's grace-boundary behavior.
+vi.mock('../../../jobs/zernio/zernio-ingest-shared', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../jobs/zernio/zernio-ingest-shared')
+  >('../../../jobs/zernio/zernio-ingest-shared');
+  return {
+    liveIngestCutoff: actual.liveIngestCutoff,
+    reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+    openPhiReviewException: mockOpenPhiReviewException,
+  };
+});
 
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: mockApplyAuthErrorFallback,
@@ -88,6 +98,7 @@ describe('ZernioRecentReviewPoller', () => {
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS;
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY;
     delete process.env.ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS;
+    delete process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
     // readPositiveInt now reads the memoized getWorkerConfig(); clear the memo so
     // each test's ZERNIO_RECENT_REVIEW_POLL_* override is parsed fresh (#6).
     resetWorkerConfigForTests();
@@ -326,6 +337,42 @@ describe('ZernioRecentReviewPoller', () => {
     ));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"business_id":"business-1"'));
     expect(mockProcessReview).not.toHaveBeenCalled();
+  });
+
+  it('processes a review at the live-ingest cutoff and skips one below it under configured grace', async () => {
+    process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = '120000';
+    const connectedAt = new Date('2026-05-10T06:30:00.000Z');
+    sqlReturnQueue.push([
+      {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: connectedAt,
+        subscription_status: 'active',
+        updated_at: connectedAt,
+      },
+    ]);
+    // cutoff = connectedAt - 120000ms. At-cutoff is processed; one ms below is skipped.
+    const atCutoff = new Date(connectedAt.getTime() - 120_000).toISOString();
+    const belowCutoff = new Date(connectedAt.getTime() - 120_001).toISOString();
+    mockListReviews.mockResolvedValueOnce({
+      reviews: [
+        makeReview({ id: 'review-at-cutoff', createTime: atCutoff }),
+        makeReview({
+          id: 'review-below-cutoff',
+          name: 'accounts/google-account/locations/location-1/reviews/review-below-cutoff',
+          createTime: belowCutoff,
+        }),
+      ],
+    });
+    mockProcessReview.mockResolvedValue('new');
+
+    const result = await runOnce();
+
+    expect(result.reviewsSeen).toBe(2);
+    expect(result.reviewsProcessed).toBe(1);
+    expect(result.reviewsSkipped).toBe(1);
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
   });
 
   describe('per-cycle bounds (deep-scan §3.7)', () => {

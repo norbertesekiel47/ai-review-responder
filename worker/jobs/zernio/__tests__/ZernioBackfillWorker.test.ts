@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fc from 'fast-check';
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
@@ -12,11 +13,14 @@ const {
   resetMockSql,
   mkTaggedResult,
   mockMarkOutboxCompleted,
-  mockListAllReviews,
+  mockMarkOutboxFailed,
+  mockListReviews,
   mockProcessReview,
+  mockImportReview,
   mockReconcileExternallyAnsweredReview,
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
+  mockSentryCaptureException,
   mockLogger,
 } = await vi.hoisted(async () => {
   const { createMockSql, mkTaggedResult, mockWorkerLogger } =
@@ -24,15 +28,19 @@ const {
 
   return {
     // sql.begin is not needed by ZernioBackfillWorker directly (it doesn't
-    // call sql.begin itself — processReview and reconcile do, both mocked).
+    // call sql.begin itself — importReview and reconcile do, both mocked;
+    // the PHI path's sql.begin wrapper invokes the mocked openPhiReviewException).
     ...createMockSql(),
     mkTaggedResult,
     mockMarkOutboxCompleted: vi.fn(),
-    mockListAllReviews: vi.fn(),
+    mockMarkOutboxFailed: vi.fn(),
+    mockListReviews: vi.fn(),
     mockProcessReview: vi.fn(),
+    mockImportReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
     mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
+    mockSentryCaptureException: vi.fn(),
     mockLogger: mockWorkerLogger(),
   };
 });
@@ -41,23 +49,35 @@ const {
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
-  markOutboxFailed: vi.fn(),
+  markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({
     outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback,
     attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined,
   }),
 }));
 vi.mock('../../../../src/lib/zernio/client', () => ({
-  zernioClient: { listAllReviews: mockListAllReviews },
+  zernioClient: { listReviews: mockListReviews },
 }));
 vi.mock('../../../../src/lib/reviews/process-review', () => ({
   processReview: mockProcessReview,
+  importReview: mockImportReview,
 }));
-vi.mock('../zernio-ingest-shared', () => ({
-  reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
-  openPhiReviewException: mockOpenPhiReviewException,
-  handleZernioIngestError: mockHandleZernioIngestError,
-}));
+// liveIngestCutoff must stay the REAL implementation (re-exported via
+// vi.importActual) so the ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS config seam
+// stays live for this suite — a hard-coded 5-min reimplementation here would
+// silently stop covering the import's grace-boundary behavior (Task 2's test
+// pins the seam; D7).
+vi.mock('../zernio-ingest-shared', async () => {
+  const actual = await vi.importActual<typeof import('../zernio-ingest-shared')>(
+    '../zernio-ingest-shared',
+  );
+  return {
+    liveIngestCutoff: actual.liveIngestCutoff,
+    reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+    openPhiReviewException: mockOpenPhiReviewException,
+    handleZernioIngestError: mockHandleZernioIngestError,
+  };
+});
 vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
   checkSubscription: (input: { status: string }) => {
     if (input.status === 'active') return { allowed: true };
@@ -67,8 +87,18 @@ vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
 vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
 }));
+vi.mock('@sentry/node', () => ({
+  captureException: mockSentryCaptureException,
+  captureMessage: vi.fn(),
+}));
 
-import { handleZernioBackfill } from '../ZernioBackfillWorker';
+import {
+  handleZernioBackfill,
+  selectImportWindow,
+  IMPORT_TARGET_COUNT,
+  IMPORT_FLOOR_MONTHS,
+} from '../ZernioBackfillWorker';
+import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 // handleZernioBackfill now takes the injected client as its leading arg;
 // mockSql (createMockSql()'s tagged-template mock) doesn't structurally match
@@ -79,7 +109,23 @@ const sqlArg = mockSql as unknown as Sql;
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
 const ACTIVATED_AT = '2026-04-01T00:00:00Z';
-const ACTIVATED_MS = new Date(ACTIVATED_AT).getTime();
+
+// Frozen "now" for every handler test — the Import window's floor is derived
+// from runtime now (12 calendar months back), so fixtures anchor to T_NOW.
+const T_NOW = Date.parse('2026-08-05T12:00:00.000Z');
+/** The runtime import floor, derived exactly as the handler derives it. */
+const IMPORT_FLOOR_RUNTIME_MS = (() => {
+  const d = new Date(T_NOW);
+  d.setMonth(d.getMonth() - IMPORT_FLOOR_MONTHS);
+  return d.getTime();
+})();
+const CONNECTED_MS = T_NOW - 60 * 60_000; // connected one hour before T_NOW
+const DEFAULT_GRACE_MS = 5 * 60_000;
+/** Live-ingest cutoff under the DEFAULT 5-min grace (no env override). */
+const CUTOFF_MS = CONNECTED_MS - DEFAULT_GRACE_MS;
+/** In-window createTime, newest at i=0, spaced one minute below the cutoff. */
+const inWindowMs = (i: number) => CUTOFF_MS - 60_000 * (i + 1);
+const BELOW_FLOOR_MS = IMPORT_FLOOR_RUNTIME_MS - 86_400_000;
 
 function makeJob(overrides: Partial<ZernioInitialBackfillPayload> = {}): Job<ZernioInitialBackfillPayload> {
   return {
@@ -109,51 +155,63 @@ function makeReview(id: string, createTimeMs: number, hasReply = false): ZernioR
   };
 }
 
-/** Push the 4 standard SQL results in order:
- *  1. INSERT zernio_backfill_runs (no result needed)
- *  2. SELECT run row → row with no completed_at
- *  3. SELECT business → active biz
- *  Then optionally add more for the counts/completed updates.
+function page(reviews: ZernioReview[], nextPageToken?: string) {
+  return { reviews, nextPageToken };
+}
+
+/** Push the 4 standard SQL results for a run that proceeds to the fetch:
+ *  1. INSERT zernio_backfill_runs (ON CONFLICT DO NOTHING → no rows)
+ *  2. SELECT run row → not yet completed
+ *  3. SELECT businesses⋈accounts (eligibility gate) → active
+ *  4. SELECT zernio_connections → connected_at row
+ *  Counts/completed UPDATE results are not queued — the mock yields [] on an
+ *  empty queue, which is what an UPDATE returns anyway.
  */
-function pushStandardSqlSetup(runId = 'run-1') {
-  // 1. INSERT ON CONFLICT DO NOTHING → no rows needed
+function pushImportSqlSetup(opts: {
+  runId?: string;
+  connectedAt?: Date | null;
+  noConnection?: boolean;
+} = {}) {
+  const { runId = 'run-1', connectedAt = new Date(CONNECTED_MS), noConnection = false } = opts;
   sqlReturnQueue.push(mkTaggedResult([]));
-  // 2. SELECT run row (not yet completed)
   sqlReturnQueue.push(mkTaggedResult([{ id: runId, completed_at: null }]));
-  // 3. SELECT business (active, not archived)
   sqlReturnQueue.push(mkTaggedResult([{
     subscription_status: 'active',
     past_due_at: null,
     account_flags: {},
     archived_at: null,
   }]));
+  sqlReturnQueue.push(mkTaggedResult(noConnection ? [] : [{ connected_at: connectedAt }]));
 }
 
-function pushCountsUpdate() {
-  // UPDATE zernio_backfill_runs (counts)
-  sqlReturnQueue.push(mkTaggedResult([]));
+const LEGACY_COUNTER_COLUMNS = [
+  'gap_processed_count',
+  'historical_processed_count',
+  'gap_skipped_count',
+  'historical_skipped_count',
+] as const;
+
+/** All captured tagged-template texts, values replaced by `?`. */
+function sqlTexts(): string[] {
+  return mockSql.mock.calls
+    .filter((call: any[]) => Array.isArray(call[0]))
+    .map((call: any[]) => (call[0] as readonly string[]).join('?'));
 }
 
-function pushCompletedUpdate() {
-  // UPDATE zernio_backfill_runs (completed_at)
-  sqlReturnQueue.push(mkTaggedResult([]));
-}
-
-// #673 dual-write contract: the ONE counts UPDATE, exactly this shape, until
-// #680 drops the legacy set. Normalized against Task 3 Step 1's statement.
-const DUAL_WRITE_TEMPLATE =
-  'UPDATE zernio_backfill_runs SET gap_processed_count = ?, historical_processed_count = ?, ' +
-  'gap_skipped_count = ?, historical_skipped_count = ?, imported_count = ?, skipped_count = ?, ' +
-  'oldest_skipped_create_time = ?, updated_at = NOW() WHERE id = ?';
-
-function normalizeTemplate(template: readonly string[]): string {
-  return template.join('?').replace(/\s+/g, ' ').trim();
-}
-
-function findCountsCalls(): any[][] {
+/** The collapsed-counters UPDATE calls (the only statement naming imported_count). */
+function findImportCountsCalls(): any[][] {
   return mockSql.mock.calls.filter((call: any[]) => {
     const template = call[0];
-    return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
+    return Array.isArray(template) && template.some((s: string) => s.includes('imported_count'));
+  });
+}
+
+function findCompletedAtUpdates(): any[][] {
+  return mockSql.mock.calls.filter((call: any[]) => {
+    const template = call[0];
+    return Array.isArray(template) &&
+      template.some((s: string) => s.includes('completed_at = NOW()')) &&
+      template.some((s: string) => s.includes('zernio_backfill_runs'));
   });
 }
 
@@ -165,17 +223,39 @@ function findBackfillInsertCalls(): any[][] {
   });
 }
 
+const importedIds = (): string[] =>
+  mockImportReview.mock.calls.map((c: any[]) => c[1].identity.providerReviewId as string);
+const reconciledIds = (): string[] =>
+  mockReconcileExternallyAnsweredReview.mock.calls.map((c: any[]) => (c[1] as ZernioReview).id);
+
+function resetHarnessForNextRun() {
+  vi.clearAllMocks();
+  resetMockSql();
+  mockImportReview.mockResolvedValue('new');
+  mockProcessReview.mockResolvedValue(undefined);
+  mockReconcileExternallyAnsweredReview.mockResolvedValue(undefined);
+  mockHandleZernioIngestError.mockResolvedValue(undefined);
+}
+
+// ── Shared setup (both describes) ────────────────────────────────────────
+
+beforeEach(() => {
+  resetHarnessForNextRun();
+  delete process.env.ZERNIO_IMPORT_MAX_PAGES;
+  delete process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
+  // maxPages/grace read the memoized getWorkerConfig(); clear the memo so each
+  // test re-parses the current env (tests below set overrides then reset again).
+  resetWorkerConfigForTests();
+  vi.useFakeTimers({ now: T_NOW });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('ZernioBackfillWorker', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetMockSql();
-    mockProcessReview.mockResolvedValue(undefined);
-    mockReconcileExternallyAnsweredReview.mockResolvedValue(undefined);
-    mockHandleZernioIngestError.mockResolvedValue(undefined);
-  });
-
   it('fails closed on an unsupported tier before SQL, provider, or child work', async () => {
     const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
 
@@ -186,82 +266,45 @@ describe('ZernioBackfillWorker', () => {
 
     expect(mockSql).not.toHaveBeenCalled();
     expect(sqlReturnQueue).toHaveLength(0);
-    expect(mockListAllReviews).not.toHaveBeenCalled();
-    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
-  // Test 1: First run — gap-only fixture
-  it('first run: 5 gap reviews → 5 processReview calls with suppressNotification, outbox completed', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
-
-    // 5 reviews all after activated_at
-    const reviews = Array.from({ length: 5 }, (_, i) =>
-      makeReview(`rev-${i}`, ACTIVATED_MS + (i + 1) * 60_000),
-    );
-    mockListAllReviews.mockResolvedValueOnce(reviews);
-
-    await handleZernioBackfill(sqlArg, makeJob());
-
-    expect(mockListAllReviews).toHaveBeenCalledWith('acct-1', {
-      locationId: 'loc-1',
-      pageSize: 50,
-      maxPages: 4,
-    });
-    expect(mockProcessReview).toHaveBeenCalledTimes(5);
-    // Every processReview call must have suppressNotification: true
-    for (const call of mockProcessReview.mock.calls) {
-      expect(call[4]).toMatchObject({ suppressNotification: true });
-    }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
-  });
-
   it('reactivation backfill does not skip when an initial backfill completed earlier', async () => {
-    sqlReturnQueue.push(mkTaggedResult([]));
-    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
-    sqlReturnQueue.push(mkTaggedResult([{
-      subscription_status: 'active',
-      past_due_at: null,
-      account_flags: {},
-    }]));
-    pushCountsUpdate();
-    pushCompletedUpdate();
-    mockListAllReviews.mockResolvedValueOnce([
-      makeReview('rev-reactivated', ACTIVATED_MS + 60_000),
-    ]);
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('rev-reactivated', inWindowMs(0)),
+    ]));
 
     await handleZernioBackfill(sqlArg, makeJob({ backfill_reason: 'reactivation' }));
 
-    expect(mockListAllReviews).toHaveBeenCalled();
-    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    expect(mockListReviews).toHaveBeenCalled();
+    expect(mockImportReview).toHaveBeenCalledTimes(1);
     const firstSql = mockSql.mock.calls[0]?.[0] as TemplateStringsArray | undefined;
     const firstSqlText = firstSql?.join('?') ?? '';
     expect(firstSqlText).toContain('run_reason');
     expect(firstSqlText).toContain('ON CONFLICT (correlation_id)');
 
-    // #673 locked decision 5 (reactivation branch): DEFAULT 0 owns the
-    // collapsed counters — the explicit-zero column list stays legacy-only.
+    // #675: the reactivation INSERT no longer names ANY counter column —
+    // DEFAULT 0 owns all of them (the four legacy ones froze at their
+    // defaults when the #673 dual-write contract ended here).
     const [reactivationInsert] = findBackfillInsertCalls();
     expect(reactivationInsert).toBeDefined();
     const reactivationJoined = (reactivationInsert![0] as readonly string[]).join('?');
     expect(reactivationJoined).not.toContain('imported_count');
-    // Standalone-identifier match, NOT a bare substring check: this branch
-    // legitimately names the legacy gap_skipped_count/historical_skipped_count
-    // columns, which CONTAIN 'skipped_count' — reject the collapsed column
-    // only when it appears unprefixed (deviation D5).
+    // Standalone-identifier match, NOT a bare substring check (deviation D5).
     expect(reactivationJoined).not.toMatch(/(?<![A-Za-z0-9_])skipped_count/);
   });
 
   // Archived-location guard (mirrors the ingest worker's skip-as-success):
   // archived locations keep status='active' connections for reactivation, so
   // a queued backfill for an archived location must complete WITHOUT walking
-  // listAllReviews — never fail or burn a retry. The row is also marked
+  // listReviews — never fail or burn a retry. The row is also marked
   // cancelled to pin the archived-before-subscription ordering: the exit must
   // be the queryable archived path, not the silent subscription skip.
-  it('archived location: skip-as-success — listAllReviews never called, structured log, outbox completed', async () => {
+  it('archived location: skip-as-success — listReviews never called, structured log, outbox completed', async () => {
     // 1. INSERT zernio_backfill_runs (no result needed)
     sqlReturnQueue.push(mkTaggedResult([]));
     // 2. SELECT run row (not yet completed)
@@ -276,8 +319,8 @@ describe('ZernioBackfillWorker', () => {
 
     await handleZernioBackfill(sqlArg, makeJob());
 
-    expect(mockListAllReviews).not.toHaveBeenCalled();
-    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
     expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
@@ -287,13 +330,7 @@ describe('ZernioBackfillWorker', () => {
 
     // completed_at must NOT be stamped — un-archiving re-enters the same
     // zernio_backfill_runs row idempotently (same rule as the subscription skip).
-    const completedAtUpdateCall = mockSql.mock.calls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) &&
-        template.some((s: string) => s.includes('completed_at = NOW()')) &&
-        template.some((s: string) => s.includes('zernio_backfill_runs'));
-    });
-    expect(completedAtUpdateCall).toBeUndefined();
+    expect(findCompletedAtUpdates()).toHaveLength(0);
   });
 
   // Row-missing guard: the shared eligibility gate checks "no businesses⋈
@@ -309,209 +346,331 @@ describe('ZernioBackfillWorker', () => {
 
     await handleZernioBackfill(sqlArg, makeJob());
 
-    expect(mockListAllReviews).not.toHaveBeenCalled();
-    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
     expect(mockLogger.log).toHaveBeenCalledWith(
       expect.stringContaining('subscription_status=missing'),
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  // Historical replies are a non-autonomy feature available to Copilot.
-  it('Copilot processes historical reviews up to the historical cap', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
+  // Reconcile failure → partial counts written, completed_at NOT set, worker
+  // throws so BullMQ retries (idempotent: importReview ON CONFLICT +
+  // supersession idempotency).
+  it('reconcile failure: counts written but completed_at not set, worker throws', async () => {
+    pushImportSqlSetup();
 
-    // 3 reviews all before activated_at (historical)
-    const reviews = Array.from({ length: 3 }, (_, i) =>
-      makeReview(`rev-hist-${i}`, ACTIVATED_MS - (i + 1) * 3_600_000),
+    const answeredReview1 = makeReview('answered-1', inWindowMs(0), true);
+    const answeredReview2 = makeReview('answered-2', inWindowMs(1), true);
+    mockListReviews.mockResolvedValueOnce(page([answeredReview1, answeredReview2]));
+
+    // First reconcile succeeds, second fails
+    mockReconcileExternallyAnsweredReview
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('DB timeout'));
+
+    await expect(handleZernioBackfill(sqlArg, makeJob())).rejects.toThrow(
+      'Import reconciliation failed for 1 review(s)',
     );
-    mockListAllReviews.mockResolvedValueOnce(reviews);
 
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'copilot' }));
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
 
-    expect(mockProcessReview).toHaveBeenCalledTimes(3);
-    for (const call of mockProcessReview.mock.calls) {
-      expect(call[4]).toMatchObject({ suppressNotification: true });
-    }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
-
-    // Verify the counts UPDATE (the call naming gap_processed_count).
-    const [countsCallStrings] = findCountsCalls();
-    expect(countsCallStrings).toBeDefined();
-    expect(countsCallStrings!.slice(1)).toEqual([0, 3, 0, 0, 3, 0, null, 'run-1']);
-  });
-
-  // Autopilot receives the same non-autonomy backfill capability.
-  it('Autopilot processes historical reviews up to cap=50', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
-
-    // 10 historical reviews (all before activated_at)
-    const reviews = Array.from({ length: 10 }, (_, i) =>
-      makeReview(`rev-hist-${i}`, ACTIVATED_MS - (i + 1) * 3_600_000),
-    );
-    mockListAllReviews.mockResolvedValueOnce(reviews);
-
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
-
-    // All 10 should be processed (under cap of 50)
-    expect(mockProcessReview).toHaveBeenCalledTimes(10);
-    for (const call of mockProcessReview.mock.calls) {
-      expect(call[4]).toMatchObject({ suppressNotification: true });
-    }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
-  });
-
-  // Mixed 30 gap + 30 historical on Autopilot → gap=25, historical=30.
-  it('mixed Autopilot backfill caps gap at 25 and processes 30 historical reviews', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
-
-    // 30 gap reviews (after activated_at), 30 historical (before)
-    const gapReviews = Array.from({ length: 30 }, (_, i) =>
-      makeReview(`gap-${i}`, ACTIVATED_MS + (i + 1) * 60_000),
-    );
-    const histReviews = Array.from({ length: 30 }, (_, i) =>
-      makeReview(`hist-${i}`, ACTIVATED_MS - (i + 1) * 3_600_000),
-    );
-    mockListAllReviews.mockResolvedValueOnce([...gapReviews, ...histReviews]);
-
-    await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
-
-    // gap=25 (capped) + historical=30 (under cap 50) = 55 total processReview calls
-    expect(mockProcessReview).toHaveBeenCalledTimes(55);
-
-    // Verify the counts update includes gap_skipped=5, historical_skipped=0
-    const sqlCalls = mockSql.mock.calls;
-    const countsCall = sqlCalls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
-    });
+    // Partial counts SHOULD have been written before the throw: only the
+    // successful reconcile counts imported.
+    const [countsCall] = findImportCountsCalls();
     expect(countsCall).toBeDefined();
+    expect(countsCall!.slice(1)).toEqual([1, 0, null, 'run-1']);
 
-    // gap_processed_count=25, historical_processed_count=30, gap_skipped=5, historical_skipped=0
-    const values = countsCall!.slice(1); // skip the template strings array
-    expect(values).toContain(25); // gap processed
-    expect(values).toContain(30); // historical processed
-    expect(values).toContain(5);  // gap skipped
-    expect(values).toContain(0);  // historical skipped
+    // The completed_at = NOW() update must NOT have run.
+    expect(findCompletedAtUpdates()).toHaveLength(0);
+  });
+});
 
+// ── #675 consented-import selection ──────────────────────────────────────
+// Titles are the intake's tests_to_add VERBATIM (promised-tests gate).
+
+const IMPORT_WINDOW_FLOOR = Date.parse('2025-08-05T00:00:00Z');
+const IMPORT_WINDOW_CUTOFF = Date.parse('2026-08-01T00:00:00Z');
+
+// createTimes from well before the floor to well after the cutoff, so the
+// property test exercises the below-floor / in-window / at-or-after-cutoff
+// partition on every run.
+const arbReview = fc
+  .record({
+    id: fc.uuid(),
+    t: fc.integer({
+      min: IMPORT_WINDOW_FLOOR - 400 * 86_400_000,
+      max: IMPORT_WINDOW_CUTOFF + 30 * 86_400_000,
+    }),
+  })
+  .map(({ id, t }) => makeReview(id, t));
+
+describe('consented import selection (#675)', () => {
+  it('imports newest 100 reviews within the 12-month floor, answered and unanswered alike', async () => {
+    pushImportSqlSetup();
+
+    // 120 in-window reviews (every 3rd answered) + 10 older than the floor.
+    const inWindow = Array.from({ length: 120 }, (_, i) =>
+      makeReview(`r-${i}`, inWindowMs(i), i % 3 === 0),
+    );
+    const belowFloor = Array.from({ length: 10 }, (_, i) =>
+      makeReview(`old-${i}`, BELOW_FLOOR_MS - i * 60_000),
+    );
+    mockListReviews.mockResolvedValueOnce(page([...inWindow, ...belowFloor]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    // Selected = the newest 100 (i = 0..99); answered → reconcile with the
+    // consented-lane opt, unanswered → importReview. Nothing below the floor,
+    // nothing from the in-window overflow (i = 100..119).
+    const expectedAnswered = Array.from({ length: 100 }, (_, i) => i)
+      .filter((i) => i % 3 === 0).map((i) => `r-${i}`);
+    const expectedUnanswered = Array.from({ length: 100 }, (_, i) => i)
+      .filter((i) => i % 3 !== 0).map((i) => `r-${i}`);
+
+    expect(importedIds().sort()).toEqual([...expectedUnanswered].sort());
+    expect(reconciledIds().sort()).toEqual([...expectedAnswered].sort());
+    for (const call of mockReconcileExternallyAnsweredReview.mock.calls) {
+      expect(call[6]).toEqual({ consentedImport: true });
+    }
+    expect(importedIds().length + reconciledIds().length).toBe(IMPORT_TARGET_COUNT);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  // #673 dual-write transition (spec §8a R4): the collapsed counters ride the
-  // same UPDATE as the legacy four until #675 ends the legacy writer contract
-  // (the columns themselves DROP in #680, after a reconciliation preflight).
-  it.each([
-    { gapTotal: 28, histTotal: 52, expected: [25, 50, 3, 2, 75, 5] },
-    { gapTotal: 27, histTotal: 51, expected: [25, 50, 2, 1, 75, 3] },
-  ])(
-    'counters UPDATE dual-writes imported_count and skipped_count as sums of the gap and historical counters (gap=$gapTotal hist=$histTotal)',
-    async ({ gapTotal, histTotal, expected }) => {
-      pushStandardSqlSetup();
-      pushCountsUpdate();
-      pushCompletedUpdate();
+  it('excludes reviews at or after connected_at minus grace from the import selection (live-lane ownership)', async () => {
+    // Configured 120s grace — the REAL liveIngestCutoff honors it (Task 2
+    // pins the config seam; this proves the import half of complementarity).
+    process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = '120000';
+    resetWorkerConfigForTests();
 
-      // gapTotal gap reviews (after activation; GAP_CAP=25) + histTotal
-      // historical (before activation; HISTORICAL_CAP=50).
-      const reviews = [
-        ...Array.from({ length: gapTotal }, (_, i) => makeReview(`rev-gap-${i}`, ACTIVATED_MS + (i + 1) * 60_000)),
-        ...Array.from({ length: histTotal }, (_, i) => makeReview(`rev-hist-${i}`, ACTIVATED_MS - (i + 1) * 3_600_000)),
-      ];
-      mockListAllReviews.mockResolvedValueOnce(reviews);
+    const T_CONN = T_NOW - 10 * 60_000;
+    pushImportSqlSetup({ connectedAt: new Date(T_CONN) });
 
-      await handleZernioBackfill(sqlArg, makeJob({ subscription_tier: 'autopilot' }));
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('at-connect', T_CONN),
+      makeReview('at-cutoff', T_CONN - 120_000), // exactly the cutoff → live lane owns it
+      makeReview('just-below-cutoff', T_CONN - 120_000 - 1), // import owns it
+      makeReview('old-in-window', IMPORT_FLOOR_RUNTIME_MS + 86_400_000),
+    ]));
 
-      // Exactly ONE counts UPDATE, exactly the contract template.
-      const countsCalls = findCountsCalls();
-      expect(countsCalls).toHaveLength(1);
-      expect(normalizeTemplate(countsCalls[0]![0])).toBe(DUAL_WRITE_TEMPLATE);
-      // Positional: legacy four, collapsed sums, oldestSkipped, runId.
-      expect(countsCalls[0]!.slice(1)).toEqual([...expected, expect.anything(), 'run-1']);
+    await handleZernioBackfill(sqlArg, makeJob());
 
-      // Locked decision 5 (initial branch): the INSERT does not name the
-      // collapsed counters — DEFAULT 0 owns initialization.
-      const insertCalls = findBackfillInsertCalls();
-      expect(insertCalls.length).toBeGreaterThan(0);
-      for (const call of insertCalls) {
-        const insertJoined = (call[0] as readonly string[]).join('?');
-        expect(insertJoined).not.toContain('imported_count');
-        expect(insertJoined).not.toContain('skipped_count');
+    expect(importedIds().sort()).toEqual(['just-below-cutoff', 'old-in-window'].sort());
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('imports nothing and completes successfully when the window is empty', async () => {
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('old-0', BELOW_FLOOR_MS),
+      makeReview('old-1', BELOW_FLOOR_MS - 60_000),
+      makeReview('old-2', BELOW_FLOOR_MS - 120_000),
+    ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockImportReview).not.toHaveBeenCalled();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([0, 0, null, 'run-1']);
+    expect(findCompletedAtUpdates()).toHaveLength(1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('stores answered reviews as list rows with their posted response regardless of EXTERNAL_REPLY_IMPORT_ENABLED', async () => {
+    // Flag unset/false — the consented lane must not depend on it.
+    delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+    pushImportSqlSetup();
+
+    const answered = makeReview('answered-flag-off', inWindowMs(0), true);
+    mockListReviews.mockResolvedValueOnce(page([answered]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
+    const call = mockReconcileExternallyAnsweredReview.mock.calls[0]!;
+    expect((call[1] as ZernioReview).id).toBe('answered-flag-off');
+    expect(call[2]).toBe('biz-1');
+    expect(call[6]).toEqual({ consentedImport: true });
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('enqueues no generate_response and writes no job_outbox row for imported reviews', async () => {
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('u-0', inWindowMs(0)),
+      makeReview('u-1', inWindowMs(1)),
+      makeReview('a-0', inWindowMs(2), true),
+    ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    for (const text of sqlTexts()) {
+      expect(text).not.toContain('INSERT INTO job_outbox');
+    }
+    expect(mockImportReview).toHaveBeenCalledTimes(2);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('pages until the target is met and stops early at the 12-month floor when ordering is clean', async () => {
+    // Case A: two clean pages of 50 in-window each → target met after page 2,
+    // even though a nextPageToken is still available.
+    pushImportSqlSetup();
+    mockListReviews
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 50 }, (_, i) => makeReview(`p1-${i}`, inWindowMs(i))), 'tok-2',
+      ))
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 50 }, (_, i) => makeReview(`p2-${i}`, inWindowMs(50 + i))), 'tok-3',
+      ));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    expect(mockImportReview).toHaveBeenCalledTimes(100);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+
+    // Case B: page 1 descends past the floor with a token still set → the
+    // clean-ordering floor stop ends paging after ONE call.
+    resetHarnessForNextRun();
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('in-0', inWindowMs(0)),
+      makeReview('in-1', inWindowMs(1)),
+      makeReview('below-0', BELOW_FLOOR_MS),
+      makeReview('below-1', BELOW_FLOOR_MS - 60_000),
+    ], 'tok-2'));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(1);
+    expect(importedIds().sort()).toEqual(['in-0', 'in-1']);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('fails the outbox row terminally with ZernioImportPaginationCapExhaustedError and leaves completed_at NULL on cap exhaustion', async () => {
+    process.env.ZERNIO_IMPORT_MAX_PAGES = '2';
+    resetWorkerConfigForTests();
+    pushImportSqlSetup();
+
+    // Every page 50 out-of-window (post-cutoff) reviews with a token still set.
+    const postCutoff = (i: number) => makeReview(`post-${i}`, T_NOW - 1000 - 30_000 * i);
+    mockListReviews
+      .mockResolvedValueOnce(page(Array.from({ length: 50 }, (_, i) => postCutoff(i)), 'tok-2'))
+      .mockResolvedValueOnce(page(Array.from({ length: 50 }, (_, i) => postCutoff(50 + i)), 'tok-3'));
+
+    // TERMINAL but not thrown: the handler resolves.
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    expect(mockMarkOutboxFailed).toHaveBeenCalledTimes(1);
+    const [failedSql, failedOutboxId, failedMsg, failedAttempt] = mockMarkOutboxFailed.mock.calls[0]!;
+    expect(failedSql).toBe(mockSql);
+    expect(failedOutboxId).toBe('outbox-backfill-1');
+    expect(failedMsg).toContain('ZernioImportPaginationCapExhaustedError');
+    expect(failedMsg).toContain('cap=2');
+    expect(failedAttempt).toBeUndefined();
+    expect(mockSentryCaptureException).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'ZernioImportPaginationCapExhaustedError' }),
+    );
+    expect(findCompletedAtUpdates()).toHaveLength(0);
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+  });
+
+  it('logs a non-descending page order warning and disables early stops for that run', async () => {
+    pushImportSqlSetup();
+
+    // Ascending step (in-2 is NEWER than in-1) + oldest item below the floor
+    // + token set: clean mode would floor-stop after page 1; dirty mode pages on.
+    mockListReviews
+      .mockResolvedValueOnce(page([
+        makeReview('in-0', inWindowMs(5)),
+        makeReview('in-1', inWindowMs(6)),
+        makeReview('in-2', inWindowMs(2)), // inversion
+        makeReview('below-0', BELOW_FLOOR_MS),
+      ], 'tok-2'))
+      .mockResolvedValueOnce(page([
+        makeReview('below-1', BELOW_FLOOR_MS - 60_000),
+      ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('non-descending'));
+    expect(mockListReviews).toHaveBeenCalledTimes(2); // floor stop was disabled
+    expect(importedIds().sort()).toEqual(['in-0', 'in-1', 'in-2']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('continues paging to feed end or cap when ordering is dirty instead of stopping at the target', async () => {
+    pushImportSqlSetup();
+
+    // Page 1: 100 in-window with an inversion (dirty). Page 2 holds 20 NEWER
+    // reviews — stopping at the target on page 1 would select the wrong 100.
+    const page1 = [
+      makeReview('p1-1', inWindowMs(1)),
+      makeReview('p1-0', inWindowMs(0)), // inversion: newer than its predecessor
+      ...Array.from({ length: 98 }, (_, i) => makeReview(`p1-${i + 2}`, inWindowMs(i + 2))),
+    ];
+    const page2 = Array.from({ length: 20 }, (_, i) =>
+      makeReview(`p2-${i}`, CUTOFF_MS - 30_000 - i * 100), // newer than every page-1 review
+    );
+    mockListReviews
+      .mockResolvedValueOnce(page(page1, 'tok-2'))
+      .mockResolvedValueOnce(page(page2));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    const ids = importedIds();
+    expect(ids).toHaveLength(100);
+    // All 20 newer page-2 reviews made the selection…
+    for (let i = 0; i < 20; i++) expect(ids).toContain(`p2-${i}`);
+    // …displacing the 20 oldest page-1 reviews.
+    for (let i = 80; i < 100; i++) expect(ids).not.toContain(`p1-${i}`);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('writes only imported_count and skipped_count; legacy counters stay at their defaults', async () => {
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('u-0', inWindowMs(0)),
+      makeReview('u-1', inWindowMs(1)),
+    ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    const countsCalls = findImportCountsCalls();
+    expect(countsCalls).toHaveLength(1);
+    const countsText = (countsCalls[0]![0] as readonly string[]).join('?');
+    expect(countsText).toContain('imported_count');
+    expect(countsText).toContain('skipped_count');
+    expect(countsCalls[0]!.slice(1)).toEqual([2, 0, null, 'run-1']);
+    // No statement in the whole run may touch a legacy counter column.
+    for (const text of sqlTexts()) {
+      for (const legacy of LEGACY_COUNTER_COLUMNS) {
+        expect(text).not.toContain(legacy);
       }
-    },
-  );
-
-  // Test 5: createTime DESC sort applied BEFORE slice — newest 25 processed, not first 25 returned
-  it('sort applied before slice: the 25 newest gap reviews are processed', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
-
-    const processedIds: string[] = [];
-    mockProcessReview.mockImplementation(async (_sql: any, monitored: any) => {
-      processedIds.push(monitored.identity.providerReviewId);
-    });
-
-    // 30 gap reviews. Return them in ASCENDING time order (oldest first).
-    // Worker must sort DESC and take first 25 (newest 25).
-    const reviews = Array.from({ length: 30 }, (_, i) =>
-      makeReview(`gap-${i}`, ACTIVATED_MS + (i + 1) * 60_000), // gap-0 is oldest, gap-29 is newest
-    );
-    mockListAllReviews.mockResolvedValueOnce(reviews);
-
-    await handleZernioBackfill(sqlArg, makeJob());
-
-    expect(mockProcessReview).toHaveBeenCalledTimes(25);
-
-    // The 25 processed should be the newest (gap-5 through gap-29)
-    // gap-0 through gap-4 are the 5 oldest and should be skipped
-    for (let i = 5; i < 30; i++) {
-      expect(processedIds).toContain(`gap-${i}`);
-    }
-    for (let i = 0; i < 5; i++) {
-      expect(processedIds).not.toContain(`gap-${i}`);
     }
   });
 
-  // Test 6: suppressNotification=true on every processReview call
-  it('every processReview call carries suppressNotification=true', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
+  it('counts PHI and malformed reviews as skipped and already-ingested rows as imported', async () => {
+    pushImportSqlSetup();
 
-    const reviews = Array.from({ length: 3 }, (_, i) =>
-      makeReview(`rev-${i}`, ACTIVATED_MS + (i + 1) * 60_000),
-    );
-    mockListAllReviews.mockResolvedValueOnce(reviews);
-
-    await handleZernioBackfill(sqlArg, makeJob());
-
-    expect(mockProcessReview).toHaveBeenCalledTimes(3);
-    for (const call of mockProcessReview.mock.calls) {
-      // call signature: (sql, monitored, business_id, correlation_id?, options?)
-      const options = call[4];
-      expect(options).toEqual(expect.objectContaining({ suppressNotification: true }));
-    }
-  });
-
-  it('skips likely PHI in unanswered backfill reviews without sending to processReview', async () => {
-    pushStandardSqlSetup();
-    pushCountsUpdate();
-    pushCompletedUpdate();
-
-    const phiReview = makeReview('phi-review', ACTIVATED_MS + 60_000);
+    const phiReview = makeReview('phi-review', inWindowMs(0));
     phiReview.comment = 'Patient MRN 12345 needs diabetes treatment follow up';
-    const ordinaryReview = makeReview('ordinary-review', ACTIVATED_MS + 120_000);
-    mockListAllReviews.mockResolvedValueOnce([phiReview, ordinaryReview]);
+    const malformedReview = makeReview('malformed-review', inWindowMs(1));
+    malformedReview.rating = 0; // real buildZernioMonitoredReview throws on it
+    const unchangedReview = makeReview('unchanged-review', inWindowMs(2));
+    mockImportReview.mockResolvedValueOnce('unchanged');
+    mockListReviews.mockResolvedValueOnce(page([phiReview, malformedReview, unchangedReview]));
 
     await handleZernioBackfill(sqlArg, makeJob());
 
-    expect(mockProcessReview).toHaveBeenCalledTimes(1);
-    expect(mockProcessReview.mock.calls[0]?.[1].identity.providerReviewId).toBe('ordinary-review');
     expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
       mockSql,
       expect.objectContaining({
@@ -524,66 +683,395 @@ describe('ZernioBackfillWorker', () => {
       }),
       expect.anything(),
     );
-    const countsCall = mockSql.mock.calls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
-    });
-    expect(countsCall?.slice(1)).toContain(1);
-    expect(countsCall?.slice(1)).not.toContain(2);
+    expect(importedIds()).toEqual(['unchanged-review']);
+    // imported = 1 ('unchanged' still counts imported); skipped = 2 (PHI + malformed)
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([1, 2, null, 'run-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('routes answered PHI reviews through reconciliation and counts them imported', async () => {
+    pushImportSqlSetup();
+
+    const answeredPhi = makeReview('answered-phi', inWindowMs(0), true);
+    answeredPhi.comment = 'Patient MRN 12345 needs diabetes treatment follow up';
+    mockListReviews.mockResolvedValueOnce(page([answeredPhi]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    // No worker-side pre-screen for answered reviews — reconcile owns PHI on
+    // its import branches; the exception row there is the audit trail.
+    expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
+    expect((mockReconcileExternallyAnsweredReview.mock.calls[0]![1] as ZernioReview).id).toBe('answered-phi');
+    expect(mockOpenPhiReviewException).not.toHaveBeenCalled();
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([1, 0, null, 'run-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('skips as success when no active connection row exists, leaving completed_at NULL', async () => {
+    pushImportSqlSetup({ noConnection: true });
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('No active connection'));
+    expect(findCompletedAtUpdates()).toHaveLength(0);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  // Test 7: Reconcile failure → counts written, completed_at NOT set, worker throws
-  it('reconcile failure: counts written but completed_at not set, worker throws', async () => {
-    pushStandardSqlSetup();
-    // counts update only (no completed_at update because reconcile fails)
-    pushCountsUpdate();
-    // NO completed_at update push — the error should be thrown before it
+  it('applies no upper cutoff when connected_at is NULL', async () => {
+    pushImportSqlSetup({ connectedAt: null });
 
-    const answeredReview1 = makeReview('answered-1', ACTIVATED_MS + 60_000, true);
-    const answeredReview2 = makeReview('answered-2', ACTIVATED_MS + 120_000, true);
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('very-recent', T_NOW - 1000), // would be post-cutoff under any connected_at
+      makeReview('year-old', IMPORT_FLOOR_RUNTIME_MS + 86_400_000),
+    ]));
 
-    mockListAllReviews.mockResolvedValueOnce([answeredReview1, answeredReview2]);
+    await handleZernioBackfill(sqlArg, makeJob());
 
-    // First reconcile succeeds, second fails
-    mockReconcileExternallyAnsweredReview
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('DB timeout'));
+    expect(importedIds().sort()).toEqual(['very-recent', 'year-old'].sort());
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('property: selection is always within the Import window and never exceeds 100 rows', () => {
+    fc.assert(
+      fc.property(fc.array(arbReview, { maxLength: 300 }), (reviews) => {
+        const { selected, capOverflow } = selectImportWindow(reviews, {
+          floorMs: IMPORT_WINDOW_FLOOR,
+          upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+        });
+        // Partition completeness (plan-review r1): selected + capOverflow is
+        // EXACTLY the in-window input multiset — no silent omissions — and
+        // selected takes min(100, available).
+        const inWindowIds = reviews
+          .filter((z) => {
+            const t = new Date(z.createTime).getTime();
+            return Number.isFinite(t) && t >= IMPORT_WINDOW_FLOOR && t < IMPORT_WINDOW_CUTOFF;
+          })
+          .map((z) => z.id)
+          .sort();
+        const returnedIds = [...selected, ...capOverflow].map((z) => z.id).sort();
+        expect(returnedIds).toEqual(inWindowIds);
+        expect(selected.length).toBe(Math.min(IMPORT_TARGET_COUNT, inWindowIds.length));
+        for (const z of [...selected, ...capOverflow]) {
+          const t = new Date(z.createTime).getTime();
+          expect(t).toBeGreaterThanOrEqual(IMPORT_WINDOW_FLOOR);
+          expect(t).toBeLessThan(IMPORT_WINDOW_CUTOFF);
+        }
+        // selected is the NEWEST in-window slice: nothing in capOverflow is newer
+        const oldestSelected = Math.min(...selected.map((z) => new Date(z.createTime).getTime()));
+        for (const z of capOverflow) {
+          expect(new Date(z.createTime).getTime()).toBeLessThanOrEqual(oldestSelected);
+        }
+      }),
+    );
+  });
+
+  it('createTime exactly at the floor is included', () => {
+    const atFloor = makeReview('rev-floor', IMPORT_WINDOW_FLOOR);
+    const { selected, capOverflow } = selectImportWindow([atFloor], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+    });
+    expect(selected.map((z) => z.id)).toEqual(['rev-floor']);
+    expect(capOverflow).toHaveLength(0);
+  });
+
+  it('createTime exactly at the cutoff is excluded (upper bound is exclusive)', () => {
+    const atCutoff = makeReview('rev-cutoff', IMPORT_WINDOW_CUTOFF);
+    const { selected, capOverflow } = selectImportWindow([atCutoff], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+    });
+    expect(selected).toHaveLength(0);
+    expect(capOverflow).toHaveLength(0);
+  });
+
+  it('applies no upper cutoff when upperCutoffMs is null (connected_at-null case)', () => {
+    const farFuture = makeReview('rev-far-future', IMPORT_WINDOW_CUTOFF + 10 * 365 * 86_400_000);
+    const { selected, capOverflow } = selectImportWindow([farFuture], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: null,
+    });
+    expect(selected.map((z) => z.id)).toEqual(['rev-far-future']);
+    expect(capOverflow).toHaveLength(0);
+  });
+
+  it('marks the outbox completed only after the run completion write succeeds', async () => {
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([makeReview('u-0', inWindowMs(0))]));
+    // Counts UPDATE succeeds…
+    sqlReturnQueue.push(mkTaggedResult([]));
+    // …then the completed_at = NOW() UPDATE rejects.
+    const completionFailure = Promise.reject(new Error('completion write failed'));
+    completionFailure.catch(() => { /* pre-handled: consumed via the queue */ });
+    sqlReturnQueue.push(completionFailure);
+
+    await expect(handleZernioBackfill(sqlArg, makeJob())).rejects.toThrow('completion write failed');
+
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('passes each nextPageToken to the following listReviews request', async () => {
+    pushImportSqlSetup();
+    mockListReviews
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 50 }, (_, i) => makeReview(`p1-${i}`, inWindowMs(i))), 'tok-2',
+      ))
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 10 }, (_, i) => makeReview(`p2-${i}`, inWindowMs(50 + i))),
+      ));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    expect(mockListReviews).toHaveBeenNthCalledWith(1, 'acct-1', {
+      locationId: 'loc-1',
+      pageSize: 50,
+      pageToken: undefined,
+    });
+    expect(mockListReviews).toHaveBeenNthCalledWith(2, 'acct-1', {
+      locationId: 'loc-1',
+      pageSize: 50,
+      pageToken: 'tok-2',
+    });
+  });
+
+  it('imports the exact globally newest 100 from shuffled multi-page results', async () => {
+    pushImportSqlSetup();
+
+    // 150 in-window reviews split odd/even across two pages — the globally
+    // newest (r-0) sits on page TWO, so page order alone would mis-select.
+    const all = Array.from({ length: 150 }, (_, i) => makeReview(`r-${i}`, inWindowMs(i)));
+    const page1 = all.filter((_, i) => i % 2 === 1);
+    const page2 = all.filter((_, i) => i % 2 === 0);
+    mockListReviews
+      .mockResolvedValueOnce(page(page1, 'tok-2'))
+      .mockResolvedValueOnce(page(page2));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    const expected = Array.from({ length: 100 }, (_, i) => `r-${i}`).sort();
+    expect(importedIds().sort()).toEqual(expected);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('imports every available review when the feed ends below 100', async () => {
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page(
+      Array.from({ length: 37 }, (_, i) => makeReview(`r-${i}`, inWindowMs(i))),
+    ));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockImportReview).toHaveBeenCalledTimes(37);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([37, 0, null, 'run-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('does not report cap exhaustion when the target is met or a clean floor stop ends paging', async () => {
+    // (i) Target met exactly on the capped page, token still set → success.
+    process.env.ZERNIO_IMPORT_MAX_PAGES = '2';
+    resetWorkerConfigForTests();
+    pushImportSqlSetup();
+    mockListReviews
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 50 }, (_, i) => makeReview(`p1-${i}`, inWindowMs(i))), 'tok-2',
+      ))
+      .mockResolvedValueOnce(page(
+        Array.from({ length: 50 }, (_, i) => makeReview(`p2-${i}`, inWindowMs(50 + i))), 'tok-3',
+      ));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+
+    // (ii) Clean floor stop before the cap, token still set → success.
+    resetHarnessForNextRun();
+    delete process.env.ZERNIO_IMPORT_MAX_PAGES;
+    resetWorkerConfigForTests();
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('in-0', inWindowMs(0)),
+      makeReview('below-0', BELOW_FLOOR_MS),
+    ], 'tok-2'));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('derives the 12-calendar-month floor at run time and keeps paging at floor equality', async () => {
+    pushImportSqlSetup();
+
+    // Page 1's oldest row sits exactly AT the 12-calendar-month floor: the
+    // floor is inclusive (row imports) and equality must NOT early-stop
+    // (< comparison) — page 2 is still fetched while a token exists.
+    mockListReviews
+      .mockResolvedValueOnce(page([
+        makeReview('newest', inWindowMs(0)),
+        makeReview('at-floor', IMPORT_FLOOR_RUNTIME_MS),
+      ], 'tok-2'))
+      .mockResolvedValueOnce(page([
+        makeReview('below-floor', BELOW_FLOOR_MS),
+      ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).toHaveBeenCalledTimes(2);
+    expect(importedIds().sort()).toEqual(['at-floor', 'newest']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('recomputes the import floor from runtime now on retry', async () => {
+    // Attempt 1 at frozen T_NOW: the answered review is in-window; reconcile
+    // fails, so the run stays incomplete and BullMQ retries.
+    const agingReview = makeReview('aging-review', IMPORT_FLOOR_RUNTIME_MS + 24 * 3_600_000, true);
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([agingReview]));
+    mockReconcileExternallyAnsweredReview.mockRejectedValueOnce(new Error('transient db'));
 
     await expect(handleZernioBackfill(sqlArg, makeJob())).rejects.toThrow(
-      'Backfill reconciliation failed for 1 review(s)',
+      'Import reconciliation failed',
     );
+    expect(reconciledIds()).toEqual(['aging-review']);
 
-    // completed_at should NOT be set (worker threw before that SQL call)
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    // Attempt 2 at T_NOW + 48h: the floor is recomputed from the NEW now, the
+    // row has aged out, and the selection no longer includes it.
+    vi.setSystemTime(T_NOW + 48 * 3_600_000);
+    resetHarnessForNextRun();
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([agingReview]));
 
-    // Counts update SHOULD have been called
-    const sqlCalls = mockSql.mock.calls;
-    const countsCall = sqlCalls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
-    });
-    expect(countsCall).toBeDefined();
+    await handleZernioBackfill(sqlArg, makeJob());
 
-    // The completed_at update SQL should NOT have been called (it contains 'completed_at')
-    // Note: we check that the specific completed_at update is absent
-    // (the counts update also writes updated_at but NOT completed_at = NOW())
-    const completedAtUpdateCall = sqlCalls.find((call: any[]) => {
-      const template = call[0];
-      return Array.isArray(template) &&
-        template.some((s: string) => s.includes('completed_at = NOW()')) &&
-        template.some((s: string) => s.includes('zernio_backfill_runs')) &&
-        !template.some((s: string) => s.includes('gap_processed_count'));
-    });
-    expect(completedAtUpdateCall).toBeUndefined();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([0, 0, null, 'run-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
 
-    // #673: the dual-write rides the partial-counts UPDATE that precedes the
-    // reconcile-failure throw — retries must never persist legacy-only counts.
-    const [reconcileCounts] = findCountsCalls();
-    expect(reconcileCounts).toBeDefined();
-    expect(normalizeTemplate(reconcileCounts![0])).toBe(DUAL_WRITE_TEMPLATE);
-    const v = reconcileCounts!.slice(1) as number[];
-    expect(v[4]).toBe(v[0]! + v[1]!); // imported = gap + historical processed
-    expect(v[5]).toBe(v[2]! + v[3]!); // skipped = gap + historical skipped
+  it('skips all provider and storage work when the run is already completed', async () => {
+    // 1. INSERT (ON CONFLICT no-op); 2. run SELECT → completed sentinel.
+    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: new Date(T_NOW - 86_400_000) }]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockOpenPhiReviewException).not.toHaveBeenCalled();
+    expect(findImportCountsCalls()).toHaveLength(0);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('reactivation runs use the identical import window and stay correlation-idempotent', async () => {
+    const reactivationJob = () => makeJob({
+      backfill_reason: 'reactivation',
+      correlation_id: 'corr-675',
+    } as Partial<ZernioInitialBackfillPayload>);
+
+    // Attempt 1: boundary rows — floor-equal imports, cutoff−1ms imports,
+    // cutoff-equal is the live lane's (identical semantics to initial runs).
+    pushImportSqlSetup({ runId: 'run-r' });
+    mockListReviews.mockResolvedValueOnce(page([
+      makeReview('b-at-cutoff', CUTOFF_MS),
+      makeReview('b-cutoff-minus-1', CUTOFF_MS - 1),
+      makeReview('b-at-floor', IMPORT_FLOOR_RUNTIME_MS),
+    ]));
+
+    await handleZernioBackfill(sqlArg, reactivationJob());
+
+    expect(importedIds().sort()).toEqual(['b-at-floor', 'b-cutoff-minus-1']);
+    const [insert1] = findBackfillInsertCalls();
+    expect((insert1![0] as readonly string[]).join('?')).toContain('ON CONFLICT (correlation_id)');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+
+    // Attempt 2, same correlation_id: the correlation-keyed claim resolves to
+    // the SAME (now completed) run row → sentinel skip, no provider work.
+    resetHarnessForNextRun();
+    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-r', completed_at: new Date(T_NOW) }]));
+
+    await handleZernioBackfill(sqlArg, reactivationJob());
+
+    const [insert2] = findBackfillInsertCalls();
+    expect((insert2![0] as readonly string[]).join('?')).toContain('ON CONFLICT (correlation_id)');
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('reactivation INSERT names no legacy counter column', async () => {
+    pushImportSqlSetup({ runId: 'run-r' });
+    mockListReviews.mockResolvedValueOnce(page([]));
+
+    await handleZernioBackfill(sqlArg, makeJob({ backfill_reason: 'reactivation' }));
+
+    const [reactivationInsert] = findBackfillInsertCalls();
+    expect(reactivationInsert).toBeDefined();
+    const insertText = (reactivationInsert![0] as readonly string[]).join('?');
+    for (const legacy of LEGACY_COUNTER_COLUMNS) {
+      expect(insertText).not.toContain(legacy);
+    }
+    // The non-counter reactivation columns stay.
+    expect(insertText).toContain('oldest_skipped_create_time');
+    expect(insertText).toContain('started_at');
+  });
+
+  it('sets skipped_count from cap overflow and oldest_skipped_create_time to the chronologically oldest overflow', async () => {
+    pushImportSqlSetup();
+
+    // 100 newest selected + 20 overflow. The two chronologically oldest
+    // overflow rows carry differing fractional-second precision where string
+    // comparison misorders: '…00.5Z' (500ms) is chronologically OLDER than
+    // '…00.55Z' (550ms) but lexicographically GREATER ('Z' > '5').
+    const selected = Array.from({ length: 100 }, (_, i) =>
+      makeReview(`sel-${i}`, CUTOFF_MS - 1000 - i * 1000),
+    );
+    const overflowRegular = Array.from({ length: 18 }, (_, i) =>
+      makeReview(`ovf-${i}`, Date.parse('2026-02-01T00:00:00Z') + i * 1000),
+    );
+    const oldestOverflow = makeReview('ovf-oldest', Date.parse('2026-01-15T10:00:00.500Z'));
+    oldestOverflow.createTime = '2026-01-15T10:00:00.5Z';
+    const lexTrap = makeReview('ovf-lex-trap', Date.parse('2026-01-15T10:00:00.550Z'));
+    lexTrap.createTime = '2026-01-15T10:00:00.55Z';
+    mockListReviews.mockResolvedValueOnce(page([
+      ...selected, ...overflowRegular, lexTrap, oldestOverflow,
+    ]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([100, 20, '2026-01-15T10:00:00.5Z', 'run-1']);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('deduplicates reviews repeated across page boundaries', async () => {
+    pushImportSqlSetup();
+
+    const dupB = makeReview('dup-b', inWindowMs(1));
+    mockListReviews
+      .mockResolvedValueOnce(page([makeReview('r-a', inWindowMs(0)), dupB], 'tok-2'))
+      .mockResolvedValueOnce(page([dupB, makeReview('r-c', inWindowMs(2))]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockImportReview).toHaveBeenCalledTimes(3);
+    expect(importedIds().sort()).toEqual(['dup-b', 'r-a', 'r-c']);
+    const [countsCall] = findImportCountsCalls();
+    expect(countsCall!.slice(1)).toEqual([3, 0, null, 'run-1']);
   });
 });

@@ -1,25 +1,40 @@
 // worker/jobs/zernio/ZernioBackfillWorker.ts
 //
-// Handles zernio_initial_backfill outbox topic. Initial runs are one-shot per
+// Consented Review import executor (#675, spec §6.1). Handles the
+// zernio_initial_backfill outbox topic. Initial runs are one-shot per
 // business; reactivation catch-up runs are keyed by correlation_id.
-// Idempotent via zernio_backfill_runs.completed_at IS NOT NULL sentinel —
-// row-existence alone is NOT the done marker (a listAllReviews timeout
-// after row insert would otherwise lose backfill on retry).
+// Idempotent via zernio_backfill_runs.completed_at IS NOT NULL sentinel.
 //
-// Buckets reviews by createTime vs subscription_activated_at:
-//   gap (>= activated, reviewReply=null) → cap 25, all tiers
-//   historical (< activated, reviewReply=null) → cap 50, both launch tiers
-// Reviews already replied to externally are routed through
-// reconcileExternallyAnsweredReview (not bucket-processing) so any
-// pre-existing local active draft is correctly superseded.
+// Selection: newest IMPORT_TARGET_COUNT reviews inside the Import window
+// (CONTEXT.md glossary) — createTime in [now − 12 months, live-ingest
+// cutoff). The upper bound keeps lane ownership disjoint: the live lane
+// (webhook + recent poller) owns createTime >= cutoff, so nothing the
+// import stores can be a review the live lane owed a draft for (#674).
 //
-// All processed responses ride suppress_notification=true so the first-
-// connect dashboard doesn't blast 75 emails (spec §4.6).
+// Nothing is auto-drafted (D2): unanswered reviews store via importReview
+// (no generate_response, no job_outbox row); answered reviews become list
+// rows via reconcileExternallyAnsweredReview({ consentedImport: true }) —
+// review row + imported 'posted' response, regardless of
+// EXTERNAL_REPLY_IMPORT_ENABLED. Answered reviews are not PHI-screened
+// worker-side (reconcile owns PHI on its import branches); a PHI-skipped
+// answered review still counts imported — the exception row is the audit
+// trail.
+//
+// Counters: writes ONLY imported_count / skipped_count (+
+// oldest_skipped_create_time). The four legacy gap_*/historical_* counters
+// freeze at DEFAULT 0 — the #673 dual-write contract ended here; #680
+// drops them.
 
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
-import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import * as Sentry from '@sentry/node';
+import {
+  extractOutboxHandle,
+  markOutboxCompleted,
+  markOutboxFailed,
+} from '../../../src/lib/shared/outbox';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -29,10 +44,10 @@ import {
   extractLocationFromReviewName,
   ZernioReviewNormalizationError,
 } from '../../../src/lib/reviews/zernio-normalize';
-import { processReview } from '../../../src/lib/reviews/process-review';
-import { GENERATE_RESPONSE_ORIGIN_LANE } from '../../../src/lib/shared/worker-types';
+import { importReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
+  liveIngestCutoff,
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
@@ -40,6 +55,72 @@ import { guardZernioJobEligibility } from './job-eligibility';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
+
+export const IMPORT_TARGET_COUNT = 100;
+export const IMPORT_FLOOR_MONTHS = 12;
+
+export interface ImportSelection {
+  /** newest-first, ≤ IMPORT_TARGET_COUNT, every member inside the Import window */
+  selected: ZernioReview[];
+  /** in-window reviews beyond the ceiling — the skipped_count seed */
+  capOverflow: ZernioReview[];
+  oldestSkippedCreateTime: string | null;
+}
+
+/**
+ * Pure selection over the Import window (CONTEXT.md glossary): keep reviews
+ * with floorMs <= createTime < upperCutoffMs (upper null = no bound, the
+ * connected_at-null case), sort newest-first (defensive re-sort — Zernio's
+ * ordering is verified but undocumented, spec §9), take the newest
+ * IMPORT_TARGET_COUNT. Unparseable createTime is excluded outright (the
+ * normalization path would reject it anyway).
+ */
+export function selectImportWindow(
+  reviews: ZernioReview[],
+  opts: { floorMs: number; upperCutoffMs: number | null },
+): ImportSelection {
+  const inWindow = reviews.filter((z) => {
+    const t = new Date(z.createTime).getTime();
+    if (!Number.isFinite(t)) return false;
+    if (t < opts.floorMs) return false;
+    if (opts.upperCutoffMs !== null && t >= opts.upperCutoffMs) return false;
+    return true;
+  });
+  const sorted = [...inWindow].sort(
+    (a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime(),
+  );
+  const selected = sorted.slice(0, IMPORT_TARGET_COUNT);
+  const capOverflow = sorted.slice(IMPORT_TARGET_COUNT);
+  // Epoch comparison, NOT string comparison — lexicographic ordering of
+  // RFC3339 strings with differing fractional-second lengths misorders
+  // ('...00.5Z' vs '...00.500Z' etc.); plan-review r1 MEDIUM.
+  const oldestSkippedCreateTime = capOverflow.reduce<string | null>(
+    (oldest, z) =>
+      !oldest || new Date(z.createTime).getTime() < new Date(oldest).getTime()
+        ? z.createTime
+        : oldest,
+    null,
+  );
+  return { selected, capOverflow, oldestSkippedCreateTime };
+}
+
+/** The page cap was exhausted with nextPageToken still set and fewer than
+ *  IMPORT_TARGET_COUNT in-window reviews collected. Loud by design — the
+ *  old backfill truncated silently at maxPages: 4 (spec §1). Deterministic,
+ *  so it is persisted TERMINALLY (markOutboxFailed + Sentry, no BullMQ
+ *  retry churn); completed_at stays NULL so the run remains claimable after
+ *  ops bumps ZERNIO_IMPORT_MAX_PAGES (admin re-enqueue, consent permitting). */
+class ZernioImportPaginationCapExhaustedError extends Error {
+  constructor(
+    readonly businessId: string,
+    readonly cap: number,
+    readonly inWindowCount: number,
+    readonly reviewsSeen: number,
+  ) {
+    super(`Import pagination cap=${cap} pages exhausted with ${inWindowCount}/${IMPORT_TARGET_COUNT} in-window reviews (${reviewsSeen} seen, more pages available)`);
+    this.name = 'ZernioImportPaginationCapExhaustedError';
+  }
+}
 
 export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackfillPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioBackfillWorker]', job.data.correlation_id);
@@ -60,21 +141,20 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   const correlationId = job.data.correlation_id ?? uuidv7();
 
   // Idempotent claim — insert only if no row exists yet for this business.
+  // The reactivation branch names NO counter column (initial never did):
+  // the collapsed counters AND the four frozen legacy counters are all
+  // NOT NULL DEFAULT 0 (migrations 028 + 100), so DEFAULT owns them.
   const runId = uuidv7();
   if (isReactivationBackfill) {
     await sql`
       INSERT INTO zernio_backfill_runs (
         id, business_id, zernio_account_id, zernio_location_id,
         subscription_tier, subscription_activated_at, run_reason, correlation_id,
-        completed_at,
-        gap_processed_count, historical_processed_count,
-        gap_skipped_count, historical_skipped_count,
-        oldest_skipped_create_time, started_at, updated_at
+        completed_at, oldest_skipped_create_time, started_at, updated_at
       ) VALUES (
         ${runId}, ${business_id}, ${zernio_account_id}, ${zernio_location_id},
         ${subscription_tier}, ${subscription_activated_at}, ${runReason}, ${correlationId}::uuid,
-        NULL,
-        0, 0, 0, 0, NULL, NOW(), NOW()
+        NULL, NULL, NOW(), NOW()
       )
       ON CONFLICT (correlation_id) WHERE correlation_id IS NOT NULL DO NOTHING
     `;
@@ -134,13 +214,81 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     return;
   }
 
-  let all: ZernioReview[];
+  // Live-ingest cutoff: read connected_at from the active connection.
+  const [conn] = await sql<{ connected_at: Date | null }[]>`
+    SELECT connected_at FROM zernio_connections
+    WHERE business_id = ${business_id}
+      AND zernio_account_id = ${zernio_account_id}
+      AND zernio_location_id = ${zernio_location_id}
+      AND status = 'active'
+  `;
+  if (!conn) {
+    logger.warn(`No active connection for business=${business_id} — skipping import (completed_at left NULL)`);
+    await markOutboxCompleted(sql, outboxId, attempt);
+    return;
+  }
+  const cutoff = liveIngestCutoff(conn.connected_at);
+  const upperCutoffMs = cutoff ? cutoff.getTime() : null;
+  const floor = new Date();
+  floor.setMonth(floor.getMonth() - IMPORT_FLOOR_MONTHS);
+  const floorMs = floor.getTime();
+
+  // Page until the target is met (spec §6.1). Newest-first ordering is
+  // verified but undocumented (spec §9) — a non-descending page logs a
+  // warning and disables BOTH early stops for this run (target and floor):
+  // in dirty mode newer reviews may sit on later pages, so stopping at 100
+  // could select the wrong newest-100. Dirty mode pages to feed end or cap.
+  // Pages are deduped by review id — provider page boundaries may repeat.
+  const parsedMaxPages = parseInt(getWorkerConfig().ZERNIO_IMPORT_MAX_PAGES ?? '', 10);
+  const maxPages = Number.isFinite(parsedMaxPages) && parsedMaxPages > 0 ? parsedMaxPages : 6;
+  const fetchedById = new Map<string, ZernioReview>();
+  let pageToken: string | undefined;
+  let pagesWalked = 0;
+  let orderingClean = true;
+  let prevMs = Infinity;
+  let capExhaustedWithMorePages = false;
+  const currentSelection = () =>
+    selectImportWindow(
+      // Defense-in-depth client-side filter — only import reviews from this
+      // location (mirrors the ingest worker's location check).
+      [...fetchedById.values()].filter(
+        (z) => extractLocationFromReviewName(z.name) === zernio_location_id,
+      ),
+      { floorMs, upperCutoffMs },
+    );
   try {
-    all = await zernioClient.listAllReviews(zernio_account_id, {
-      locationId: zernio_location_id,
-      pageSize: 50,
-      maxPages: 4,
-    });
+    for (let i = 0; i < maxPages; i++) {
+      const page = await zernioClient.listReviews(zernio_account_id, {
+        locationId: zernio_location_id,
+        pageSize: 50,
+        pageToken,
+      });
+      pagesWalked += 1;
+      let pageOldestMs = Infinity;
+      for (const z of page.reviews) {
+        const t = new Date(z.createTime).getTime();
+        if (Number.isFinite(t)) {
+          if (t > prevMs && orderingClean) {
+            orderingClean = false;
+            logger.warn(
+              `Zernio page order non-descending at review ${z.id} (page ${pagesWalked}) — undocumented ordering changed? Early stops disabled for this run`,
+            );
+          }
+          prevMs = t;
+          pageOldestMs = Math.min(pageOldestMs, t);
+        }
+        if (!fetchedById.has(z.id)) fetchedById.set(z.id, z);
+      }
+      if (!page.nextPageToken) break;
+      // Early stops are trusted ONLY while ordering is clean.
+      if (orderingClean && currentSelection().selected.length >= IMPORT_TARGET_COUNT) break;
+      if (orderingClean && pageOldestMs < floorMs) break; // everything further back is older
+      if (i === maxPages - 1) {
+        capExhaustedWithMorePages = true;
+        break;
+      }
+      pageToken = page.nextPageToken;
+    }
   } catch (err) {
     await handleZernioIngestError(
       sql, err, outboxId, attempt as number,
@@ -149,69 +297,52 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     return;
   }
 
-  const activeSinceMs = new Date(subscription_activated_at).getTime();
-  if (Number.isNaN(activeSinceMs)) {
-    // Malformed ISO string — without this guard, all >= comparisons evaluate
-    // false, producing gap=[] and historical=[], silently
-    // completing the backfill with 0 reviews processed. Throw → BullMQ
-    // retry → exhaustion surfaces in the failed outbox row for ops.
-    throw new Error(
-      `[ZernioBackfillWorker] malformed subscription_activated_at for business=${business_id}: ${JSON.stringify(subscription_activated_at)}`,
+  const selection = currentSelection();
+
+  if (capExhaustedWithMorePages && selection.selected.length < IMPORT_TARGET_COUNT) {
+    // TERMINAL, loud, never silent (r1 HIGH-2). The condition is
+    // deterministic — BullMQ retries would refetch the same pages — and the
+    // backfill queue has no failed-hook, so persist the failure here: named
+    // error in the failed outbox row + Sentry. completed_at stays NULL, so
+    // after ops bumps ZERNIO_IMPORT_MAX_PAGES the run is still claimable via
+    // admin re-enqueue (consent permitting, spec §5.3).
+    // (Dirty-ordering cap-outs with >= 100 candidates proceed best-effort
+    // instead — the ordering warning is the ops signal there.)
+    const err = new ZernioImportPaginationCapExhaustedError(
+      business_id, maxPages, selection.selected.length, fetchedById.size,
     );
+    logger.error(err.message);
+    Sentry.captureException(err);
+    // Prefix with err.name so the failed row carries the class.
+    await markOutboxFailed(sql, outboxId, `${err.name}: ${err.message}`, attempt);
+    return;
   }
 
-  // Defense-in-depth client-side filter — only process reviews from this location.
-  const locationScoped = all.filter(
-    (z) => extractLocationFromReviewName(z.name) === zernio_location_id,
-  );
-
-  // Loose-equality so an omitted (undefined) reviewReply on the Zernio
-  // wire is treated as 'unanswered'. listReviews normalizes to null today,
-  // but defense-in-depth — see Code Review fix Medium 1 (2026-05-02).
-  const answered = locationScoped.filter((z) => z.reviewReply != null);
-  const unanswered = locationScoped
-    .filter((z) => z.reviewReply == null)
-    .sort((a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime());
-
-  // Reconcile already-answered reviews. Collect failures; throw at end so
-  // BullMQ retries the whole backfill on partial failure (idempotent thanks
-  // to processReview ON CONFLICT + supersession idempotency).
+  let importedCount = 0;
+  let skippedCount = selection.capOverflow.length;
   const reconcileFailures: { reviewId: string; error: string }[] = [];
-  for (const z of answered) {
-    try {
-      await reconcileExternallyAnsweredReview(
-        sql, z, business_id, zernio_account_id, zernio_location_id, logger,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`Backfill reconcile failed for review ${z.id}: ${msg}`);
-      reconcileFailures.push({ reviewId: z.id, error: msg });
+
+  for (const z of selection.selected) {
+    // Loose-equality: an omitted reviewReply on the wire is 'unanswered'.
+    if (z.reviewReply != null) {
+      try {
+        await reconcileExternallyAnsweredReview(
+          sql, z, business_id, zernio_account_id, zernio_location_id, logger,
+          { consentedImport: true },
+        );
+        importedCount += 1;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`Import reconcile failed for review ${z.id}: ${msg}`);
+        reconcileFailures.push({ reviewId: z.id, error: msg });
+      }
+      continue;
     }
-  }
 
-  const GAP_CAP = 25;
-  const HISTORICAL_CAP = 50;
-
-  const gapAll = unanswered.filter((z) => new Date(z.createTime).getTime() >= activeSinceMs);
-  const histAll = unanswered.filter((z) => new Date(z.createTime).getTime() < activeSinceMs);
-
-  const gap = gapAll.slice(0, GAP_CAP);
-  const historical = histAll.slice(0, HISTORICAL_CAP);
-
-  const gapSkipped = gapAll.length - gap.length;
-  const historicalSkipped = histAll.length - historical.length;
-  const oldestSkipped = [...gapAll.slice(GAP_CAP), ...histAll.slice(historical.length)]
-    .reduce((oldest: string | null, z) =>
-      !oldest || z.createTime < oldest ? z.createTime : oldest, null);
-
-  let gapProcessed = 0;
-  let historicalProcessed = 0;
-
-  async function processUnansweredReview(z: ZernioReview, bucket: 'gap' | 'historical') {
     const phi = detectLikelyPhi(z.comment);
     if (phi.matched) {
       logger.warn(
-        `Likely PHI detected for backfill review ${z.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(z.comment)}; skipping`,
+        `Likely PHI detected for import review ${z.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(z.comment)}; skipping`,
       );
       await sql.begin((tx) => openPhiReviewException(tx, {
         businessId: business_id,
@@ -221,7 +352,8 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
         reasons: phi.reasons,
         source: 'backfill',
       }, logger));
-      return;
+      skippedCount += 1;
+      continue;
     }
 
     let monitored: MonitoredReview;
@@ -230,51 +362,30 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     } catch (err) {
       if (err instanceof ZernioReviewNormalizationError) {
         logger.warn(`Skipping malformed review ${z.id}: ${err.message}`);
-        return;
+        skippedCount += 1;
+        continue;
       }
       throw err;
     }
-    await processReview(sql, monitored, business_id, job.data.correlation_id, {
-      suppressNotification: true,
-      originLane: GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL,
-    });
-    if (bucket === 'gap') {
-      gapProcessed++;
-    } else {
-      historicalProcessed++;
-    }
-  }
-
-  for (const z of gap) {
-    await processUnansweredReview(z, 'gap');
-  }
-  for (const z of historical) {
-    await processUnansweredReview(z, 'historical');
+    // 'unchanged' (row already existed / concurrent writer won) still counts
+    // imported — the review IS in the owner's list either way.
+    await importReview(sql, monitored, business_id, job.data.correlation_id);
+    importedCount += 1;
   }
 
   // Always update partial counts so ops can audit even on retry.
-  // Dual-write transition (#673, spec §8a R4): the collapsed counters ride
-  // the same UPDATE as the legacy four until the #680 cleanup migration
-  // drops the legacy set. Mapping locked at map #667:
-  // imported = gap + historical processed; skipped = gap + historical skipped.
-  const importedCount = gapProcessed + historicalProcessed;
-  const skippedCount = gapSkipped + historicalSkipped;
   await sql`
     UPDATE zernio_backfill_runs
-    SET gap_processed_count = ${gapProcessed},
-        historical_processed_count = ${historicalProcessed},
-        gap_skipped_count = ${gapSkipped},
-        historical_skipped_count = ${historicalSkipped},
-        imported_count = ${importedCount},
+    SET imported_count = ${importedCount},
         skipped_count = ${skippedCount},
-        oldest_skipped_create_time = ${oldestSkipped},
+        oldest_skipped_create_time = ${selection.oldestSkippedCreateTime},
         updated_at = NOW()
     WHERE id = ${run.id}
   `;
 
   if (reconcileFailures.length > 0) {
     throw new Error(
-      `Backfill reconciliation failed for ${reconcileFailures.length} review(s): ` +
+      `Import reconciliation failed for ${reconcileFailures.length} review(s): ` +
       reconcileFailures.map((f) => `${f.reviewId} (${f.error})`).join('; ') +
       ` — re-running on retry`,
     );
@@ -288,8 +399,8 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   `;
 
   logger.log(
-    `Backfill complete business=${business_id} tier=${subscription_tier}: ` +
-    `gap=${gap.length}/${gapAll.length} historical=${historical.length}/${histAll.length}`,
+    `Import complete business=${business_id}: imported=${importedCount} skipped=${skippedCount} ` +
+    `pages=${pagesWalked} window=[${new Date(floorMs).toISOString()}, ${cutoff ? cutoff.toISOString() : 'unbounded'})`,
   );
 
   await markOutboxCompleted(sql, outboxId, attempt);

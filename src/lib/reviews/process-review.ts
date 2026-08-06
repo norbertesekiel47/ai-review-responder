@@ -502,22 +502,18 @@ async function processExistingReview(
  * `src/lib/agents/read.ts`). The import's work genuinely is finished when the
  * row lands; #678's on-demand Generate opens a fresh run per owner action.
  *
- * KNOWN HAZARD (deviations D4, owned by #675) — **a review stored here is never
- * drafted by the live lane, and this needs no race.** The live lane enqueues
- * `generate_response` only when it INSERTS a review or when the content hash
- * CHANGES; a later `processReview` for a row this function already stored takes
- * the existing-row path, matches the hash, and returns `'unchanged'` without
- * enqueueing (`processExistingReview`, the `existingHash === contentHash`
- * branch). The zernio backfill lane routes through the same `processReview`, so
- * it is not a rescue either. The concurrent INSERT race is merely the
- * simultaneous instance of this; the sequential case (import runs first, live
- * lane polls later) is the common one. Fixing it means giving the live lane a
- * durable "generation still owed" claim — a behaviour change to
- * `processReview` that #674 forbids, in code with no caller until #675 wires
- * one. #675 owns *when* the import runs and therefore owns this.
+ * RESOLVED HAZARD (#674 D4 → #675, 2026-08-05) — a review stored here is
+ * never drafted by the live lane; #675 made that structurally harmless via
+ * disjoint lane ownership: the import's caller (ZernioBackfillWorker)
+ * selects only createTime < the live-ingest cutoff (connected_at − grace),
+ * the exact complement of the recent poller's isRecentForConnection, so a
+ * review the live lane owes a draft for can never be stored first by the
+ * import. See CONTEXT.md "Import window" / "Live-ingest cutoff" and spec
+ * §6.1. The live lane's own semantics are unchanged: an existing row with
+ * a matching hash still returns 'unchanged' without enqueueing.
  *
- * Callers screen reviews (PHI, normalization) before calling; precedent is the
- * `processUnansweredReview` closure inside `handleZernioBackfill`.
+ * Callers screen reviews (PHI, normalization) before calling; precedent is
+ * the unanswered-review path inside `handleZernioBackfill`.
  */
 export async function importReview(
   sql: Sql,

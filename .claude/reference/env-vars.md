@@ -329,6 +329,7 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 - `ZERNIO_API_BASE` (default: `'https://zernio.com/api'`) — override for sandbox
 - `ZERNIO_PROFILE_ID_PREFIX` (default: `'repworth-prod-'`) — prefixed onto Zernio profile names to prevent prod/staging/local collisions on same workspace
 - `ZERNIO_INGEST_MAX_PAGES` (default: `4`, = 200 reviews) — caps `ZernioReviewIngestWorker`'s `listReviews` walk. Hitting cap with `nextPageToken` set → `review_exceptions type='zernio_pagination_cap_exhausted'` (distinct from durable `zernio_review_not_found`)
+- `ZERNIO_IMPORT_MAX_PAGES` (default: `6`) — worker-only page cap for the consented Review import's until-target fetch (`ZernioBackfillWorker`, #675); cap exhaustion with target unmet raises `ZernioImportPaginationCapExhaustedError` (never truncates silently); bump + admin re-enqueue (consent permitting) is the ops remedy
 
 **Prod checklist:** Subscribe to Zernio Accelerate + Inbox add-on → set `ZERNIO_API_KEY` + `ZERNIO_WEBHOOK_SECRET` + `WORKER_PUBLIC_URL` → run migrations 026+028+029+030 in prod Supabase → configure webhook URL in Zernio dashboard pointing at `${WORKER_PUBLIC_URL}/ingress/zernio` → fire test webhook → flip flag → onboard pilot per `docs/zernio-launch-runbook.md`.
 

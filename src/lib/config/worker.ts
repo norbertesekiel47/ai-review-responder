@@ -165,6 +165,7 @@ const workerSchema = z.object({
   // email/Telegram still deliver. Read only through this worker config seam.
   WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
+  ZERNIO_IMPORT_MAX_PAGES: rawOpt,
 
   // ── Stage-3 worker-ingress batch ──────────────────────────────────────────
   // Webhook SIGNATURE-VERIFICATION secrets. Each is migrated from a raw
