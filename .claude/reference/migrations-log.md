@@ -998,11 +998,12 @@ Revisit triggers:
   retention-policy row. Shape suite
   `migration-100-import-consent.integration.test.ts` re-pinned (three-value
   full-definition equality; `'expired'` moved to the illegal-values probe).
-  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`; preflight zero
-  non-pending rows, post-apply `pg_get_constraintdef` renders exactly the
-  three-value literal the suite pins), local test container, and **NOT YET
-  PRODUCTION** — apply to `udeyaqnvpojbwgoaxwdg` at promotion, immediately
-  before the PR merges, completing the lockstep.
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **PRODUCTION 2026-08-05** (`udeyaqnvpojbwgoaxwdg`, applied at
+  PR #686 promotion BEFORE merge) — lockstep complete; both environments
+  preflighted zero non-pending rows and verified post-apply by
+  `pg_get_constraintdef` rendering exactly the three-value literal the shape
+  suite pins.
 
 - **100** — `import_consent_and_backfill_counters`: **Consented Review Import**
   schema (#673, epic #667; ADR 0015 + spec
