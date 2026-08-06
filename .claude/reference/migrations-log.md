@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **100** — next migration is **101**
+Current head: **101** — next migration is **102**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -982,6 +982,29 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
+- **101** — `import_decision_three_valued_check`: **corrective tighten of 100's
+  CHECK** (#673 fallout; #670 amendment). `businesses.import_decision` drops
+  `'expired'` from the enum — the CHECK becomes `pending|accepted|declined` —
+  and the two COMMENTs describing `expired` as a stored state are rewritten:
+  expiry is **derived on read** (`pending AND import_offer_expires_at <=
+  now()`, spec §5.3, PR #684), never materialised, so a CHECK value nothing
+  writes would misrepresent the state machine. Root cause: 100's intake was
+  locked minutes before #670's amendment was posted on ticket #673
+  (2026-08-05), and the plan reviews validated against the intake — the
+  four-valued CHECK shipped to both environments before the drift was caught
+  at promotion. No writer of `'expired'` ever existed; both envs verified
+  zero non-pending rows before the tighten. Same named constraint, DROP +
+  re-ADD, `SET lock_timeout = '5s'`; no new relation → no RLS change, no
+  retention-policy row. Shape suite
+  `migration-100-import-consent.integration.test.ts` re-pinned (three-value
+  full-definition equality; `'expired'` moved to the illegal-values probe).
+  **APPLIED TO STAGING 2026-08-05** (`kubdiqdhqbhwmqfditeg`), local test
+  container, and **PRODUCTION 2026-08-05** (`udeyaqnvpojbwgoaxwdg`, applied at
+  PR #686 promotion BEFORE merge) — lockstep complete; both environments
+  preflighted zero non-pending rows and verified post-apply by
+  `pg_get_constraintdef` rendering exactly the three-value literal the shape
+  suite pins.
+
 - **100** — `import_consent_and_backfill_counters`: **Consented Review Import**
   schema (#673, epic #667; ADR 0015 + spec
   `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §4,
@@ -1029,7 +1052,10 @@ Revisit triggers:
   the §8a R3 "zero rows at migration time" premise was stale by hours —
   harmless, because DEFAULT `'pending'` is the truthful state for a location
   that never answered and no backdating occurred (both rows verified
-  `pending` / NULL / NULL). Recorded as deviation D8.
+  `pending` / NULL / NULL). Recorded as deviation D8. **Superseded in part by
+  101:** the four-valued CHECK this migration shipped was tightened to
+  `pending|accepted|declined` (the #670 amendment — expiry derived, never
+  stored) — see 101's entry for the root cause.
 
 - **099** — `solicitation_postal_address`: the **Attested postal address** on
   `businesses` (#656; locked spec

@@ -28,7 +28,9 @@ import { cleanupTenantAccount, seedTenantAccount } from '@/lib/shared/__tests__/
 // The subject is three contracts:
 //
 //  1. `import_decision` — the import offer's state — is NOT NULL DEFAULT
-//     'pending' under the named four-value CHECK, with the DEFAULT exact
+//     'pending' under the named three-value CHECK (100 shipped four values;
+//     101 tightened to `pending|accepted|declined` per the #670 amendment —
+//     expiry is derived on read, never stored), with the DEFAULT exact
 //     (#668 / §8a R3): no backfill clause, no backdating — writing 'accepted'
 //     for rows that never answered records a consent that was never given.
 //
@@ -49,8 +51,9 @@ import { cleanupTenantAccount, seedTenantAccount } from '@/lib/shared/__tests__/
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
-const ENUM_VALUES = ['pending', 'accepted', 'declined', 'expired'] as const;
-const INVALID_VALUES = ['', 'PENDING', 'yes', 'dismissed'] as const;
+const ENUM_VALUES = ['pending', 'accepted', 'declined'] as const;
+// 'expired' moved from legal to illegal by migration 101 (#670: derived, never stored).
+const INVALID_VALUES = ['', 'PENDING', 'yes', 'dismissed', 'expired'] as const;
 const migrationPath = resolve(
   process.cwd(),
   'supabase/migrations/100_import_consent_and_backfill_counters.sql',
@@ -121,7 +124,7 @@ describeWithDb(
       }
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
-    it("businesses.import_decision defaults to 'pending' and rejects values outside the four-state enum", async () => {
+    it("businesses.import_decision defaults to 'pending' and rejects values outside the three-state enum", async () => {
       // Catalog-level pin — the DEFAULT and type live in the catalog, not in a
       // fixture's luck: a trigger or seeded value could also read back 'pending'.
       const [decisionCol] = await sql()<
@@ -138,8 +141,8 @@ describeWithDb(
 
       // The predicate itself, not just the constraint's existence: a broader
       // CHECK (e.g. `IN (…) OR length(x) = 1`) admits unseen values while
-      // containing all four literals and passing every sampled probe below. Pin
-      // the pg-normalized rendering: `= ANY (ARRAY[exactly these four])`, in
+      // containing all three literals and passing every sampled probe below. Pin
+      // the pg-normalized rendering: `= ANY (ARRAY[exactly these three])`, in
       // order, with no other branch.
       const [check] = await sql()<{ def: string }[]>`
         SELECT pg_get_constraintdef(oid) AS def
@@ -151,10 +154,10 @@ describeWithDb(
       // FULL-definition equality — start-anchored prefixes admit a pathological
       // trailing branch (round-3 finding 4). PG16-pinned rendering: if this
       // equality ever fails on parenthesization/cast variance, print the actual
-      // def, eyeball that it is the four-value ANY with no extra branch, and pin
+      // def, eyeball that it is the three-value ANY with no extra branch, and pin
       // THAT literal — the contract is whole-definition equality, not this guess.
       expect(def).toBe(
-        "CHECK ((import_decision = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text, 'expired'::text])))",
+        "CHECK ((import_decision = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text])))",
       );
 
       // Behavioural probes (all rolled back): fixture row took the default…
@@ -214,12 +217,13 @@ describeWithDb(
             OR pg_get_constraintdef(oid) LIKE '%import_offer_expires_at%')
       `;
       expect(coupled).toHaveLength(0);
-      // Behavioural corroboration (rolled back): non-pending decision with both
-      // timestamps NULL is accepted.
+      // Behavioural corroboration (rolled back): an ANSWERED decision with both
+      // timestamps NULL is accepted — the sharpest witness that nothing couples
+      // them. ('declined', not 'expired': three-valued since migration 101.)
       await sql().begin(async (tx) => {
         await tx`
           UPDATE businesses
-          SET import_decision = 'expired', import_decision_at = NULL, import_offer_expires_at = NULL
+          SET import_decision = 'declined', import_decision_at = NULL, import_offer_expires_at = NULL
           WHERE id = ${businessId}
         `;
         throw new Error('rollback');
