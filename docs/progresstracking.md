@@ -1523,3 +1523,55 @@ opening a second run for the same review. **#667**: `CONTEXT.md` still has no
 The staging-reconcile item recurred a **fourth** time (#647, #654, #659, #682).
 
 ---
+
+## Consented Review Import — schema (#673, migrations 100+101, PRs #685/#686, 2026-08-05)
+
+**Why:** epic map #667's schema keystone — the per-location import-offer state
+and the ADD half of the locked backfill-counter collapse, so #675 (selection),
+#676 (consent gate), #677 (decision API) and #679 (expiry) have columns to
+build on. Design of record: ADR 0015 + spec
+`2026-08-05-consented-review-import-design.md` §4, §8a R1/R3/R4.
+
+**What was done:**
+
+1. **Migration 100** (additive-only) — `businesses.import_decision` TEXT
+   `NOT NULL DEFAULT 'pending'` under the named CHECK, nullable
+   `import_decision_at` / `import_offer_expires_at` TIMESTAMPTZ; on
+   `zernio_backfill_runs`, collapsed `imported_count` / `skipped_count`
+   INTEGER `NOT NULL DEFAULT 0` beside the four legacy counters (DROP is
+   #680's, so any epic revert stays safe — §8a R4). No cross-column CHECK,
+   no index — #677/#679 own those semantics.
+2. **`ZernioBackfillWorker` dual-write** — one UPDATE writes both counter
+   sets (`imported = gap + historical processed`, `skipped = gap + historical
+   skipped`); tenant-scope allowlist re-pinned. Contract (adversarial-review
+   amendment D7): the legacy writer contract ends at **#675**; #680's DROP
+   requires a reconciliation preflight on pre-#675 rows.
+3. **Migration 101** (same-day correction) — 100 shipped the CHECK
+   four-valued (`…|expired`) from an intake locked ~17 minutes before #670's
+   amendment (three-valued, expiry derived on read) hit ticket #673; every
+   review round validates against the intake, so the drift surfaced only at
+   promotion. 101 tightened the CHECK to `pending|accepted|declined`, rewrote
+   both COMMENTs, and re-pinned the shape suite. Root-cause lesson promoted
+   to lab-notes ("an intake is a snapshot").
+4. **Shape suite** `migration-100-import-consent.integration.test.ts` — 4
+   tests: catalog defaults + full-definition CHECK equality, cross-column
+   absence by `pg_constraint` introspection, counters beside the legacy four,
+   and an additive-only allowlist over 100's executable SQL. Schema-ready
+   entry `MIGRATION_100_IMPORT_CONSENT`.
+5. **Both environments in lockstep** — each migration applied staging-first,
+   prod immediately before its PR merged, verified by
+   `information_schema`/`pg_get_constraintdef` introspection (never
+   `list_migrations`). Deviations D1–D8 triaged in the plans folder; D8: the
+   §8a R3 "zero rows" premise was stale by hours at staging apply (2 smoke
+   rows, both correctly `pending`) — second lab-notes lesson.
+
+### Follow-ups
+
+**#675 is UNBLOCKED** (#674 merged, #673 shipped) and is the next ticket;
+**#679** likewise (blocked by #673 only). #677 → #676 → #678 → #680 stay
+sequenced. The **F3 constraint** (archive→re-add can reset consent state)
+sits on #676/#677. The staging-reconcile item hit its **fifth** occurrence
+(#685) — feature.md step 8 still says "fast-forward"; entropy counter at
+**6, threshold reached**, an architecture pass is due.
+
+---
