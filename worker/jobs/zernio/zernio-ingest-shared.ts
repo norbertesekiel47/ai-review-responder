@@ -318,13 +318,10 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       const targetReviewRowId = matchedRows[0]!.id;
-      const inserted = await insertImportedResponse(tx, businessId, targetReviewRowId, null, target.reviewReply);
-      if (inserted) {
-        await bumpExternalReplyIngestedCount(tx, businessId);
-        logger.log(`Imported external reply onto existing review row ${targetReviewRowId}`);
-      } else {
-        logger.log(`External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`);
-      }
+      await importExternalReplyOntoRow(tx, businessId, targetReviewRowId, null, target.reviewReply, logger, {
+        inserted: `Imported external reply onto existing review row ${targetReviewRowId}`,
+        notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`,
+      });
       return;
     }
 
@@ -393,11 +390,11 @@ export async function reconcileExternallyAnsweredReview(
         );
         return;
       }
-      const inserted = await insertImportedResponse(tx, businessId, matchedRows[0]!.id, null, target.reviewReply);
-      if (inserted) {
-        await bumpExternalReplyIngestedCount(tx, businessId);
-        logger.log(`Imported external reply onto review row ${matchedRows[0]!.id} after superseding active draft(s)`);
-      }
+      const targetReviewRowId = matchedRows[0]!.id;
+      await importExternalReplyOntoRow(tx, businessId, targetReviewRowId, null, target.reviewReply, logger, {
+        inserted: `Imported external reply onto review row ${targetReviewRowId} after superseding active draft(s)`,
+        notBumped: `External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped after superseding active draft(s)`,
+      });
     }
   });
 }
@@ -528,4 +525,30 @@ async function bumpExternalReplyIngestedCount(
         updated_at = NOW()
     WHERE business_id = ${businessId} AND completed_at IS NULL
   `;
+}
+
+/**
+ * Shared tail for the "matched review, active-response set resolved" branches
+ * (branch 2: no active responses; branch-3 tail: active responses superseded,
+ * none protected): insert the imported 'posted' response, bump the counter
+ * ONLY on an actual insert (an ON CONFLICT no-op must not inflate the metric),
+ * and log the outcome using the caller's own wording so each branch keeps its
+ * exact current log messages.
+ */
+async function importExternalReplyOntoRow(
+  tx: TxClient,
+  businessId: string,
+  reviewRowId: string,
+  reviewLanguage: string | null,
+  externalReply: { comment: string; updateTime: string },
+  logger: WorkerLogger,
+  messages: { inserted: string; notBumped: string },
+): Promise<void> {
+  const inserted = await insertImportedResponse(tx, businessId, reviewRowId, reviewLanguage, externalReply);
+  if (inserted) {
+    await bumpExternalReplyIngestedCount(tx, businessId);
+    logger.log(messages.inserted);
+  } else {
+    logger.log(messages.notBumped);
+  }
 }

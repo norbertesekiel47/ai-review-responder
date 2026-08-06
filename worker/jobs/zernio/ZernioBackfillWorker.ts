@@ -239,7 +239,8 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
   // in dirty mode newer reviews may sit on later pages, so stopping at 100
   // could select the wrong newest-100. Dirty mode pages to feed end or cap.
   // Pages are deduped by review id — provider page boundaries may repeat.
-  const maxPages = Math.max(1, parseInt(getWorkerConfig().ZERNIO_IMPORT_MAX_PAGES ?? '6', 10) || 6);
+  const parsedMaxPages = parseInt(getWorkerConfig().ZERNIO_IMPORT_MAX_PAGES ?? '', 10);
+  const maxPages = Number.isFinite(parsedMaxPages) && parsedMaxPages > 0 ? parsedMaxPages : 6;
   const fetchedById = new Map<string, ZernioReview>();
   let pageToken: string | undefined;
   let pagesWalked = 0;
@@ -312,8 +313,7 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     );
     logger.error(err.message);
     Sentry.captureException(err);
-    // Signature verified (r2): markOutboxFailed(exec, id, error, attempt) —
-    // error THIRD. Prefix with err.name so the failed row carries the class.
+    // Prefix with err.name so the failed row carries the class.
     await markOutboxFailed(sql, outboxId, `${err.name}: ${err.message}`, attempt);
     return;
   }

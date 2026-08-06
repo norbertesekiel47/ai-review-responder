@@ -641,6 +641,48 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 });
 
+// ── #675 shared test fixtures ────────────────────────────────────────────
+// mkTaggedResult / mkRecordingTx / mkReview are shared by BOTH #675 describe
+// blocks below ("consentedImport option" + "consented import seams") —
+// hoisted here to module scope after the two blocks accreted separate copies
+// of the same three helpers.
+type RecordedCall = { sql: string; values: unknown[] };
+
+const mkTaggedResult = <T = unknown>(rows: T[]) => {
+  const arr = rows as unknown as T[] & { count: number };
+  arr.count = rows.length;
+  return arr;
+};
+
+const mkRecordingTx = (handlers: Array<(rec: RecordedCall) => unknown[]>) => {
+  const calls: RecordedCall[] = [];
+  let idx = 0;
+  const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const rec: RecordedCall = { sql: strings.join('?'), values };
+    calls.push(rec);
+    const handler = handlers[idx];
+    idx += 1;
+    const rows = handler ? handler(rec) : [];
+    return Promise.resolve(mkTaggedResult(rows));
+  });
+  // Identity pass-through for openPhiReviewException's `db.json(...)` bind.
+  (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+  return { tx, calls };
+};
+
+const mkReview = (overrides: Partial<ZernioReview> = {}): ZernioReview => ({
+  id: 'rev-1',
+  name: 'accounts/A/locations/L/reviews/rev-1',
+  reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+  rating: 5,
+  starRating: 'FIVE',
+  comment: 'Great!',
+  createTime: '2026-04-01T00:00:00Z',
+  updateTime: '2026-04-01T00:00:00Z',
+  reviewReply: { comment: 'Thanks for the review!', updateTime: '2026-04-02T00:00:00Z' },
+  ...overrides,
+});
+
 // ── #675 Task 4 — consentedImport option ──────────────────────────────────
 // D5: the consented Review import lane imports answered rows UNCONDITIONALLY;
 // EXTERNAL_REPLY_IMPORT_ENABLED continues to govern only the live lane's
@@ -661,42 +703,6 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
       process.env.EXTERNAL_REPLY_IMPORT_ENABLED = ORIGINAL_FLAG;
     }
   });
-
-  const mkReview = (overrides: Partial<ZernioReview> = {}): ZernioReview => ({
-    id: 'rev-1',
-    name: 'accounts/A/locations/L/reviews/rev-1',
-    reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
-    rating: 5,
-    starRating: 'FIVE',
-    comment: 'Great!',
-    createTime: '2026-04-01T00:00:00Z',
-    updateTime: '2026-04-01T00:00:00Z',
-    reviewReply: { comment: 'Thanks for the review!', updateTime: '2026-04-02T00:00:00Z' },
-    ...overrides,
-  });
-
-  const mkTaggedResult = <T = unknown>(rows: T[]) => {
-    const arr = rows as unknown as T[] & { count: number };
-    arr.count = rows.length;
-    return arr;
-  };
-
-  type Recorded = { sql: string; values: unknown[] };
-  const mkRecordingTx = (handlers: Array<(rec: Recorded) => unknown[]>) => {
-    const calls: Recorded[] = [];
-    let idx = 0;
-    const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const rec: Recorded = { sql: strings.join('?'), values };
-      calls.push(rec);
-      const handler = handlers[idx];
-      idx += 1;
-      const rows = handler ? handler(rec) : [];
-      return Promise.resolve(mkTaggedResult(rows));
-    });
-    // Identity pass-through for openPhiReviewException's `db.json(...)` bind.
-    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
-    return { tx, calls };
-  };
 
   it('(a) previously-unseen answered review + consentedImport:true → review row inserted + imported posted response inserted', async () => {
     const sql = makeSqlMock();
@@ -814,49 +820,22 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
   });
 });
 
-// ── #675 consented import — spec stubs (Tasks 2 & 4 flip these) ──────────
+// ── #675 consented import seams ───────────────────────────────────────────
 describe('consented import seams (#675)', () => {
   it('(d) stores the external posted response when a consented answered import supersedes an active draft', async () => {
     const sql = makeSqlMock();
-    const mkTaggedResult = <T = unknown>(rows: T[]) => {
-      const arr = rows as unknown as T[] & { count: number };
-      arr.count = rows.length;
-      return arr;
-    };
-    type Recorded = { sql: string; values: unknown[] };
-    const calls: Recorded[] = [];
-    const handlers: Array<() => unknown[]> = [
+    const { tx, calls } = mkRecordingTx([
       () => [{ id: 'rev-row-1', provider: 'zernio' }],                                                  // 1. SELECT matched rows.
       () => [{ id: 'resp-1', status: 'pending_approval', approved_text: 'Draft text not sent yet' }],    // 2. SELECT active responses (stale draft).
       () => [{ id: 'resp-1' }],                                                                          // 3. UPDATE responses (supersede).
       () => [{}],                                                                                        // 4. INSERT INTO responses (imported posted reply).
       () => [],                                                                                          // 5. UPDATE zernio_backfill_runs (counter bump).
-    ];
-    let idx = 0;
-    const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ sql: strings.join('?'), values });
-      const handler = handlers[idx];
-      idx += 1;
-      return Promise.resolve(mkTaggedResult(handler ? handler() : []));
-    });
-    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+    ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
-
-    const review: ZernioReview = {
-      id: 'rev-1',
-      name: 'accounts/A/locations/L/reviews/rev-1',
-      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
-      rating: 5,
-      starRating: 'FIVE',
-      comment: 'Great!',
-      createTime: '2026-04-01T00:00:00Z',
-      updateTime: '2026-04-01T00:00:00Z',
-      reviewReply: { comment: 'Thanks for the review!', updateTime: '2026-04-02T00:00:00Z' },
-    };
     const logger = mkLogger();
 
     await reconcileExternallyAnsweredReview(
-      sql, review, 'B', 'A', 'L', logger as any, { consentedImport: true },
+      sql, mkReview(), 'B', 'A', 'L', logger as any, { consentedImport: true },
     );
 
     expect(calls).toHaveLength(5);

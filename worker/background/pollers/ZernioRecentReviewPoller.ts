@@ -105,10 +105,6 @@ function isRecentForConnection(review: ZernioReview, connectedAt: Date | null): 
   return Number.isFinite(reviewMs) && reviewMs >= cutoff.getTime();
 }
 
-function connectionCutoff(connectedAt: Date | null): Date | null {
-  return liveIngestCutoff(connectedAt);
-}
-
 // Keyset pagination by business_id (stable total order) so the per-cycle cap
 // still covers every connection across cycles. The previous connected_at DESC
 // ordering prioritized newest connections, which only mattered when every
@@ -193,7 +189,7 @@ async function tombstoneMissingSourceReviews(
   sourceReviewIds: Set<string>,
   feedComplete: boolean,
 ): Promise<number> {
-  const cutoff = connectionCutoff(connection.connected_at);
+  const cutoff = liveIngestCutoff(connection.connected_at);
   if (!cutoff || !feedComplete) return 0;
 
   const providerLocationName =
