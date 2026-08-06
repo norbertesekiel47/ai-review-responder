@@ -196,6 +196,10 @@ export async function openPhiReviewException(
  * The IN clause MUST NOT include 'awaiting_manual_post' — that status is
  * decommissioned in migration 029 (spec §6.12b). Spec §13 grep acceptance
  * criterion enforces this.
+ *
+ * consentedImport: the consented Review import lane (D5) imports answered
+ * rows unconditionally — EXTERNAL_REPLY_IMPORT_ENABLED governs only the live
+ * lane's posture.
  */
 export async function reconcileExternallyAnsweredReview(
   sql: postgres.Sql,
@@ -204,6 +208,7 @@ export async function reconcileExternallyAnsweredReview(
   accountId: string,
   locationId: string,
   logger: WorkerLogger,
+  opts?: { consentedImport?: boolean },
 ): Promise<void> {
   const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
   // Use the canonical field-match predicate from zernio-field-match.ts.
@@ -234,7 +239,8 @@ export async function reconcileExternallyAnsweredReview(
     `;
 
     if (matchedRows.length === 0) {
-      if (!FLAG_ON()) {
+      const importAllowed = FLAG_ON() || opts?.consentedImport === true;
+      if (!importAllowed) {
         logger.log(`External reply on previously-unseen review ${target.id} — not ingesting`);
         return;
       }
@@ -288,7 +294,8 @@ export async function reconcileExternallyAnsweredReview(
     // re-introduction.
 
     if (activeResponses.length === 0) {
-      if (!FLAG_ON()) {
+      const importAllowed = FLAG_ON() || opts?.consentedImport === true;
+      if (!importAllowed) {
         logger.log(`External reply detected but no active responses for review row(s) ${reviewIds.join(',')} — no-op`);
         return;
       }
@@ -362,6 +369,35 @@ export async function reconcileExternallyAnsweredReview(
         `replied externally on Google. Protected ${protectedIds.size} ` +
         `matching response(s) (our reply).`,
       );
+    }
+
+    // Consented import runs ONCE per review — it cannot rely on the live
+    // lane's eventual convergence, so store the external reply now (D5).
+    // Mirrors branch 2: PHI gate, then insertImportedResponse + counter.
+    // protectedIds.size > 0 means one of the active responses IS our own
+    // reply (approved_text matches the external text) — the reply is already
+    // represented locally; inserting an imported posted row would duplicate
+    // it (r2 fix-defect on the mixed protected+stale case).
+    if (opts?.consentedImport === true && target.reviewReply && protectedIds.size === 0) {
+      if (targetPhi.matched) {
+        await openPhiReviewException(tx, {
+          businessId,
+          accountId,
+          locationId,
+          review: target,
+          reasons: targetPhi.reasons,
+          source: 'external_reply_import',
+        }, logger);
+        logger.warn(
+          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
+        );
+        return;
+      }
+      const inserted = await insertImportedResponse(tx, businessId, matchedRows[0]!.id, null, target.reviewReply);
+      if (inserted) {
+        await bumpExternalReplyIngestedCount(tx, businessId);
+        logger.log(`Imported external reply onto review row ${matchedRows[0]!.id} after superseding active draft(s)`);
+      }
     }
   });
 }
