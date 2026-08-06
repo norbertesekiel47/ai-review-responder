@@ -638,3 +638,9 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(reviewInsert.values).toContain(1);
   });
 });
+
+// ── #675 consented import — spec stubs (Tasks 2 & 4 flip these) ──────────
+describe('consented import seams (#675)', () => {
+  it.todo('stores the external posted response when a consented answered import supersedes an active draft');
+  it.todo('honors configured ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS in liveIngestCutoff');
+});

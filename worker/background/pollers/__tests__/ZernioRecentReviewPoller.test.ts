@@ -328,6 +328,8 @@ describe('ZernioRecentReviewPoller', () => {
     expect(mockProcessReview).not.toHaveBeenCalled();
   });
 
+  it.todo('processes a review at the live-ingest cutoff and skips one below it under configured grace');
+
   describe('per-cycle bounds (deep-scan §3.7)', () => {
     function makeConnection(businessId: string) {
       return {

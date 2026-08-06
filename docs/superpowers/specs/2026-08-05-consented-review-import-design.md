@@ -226,6 +226,12 @@ permanent (D8), admin path included.
 - **Page until the target is met**, not a fixed 4 pages, and **record cap
   exhaustion** the way `ZernioReviewIngestWorker` does instead of truncating
   silently.
+- **Selection is bounded above by the live-ingest cutoff** (#675, 2026-08-05):
+  the import takes only `createTime < connected_at − grace`, the exact
+  complement of the recent poller's `isRecentForConnection`. Lane ownership is
+  disjoint by construction, which resolves the #674 "lost draft" hazard
+  structurally — a review the live lane owes a draft for can never be stored
+  first by the import. No upper bound when `connected_at` is null.
 
 ### 6.2 Ingest without generation
 

@@ -587,3 +587,36 @@ describe('ZernioBackfillWorker', () => {
     expect(v[5]).toBe(v[2]! + v[3]!); // skipped = gap + historical skipped
   });
 });
+
+// ── #675 consented-import selection — spec stubs ─────────────────────────
+// Titles are the intake's tests_to_add VERBATIM (promised-tests gate).
+// Bodies land in Tasks 3 and 5, which flip it.todo → it.
+describe('consented import selection (#675)', () => {
+  it.todo('imports newest 100 reviews within the 12-month floor, answered and unanswered alike');
+  it.todo('excludes reviews at or after connected_at minus grace from the import selection (live-lane ownership)');
+  it.todo('imports nothing and completes successfully when the window is empty');
+  it.todo('stores answered reviews as list rows with their posted response regardless of EXTERNAL_REPLY_IMPORT_ENABLED');
+  it.todo('enqueues no generate_response and writes no job_outbox row for imported reviews');
+  it.todo('pages until the target is met and stops early at the 12-month floor when ordering is clean');
+  it.todo('fails the outbox row terminally with ZernioImportPaginationCapExhaustedError and leaves completed_at NULL on cap exhaustion');
+  it.todo('logs a non-descending page order warning and disables early stops for that run');
+  it.todo('continues paging to feed end or cap when ordering is dirty instead of stopping at the target');
+  it.todo('writes only imported_count and skipped_count; legacy counters stay at their defaults');
+  it.todo('counts PHI and malformed reviews as skipped and already-ingested rows as imported');
+  it.todo('routes answered PHI reviews through reconciliation and counts them imported');
+  it.todo('skips as success when no active connection row exists, leaving completed_at NULL');
+  it.todo('applies no upper cutoff when connected_at is NULL');
+  it.todo('property: selection is always within the Import window and never exceeds 100 rows');
+  it.todo('marks the outbox completed only after the run completion write succeeds');
+  it.todo('passes each nextPageToken to the following listReviews request');
+  it.todo('imports the exact globally newest 100 from shuffled multi-page results');
+  it.todo('imports every available review when the feed ends below 100');
+  it.todo('does not report cap exhaustion when the target is met or a clean floor stop ends paging');
+  it.todo('derives the 12-calendar-month floor at run time and keeps paging at floor equality');
+  it.todo('recomputes the import floor from runtime now on retry');
+  it.todo('skips all provider and storage work when the run is already completed');
+  it.todo('reactivation runs use the identical import window and stay correlation-idempotent');
+  it.todo('reactivation INSERT names no legacy counter column');
+  it.todo('sets skipped_count from cap overflow and oldest_skipped_create_time to the chronologically oldest overflow');
+  it.todo('deduplicates reviews repeated across page boundaries');
+});
