@@ -13,6 +13,7 @@ vi.mock('@sentry/node', () => ({
 
 import {
   handleZernioIngestError,
+  liveIngestCutoff,
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from '../zernio-ingest-shared';
@@ -23,6 +24,7 @@ import {
   ZernioValidationError,
 } from '@/lib/zernio/errors';
 import type { ZernioReview } from '@/lib/zernio/types';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
@@ -642,5 +644,29 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 // ── #675 consented import — spec stubs (Tasks 2 & 4 flip these) ──────────
 describe('consented import seams (#675)', () => {
   it.todo('stores the external posted response when a consented answered import supersedes an active draft');
-  it.todo('honors configured ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS in liveIngestCutoff');
+
+  describe('liveIngestCutoff', () => {
+    const ORIGINAL_GRACE = process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
+
+    afterEach(() => {
+      if (ORIGINAL_GRACE === undefined) {
+        delete process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS;
+      } else {
+        process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = ORIGINAL_GRACE;
+      }
+      resetWorkerConfigForTests();
+    });
+
+    it('honors configured ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS in liveIngestCutoff', () => {
+      process.env.ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS = '120000';
+      resetWorkerConfigForTests();
+
+      const connectedAt = new Date('2026-05-10T06:28:15.000Z');
+      const cutoff = liveIngestCutoff(connectedAt);
+
+      // NOT the 5-minute default — the configured 120s grace.
+      expect(cutoff).toEqual(new Date(connectedAt.getTime() - 120_000));
+      expect(liveIngestCutoff(null)).toBeNull();
+    });
+  });
 });

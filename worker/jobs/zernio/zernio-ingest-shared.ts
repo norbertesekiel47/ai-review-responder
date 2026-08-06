@@ -14,6 +14,7 @@ import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { externalReplyImportEnabled } from '../../../src/lib/publishing/flags';
+import { getWorkerConfig } from '../../../src/lib/config/worker';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -35,6 +36,25 @@ type SqlExecutor = postgres.Sql | TxClient;
 
 const FLAG_ON = (): boolean =>
   externalReplyImportEnabled();
+
+// ── Live-ingest cutoff (CONTEXT.md glossary) ─────────────────────────────
+// connected_at − grace: the instant from which the live lane (webhook +
+// recent poller) owns review handling. The recent poller processes only
+// createTime >= cutoff (isRecentForConnection); the consented Review import
+// selects only createTime < cutoff. Disjoint by construction — this is what
+// makes the #674 lost-draft hazard structurally impossible. Null connected_at
+// → null; each caller interprets null per its own fail direction (poller:
+// owns nothing; import: no upper bound).
+const DEFAULT_CONNECT_GRACE_MS = 5 * 60_000;
+
+export function liveIngestCutoff(connectedAt: Date | null): Date | null {
+  if (!connectedAt) return null;
+  const connectedMs = connectedAt.getTime();
+  if (!Number.isFinite(connectedMs)) return null;
+  const parsed = parseInt(getWorkerConfig().ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS ?? '', 10);
+  const graceMs = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CONNECT_GRACE_MS;
+  return new Date(connectedMs - graceMs);
+}
 
 export interface IngestErrorContext {
   business_id: string;

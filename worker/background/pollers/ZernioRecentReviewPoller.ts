@@ -18,6 +18,7 @@ import { ZernioAuthError } from '../../../src/lib/zernio/errors';
 import { applyIngestionAuthErrorFallback } from '../../../src/lib/zernio/auth-error-fallback';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import {
+  liveIngestCutoff,
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from '../../jobs/zernio/zernio-ingest-shared';
@@ -29,7 +30,6 @@ const LOG_PREFIX = '[ZernioRecentReviewPoller]';
 const DEFAULT_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_MAX_PAGES = 4;
-const DEFAULT_CONNECT_GRACE_MS = 5 * 60_000;
 // Per-cycle bounds (deep-scan §3.7): cap the connections processed per cycle,
 // fan out with bounded concurrency, and stop dispatching at a deadline so a
 // cycle can never run unbounded against the 5-minute interval.
@@ -86,7 +86,6 @@ export function resetConnectionCursorForTests(): void {
 // Typing the param to this union keeps getWorkerConfig()[name] type-safe without a
 // cast and documents exactly which vars the poller consumes.
 type ZernioPollerVar =
-  | 'ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS'
   | 'ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE'
   | 'ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES'
   | 'ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS'
@@ -100,21 +99,14 @@ function readPositiveInt(name: ZernioPollerVar & keyof WorkerConfig, fallback: n
 }
 
 function isRecentForConnection(review: ZernioReview, connectedAt: Date | null): boolean {
-  if (!connectedAt) return false;
+  const cutoff = liveIngestCutoff(connectedAt);
+  if (!cutoff) return false; // poller owns nothing without a connect time
   const reviewMs = new Date(review.createTime).getTime();
-  const connectedMs = connectedAt.getTime();
-  if (!Number.isFinite(reviewMs) || !Number.isFinite(connectedMs)) return false;
-
-  const graceMs = readPositiveInt('ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS', DEFAULT_CONNECT_GRACE_MS);
-  return reviewMs >= connectedMs - graceMs;
+  return Number.isFinite(reviewMs) && reviewMs >= cutoff.getTime();
 }
 
 function connectionCutoff(connectedAt: Date | null): Date | null {
-  if (!connectedAt) return null;
-  const connectedMs = connectedAt.getTime();
-  if (!Number.isFinite(connectedMs)) return null;
-  const graceMs = readPositiveInt('ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS', DEFAULT_CONNECT_GRACE_MS);
-  return new Date(connectedMs - graceMs);
+  return liveIngestCutoff(connectedAt);
 }
 
 // Keyset pagination by business_id (stable total order) so the per-cycle cap
