@@ -19,6 +19,10 @@ Verdict vocabulary: ACCEPT (adaptation sound) / RE-PLAN (invalidates a locked de
 - **D9 — Mixed protected+stale response set.** The branch-3 consented insert would add a redundant imported posted row when a protected response (our own reply, approved_text matches) coexists with a stale draft. Guard added: insert only when `protectedIds.size === 0`; test (f) added. **ACCEPT.**
 - **D10 — Grace complementarity proven across BOTH lanes.** The configured-grace test now has a poller half ("processes a review at the live-ingest cutoff and skips one below it under configured grace", poller suite, cutoff-equality processed / cutoff−1ms skipped) and the import half runs under the same non-default grace (cutoff−1ms imports / cutoff excluded). tests_to_add 29 → 30 (intake-field correction, both copies synced). Stale todo counts in plan prose corrected (27/2/1). **ACCEPT.**
 
+## Task 3 implementation (2026-08-05)
+
+- **D11 — Property/boundary test scaffolding renamed and reused the file's own fixture builder.** The handoff snippet's local `FLOOR`/`CUTOFF` names and an ad-hoc `arbReview` record (`{ id, name, createTime, comment, starRating, reviewReply } as unknown as ZernioReview`) were adapted to `IMPORT_WINDOW_FLOOR`/`IMPORT_WINDOW_CUTOFF` (avoids a generic pair of names in a large shared test file) and `arbReview = fc.record({ id, t }).map(({ id, t }) => makeReview(id, t))`, reusing the suite's existing `makeReview()` fixture instead of hand-rolling a second review shape with an `unknown` cast. Same distribution (createTime spanning well-before-floor to well-after-cutoff), same assertions, no semantic change. **ACCEPT.**
+
 ## Standing plan notes (pre-decided, restated for reviewers)
 
 - Answered reviews are not PHI-screened worker-side; reconcile owns PHI on its import branches. An answered PHI review counts imported; the PHI exception row is the audit trail.
