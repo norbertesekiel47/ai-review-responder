@@ -59,6 +59,7 @@
     "worker/background/pollers/__tests__/ZernioRecentReviewPoller.test.ts",
     "src/lib/reviews/process-review.ts",
     "src/lib/config/worker.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "CONTEXT.md",
     "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
     ".claude/reference/env-vars.md",
