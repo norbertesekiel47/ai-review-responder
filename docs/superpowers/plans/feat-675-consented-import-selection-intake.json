@@ -1,0 +1,93 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Rewrite ZernioBackfillWorker as the consented Review import executor: select the newest 100 reviews inside the Import window (12-month floor, below the live-ingest cutoff), answered and unanswered alike, store them as list rows via importReview with nothing auto-drafted (D2), page until the target is met raising on cap exhaustion, and write only the collapsed imported_count/skipped_count.",
+  "non_goals": [
+    "Import consent gate in the worker (spec §5.3 accepted-only pre-flight) — owned by #679",
+    "Consent gates at the three enqueue sites — owned by #676",
+    "Prompt UI / decision API / importing state — owned by #677",
+    "Reviews list surface, unanswered-first sort, per-row Generate/Regenerate — owned by #678",
+    "Dropping the four legacy gap_*/historical_* counters — owned by #680 (this ticket only freezes them at DEFAULT 0 for new runs)",
+    "Renaming the zernio_initial_backfill topic / zernio_backfill_runs table (map #667 out-of-scope)",
+    "KPI treatment of imported reviews — accepted as-is now; pre-GA decision ticket filed on map #667",
+    "Any migration or schema change (run-semantics discriminator resolved as deploy-timestamp comment on #680 at promotion)",
+    "Any behavior change to processReview's live-ingest lane"
+  ],
+  "user_visible_behavior": [
+    "Subscribe+connect no longer auto-drafts replies from review history: an accepted import stores reviews and generates nothing, sends no notifications",
+    "An import stores up to 100 newest reviews within 12 months; answered reviews appear with their existing Google reply (posted response row), unanswered reviews appear with no response",
+    "Reviews arriving at or after connect keep getting automatic drafts via the live lane — 'new reviews are still handled automatically' holds structurally (disjoint lane ownership)",
+    "Dashboard KPIs (review volume MoM, sentiment trend week, response rate) visibly move on import — accepted and documented, revisit before GA"
+  ],
+  "invariants": [
+    "Disjoint lane ownership: the import selects only reviews with createTime < connected_at − grace (exact complement of isRecentForConnection); the live lane owns everything at or after it — the #674 lost-draft hazard is structurally impossible",
+    "Nothing the import stores can reach Google: importReview writes no job_outbox row (architecture invariant #3)",
+    "The import is insert-only — it never mutates a review row the live lane already owns",
+    "New runs write ONLY imported_count/skipped_count (+ oldest_skipped_create_time); the four legacy counters freeze at DEFAULT 0 — the #673 dual-write contract ends here",
+    "Accepted-but-incomplete runs stay retryable: completed_at IS NULL sentinel and idempotent re-entry unchanged (spec §5.1)",
+    "Defensive re-sort kept; a fetched page arriving non-descending logs a warning (spec §9 caveat)",
+    "The consented lane imports answered reviews unconditionally — EXTERNAL_REPLY_IMPORT_ENABLED continues to govern only the live lane's external-reply posture",
+    "Transactional outbox discipline unchanged; markOutboxCompleted only after the run's terminal write"
+  ],
+  "edge_cases": [
+    "connected_at NULL → poller owns nothing → import applies no upper cutoff (complementarity preserved)",
+    "No active zernio_connections row at run time → skip-as-success: complete the outbox row with a logged reason, leave completed_at NULL",
+    "Fewer than 100 reviews in the window → import what exists; zero → run completes successfully with imported_count = 0",
+    "Ordering violation (non-descending page) → warning log + floor early-stop disabled for that run (page on to cap)",
+    "Page cap exhausted with nextPageToken set and target unmet → raise ZernioImportPaginationCapExhaustedError (distinct class, loud in failed outbox row) — never truncate silently",
+    "PHI or malformed reviews in the selection → skipped (PHI exception row as today), counted in skipped_count",
+    "Rows already ingested live → importReview returns 'unchanged' → counted in imported_count (present in the list)",
+    "Reconcile failure on an answered review → collect and throw at end so BullMQ retries the whole idempotent run",
+    "Retry days later → window anchored at run-time NOW(); slight drift accepted and documented",
+    "Reactivation runs (run_reason='reactivation') use the identical selection; correlation-keyed idempotency unchanged"
+  ],
+  "existing_patterns_to_follow": [
+    "worker/jobs/zernio/ZernioReviewIngestWorker.ts:137-193 — pagination loop + cap-exhaustion error class + env-tunable max pages",
+    "worker/background/pollers/ZernioRecentReviewPoller.ts isRecentForConnection/connectionCutoff — extracted to the shared module both lanes import",
+    "src/lib/reviews/process-review.ts importReview — the storage entry point (#674)",
+    "worker/jobs/zernio/zernio-ingest-shared.ts reconcileExternallyAnsweredReview + insertImportedReview/insertImportedResponse — answered-row storage",
+    "worker/jobs/zernio/job-eligibility.ts guardZernioJobEligibility — pre-flight gate ordering"
+  ],
+  "allowed_edit_surface": [
+    "worker/jobs/zernio/ZernioBackfillWorker.ts",
+    "worker/jobs/zernio/zernio-ingest-shared.ts",
+    "worker/jobs/zernio/__tests__/**",
+    "worker/background/pollers/ZernioRecentReviewPoller.ts",
+    "worker/background/pollers/__tests__/ZernioRecentReviewPoller.test.ts",
+    "src/lib/reviews/process-review.ts",
+    "src/lib/config/worker.ts",
+    "CONTEXT.md",
+    "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
+    ".claude/reference/env-vars.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "imports newest 100 reviews within the 12-month floor, answered and unanswered alike",
+    "excludes reviews at or after connected_at minus grace from the import selection (live-lane ownership)",
+    "imports nothing and completes successfully when the window is empty",
+    "stores answered reviews as list rows with their posted response regardless of EXTERNAL_REPLY_IMPORT_ENABLED",
+    "enqueues no generate_response and writes no job_outbox row for imported reviews",
+    "pages until the target is met and stops early at the 12-month floor when ordering is clean",
+    "raises ZernioImportPaginationCapExhaustedError when the page cap is exhausted with more pages and target unmet",
+    "logs a non-descending page order warning and disables floor early-stop for that run",
+    "writes only imported_count and skipped_count; legacy counters stay at their defaults",
+    "counts PHI and malformed reviews as skipped and already-ingested rows as imported",
+    "skips as success when no active connection row exists, leaving completed_at NULL",
+    "applies no upper cutoff when connected_at is NULL",
+    "property: selection is always within the Import window and never exceeds 100 rows"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "280",
+  "estimated_test_lines": "800",
+  "dependencies_added": [],
+  "rollback_plan": "git revert of the PR — no migration; the new ZERNIO_IMPORT_MAX_PAGES env var is inert when unset. Reverting restores the auto-drafting backfill, acceptable pre-#677 while production has zero customers (ADR 0015 R1 posture).",
+  "observability": [
+    "Completion log line: 'Import complete business=… imported=N skipped=M pages=P' — the 'silently imported nothing' case reads imported=0 with the window bounds logged",
+    "Warning log on any non-descending fetched page — the tripwire for a silent Zernio ordering change (spec §9 caveat)",
+    "ZernioImportPaginationCapExhaustedError name visible in the failed job_outbox row + Sentry on cap exhaustion",
+    "zernio_backfill_runs.imported_count/skipped_count is the import batch record (#674 item 3: the run row, not the review-level spine, represents the import)"
+  ],
+  "open_questions": []
+}
