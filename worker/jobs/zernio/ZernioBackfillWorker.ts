@@ -41,6 +41,54 @@ import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worke
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 
+export const IMPORT_TARGET_COUNT = 100;
+export const IMPORT_FLOOR_MONTHS = 12;
+
+export interface ImportSelection {
+  /** newest-first, ≤ IMPORT_TARGET_COUNT, every member inside the Import window */
+  selected: ZernioReview[];
+  /** in-window reviews beyond the ceiling — the skipped_count seed */
+  capOverflow: ZernioReview[];
+  oldestSkippedCreateTime: string | null;
+}
+
+/**
+ * Pure selection over the Import window (CONTEXT.md glossary): keep reviews
+ * with floorMs <= createTime < upperCutoffMs (upper null = no bound, the
+ * connected_at-null case), sort newest-first (defensive re-sort — Zernio's
+ * ordering is verified but undocumented, spec §9), take the newest
+ * IMPORT_TARGET_COUNT. Unparseable createTime is excluded outright (the
+ * normalization path would reject it anyway).
+ */
+export function selectImportWindow(
+  reviews: ZernioReview[],
+  opts: { floorMs: number; upperCutoffMs: number | null },
+): ImportSelection {
+  const inWindow = reviews.filter((z) => {
+    const t = new Date(z.createTime).getTime();
+    if (!Number.isFinite(t)) return false;
+    if (t < opts.floorMs) return false;
+    if (opts.upperCutoffMs !== null && t >= opts.upperCutoffMs) return false;
+    return true;
+  });
+  const sorted = [...inWindow].sort(
+    (a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime(),
+  );
+  const selected = sorted.slice(0, IMPORT_TARGET_COUNT);
+  const capOverflow = sorted.slice(IMPORT_TARGET_COUNT);
+  // Epoch comparison, NOT string comparison — lexicographic ordering of
+  // RFC3339 strings with differing fractional-second lengths misorders
+  // ('...00.5Z' vs '...00.500Z' etc.); plan-review r1 MEDIUM.
+  const oldestSkippedCreateTime = capOverflow.reduce<string | null>(
+    (oldest, z) =>
+      !oldest || new Date(z.createTime).getTime() < new Date(oldest).getTime()
+        ? z.createTime
+        : oldest,
+    null,
+  );
+  return { selected, capOverflow, oldestSkippedCreateTime };
+}
+
 export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackfillPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioBackfillWorker]', job.data.correlation_id);
   const {

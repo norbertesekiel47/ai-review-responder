@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fc from 'fast-check';
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
@@ -68,7 +69,7 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
 }));
 
-import { handleZernioBackfill } from '../ZernioBackfillWorker';
+import { handleZernioBackfill, selectImportWindow, IMPORT_TARGET_COUNT } from '../ZernioBackfillWorker';
 
 // handleZernioBackfill now takes the injected client as its leading arg;
 // mockSql (createMockSql()'s tagged-template mock) doesn't structurally match
@@ -591,6 +592,23 @@ describe('ZernioBackfillWorker', () => {
 // ── #675 consented-import selection — spec stubs ─────────────────────────
 // Titles are the intake's tests_to_add VERBATIM (promised-tests gate).
 // Bodies land in Tasks 3 and 5, which flip it.todo → it.
+
+const IMPORT_WINDOW_FLOOR = Date.parse('2025-08-05T00:00:00Z');
+const IMPORT_WINDOW_CUTOFF = Date.parse('2026-08-01T00:00:00Z');
+
+// createTimes from well before the floor to well after the cutoff, so the
+// property test exercises the below-floor / in-window / at-or-after-cutoff
+// partition on every run.
+const arbReview = fc
+  .record({
+    id: fc.uuid(),
+    t: fc.integer({
+      min: IMPORT_WINDOW_FLOOR - 400 * 86_400_000,
+      max: IMPORT_WINDOW_CUTOFF + 30 * 86_400_000,
+    }),
+  })
+  .map(({ id, t }) => makeReview(id, t));
+
 describe('consented import selection (#675)', () => {
   it.todo('imports newest 100 reviews within the 12-month floor, answered and unanswered alike');
   it.todo('excludes reviews at or after connected_at minus grace from the import selection (live-lane ownership)');
@@ -606,7 +624,69 @@ describe('consented import selection (#675)', () => {
   it.todo('routes answered PHI reviews through reconciliation and counts them imported');
   it.todo('skips as success when no active connection row exists, leaving completed_at NULL');
   it.todo('applies no upper cutoff when connected_at is NULL');
-  it.todo('property: selection is always within the Import window and never exceeds 100 rows');
+  it('property: selection is always within the Import window and never exceeds 100 rows', () => {
+    fc.assert(
+      fc.property(fc.array(arbReview, { maxLength: 300 }), (reviews) => {
+        const { selected, capOverflow } = selectImportWindow(reviews, {
+          floorMs: IMPORT_WINDOW_FLOOR,
+          upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+        });
+        // Partition completeness (plan-review r1): selected + capOverflow is
+        // EXACTLY the in-window input multiset — no silent omissions — and
+        // selected takes min(100, available).
+        const inWindowIds = reviews
+          .filter((z) => {
+            const t = new Date(z.createTime).getTime();
+            return Number.isFinite(t) && t >= IMPORT_WINDOW_FLOOR && t < IMPORT_WINDOW_CUTOFF;
+          })
+          .map((z) => z.id)
+          .sort();
+        const returnedIds = [...selected, ...capOverflow].map((z) => z.id).sort();
+        expect(returnedIds).toEqual(inWindowIds);
+        expect(selected.length).toBe(Math.min(IMPORT_TARGET_COUNT, inWindowIds.length));
+        for (const z of [...selected, ...capOverflow]) {
+          const t = new Date(z.createTime).getTime();
+          expect(t).toBeGreaterThanOrEqual(IMPORT_WINDOW_FLOOR);
+          expect(t).toBeLessThan(IMPORT_WINDOW_CUTOFF);
+        }
+        // selected is the NEWEST in-window slice: nothing in capOverflow is newer
+        const oldestSelected = Math.min(...selected.map((z) => new Date(z.createTime).getTime()));
+        for (const z of capOverflow) {
+          expect(new Date(z.createTime).getTime()).toBeLessThanOrEqual(oldestSelected);
+        }
+      }),
+    );
+  });
+
+  it('createTime exactly at the floor is included', () => {
+    const atFloor = makeReview('rev-floor', IMPORT_WINDOW_FLOOR);
+    const { selected, capOverflow } = selectImportWindow([atFloor], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+    });
+    expect(selected.map((z) => z.id)).toEqual(['rev-floor']);
+    expect(capOverflow).toHaveLength(0);
+  });
+
+  it('createTime exactly at the cutoff is excluded (upper bound is exclusive)', () => {
+    const atCutoff = makeReview('rev-cutoff', IMPORT_WINDOW_CUTOFF);
+    const { selected, capOverflow } = selectImportWindow([atCutoff], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: IMPORT_WINDOW_CUTOFF,
+    });
+    expect(selected).toHaveLength(0);
+    expect(capOverflow).toHaveLength(0);
+  });
+
+  it('applies no upper cutoff when upperCutoffMs is null (connected_at-null case)', () => {
+    const farFuture = makeReview('rev-far-future', IMPORT_WINDOW_CUTOFF + 10 * 365 * 86_400_000);
+    const { selected, capOverflow } = selectImportWindow([farFuture], {
+      floorMs: IMPORT_WINDOW_FLOOR,
+      upperCutoffMs: null,
+    });
+    expect(selected.map((z) => z.id)).toEqual(['rev-far-future']);
+    expect(capOverflow).toHaveLength(0);
+  });
   it.todo('marks the outbox completed only after the run completion write succeeds');
   it.todo('passes each nextPageToken to the following listReviews request');
   it.todo('imports the exact globally newest 100 from shuffled multi-page results');
