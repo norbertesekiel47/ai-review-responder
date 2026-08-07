@@ -623,6 +623,59 @@ is knowingly and narrowly broken here, with the reason recorded.
 
 ---
 
+## D15 — The `reclassify` trigger fired; step 0 re-run; lane UNCHANGED (2026-08-07)
+
+The `--review` gate's `reclassify` row fired: **production 1701 changed lines
+against an `estimated_prod_lines` of 800** — 2.1×, past the 2× threshold. Per
+step 5 that is a STOP-and-re-run-step-0 condition, so step 0 was genuinely
+re-run rather than the number quietly bumped.
+
+**Result: the lane was already right.** RISK is `high` — the heaviest lane, and
+it has been since intake. SURFACE is `mixed`. It is **not** epic: the surface is
+tightly declared at 25 globs, it is one coherent feature, it never decomposed
+past 8 tracer tickets, and it carried no open investigation questions. There is
+no heavier lane to route into, and none of the heavier lane's controls were
+being skipped.
+
+**What was actually wrong was the estimate, and it was wrong from the start.**
+Where the 1,518 added production lines went:
+
+| Area | Added |
+|---|---|
+| `src/lib/reviews/import-consent.ts` (new) | 468 |
+| `src/components/dashboard/account-state/ImportOfferBanner.tsx` (new) | 336 |
+| `src/app/api/dashboard/import-offer/route.ts` (new) | 187 |
+| `src/lib/reviews/import-offer-view.ts` (new) | 174 |
+| four producer gates + audit config | 353 |
+
+**Four new files the intake itself named account for 1,165 of the 1,518.** An
+800-line estimate covering four new modules *plus* gates on four existing
+producers was never achievable. The handoff already recorded 1,174 at the end of
+execution — inside the old threshold only because 1,600 is a generous multiple of
+a bad number — and the round-1 fixes (the O3 extraction, the read-only and
+precondition guards, the rejection-handling UI) carried it over.
+
+**`estimated_prod_lines` corrected 800 → 1700** in both intake copies, which is
+the measured reality, not a number chosen to silence the row. Recording the
+distinction because the two are indistinguishable in a diff: the correction is
+the *outcome* of the re-run, not a substitute for it. `estimated_test_lines`
+(2400) is untouched and did not trip.
+
+Per D5's precedent a non-surface intake correction is a deviations-file entry,
+not an `allowed_edit_surface` amendment. **Budget stays 1 of 2 (D4).** Gate-fail
+rounds: this is **1 of 3**.
+
+**The lesson for the next intake, and it is the #643 lesson from the other
+direction:** that workflow note warns against estimating tests at 1:1 with
+production. This branch got the *test* estimate right (2,400 against a 4,800
+threshold, never close to tripping) and the *production* one wrong by half,
+because the estimate was made per-feature rather than per-artifact. Four new
+files at a realistic 150–450 lines each is 1,100+ before a single existing
+producer is touched. **Estimate production by counting the new files the
+`allowed_edit_surface` implies, then add the edits to existing ones.**
+
+---
+
 ## D14 — O3's blast radius reached three audit/caller files the brief did not name, and moved one behaviour by a hair (2026-08-07, fix batch A)
 
 **No surface amendment.** Every file below is already inside

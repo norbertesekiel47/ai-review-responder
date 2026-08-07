@@ -226,7 +226,12 @@ describe('import consent production lock-order binding', () => {
     ).toEqual([...PRODUCER_FILES]);
   });
 
-  it('every zernio_initial_backfill producer acquires the businesses row lock before its enqueue', () => {
+  // Title is the intake's, verbatim and locked. It still describes what this
+  // asserts after O3: the producer takes the row lock, then calls
+  // `enqueueInitialImport`, which is where the outbox INSERT now lives. The
+  // lock is still acquired before that INSERT — only the spelling of the call
+  // site moved.
+  it('every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT', () => {
     // Producer 1 — the acceptance transaction. Opens its own sql.begin and takes
     // the row lock as its FIRST statement.
     const consentSource = read('../import-consent.ts');

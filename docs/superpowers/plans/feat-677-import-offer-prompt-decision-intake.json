@@ -181,7 +181,7 @@
     "add-location copies an expired sibling's past deadline so the re-added row still derives expired"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "800",
+  "estimated_prod_lines": "1700",
   "estimated_test_lines": "2400",
   "dependencies_added": [],
   "rollback_plan": "git revert the PR (ADR 0015 R1 — no flag exists to flip). No migration rides this ticket, so there is no schema state to undo; the Import consent columns stay and revert to being written by nobody. Reverting restores the unconditional junction and reactivation enqueues, which are inert in both environments while prod and staging hold zero businesses. Order: revert, redeploy the Railway worker (ingress change), redeploy Vercel (routes + banner). Any import_decision rows written before the revert stay on the row and are re-honoured when the PR re-lands — the record is never rewritten.",
