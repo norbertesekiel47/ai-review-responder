@@ -24,15 +24,44 @@
 // as `pending AND import_offer_expires_at <= now()`: no poller, no stored
 // 'expired', and nothing fires at the expiry moment.
 //
-// NO ANALYTICS EVENTS IN THIS MODULE (deviations D7, owner decision 2026-08-07).
-// `import_offer_created` / `import_decision_recorded` need the
-// `analytics_events.event_name` CHECK extended, which needs a migration this
-// ticket's non-goals forbid — #679 carries them. Adding an
-// `enqueueAnalyticsEvent` call here would raise a CHECK violation INSIDE the
-// acceptance transaction and roll back a legitimate consent decision.
+// TWO ANALYTICS EVENTS, BOTH EMITTED FROM INSIDE THE WRITING TRANSACTION (#679
+// T2, restoring #677's deferred D7). `createImportOffer` emits
+// `import_offer_created` on — and only on — the `'created'` branch;
+// `recordImportDecisionAndEnqueue` emits `import_decision_recorded` on — and only
+// on — the `'recorded'` path. Every other branch emits nothing: an event here is
+// a count of facts that actually landed, not of calls that were made.
+//
+// They live in the WRITERS, not at the call sites, because `createImportOffer`
+// has three producers (`finalize-tx.ts`, `add-location-tx.ts`, and the GET
+// self-heal in `src/app/api/dashboard/import-offer/route.ts`) and emitting at
+// each would repeat the key, the properties and the only-when-written condition
+// three times over. Precedent: `recordSuppression`
+// (`src/lib/solicitation/suppression.ts`).
+//
+// Both keys are business-scoped — `import_offer_created_<businessId>`,
+// `import_decision_recorded_<businessId>` — and at-most-once per business by
+// construction (the offer write requires a NULL deadline, the decision write
+// requires `pending`), so a replay drops on `ON CONFLICT (event_key) DO NOTHING`
+// rather than double-counting, and the key needs no discriminator.
+//
+// THE PRECONDITION BOTH WRITERS NOW INHERIT — this is an interface fact, not an
+// implementation detail. The database's `analytics_events_event_name_check` must
+// ADMIT both names (migration 102). An unregistered name raises INSIDE the
+// enclosing transaction, so on an unmigrated project the emission rolls back a
+// legitimate owner Import consent decision — losing the answer, not just the
+// metric. Migration 102 must therefore reach a Supabase project BEFORE the
+// emitting code does: staging first, prod in lockstep at promotion.
+//
+// AND THE EMISSION MUST USE THE TRANSACTION HANDLE, NEVER THE OUTER `sql`.
+// `recordImportDecisionAndEnqueue` has both in scope; an event written against
+// `sql` would pass every happy-path test while committing independently of a
+// decision that later rolls back — a recorded decision that never happened.
+// Pinned behaviourally by "…rolls back import_decision_recorded when the
+// decision transaction aborts", not by executor identity.
 //
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -217,7 +246,26 @@ export async function createImportOffer(
     RETURNING b.id
   `;
 
-  return rows.length > 0 ? 'created' : 'unchanged';
+  if (rows.length === 0) return 'unchanged';
+
+  // ONLY the `'created'` branch emits. This helper runs on EVERY dashboard mount
+  // through the GET self-heal, and on every 4s poll tick while importing, so an
+  // emission on `unchanged` would re-mint the same fact on every render and
+  // destroy the offer-to-answer ratio the event exists to measure.
+  //
+  // `tx`, so the event lands in the caller's transaction: an Import offer that
+  // rolls back takes its event with it, and one that commits can never be
+  // missing from the numerator.
+  await enqueueAnalyticsEvent(tx, {
+    eventName: 'import_offer_created',
+    eventKey: `import_offer_created_${businessId}`,
+    distinctId: accountId,
+    accountId,
+    businessId,
+    properties: { window_days: IMPORT_OFFER_WINDOW_DAYS },
+  });
+
+  return 'created';
 }
 
 /**
@@ -296,6 +344,23 @@ export async function recordImportDecisionAndEnqueue(
       const current = await readImportConsent(tx, businessId, accountId);
       return logRejection(classifyRejection(current), businessId, decision);
     }
+
+    // The decision LANDED — emit before the branch, so a decline (which returns
+    // early, without an enqueue) is counted too. A decline is an ANSWER: it is
+    // the denominator half of the offer-to-answer ratio, and an emission placed
+    // next to `enqueueInitialImport` would silently miss it.
+    //
+    // `tx`, never the outer `sql` — see the module header. Emitting BEFORE the
+    // enqueue is also what keeps that boundary observable: an enqueue failure
+    // must be able to take this row down with it.
+    await enqueueAnalyticsEvent(tx, {
+      eventName: 'import_decision_recorded',
+      eventKey: `import_decision_recorded_${businessId}`,
+      distinctId: accountId,
+      accountId,
+      businessId,
+      properties: { decision },
+    });
 
     if (decision === 'declined') return 'recorded';
 

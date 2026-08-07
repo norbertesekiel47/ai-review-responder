@@ -219,3 +219,42 @@ feature detect; the two suites that still need the namespace-cast idiom of D11 �
 `job-eligibility.test.ts` and `job-eligibility.integration.test.ts` — are
 untouched). A short comment now stands where the shim did, stating why no
 feature-detect guard may come back: it degrades silently on a rename.
+
+### D20 — [2026-08-07, T2] the rollback test is genuinely load-bearing, and its mutation run strands a fixture constraint on the shared container
+
+**The check that was asked for.** T2's brief required confirming that
+*"recordImportDecisionAndEnqueue rolls back import_decision_recorded when the
+decision transaction aborts"* cannot pass trivially. It was verified by mutation:
+the emission was temporarily flipped from `tx` to the outer `sql` and the single
+test re-run. It went **red**. The test is real.
+
+**But the failure mode under mutation is a 30s TIMEOUT, not the assertion.**
+`analytics_events.business_id` carries an FK to `businesses`
+(`analytics_events_business_id_fkey`), so an INSERT naming that business takes
+`FOR KEY SHARE` on the row the acceptance transaction is already holding
+`FOR UPDATE`. On the outer `sql` handle that INSERT lands on a *different* pooled
+connection, which then blocks on the very transaction that is `await`ing it — an
+application-level deadlock Postgres's detector cannot see, because one side's wait
+is a pending JS promise rather than a lock. So the executor-identity bug does not
+silently commit here; it **hangs the acceptance POST**. Red either way, and worse
+in production than the plan assumed — but the diagnostic a future engineer sees is
+"Test timed out in 30000ms", which does not name the cause. Worth knowing before
+someone reads that timeout as flake.
+
+**What it costs, and what to do about it.** A timed-out abort never reaches the
+test's `finally`, so `tmp_block_import_topic_analytics` — the deliberately-invalid
+CHECK the test adds to `job_outbox` — is left behind on the shared local test
+container. Every subsequent test that enqueues `zernio_initial_backfill` then
+fails: 14 failures across three suites on the next run, none of them a code
+defect. Direct DDL cleanup is blocked by the harness classifier; the working
+route is a throwaway `*.integration.test.ts` that issues
+`ALTER TABLE job_outbox DROP CONSTRAINT IF EXISTS tmp_block_import_topic_analytics`
+and is deleted straight after (the test runner is already the sanctioned DDL path
+for this fixture). Done, verified, and the file removed — the container is clean
+and the full T2 surface re-ran 278/278.
+
+**Do not "fix" this by moving the emission after `enqueueInitialImport`.** That
+placement would make the rollback test pass trivially — the enqueue raises first,
+so no emission is ever attempted — and would also drop the event on the `declined`
+path, which returns before the enqueue. Emitting before the enqueue is what keeps
+the boundary observable.

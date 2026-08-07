@@ -26,8 +26,11 @@
 //   2. It relies on `createImportOffer`'s own junction predicate. This route does
 //      NOT re-implement a junction check and must not call the helper "when at the
 //      junction": one owner for that condition.
-//   3. No analytics event (deviations D7). #679 restores
-//      `import_offer_created` here, in the same transaction.
+//   3. It mints `import_offer_created` in that same transaction — emitted by
+//      `createImportOffer` itself (#679 T2), never by this route, and only when
+//      the repair actually created an offer. A self-healed offer that did not
+//      report itself would vanish from the offer-created → decision-recorded
+//      ratio, which is exactly the population this route exists to rescue.
 //   4. It does not run for an owner who cannot answer what it mints (round-1 A1).
 //   5. It does not open the transaction at all unless an offer could be created
 //      (round-1 A5). Both gates live in `selfHealImportOffer`, and both are
