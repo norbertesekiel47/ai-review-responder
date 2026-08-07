@@ -48,7 +48,13 @@ function expectOrder(source: string, markers: readonly string[]): void {
 }
 
 describe('import consent production lock-order binding', () => {
-  it('every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT', () => {
+  // T0 leaves this deferred and **T3 restores the assertion** (plan T3). Until
+  // T3 writes the four producers, this test's only possible failure is "the file
+  // does not exist yet" — which says nothing about the feature and is exactly the
+  // "not yet buildable" case T0 defines as deferred. The body below is already
+  // complete; T3 drops the `.todo` suffix from the declaration and it starts
+  // guarding.
+  it.todo('every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT', () => {
     // Producer 1 — the acceptance transaction. Opens its own sql.begin and takes
     // the row lock as its FIRST statement.
     const consentSource = read('../import-consent.ts');

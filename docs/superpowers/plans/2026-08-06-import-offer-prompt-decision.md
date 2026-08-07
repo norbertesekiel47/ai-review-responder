@@ -196,7 +196,8 @@ assertions, not the titles, carry these:
 
 ### T1 — `import-consent.ts`: the predicate, the offer, the acceptance transaction
 
-**Blocking edges:** T0. **Turns green:** 1–14.
+**Blocking edges:** T0. **Turns green:** 1–13, 57–60. *(62 also lives in this
+suite but additionally needs T4's self-heal to race against.)*
 
 ```ts
 export const IMPORT_OFFER_WINDOW_DAYS = 7;
@@ -325,7 +326,7 @@ Other constraints:
 ### T2 — `add-location-tx.ts`: inherit the archived sibling's Import consent
 
 **Blocking edges:** T0 *(independent of T1 — no predicate needed, deviations D3)*.
-**Turns green:** 45–49.
+**Turns green:** 44–48, 65.
 
 Inside the existing `sql.begin`, after the `INSERT INTO businesses`
 (`:214-241`): one `UPDATE … FROM (SELECT … LIMIT 1)` copying all three consent
@@ -356,8 +357,18 @@ D3's table). A follow-up `UPDATE` rather than rewriting the `VALUES` into a
 
 ### T3 — All three enqueue producers: gate, dedup, and create the offer
 
-**Blocking edges:** T1. **Turns green:** 15–26.
+**Blocking edges:** T1. **Turns green:** 14–25, 63–64, **and 70**.
 **Runs in parallel with T4** (disjoint files, no shared edges).
+
+> **T3 must restore title 70's assertion.** T0 left it `it.todo`: it is a source
+> tripwire over the four producer files, and until this task writes them its red
+> says only "T3 has not run" — no information about the feature. Once all four
+> producers exist it becomes the load-bearing check that each takes the
+> `businesses` row lock before its outbox INSERT (plan §5: enforcement here is by
+> convention, not by constraint, so this is the only check that survives a fifth
+> producer). Convert `it.todo(` → `it(` in
+> `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts`; the body
+> is already written.
 
 Every producer follows the same shape: **create the offer if this is the
 junction; enqueue only on `accepted` with no completed run and no in-flight
@@ -425,7 +436,7 @@ changes** (round-2 High ×2):
 
 ### T4 — `import-offer-view.ts` + `GET`/`POST /api/dashboard/import-offer`
 
-**Blocking edges:** T1. **Turns green:** 27–44.
+**Blocking edges:** T1. **Turns green:** 26–43, 61, 62, 66–68.
 **Runs in parallel with T3.**
 
 `readImportOfferView(sql, businessId)`:
@@ -483,7 +494,7 @@ responses. No `sql.begin` in the handler (invariant #12).
 
 ### T5 — `ImportOfferBanner.tsx` + dashboard wiring
 
-**Blocking edges:** T4. **Turns green:** 50–57.
+**Blocking edges:** T4. **Turns green:** 49–56, 69.
 
 Client component beside `ConnectGoogleBanner`, same `banner` / `banner-blue` /
 `banner-attn` classes, same `Icon`, returns `null` on `{ state: 'none' }`.
