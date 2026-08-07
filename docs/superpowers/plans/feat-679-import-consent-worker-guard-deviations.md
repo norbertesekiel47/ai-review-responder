@@ -88,3 +88,35 @@ already holds and exist so a later change cannot silently reverse it:
 MUST extend that list in the same change or the suite goes red. Not touched at
 T0 — appending the names there before they exist would be implementation, not
 specification.
+
+---
+
+## 2026-08-07 — T1 (migration 102 + registration)
+
+### D14 — D13 resolved, plus one assertion beyond the literal instruction
+
+D13 handled: the hardcoded list in `src/lib/analytics/__tests__/events.test.ts`
+is now the 25-name list, in migration-102 order.
+
+**Beyond the letter of T1:** the same file's *"only allows client-intent events
+to be enqueued from the browser"* test gained `import_offer_created` and
+`import_decision_recorded` in its **negative** loop. T1's scope says the two
+names go in `ANALYTICS_EVENT_NAMES` and **not** in
+`CLIENT_ENQUEUEABLE_EVENT_NAMES` — nothing in the types enforces that
+(`CLIENT_ENQUEUEABLE_EVENT_NAMES` only `satisfies readonly
+AnalyticsEventName[]`, which a superset never trips). Two lines in the suite
+that already enumerates durable server-owned facts — the #546 and #625
+precedents in that same loop — is where the file puts that guarantee. Not a
+new test, not a new file.
+
+### D15 — migration 102 applied to the local test container by file, not by `pnpm test:db:setup`
+
+`pnpm test:db:setup` drops schema `public` and re-applies from bootstrap. T3
+and T5 run **concurrently with T1** against the same `repworth-testdb`
+container, so a reset mid-wave would have failed their suites for a reason
+unrelated to their work. 102 is constraint-only and its DROP + re-ADD is
+idempotent, so it was applied on its own
+(`psql "$TEST_DATABASE_POOL_URL" -f supabase/migrations/102_…sql`) and verified
+by `pg_get_constraintdef`. Same end state, no blast radius. Staging and
+production are untouched — the migrations-log entry carries **LOCAL-ONLY**, and
+plan §6 owns the promotion order.

@@ -273,3 +273,25 @@ CSV content.
 - **Required properties:** `source` (the source of the matched Suppression ledger row), `ask_id`
 - **Optional properties:** none
 - **Privacy notes:** never the handle. `scope` is deliberately absent: reporting which scope matched would surface the `account_id` provenance §7.4 forbids exposing.
+
+### `import_offer_created`
+- **Status:** live
+- **Description:** An **Import offer** was minted for a location — the **Import window** deadline was stamped on a `pending` business, so the owner now has something to accept or decline (#679, consented-review-import spec §5.1). Emitted only when the write actually created the offer; the `unchanged` branch emits nothing, or every dashboard mount would re-mint the same fact. The name is registered in the `analytics_events.event_name` CHECK by **migration 102** — the DB CHECK, not the TS allowlist, is what makes the emission safe, because an unregistered name rolls back the whole enclosing transaction.
+- **Owner:** `createImportOffer` (`src/lib/reviews/import-consent.ts`), inside the caller's transaction
+- **Source:** server-side, same transaction as the Import offer write (durable; **not** client-postable — a client-postable variant would let anyone forge an Import consent artefact)
+- **Distinct ID:** account ID
+- **Event key:** `import_offer_created_<business_id>` — at most one offer per location by construction (the write requires a NULL deadline), so the business id needs no discriminator and a replay drops on `ON CONFLICT (event_key) DO NOTHING`.
+- **Required properties:** `window_days` (the Import window length in days)
+- **Optional properties:** none
+- **Privacy notes:** IDs and the window integer only — never review text, reviewer names, or handles.
+
+### `import_decision_recorded`
+- **Status:** live
+- **Description:** The owner answered the **Import offer** — the **Import consent** decision was written and the initial **Review import** enqueued or refused (#679, consented-review-import spec §5.1, decision table D1–D10). Emitted only on the `recorded` path; a rejected decision (already answered, expired, or missing) emits nothing. The name is registered in the `analytics_events.event_name` CHECK by **migration 102** — the DB CHECK, not the TS allowlist, is what makes the emission safe: without it the constraint would roll back a legitimate owner consent decision, losing the answer rather than just the metric.
+- **Owner:** `recordImportDecisionAndEnqueue` (`src/lib/reviews/import-consent.ts`), inside its own `sql.begin`
+- **Source:** server-side, same transaction as the Import consent write (durable; **not** client-postable — the decision is the consent record itself)
+- **Distinct ID:** account ID
+- **Event key:** `import_decision_recorded_<business_id>` — at most one decision per location by construction (the write requires `pending`), so the business id needs no discriminator; an aborted transaction takes the event row with it.
+- **Required properties:** `decision` (`accepted` or `declined`)
+- **Optional properties:** none
+- **Privacy notes:** IDs and the closed decision enum only — never review text, reviewer names, or handles.
