@@ -71,10 +71,16 @@ Decided from the code rather than asked, and worth not re-deriving:
   and §6/§7/§8 are history, not instructions.**
 - **Phase:** `executing`. T0 is committed; T1 ‖ T2 is next. No production code
   exists yet — the 70 tests are the only artifact.
-- **`lastGreenGateSha` intentionally lags HEAD.** The last full gate ran at
-  `61c9c5af` (docs-only, 18/18 PASS). Everything since is docs plus the T0 test
-  files; the step-5 gate re-runs before review, and it must run with
-  `TEST_DATABASE_POOL_URL` **exported** (see traps).
+- **Gate is GREEN at `930358cc` — all 26 rows, in full (not `docs_only`) mode**,
+  including `build`, `promised-tests` (all 70 titles found), and **four live-DB
+  integration rows that RAN rather than skipping**, because
+  `TEST_DATABASE_POOL_URL` was exported (see traps — this is the difference
+  between a real gate and a falsely-green one).
+- **The gate script sets `phase=gate_green`; it has been set back to
+  `executing` on purpose.** Execution is NOT finished — only T0 is done, T1–T6
+  remain. Leaving `gate_green` in the record would invite a resumed session to
+  skip to step 6 (review) with no production code written. A green gate here
+  means "the branch is consistent at this SHA", not "the feature is built".
 - **Enforcement:** ARMED (`scripts/arm-check.sh` clean at setup).
 - `.feature/state.json`: `planReviewRounds` = 3 — **exhausted**. The plan is
   locked by owner adjudication; do not open a fourth plan-review round.
