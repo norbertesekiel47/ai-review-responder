@@ -99,7 +99,6 @@ import {
   IMPORT_TARGET_COUNT,
   IMPORT_FLOOR_MONTHS,
 } from '../ZernioBackfillWorker';
-import * as jobEligibility from '../job-eligibility';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 // handleZernioBackfill now takes the injected client as its leading arg;
@@ -165,22 +164,16 @@ function page(reviews: ZernioReview[], nextPageToken?: string) {
 type ImportConsentFixture = 'accepted' | 'declined' | 'pending' | 'expired' | 'missing';
 
 /**
- * True once T3 exports `guardImportConsent` from job-eligibility.ts.
+ * Queue the consent gate's one read. 'missing' = no businesses row at all.
  *
- * T0 SCAFFOLD — DELETE THIS AND THE `if` BELOW IN T4, once the gate is wired
- * in. `sqlReturnQueue` is a FIFO of results for AWAITED queries, so a result
- * the handler does not consume shifts every later query onto the wrong row.
- * Queuing the consent read before the code that reads it exists would turn 30
- * unrelated backfill tests red with "Backfill row not found" — noise that hides
- * exactly the 26 titles this eval commit is supposed to fail on.
+ * ALWAYS queues, unconditionally. T0 carried a self-disabling shim here (skip
+ * the push until `guardImportConsent` was exported) so the 35 pre-existing
+ * tests would not go red from FIFO desync during the eval commit; T4 wired the
+ * gate in and deleted it. Do not reintroduce a feature-detect guard: it
+ * degrades SILENTLY on any rename of `guardImportConsent` — the fixture would
+ * stop queuing consent results and a real regression would read as green.
  */
-const consentGuardShipped = (): boolean =>
-  typeof (jobEligibility as unknown as { guardImportConsent?: unknown }).guardImportConsent
-    === 'function';
-
-/** Queue the consent gate's one read. 'missing' = no businesses row at all. */
 function pushImportConsentState(state: ImportConsentFixture) {
-  if (!consentGuardShipped()) return;
   sqlReturnQueue.push(mkTaggedResult(state === 'missing' ? [] : [{ state }]));
 }
 
@@ -320,10 +313,14 @@ describe('ZernioBackfillWorker', () => {
 
     expect(mockListReviews).toHaveBeenCalled();
     expect(mockImportReview).toHaveBeenCalledTimes(1);
-    const firstSql = mockSql.mock.calls[0]?.[0] as TemplateStringsArray | undefined;
-    const firstSqlText = firstSql?.join('?') ?? '';
-    expect(firstSqlText).toContain('run_reason');
-    expect(firstSqlText).toContain('ON CONFLICT (correlation_id)');
+    // The run-claim statement, located by CONTENT rather than by
+    // `mockSql.mock.calls[0]` — since #679 the first tagged template the
+    // handler builds is the Import consent gate's derived-state fragment, so a
+    // positional index no longer names the INSERT (deviation D18).
+    const claimSql = findBackfillInsertCalls()[0]?.[0] as TemplateStringsArray | undefined;
+    const claimSqlText = claimSql?.join('?') ?? '';
+    expect(claimSqlText).toContain('run_reason');
+    expect(claimSqlText).toContain('ON CONFLICT (correlation_id)');
 
     // #675: the reactivation INSERT no longer names ANY counter column —
     // DEFAULT 0 owns all of them (the four legacy ones froze at their

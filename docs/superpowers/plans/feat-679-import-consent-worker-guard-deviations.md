@@ -169,3 +169,53 @@ backfill worker**. The line itself is retained: the INGEST worker still reaches
 it, and that lane never consults consent. The JSDoc says so explicitly, per the
 plan's instruction to stop claiming a dead branch rather than leaving the doc
 describing a reachable one.
+
+---
+
+## 2026-08-07 — T4 (wire the guard into `ZernioBackfillWorker`)
+
+### D18 — a FIFTH pre-existing backfill test needed an edit, and it is not a queuing site
+
+**What the plan said.** §3 T0 enumerated the hand-queuing tests that need a
+consent result prepended (three, plus D9's fourth). Every other pre-existing test
+was expected to survive T4 untouched via the central `pushImportSqlSetup` change.
+
+**What T4 found.** *"reactivation backfill does not skip when an initial backfill
+completed earlier"* (`ZernioBackfillWorker.test.ts`) went red on
+
+```
+expected 'CASE\n WHEN b.import_decision = …' to contain 'run_reason'
+```
+
+It is not a queuing problem — the fixture fed it correctly. It located the
+run-claim INSERT **positionally**, as `mockSql.mock.calls[0]`. Since #679 the
+first tagged template the handler builds is `importConsentStateSql`'s derived
+`CASE` fragment, so index 0 is now the consent gate's composed fragment, not the
+INSERT. (`mockSql.mock.calls` records composed fragments; `sqlCalls` records only
+awaited queries — which is why T0's `firstSqlCallIndex('import_decision') === 0`
+assertion is green on the same run.)
+
+**Action taken.** The two assertions are preserved **verbatim**; only the lookup
+changed, from `mockSql.mock.calls[0]` to `findBackfillInsertCalls()[0]` — the
+content-addressed helper the same test already uses eight lines later for its
+legacy-counter assertions. No assertion was weakened, deleted or retitled, and
+the substantive claim (the reactivation claim names `run_reason` and conflicts on
+`correlation_id`) is asserted on exactly the statement it was always about.
+
+**Why this is not a design signal.** The failure says nothing about consent
+ordering; it says a test used call position as a proxy for statement identity.
+The plan's own ordering decision (consent first, so a refused run leaves no
+durable trace) is what invalidated the proxy, and it invalidated it for one test
+only — the other 34 pre-existing tests located their statements by content.
+
+### D19 — D10 discharged
+
+`consentGuardShipped` and its `if` are deleted; `pushImportConsentState` now
+queues unconditionally. Verified mechanically: `rg -c 'consentGuardShipped'
+worker/` returns no matches. The now-unused
+`import * as jobEligibility from '../job-eligibility'` was removed from
+`ZernioBackfillWorker.test.ts` in the same change (it existed only to feed the
+feature detect; the two suites that still need the namespace-cast idiom of D11 —
+`job-eligibility.test.ts` and `job-eligibility.integration.test.ts` — are
+untouched). A short comment now stands where the shim did, stating why no
+feature-detect guard may come back: it degrades silently on a rename.
