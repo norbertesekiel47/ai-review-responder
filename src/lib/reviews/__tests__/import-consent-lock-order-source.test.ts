@@ -1,6 +1,6 @@
 // src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts
 //
-// T0 EVAL — title 70 of the intake's 70, authored VERBATIM before implementation.
+// T0 EVAL — title 69 of the intake's 69, authored VERBATIM before implementation.
 //
 // A *source* tripwire, in the style of location-lifecycle-lock-order-source.test.ts
 // and status-lock-order-source.test.ts. It reads the production files and asserts

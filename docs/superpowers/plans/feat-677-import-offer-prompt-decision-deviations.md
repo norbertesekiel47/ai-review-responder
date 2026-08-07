@@ -205,3 +205,65 @@ plan). A title *range* is a derived value copied by hand across four documents.
 The durable fix is the one now in T0: **state the counts, assert the partition,
 and re-derive the row from the intake before authoring it** — never trust a
 remembered range.
+
+---
+
+## D7 — The analytics slice moves to #679; the intake contradicted itself (owner-decided, 2026-08-07)
+
+Found at the start of T1, reading precedents before writing code.
+
+**The contradiction, inside the locked intake.** `observability` required two new
+events — `import_offer_created` and `import_decision_recorded` — while `non_goals`
+said, verbatim: *"No migration — the Import consent columns shipped as migrations
+100+101 (#673). The one-migration-in-flight slot stays free."*
+
+Those cannot both hold. `analytics_events.event_name` carries a DB CHECK
+enumerating exactly 23 names (migration 097; verified against the live test DB with
+`pg_get_constraintdef`). Neither new name is in it, so an INSERT with either raises
+a constraint violation. Extending it requires a migration. `ci:analytics-events`
+additionally enforces code↔doc parity against `docs/analytics/events.md`, so a name
+added to `ANALYTICS_EVENT_NAMES` without a doc entry fails the `lint` job. Neither
+`supabase/migrations/**` nor `docs/analytics/events.md` was in
+`allowed_edit_surface`, so honouring `observability` needed **two further surface
+amendments** — taking the count to 3 against a 2-amendment budget and tripping the
+abort criteria.
+
+**Worse than a lint failure.** The plan had the acceptance transaction emitting
+`import_decision_recorded` *inside* `sql.begin`. With no CHECK entry that INSERT
+raises inside the transaction and **rolls back a legitimate consent decision** —
+the owner clicks "Import my reviews", sees an error, and the offer stays `pending`.
+Three plan-review rounds missed it: the events were named in T1, titled in round 2
+(the self-heal emission), and never traced to the CHECK.
+
+**Owner decision: defer the whole analytics slice to #679.** Chosen over amending
+the surface (which consumes the migration slot #679 itself needs, and trips the
+abort criteria) and over dropping the events permanently (which loses the
+offer-created → decision-recorded ratio the intake names as *the* churn signal).
+
+Consequences, all applied:
+
+- `tests_to_add` **70 → 69**. The dropped title is *"GET import-offer self-heal
+  records import_offer_created in the same transaction"*. Per D5 this is a
+  deviations-file entry, not a surface amendment — the abort budget stays at
+  **1 of 2** (D4).
+- **Removing an array element renumbered the tail:** old 69 → **68**, old 70 →
+  **69**. Propagated to both intake copies, T0's matrix and counts, all five
+  `Turns green` lines, and every test-file header. Re-verified mechanically: 69/69
+  verbatim and correctly placed, and the `Turns green` lists still partition 1–69
+  with no gap or overlap.
+- **`src/lib/analytics/events.ts` was REMOVED from `allowed_edit_surface`.** A
+  surface *reduction*, so it costs no amendment — and it turns the deferral from a
+  note a reader might miss into something the edit-surface guard enforces.
+- T1, T3 and T4 lost their `enqueueAnalyticsEvent` instructions, each replaced by
+  an explicit "no analytics event (D7)" plus the reason.
+- **T6 must hand #679 the full slice**: migration 102 extending the CHECK, the
+  `docs/analytics/events.md` entries, both names in `ANALYTICS_EVENT_NAMES` (not
+  `CLIENT_ENQUEUEABLE_EVENT_NAMES` — durable server facts), the three emission
+  sites, and the dropped title restored as a **same-transaction** assertion. #679
+  will need its own surface amendment for the migration and the analytics doc.
+
+**The lesson, and it is D6's from another direction:** a plan can name an artifact
+(`ANALYTICS_EVENT_NAMES`) without anyone checking what *enforces* it — here a DB
+CHECK plus a doc-parity audit. Three rounds reviewed the event names as a naming
+question. A cited-artifact check should extend to the constraints and audits that
+govern an artifact, not just confirm the artifact exists.

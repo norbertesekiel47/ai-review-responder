@@ -1,6 +1,6 @@
 // worker/ingress/stripe/__tests__/import-offer-resume.test.ts
 //
-// T0 EVAL suite for #677 — titles 20–23 of the intake's 70, authored VERBATIM
+// T0 EVAL suite for #677 — titles 20–23 of the intake's 69, authored VERBATIM
 // before implementation.
 //
 // Producer 2 of 4: the Stripe subscription-activation resume
@@ -14,7 +14,7 @@
 //     createImportOffer (which takes TransactionSql) had nothing to run in and
 //     its dedup check was unserialized. It now opens sql.begin and takes the
 //     businesses row lock first. The lock ORDER is pinned by the source tripwire
-//     (title 70); this suite pins the behaviour.
+//     (title 69); this suite pins the behaviour.
 //
 //  2. Round-1 Medium (F106): offer creation sits BEFORE the
 //     zernioPublishingEnabled() early return. The kill switch governs

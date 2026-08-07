@@ -592,17 +592,35 @@ describe('voice config independence (VAL-LOC-032)', () => {
     );
     expect(selectCalls.length).toBe(1);
 
-    // Verify: no UPDATE or trigger-based sync after the tx
-    const updateCalls = mockSql.mock.calls.filter(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
-    );
-    expect(updateCalls.length).toBe(0);
+    // Verify: no UPDATE or trigger-based sync of the VOICE columns after the tx.
+    //
+    // Narrowed from "no `UPDATE businesses` at all" (#677). The broad form was a
+    // valid proxy for VAL-LOC-032 only while voice was the sole conceivable
+    // reason to update the new row; #677 adds an Import consent lineage UPDATE
+    // that touches the three consent columns and nothing else. The invariant
+    // under test — voice is cloned ONCE via SELECT and never kept in sync — is
+    // unchanged, so the assertion is now stated against the voice columns
+    // directly rather than against the statement verb.
+    const VOICE_COLUMNS = [
+      'tone',
+      'products_services',
+      'staff_names',
+      'highlight_facts',
+      'avoid_facts',
+      'sample_responses',
+    ];
+    const voiceUpdateCalls = mockSql.mock.calls.filter((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      if (!template.includes('UPDATE businesses')) return false;
+      return VOICE_COLUMNS.some((col) => new RegExp(`\\b${col}\\s*=`).test(template));
+    });
+    expect(voiceUpdateCalls.length).toBe(0);
   });
 });
 
 // ── #677 T0 EVAL — Import consent lineage, mocked half ────────────────────────
 //
-// Title 45 of the intake's 70, authored VERBATIM before implementation.
+// Title 45 of the intake's 69, authored VERBATIM before implementation.
 //
 // This is the ONLY mocked add-location consent title (owner decision 2026-08-07,
 // deviations D6). The no-sibling case is a binding assertion — there is no
@@ -617,5 +635,31 @@ describe('voice config independence (VAL-LOC-032)', () => {
 // Critical was that a NULL deadline was answerable, so a fresh location must not
 // come out of add-location holding something a direct POST could accept.
 describe('addLocationTransaction — Import consent lineage (#677)', () => {
-  it.todo('add-location leaves import consent pending when no archived sibling exists for the place');
+  it('add-location leaves import consent pending when no archived sibling exists for the place', async () => {
+    await addLocationTransaction(sql, mkInput({ googlePlaceId: 'ChIJ-no-sibling' }));
+
+    const lineageCalls = mockSql.mock.calls.filter((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('import_offer_expires_at = sib.import_offer_expires_at'),
+    );
+
+    // The lineage UPDATE is issued unconditionally — it is one statement whose
+    // `FROM (SELECT … LIMIT 1)` matches nothing when there is no sibling, so
+    // there is no read-then-decide branch to get wrong.
+    expect(lineageCalls.length).toBe(1);
+
+    const template = (lineageCalls[0]![0] as TemplateStringsArray).join('?');
+    // Both halves of the disjunction are present and both require NON-NULL on
+    // each side. A NULL-to-NULL match would let any two identifier-less
+    // locations in an account donate consent to each other.
+    expect(template).toContain('ab.google_place_id IS NOT NULL');
+    expect(template).toContain('ab.google_maps_url IS NOT NULL');
+    // Deterministic ordering (F104) and account scoping (invariant #8).
+    expect(template).toContain('ORDER BY ab.archived_at DESC, ab.created_at DESC, ab.id DESC');
+    expect(template).toContain('ab.account_id =');
+    expect(template).toContain('ab.archived_at IS NOT NULL');
+    // All three consent columns copied — dropping the deadline would leave an
+    // inherited `pending` row answerable-looking with a NULL deadline.
+    expect(template).toContain('import_decision = sib.import_decision');
+    expect(template).toContain('import_decision_at = sib.import_decision_at');
+  });
 });

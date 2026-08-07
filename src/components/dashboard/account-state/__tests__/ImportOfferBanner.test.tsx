@@ -1,6 +1,6 @@
 // src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx
 //
-// T0 EVAL suite for #677 — titles 49–54 and 69 of the intake's 70, authored
+// T0 EVAL suite for #677 — titles 49–54 and 68 of the intake's 69, authored
 // VERBATIM before implementation.
 //
 // RTL, following the harness already used by
@@ -45,7 +45,7 @@ describe('ImportOfferBanner', () => {
   // and an owner-facing retry would enqueue a second job.
   it.todo('ImportOfferBanner stops polling and renders the failed state when the import terminates');
 
-  // Title 69 (round-2): the `imported` happy path had no rendering assertion at
+  // Title 68 (round-2): the `imported` happy path had no rendering assertion at
   // all, and the accessibility announcement was folded into the polling title
   // where it was invisible. Round 2 withdrew that merge; keep them named.
   it.todo('ImportOfferBanner renders the imported count and announces the terminal transition through LiveRegion');

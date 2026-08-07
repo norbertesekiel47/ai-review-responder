@@ -1113,7 +1113,7 @@ describe('concurrent safety (VAL-LOC-047)', () => {
 
 // ── #677 T0 EVAL — Import consent gate on reactivation ────────────────────────
 //
-// Titles 24–25 and 63–64 of the intake's 70, authored VERBATIM before
+// Titles 24–25 and 63–64 of the intake's 69, authored VERBATIM before
 // implementation.
 //
 // Producer 4 of 4, and the one #677 absorbed from #676 (round-1 High F102, owner

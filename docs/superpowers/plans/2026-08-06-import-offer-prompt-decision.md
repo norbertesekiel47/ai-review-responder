@@ -131,9 +131,17 @@ cite it as pre-existing.
 
 **Blocking edges:** none. **Turns green:** nothing (that is the point).
 
-Author all **70** `tests_to_add` titles VERBATIM as failing tests, committed
+Author all **69** `tests_to_add` titles VERBATIM as failing tests, committed
 before any implementation. Slices not yet buildable use `.todo`; slices whose
 failure is meaningful now assert and red.
+
+> **Was 70 until 2026-08-07.** The analytics self-heal title was removed with the
+> analytics slice itself (deviations D7, owner decision): both event names need
+> the `analytics_events.event_name` CHECK extended, which needs a migration this
+> ticket's own non-goals forbid, so #679 carries them. Removing an array element
+> renumbered the tail — old 69 → **68**, old 70 → **69** — so any range you
+> remember from an earlier revision is wrong twice over. Re-derive from
+> `tests_to_add`.
 
 Title numbers below index `tests_to_add` in **both intake copies**, which are the
 authority. Re-derive the row you are about to author from the intake; do not
@@ -146,15 +154,15 @@ trust a range you remember.
 | `worker/ingress/stripe/__tests__/import-offer-resume.test.ts` | 20–23 | 4 | no |
 | `src/lib/locations/__tests__/archive-location-tx.test.ts` (existing) | 24–25, 63–64 | 4 | no |
 | `src/app/api/dashboard/import-offer/__tests__/route.test.ts` | 26–30, 34–39 | 11 | no |
-| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 31–33, 61, 68 | 5 | **yes** |
+| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 31–33, 61 | 4 | **yes** |
 | `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | 40–43, 66–67 | 6 | **yes** |
 | `src/lib/locations/__tests__/add-location-tx.test.ts` | 45 | 1 | no |
 | `src/lib/locations/__tests__/add-location-tx.integration.test.ts` | 44, 46–48, 65 | 5 | **yes** |
-| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 49–54, 69 | 7 | no |
+| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 49–54, 68 | 7 | no |
 | `src/components/dashboard/__tests__/` | 55–56 | 2 | no |
-| `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts` | 70 | 1 | no (source tripwire) |
+| `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts` | 69 | 1 | no (source tripwire) |
 
-**The counts sum to 70 and the ranges partition 1–70 with no gap and no overlap.
+**The counts sum to 69 and the ranges partition 1–69 with no gap and no overlap.
 Check that before authoring** — revision 4 shipped this matrix off by one from
 title 14 onward (it was built against a numbering in which the `import-consent`
 block held 14 titles; the intake's holds 13), which sent a `finalize-tx` title
@@ -196,8 +204,12 @@ assertions, not the titles, carry these:
 
 ### T1 — `import-consent.ts`: the predicate, the offer, the acceptance transaction
 
-**Blocking edges:** T0. **Turns green:** 1–13, 57–60. *(62 also lives in this
-suite but additionally needs T4's self-heal to race against.)*
+**Blocking edges:** T0. **Turns green:** 1–13, 57–59.
+
+> Titles **60** and **62** live in this task's suite but belong to **T4**: title
+> 60 asserts a self-healed offer starts its 7 days at the repair, and 62 races a
+> self-heal against a decision — both need the GET self-heal to exist. Corrected
+> 2026-08-07 when T1 landed and they were the only two left `.todo`.
 
 ```ts
 export const IMPORT_OFFER_WINDOW_DAYS = 7;
@@ -316,10 +328,17 @@ Other constraints:
   (`src/lib/shared/job-outbox-status.ts:34`), re-spelled byte-for-byte and
   never parameterized (invariant #2's contract).
 - No `@/lib/db/server` import (invariant #15).
-- Also lands in T1 so T3/T4 can both use them: `import_offer_created` and
-  `import_decision_recorded` in `ANALYTICS_EVENT_NAMES`
-  (`src/lib/analytics/events.ts`). **Not** in `CLIENT_ENQUEUEABLE_EVENT_NAMES` —
-  these are durable server facts.
+- **No analytics events (owner decision 2026-08-07, deviations D7).**
+  `ANALYTICS_EVENT_NAMES` is NOT touched and `src/lib/analytics/events.ts` has
+  been REMOVED from `allowed_edit_surface`, so the guard now enforces this rather
+  than trusting the reader. `import_offer_created` and `import_decision_recorded`
+  each require extending the `analytics_events.event_name` CHECK (migration
+  097's 23-name enum) plus a `docs/analytics/events.md` entry for
+  `ci:analytics-events` doc-parity — a migration this ticket's own non-goals
+  forbid. **#679 carries all of it.** Do not add an `enqueueAnalyticsEvent` call
+  anywhere in this ticket: with no CHECK entry it would raise a constraint
+  violation *inside the acceptance transaction* and roll back a legitimate
+  consent decision.
 
 ---
 
@@ -357,7 +376,7 @@ D3's table). A follow-up `UPDATE` rather than rewriting the `VALUES` into a
 
 ### T3 — All three enqueue producers: gate, dedup, and create the offer
 
-**Blocking edges:** T1. **Turns green:** 14–25, 63–64, **and 70**.
+**Blocking edges:** T1. **Turns green:** 14–25, 63–64, **and 69**.
 **Runs in parallel with T4** (disjoint files, no shared edges).
 
 > **T3 must restore title 70's assertion.** T0 left it `it.todo`: it is a source
@@ -376,9 +395,9 @@ row; log the blocked reason otherwise.**
 
 **`finalize-tx.ts`** — inside the existing tx, replacing the `needs_backfill`
 block (`:187-232`):
-- `subscription_activated_at` non-null → `createImportOffer`, plus
-  `enqueueAnalyticsEvent` for `import_offer_created` when it returns `'created'`
-  (the `gbp_connected` call at `:167-178` is the precedent).
+- `subscription_activated_at` non-null → `createImportOffer`. **No analytics
+  event** (D7) — the `gbp_connected` call at `:167-178` remains the precedent for
+  #679 to follow, but nothing is emitted here.
 - Enqueue **only** when consent is `'accepted'`, no `zernio_backfill_runs` row
   has `completed_at IS NOT NULL`, and no in-flight `zernio_initial_backfill`
   outbox row exists (round-1 High, F101 — accept-then-reconnect otherwise
@@ -396,8 +415,8 @@ block (`:187-232`):
   `TransactionSql` — had no transaction to run in, and its dedup check was
   unserialized.
 - The existing target query (`:95-120`) already establishes the junction. On a
-  hit: `createImportOffer` + the analytics event, then enqueue **only** on
-  `'accepted'`. This is the §5.2 fix.
+  hit: `createImportOffer`, then enqueue **only** on `'accepted'`. This is the
+  §5.2 fix. No analytics event (D7).
 - **Offer creation must sit before the `zernioPublishingEnabled()` early return**
   (round-1 Medium, F106): the kill switch governs *publishing*, and skipping
   durable offer creation behind it would silently lose the offer with no replay.
@@ -436,7 +455,7 @@ changes** (round-2 High ×2):
 
 ### T4 — `import-offer-view.ts` + `GET`/`POST /api/dashboard/import-offer`
 
-**Blocking edges:** T1. **Turns green:** 26–43, 61, 62, 66–68.
+**Blocking edges:** T1. **Turns green:** 26–43, 60, 61, 62, 66–67.
 **Runs in parallel with T3.**
 
 `readImportOfferView(sql, businessId)`:
@@ -480,10 +499,13 @@ Three constraints on the self-heal, each a round-2 finding:
 - It relies on `createImportOffer`'s own junction predicate — the route does
   **not** re-implement a junction check, and must not call the helper "when at
   the junction" as revision 2 phrased it. One owner for that condition.
-- On `'created'` it emits `import_offer_created` **in the same transaction**.
-  Revision 2 omitted this, so an offer that only ever existed because the
-  Stripe path failed would have been invisible in the analytics ratio the
-  intake names as the churn signal.
+- It emits **no analytics event** (D7, 2026-08-07). Revision 2's omission was a
+  real finding and revision 3 fixed it — but the whole analytics slice has since
+  moved to #679, because both event names need the
+  `analytics_events.event_name` CHECK extended. #679 must restore the
+  same-transaction emission here, not a best-effort one after it: the reason the
+  finding existed is that a self-healed offer is exactly the one that would go
+  missing from the offer-created → decision-recorded ratio.
 
 **`POST`** — `withSameOrigin`, `resolveOwnerScope`, body `{ decision:
 'accepted' | 'declined' }` validated with `zod`, then **one call** to
@@ -494,7 +516,7 @@ responses. No `sql.begin` in the handler (invariant #12).
 
 ### T5 — `ImportOfferBanner.tsx` + dashboard wiring
 
-**Blocking edges:** T4. **Turns green:** 49–56, 69.
+**Blocking edges:** T4. **Turns green:** 49–56, 68.
 
 Client component beside `ConnectGoogleBanner`, same `banner` / `banner-blue` /
 `banner-attn` classes, same `Icon`, returns `null` on `{ state: 'none' }`.
@@ -543,8 +565,18 @@ writing markup. `LiveRegion` announces the importing → terminal transition.
   (round-1 cited-artifact check).
 - `docs/directory.md`: the two new `src/lib/reviews/` modules, the route, the
   banner.
-- `docs/superpowers/plans/feat-679-…-deviations.md`: record that #679's plan
-  drops `importConsentStateSql` (deviations D1).
+- `docs/superpowers/plans/feat-679-…-deviations.md`: record **both** hand-offs to
+  #679 — (a) its plan drops `importConsentStateSql`, which #677 now owns
+  (deviations D1); and (b) it **inherits the entire analytics slice** (D7):
+  migration 102 extending the `analytics_events.event_name` CHECK with
+  `import_offer_created` + `import_decision_recorded`, the matching
+  `docs/analytics/events.md` entries (required for `ci:analytics-events`
+  doc-parity), both names in `ANALYTICS_EVENT_NAMES` — **not** in
+  `CLIENT_ENQUEUEABLE_EVENT_NAMES`, they are durable server facts — the emission
+  sites at the junction/decision/self-heal, and the test title #677 dropped:
+  *"GET import-offer self-heal records import_offer_created in the same
+  transaction"*. #679 needs a surface amendment for the migration and the
+  analytics doc; #677 deliberately did not take one.
 - The tracker: #676 is absorbed — note it on the issue at merge, don't retitle now.
 
 ---

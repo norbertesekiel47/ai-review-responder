@@ -240,6 +240,72 @@ export async function addLocationTransaction(
         )
       `;
 
+      // 2a-bis. Inherit the archived sibling's Import consent (#677, spec §7).
+      //
+      // WHY: without this, an owner who DECLINED the Review import could archive
+      // the location and re-add it to get a fresh `pending` offer — a D8
+      // violation reachable from the locations UI in a few clicks, no SQL
+      // required. Consent is per place, and archiving is not a way to withdraw
+      // it.
+      //
+      // All three columns copied VERBATIM, including both timestamps. Copying the
+      // decision without `import_offer_expires_at` would leave an inherited
+      // `pending` row holding a NULL deadline — which is migration 100's DEFAULT
+      // and, per the round-1 Critical, NOT an answerable offer. Dropping the
+      // deadline would therefore silently re-open the offer it was meant to
+      // inherit.
+      //
+      // THE MATCH KEY IS A DISJUNCTION OVER NON-NULL KEYS, both directions
+      // (round-1 F103, corrected by a round-2 Medium). Choosing the key from the
+      // NEW row only — place id if it has one, else maps url — still misses the
+      // cross-representation case, because URL-mode adds deliberately store a
+      // `google_maps_url` with a NULL `google_place_id` until `validate_place_id`
+      // resolves it (see 2c below). So both of these occur in practice:
+      //   - new row has a place id, archived sibling's place id is NULL
+      //   - archived sibling has a place id, new row's is NULL
+      // A sibling qualifies when EITHER key matches with BOTH sides non-NULL.
+      // Never NULL to NULL, in either column: NULL = NULL is not a match, it is
+      // two locations that merely both lack an identifier.
+      //
+      // ORDER BY is three-deep (round-1 Medium, F104): `archived_at` alone is
+      // nondeterministic on a tie, and two siblings archived in the same
+      // statement share it exactly. Scoped by `account_id` (invariant #8) so a
+      // foreign account's archived row for the same place can never donate
+      // consent.
+      //
+      // No branching on the sibling's state — every case lands correctly, which
+      // is why this is one UPDATE and not a read-then-decide. A follow-up UPDATE
+      // rather than folding the lookup into the INSERT above: smaller diff, and
+      // the existing insert stays untouched.
+      await tx`
+        UPDATE businesses AS nb
+        SET import_decision = sib.import_decision,
+            import_decision_at = sib.import_decision_at,
+            import_offer_expires_at = sib.import_offer_expires_at
+        FROM (
+          SELECT ab.import_decision, ab.import_decision_at, ab.import_offer_expires_at
+          FROM businesses ab
+          WHERE ab.account_id = ${accountId}::uuid
+            AND ab.id <> ${businessId}::uuid
+            AND ab.archived_at IS NOT NULL
+            AND (
+              (
+                ab.google_place_id IS NOT NULL
+                AND ${googlePlaceId ?? null}::text IS NOT NULL
+                AND ab.google_place_id = ${googlePlaceId ?? null}::text
+              )
+              OR (
+                ab.google_maps_url IS NOT NULL
+                AND ${googleMapsUrl ?? null}::text IS NOT NULL
+                AND ab.google_maps_url = ${googleMapsUrl ?? null}::text
+              )
+            )
+          ORDER BY ab.archived_at DESC, ab.created_at DESC, ab.id DESC
+          LIMIT 1
+        ) AS sib
+        WHERE nb.id = ${businessId}::uuid
+      `;
+
       // 2b. Insert audit log entry
       // VAL-LOC-024: Records 'location_created' with actor and payload
       await tx`

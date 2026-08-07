@@ -1,6 +1,6 @@
 // src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts
 //
-// T0 EVAL suite for #677 — titles 31–33, 61 and 68 of the intake's 70, authored
+// T0 EVAL suite for #677 — titles 31–33 and 61 of the intake's 69, authored
 // VERBATIM before implementation.
 //
 // The LIVE half of the decision API. Every title here is one a mocked `sql` tag
@@ -15,7 +15,14 @@
 //    written" is the assertion that passes while the feature is still wrong.
 //  - 33 and 61 are RACES. Two concurrent accepts, and an acceptance racing
 //    connect-finalize, must each yield exactly one zernio_initial_backfill row.
-//  - 68 is a same-transaction analytics guarantee.
+//
+// A fifth title lived here until 2026-08-07 — "GET import-offer self-heal records
+// import_offer_created in the same transaction" — and moved to #679 with the rest
+// of the analytics slice (deviations D7): the event name needs the
+// analytics_events.event_name CHECK extended, which needs a migration this
+// ticket's non-goals forbid. #679 must restore it as a SAME-TRANSACTION
+// assertion, because the self-healed offer is precisely the one that would
+// otherwise vanish from the offer-created → decision-recorded ratio.
 //
 // Live-DB conventions (CLAUDE.md gotcha, `ci:live-db-suites`): named
 // `*.integration.test.ts`, gated by describeWithDb, asserts its schema, and
@@ -38,10 +45,4 @@ describe('import-offer decision API against live Postgres', () => {
   // unqualified wording for exactly this reason — read across all four
   // producers it contradicted reactivation's intended behaviour.
   it.todo('concurrent acceptance and connect finalize under the businesses row lock create exactly one zernio_initial_backfill row');
-
-  // Round-2 finding: revision 2 omitted this, so an offer that existed ONLY
-  // because the Stripe path failed would have been invisible in the
-  // offer-created → decision-recorded ratio the intake names as the churn
-  // signal. Same transaction, not best-effort after it.
-  it.todo('GET import-offer self-heal records import_offer_created in the same transaction');
 });

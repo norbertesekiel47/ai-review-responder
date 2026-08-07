@@ -1,6 +1,6 @@
 // src/components/dashboard/__tests__/DashboardContent.importOffer.test.tsx
 //
-// T0 EVAL suite for #677 — titles 55 and 56 of the intake's 70, authored VERBATIM
+// T0 EVAL suite for #677 — titles 55 and 56 of the intake's 69, authored VERBATIM
 // before implementation.
 //
 // These two are MOUNT and SCOPE, and they are the reason the feature cannot ship

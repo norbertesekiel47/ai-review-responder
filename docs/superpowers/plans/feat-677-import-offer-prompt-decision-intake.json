@@ -4,7 +4,7 @@
   "db_touching": true,
   "goal": "Ship the Import offer: create it at the subscribe+connect junction, let the owner accept or decline it once per location, and enqueue the Review import only on Yes — so no import runs without Import consent (D1/D9).",
   "non_goals": [
-    "No migration — the Import consent columns shipped as migrations 100+101 (#673). The one-migration-in-flight slot stays free.",
+    "No migration — the Import consent columns shipped as migrations 100+101 (#673). The one-migration-in-flight slot stays free. This is load-bearing and it is what pushed the analytics events to #679: a new event name requires extending the analytics_events.event_name CHECK (migration 097's enum), so keeping this non-goal means shipping no analytics here (deviations D7).",
     "No reviews list, no unanswered-first sort, no per-row Generate/Regenerate — that is #678. Imported reviews surface only through the existing dashboard recentReviews feed.",
     "No worker-side consent guard in ZernioBackfillWorker — that is #679. This ticket ships the writer and all three enqueue gates; #679 adds the fail-closed run-time chokepoint that covers hand-inserted rows.",
     "No stored 'expired' value, no poller, no lazy write-back, no expiry notification — expiry is derived on read (spec §5.3, #670).",
@@ -97,7 +97,6 @@
     "src/lib/locations/add-location-tx.ts",
     "src/lib/locations/archive-location-tx.ts",
     "src/lib/locations/__tests__/**",
-    "src/lib/analytics/events.ts",
     "src/lib/shared/__tests__/**",
     "CONTEXT.md",
     "docs/directory.md",
@@ -172,7 +171,6 @@
     "add-location inherits consent through equal google_maps_url when the new row has a place id and the archived sibling place id is NULL",
     "readImportOfferView reports the imported count for a completed run against live Postgres",
     "readImportOfferView returns the offer state for a live pending offer against live Postgres",
-    "GET import-offer self-heal records import_offer_created in the same transaction",
     "ImportOfferBanner renders the imported count and announces the terminal transition through LiveRegion",
     "every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT"
   ],
@@ -182,7 +180,7 @@
   "dependencies_added": [],
   "rollback_plan": "git revert the PR (ADR 0015 R1 — no flag exists to flip). No migration rides this ticket, so there is no schema state to undo; the Import consent columns stay and revert to being written by nobody. Reverting restores the unconditional junction and reactivation enqueues, which are inert in both environments while prod and staging hold zero businesses. Order: revert, redeploy the Railway worker (ingress change), redeploy Vercel (routes + banner). Any import_decision rows written before the revert stay on the row and are re-honoured when the PR re-lands — the record is never rewritten.",
   "observability": [
-    "Analytics events on the decision transaction, enqueued via enqueueAnalyticsEvent alongside the state change (the gbp_connected precedent in finalize-tx.ts): import_offer_created at the junction, and import_decision_recorded carrying accepted or declined. Their ratio is the churn signal the reassurance line exists to protect — a decline rate climbing is the one number that says the copy is failing.",
+    "NO analytics events in this ticket — deferred to #679 (owner decision 2026-08-07, deviations D7). import_offer_created and import_decision_recorded both require extending the analytics_events.event_name CHECK, which needs a migration this intake's own non_goals forbids. #679 carries the migration, both names, the docs/analytics/events.md entries and the emission sites; their ratio remains the churn signal, just one ticket later.",
     "A structured log line from the decision transaction on a rejected request, naming the rejection class (no_offer, expired, already_answered) and business_id, so 'the owner says the button did nothing' resolves to an expiry or a missing offer rather than an outage.",
     "A structured log line at each of the three enqueue gates when consent blocks an enqueue, naming the derived consent state — the proof that declines are actually being honoured at the product paths, and the counterpart to #679's worker-side skip line.",
     "Counter-signal for the silent failure: an accepted import whose zernio_backfill_runs row still has completed_at NULL well past the run window means the import stalled — queryable in Railway logs alongside the run row.",

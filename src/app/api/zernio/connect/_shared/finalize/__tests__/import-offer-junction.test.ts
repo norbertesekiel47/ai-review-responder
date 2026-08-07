@@ -1,6 +1,6 @@
 // src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts
 //
-// T0 EVAL suite for #677 — titles 14–19 of the intake's 70, authored VERBATIM
+// T0 EVAL suite for #677 — titles 14–19 of the intake's 69, authored VERBATIM
 // before implementation.
 //
 // Producer 1 of 4: connect finalize. This is the junction site — subscription

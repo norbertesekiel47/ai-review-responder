@@ -1,6 +1,6 @@
 // src/lib/reviews/__tests__/import-offer-view.integration.test.ts
 //
-// T0 EVAL suite for #677 — titles 40–43 and 66–67 of the intake's 70, authored
+// T0 EVAL suite for #677 — titles 40–43 and 66–67 of the intake's 69, authored
 // VERBATIM before implementation.
 //
 // readImportOfferView is a three-table join (businesses × zernio_backfill_runs ×
