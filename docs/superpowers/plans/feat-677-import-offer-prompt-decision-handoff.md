@@ -168,11 +168,46 @@ Decided from the code rather than asked, and worth not re-deriving:
 8. **Gate GREEN 28/28 in full mode at `e3a23329`**, `--review` variant, so
    `diff-coverage` and `merge-coverage` both pass and all four live-DB rows ran.
    `reclassify` no longer fires.
-9. **NEXT: step 8, the high lane.** Land on `staging` first (push →
-   full stack auto-deploys; migrations to the staging Supabase project FIRST —
-   though **no migration rides this ticket**), smoke the touched path, then open
-   the PR to `main`, confirm CI green, and **PAUSE for owner merge approval**.
-   Merge order is **#677 → #679 → #676(absorbed)**.
+9. ~~Step 8 — staging ride + smoke~~ — **done 2026-08-07** (see "Staging proof"
+   below). `staging` fast-forwarded `349c8c57..e32307e5`; Railway worker
+   `d91b254e` SUCCESS, Vercel staging `dpl_FFE2YCTmyJd6rHZU7vNEtZkhiEzi` READY.
+   No migration rides this ticket — verified zero files under
+   `supabase/migrations/`, and staging already carries 100's columns + 101's
+   three-valued CHECK.
+10. **NEXT: open the PR to `main`**, confirm CI green, and **PAUSE for owner
+    merge approval**. Merge order is **#677 → #679 → #676(absorbed)**.
+
+## Staging proof — 2026-08-07 (step 8)
+
+Smoked in the browser as the owner against the deployed staging stack, on
+`Tanicia Resort` (`019fd299-f146-76b5-a57e-12a97843c7f4`) — `trialing`,
+activated, one active `zernio_connections` row.
+
+| # | Assertion | Evidence |
+|---|---|---|
+| 1 | GET self-heals a missing offer at the junction | `import_offer_expires_at` written `2026-08-14 11:24:02` = `now()+7d`, at page load |
+| 2 | `createImportOffer` proves the junction in its OWN SQL | the **second** `Tanicia Resort` (`019fd2c3`, 0 active connections) and `Terry Business` (`019fd4b6`) both stayed `NULL` — same name, correctly refused |
+| 3 | Banner renders the locked copy | 7-day disclosure + "New reviews will still be handled automatically either way." both present verbatim |
+| 4 | POST records the guarded transition | `accepted` @ `11:24:26.918`; `import_offer_expires_at` **preserved**, not reset |
+| 5 | A completed `initial` run suppresses re-enqueue | first accept wrote consent and enqueued **nothing** — `enqueueInitialImport`'s `br.run_reason='initial' AND completed_at IS NOT NULL` guard (F101/A4) |
+| 6 | Outcome state reads the run | banner: "Imported 29 reviews. They're in your reviews list." |
+| 7 | Fresh enqueue fires when no completed initial run exists | after resetting `completed_at`→NULL: outbox `019fdbfa-4d75-7458-bf2b-d650fafd232c` @ `11:27:21.551`, `backfill_reason:'initial'` explicit (the #675-era rows carry `null`) |
+| 8 | OutboxPoller dispatches | `dispatched` @ `11:27:24.749`, ~3s |
+| 9 | `importing` state renders | banner: "Importing your reviews… this usually takes a minute." |
+| 10 | Worker completes; trace is end-to-end | `Import complete business=019fd299… imported=29 skipped=0 pages=4 window=[2025-08-07T11:27:24.926Z, 2026-08-06T00:36:14.101Z)` — `correlation_id 019fdbfa-4d73-7606-9da6-35f5f9037d1d` matches the outbox payload exactly |
+| 11 | Import is insert-only (#674) | every external reply logged `already imported (ON CONFLICT) — counter not bumped`; `reviews` stayed **66**, zero duplicates |
+| 12 | No client-side breakage | zero console errors across the whole flow |
+
+**Not exercised on staging** (all covered by the gate's unit + four live-DB
+suites): the decline branch, the zero-review "nothing to import" case, and the
+derived-expiry rejection — the last cannot be reached without waiting 7 days or
+back-dating the deadline.
+
+**Staging data left as-is:** the location ends `accepted` with a completed
+`initial` run. That is the truthful end state for a location holding 29 imported
+reviews; the pre-smoke `pending`/NULL was only migration 100's default from
+before this feature existed. A future staging re-test must reset
+`import_decision`/`import_offer_expires_at` and the run's `completed_at`.
 
 **Standing totals at review completion:** surface amendments **1 of 2** (D4
 only — D2, D8, D9, D14 were all inside existing trees or mechanical
