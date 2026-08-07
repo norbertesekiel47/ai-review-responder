@@ -3,9 +3,21 @@
 Entries the plan did not anticipate. Each gets a triage verdict (ACCEPT /
 RE-PLAN) at step 6 before review.
 
+**Step-6 read-back completed 2026-08-07. All nine entries: ACCEPT. Zero
+RE-PLAN, so the abort criteria are not engaged.** Each verdict below was
+checked against code, not against this file's own prose — the specific
+command evidence is named on each line. Standing totals confirmed at
+read-back: surface amendments **1 of 2** (D4 only), `planReviewRounds` **3**
+(exhausted), `tests_to_add` **69**, `open_questions` **[]**.
+
 ---
 
 ## D1 — Merge-order agreement with #679 (owner-approved at intake, 2026-08-06)
+
+**VERDICT: ACCEPT.** Owner-agreed at intake; the interim opening is exactly the
+class ADR 0015 R2 accepts, and it narrows rather than persists (#679 closes it).
+Verified this branch does create the file it claims to own —
+`src/lib/reviews/import-consent.ts`, +365 lines, new in the diff stat.
 
 `scripts/feature-setup.sh` reported **"No code-surface overlap with other armed
 worktrees"**, and that is a false negative for the pair that matters:
@@ -51,6 +63,13 @@ read as "no collision" when a parked branch is known to be in flight.
 
 ## D2 — Surface amendment: `src/lib/reviews/import-offer-view.ts` (auto-approved)
 
+**VERDICT: ACCEPT.** One file inside a tree the surface already covered → step
+2's auto-approval rule, correctly not charged to the budget. The split reason
+holds and is load-bearing for #679: `import-offer-view.ts` reads `job_outbox`
+and `zernio_backfill_runs`, neither of which the worker guard needs. Verified
+both intake copies carry the path and are byte-identical (`diff` clean,
+sha256 matches `state.json`'s `intakeSha256`).
+
 Adds **one** file inside `src/lib/reviews/`, a directory tree
 `allowed_edit_surface` already covers → auto-approved under step 2's amendment
 rule, recorded here rather than escalated. **Does not count toward the
@@ -70,6 +89,14 @@ Both intake copies (`docs/superpowers/plans/…-intake.json` and
 ---
 
 ## D3 — Consent inheritance needs no predicate (design simplification)
+
+**VERDICT: ACCEPT.** The no-branching claim and the twice-corrected lineage key
+both hold in code. Verified at `src/lib/locations/add-location-tx.ts:293-303`:
+the sibling lookup is a disjunction over non-NULL keys
+(`google_place_id IS NOT NULL AND … = $x` **OR** `google_maps_url IS NOT NULL
+AND … = $y`), never NULL-to-NULL, with the deterministic
+`ORDER BY ab.archived_at DESC, ab.created_at DESC, ab.id DESC` tie-break the
+entry describes.
 
 The intake framed F3 constraint 1 as "inherit the archived sibling's decision",
 which reads as needing a terminal-state test (declined? expired?). It does not.
@@ -107,6 +134,14 @@ deterministic. Both directions are pinned by test (titles 48, 65).
 
 ## D4 — Surface amendment: the third enqueue gate (#676 absorbed) · **owner-approved**
 
+**VERDICT: ACCEPT.** Re-presented to the owner on the corrected fact and
+re-decided — the archive→reactivate bypass it closes was reachable in two
+clicks. Correctly charged as amendment **1 of 2**; that remains the only charge
+against the budget. Note for review: the entry says "all three gates", the
+glossary and the shipped code say **four** product enqueue paths (the decision
+route itself is the fourth). Same scope, two countings — the review agents get
+the intake, which is authoritative.
+
 **Counts as amendment 1 of the abort-criteria budget** (a new file outside any
 tree the surface covered: `src/lib/locations/archive-location-tx.ts`).
 
@@ -135,6 +170,11 @@ corrected in the same edit.
 
 ## D5 — Test-count growth is a retitle-class change, not an amendment
 
+**VERDICT: ACCEPT.** Correct reading of the abort criteria (the #643 lesson):
+`tests_to_add` changes are deviations-file entries, not `allowed_edit_surface`
+amendments. The count it calls authoritative (70) has since moved to **69** under
+D7 — that supersession is recorded there, not a contradiction here.
+
 `tests_to_add` grew 28 → 57 across the round-1 triage, then **57 → 70** across
 the round-2 triage (revision 3's 13 added titles). **70 is the current and
 authoritative count** — it is the length of `tests_to_add` in both intake copies,
@@ -155,6 +195,12 @@ re-run — not a bookkeeping artifact.
 ---
 
 ## D6 — T0's file matrix was off by one; corrected at the start of execution (owner-decided, 2026-08-07)
+
+**VERDICT: ACCEPT.** Caught before T0 dispatched, so no test was authored into
+the wrong suite. Title 31 is the one that mattered — a `live DB:` rollback
+assertion in a mocked suite cannot falsify rollback — and it now lives in
+`route.integration.test.ts`. The step-5 `promised-tests` row (PASS, 69/69
+verbatim) independently confirms the corrected partition.
 
 Found while bootstrapping execution, before T0 was dispatched. **Revision 4
 renumbered `tests_to_add` to 70 correctly but built T0's file matrix against the
@@ -209,6 +255,33 @@ remembered range.
 ---
 
 ## D7 — The analytics slice moves to #679; the intake contradicted itself (owner-decided, 2026-08-07)
+
+**VERDICT: ACCEPT** — and this is the entry that came closest to RE-PLAN, so the
+reasoning is recorded rather than assumed. It drops an item the locked intake's
+`observability` named, which is normally abort-criteria territory. It is not,
+for three reasons: the two fields were **mutually unsatisfiable as locked**
+(`observability` demanded a migration `non_goals` forbade), so something had to
+give and only the owner could choose which; the owner chose, on the record; and
+the choice **preserved** the binding constraint (no migration, slot stays free
+for #679) while deferring the softer one. The alternative — amend the surface for
+`supabase/migrations/**` and `docs/analytics/events.md` — would have taken
+amendments to 3 against a budget of 2 and tripped the abort criteria to buy
+telemetry.
+
+The severity claim checks out too: the plan had the emission **inside**
+`sql.begin`, so a CHECK violation would have rolled back a legitimate consent
+decision — a silent correctness bug, not a missing metric.
+
+Verified the deferral actually holds in code, not just in prose: `git diff
+origin/main...HEAD` adds **zero** `enqueueAnalyticsEvent` call sites. The one at
+`finalize-tx.ts:171` is the pre-existing `gbp_connected` emission, untouched by
+this branch (the symbol does not appear on any `+` line of the diff), and
+`src/lib/analytics/events.ts` is absent from `allowed_edit_surface` so the
+edit-surface guard enforces the deferral rather than trusting it.
+
+**Carried into review:** `observability` now promises three structured log
+lines instead. The spec agent must confirm those exist — a deferral that quietly
+took the *replacement* signal with it would leave the feature unobservable.
 
 Found at the start of T1, reading precedents before writing code.
 
@@ -272,6 +345,13 @@ govern an artifact, not just confirm the artifact exists.
 
 ## D8 — Surface amendment: `select-location/__tests__/**` (owner-approved, 2026-08-07)
 
+**VERDICT: ACCEPT.** Test-only, and the mechanical fallout of D4's
+already-approved production scope — charging it would have tripped the abort
+criteria on a one-line test fix, which is precisely the failure mode the #643
+lesson names. The `importConsent` harness knob defaulting to `'pending'`
+(migration 100's DEFAULT) is the right default: a test must opt IN to the
+enqueue, so a future test cannot inherit consent by omission.
+
 Found running T3's suites. Gating producer 1 (`finalizeConnectionTx`) broke one
 test in a suite that is **not** the producer's own:
 `src/app/api/zernio/connect/select-location/__tests__/route.test.ts` — *"uses
@@ -314,6 +394,25 @@ gates an existing side effect, budget for caller-suite fallout at intake.
 ---
 
 ## D9 — Audit-config and consumer-test amendments (owner-approved, 2026-08-07)
+
+**VERDICT: ACCEPT**, on D8's reading — all four paths are consequences of settled
+scope, and the `tenant-scope` batch is a net **shrink** (two suppressions
+deleted, baseline 420 → 418). Both production findings verified in code:
+`importConsentStateSql` takes no interpolation and hard-codes the `b.` alias
+(`import-consent.ts:98-104`), and `readImportOfferView` scopes run rows to
+`run_reason = 'initial'` (`import-offer-view.ts:96`) with the reasoning in its
+header.
+
+**Two things this entry hands forward to review rather than settles.** The
+`b.`-alias contract is now a naming convention four producers must honour with
+no compiler or audit enforcing it — a caller aliasing `businesses` differently
+compiles clean and derives consent from the wrong row. The mitigation is
+`import-consent-lock-order-source.test.ts`; whether it actually binds all four
+call sites is a review question, not a deviations claim. Separately, the live
+UNIQUE partial index — not the plan — is what surfaced the reactivation-recurrence
+bug; that the banner would otherwise have flipped back to "Importing your
+reviews…" months later is the strongest argument on this branch for the four
+live-DB rows being non-negotiable at the step-5 gate.
 
 Four more paths, all forced by T3/T4's approved production changes. Owner approved
 both batches; like D8 they are consequences of settled scope, not new scope.

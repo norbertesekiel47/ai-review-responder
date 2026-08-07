@@ -87,11 +87,18 @@ Decided from the code rather than asked, and worth not re-deriving:
   integration rows that RAN rather than skipping**, because
   `TEST_DATABASE_POOL_URL` was exported (see traps — this is the difference
   between a real gate and a falsely-green one).
-- **The gate script sets `phase=gate_green`; it has been set back to
-  `executing` on purpose.** Execution is NOT finished — only T0 is done, T1–T6
-  remain. Leaving `gate_green` in the record would invite a resumed session to
-  skip to step 6 (review) with no production code written. A green gate here
-  means "the branch is consistent at this SHA", not "the feature is built".
+- **Phase is `gate_green`, and that is now correct.** It was deliberately held
+  at `executing` through T0–T6 — a green gate mid-execution means "the branch is
+  consistent at this SHA", not "the feature is built", and leaving `gate_green`
+  in the record would have invited a resumed session to skip to review with no
+  production code written. Execution is complete, so the hold is lifted.
+- **Step 6 (deviations read-back) is DONE — 2026-08-07.** All nine entries
+  ACCEPT, zero RE-PLAN, each verdict checked against code and recorded in the
+  deviations file. Standing totals re-confirmed at read-back: amendments **1 of
+  2** (D4), `planReviewRounds` **3**, `tests_to_add` **69**, `open_questions`
+  empty. Two items were explicitly carried into review rather than settled — D7's
+  replacement log lines, and D9's unenforced `b.`-alias contract across the four
+  producers.
 - **Enforcement:** ARMED (`scripts/arm-check.sh` clean at setup).
 - `.feature/state.json`: `planReviewRounds` = 3 — **exhausted**. The plan is
   locked by owner adjudication; do not open a fourth plan-review round.
