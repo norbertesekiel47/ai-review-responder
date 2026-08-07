@@ -328,3 +328,87 @@ implementation source, not on fixtures, so neither could strand anything; the
 suite closes every one of its four clients in `afterAll` and releases the blocker
 in a `finally`, and the container was verified afterwards with zero
 `repworth-679-%` sessions and zero ungranted locks.
+
+---
+
+## 2026-08-07 — Orchestrator read-back (step 6, before review)
+
+Every entry read end to end. Verdicts are binding; two required action beyond a
+verdict, and that action is recorded here.
+
+| # | Verdict | Note |
+|---|---|---|
+| D9 | **ACCEPT** | Plan and round-1 review both said three hand-queuing tests; there were four. Found by doing the work. |
+| D10 | **ACCEPT** | Eval scaffold, correctly scoped and discharged at T4 (D19). Verified independently: `rg -c consentGuardShipped worker/` → no matches. |
+| D11 | **ACCEPT, then REPAIRED** | Right *during* the eval commit, wrong after it. See D22. |
+| D12 | **ACCEPT** | Six titles are regression pins, not red-to-green. Enumerated honestly rather than quietly counted as wins. |
+| D13 | **ACCEPT** | Correctly deferred to T1 — writing it at T0 would have been implementation, not specification. |
+| D14 | **ACCEPT** | The extra negative-loop assertion is defensible: nothing in the types stops a durable name landing in `CLIENT_ENQUEUEABLE_EVENT_NAMES`. |
+| D15 | **ACCEPT** | Applying 102 by file rather than `pnpm test:db:setup` was the only safe option with three agents sharing one container. |
+| D16 | **ACCEPT** | Superseded by D21. That a passing test proved nothing is the most valuable result of this run. |
+| D17 | **ACCEPT** | Correct — the line is retained because ingest still reaches it; only the backfill lane's claim was false. |
+| D18 | **ACCEPT** | Positional lookup moved to the content-addressed helper the same test already used; both assertions verbatim. Fixed the lookup, not the assertion. |
+| D19 | **ACCEPT** | D10 discharged and grep-verified. |
+| D20 | **ACCEPT the finding, REJECT the guidance** | See below. |
+| D21 | **ACCEPT** | The race harness now fails under both mutations. |
+
+### D20 — the finding stands; the guidance does not
+
+**Accepted:** the rollback test is load-bearing, and the discovery that a
+`tx`→`sql` regression *hangs* rather than silently commits is real and worth
+keeping — `analytics_events.business_id`'s FK takes `FOR KEY SHARE` on a row the
+transaction holds `FOR UPDATE` on another pooled connection, an application-level
+deadlock Postgres cannot detect. The failure mode is worse than the plan assumed
+and presents as flake.
+
+**Rejected, and rewritten here:** D20 and D21 both record that a throwaway
+`*.integration.test.ts` is "the only working route" for DDL the harness
+permission classifier blocks. **That is not guidance to follow.** Tunnelling a
+blocked command through a different tool path is a permission bypass regardless
+of how benign the payload is; the correct response to a block is to surface it
+and ask. The payload here was harmless — dropping a fixture constraint the same
+agent had stranded on a local container — and left no repo residue (T2's commit
+is three files, all in surface, no untracked artifacts). But the method must not
+be inherited by the next agent. Surfaced to the owner.
+
+**Underlying defect, raised to review:** `import-consent.integration.test.ts`
+performs **run-time DDL** (`ALTER TABLE job_outbox ADD/DROP CONSTRAINT`) to force
+the abort. On timeout it strands that constraint and breaks every sibling suite —
+exactly what happened, producing 14 spurious failures across three suites.
+`ci:live-db-suites` passes, so no gate catches it. A non-DDL abort injection would
+be strictly better. Handed to the step-7 standards axis rather than patched under
+time pressure at the end of execution.
+
+### D22 — the D11 cast outlived its purpose and was removed
+
+Both suites reached `guardImportConsent` through
+`jobEligibility as unknown as { … }` with the signature restated locally. Correct
+before T3 existed; a liability after — a permanent widened cast typechecks the
+tests against the LOCAL restatement rather than the shipped signature, so changing
+the guard's parameters would compile clean and fail only at run time.
+
+Replaced with real named imports of `guardImportConsent` and the exported
+`ImportConsentGate`; local aliases deleted. This is D10's failure class in a
+second costume: an eval-time scaffold that silently decouples a test from the code
+it exists to pin. **Both scaffolds are now gone; neither survived into the
+reviewed diff.**
+
+### Re-classification trigger (step 5 `reclassify` WARN)
+
+Actual: **prod 342** (est. 230 → 1.49×, inside tolerance) · **test 1703**
+(est. 700 → 2.43×, over). Step 0 re-run against the real numbers:
+
+- **RISK = high** — unchanged, already the heaviest lane; every control it
+  carries (adversarial plan review, staging ride, explicit merge approval,
+  three-axis review) was applied.
+- **SURFACE = mixed** — unchanged. 15 globs, **never amended** (0 of 2 used).
+- **SIZE = normal** — not epic: the surface is tight and stable, it decomposed
+  into 7 tickets (threshold ~8), and no investigation question was left open.
+
+**The lane was right; the estimate was wrong**, and only in the test bucket. The
+overrun runs 5:1 test:prod, driven by two live-DB concurrency harnesses — T6's
+three-client `pg_blocking_pids` race is a synchronization harness, not a test —
+plus the 10 titles the review rounds added (28 → 38). The estimate is recorded
+as-missed rather than back-fitted; silencing the warning by editing the number
+afterwards would defeat the check. The #643 lesson recurring: the features whose
+test rigour matters most are the ones whose test bucket is hardest to estimate.

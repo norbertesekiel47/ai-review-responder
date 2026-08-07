@@ -23,7 +23,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Sql } from 'postgres';
-import type { WorkerLogger } from '../../../../src/lib/shared/logger';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
@@ -80,31 +79,17 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
 }));
 
-import * as jobEligibility from '../job-eligibility';
+import { guardImportConsent, type ImportConsentGate } from '../job-eligibility';
 import { importConsentStateSql } from '../../../../src/lib/reviews/import-consent';
 
-/** T3's return type. Declared locally so this file typechecks BEFORE T3. */
-type ImportConsentGate = { kind: 'proceed' } | { kind: 'skipped' };
-
-type GuardImportConsent = (
-  sql: Sql,
-  input: {
-    businessId: string;
-    outboxId: string;
-    attempt: number | undefined;
-    logger: WorkerLogger;
-  },
-) => Promise<ImportConsentGate>;
-
-// T3 adds `guardImportConsent` + `ImportConsentGate` to job-eligibility.ts.
-// Reached through a widened namespace view rather than a named import so this
-// file TYPECHECKS both before and after that lands, while FAILING at run time
-// today — `guardImportConsent` is `undefined` until T3 exports it. A
-// `@ts-expect-error` on a named import would instead become an unused-directive
-// error the moment the symbol appears.
-const { guardImportConsent } = jobEligibility as unknown as {
-  guardImportConsent: GuardImportConsent;
-};
+// A real named import, deliberately. Through the eval commit this was a widened
+// namespace cast so the file could typecheck before `guardImportConsent` existed
+// (deviations D11); the scaffold was removed once T3 landed. A permanent
+// `as unknown as` would typecheck these tests against a LOCALLY DECLARED shape
+// instead of the shipped signature, so a change to the guard's parameters would
+// compile clean here and surface only at run time. Same failure class as D10's
+// `consentGuardShipped`: an eval-time scaffold that silently decouples a test
+// from the code it exists to pin.
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 

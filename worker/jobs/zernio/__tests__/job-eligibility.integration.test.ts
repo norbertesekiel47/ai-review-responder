@@ -90,29 +90,14 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { recordImportDecisionAndEnqueue } from '@/lib/reviews/import-consent';
 import type { WorkerLogger } from '@/lib/shared/logger';
-import * as jobEligibility from '../job-eligibility';
+import { guardImportConsent, type ImportConsentGate } from '../job-eligibility';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
-/** T3's return type. Declared locally so this file typechecks BEFORE T3. */
-type ImportConsentGate = { kind: 'proceed' } | { kind: 'skipped' };
-
-type GuardImportConsent = (
-  sql: postgresType.Sql,
-  input: {
-    businessId: string;
-    outboxId: string;
-    attempt: number | undefined;
-    logger: WorkerLogger;
-  },
-) => Promise<ImportConsentGate>;
-
-// T3 adds `guardImportConsent` to job-eligibility.ts. Reached through a widened
-// namespace view so this file typechecks both before and after that lands, while
-// FAILING at run time today.
-const { guardImportConsent } = jobEligibility as unknown as {
-  guardImportConsent: GuardImportConsent;
-};
+// A real named import, deliberately — see the note in job-eligibility.test.ts.
+// The eval-commit namespace cast (deviations D11) was removed once T3 landed so
+// this suite is type-coupled to the shipped signature rather than to a local
+// restatement of it.
 
 /** Silent stand-in — the block line's shape is pinned by the unit suite. */
 const silentLogger: WorkerLogger = {
