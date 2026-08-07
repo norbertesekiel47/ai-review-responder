@@ -174,7 +174,38 @@ nothing, import unbounded above.
 - **Idempotency**: one-shot per business for `run_reason='initial'`
   (`completed_at` sentinel); reactivation runs key on `correlation_id`.
 - **Release constraint**: #679's fail-closed `import_decision='accepted'`
-  pre-flight must land before real customers; enqueue gates are #676.
+  pre-flight must land before real customers. The enqueue gates shipped at
+  **#677** (below), which absorbed #676.
+
+### Who may enqueue an import (#677, PR #691)
+
+Enforcement today is at the **four product enqueue paths**, each gating on
+`import_decision='accepted'` while holding the `businesses` row lock. All four
+delegate to ONE `enqueueInitialImport` in `src/lib/reviews/import-consent.ts`:
+
+| Producer | File |
+|---|---|
+| Connect finalize | `src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts` |
+| Stripe activation resume | `worker/ingress/stripe/shared.ts` |
+| Reactivation catch-up | `src/lib/locations/archive-location-tx.ts` |
+| The owner's decision route | `src/app/api/dashboard/import-offer/route.ts` |
+
+Before #677 these were three hand-copied guards that had **already diverged**,
+and none matched the banner's read model — a completed *reactivation* run
+permanently suppressed the one-time initial import while `ImportOfferBanner`,
+correctly scoped to `initial`, reported `importing` forever on a 4s poll. The
+shared function scopes its guard to `br.run_reason='initial' AND completed_at
+IS NOT NULL`, matching `readImportOfferView` exactly.
+
+Reactivation is deliberately **not** routed through it: it enqueues with
+`backfill_reason: 'reactivation'`, and the worker's `ON CONFLICT … WHERE
+run_reason = 'initial'` does not dedup it, because the archived-period catch-up
+must recur.
+
+**This is enforcement at the producers, not at the chokepoint.** A hand-inserted
+`zernio_initial_backfill` row still imports without consent until #679's
+worker-side pre-flight lands — ADR 0015 R2 accepts that while production holds
+zero customers, and it is why merge order is #677 → #679.
 
 ## ReviewSource Contract
 
