@@ -599,3 +599,23 @@ describe('voice config independence (VAL-LOC-032)', () => {
     expect(updateCalls.length).toBe(0);
   });
 });
+
+// ── #677 T0 EVAL — Import consent lineage, mocked half ────────────────────────
+//
+// Title 45 of the intake's 70, authored VERBATIM before implementation.
+//
+// This is the ONLY mocked add-location consent title (owner decision 2026-08-07,
+// deviations D6). The no-sibling case is a binding assertion — there is no
+// lineage SELECT to get wrong, only the question of whether the new row is left
+// at migration 100's default. Its five siblings are SQL semantics (the
+// disjunction over non-NULL keys, the ORDER BY tie-break, account scoping, and
+// both cross-representation directions) and live in
+// add-location-tx.integration.test.ts, where a real join can be falsified.
+//
+// "Leaves pending" means pending WITH THE DEFAULTS — decision 'pending' and a
+// NULL deadline. That is deliberately NOT an answerable offer: the round-1
+// Critical was that a NULL deadline was answerable, so a fresh location must not
+// come out of add-location holding something a direct POST could accept.
+describe('addLocationTransaction — Import consent lineage (#677)', () => {
+  it.todo('add-location leaves import consent pending when no archived sibling exists for the place');
+});
