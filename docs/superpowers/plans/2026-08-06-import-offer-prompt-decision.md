@@ -24,6 +24,18 @@
 > together (owner decision 2026-08-06: row lock, not a migration); **(d)**
 > reactivation gets the consent gate **only** — revision 2 wrongly imposed a
 > generic completed-run predicate on a path with its own `run_reason`.
+>
+> **Revision 4** (2026-08-06) — **the plan is LOCKED**. Round 3 was the final
+> review round; the owner's adjudication substitutes for `APPROVED`. Triage in
+> §8. One substantive change: **the junction deadline anchor is dropped** —
+> `createImportOffer` uses `now() + 7 days`. The junction *eligibility* check
+> stays. Three clerical corrections: T0 rewritten to all 70 titles with suite
+> and live-DB assignments, the lineage test retargeted at the actual
+> cross-representation case, and the stale anchor/lineage wording reconciled
+> across both intake copies, deviations D3, and the handoff doc.
+>
+> **Where earlier revisions conflict with this one, this one wins.** §6 and §7
+> are historical triage records, not instructions.
 
 ---
 
@@ -119,22 +131,31 @@ cite it as pre-existing.
 
 **Blocking edges:** none. **Turns green:** nothing (that is the point).
 
-Author all **57** `tests_to_add` titles VERBATIM as failing tests, committed
+Author all **70** `tests_to_add` titles VERBATIM as failing tests, committed
 before any implementation. Slices not yet buildable use `.todo`; slices whose
 failure is meaningful now assert and red.
 
-| File | Titles |
-|---|---|
-| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | 1–14 (incl. the `fast-check` property test) |
-| `src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts` | 15–20 |
-| `worker/ingress/stripe/__tests__/import-offer-resume.test.ts` | 21–24 |
-| `src/lib/locations/__tests__/archive-location-tx.test.ts` (existing) | 25–26 |
-| `src/app/api/dashboard/import-offer/__tests__/route.test.ts` | 27–31, 35–40 |
-| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 32–34 |
-| `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | 41–44 |
-| `src/lib/locations/__tests__/add-location-tx.test.ts` + `add-location-tx.integration.test.ts` | 45–49 |
-| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 50–55 |
-| `src/components/dashboard/__tests__/` | 56–57 |
+| File | Titles | Live DB? |
+|---|---|---|
+| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | 1–14, 57–60, 62 | **yes** |
+| `src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts` | 15–20 | no |
+| `worker/ingress/stripe/__tests__/import-offer-resume.test.ts` | 21–24 | no |
+| `src/lib/locations/__tests__/archive-location-tx.test.ts` (existing) | 25–26, 63–64 | no |
+| `src/app/api/dashboard/import-offer/__tests__/route.test.ts` | 27–31, 35–40 | no |
+| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 32–34, 61, 68 | **yes** |
+| `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | 41–44, 66–67 | **yes** |
+| `src/lib/locations/__tests__/add-location-tx.test.ts` | 45–46 | no |
+| `src/lib/locations/__tests__/add-location-tx.integration.test.ts` | 47–49, 65 | **yes** |
+| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 50–55, 69 | no |
+| `src/components/dashboard/__tests__/` | 56 | no |
+| `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts` | 70 | no (source tripwire) |
+
+**Every concurrency and SQL-semantics title is live-DB.** Titles 61 (concurrent
+self-heal vs decision) and 62 (concurrent producers → one job) are races that a
+mocked `sql` tag cannot express at all. Title 70 is a *source* tripwire in the
+style of `location-lifecycle-lock-order-source.test.ts` — it reads the producer
+files and asserts each acquires the `businesses` row lock before its topic
+`INSERT`, which is the only check that survives a future producer being added.
 
 **The eval's own bar — can this pass while the feature is still wrong?** The
 assertions, not the titles, carry these:
@@ -239,24 +260,30 @@ holding *one* half of the junction would have been handed an offer. So the
 Both non-NULL by construction before `GREATEST` is applied, so no one-sided
 anchor is reachable.
 
-**The anchor is `zernio_connections.created_at`, not `connected_at`
-(round-2 High).** `connected_at` is *mutable*: the reconnect branch overwrites
-it with `NOW()` (`finalize-tx.ts:123-132`), despite migration 026 describing it
-as first-active time (`026_zernio_publishing.sql:85-87`). A failed primary
-creation followed by a reconnect would therefore have moved the anchor and
-extended the supposedly fixed 7-day window. The reconnect `UPDATE` sets
-`zernio_profile_id`, `zernio_account_id`, `zernio_location_id`, `status`,
-`connected_at`, `updated_at` — it does **not** touch `created_at`. Anchor:
+**There is no junction anchor. The deadline is `now() + INTERVAL '7 days'`
+(owner adjudication, 2026-08-06, closing round 3).**
 
-```sql
-GREATEST(a.subscription_activated_at, MIN(zc.created_at)) + INTERVAL '7 days'
-```
+Revisions 2 and 3 tried to anchor the deadline to the junction so that a
+self-healed offer would carry the deadline the junction *would* have produced.
+That property was **self-invented** — no spec decision requires it — and it cost
+two review rounds and two High findings: first `connected_at` turned out to be
+mutable on reconnect (`finalize-tx.ts:123-132`), then `MIN(created_at)` turned
+out to be ambiguous across the real disconnect lifecycle, where disconnect
+preserves the old row as `disconnected` (`disconnect/route.ts:251-262`) and
+finalize INSERTs a *new* active row.
 
-**Why anchoring matters at all.** It makes creation *position-independent*: the
-primary creation at the junction and the GET self-heal produce the identical
-deadline. That is what lets offer creation stay best-effort on the Stripe path
-without the round-1 F105 failure — a transient failure delays the banner instead
-of permanently denying the offer.
+It is unnecessary because **`createImportOffer` writes the deadline exactly
+once** — only when it is NULL. So the anchor never applied to the normal path at
+all; it only ever governed locations whose junction-time write *failed* and were
+later repaired by the GET self-heal. For that narrow population, starting the
+clock at the repair gives the owner a full 7 days from when they could first
+have seen the offer, which is the more defensible behaviour anyway. Spec §2.2's
+decay argument operates on months and is untouched by a repair measured in
+minutes to days.
+
+The junction *eligibility* check above stays — that fix was independent and
+round 3 confirmed it closed. What is deleted is the connection-history SQL, the
+`GREATEST` expression, and the interval reasoning that came with them.
 
 Other constraints:
 - Fragment shape precedent: `suppressionMatchSql`
@@ -576,7 +603,7 @@ or, for F107, `NO`. Ten defects introduced by revision 2's own fixes.
 | Defect | Fix |
 |---|---|
 | `createImportOffer` did not prove the junction; `GREATEST(NULL, x) = x` allowed a one-sided pre-junction offer | Junction eligibility moved into the helper's `UPDATE`: activation non-NULL **and** an active connection, both required before `GREATEST` |
-| `connected_at` is mutable on reconnect, so repair could extend the 7-day window | Anchor on `MIN(zernio_connections.created_at)`, which the reconnect `UPDATE` does not touch |
+| `connected_at` is mutable on reconnect, so repair could extend the 7-day window | ~~Anchor on `MIN(zernio_connections.created_at)`~~ — **superseded by revision 4**: round 3 showed that anchor is ambiguous too, and anchoring was dropped entirely (§8). Historical record only; do not implement this row. |
 | `WHERE NOT EXISTS` dedup is check-then-insert | `businesses` row lock at every producer (owner decision over migration 004's index) |
 | F107 still open — `TransactionSql` helper called with no transaction | Stripe path and GET self-heal each open `sql.begin` |
 | Reactivation lost accepted-but-incomplete recovery against a stale-`archived_at` worker read | Dropped the in-flight dedup at that producer entirely |
@@ -604,3 +631,39 @@ rejections defensible and two **not**:
 advised **against** splitting: the producer gates, the API, and the UI depend on
 each other, and D5's reclassification gate is the right instrument. Revision 3
 takes that advice. Estimates raised to 850 prod / 2400 test.
+
+---
+
+## 8. Review appendix — round 3 triage (FINAL round)
+
+Full report: `docs/reviews/feat-677-import-offer-prompt-decision/plan-review-round-3.md`.
+Verdict `REVISE` with four ranked items. `NEW — UNTRIAGED` empty again.
+
+**Confirmed closed by round 3** — junction eligibility in SQL (incl. the
+`pending`-connection race, which cannot occur: `finalizeConnectionTx` is the
+only production connection INSERT and it writes `active`); the row lock, with
+**no lock-order inversion** against `location-lifecycle-lock-order-source.test.ts`
+or `status-lock-order-source.test.ts`, and exactly four producer sites; both
+reactivation defects; the zero-row classification race; F107; the false
+draft-route precedent; the self-heal analytics omission.
+
+**The one substantive item — the anchor — went to the owner** per the round-3
+stop rule, and was adjudicated 2026-08-06: **drop anchoring entirely.** Rationale
+and the two rejected alternatives are recorded in T1. This deletes the finding
+rather than answering it — the connection-history SQL, the `GREATEST`
+expression, and the disconnect/reconnect interval reasoning all go away with it.
+The lesson is worth carrying: **position-independence was a property I invented,
+not one the spec asked for**, and it generated two High findings across two
+rounds before being removed.
+
+**The other three items were clerical misses of mine, fixed without argument:**
+
+| Item | Fix |
+|---|---|
+| T0 still said "all 57" with a matrix ending at 57, while the intake held 70 — an implementer would have authored 57 and skipped every round-2 fix | T0 rewritten to 70 with every title assigned a suite **and** an explicit live-DB column |
+| Title 66 asserted equal place ids with differing URLs — the ordinary branch, not the cross-representation hole it claimed to close | Retitled (now 65) to require: new row place id non-NULL, archived sibling place id NULL, equal maps URLs, consent inherited |
+| Title 62 said "concurrent producers" without naming which, and read across all four it contradicted reactivation's deliberate recurrence | Names acceptance vs connect-finalize; reactivation explicitly excluded from the exactly-one-job assertion; new title 70 is a source tripwire proving every producer takes the lock before its INSERT |
+| Intake edge cases + invariant 14 + deviations D3 still carried revision 2's superseded `GREATEST(…, connected_at)` and "place id else URL" | Both intake copies and D3 reconciled to the adjudicated contract; verified zero stale `GREATEST(subscription_activated_at` references remain |
+
+**Round 3 was the final round.** The owner's adjudication substitutes for
+`APPROVED`; the plan is locked and step 4 may begin.

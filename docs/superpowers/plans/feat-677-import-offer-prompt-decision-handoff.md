@@ -41,7 +41,7 @@ This doc references artifacts by path. It does not restate them. Read them.
 | # | Decision |
 |---|---|
 | 1 | **#677 owns `src/lib/reviews/import-consent.ts`** incl. `importConsentStateSql`. #679 rebases after this merges and drops that task from its plan. Merge order **#677 → #679 → #676(absorbed)**. |
-| 2 | The offer is **created at the junction**, server-side, in-transaction — not lazily on first render. Deadline is **junction-anchored**: `GREATEST(subscription_activated_at, connected_at) + 7 days`. |
+| 2 | The offer is **created at the junction**, server-side, in-transaction — not lazily on first render. `createImportOffer` proves the junction in its own SQL (activation non-NULL **and** an active connection). The deadline is **`now() + 7 days` at creation — there is NO junction anchor**; anchoring was tried in revisions 2–3, produced two High findings, and was dropped by owner adjudication 2026-08-06 (plan T1 has the reasoning). |
 | 3 | The prompt is a **dashboard banner for the location currently in scope**, not a modal and not an account-level roll-up. |
 | 4 | The banner carries **offer → importing → outcome → gone**, with the zero-review case surfaced as "No recent reviews found — nothing to import." |
 | 5 | **All three enqueue paths gated** (#676 absorbed). Re-decided 2026-08-06 after round 1 established reactivation is owner-facing — see deviations D4. |
@@ -62,14 +62,22 @@ Decided from the code rather than asked, and worth not re-deriving:
 
 ## State
 
-- **Branch commits:** intake → plan rev 1 → plan rev 2. No implementation yet.
+- **Branch commits:** intake → plan rev 1 → rev 2 → rev 3 → rev 4. No
+  implementation yet. **Read the plan's revision-4 header first: where earlier
+  revisions conflict, revision 4 wins, and §6/§7 are history, not instructions.**
 - **Enforcement:** ARMED (`scripts/arm-check.sh` clean at setup).
-- `.feature/state.json`: `planReviewRounds` = 2.
+- `.feature/state.json`: `planReviewRounds` = 3 — **exhausted**. The plan is
+  locked by owner adjudication; do not open a fourth plan-review round.
 - **Surface amendments used: 1 of the abort budget** (D4 —
   `archive-location-tx.ts`). D2 was auto-approved (one file inside an existing
   tree) and does not count. A second amendment triggers abort criteria.
-- **Estimates:** 780 prod / 2100 test lines. Step 5's `reclassify` row measures
-  against these post-review numbers.
+- **Estimates:** 800 prod / 2400 test lines, 70 test titles. Step 5's
+  `reclassify` row measures against these post-review numbers.
+- **Three plan-review rounds, all `REVISE`.** Round 1 caught a consent hole
+  (a NULL deadline was answerable, so a direct POST could manufacture
+  `accepted`); rounds 2 and 3 caught defects the *fixes* introduced. Treat the
+  §6/§7/§8 appendices as the record of what has already been argued — do not
+  re-litigate them during implementation.
 
 ---
 
@@ -100,3 +108,20 @@ Decided from the code rather than asked, and worth not re-deriving:
 - **Migration 100 DEFAULTs every business to `pending` with a NULL deadline.**
   A consent predicate that admits NULL lets a direct POST manufacture consent.
   This was the round-1 Critical; the `IS NOT NULL` guard in T1 is load-bearing.
+- **`GREATEST(NULL, x)` returns `x` in Postgres.** A predicate that merely
+  combined the two junction timestamps would hand an offer to a location holding
+  only one half of the junction. `createImportOffer` proves both halves in its
+  own SQL — the callers do not check, so the helper must.
+- **Inventing a property nothing asked for cost two review rounds.**
+  "Position-independence" of the deadline was not in the spec; chasing it
+  produced two High findings before being deleted. When a fix starts needing its
+  own fixes, check whether the requirement was real.
+- **`connected_at` is mutable and `disconnect` mints a new connection row.**
+  `finalize-tx.ts:123-132` overwrites `connected_at` on reconnect;
+  `disconnect/route.ts:251-262` leaves the old row `disconnected` and finalize
+  INSERTs a fresh one. Neither is a stable identity for a location's connection.
+- **Reactivation is not another initial-import producer.** It enqueues with
+  `backfill_reason: 'reactivation'`, and the worker's
+  `ON CONFLICT … WHERE run_reason = 'initial'` deliberately does not dedup it.
+  Applying initial-import dedup or completed-run logic there deletes the
+  archived-period catch-up.

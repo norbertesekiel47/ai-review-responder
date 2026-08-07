@@ -88,14 +88,20 @@ No new export on `import-consent.ts`, no terminal-state list to keep in sync
 with the enum, and no branch to test in isolation. Anti-slop: assert impossible
 states rather than branching around them.
 
-**Amended 2026-08-06 (plan review round 1, F103/F104).** The *lineage key* was
-wrong even though the no-branching claim holds. URL-mode adds store a
+**Amended 2026-08-06 (plan review rounds 1 and 3, F103/F104).** The *lineage
+key* was wrong even though the no-branching claim holds. URL-mode adds store a
 `google_maps_url` with a NULL `google_place_id` until `validate_place_id`
 resolves it (`add-location-tx.ts:263-279`), so a place-id-only lookup misses a
-declined URL-mode sibling and re-offers it. The match is now: `google_place_id`
-when the new row has one, else `google_maps_url` — never NULL to NULL — scoped
-by `account_id`, ordered `archived_at DESC, created_at DESC, id DESC` so a
-timestamp tie is deterministic.
+declined URL-mode sibling and re-offers it.
+
+Round 1's fix — "place id when the new row has one, else maps url" — chose the
+key from the **new row only** and was still wrong: round 3 showed it misses a
+new row carrying a canonical place id whose archived sibling never resolved one.
+The final rule is a **disjunction over non-NULL keys**: a sibling qualifies when
+`google_place_id` matches (both non-NULL) **OR** `google_maps_url` matches (both
+non-NULL). Never NULL to NULL in either column. Scoped by `account_id`, ordered
+`archived_at DESC, created_at DESC, id DESC` so a timestamp tie is
+deterministic. Both directions are pinned by test (titles 48, 65).
 
 ---
 
