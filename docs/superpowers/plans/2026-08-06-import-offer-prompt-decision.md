@@ -565,9 +565,17 @@ writing markup. `LiveRegion` announces the importing → terminal transition.
   (round-1 cited-artifact check).
 - `docs/directory.md`: the two new `src/lib/reviews/` modules, the route, the
   banner.
-- `docs/superpowers/plans/feat-679-…-deviations.md`: record **both** hand-offs to
-  #679 — (a) its plan drops `importConsentStateSql`, which #677 now owns
-  (deviations D1); and (b) it **inherits the entire analytics slice** (D7):
+- **#679's hand-off cannot be written from this branch, and is recorded here
+  instead.** `docs/superpowers/plans/feat-679-…-{intake,plan,deviations}` exist only
+  on `feat-679-import-offer-expiry-block` (parked, never merged), so they are not
+  in #677's tree and #677's edit surface does not reach another branch. D1 already
+  sets the mechanism: **#679 rebases onto `main` after #677 merges and its plan is
+  edited, not replayed** — that rebase is where the two items below get applied.
+  Both are also recorded in #677's deviations (D1, D7) so the obligation survives
+  wherever it is read from.
+- Hand-off to #679, to apply during that rebase — (a) its plan drops
+  `importConsentStateSql`, which #677 now owns (deviations D1); and (b) it
+  **inherits the entire analytics slice** (D7):
   migration 102 extending the `analytics_events.event_name` CHECK with
   `import_offer_created` + `import_decision_recorded`, the matching
   `docs/analytics/events.md` entries (required for `ci:analytics-events`
