@@ -120,3 +120,52 @@ idempotent, so it was applied on its own
 by `pg_get_constraintdef`. Same end state, no blast radius. Staging and
 production are untouched — the migrations-log entry carries **LOCAL-ONLY**, and
 plan §6 owns the promotion order.
+
+---
+
+## 2026-08-07 — T3 (`guardImportConsent`)
+
+### D16 — the live race test does NOT discriminate; the unit `inTransaction` assertion does
+
+**What was checked.** T3 shipped as specified (`sql.begin` + `FOR UPDATE` +
+in-transaction `markOutboxCompleted`), and then the serialization was
+**temporarily removed** — the guard body run against the outer `sql` handle with
+no `sql.begin` at all — to confirm the eval suite actually catches the round-1
+blocking defect rather than merely covering it.
+
+**Result.** Split.
+
+| Suite | Non-transactional guard |
+|---|---|
+| `job-eligibility.test.ts` (unit) | **RED** — *"completes the outbox row inside the same transaction as its consent read"* fails on `expect(mockSql.begin).toHaveBeenCalledTimes(1)`. |
+| `job-eligibility.integration.test.ts` (live) | **GREEN** — the race test passed unchanged against the local `repworth-testdb` container, 12 iterations, all assertions. |
+
+**Why the live test does not discriminate.** Its Part 2 fires the guard and
+`recordImportDecisionAndEnqueue` under one `Promise.all` on a `max: 4` pool.
+That removes *client-side* serialization but does not control *statement*
+interleaving: on a local single-node Postgres with no network latency, one side
+consistently completes its whole sequence before the other reaches the statement
+that would collide. Losing the interleaving is a scheduling accident, and a
+green run therefore proves nothing about the lock. This is the exact failure
+mode the plan's own §3 T0 warns about for the mocked half — "a lock interaction
+is not something a mock can model" — and it turns out the live half needs
+explicit *statement*-level choreography (an advisory-lock barrier, or two
+sessions stepped by hand) rather than `Promise.all` to force the losing order.
+
+**Action taken.** None to the test — T3's scope is one file and rewriting T0's
+eval suite is out of it. The property is genuinely pinned: the unit assertion is
+red without the transaction, which is the discriminating check the plan asked
+for ("the `markOutboxCompleted` call is `inTransaction`"). Recorded here so the
+review round does not read the live suite as independent evidence of
+serialization, and so a later hardening pass has the diagnosis rather than
+re-deriving it.
+
+### D17 — the ingest lane's `subscription_status=missing` skip line is documented as unreachable, not deleted
+
+`guardZernioJobEligibility`'s guard-ordering JSDoc now states that with T4's call
+site a missing `businesses` row is intercepted by `guardImportConsent` first, so
+the backfill-only `subscription_status=missing` line can no longer fire **for the
+backfill worker**. The line itself is retained: the INGEST worker still reaches
+it, and that lane never consults consent. The JSDoc says so explicitly, per the
+plan's instruction to stop claiming a dead branch rather than leaving the doc
+describing a reachable one.
