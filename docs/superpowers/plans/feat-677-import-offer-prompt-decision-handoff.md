@@ -69,10 +69,21 @@ Decided from the code rather than asked, and worth not re-deriving:
   prose reconciliation → T0 matrix fix (D6) → **T0 eval**. **Read the plan's
   revision-4 header first: where earlier revisions conflict, revision 4 wins,
   and §6/§7/§8 are history, not instructions.**
-- **Phase:** `executing`. T0 is committed; T1 ‖ T2 is next. No production code
-  exists yet — the 70 tests are the only artifact.
-- **Gate is GREEN at `930358cc` — all 26 rows, in full (not `docs_only`) mode**,
-  including `build`, `promised-tests` (all 70 titles found), and **four live-DB
+- **Phase:** execution COMPLETE — T0–T6 all committed. Production surface:
+  `src/lib/reviews/import-consent.ts` + `import-offer-view.ts` (new),
+  `api/dashboard/import-offer/route.ts` (new), `ImportOfferBanner.tsx` (new), plus
+  gates added to `finalize-tx.ts`, `worker/ingress/stripe/shared.ts`,
+  `archive-location-tx.ts`, `add-location-tx.ts` and `DashboardContent.tsx`.
+- **Three plan defects were found DURING execution, all recorded and none of which
+  changed what the feature does:** the analytics events were impossible as
+  specified (D7 — extending the `analytics_events.event_name` CHECK needs a
+  migration the intake's own non-goals forbid, so they moved to #679);
+  `importConsentStateSql`'s published signature was unimplementable against the
+  repo's hand-rolled `sql` mocks (D9); and `ci:tenant-scope` cannot see predicates
+  inside subqueries, which reshaped three queries to bind their tenant keys at the
+  top level (D9).
+- **Gate is GREEN — all 26 rows, in full (not `docs_only`) mode**,
+  including `build`, `promised-tests` (all 69 titles found), and **four live-DB
   integration rows that RAN rather than skipping**, because
   `TEST_DATABASE_POOL_URL` was exported (see traps — this is the difference
   between a real gate and a falsely-green one).
@@ -86,9 +97,25 @@ Decided from the code rather than asked, and worth not re-deriving:
   locked by owner adjudication; do not open a fourth plan-review round.
 - **Surface amendments used: 1 of the abort budget** (D4 —
   `archive-location-tx.ts`). D2 was auto-approved (one file inside an existing
-  tree) and does not count. A second amendment triggers abort criteria.
-- **Estimates:** 800 prod / 2400 test lines, 70 test titles. Step 5's
-  `reclassify` row measures against these post-review numbers.
+  tree) and does not count.
+- **Six further surface paths were added during execution and DELIBERATELY do not
+  consume the budget** (owner-approved: D8, D9). All six are test or audit-config
+  paths whose change is the mechanical consequence of already-approved production
+  scope, not new scope — the same reasoning D5/D6 used for test placement:
+  `select-location/__tests__/**`, `worker/ingress/__tests__/**`,
+  `scripts/ci/__tests__/**`, `scripts/ci/tenant-scope-allowlist.ts`,
+  `scripts/ci/static-policy-audit.ts`. `src/lib/analytics/events.ts` was
+  **removed** from the surface (D7) so the guard enforces the analytics deferral.
+  **The lesson for the next intake:** gating an existing side effect invalidates
+  assertions in every suite that exercises a CALLER of the gated function, and
+  callers' suites are not in the producer's directory — so they are not in the
+  producer's surface either. Budget for caller-suite fallout up front.
+- **Estimates vs actuals.** Intake: 800 prod / 2400 test lines, **69** test titles
+  (70 until the analytics title moved to #679 — D7). Actual, excluding `docs/`,
+  `.feature/` and `scripts/ci/`: **1,174 prod / 2,975 test lines added.** Both are
+  inside the `reclassify` row's 2× thresholds (1,600 / 4,800), so it does not fire
+  — prod ran ~1.5× the estimate, mostly the four producer gates and the two new
+  modules coming out larger than sketched.
 - **Three plan-review rounds, all `REVISE`.** Round 1 caught a consent hole
   (a NULL deadline was answerable, so a direct POST could manufacture
   `accepted`); rounds 2 and 3 caught defects the *fixes* introduced. Treat the
@@ -100,21 +127,27 @@ Decided from the code rather than asked, and worth not re-deriving:
 ## Next actions
 
 1. ~~`set-phase executing`~~ — **done** (phase is `executing`).
-2. ~~**T0**, the eval~~ — **done at `54ef9808`.** All 70 intake titles authored
-   VERBATIM, exactly once, in the suite the corrected matrix assigns (D6);
-   placement verified mechanically against the intake, 70/70. 68 are `it.todo`
-   (their modules do not exist, and importing a missing module reds the whole
-   *file* instead of the slice); **titles 13 and 70 assert**. 13 passes live —
-   it proves migration 101's three-valued CHECK, which
-   `MIGRATION_100_IMPORT_CONSENT` structurally cannot (F113). 70 is legibly red:
-   `producer source not found: ../import-consent.ts`. First-task enforcement
-   spot check PASS — 12 paths, all in surface, and the guard is confirmed live
-   (it blocked a Bash append mid-task).
-3. **NEXT: T1 ‖ T2**, then **T3 ‖ T4**, then T5, then T6 (plan §4). T1 fills in
-   assertions rather than building the live rig — running title 13 already
-   validated the harness end to end (connect → `assertSchemaReady` →
-   `seedTenantAccount` → business insert → cleanup) in
-   `import-consent.integration.test.ts`.
+2. ~~**T0**, the eval~~ — **done at `54ef9808`.** Every intake title authored
+   VERBATIM, exactly once, in the suite the corrected matrix assigns (D6), verified
+   mechanically against the intake. *(T0 authored 70; the count became 69 when the
+   analytics title moved to #679 — D7 — which also renumbered the tail, old 69 → 68
+   and old 70 → 69. Numbers below are AS OF T0.)* All but two were `it.todo` —
+   their modules did not exist, and importing a missing module reds the whole *file*
+   instead of the slice. Title 13 asserted and passed live, proving migration 101's
+   three-valued CHECK, which `MIGRATION_100_IMPORT_CONSENT` structurally cannot
+   (F113). The source tripwire was legibly red
+   (`producer source not found: ../import-consent.ts`) and was then deliberately
+   deferred to T3, which restored it once all four producers existed. First-task
+   enforcement spot check PASS — 12 paths, all in surface, and the guard is
+   confirmed live (it blocked a Bash append mid-task).
+3. ~~T1 ‖ T2, T3 ‖ T4, T5, T6~~ — **all done.** Execution is COMPLETE:
+   `2f281ad2` (T1+T2), `27d4b8eb` (T3+T4), `635f5aef` (T5+T6). **All 69 titles
+   assert; zero `.todo` remain.** Gate GREEN 26/26 in full mode with the four
+   live-DB rows running.
+4. **NEXT: step 6 — dual review**, then step 5's `--review` gate (adds
+   diff-coverage), then step 8's high lane: **staging ride before `main`**, PR,
+   then pause for owner merge approval. Merge order is **#677 → #679 →
+   #676(absorbed)**.
 4. Step 5 gate: `scripts/verify-gate.sh`. **`TEST_DATABASE_POOL_URL` must be
    set** — four live-DB suites carry this feature's load-bearing semantics, and
    a gate with the SKIP warning is not review-ready for this ticket. Run
