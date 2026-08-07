@@ -620,7 +620,7 @@ describe('voice config independence (VAL-LOC-032)', () => {
 
 // ── #677 T0 EVAL — Import consent lineage, mocked half ────────────────────────
 //
-// Title 45 of the intake's 69, authored VERBATIM before implementation.
+// Title 45 of the intake's 70, authored VERBATIM before implementation.
 //
 // This is the ONLY mocked add-location consent title (owner decision 2026-08-07,
 // deviations D6). The no-sibling case is a binding assertion — there is no
@@ -639,7 +639,7 @@ describe('addLocationTransaction — Import consent lineage (#677)', () => {
     await addLocationTransaction(sql, mkInput({ googlePlaceId: 'ChIJ-no-sibling' }));
 
     const lineageCalls = mockSql.mock.calls.filter((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('import_offer_expires_at = sib.import_offer_expires_at'),
+      (c[0] as TemplateStringsArray).join('?').includes('import_decision = sib.import_decision'),
     );
 
     // The lineage UPDATE is issued unconditionally — it is one statement whose
@@ -657,9 +657,15 @@ describe('addLocationTransaction — Import consent lineage (#677)', () => {
     expect(template).toContain('ORDER BY ab.archived_at DESC, ab.created_at DESC, ab.id DESC');
     expect(template).toContain('ab.account_id =');
     expect(template).toContain('ab.archived_at IS NOT NULL');
-    // All three consent columns copied — dropping the deadline would leave an
-    // inherited `pending` row answerable-looking with a NULL deadline.
+    // The decision and its timestamp are copied unconditionally; the deadline is
+    // the ONE conditional column (D12). Keyed on the deadline alone and evaluated
+    // in Postgres, so inheritance can never write a future deadline behind
+    // `createImportOffer`'s back. The two live halves of that rule — a past
+    // deadline IS copied, a live one is NOT — are titles 70 and 48 in
+    // add-location-tx.integration.test.ts; only the shape is bindable here.
     expect(template).toContain('import_decision = sib.import_decision');
     expect(template).toContain('import_decision_at = sib.import_decision_at');
+    expect(template).toContain('import_offer_expires_at = CASE');
+    expect(template).toContain('WHEN sib.import_offer_expires_at <= now()');
   });
 });

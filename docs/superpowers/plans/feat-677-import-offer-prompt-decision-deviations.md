@@ -620,3 +620,66 @@ Spending the teardown budget on a comment is the wrong trade. Handed to #679,
 which already needs its own amendments for the migration and the analytics doc.
 CLAUDE.md's "grep the filename to clean every cross-reference in the same change"
 is knowingly and narrowly broken here, with the reason recorded.
+
+---
+
+## D14 — O3's blast radius reached three audit/caller files the brief did not name, and moved one behaviour by a hair (2026-08-07, fix batch A)
+
+**No surface amendment.** Every file below is already inside
+`allowed_edit_surface`; budget stays **1 of 2 (D4)**. Recorded because the fix
+brief for batch A scoped itself to four production files plus their own suites,
+and the extraction could not stop there.
+
+**1. `ci:tenant-scope` — four entries deleted, `ALLOWLIST_BASELINE` 418 → 414.**
+All four described `maybeEnqueueBackfillResume`'s resume SELECT. Removing the
+`NOT EXISTS` completed-run subquery (it lives in `enqueueInitialImport` now,
+scoped to `run_reason = 'initial'`) made the `zernio_backfill_runs` entry unused,
+and the audit fails on unused entries — so the deletion was forced, not
+optional. The remaining three went with it: the narrowed eligibility SELECT
+binds `zc.business_id`, `b.account_id` and `a.id` in TOP-LEVEL predicates, which
+is exactly what the audit can see, so it needs no suppression at all. A
+**shrink**, same shape as D9 batch 1.
+
+**2. `ci:static-policy` — the line-keyed carve-out moved `:137` → `:147`**
+(`worker/ingress/stripe/shared.ts`, the `IN ('active','trialing')` predicate),
+plus the sample assertion in `scripts/ci/__tests__/static-policy-audit.test.ts`.
+Second move inside this ticket; the first was round-2 F107. Nothing else to do
+about it — the allowlist is keyed `file:line` by design and its own comment says
+so.
+
+**3. Three caller suites, not the producers' own.** D8's lesson repeating
+exactly: a change to a producer invalidates assertions in suites that exercise
+its CALLERS, and those suites live in other directories.
+`select-location/__tests__/route.test.ts` and `finalize/__tests__/finalize-modules.test.ts`
+assert the initial-backfill payload, which is now resolved inside
+`enqueueInitialImport` rather than spelled by `finalizeConnectionTx` — both
+needed a mock branch for the new statement.
+`worker/ingress/__tests__/stripe-activation-enqueue.test.ts` is the strict-FIFO
+one: three `expectExactSqlCalls` went 25 → **26**, and the tier-guard test stayed
+at 22 — that +1 vs +4 asymmetry is still the assertion that the guard throws
+before the child outbox INSERT.
+
+**4. One deliberate behaviour delta, in the Stripe resume path only.**
+`createImportOffer` used to sit *behind* the target SELECT, so a business with a
+completed backfill run never reached it. The completed-run guard now lives after
+offer creation, inside the shared enqueue, so `createImportOffer` runs in that
+case too. Assessed and kept rather than reconstructed:
+
+- it can still only act on a `pending` row with a NULL deadline **at the
+  junction** (both halves proven in its own SQL), so the population is "legacy
+  row that already imported but was never offered anything" — pre-GA, zero
+  customers;
+- `finalizeConnectionTx` has always called `createImportOffer` before any
+  completed-run check, so this makes producers 1 and 2 agree rather than diverge;
+- it is the same argument as round-1 F106, which put offer creation *ahead* of
+  the `zernioPublishingEnabled()` return: creation is durable state the owner is
+  entitled to, and gating it on something that gates the ENQUEUE loses the offer
+  with no replay path.
+
+**5. Cost.** The shared enqueue re-reads its payload from the database under the
+caller's row lock instead of taking it as six parameters. That is +1 statement on
+the Stripe path (finalize is unchanged — it traded its completed-run SELECT for
+this one). Chosen deliberately: three producers previously reached the enqueue
+holding three different snapshots of the same facts, and a six-field parameter
+list can only *ask* a caller to have checked the junction. Re-reading makes an
+enqueue for an unconnected, unactivated or archived business unrepresentable.

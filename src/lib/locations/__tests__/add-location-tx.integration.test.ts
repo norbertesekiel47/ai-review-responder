@@ -1,14 +1,18 @@
 // src/lib/locations/__tests__/add-location-tx.integration.test.ts
 //
-// T0 EVAL suite for #677 — titles 44, 46, 47, 48 and 65 of the intake's 69,
+// T0 EVAL suite for #677 — titles 44, 46, 47, 48, 65 and 70 of the intake's 70,
 // authored VERBATIM before implementation.
 //
 // Import consent LINEAGE: when an archived location is re-added, the new
-// `businesses` row inherits the archived sibling's consent columns verbatim, so a
-// declined place cannot be re-offered (and re-imported) by archiving and
-// re-adding it.
+// `businesses` row inherits the archived sibling's DECISION, so a declined place
+// cannot be re-offered (and re-imported) by archiving and re-adding it. The
+// DEADLINE is inherited only when it has already passed (round-1 escalation,
+// deviations D12): copying a live one writes `import_offer_expires_at` behind
+// `createImportOffer`'s back and hands the new row an answerable offer with no
+// active connection. Titles 48 and 70 are the two halves of that rule, and both
+// are live because "still derives expired" is SQL semantics.
 //
-// WHY FIVE OF SIX LIVE (owner decision, 2026-08-07, deviations D6): the match is
+// WHY SIX OF SEVEN LIVE (owner decision, 2026-08-07, deviations D6): the match is
 // a **disjunction over non-NULL keys** with an ORDER BY tie-break and an
 // account-scope predicate — pure SQL semantics. A mocked `sql` tag can prove the
 // template was interpolated; it cannot prove the sibling actually selected is the
@@ -49,6 +53,10 @@ import {
   assertSchemaReady,
   MIGRATION_100_IMPORT_CONSENT,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import {
+  importConsentStateSql,
+  type ImportConsentState,
+} from '@/lib/reviews/import-consent';
 import { addLocationTransaction, type AddLocationTxInput } from '../add-location-tx';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
@@ -129,6 +137,22 @@ async function consentOf(businessId: string) {
     FROM businesses WHERE id = ${businessId}::uuid
   `;
   return row!;
+}
+
+/**
+ * The consent state as the product reads it, through the SHIPPED derivation
+ * (`importConsentStateSql`, spec §5.3) rather than a second spelling of it here.
+ * "Still derives expired" is a claim about that predicate meeting the row this
+ * module wrote; re-implementing `pending AND expires_at <= now()` in the test
+ * would assert the test against itself. The fragment hardcodes the `b` alias.
+ */
+async function derivedStateOf(businessId: string): Promise<ImportConsentState> {
+  const [row] = await sql()<{ state: ImportConsentState }[]>`
+    SELECT ${importConsentStateSql(sql())} AS state
+    FROM businesses b
+    WHERE b.id = ${businessId}::uuid
+  `;
+  return row!.state;
 }
 
 describeWithDb('add-location Import consent lineage against live Postgres', { timeout: 30_000 }, () => {
@@ -256,18 +280,26 @@ describeWithDb('add-location Import consent lineage against live Postgres', { ti
     expect((await consentOf(result.businessId)).import_decision).toBe('declined');
   });
 
-  // "Verbatim including both timestamps" is the load-bearing phrase: copying the
-  // decision without `import_offer_expires_at` would hand an inherited `pending`
-  // row a NULL deadline, which is the round-1 Critical (a NULL deadline was
-  // answerable) reintroduced through the side door.
-  it('add-location copies accepted and live-pending sibling consent verbatim including both timestamps', async () => {
+  // The two halves of D12's rule, stated against the two states that make it
+  // observable. An ANSWERED sibling is copied whole — nothing about `accepted`
+  // is re-offerable, so there is nothing to withhold. A LIVE PENDING sibling
+  // hands over its decision WITHOUT its deadline: carrying the deadline would
+  // write `import_offer_expires_at` behind `createImportOffer`, and the new row
+  // would present an answerable offer with no active `zernio_connections` row —
+  // accepting it enqueues an import the worker cannot service.
+  it('add-location copies accepted sibling consent verbatim and inherits a live-pending sibling decision without its deadline', async () => {
+    // The accepted sibling's own deadline is already in the past, which is where
+    // "verbatim" is literally true: the CASE is keyed on the DEADLINE, not on the
+    // decision, so it withholds any future deadline whatever the decision says.
+    // For an answered row that column is inert either way —
+    // `importConsentStateSql` derives 'expired' only for `pending`.
     const acceptedSibling = await seedArchivedSibling({
       accountId: tenant!.accountId,
       ownerEmail: tenant!.ownerEmail,
       placeId: PLACE_A,
       decision: 'accepted',
-      decidedAtSql: "now() - interval '3 days'",
-      expiresAtSql: "now() + interval '4 days'",
+      decidedAtSql: "now() - interval '10 days'",
+      expiresAtSql: "now() - interval '3 days'",
     });
     const source = await consentOf(acceptedSibling);
 
@@ -278,28 +310,76 @@ describeWithDb('add-location Import consent lineage against live Postgres', { ti
 
     // All three columns, byte-for-byte.
     expect(await consentOf(accepted.businessId)).toEqual(source);
+    // The re-added row imports for itself: reviews are stored per business_id, so
+    // a re-added row has none and genuinely needs its inventory.
+    expect(await derivedStateOf(accepted.businessId)).toBe('accepted');
 
     await resetLocations();
 
-    // A LIVE pending offer inherits its remaining window rather than restarting
-    // it — the offer is per place, and archiving is not a way to buy another 7
-    // days.
+    // 3 days out, never near the boundary: a JS-Date-seeded fixture carries zero
+    // microseconds and postgres.js truncates timestamptz microseconds to
+    // milliseconds, so a value that could land ON `now()` proves nothing.
     const pendingSibling = await seedArchivedSibling({
       accountId: tenant!.accountId,
       ownerEmail: tenant!.ownerEmail,
       placeId: PLACE_A,
       decision: 'pending',
-      expiresAtSql: "now() + interval '2 days'",
+      expiresAtSql: "now() + interval '3 days'",
     });
-    const pendingSource = await consentOf(pendingSibling);
+    // The fixture really is a LIVE offer — otherwise the assertion below passes
+    // for the wrong reason.
+    expect((await consentOf(pendingSibling)).import_offer_expires_at).not.toBeNull();
+    expect(await derivedStateOf(pendingSibling)).toBe('pending');
 
     const pending = await addLocationTransaction(
       sql(),
       mkInput({ googlePlaceId: PLACE_A, placeIdVerified: true }),
     );
 
-    expect(await consentOf(pending.businessId)).toEqual(pendingSource);
-    expect((await consentOf(pending.businessId)).import_offer_expires_at).not.toBeNull();
+    expect(await consentOf(pending.businessId)).toEqual({
+      import_decision: 'pending',
+      import_decision_at: null,
+      import_offer_expires_at: null,
+    });
+    // Pending + NULL deadline is migration 100's DEFAULT and deliberately NOT an
+    // answerable offer. The new row gets one only when it reaches its OWN
+    // junction, where `createImportOffer` mints a fresh 7 days.
+    expect(await derivedStateOf(pending.businessId)).toBe('pending');
+  });
+
+  // THE REGRESSION GUARD for the locked `user_visible_behavior` item D12 came
+  // within one option of breaking: "Re-adding a location whose archived row …
+  // had declined OR LET THE OFFER EXPIRE does not re-offer the import." The
+  // deadline rule is conditional, not a blanket NULL, precisely because of this
+  // row: NULLing a PAST deadline would leave `pending` + NULL, which
+  // `importConsentStateSql` reads as plain pending, and the new row would be
+  // re-offered at its junction.
+  it("add-location copies an expired sibling's past deadline so the re-added row still derives expired", async () => {
+    // A day in the past, never near the boundary — see the µs-truncation note above.
+    const expiredSibling = await seedArchivedSibling({
+      accountId: tenant!.accountId,
+      ownerEmail: tenant!.ownerEmail,
+      placeId: PLACE_A,
+      decision: 'pending',
+      expiresAtSql: "now() - interval '1 day'",
+    });
+    const source = await consentOf(expiredSibling);
+    // The sibling is expired by derivation, not by a stored value (#670): the
+    // decision on disk is still 'pending'.
+    expect(source.import_decision).toBe('pending');
+    expect(await derivedStateOf(expiredSibling)).toBe('expired');
+
+    const result = await addLocationTransaction(
+      sql(),
+      mkInput({ googlePlaceId: PLACE_A, placeIdVerified: true }),
+    );
+
+    const consent = await consentOf(result.businessId);
+    expect(consent.import_decision).toBe('pending');
+    // The past deadline IS copied — that is the whole point. A NULL here reads as
+    // plain pending and the place gets re-offered.
+    expect(consent.import_offer_expires_at).toEqual(source.import_offer_expires_at);
+    expect(await derivedStateOf(result.businessId)).toBe('expired');
   });
 
   it('add-location inherits consent through equal google_maps_url when the new row has a place id and the archived sibling place id is NULL', async () => {

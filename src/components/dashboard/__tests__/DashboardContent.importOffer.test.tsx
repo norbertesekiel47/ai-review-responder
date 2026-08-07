@@ -30,7 +30,9 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ImportOfferBanner, type ImportOfferState } from '../account-state/ImportOfferBanner';
+import { ImportOfferBanner } from '../account-state/ImportOfferBanner';
+// The wire contract's ONE owner (round-1 A10).
+import type { ImportOfferView } from '@/lib/reviews/import-offer-view';
 
 const LOCATION_A = '11111111-1111-4111-8111-111111111111';
 const LOCATION_B = '22222222-2222-4222-8222-222222222222';
@@ -53,11 +55,20 @@ describe('DashboardContent — Import offer mounting and scope', () => {
     // …and actually rendered, with the SCOPED location threaded in. `locationId`
     // being present is the load-bearing half: without it the banner cannot key its
     // query per location (title 56).
-    expect(source).toMatch(/<ImportOfferBanner\s+locationId=\{currentScope\}\s*\/>/);
+    expect(source).toMatch(/<ImportOfferBanner\s+locationId=\{currentScope\}/);
+    // …and `readOnly` from the same source as ConnectGoogleBanner's (round-1 A6):
+    // a past-due read-only owner must not be handed CTAs whose POST answers 402.
+    expect(source).toMatch(
+      /<ImportOfferBanner[\s\S]{0,120}readOnly=\{pastDueData\?\.isReadOnly\s*\?\?\s*false\}/,
+    );
     // Guarded on the per-location scope, since an aggregate view has no single
     // offer to answer for. 'all' is the aggregate sentinel of
     // `LocationScope = 'all' | LocationId`.
     expect(source).toMatch(/currentScope\s*!==\s*'all'/);
+    // The banner OWNS its section wrapper (round-1 A6b): it self-nulls on
+    // `{ state: 'none' }`, so an always-mounted animated wrapper here would leave
+    // an empty flex item. This asserts the wrapper did not come back.
+    expect(source).not.toMatch(/section-enter[^\n]*\n\s*<ImportOfferBanner/);
   });
 
   it("switching location scope refetches the import offer and never reuses another location's state", async () => {
@@ -66,7 +77,7 @@ describe('DashboardContent — Import offer mounting and scope', () => {
       // query param — so both locations hit the identical URL. That is precisely
       // why the react-query KEY has to carry the location: the URL cannot.
       expect(url).toBe('/api/dashboard/import-offer');
-      const state: ImportOfferState = calls === 0
+      const state: ImportOfferView = calls === 0
         ? { state: 'offer', expiresAt: '2026-08-14T00:00:00.000Z' }
         : { state: 'none' };
       calls += 1;

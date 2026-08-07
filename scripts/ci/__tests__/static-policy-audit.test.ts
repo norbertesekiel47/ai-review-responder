@@ -398,9 +398,11 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     // These two are SAMPLES, not a contract — they exist to prove the allowlist is
     // populated and reviewed. Because the keys are `file:line`, a sample breaks
     // whenever anything is inserted above the cited line in the cited file. This
-    // one moved :112 → :137 in #677 when `maybeEnqueueBackfillResume` gained a
-    // `sql.begin` + businesses row lock (round-2 F107).
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:137')).toBe(true);
+    // one moved :112 → :137 → :147 inside #677 alone: first when
+    // `maybeEnqueueBackfillResume` gained a `sql.begin` + businesses row lock
+    // (round-2 F107), then when round-1 O3 replaced its copied payload/enqueue
+    // block with the shared `enqueueInitialImport`.
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:147')).toBe(true);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:176')).toBe(true);
   });
 });

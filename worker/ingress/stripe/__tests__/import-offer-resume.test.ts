@@ -54,8 +54,18 @@ const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => 
         scenario.lockedAccountId ? [{ account_id: scenario.lockedAccountId }] : [],
       );
     }
-    if (/FROM zernio_connections zc/.test(text)) {
+    // enqueueInitialImport's target resolution (round-1 O3) — matched BEFORE the
+    // eligibility SELECT because both read `zernio_connections zc`, and only this
+    // one carries the completed-run anti-join.
+    if (/LEFT JOIN zernio_backfill_runs/.test(text)) {
       return Promise.resolve(scenario.target ? [scenario.target] : []);
+    }
+    // maybeEnqueueBackfillResume's own eligibility SELECT: junction + writable
+    // subscription status, the one predicate the shared enqueue does not carry.
+    if (/FROM zernio_connections zc/.test(text)) {
+      return Promise.resolve(
+        scenario.target ? [{ subscription_tier: scenario.target.subscription_tier }] : [],
+      );
     }
     return Promise.resolve([]);
   });
@@ -156,6 +166,27 @@ describe('stripe activation resume — Import offer', () => {
     await resumePrimaryBusinessBackfill(BUSINESS_ID);
 
     expect(importEnqueued()).toBe(false);
+  });
+
+  // Round-1 A4/O3. This producer's copy of the completed-run guard was the one
+  // the spec review called "pre-existing" — an unscoped `NOT EXISTS`, which let a
+  // completed REACTIVATION run permanently suppress the one-time initial import.
+  // The guard now lives in `enqueueInitialImport` and is scoped to
+  // `run_reason = 'initial'`, matching `readImportOfferView`. The BEHAVIOUR is
+  // proven against live Postgres (import-consent.integration.test.ts); what is
+  // falsifiable here is that this producer routes through the shared enqueue at
+  // all rather than re-growing a copy.
+  it('resumePrimaryBusinessBackfill enqueues through the shared guard scoped to initial runs', async () => {
+    scenario.importConsent = 'accepted';
+
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+
+    const guard = sqlCalls.find((c) => /LEFT JOIN zernio_backfill_runs/.test(c.text));
+    expect(guard, 'the shared completed-run guard did not run').toBeDefined();
+    expect(guard!.text).toContain("br.run_reason = 'initial'");
+    expect(guard!.text).toContain('br.completed_at IS NOT NULL');
+    // And no second, locally-spelled copy came back with it.
+    expect(sqlCalls.filter((c) => /zernio_backfill_runs/.test(c.text))).toHaveLength(1);
   });
 
   it('creates the offer even when zernio publishing is disabled', async () => {

@@ -14,8 +14,11 @@ import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
-import { createImportOffer, readImportConsent } from '@/lib/reviews/import-consent';
-import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
+import {
+  createImportOffer,
+  enqueueInitialImport,
+  readImportConsent,
+} from '@/lib/reviews/import-consent';
 
 interface FinalizeConnectionTxArgs {
   user: AppUser;
@@ -26,11 +29,15 @@ interface FinalizeConnectionTxArgs {
 
 /**
  * Step 8d: the single durable finalize transaction. INSERT/UPDATE the
- * `zernio_connections` row + drain outbox + (on first activation per the
- * needs_backfill predicate) the initial-backfill outbox enqueue — ALL inside
- * one `sql.begin` per spec §6.8 (transactional outbox). Throws
+ * `zernio_connections` row + drain outbox + (at the junction, and only when the
+ * owner has ACCEPTED the Import offer) the initial-import outbox enqueue — ALL
+ * inside one `sql.begin` per spec §6.8 (transactional outbox). Throws
  * `ZernioRouteError(403, ...)` for scope/subscription failures; any DB error
  * propagates to the caller's orphan-recovery branch.
+ *
+ * The `needs_backfill` predicate this doc used to name is DELETED (#677). It
+ * asked "has a backfill ever completed?" as a proxy for "should we import?", and
+ * the proxy is now wrong: the question is whether the owner said yes.
  */
 export async function finalizeConnectionTx(
   sql: postgres.Sql,
@@ -203,59 +210,20 @@ export async function finalizeConnectionTx(
       const consent = await readImportConsent(tx, stored.businessId, ownerAccountId);
 
       if (consent?.state === 'accepted') {
-        const payload = {
-          business_id: stored.businessId,
-          zernio_account_id: accountId,
-          zernio_location_id: locationId,
-          subscription_tier: accountLocation.subscription_tier,
-          subscription_activated_at:
-            accountLocation.subscription_activated_at.toISOString(),
-          backfill_reason: 'initial',
-          correlation_id: uuidv7(),
-        } satisfies ZernioInitialBackfillPayload;
-
-        // Two dedup guards answering different questions (round-1 High, F101): no
-        // run has ever COMPLETED, and no row is currently IN FLIGHT. Without the
-        // second, accept-then-reconnect inserts a second job while a first is
-        // still queued.
+        // Delegated to `import-consent.ts` (round-1 O3, deviations D11). This
+        // block used to carry its own copy of the payload, the completed-run
+        // guard and the deduped INSERT; the copy had diverged from the other two
+        // producers AND from `readImportOfferView` on `run_reason`, which is the
+        // A4 bug. `enqueueInitialImport` re-resolves the connection row and the
+        // account snapshot from THIS transaction — the row this finalize just
+        // wrote — so the payload is identical to the one built here before,
+        // sourced from the database rather than from a caller's snapshot.
         //
-        // The completed-run guard is its OWN statement rather than a third
-        // `NOT EXISTS` inside the INSERT, because `ci:tenant-scope` strips
-        // subqueries before analysing predicates — a `business_id` bound inside
-        // one is invisible to it, so `zernio_backfill_runs` read as unscoped.
-        // Both statements run in this transaction under the businesses row lock,
-        // so nothing can land between them.
-        const [completedRun] = await tx<{ id: string }[]>`
-          SELECT br.id
-          FROM zernio_backfill_runs br
-          WHERE br.business_id = ${stored.businessId}
-            AND br.completed_at IS NOT NULL
-          LIMIT 1
-        `;
-
-        if (!completedRun) {
-          // The in-flight status set is re-spelled byte-for-byte from
-          // OUTBOX_IN_FLIGHT_STATUSES and never parameterized — a bind parameter
-          // inside such a predicate defeats partial-index inference (invariant #2).
-          await tx`
-            INSERT INTO job_outbox (
-              id, topic, aggregate_type, aggregate_id, payload, status
-            )
-            SELECT
-              ${uuidv7()},
-              ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
-              'business',
-              ${stored.businessId},
-              ${tx.json(payload)},
-              'pending'
-            WHERE NOT EXISTS (
-              SELECT 1 FROM job_outbox jo
-              WHERE jo.aggregate_id = ${stored.businessId}
-                AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
-                AND jo.status IN ('pending', 'dispatching', 'dispatched')
-            )
-          `;
-        }
+        // Both dedup guards (no completed INITIAL run, no in-flight row) and the
+        // byte-for-byte in-flight status tuple live there now. The businesses
+        // row lock this function already holds (`FOR UPDATE OF b, a` above) is
+        // that function's stated precondition.
+        await enqueueInitialImport(tx, stored.businessId, ownerAccountId);
       } else {
         // The proof that declines are honoured at the product paths, and the
         // counterpart to #679's worker-side skip line. `pending` is the ordinary

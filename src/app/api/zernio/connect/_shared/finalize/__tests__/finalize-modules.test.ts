@@ -85,6 +85,26 @@ const {
       if (/SET import_offer_expires_at/.test(raw)) {
         return Promise.resolve([]);
       }
+      // `enqueueInitialImport`'s target resolution (round-1 O3). Finalize no
+      // longer builds the payload itself — the shared enqueue re-reads the
+      // connection row and the account snapshot from this same transaction, so
+      // the tier under test has to come back from HERE. The completed-run guard
+      // is the `LEFT JOIN … AND br.id IS NULL` anti-join in the same statement,
+      // which is why `hasCompletedRun` collapses the result to zero rows rather
+      // than returning a run row.
+      if (/LEFT JOIN zernio_backfill_runs/.test(raw)) {
+        return Promise.resolve(
+          txScenario.hasCompletedRun
+            ? []
+            : [{
+              zernio_account_id: 'zernio-account-1',
+              zernio_location_id: 'google-location-1',
+              subscription_tier: txScenario.accountSubscriptionTier,
+              subscription_activated_at:
+                  txScenario.accountSubscriptionActivatedAt,
+            }],
+        );
+      }
       if (/FROM zernio_connections[\s\S]*FOR UPDATE/.test(raw)) {
         return Promise.resolve(
           txScenario.existingConnectionId

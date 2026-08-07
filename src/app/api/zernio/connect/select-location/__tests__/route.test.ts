@@ -68,6 +68,19 @@ const {
     if (/SET import_offer_expires_at/.test(raw)) {
       return Promise.resolve([]);
     }
+    // `enqueueInitialImport`'s target resolution (round-1 O3). finalizeConnectionTx
+    // no longer spells the payload itself — the shared enqueue re-reads the
+    // connection row and the account snapshot from the SAME transaction (the
+    // row this route just wrote), so the payload assertion below is fed from
+    // here rather than from the account-scope SELECT above.
+    if (/LEFT JOIN zernio_backfill_runs/.test(raw)) {
+      return Promise.resolve([{
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'google-location-1',
+        subscription_tier: 'copilot',
+        subscription_activated_at: txScenario.accountSubscriptionActivatedAt,
+      }]);
+    }
     if (/FROM zernio_connections[\s\S]*FOR UPDATE/.test(raw)) {
       return Promise.resolve(
         txScenario.existingConnectionId

@@ -248,12 +248,34 @@ export async function addLocationTransaction(
       // required. Consent is per place, and archiving is not a way to withdraw
       // it.
       //
-      // All three columns copied VERBATIM, including both timestamps. Copying the
-      // decision without `import_offer_expires_at` would leave an inherited
-      // `pending` row holding a NULL deadline — which is migration 100's DEFAULT
-      // and, per the round-1 Critical, NOT an answerable offer. Dropping the
-      // deadline would therefore silently re-open the offer it was meant to
-      // inherit.
+      // THE DECISION IS COPIED UNCONDITIONALLY; THE DEADLINE ONLY WHEN IT HAS
+      // ALREADY PASSED (round-1 escalation, deviations D12). Revision 1 copied
+      // all three columns verbatim, and that was a defect: `import_offer_expires_at`
+      // is the column `createImportOffer` exists to own — it proves BOTH junction
+      // halves (activation non-NULL and an active `zernio_connections` row)
+      // "because the callers do not check, so the helper must". Inheritance is a
+      // caller, and copying a LIVE deadline writes that column behind the helper's
+      // back. Reachable in two steps: archive a location holding a live unanswered
+      // Import offer, re-add the same place, and the new row presents an
+      // ANSWERABLE offer with no active connection — possibly before its own
+      // activation — so accepting enqueues an import the worker cannot service.
+      //
+      // The CASE is keyed on the DEADLINE ALONE, not on the decision. That is the
+      // stronger, smaller invariant: inheritance never writes a future deadline,
+      // full stop, so `createImportOffer` remains the only writer that can mint a
+      // live one. For an answered row the column is inert either way —
+      // `importConsentStateSql` derives 'expired' only for `pending`, and returns
+      // the stored decision whatever the deadline. The boundary is `<=`, matching
+      // spec §5.3 exactly: a deadline that has arrived has passed, so it is copied
+      // and the new row derives expired. A NULL sibling deadline falls to ELSE and
+      // stays NULL, which is the same value it would have been copied as.
+      //
+      // A PAST deadline MUST still be copied. `user_visible_behavior` locks it:
+      // re-adding a location whose archived row "declined or let the offer expire"
+      // does not re-offer the import. Dropping a past deadline to NULL would leave
+      // the row `pending` + NULL, which `importConsentStateSql` reads as plain
+      // pending — and the new row would be re-offered at its own junction, which
+      // is exactly the behaviour the copy exists to prevent.
       //
       // THE MATCH KEY IS A DISJUNCTION OVER NON-NULL KEYS, both directions
       // (round-1 F103, corrected by a round-2 Medium). Choosing the key from the
@@ -273,15 +295,23 @@ export async function addLocationTransaction(
       // foreign account's archived row for the same place can never donate
       // consent.
       //
-      // No branching on the sibling's state — every case lands correctly, which
-      // is why this is one UPDATE and not a read-then-decide. A follow-up UPDATE
-      // rather than folding the lookup into the INSERT above: smaller diff, and
-      // the existing insert stays untouched.
+      // Still ONE statement and no read-then-decide: the deadline rule is a CASE
+      // evaluated in-database, so `now()` is POSTGRES's. A JS-side comparison
+      // would be wrong here for the same reason it is wrong in
+      // `importConsentStateSql` — postgres.js truncates `timestamptz`
+      // microseconds to milliseconds, so a deadline that round-tripped through JS
+      // can land on the wrong side of its own boundary. A follow-up UPDATE rather
+      // than folding the lookup into the INSERT above: smaller diff, and the
+      // existing insert stays untouched.
       await tx`
         UPDATE businesses AS nb
         SET import_decision = sib.import_decision,
             import_decision_at = sib.import_decision_at,
-            import_offer_expires_at = sib.import_offer_expires_at
+            import_offer_expires_at = CASE
+              WHEN sib.import_offer_expires_at <= now()
+              THEN sib.import_offer_expires_at
+              ELSE NULL
+            END
         FROM (
           SELECT ab.import_decision, ab.import_decision_at, ab.import_offer_expires_at
           FROM businesses ab

@@ -17,6 +17,14 @@
 // this directory by finalize-modules.test.ts (:18-24) — same shape, so the two
 // files stay readable side by side.
 //
+// ROUND-1 O3: finalize no longer spells its own payload / completed-run guard /
+// deduped INSERT — it calls `enqueueInitialImport` (src/lib/reviews/import-consent.ts),
+// the one implementation the three consent-honouring producers share. The
+// enqueue DECISION is still finalize's (the `consent === 'accepted'` branch), so
+// every title below is unchanged in subject; what moved is which statement the
+// mock has to answer, and the completed-run guard is now scoped to
+// `run_reason = 'initial'` (round-1 A4).
+//
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
@@ -44,9 +52,22 @@ const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
     if (/SET import_offer_expires_at/.test(raw)) {
       return Promise.resolve(txScenario.offerCreated ? [{ id: 'biz-1' }] : []);
     }
-    // The completed-run guard, now its own statement ahead of the INSERT.
-    if (/FROM zernio_backfill_runs/.test(raw)) {
-      return Promise.resolve(txScenario.hasCompletedRun ? [{ id: 'run-1' }] : []);
+    // `enqueueInitialImport`'s target resolution (round-1 O3): one statement
+    // that reads the payload fields AND applies the completed-run guard, as a
+    // `LEFT JOIN … AND br.id IS NULL` anti-join. A completed INITIAL run
+    // therefore shows up as ZERO rows — no target, no payload, no enqueue —
+    // which is why `hasCompletedRun` returns `[]` rather than a run row here.
+    if (/LEFT JOIN zernio_backfill_runs/.test(raw)) {
+      return Promise.resolve(
+        txScenario.hasCompletedRun
+          ? []
+          : [{
+            zernio_account_id: 'zernio-account-1',
+            zernio_location_id: 'google-location-1',
+            subscription_tier: 'copilot',
+            subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+          }],
+      );
     }
     if (/subscription_activated_at[\s\S]*FROM businesses b[\s\S]*JOIN accounts a/.test(raw)) {
       return Promise.resolve([{
@@ -175,18 +196,26 @@ describe('finalize connection — Import offer junction', () => {
   // statement. Their runtime behaviour is proven against live Postgres by titles
   // 33 and 61 (concurrent producers → exactly one row).
   it('finalize-tx enqueues no import when accepted consent already has a completed run', async () => {
-    // A completed run SUPPRESSES the enqueue, and here the mock returns one — so
-    // this is a real behavioural assertion, not a shape check. The guard is its
-    // own statement (a `SELECT … FROM zernio_backfill_runs … LIMIT 1` ahead of the
-    // INSERT) rather than a third NOT EXISTS inside it, because ci:tenant-scope
-    // strips subqueries and could not see the business_id bound inside one.
+    // A completed run SUPPRESSES the enqueue, and here the mock returns none — so
+    // this is a real behavioural assertion, not a shape check. Since round-1 O3
+    // the guard is the anti-join inside `enqueueInitialImport`'s target
+    // resolution, so "a completed run exists" and "no target row" are the same
+    // fact, decided by Postgres in one statement.
     txScenario.importConsent = 'accepted';
     txScenario.hasCompletedRun = true;
 
     await finalize();
 
     // The guard ran…
-    expect(txCalls.some((c) => /FROM zernio_backfill_runs/.test(c.raw))).toBe(true);
+    const guard = txCalls.find((c) => /LEFT JOIN zernio_backfill_runs/.test(c.raw));
+    expect(guard).toBeDefined();
+    // …scoped to `run_reason = 'initial'` (round-1 A4). Unscoped, a completed
+    // REACTIVATION run — which recurs by design, unlike the once-per-business
+    // `initial` run — would permanently suppress an initial import the banner
+    // still reports as `importing`, forever, on a 4s poll. This is the assertion
+    // that keeps the three gates aligned with `readImportOfferView`.
+    expect(guard!.raw).toContain("br.run_reason = 'initial'");
+    expect(guard!.raw).toContain('br.completed_at IS NOT NULL');
     // …and nothing was enqueued.
     expect(importEnqueued()).toBe(false);
   });

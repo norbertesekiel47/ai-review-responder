@@ -35,10 +35,20 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-// 420 → 418 (#677): two entries deleted, both describing the `needs_backfill`
-// SELECT that this ticket removes from `finalize-tx.ts`. A SHRINK — two fewer
-// tenant-scope suppressions in the tree.
-export const ALLOWLIST_BASELINE = 418;
+// 420 → 418 → 414 (#677), a SHRINK in both steps — six fewer tenant-scope
+// suppressions in the tree:
+//   420 → 418: two entries describing the `needs_backfill` SELECT this ticket
+//     removes from `finalize-tx.ts`.
+//   418 → 414: the four entries describing `maybeEnqueueBackfillResume`'s
+//     resume SELECT (`worker/ingress/stripe/shared.ts`). Round-1 O3 replaced
+//     its copied payload/enqueue block with the shared `enqueueInitialImport`
+//     and narrowed what remains to an eligibility check that binds
+//     `zc.business_id`, `b.account_id` and `a.id` in TOP-LEVEL predicates — so
+//     the audit can see the scope and needs no suppression at all. The
+//     `zernio_backfill_runs` entry went with the `NOT EXISTS` completed-run
+//     subquery, which now lives (scoped to `run_reason = 'initial'`) in
+//     `enqueueInitialImport`.
+export const ALLOWLIST_BASELINE = 414;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1521,20 +1531,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Voice-learning query receives a businessId from an owner-scoped request or worker payload before sampling review and response rows.",
   },
   {
-    file: "worker/ingress/stripe/shared.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
-    category: 'provider-ingress',
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
-  },
-  {
-    file: "worker/ingress/stripe/shared.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
-    category: 'provider-ingress',
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
-  },
-  {
     file: "worker/ingress/zernio/zernio.ts",
     table: "zernio_connections",
     sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT gen_random_uuid(), ${QUEUE_NAMES.INGEST_ZERNIO_REVIEW}, 'business', zc.business_id, jsonb_build_object( 'business_id', zc.business_id, 'zernio_account_id', ${parsed.accountId}::text, 'zernio_location_id', zc.zernio_location_id, 'zernio_review_id', ${parsed.reviewId}::text, 'correlation_id', ${eventId}::text ), 'pending' FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id AND b.archived_at IS NULL WHERE zc.zernio_account_id = ${parsed.accountId} AND zc.status = 'active' ${locationFilter} ON CONFLICT (aggregate_id, (payload->>'zernio_review_id')) WHERE topic = 'ingest_zernio_review' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
@@ -2038,13 +2034,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Voice-learning query receives a businessId from an owner-scoped request or worker payload before sampling review and response rows.",
   },
   {
-    file: "worker/ingress/stripe/shared.ts",
-    table: "zernio_connections",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
-    category: 'provider-ingress',
-    reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
-  },
-  {
     file: "worker/jobs/EngagementAlertWorker.ts",
     table: "notification_deliveries",
     sqlSnippet: "SELECT id FROM notification_deliveries WHERE business_id = ${businessId} AND template = 'owner_nudge' AND sent_at IS NOT NULL AND sent_at > NOW() - INTERVAL '3 days' LIMIT 1",
@@ -2192,13 +2181,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: WEEKLY_SUMMARY_CANDIDATES_SQL,
     category: 'background-global-scan',
     reason: "Background scheduler globally scans active accounts and uses weekly_summaries only as an idempotency marker before enqueueing scoped jobs.",
-  },
-  {
-    file: "worker/ingress/stripe/shared.ts",
-    table: "zernio_backfill_runs",
-    sqlSnippet: "SELECT zc.zernio_account_id, zc.zernio_location_id, a.subscription_tier, a.subscription_activated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.business_id = ${businessId}::uuid AND zc.status = 'active' AND b.archived_at IS NULL AND a.subscription_status IN ('active', 'trialing') AND a.subscription_activated_at IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs br WHERE br.business_id = ${businessId}::uuid AND br.completed_at IS NOT NULL ) LIMIT 1",
-    category: 'worker-job-scoped',
-    reason: "Stripe activation flow checks Zernio backfill completion for the already scoped business id before enqueueing backfill work.",
   },
   {
     file: "worker/jobs/OnboardingDripWorker.ts",

@@ -21,10 +21,15 @@ import { NextRequest } from 'next/server';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION_ID = '22222222-2222-4222-8222-222222222222';
 
+/** The consent shape the self-heal acts on: offered nothing yet. */
+const NO_OFFER_YET = { state: 'pending' as const, decidedAt: null, expiresAt: null };
+
 const {
   mockSql,
   mockResolveOwnerScope,
   mockCreateImportOffer,
+  mockReadConsent,
+  mockAssertWritable,
   mockRecordDecision,
   mockReadView,
   scenario,
@@ -38,6 +43,8 @@ const {
     mockSql,
     mockResolveOwnerScope: vi.fn(),
     mockCreateImportOffer: vi.fn(async () => 'unchanged' as const),
+    mockReadConsent: vi.fn(),
+    mockAssertWritable: vi.fn(async () => ({ ok: true }) as const),
     mockRecordDecision: vi.fn(async () => 'recorded' as const),
     mockReadView: vi.fn(async () => ({ state: 'none' as const })),
     scenario,
@@ -56,7 +63,11 @@ vi.mock('@/lib/auth/resolve-owner-scope', async () => {
 vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError: vi.fn() }));
 vi.mock('@/lib/reviews/import-consent', () => ({
   createImportOffer: mockCreateImportOffer,
+  readImportConsent: mockReadConsent,
   recordImportDecisionAndEnqueue: mockRecordDecision,
+}));
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: mockAssertWritable,
 }));
 vi.mock('@/lib/reviews/import-offer-view', () => ({ readImportOfferView: mockReadView }));
 vi.mock('@/lib/shared/csrf', () => ({
@@ -89,6 +100,10 @@ beforeEach(() => {
     userId: 'user-1',
   });
   mockCreateImportOffer.mockResolvedValue('unchanged');
+  // Default: the self-heal's two gates both open, so every GET below exercises
+  // the same path it did before round-1 A1/A5 added them.
+  mockReadConsent.mockResolvedValue(NO_OFFER_YET);
+  mockAssertWritable.mockResolvedValue({ ok: true });
   mockRecordDecision.mockResolvedValue('recorded');
   mockReadView.mockResolvedValue({ state: 'none' });
   mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockSql));
@@ -217,9 +232,13 @@ describe('GET /api/dashboard/import-offer', () => {
 
     await GET(getRequest());
 
-    // Called unconditionally — the route asserts NO junction precondition of its
-    // own. If it did, that condition would have two owners and could disagree with
-    // the helper's SQL.
+    // The route still asserts NO junction precondition of its own — if it did,
+    // that condition would have two owners and could disagree with the helper's
+    // SQL. What round-1 A5 added in front is a "could this possibly do anything?"
+    // filter (`pending` + NULL deadline, the only state createImportOffer can act
+    // on), not a junction check, and it is never the authority: the helper
+    // re-proves both junction halves inside the transaction.
+    expect(mockReadConsent).toHaveBeenCalledWith(mockSql, LOCATION_ID, ACCOUNT_ID);
     expect(mockCreateImportOffer).toHaveBeenCalledTimes(1);
     expect(mockCreateImportOffer).toHaveBeenCalledWith(mockSql, LOCATION_ID, ACCOUNT_ID);
 
@@ -233,6 +252,70 @@ describe('GET /api/dashboard/import-offer', () => {
     );
     expect(lockCall).toBeDefined();
     expect(lockCall!.slice(1)).toContain(ACCOUNT_ID);
+  });
+
+  // Round-1 A1. Not one of the 70 intake titles: the GET resolves scope with
+  // `allowReadOnly: true` so a past-due owner keeps seeing their banner, but
+  // `resolveOwnerScope`'s own JSDoc scopes it to "owner MUTATION routes" and the
+  // self-heal IS a mutation. Minting a 7-day offer for an owner whose POST 402s
+  // hands them something they can never answer — and because expiry is derived
+  // and terminal (#670), the location's one-time Import offer is then consumed
+  // permanently by a dashboard render.
+  it('GET import-offer does not create an offer for a past-due read-only owner', async () => {
+    mockAssertWritable.mockResolvedValue({ ok: false, status: 402, error: 'past_due_read_only' } as never);
+    mockReadView.mockResolvedValue({ state: 'importing' } as never);
+
+    const res = await GET(getRequest());
+
+    // The READ is unconditional — a read-only owner still sees where their import
+    // got to. Only the write is withheld.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ state: 'importing' });
+    expect(mockReadView).toHaveBeenCalledWith(mockSql, LOCATION_ID, ACCOUNT_ID);
+
+    expect(mockCreateImportOffer).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  // Round-1 A5. Not one of the 70 intake titles. The GET previously opened a
+  // transaction and took `SELECT … FOR UPDATE` on the businesses row for EVERY
+  // location on every dashboard mount — including terminal ones where
+  // createImportOffer provably cannot act — and the banner polls this endpoint
+  // every 4s while importing, against a row four producers and the decision POST
+  // also lock.
+  it('GET import-offer takes no row lock when no offer could be created', async () => {
+    const cannotAct = [
+      // Already answered — terminal, and first-write-wins.
+      { state: 'accepted' as const, decidedAt: new Date(), expiresAt: new Date() },
+      { state: 'declined' as const, decidedAt: new Date(), expiresAt: new Date() },
+      // A deadline already exists: the offer was created, nothing to repair.
+      { state: 'pending' as const, decidedAt: null, expiresAt: new Date() },
+      // Derived-expired — terminal, and re-stamping would resurrect it.
+      { state: 'expired' as const, decidedAt: null, expiresAt: new Date() },
+      // Not this account's location (or gone).
+      null,
+    ];
+
+    for (const consent of cannotAct) {
+      vi.clearAllMocks();
+      mockResolveOwnerScope.mockResolvedValue({
+        accountId: ACCOUNT_ID, locationId: LOCATION_ID, userId: 'user-1',
+      });
+      mockReadView.mockResolvedValue({ state: 'none' });
+      mockAssertWritable.mockResolvedValue({ ok: true });
+      mockReadConsent.mockResolvedValue(consent);
+      mockSql.begin = vi.fn();
+
+      expect((await GET(getRequest())).status).toBe(200);
+
+      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockCreateImportOffer).not.toHaveBeenCalled();
+      // Cheapest gate first: the writable check is not even reached, because the
+      // consent read already proved there is nothing to write.
+      expect(mockAssertWritable).not.toHaveBeenCalled();
+      // The banner is still read — the precondition guards the write, not the read.
+      expect(mockReadView).toHaveBeenCalledTimes(1);
+    }
   });
 
   // completed_at decides done, never imported_count — the count DEFAULTs to 0

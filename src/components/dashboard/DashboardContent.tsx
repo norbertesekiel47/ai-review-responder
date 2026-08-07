@@ -324,8 +324,13 @@ function DashboardOperationalContent() {
             NOT on the dashboard payload — it comes from
             GET /api/dashboard/import-offer, deliberately, because
             getActiveDashboardData is Redis-cached and a declined offer would
-            re-render for the whole TTL. So there is nothing here to gate the
-            wrapper on; the banner self-nulls on `{ state: 'none' }`.
+            re-render for the whole TTL. So there is nothing HERE to gate a
+            section wrapper on, and the banner therefore OWNS its own
+            `section-enter` wrapper (round-1 A6b) — it self-nulls on
+            `{ state: 'none' }`, the common case, and an always-mounted wrapper
+            here would leave the empty flex item the comment above warns about.
+            It also carries its own stagger index so it steps after the banner
+            group rather than animating on ConnectGoogleBanner's beat.
             Rendered per-location only: an aggregate scope has no single offer to
             answer for, and consent is per location. The sentinel is `'all'` —
             `LocationScope = 'all' | LocationId`, so this check also NARROWS the
@@ -333,11 +338,13 @@ function DashboardOperationalContent() {
             `scope === 'aggregate'`; it does not apply to the scope value.)
             `locationId` then goes into the banner's query key so switching
             location refetches instead of reusing another location's offer
-            (round-1 High, F110). */}
+            (round-1 High, F110). `readOnly` is the same prop, from the same
+            source, as ConnectGoogleBanner's above (round-1 A6). */}
         {currentScope !== 'all' && (
-          <div className="section-enter section-enter-1">
-            <ImportOfferBanner locationId={currentScope} />
-          </div>
+          <ImportOfferBanner
+            locationId={currentScope}
+            readOnly={pastDueData?.isReadOnly ?? false}
+          />
         )}
         {/* Zone 1 — reputation hero band */}
         <div className="section-enter section-enter-2">

@@ -12,6 +12,13 @@
 // `guardImportConsent` next), `readImportConsent` for consumers that only need
 // the row. Not two derivations.
 //
+// It also owns `enqueueInitialImport` — the ONE initial-import enqueue, shared
+// by all three producers that honour consent (round-1 O3, deviations D11). The
+// reactivation catch-up in `src/lib/locations/archive-location-tx.ts` is
+// deliberately NOT one of them: it enqueues `backfill_reason: 'reactivation'`,
+// which the worker's `ON CONFLICT … WHERE run_reason = 'initial'` does not dedup
+// because the archived-period catch-up is SUPPOSED to run again.
+//
 // EXPIRY IS DERIVED, NEVER STORED (#670, migration 101). `import_decision` is
 // three-valued — `pending | accepted | declined`. "Expired" is computed on read
 // as `pending AND import_offer_expires_at <= now()`: no poller, no stored
@@ -28,9 +35,12 @@ import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { createWorkerLogger } from '@/lib/shared/logger';
 import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 type SqlExecutor = Sql | TransactionSql;
+
+const LOG_PREFIX = '[import-consent]';
 
 /**
  * The Import offer window: 7 days from creation.
@@ -68,6 +78,9 @@ export type ImportDecisionOutcome =
   | 'already_answered'
   | 'expired'
   | 'no_offer';
+
+/** Every outcome that is NOT a recorded decision, i.e. every rejection class. */
+export type ImportDecisionRejection = Exclude<ImportDecisionOutcome, 'recorded'>;
 
 /**
  * Spec §5.3's derivation, spelled ONCE, as a composable fragment.
@@ -224,6 +237,14 @@ export async function createImportOffer(
  * and the re-read, and the classifier would report `already_answered` for a row
  * that is in fact still answerable. The fix is serialization, not a wider
  * classifier.
+ *
+ * EVERY REJECTION IS LOGGED, from inside the transaction, via `logRejection`.
+ * That is the intake's `observability` item 2 and it is the whole diagnostic
+ * loop for this feature's most likely support ticket: the owner clicks and
+ * nothing happens. Without it the route answers 404/409 and Railway is silent,
+ * so "the button did nothing" cannot be resolved to an expiry or a missing
+ * offer rather than an outage. `reportCaughtError` does not cover it — none of
+ * these outcomes throws.
  */
 export async function recordImportDecisionAndEnqueue(
   sql: Sql,
@@ -244,13 +265,19 @@ export async function recordImportDecisionAndEnqueue(
         AND account_id = ${accountId}::uuid
       FOR UPDATE
     `;
-    if (!locked) return 'no_offer';
+    if (!locked) return logRejection('no_offer', businessId, decision);
 
+    // `account_id` is bound here too, even though the `FOR UPDATE` above already
+    // proved ownership. The module header states that every function binds
+    // `accountId` directly rather than inferring tenancy from a preceding read,
+    // and this is the statement that WRITES consent — "the caller checked" is not
+    // a property the next caller inherits.
     const transitioned = await tx<{ id: string }[]>`
       UPDATE businesses
       SET import_decision = ${decision},
           import_decision_at = now()
       WHERE id = ${businessId}::uuid
+        AND account_id = ${accountId}::uuid
         AND import_decision = 'pending'
         AND import_offer_expires_at IS NOT NULL
         AND import_offer_expires_at > now()
@@ -261,10 +288,7 @@ export async function recordImportDecisionAndEnqueue(
       // Zero rows has four distinct causes and the owner-visible message differs
       // for each. Re-read rather than guess.
       const current = await readImportConsent(tx, businessId, accountId);
-      if (!current) return 'no_offer';
-      if (current.state === 'pending' && current.expiresAt === null) return 'no_offer';
-      if (current.state === 'expired') return 'expired';
-      return 'already_answered';
+      return logRejection(classifyRejection(current), businessId, decision);
     }
 
     if (decision === 'declined') return 'recorded';
@@ -274,32 +298,101 @@ export async function recordImportDecisionAndEnqueue(
   });
 }
 
+/** The zero-rows classifier, extracted so the one rejection sink is total. */
+function classifyRejection(current: ImportConsentRow | null): ImportDecisionRejection {
+  if (!current) return 'no_offer';
+  if (current.state === 'pending' && current.expiresAt === null) return 'no_offer';
+  if (current.state === 'expired') return 'expired';
+  return 'already_answered';
+}
+
 /**
- * The accepted-path enqueue. Raw `INSERT INTO job_outbox` on purpose: no typed
- * helper exists for `ZERNIO_INITIAL_BACKFILL`, and minting one would turn all
- * four raw producers red under `ci:outbox-seam` and force migrating them in this
- * PR (invariant #2's explicit carve-out).
+ * The rejected-decision signal (`observability` item 2), shaped like the three
+ * enqueue-gate lines: the rejection class plus `business_id`, nothing else.
  *
- * Enqueues only when there is no completed run and no in-flight row — the
- * accept-then-reconnect duplicate (round-1 High, F101). The in-flight status set
- * is re-spelled byte-for-byte from `OUTBOX_IN_FLIGHT_STATUSES` and never
+ * Returns the class it logged so both rejection sites stay single-expression
+ * returns — a branch cannot reject without passing through here, which is the
+ * property that keeps the signal from rotting the next time an outcome is added.
+ *
+ * `log`, not `warn`: a late click is the ORDINARY case on this feature (expiry
+ * is derived and nothing fires at the deadline, #670), and `observability` item
+ * 5 is explicit that a decline or an expiry is an expected outcome, not an
+ * error. No review text, no tokens — only the ids the support loop needs.
+ */
+function logRejection(
+  rejection: ImportDecisionRejection,
+  businessId: string,
+  decision: 'accepted' | 'declined',
+): ImportDecisionRejection {
+  createWorkerLogger(LOG_PREFIX).log('Import decision rejected', {
+    business_id: businessId,
+    rejection,
+    decision,
+  });
+  return rejection;
+}
+
+/**
+ * THE initial-import enqueue. One implementation, three producers.
+ *
+ * The acceptance transaction above, `finalizeConnectionTx` (connect) and
+ * `maybeEnqueueBackfillResume` (Stripe activation) all delegate here. Until
+ * round 1 they each carried their own copy and the copies had already diverged:
+ * the completed-run guard was spelled three different ways, and none of them
+ * matched `readImportOfferView`'s. That divergence is the A4 bug — a completed
+ * REACTIVATION run permanently suppressed the one-time initial import while the
+ * banner, correctly scoped to `initial`, kept reporting `importing` forever on a
+ * 4s poll. It also hands #679 ONE chokepoint for its fail-closed worker guard
+ * instead of three.
+ *
+ * The handoff recorded a blocker here that was FALSE (deviations D11):
+ * `scripts/ci/outbox-seam-audit.ts` pins `HELPER_MODULE` to
+ * `src/lib/shared/job-outbox-helpers.ts` and derives helper coverage ONLY from
+ * that file. Minting a helper THERE would turn every raw `ZERNIO_INITIAL_BACKFILL`
+ * producer red; a shared function HERE is not a helper to the audit, so one raw
+ * `INSERT INTO job_outbox` remains for a topic with no helper — invariant #2's
+ * explicit carve-out. Do not "finish the job" by moving this into
+ * `job-outbox-helpers.ts`: the reactivation producer
+ * (`archive-location-tx.ts`) is deliberately NOT a caller of this function and
+ * would turn red the moment a helper exists.
+ *
+ * **The caller must already hold the `businesses` row lock inside its own
+ * transaction.** `TransactionSql` is the type-level half; the source tripwire
+ * (`__tests__/import-consent-lock-order-source.test.ts`) is the other half.
+ *
+ * Enqueues only when there is no completed INITIAL run and no in-flight row —
+ * the accept-then-reconnect duplicate (round-1 High, F101). The in-flight status
+ * set is re-spelled byte-for-byte from `OUTBOX_IN_FLIGHT_STATUSES` and never
  * parameterized: a bind parameter inside such a predicate defeats partial-index
  * inference (invariant #2's byte-for-byte contract).
  *
  * `backfill_reason: 'initial'` is explicit. Reactivation's catch-up uses
- * `'reactivation'` and is deliberately NOT deduped by the worker's
- * `ON CONFLICT … WHERE run_reason = 'initial'`.
+ * `'reactivation'`, is deliberately NOT deduped by the worker's
+ * `ON CONFLICT … WHERE run_reason = 'initial'`, and for the same reason is NOT
+ * routed through this function.
  */
-async function enqueueInitialImport(
+export async function enqueueInitialImport(
   tx: TransactionSql,
   businessId: string,
   accountId: string,
 ): Promise<void> {
+  // The payload is resolved HERE, under the caller's row lock, rather than being
+  // passed in. Three producers reached this point holding three different
+  // snapshots of the same facts; re-reading makes the enqueue impossible to
+  // issue for a business with no active connection, no activation, or an
+  // archived row — states a parameter list can only ask callers to check.
+  //
   // Every table binds its tenant key DIRECTLY (`b.account_id`, `a.id`,
   // `zc.business_id`, `br.business_id`) rather than reaching it through the JOIN
-  // graph. `worker/ingress/stripe/shared.ts` runs the same shape with
-  // correlation-only scoping and carries three `ci:tenant-scope` allowlist
-  // entries for it; binding directly is equivalent SQL that needs none.
+  // graph, so `ci:tenant-scope` needs no allowlist entry for any of them.
+  //
+  // `br.run_reason = 'initial'` is load-bearing and matches
+  // `readImportOfferView` (`import-offer-view.ts:96`) exactly. Reactivation runs
+  // RECUR by design — the DB carries a UNIQUE partial index
+  // `zernio_backfill_runs_one_initial_per_business` on `(business_id) WHERE
+  // run_reason = 'initial'` and deliberately does not dedup the rest — so an
+  // unscoped "any completed run" guard lets one archive/reactivate cycle
+  // suppress the one-time import permanently.
   const [target] = await tx<{
     zernio_account_id: string;
     zernio_location_id: string;
@@ -316,6 +409,7 @@ async function enqueueInitialImport(
     JOIN accounts a ON a.id = b.account_id
     LEFT JOIN zernio_backfill_runs br
       ON br.business_id = ${businessId}::uuid
+     AND br.run_reason = 'initial'
      AND br.completed_at IS NOT NULL
     WHERE zc.business_id = ${businessId}::uuid
       AND b.account_id = ${accountId}::uuid
@@ -327,9 +421,10 @@ async function enqueueInitialImport(
     LIMIT 1
   `;
 
-  // No active connection, or a completed run already exists. The consent write
-  // still stands — consent and enqueue eligibility are different questions, and
-  // the connect/activation producers will enqueue when the junction completes.
+  // No active connection, or a completed initial run already exists. The consent
+  // write still stands — consent and enqueue eligibility are different
+  // questions, and the connect/activation producers will enqueue when the
+  // junction completes.
   if (!target) return;
 
   if (!isSubscriptionTier(target.subscription_tier)) {
@@ -346,20 +441,28 @@ async function enqueueInitialImport(
     correlation_id: uuidv7(),
   } satisfies ZernioInitialBackfillPayload;
 
+  // The row source is the account-scoped `businesses` row, not a bare value
+  // list: `account_id` is bound in a TOP-LEVEL predicate so the INSERT itself
+  // refuses a foreign tenant, and the dedup subquery correlates to that same
+  // verified row (`jo.aggregate_id = b.id`) rather than re-binding the raw id.
+  // Still exactly one row or zero — `businesses.id` is the primary key.
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     SELECT
       ${uuidv7()},
       ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
       'business',
-      ${businessId}::uuid,
+      b.id,
       ${tx.json(payload)},
       'pending'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM job_outbox jo
-      WHERE jo.aggregate_id = ${businessId}::uuid
-        AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
-        AND jo.status IN ('pending', 'dispatching', 'dispatched')
-    )
+    FROM businesses b
+    WHERE b.id = ${businessId}::uuid
+      AND b.account_id = ${accountId}::uuid
+      AND NOT EXISTS (
+        SELECT 1 FROM job_outbox jo
+        WHERE jo.aggregate_id = b.id
+          AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
+          AND jo.status IN ('pending', 'dispatching', 'dispatched')
+      )
   `;
 }

@@ -19,7 +19,7 @@
 // assertSchemaReady, and NEVER applies migration SQL.
 //
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
@@ -145,6 +145,36 @@ async function clearOutbox(): Promise<void> {
   await sql()`DELETE FROM job_outbox WHERE aggregate_id = ${businessId}::uuid`;
 }
 
+/**
+ * Seed a `zernio_backfill_runs` row. The four provenance columns are NOT NULL
+ * with no defaults, so a run cannot be seeded without them.
+ *
+ * `runReason` is the whole point of the round-1 A4 titles: the DB carries a
+ * UNIQUE partial index on `(business_id) WHERE run_reason = 'initial'` and
+ * deliberately does NOT dedup anything else, so `'reactivation'` rows RECUR.
+ */
+async function seedRun(opts: {
+  runReason: 'initial' | 'reactivation';
+  completed: boolean;
+}): Promise<void> {
+  await sql().unsafe(
+    `INSERT INTO zernio_backfill_runs (
+       id, business_id, zernio_account_id, zernio_location_id,
+       subscription_tier, subscription_activated_at, run_reason, completed_at
+     ) VALUES (
+       '${randomUUID()}'::uuid, '${businessId}'::uuid,
+       'zacct-import-consent', 'zloc-import-consent',
+       'copilot', now() - interval '60 days',
+       '${opts.runReason}',
+       ${opts.completed ? 'now()' : 'NULL'}
+     )`,
+  );
+}
+
+async function clearRuns(): Promise<void> {
+  await sql()`DELETE FROM zernio_backfill_runs WHERE business_id = ${businessId}::uuid`;
+}
+
 /** Evaluate the composable predicate the way a real consumer would. */
 async function derivedState(): Promise<ImportConsentState | null> {
   const [row] = await sql()<{ state: ImportConsentState }[]>`
@@ -180,6 +210,7 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
     if (!db) return;
     if (tenant) {
       await sql()`DELETE FROM analytics_events WHERE account_id = ${tenant.accountId}::uuid`;
+      await sql()`DELETE FROM zernio_backfill_runs WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM job_outbox WHERE aggregate_id::text = ${businessId}`;
       await sql()`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
@@ -598,6 +629,161 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
       } else {
         expect(row.import_decision).toBe('pending');
         expect(await outboxCount()).toBe(0);
+      }
+    }
+  });
+
+  // ── enqueueInitialImport: the shared enqueue's completed-run guard ──────────
+  //
+  // Round-1 A4. Three producers each spelled this guard differently and none of
+  // them matched `readImportOfferView`'s. Round-1 O3 collapsed them into
+  // `enqueueInitialImport`; these two titles are why the collapse was worth
+  // doing, and they are LIVE because the whole question is which rows the
+  // anti-join keeps — a mocked `sql` tag returns what it is told and cannot
+  // falsify a predicate.
+
+  it('a completed reactivation run does not suppress the one-time initial import', async () => {
+    // THE A4 BUG, end to end. Accept → archive before the worker runs (the
+    // `initial` run row exists with completed_at NULL) → reactivate → the
+    // catch-up runs and COMPLETES with run_reason 'reactivation'. Under the old
+    // unscoped guard every producer then saw "a completed run" and refused the
+    // initial import forever, while the banner — correctly scoped to `initial`
+    // — kept reporting `importing` on a 4s poll. Reactivation runs recur by
+    // design; only `initial` is once per business.
+    await atJunction();
+    await clearRuns();
+    await clearOutbox();
+    await seedRun({ runReason: 'reactivation', completed: true });
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+
+    const outcome = await recordImportDecisionAndEnqueue(
+      sql(), businessId, tenant!.accountId, 'accepted',
+    );
+
+    expect(outcome).toBe('recorded');
+    expect(await outboxCount()).toBe(1);
+  });
+
+  it('a completed initial run does suppress the import, and an incomplete one does not', async () => {
+    // The other side of the same predicate, so the fix cannot be read as
+    // "dropped the guard". Both halves matter: `completed_at IS NOT NULL` is what
+    // makes an interrupted run retryable (the row exists, the import never
+    // finished), and `run_reason = 'initial'` is what keeps it once-per-business.
+    await atJunction();
+
+    await clearRuns();
+    await clearOutbox();
+    await seedRun({ runReason: 'initial', completed: true });
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+
+    // The consent write still stands — consent and enqueue eligibility are
+    // different questions — but nothing is queued.
+    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
+      .toBe('recorded');
+    expect((await readRaw()).import_decision).toBe('accepted');
+    expect(await outboxCount()).toBe(0);
+
+    await clearRuns();
+    await clearOutbox();
+    await seedRun({ runReason: 'initial', completed: false });
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+
+    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
+      .toBe('recorded');
+    expect(await outboxCount()).toBe(1);
+
+    await clearRuns();
+  });
+
+  // ── Tenant scope on the two statements that WRITE (round-1 A9) ──────────────
+
+  it('a decision under a foreign account writes nothing and enqueues nothing', async () => {
+    // The module header states that every function binds `accountId` DIRECTLY
+    // rather than inferring tenancy from a preceding read. Round 1 found the
+    // guarded UPDATE and the outbox INSERT doing exactly what that paragraph
+    // forbids. They bind it now — and this is the behaviour that must hold
+    // whichever statement is the one enforcing it.
+    await atJunction();
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+    await clearOutbox();
+    const before = await readRaw();
+
+    const outcome = await recordImportDecisionAndEnqueue(
+      sql(), businessId, randomUUID(), 'accepted',
+    );
+
+    expect(outcome).toBe('no_offer');
+    expect(await readRaw()).toEqual(before);
+    expect(await outboxCount()).toBe(0);
+    // And the offer is still answerable by its real owner — a cross-tenant POST
+    // must not consume the one-time offer either.
+    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'declined'))
+      .toBe('recorded');
+  });
+
+  // ── The rejected-decision log line (`observability` item 2, round-1 A2) ─────
+
+  it('every rejected decision emits one structured log line naming the rejection class and business id', async () => {
+    // The intake names this signal and the exact support ticket it exists for:
+    // "the owner says the button did nothing" must resolve to an expiry or a
+    // missing offer rather than an outage. Nothing throws on these paths, so
+    // reportCaughtError never fires — without this line Railway is silent.
+    //
+    // Asserted across ALL THREE classes rather than one, because the value of
+    // the signal is telling them apart.
+    await atJunction();
+
+    const cases: Array<{ rejection: string; arrange: () => Promise<void>; accountId: string }> = [
+      {
+        rejection: 'no_offer',
+        // Migration 100's DEFAULT: pending with a NULL deadline is not an offer.
+        arrange: () => setConsent({ decision: 'pending', expiresAtSql: null }),
+        accountId: tenant!.accountId,
+      },
+      {
+        rejection: 'expired',
+        arrange: () => setConsent({ decision: 'pending', expiresAtSql: "now() - interval '1 second'" }),
+        accountId: tenant!.accountId,
+      },
+      {
+        rejection: 'already_answered',
+        arrange: () => setConsent({
+          decision: 'declined',
+          expiresAtSql: "now() + interval '3 days'",
+          decidedAtSql: 'now()',
+        }),
+        accountId: tenant!.accountId,
+      },
+    ];
+
+    for (const testCase of cases) {
+      await testCase.arrange();
+      const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        const outcome = await recordImportDecisionAndEnqueue(
+          sql(), businessId, testCase.accountId, 'accepted',
+        );
+        expect(outcome).toBe(testCase.rejection);
+
+        // ONE line, and it must parse as the structured record createWorkerLogger
+        // emits — a bare console.log string would satisfy "a log exists" while
+        // being unqueryable in Railway, which is the whole point of the item.
+        const lines = spy.mock.calls
+          .map((call) => String(call[0]))
+          .filter((line) => line.includes('Import decision rejected'));
+        expect(lines, `no rejection line for ${testCase.rejection}`).toHaveLength(1);
+
+        const record = JSON.parse(lines[0]!) as {
+          logger: string;
+          data?: Record<string, unknown>;
+        };
+        expect(record.logger).toBe('import-consent');
+        expect(record.data).toMatchObject({
+          business_id: businessId,
+          rejection: testCase.rejection,
+        });
+      } finally {
+        spy.mockRestore();
       }
     }
   });

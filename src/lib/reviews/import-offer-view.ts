@@ -18,7 +18,7 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
-import { importConsentStateSql } from './import-consent';
+import { importConsentStateSql, type ImportConsentState } from './import-consent';
 
 type SqlExecutor = Sql | TransactionSql;
 
@@ -30,12 +30,18 @@ export type ImportOfferView =
   | { state: 'empty' }
   | { state: 'failed' };
 
+/**
+ * Exactly the columns the join below selects. `consent_state` REFERENCES the
+ * exported union rather than re-spelling it — `importConsentStateSql` produces
+ * that union's values, so a fourth stored value would have to change one type,
+ * not two. The outbox status is deliberately absent: it comes from a second,
+ * conditional query further down and is typed at its own call site.
+ */
 interface ViewRow {
-  consent_state: 'pending' | 'accepted' | 'declined' | 'expired';
+  consent_state: ImportConsentState;
   expires_at: Date | null;
   run_completed_at: Date | null;
   imported_count: number | null;
-  outbox_status: string | null;
 }
 
 /**
@@ -84,7 +90,7 @@ export async function readImportOfferView(
   //    invisible to it and the table reads as unscoped. An `ON` clause is
   //    top-level and visible. Binding `${businessId}` rather than correlating to
   //    `b.id` keeps the scope explicit at the join.
-  const [row] = await db<Omit<ViewRow, 'outbox_status'>[]>`
+  const [row] = await db<ViewRow[]>`
     SELECT
       ${importConsentStateSql(db)} AS consent_state,
       b.import_offer_expires_at AS expires_at,
