@@ -11,6 +11,19 @@
 > Triage verdicts in §6. The three structural changes: the decision predicate
 > now requires an offer to *exist*; all three enqueue producers are gated and
 > in-flight-deduped; the acceptance transaction moves into a domain module.
+>
+> **Revision 3** (2026-08-06), after round 2 returned `REVISE` on defects that
+> revision 2's own fixes introduced. Triage in §7. Four structural changes:
+> **(a)** junction eligibility moves *inside* `createImportOffer`'s SQL — the
+> `pending + NULL` guard alone let a one-sided location get a pre-junction offer,
+> because Postgres `GREATEST(NULL, x)` returns `x`; **(b)** the deadline anchors
+> on `zernio_connections.created_at`, not `connected_at`, which reconnect
+> overwrites; **(c)** every producer runs inside `sql.begin` holding the
+> `businesses` row lock, which retires the check-then-insert dedup race, the
+> unresolved transaction-shape finding, and the zero-row classification race
+> together (owner decision 2026-08-06: row lock, not a migration); **(d)**
+> reactivation gets the consent gate **only** — revision 2 wrongly imposed a
+> generic completed-run predicate on a path with its own `run_reason`.
 
 ---
 
@@ -161,9 +174,9 @@ export function importConsentStateSql(sql: Sql, alias: string): PendingQuery;
 export function readImportConsent(sql: Sql, businessId: string):
   Promise<{ state: ImportConsentState; decidedAt: Date | null; expiresAt: Date | null } | null>;
 
-/** Idempotent. Stamps ONLY a pending row whose deadline is NULL, and anchors
- *  the deadline to the junction — GREATEST(subscription_activated_at,
- *  connected_at) + IMPORT_OFFER_WINDOW_DAYS — not to the moment of the write. */
+/** Idempotent. Stamps ONLY a pending row whose deadline is NULL, AND ONLY when
+ *  the junction has actually been reached. Anchors the deadline to the junction,
+ *  not to the moment of the write. Caller must hold the businesses row lock. */
 export function createImportOffer(tx: TransactionSql, businessId: string):
   Promise<'created' | 'unchanged'>;
 
@@ -193,12 +206,57 @@ then classified by re-reading the row: no row → `no_offer`; `pending` + NULL
 deadline → `no_offer`; `pending` + passed deadline → `expired`; otherwise
 → `already_answered`.
 
-**Why the deadline is junction-anchored, not `now() + 7 days`.** It makes
-creation *position-independent*: the primary creation at the junction, and the
-GET route's idempotent self-heal (T4), produce the identical deadline. That is
-what lets offer creation stay best-effort on the Stripe path without the
-round-1 High (F105) failure — a transient failure delays the banner instead of
-permanently denying the offer.
+**The re-read is race-free only under the row lock (round-2 Medium).** Under
+READ COMMITTED a concurrent self-heal could turn NULL into a live deadline
+between the `UPDATE` and the re-read, and the classifier would report
+`already_answered` for a row that is in fact still answerable. The `FOR UPDATE`
+below removes the window rather than adding a retry branch — the fix is
+serialization, not a wider classifier.
+
+**Every producer holds the `businesses` row lock (round-2 High ×2, owner
+decision).** `recordImportDecisionAndEnqueue` opens `sql.begin` and takes
+`SELECT … FROM businesses WHERE id = $1 AND account_id = $2 FOR UPDATE` as its
+first statement; so does every other producer (T3, T4). That single discipline
+retires three separate round-2 findings: the `INSERT … WHERE NOT EXISTS`
+check-then-insert race, the unresolved transaction-shape finding (F107), and the
+classification race above. **`SELECT … FOR UPDATE` is a no-op outside
+`sql.begin()`** under Supabase's transaction pooling (CLAUDE.md gotcha) — so a
+producer without its own transaction is not "mostly safe", it is unprotected.
+Chosen over migration 004's partial-unique-index precedent because it needs no
+migration; the trade — enforcement by convention rather than by constraint — is
+recorded in §5.
+
+**Junction eligibility lives INSIDE the SQL (round-2 High).** Revision 2 guarded
+only on `pending` + NULL deadline and trusted callers to be junction sites. The
+GET self-heal (T4) breaks that assumption — it runs from a read path with no
+junction of its own. Combined with Postgres `GREATEST(NULL, x) = x`, a location
+holding *one* half of the junction would have been handed an offer. So the
+`UPDATE` itself requires, in the same statement:
+
+- `accounts.subscription_activated_at IS NOT NULL`, **and**
+- an `active` `zernio_connections` row for the business.
+
+Both non-NULL by construction before `GREATEST` is applied, so no one-sided
+anchor is reachable.
+
+**The anchor is `zernio_connections.created_at`, not `connected_at`
+(round-2 High).** `connected_at` is *mutable*: the reconnect branch overwrites
+it with `NOW()` (`finalize-tx.ts:123-132`), despite migration 026 describing it
+as first-active time (`026_zernio_publishing.sql:85-87`). A failed primary
+creation followed by a reconnect would therefore have moved the anchor and
+extended the supposedly fixed 7-day window. The reconnect `UPDATE` sets
+`zernio_profile_id`, `zernio_account_id`, `zernio_location_id`, `status`,
+`connected_at`, `updated_at` — it does **not** touch `created_at`. Anchor:
+
+```sql
+GREATEST(a.subscription_activated_at, MIN(zc.created_at)) + INTERVAL '7 days'
+```
+
+**Why anchoring matters at all.** It makes creation *position-independent*: the
+primary creation at the junction and the GET self-heal produce the identical
+deadline. That is what lets offer creation stay best-effort on the Stripe path
+without the round-1 F105 failure — a transient failure delays the banner instead
+of permanently denying the offer.
 
 Other constraints:
 - Fragment shape precedent: `suppressionMatchSql`
@@ -226,11 +284,18 @@ Inside the existing `sql.begin`, after the `INSERT INTO businesses`
 (`:214-241`): one `UPDATE … FROM (SELECT … LIMIT 1)` copying all three consent
 columns verbatim from the archived sibling.
 
-**Lineage key (round-1 High, F103).** Match on `google_place_id` when the new
-row has one, **else** on `google_maps_url`. URL-mode adds deliberately store a
-`google_maps_url` with a NULL `google_place_id` until `validate_place_id`
-resolves it (`add-location-tx.ts:263-279`), so a place-id-only lookup silently
-misses a declined URL-mode location and re-offers it. Never match NULL to NULL.
+**Lineage key (round-1 F103, corrected by round-2 Medium).** Revision 2 chose
+the match key from the **new row only** — place id if it has one, else maps url.
+That still misses the cross-representation case: a new row carrying a canonical
+place id against an archived row for the same place whose place id was never
+resolved. URL-mode adds deliberately store a `google_maps_url` with a NULL
+`google_place_id` until `validate_place_id` resolves it
+(`add-location-tx.ts:263-279`), so both directions occur in practice.
+
+The match is therefore a **disjunction over non-NULL keys**: a sibling qualifies
+when its `google_place_id` equals the new row's (both non-NULL) **OR** its
+`google_maps_url` equals the new row's (both non-NULL). Never NULL to NULL, in
+either column. Both directions are pinned by test (titles 48 and 49).
 
 **Ordering (round-1 Medium, F104).** `ORDER BY archived_at DESC, created_at
 DESC, id DESC` — `archived_at` alone is nondeterministic on a tie. Scoped by
@@ -267,6 +332,11 @@ block (`:187-232`):
 - The `subscription_activated_at IS NULL` warn branch (`:234-240`) is unchanged.
 
 **`worker/ingress/stripe/shared.ts`** (`maybeEnqueueBackfillResume`, `:92`):
+- **Wrap the whole thing in `sql.begin` with the `businesses` row lock first**
+  (round-2 F107, still open after revision 2). Today this path runs on root
+  `sql` with no transaction, so `createImportOffer` — which requires
+  `TransactionSql` — had no transaction to run in, and its dedup check was
+  unserialized.
 - The existing target query (`:95-120`) already establishes the junction. On a
   hit: `createImportOffer` + the analytics event, then enqueue **only** on
   `'accepted'`. This is the §5.2 fix.
@@ -279,9 +349,24 @@ block (`:187-232`):
 
 **`src/lib/locations/archive-location-tx.ts`** (`reactivateLocationTransaction`,
 `:377`) — the third gate, absorbed from #676 (round-1 High, F102; owner
-re-decision 2026-08-06):
-- The catch-up enqueue (`:~505-529`) becomes conditional on `'accepted'` with
-  the same completed-run + in-flight dedup.
+re-decision 2026-08-06). **Consent gate ONLY — nothing else about this path
+changes** (round-2 High ×2):
+
+- The existing catch-up condition is
+  `if (backfillContext && lockedAccount.subscription_activated_at)` (`:507`).
+  One conjunct is added: Import consent is `'accepted'`. That is the whole edit.
+- **Do NOT apply the completed-run predicate or the in-flight dedup here.**
+  Revision 2 did, and it was wrong twice over. Reactivation enqueues with
+  `backfill_reason: 'reactivation'` (`:516`), and the worker's
+  `ON CONFLICT (business_id) WHERE run_reason = 'initial' DO NOTHING`
+  (`ZernioBackfillWorker.ts:170`) deliberately does **not** dedup it — the
+  archived-period catch-up is *supposed* to run again after a completed initial
+  run. A generic "no completed run" gate would have silently deleted that
+  feature. The in-flight variant additionally opened a lost-recovery race
+  against a worker holding a stale `archived_at` read
+  (`job-eligibility.ts:60-81`).
+- Already inside `sql.begin` with the account and business rows locked, so the
+  row-lock discipline is satisfied without new code.
 - This path is **owner-reachable** (`src/app/api/locations/reactivate/route.ts:111`).
   Left un-gated, an owner who declined could archive and reactivate from the
   locations UI to get the import anyway — a D8 violation with no SQL required.
@@ -322,11 +407,23 @@ Precedence rules — each one is a round-1 finding, not a preference:
 
 **`GET`** — no CSRF wrapper (GETs are exempt, `draft-status:18-20`). Owner scope
 via `resolveOwnerScope`. Polled by the banner while `importing`. **Also calls
-`createImportOffer` idempotently** when the location is at the junction and
-still has no deadline: this is the self-heal that makes best-effort offer
+`createImportOffer` idempotently** — the self-heal that makes best-effort offer
 creation on the Stripe path safe (F105/F106). Because the deadline is
 junction-anchored, a self-healed offer is indistinguishable from one created on
 time.
+
+Three constraints on the self-heal, each a round-2 finding:
+- It runs in its own `sql.begin` holding the `businesses` row lock. A GET that
+  writes is unusual but the write is idempotent and serialized; the alternative
+  (a read path calling a `TransactionSql` helper with no transaction) is the
+  F107 defect.
+- It relies on `createImportOffer`'s own junction predicate — the route does
+  **not** re-implement a junction check, and must not call the helper "when at
+  the junction" as revision 2 phrased it. One owner for that condition.
+- On `'created'` it emits `import_offer_created` **in the same transaction**.
+  Revision 2 omitted this, so an offer that only ever existed because the
+  Stripe path failed would have been invisible in the analytics ratio the
+  intake names as the churn signal.
 
 **`POST`** — `withSameOrigin`, `resolveOwnerScope`, body `{ decision:
 'accepted' | 'declined' }` validated with `zod`, then **one call** to
@@ -418,6 +515,12 @@ Parallel pairs: **T1 ‖ T2**, then **T3 ‖ T4**. Everything else serial.
   consent for that place. "One-time" is per business row. Flagged by round 1 at
   65% confidence as a product question; recorded here rather than silently
   resolved.
+- **Single-enqueue is enforced by convention, not by constraint.** The
+  `businesses` row lock makes the check-then-insert dedup safe at all four
+  producers, but a future producer that skips the lock reopens the race. Migration
+  004 chose a partial unique index for this class on `sync_reviews`; the owner
+  chose the lock here (2026-08-06) to keep this ticket migration-free. If a fifth
+  producer ever appears, revisit — the index is the durable answer.
 
 ---
 
@@ -457,3 +560,47 @@ offer" entry** — revision 1 wrongly listed it among terms already in the
 glossary. It also caught that the POST `draft` route now uses a typed
 `enqueueGenerateResponse` rather than a raw insert, so the intake's precedent
 wording was corrected. Everything else the plan cited was verified present.
+
+---
+
+## 7. Review appendix — round 2 triage
+
+Full report: `docs/reviews/feat-677-import-offer-prompt-decision/plan-review-round-2.md`.
+Verdict `REVISE`. Verification-only and it stayed in scope — the
+`NEW — UNTRIAGED` appendix is empty. Six round-1 findings confirmed fully
+addressed (F102, F104, F106, F109, F111, F112, F113); the rest were `PARTIAL`
+or, for F107, `NO`. Ten defects introduced by revision 2's own fixes.
+
+**ACCEPTED and folded into revision 3** — every High and Medium:
+
+| Defect | Fix |
+|---|---|
+| `createImportOffer` did not prove the junction; `GREATEST(NULL, x) = x` allowed a one-sided pre-junction offer | Junction eligibility moved into the helper's `UPDATE`: activation non-NULL **and** an active connection, both required before `GREATEST` |
+| `connected_at` is mutable on reconnect, so repair could extend the 7-day window | Anchor on `MIN(zernio_connections.created_at)`, which the reconnect `UPDATE` does not touch |
+| `WHERE NOT EXISTS` dedup is check-then-insert | `businesses` row lock at every producer (owner decision over migration 004's index) |
+| F107 still open — `TransactionSql` helper called with no transaction | Stripe path and GET self-heal each open `sql.begin` |
+| Reactivation lost accepted-but-incomplete recovery against a stale-`archived_at` worker read | Dropped the in-flight dedup at that producer entirely |
+| Reactivation's generic completed-run predicate suppressed the archived-period catch-up | Consent gate **only**; `backfill_reason: 'reactivation'` semantics untouched |
+| Zero-row classification race on concurrent self-heal | Removed by the row lock, not by widening the classifier |
+| Lineage key chosen from the new row only, missing the cross-representation case | Disjunction over non-NULL keys, both directions pinned |
+| Live view suite omitted positive-complete and pending-offer SQL | Titles 67–68 |
+| Banner suite omitted `imported` rendering and `LiveRegion` | Title 70 |
+| Self-heal did not emit `import_offer_created` | Emitted in the same transaction; title 69 |
+| Intake still misstated the `draft` route as a thin domain-call precedent | Reworded to cite only its real CSRF / scope / zod traits |
+
+**Rejected-finding reassessment.** Round 2 judged three of revision 2's five
+rejections defensible and two **not**:
+
+- *Full URL-mode composed lifecycle* — **rejection withdrawn.** It was rejected
+  on the premise that titles 48–49 covered the lineage; round 2 showed the
+  cross-representation hole survived. The lineage fix plus title 66 now covers
+  the mechanism; the composed resolution→re-add→reconnect lifecycle remains
+  staging-ride evidence, which is the right home for it, but it is now listed
+  explicitly in the staging plan rather than waved off.
+- *Merged polling / `LiveRegion` titles* — **rejection withdrawn.** Title 55
+  named polling only. Title 70 now names the announcement explicitly.
+
+**Sizing.** Round 2 assessed 57 tests / ~2,880 lines as large but cohesive and
+advised **against** splitting: the producer gates, the API, and the UI depend on
+each other, and D5's reclassification gate is the right instrument. Revision 3
+takes that advice. Estimates raised to 850 prod / 2400 test.

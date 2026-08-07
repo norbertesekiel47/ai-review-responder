@@ -11,9 +11,11 @@
     "No feature flag and no env-vars.md entry (ADR 0015 R1). Ordering carries the rollout; backout is git revert.",
     "No permanent import affordance in settings (spec §8, rejected at design).",
     "No changes to the live-ingest lane. A declined location keeps receiving live-lane drafts for new reviews — that is what the reassurance line promises. The ZernioReviewIngestWorker is not touched and never consults Import consent (asserted by #679).",
-    "No typed job_outbox helper for ZERNIO_INITIAL_BACKFILL — the topic has none today and all three producers enqueue raw; minting one would turn every raw site red under ci:outbox-seam and force migrating them in this PR (invariant #2's explicit carve-out).",
+    "No typed job_outbox helper for ZERNIO_INITIAL_BACKFILL — the topic has none today and all four producers enqueue raw; minting one would turn every raw site red under ci:outbox-seam and force migrating them in this PR (invariant #2 explicit carve-out).",
     "No rename of the zernio_initial_backfill topic or zernio_backfill_runs table (map #667, out of scope).",
-    "No change to how add-location resolves a Google place id. The consent-lineage lookup reads google_place_id and google_maps_url as they already exist; validate_place_id resolution is untouched."
+    "No change to how add-location resolves a Google place id. The consent-lineage lookup reads google_place_id and google_maps_url as they already exist; validate_place_id resolution is untouched.",
+    "No change to reactivation idempotency. reactivateLocationTransaction gets the consent conjunct and nothing else — no completed-run predicate, no in-flight dedup. Its backfill_reason reactivation runs are meant to recur after a completed initial run.",
+    "No partial unique index on job_outbox. The businesses row lock is the chosen serialization (owner decision 2026-08-06); migration 004 index precedent is recorded in the plan as the answer if a fifth producer ever appears."
   ],
   "user_visible_behavior": [
     "When a location reaches the subscribe+connect junction — whichever of subscription activation and Google connection lands second — an Import offer is created with a deadline 7 days after the junction, and the dashboard shows the Import offer banner for the location currently in scope.",
@@ -30,7 +32,7 @@
     "Exactly one import job is created per acceptance: a reconnect while an import is still in flight does not start a second one."
   ],
   "invariants": [
-    "Invariant #2 (transactional outbox): the acceptance write and the zernio_initial_backfill enqueue happen in ONE Postgres transaction. Raw INSERT INTO job_outbox at every producer — the topic has no helper. Every producer also dedups against an in-flight row using OUTBOX_IN_FLIGHT_STATUSES from src/lib/shared/job-outbox-status.ts, re-spelled byte-for-byte, never parameterized.",
+    "Invariant #2 (transactional outbox): the acceptance write and the zernio_initial_backfill enqueue happen in ONE Postgres transaction. Raw INSERT INTO job_outbox at all four producers — the topic has no helper. The three junction/decision producers dedup against an in-flight row using OUTBOX_IN_FLIGHT_STATUSES from src/lib/shared/job-outbox-status.ts, re-spelled byte-for-byte, never parameterized. Reactivation deliberately does NOT: it enqueues with backfill_reason reactivation, which the worker does not dedup, and an in-flight check there loses accepted-but-incomplete recovery against a worker holding a stale archived_at read.",
     "Invariant #1 (Vercel = UI only): the decision route performs Postgres writes only. No Zernio call, no LLM call, no long-running work in Next.js — the fetch is the worker's job (D9).",
     "Invariant #8 (auth scope): every read and write is scoped by account_id and business_id; the decision route resolves its location from owner scope and never trusts a client-supplied business id. Consent lineage lookups are scoped to the same account.",
     "Invariant #15: import-consent.ts and import-offer-view.ts take their db client as an explicit sql/tx parameter and never import @/lib/db/server. Only the route and the ingress composition roots import the singleton.",
@@ -41,7 +43,9 @@
     "One owner for the derivation: importConsentStateSql is the single place 'pending AND import_offer_expires_at <= now()' is spelled. The offer view, the decision transaction, all three enqueue gates, and (after rebase) #679's worker guard all consult it.",
     "D9: nothing is fetched from Zernio before an acceptance is recorded. D2: the enqueued topic is zernio_initial_backfill, never generate_response — the import writes no replies.",
     "Expiry is evaluated by Postgres now(), never a JS Date, so the timestamptz microsecond-truncation class cannot apply at the boundary.",
-    "D8 permanence: no path resurrects a declined or derived-expired offer — not re-add of an archived location, not reactivation, not a repeated junction, not a reconnect."
+    "D8 permanence: no path resurrects a declined or derived-expired offer — not re-add of an archived location, not reactivation, not a repeated junction, not a reconnect.",
+    "Every zernio_initial_backfill producer runs inside sql.begin holding SELECT … FROM businesses … FOR UPDATE. SELECT … FOR UPDATE is a no-op outside a transaction under Supabase transaction pooling, so a producer without its own transaction is unprotected, not merely slower. This lock — not a unique index — is what makes the check-then-insert in-flight dedup safe (owner decision 2026-08-06).",
+    "createImportOffer proves the junction in its own SQL: subscription_activated_at IS NOT NULL AND an active zernio_connections row must both exist before the deadline is computed. Postgres GREATEST(NULL, x) returns x, so a one-sided anchor would otherwise mint a pre-junction offer. The deadline anchors on zernio_connections.created_at, which reconnect does not overwrite — connected_at does get overwritten (finalize-tx.ts:123-132)."
   ],
   "edge_cases": [
     "Junction fires twice (reconnect, or activation after connect) → createImportOffer is idempotent: it stamps only a pending row with a NULL deadline, so the 7-day clock is never extended or restarted.",
@@ -62,11 +66,13 @@
     "A location whose google_place_id was never resolved (URL-mode add) → lineage still matches through google_maps_url, so a declined URL-mode place cannot be re-offered by re-adding it.",
     "Owner never opens the dashboard → the deadline still passes; the offer derives expired and is never shown. Nothing is imported (the fail-closed direction).",
     "A declined location keeps receiving live-lane drafts for new reviews — declining the import is not declining the product.",
-    "Reviews already ingested live are deduped by importReview's ON CONFLICT, so an accepted import after a period of live ingestion cannot duplicate rows."
+    "Reviews already ingested live are deduped by importReview's ON CONFLICT, so an accepted import after a period of live ingestion cannot duplicate rows.",
+    "Reactivation of an accepted location that already completed an initial import → the archived-period catch-up still runs. It enqueues with backfill_reason reactivation and the worker only dedups run_reason initial, so a generic completed-run gate would silently delete the feature.",
+    "A location holding one half of the junction (activated but never connected, or connected but never activated) → no offer is created, and the GET self-heal creates none either."
   ],
   "existing_patterns_to_follow": [
     "src/lib/solicitation/suppression.ts:75 — suppressionMatchSql: a composable SQL fragment as the single named owner of a predicate, imported by every call site rather than re-spelled. This is the shape §5.3 names for importConsentStateSql.",
-    "src/app/api/dashboard/past-replies/draft/route.ts — POST route shape: withSameOrigin CSRF wrapper, owner-scope resolution, zod body validation, and a single domain call that owns its transaction.",
+    "src/app/api/dashboard/past-replies/draft/route.ts — POST route shape: the withSameOrigin CSRF wrapper, owner-scope resolution and zod body validation ONLY. It is NOT a thin-orchestrator precedent: it owns sql.begin and its transaction logic directly (:106-241). This ticket puts that transaction in a domain module instead (invariant #12).",
     "src/app/api/dashboard/past-replies/draft-status/route.ts:95-143 — GET polling route: no CSRF wrapper, tenant-ownership guard on the resolved row, and the discriminated status union where every terminal non-completed outbox status maps to failed.",
     "src/components/dashboard/account-state/ConnectGoogleBanner.tsx:20 — a dashboard banner that returns null when it has nothing to say, with banner / banner-blue / banner-attn classes, Icon, and a single CTA.",
     "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts:167-178 — enqueueAnalyticsEvent inside the same transaction as the state change (gbp_connected), the observability precedent.",
@@ -124,7 +130,7 @@
     "resumePrimaryBusinessBackfill does not re-enqueue for a declined location on past_due to active recovery",
     "resumePrimaryBusinessBackfill enqueues nothing for a derived-expired offer",
     "reactivateLocationTransaction enqueues no import for pending, declined, or derived-expired consent",
-    "reactivateLocationTransaction enqueues the catch-up import when import consent is accepted and no run has completed",
+    "reactivateLocationTransaction enqueues the catch-up import when import consent is accepted",
     "POST import-offer accept records the decision and enqueues the import in one transaction",
     "POST import-offer decline records the decision and enqueues nothing",
     "POST import-offer rejects a late click on a derived-expired offer without writing or enqueueing",
@@ -155,11 +161,24 @@
     "ImportOfferBanner renders the empty outcome copy rather than an imported count of zero",
     "ImportOfferBanner stops polling and renders the failed state when the import terminates",
     "DashboardOperationalContent renders the Import offer banner for the location in scope",
-    "switching location scope refetches the import offer and never reuses another location's state"
+    "switching location scope refetches the import offer and never reuses another location's state",
+    "createImportOffer creates no offer when the subscription is activated but no active connection exists",
+    "createImportOffer creates no offer when a connection exists but the subscription was never activated",
+    "createImportOffer anchors on the connection created_at so a reconnect never extends the deadline",
+    "a missed offer creation followed by a reconnect and a self-heal keeps the original deadline",
+    "concurrent producers under the businesses row lock create exactly one zernio_initial_backfill row",
+    "a concurrent self-heal during a decision does not misclassify a live pending offer as already answered",
+    "reactivateLocationTransaction enqueues the catch-up import after a completed initial run when consent is accepted",
+    "reactivateLocationTransaction enqueues the catch-up import after an earlier completed reactivation run",
+    "add-location inherits consent from an archived sibling matched by google_place_id when the archived row url differs",
+    "readImportOfferView reports the imported count for a completed run against live Postgres",
+    "readImportOfferView returns the offer state for a live pending offer against live Postgres",
+    "GET import-offer self-heal records import_offer_created in the same transaction",
+    "ImportOfferBanner renders the imported count and announces the terminal transition through LiveRegion"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "780",
-  "estimated_test_lines": "2100",
+  "estimated_prod_lines": "850",
+  "estimated_test_lines": "2400",
   "dependencies_added": [],
   "rollback_plan": "git revert the PR (ADR 0015 R1 — no flag exists to flip). No migration rides this ticket, so there is no schema state to undo; the Import consent columns stay and revert to being written by nobody. Reverting restores the unconditional junction and reactivation enqueues, which are inert in both environments while prod and staging hold zero businesses. Order: revert, redeploy the Railway worker (ingress change), redeploy Vercel (routes + banner). Any import_decision rows written before the revert stay on the row and are re-honoured when the PR re-lands — the record is never rewritten.",
   "observability": [
