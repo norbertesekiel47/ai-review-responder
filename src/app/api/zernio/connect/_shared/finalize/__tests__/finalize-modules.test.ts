@@ -22,7 +22,14 @@ const {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
   const txCalls: Array<{ raw: string; values: unknown[] }> = [];
   const txScenario = {
-    needsBackfill: false,
+    // #677: `needsBackfill` is GONE along with the needs_backfill SELECT it drove.
+    // That predicate asked "has a backfill ever completed?" as a proxy for
+    // "should we import?"; the question is now whether the owner accepted the
+    // Import offer. Default 'pending' — migration 100's DEFAULT for every row —
+    // so a test must opt IN to the enqueue, which is the safer default for a
+    // consent gate.
+    importConsent: 'pending' as 'pending' | 'accepted' | 'declined' | 'expired' | null,
+    hasCompletedRun: false,
     accountSubscriptionStatus: 'active',
     accountPastDueAt: null as string | null,
     accountFlags: {} as Record<string, unknown>,
@@ -62,8 +69,41 @@ const {
             : [],
         );
       }
-      if (/needs_backfill/.test(raw)) {
-        return Promise.resolve([{ needs_backfill: txScenario.needsBackfill }]);
+      // readImportConsent — distinctive on its aliased column, and matched before
+      // the generic `FROM businesses` branches below.
+      if (/import_decision_at AS decided_at/.test(raw)) {
+        return Promise.resolve(
+          txScenario.importConsent === null
+            ? []
+            : [{ state: txScenario.importConsent, decided_at: null, expires_at: null }],
+        );
+      }
+      // createImportOffer — returns the updated row when it stamped a deadline.
+      // Returning [] ('unchanged') is right for these suites: they assert the
+      // ENQUEUE decision, and offer creation is proven against live Postgres in
+      // src/lib/reviews/__tests__/import-consent.integration.test.ts.
+      if (/SET import_offer_expires_at/.test(raw)) {
+        return Promise.resolve([]);
+      }
+      // `enqueueInitialImport`'s target resolution (round-1 O3). Finalize no
+      // longer builds the payload itself — the shared enqueue re-reads the
+      // connection row and the account snapshot from this same transaction, so
+      // the tier under test has to come back from HERE. The completed-run guard
+      // is the `LEFT JOIN … AND br.id IS NULL` anti-join in the same statement,
+      // which is why `hasCompletedRun` collapses the result to zero rows rather
+      // than returning a run row.
+      if (/LEFT JOIN zernio_backfill_runs/.test(raw)) {
+        return Promise.resolve(
+          txScenario.hasCompletedRun
+            ? []
+            : [{
+              zernio_account_id: 'zernio-account-1',
+              zernio_location_id: 'google-location-1',
+              subscription_tier: txScenario.accountSubscriptionTier,
+              subscription_activated_at:
+                  txScenario.accountSubscriptionActivatedAt,
+            }],
+        );
       }
       if (/FROM zernio_connections[\s\S]*FOR UPDATE/.test(raw)) {
         return Promise.resolve(
@@ -276,7 +316,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   sqlCalls.length = 0;
   txCalls.length = 0;
-  txScenario.needsBackfill = false;
+  txScenario.importConsent = 'pending';
+  txScenario.hasCompletedRun = false;
   txScenario.accountSubscriptionStatus = 'active';
   txScenario.accountPastDueAt = null;
   txScenario.accountFlags = {};
@@ -682,36 +723,20 @@ describe('finalizeConnectionTx', () => {
     );
   });
 
-  it('does NOT enqueue initial backfill when needs_backfill is false', async () => {
-    txScenario.needsBackfill = false;
-    await finalizeConnectionTx(mockSql, {
-      user: USER,
-      stored: STORED,
-      locationId: 'google-location-1',
-      accountId: 'zernio-account-1',
-    });
-    // Topic is a bound QUEUE_NAMES value — a raw-text regex would be
-    // vacuously false here even if the enqueue fired, so check the values.
-    expect(txCalls.some((c) => c.values.includes('zernio_initial_backfill'))).toBe(
-      false,
-    );
-  });
-
-  it('enqueues initial backfill only when needs_backfill is true', async () => {
-    txScenario.needsBackfill = true;
-    await finalizeConnectionTx(mockSql, {
-      user: USER,
-      stored: STORED,
-      locationId: 'google-location-1',
-      accountId: 'zernio-account-1',
-    });
-    expect(txCalls.some((c) => c.values.includes('zernio_initial_backfill'))).toBe(
-      true,
-    );
-  });
+  // The two `needs_backfill` tests that lived here were REMOVED by #677, not
+  // ported: they named a predicate this ticket deletes. `needs_backfill` asked
+  // "has a backfill ever completed?" as a proxy for "should we import?", and the
+  // proxy is now wrong — the question is whether the owner accepted the Import
+  // offer. Their replacement coverage is titles 14–19 in
+  // `import-offer-junction.test.ts`, which assert the enqueue decision against
+  // every consent state plus the completed-run and in-flight guards. Keeping
+  // tests named after a deleted predicate would have been the more misleading
+  // option.
 
   it('preserves an Autopilot tier in the typed initial-backfill payload', async () => {
-    txScenario.needsBackfill = true;
+    // Driven by consent now, not by needs_backfill: the payload is only built on
+    // the accepted path.
+    txScenario.importConsent = 'accepted';
     txScenario.accountSubscriptionTier = 'autopilot';
 
     await finalizeConnectionTx(mockSql, {

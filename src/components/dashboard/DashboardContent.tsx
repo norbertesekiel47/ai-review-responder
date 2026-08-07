@@ -16,6 +16,7 @@ import { PendingPaymentScreen } from '@/components/dashboard/account-state/Pendi
 import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
+import { ImportOfferBanner } from '@/components/dashboard/account-state/ImportOfferBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
@@ -318,6 +319,32 @@ function DashboardOperationalContent() {
               readOnly={pastDueData?.isReadOnly ?? false}
             />
           </div>
+        )}
+        {/* The Import offer prompt (#677). Unlike ConnectGoogleBanner its state is
+            NOT on the dashboard payload — it comes from
+            GET /api/dashboard/import-offer, deliberately, because
+            getActiveDashboardData is Redis-cached and a declined offer would
+            re-render for the whole TTL. So there is nothing HERE to gate a
+            section wrapper on, and the banner therefore OWNS its own
+            `section-enter` wrapper (round-1 A6b) — it self-nulls on
+            `{ state: 'none' }`, the common case, and an always-mounted wrapper
+            here would leave the empty flex item the comment above warns about.
+            It also carries its own stagger index so it steps after the banner
+            group rather than animating on ConnectGoogleBanner's beat.
+            Rendered per-location only: an aggregate scope has no single offer to
+            answer for, and consent is per location. The sentinel is `'all'` —
+            `LocationScope = 'all' | LocationId`, so this check also NARROWS the
+            type to LocationId. (`isAggregate` is the payload-side discriminator on
+            `scope === 'aggregate'`; it does not apply to the scope value.)
+            `locationId` then goes into the banner's query key so switching
+            location refetches instead of reusing another location's offer
+            (round-1 High, F110). `readOnly` is the same prop, from the same
+            source, as ConnectGoogleBanner's above (round-1 A6). */}
+        {currentScope !== 'all' && (
+          <ImportOfferBanner
+            locationId={currentScope}
+            readOnly={pastDueData?.isReadOnly ?? false}
+          />
         )}
         {/* Zone 1 — reputation hero band */}
         <div className="section-enter section-enter-2">

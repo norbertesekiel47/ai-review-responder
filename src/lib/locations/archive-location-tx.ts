@@ -5,7 +5,14 @@
 // Archive flow:
 //   1. assertCanArchiveLocation — validates archive is allowed
 //   2. archiveLocationTransaction — atomic tx: UPDATE + audit + outbox
-//   3. reactivateLocationTransaction — admin re-activate from archived state
+//   3. reactivateLocationTransaction — re-activate from archived state.
+//      OWNER-REACHABLE, not admin-only: src/app/api/locations/reactivate/route.ts:111
+//      is an owner route. This comment said "admin re-activate" until #677, and
+//      that single stale word cost a wrong scope decision — the reactivation
+//      enqueue path was initially left out of the Review import consent gate on
+//      the belief that only staff could reach it, which would have left an owner
+//      who declined able to archive-and-reactivate their way to the import.
+//      Verify callers; do not trust a header.
 //
 // Guard rules (from feature spec):
 //   - Archive attempt on primary with other active locations: rejected with 'promote first'
@@ -25,6 +32,7 @@ import { getLocationById, getActiveLocationCount } from './repo';
 import { rethrowAsDuplicateLocation } from './duplicate-location';
 import { enqueueStripeOverageRecompute, enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { readImportConsent } from '@/lib/reviews/import-consent';
 import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 import { acquireLocationLifecycleLock } from '@/lib/accounts/billing-locks';
 import {
@@ -505,7 +513,37 @@ export async function reactivateLocationTransaction(
       // 4. Enqueue Zernio backfill for connected reactivated locations
       // VAL-LOC-071: Review sync jobs enqueued for the restored location
       // to catch up on any reviews that arrived during the archived period.
-      if (backfillContext && lockedAccount.subscription_activated_at) {
+      //
+      // CONSENT-GATED from #677 (producer 4 of 4, absorbed from #676). This path
+      // is OWNER-REACHABLE via src/app/api/locations/reactivate/route.ts:111 —
+      // left un-gated, an owner who declined the Review import could archive the
+      // location and reactivate it from the locations UI to get the import
+      // anyway: a D8 violation reachable in two clicks with no SQL. The consent
+      // conjunct below is the WHOLE edit to this path.
+      //
+      // DELIBERATELY ABSENT, and both were tried and reverted in plan revision 2
+      // (round-2 High ×2): there is NO completed-run predicate and NO in-flight
+      // dedup here. This enqueues with backfill_reason 'reactivation', and the
+      // worker's ON CONFLICT (business_id) WHERE run_reason = 'initial' DO NOTHING
+      // (ZernioBackfillWorker.ts:170) deliberately does not dedup it — the
+      // archived-period catch-up is SUPPOSED to run again after a completed
+      // initial run. A generic "no completed run" gate silently deletes that
+      // feature, and the in-flight variant opens a lost-recovery race against a
+      // worker holding a stale archived_at read (job-eligibility.ts:60-81).
+      //
+      // Reactivation also does NOT create an offer: spec §7, "re-connect after
+      // declining → stays declined". It only honours the consent already on the
+      // row. The account and business rows are already locked by
+      // lockArchiveContext, so the row-lock discipline needs no new code.
+      const reactivationConsent = backfillContext
+        ? await readImportConsent(tx, locationId, accountId)
+        : null;
+
+      if (
+        backfillContext &&
+        lockedAccount.subscription_activated_at &&
+        reactivationConsent?.state === 'accepted'
+      ) {
         const payload = {
           business_id: locationId,
           zernio_account_id: backfillContext.zernio_account_id,
@@ -527,6 +565,11 @@ export async function reactivateLocationTransaction(
             'pending'
           )
         `;
+      } else if (backfillContext && lockedAccount.subscription_activated_at) {
+        // The proof that declines are honoured at the product paths.
+        console.log(
+          `[locations] Reactivation catch-up import not enqueued for ${locationId} — import consent is ${reactivationConsent?.state ?? 'unknown'}`,
+        );
       }
 
       return promoted;

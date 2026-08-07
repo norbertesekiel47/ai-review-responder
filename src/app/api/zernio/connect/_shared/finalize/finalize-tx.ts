@@ -14,7 +14,11 @@ import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
-import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
+import {
+  createImportOffer,
+  enqueueInitialImport,
+  readImportConsent,
+} from '@/lib/reviews/import-consent';
 
 interface FinalizeConnectionTxArgs {
   user: AppUser;
@@ -25,11 +29,15 @@ interface FinalizeConnectionTxArgs {
 
 /**
  * Step 8d: the single durable finalize transaction. INSERT/UPDATE the
- * `zernio_connections` row + drain outbox + (on first activation per the
- * needs_backfill predicate) the initial-backfill outbox enqueue — ALL inside
- * one `sql.begin` per spec §6.8 (transactional outbox). Throws
+ * `zernio_connections` row + drain outbox + (at the junction, and only when the
+ * owner has ACCEPTED the Import offer) the initial-import outbox enqueue — ALL
+ * inside one `sql.begin` per spec §6.8 (transactional outbox). Throws
  * `ZernioRouteError(403, ...)` for scope/subscription failures; any DB error
  * propagates to the caller's orphan-recovery branch.
+ *
+ * The `needs_backfill` predicate this doc used to name is DELETED (#677). It
+ * asked "has a backfill ever completed?" as a proxy for "should we import?", and
+ * the proxy is now wrong: the question is whether the owner said yes.
  */
 export async function finalizeConnectionTx(
   sql: postgres.Sql,
@@ -119,7 +127,10 @@ export async function finalizeConnectionTx(
       FOR UPDATE
     `;
 
-    const connectionId = existingConnection?.id ?? newConnectionId;
+    // `connectionId` (the resolved id of the row we are about to write) was only
+    // ever read by the deleted `needs_backfill` predicate, which excluded it via
+    // `id != ${connectionId}` — the source of that predicate's documented #41
+    // over-fire. With the predicate gone the binding has no remaining reader.
     if (existingConnection) {
       await tx`
         UPDATE zernio_connections
@@ -177,67 +188,56 @@ export async function finalizeConnectionTx(
       },
     });
 
-    // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
-    // EITHER (a) no prior connect existed for this business OR
-    // (b) prior connections existed but no backfill has ever COMPLETED
-    // (handles the case where a prior backfill auth-failed mid-flight).
-    // The worker's ON CONFLICT (business_id) WHERE run_reason = 'initial'
-    // DO NOTHING on zernio_backfill_runs is the second-line guard.
+    // Review import is CONSENT-GATED from #677 on (spec §3, D8/D9). This is
+    // producer 1 of 4, and it is the junction site in the common ordering:
+    // subscription already active, Google just connected.
     //
-    // KNOWN over-fire (issue #41 item 3, intentionally NOT fixed): on a
-    // single-row reconnect, clause (a)'s `id != connectionId AND connected_at
-    // IS NOT NULL` is always false (the only row is the one just updated,
-    // excluded by id), so the predicate returns true and re-enqueues backfill
-    // even when one already completed. This is benign — the ON CONFLICT guard
-    // above makes the re-enqueue idempotent. A fix would gate clause (a) on the
-    // PRE-update connected_at, but (a)/(b) are entangled and a wrong gate could
-    // suppress the legitimate auth-failed-mid-flight re-fire, so we leave it.
-    const [predicate] = await tx<{ needs_backfill: boolean }[]>`
-      SELECT (
-        NOT EXISTS (
-          SELECT 1 FROM zernio_connections
-          WHERE business_id = ${stored.businessId}
-            AND id != ${connectionId}
-            AND connected_at IS NOT NULL
-        )
-        OR NOT EXISTS (
-          SELECT 1 FROM zernio_backfill_runs
-          WHERE business_id = ${stored.businessId}
-            AND completed_at IS NOT NULL
-        )
-      ) AS needs_backfill
-    `;
+    // The old `needs_backfill` SELECT is DELETED along with its documented #41
+    // over-fire. That predicate asked "has a backfill ever completed?" as a proxy
+    // for "should we import?", and the proxy is now wrong: the question is
+    // whether the OWNER said yes. The over-fire comment described a re-enqueue
+    // made benign by the worker's ON CONFLICT guard; the new predicate has no
+    // over-fire to describe, because an un-accepted offer enqueues nothing at all.
+    //
+    // The businesses row is already locked FOR UPDATE at the top of this
+    // transaction (`FOR UPDATE OF b, a`), so the row-lock discipline every
+    // producer shares is satisfied with no new code.
+    if (accountLocation.subscription_activated_at) {
+      // Create the offer if this is the first time both halves are true. Never
+      // extends an existing deadline, and never touches an answered row.
+      await createImportOffer(tx, stored.businessId, ownerAccountId);
 
-    if (predicate?.needs_backfill) {
-      if (accountLocation.subscription_activated_at) {
-        const payload = {
-          business_id: stored.businessId,
-          zernio_account_id: accountId,
-          zernio_location_id: locationId,
-          subscription_tier: accountLocation.subscription_tier,
-          subscription_activated_at:
-            accountLocation.subscription_activated_at.toISOString(),
-          correlation_id: uuidv7(),
-        } satisfies ZernioInitialBackfillPayload;
-        await tx`
-          INSERT INTO job_outbox (
-            id, topic, aggregate_type, aggregate_id, payload, status
-          ) VALUES (
-            ${uuidv7()},
-            ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
-            'business',
-            ${stored.businessId},
-            ${tx.json(payload)},
-            'pending'
-          )
-        `;
+      const consent = await readImportConsent(tx, stored.businessId, ownerAccountId);
+
+      if (consent?.state === 'accepted') {
+        // Delegated to `import-consent.ts` (round-1 O3, deviations D11). This
+        // block used to carry its own copy of the payload, the completed-run
+        // guard and the deduped INSERT; the copy had diverged from the other two
+        // producers AND from `readImportOfferView` on `run_reason`, which is the
+        // A4 bug. `enqueueInitialImport` re-resolves the connection row and the
+        // account snapshot from THIS transaction — the row this finalize just
+        // wrote — so the payload is identical to the one built here before,
+        // sourced from the database rather than from a caller's snapshot.
+        //
+        // Both dedup guards (no completed INITIAL run, no in-flight row) and the
+        // byte-for-byte in-flight status tuple live there now. The businesses
+        // row lock this function already holds (`FOR UPDATE OF b, a` above) is
+        // that function's stated precondition.
+        await enqueueInitialImport(tx, stored.businessId, ownerAccountId);
       } else {
-        // Connect flow is gated on writable subscription state upstream, so
-        // this branch is unreachable for activated accounts.
-        console.warn(
-          `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
+        // The proof that declines are honoured at the product paths, and the
+        // counterpart to #679's worker-side skip line. `pending` is the ordinary
+        // case here: the owner has not seen the banner yet.
+        console.log(
+          `[zernio-connect] Review import not enqueued for ${stored.businessId} — import consent is ${consent?.state ?? 'unknown'}`,
         );
       }
+    } else {
+      // Connect flow is gated on writable subscription state upstream, so
+      // this branch is unreachable for activated accounts.
+      console.warn(
+        `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
+      );
     }
   });
 }
