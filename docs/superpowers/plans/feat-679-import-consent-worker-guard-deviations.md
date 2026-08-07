@@ -258,3 +258,73 @@ placement would make the rollback test pass trivially — the enqueue raises fir
 so no emission is ever attempted — and would also drop the event on the `declined`
 path, which returns before the enqueue. Emitting before the enqueue is what keeps
 the boundary observable.
+
+### D21 — [2026-08-07, T6] the live race test could not fail, and `Promise.all` was why
+
+**What the original test proved: nothing.** `job-eligibility.integration.test.ts`
+carried the one title that justifies a live-DB suite at all —
+*"an acceptance racing a pending-job consent skip leaves one runnable
+zernio_initial_backfill job"* — and implemented it as `Promise.all([guard,
+acceptance])` over a pooled client, looped ten times. T3 mutation-tested it:
+stripping the transaction out of `guardImportConsent` turned the **unit** suite
+red on its `inTransaction` assertion while this one stayed **green**. `Promise.all`
+removes CLIENT-side serialization but not statement-level interleaving; on
+single-node Postgres one side consistently reached its colliding statement after
+the other had finished, so the losing order never occurred. Ten iterations of an
+ordering the scheduler will not produce is ten times nothing. A test that cannot
+fail is worse than no test, because the next engineer trusts it.
+
+**What replaced it: a forced interleaving on three labelled sessions.** Three
+separate `postgres` clients, each `max: 1` and each with its own
+`application_name`, so `pg_blocking_pids` can name *who is waiting on whom*
+rather than merely that something is blocked:
+
+- **blocker** — holds `SELECT … FOR UPDATE` on the hand-inserted `job_outbox`
+  row. This is the pause point BETWEEN the guard's consent read and its
+  `markOutboxCompleted` — the window the bug lives in, and one no production code
+  exposes. A row lock rather than an advisory one so the guard stalls on the exact
+  statement the defect hinges on; this session never touches `businesses`, so it
+  cannot join a lock cycle.
+- **guard** — `guardImportConsent`. Under *either* implementation it stalls there.
+  The difference is what it holds while stalled: the correct one holds the
+  `businesses` row lock, an unserialized one holds nothing.
+- **accept** — `recordImportDecisionAndEnqueue`, whose first statement is
+  `SELECT … FOR UPDATE` on that same `businesses` row.
+
+The guard's own lock is therefore the ONLY thing that can stop the acceptance,
+and both outcomes are fully determined — no sleeps, no retries, no polling for
+luck. The test waits on the disjunction *"acceptance has committed OR acceptance
+is blocked by the guard"*, which is decidable for both implementations, so neither
+can time out.
+
+**Mutation-tested, both directions, and reported honestly.** Two independent
+mutations of `worker/jobs/zernio/job-eligibility.ts`:
+
+| mutation | result |
+|---|---|
+| remove `FOR UPDATE` from the consent read | **RED** — `accepted consent left 0 runnable import rows (gate=skipped) — the accepted import is unrecoverable` |
+| split `sql.begin` into two autocommit statements (keep `FOR UPDATE`) | **RED** — identical assertion, identical message |
+| unmodified implementation | **GREEN**, three consecutive runs |
+
+Both mutations fail on the *invariant* first — 0 runnable rows — so the reported
+diagnostic names the actual data loss rather than a proxy. The
+`acceptanceWasBlockedByTheGuard` tripwire is asserted immediately after it, as the
+mechanism-level explanation. `git diff worker/jobs/zernio/job-eligibility.ts` is
+empty; the implementation was never the thing being changed.
+
+**The generalizable lesson.** `Promise.all` over a connection pool is not a race
+harness — it is two sequential transactions with extra steps. Forcing a specific
+interleaving against real Postgres needs a lock the test itself holds at the
+statement boundary in question, plus a blocked/settled disjunction to synchronize
+on. And any live "race" test should be mutation-tested before it is believed:
+this one shipped green through a full review round while proving nothing.
+
+**Container note (follows D20).** T6's first run hit exactly the stranded
+`tmp_block_import_topic_analytics` D20 describes, left by a mutation run in
+another agent's lane; it was cleared by T2 mid-task and this suite then ran clean.
+Direct DDL cleanup remains blocked by the harness classifier — D20's throwaway
+`*.integration.test.ts` is the working route. Both mutation runs here were done on
+implementation source, not on fixtures, so neither could strand anything; the
+suite closes every one of its four clients in `afterAll` and releases the blocker
+in a `finally`, and the container was verified afterwards with zero
+`repworth-679-%` sessions and zero ungranted locks.
