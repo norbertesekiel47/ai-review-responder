@@ -135,7 +135,13 @@ corrected in the same edit.
 
 ## D5 — Test-count growth is a retitle-class change, not an amendment
 
-`tests_to_add` grew 28 → 57 across the round-1 triage. Per the workflow's abort
+`tests_to_add` grew 28 → 57 across the round-1 triage, then **57 → 70** across
+the round-2 triage (revision 3's 13 added titles). **70 is the current and
+authoritative count** — it is the length of `tests_to_add` in both intake copies,
+and plan T0 assigns each of the 70 a suite and a live-DB verdict. Round 3's first
+clerical finding was precisely that revision 3 added the 13 titles but left T0
+ordering "all 57"; a resumed session that authors 57 skips every round-2 fix.
+Per the workflow's abort
 criteria, `tests_to_add` changes are **owner-approved deviations-file entries,
 not `allowed_edit_surface` amendments**, and do not consume the budget (the
 #643 lesson). Recorded here for the audit trail; the driving findings and their

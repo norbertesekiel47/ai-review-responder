@@ -13,8 +13,10 @@ This doc references artifacts by path. It does not restate them. Read them.
 ## Read these, in this order
 
 1. **Plan** — `docs/superpowers/plans/2026-08-06-import-offer-prompt-decision.md`
-   (marked *Revision 2*). §1 design pass, §2 test placement, §3 tasks T0–T6,
-   §4 execution order, §5 known limitations, §6 round-1 triage appendix.
+   (marked *Revision 4* — **LOCKED**). §1 design pass, §2 test placement,
+   §3 tasks T0–T6, §4 execution order, §5 known limitations, §6/§7/§8 triage
+   appendices for rounds 1/2/3. **Read the revision-4 header first**; §6–§8 are
+   history, not instructions.
 2. **Intake contract** — `docs/superpowers/plans/feat-677-import-offer-prompt-decision-intake.json`
    (audit copy; `.feature/intake.json` is the byte-identical arming copy).
    This is the drift detector — check work against it field by field, not from
@@ -23,8 +25,9 @@ This doc references artifacts by path. It does not restate them. Read them.
    D1 (#679 merge order, corrected), D2 (`import-offer-view.ts`), D3 (consent
    lineage, amended), D4 (third gate absorbed, owner-approved), D5 (test growth).
 4. **Plan reviews** — `docs/reviews/feat-677-import-offer-prompt-decision/`
-   `plan-review-round-1.md` (REVISE, 33 proposed tests + 16 findings) and
-   `plan-review-round-2.md`.
+   `plan-review-round-1.md` (REVISE, 33 proposed tests + 16 findings),
+   `plan-review-round-2.md`, and `plan-review-round-3.md` (final round; its one
+   substantive item went to owner adjudication).
 5. **Design of record** — `docs/superpowers/specs/2026-08-05-consented-review-import-design.md`
    §3, §4, §5.1, §5.2, §5.3, §7. Its §2 decision table D1–D10 is **locked**;
    do not re-litigate it.
@@ -84,8 +87,11 @@ Decided from the code rather than asked, and worth not re-deriving:
 ## Next actions
 
 1. `bash scripts/feature-state.sh set-phase executing`
-2. Dispatch **T0 alone** (the eval task — 57 verbatim test titles as failing
-   tests). Then run the **first-task enforcement spot check**: diff
+2. Dispatch **T0 alone** (the eval task — **70** verbatim test titles as failing
+   tests; the count is the intake's `tests_to_add` length, and plan T0's matrix
+   assigns every one of the 70 a suite + a live-DB verdict. Any number below 70
+   is a stale pre-revision-4 count). Then run the **first-task enforcement spot
+   check**: diff
    `git status --porcelain` against `allowed_edit_surface`; an out-of-surface
    path means the guard did not bind for subagent tool calls — STOP and report.
 3. Then **T1 ‖ T2**, then **T3 ‖ T4**, then T5, then T6 (plan §4).

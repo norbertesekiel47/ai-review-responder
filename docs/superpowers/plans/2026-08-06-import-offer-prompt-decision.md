@@ -46,7 +46,7 @@ interfaces.
 
 | Module | New or deepening | Interface | Depth / deletion test |
 |---|---|---|---|
-| `src/lib/reviews/import-consent.ts` | **NEW module, new seam** | `importConsentStateSql`, `readImportConsent`, `createImportOffer`, `recordImportDecisionAndEnqueue`, `IMPORT_OFFER_WINDOW_DAYS` | Deep. Hides the three-valued enum, the derived expiry, the F3 atomic-transition `WHERE` discipline, the junction-anchored deadline, and the acceptance transaction. **Delete it and the derivation reappears at six call sites** (offer view, decision route, three enqueue gates, #679's worker guard) — spec §5.3 exists precisely to forbid that. |
+| `src/lib/reviews/import-consent.ts` | **NEW module, new seam** | `importConsentStateSql`, `readImportConsent`, `createImportOffer`, `recordImportDecisionAndEnqueue`, `IMPORT_OFFER_WINDOW_DAYS` | Deep. Hides the three-valued enum, the derived expiry, the F3 atomic-transition `WHERE` discipline, the junction eligibility predicate, and the acceptance transaction. **Delete it and the derivation reappears at six call sites** (offer view, decision route, three enqueue gates, #679's worker guard) — spec §5.3 exists precisely to forbid that. |
 | `src/lib/reviews/import-offer-view.ts` | **NEW module** (deviations D2) | `readImportOfferView(sql, businessId)` → discriminated union | Deep. Hides a three-table join (`businesses` × `zernio_backfill_runs` × `job_outbox`), the row-selection precedence, and the outbox-status → banner-state mapping. Delete it and ~40 lines of mapping land in a route handler, violating invariant #12. |
 | `finalize-tx.ts` | Deepening | `finalizeConnectionTx(sql, args)` **unchanged** | **Net-negative.** The `needs_backfill` `SELECT` and its documented #41 over-fire are *deleted*. |
 | `worker/ingress/stripe/shared.ts` | Deepening | `resumePrimaryBusinessBackfill(businessId)` **unchanged** | Gains junction offer-creation + the consent gate. The §5.2 bug dies inside the existing interface. |
@@ -87,7 +87,7 @@ and the acceptance is a transaction that must roll back as a unit. A mocked
 
 | Live-DB suite | Covers |
 |---|---|
-| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | derivation, boundary, offer creation + anchoring, F3 transitions, concurrency, the property test, the migration-101 CHECK assertion |
+| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | derivation, boundary, offer creation + junction eligibility, F3 transitions, concurrency, the property test, the migration-101 CHECK assertion |
 | `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | join correctness, status precedence, partial-count vs completed, stale/foreign row exclusion |
 | `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | committed state after accept/decline, rollback on outbox failure, byte-identical rejected states, concurrent accepts → one job |
 | `src/lib/locations/__tests__/add-location-tx.integration.test.ts` | consent lineage across archived siblings, incl. the URL-mode path |
@@ -196,8 +196,10 @@ export function readImportConsent(sql: Sql, businessId: string):
   Promise<{ state: ImportConsentState; decidedAt: Date | null; expiresAt: Date | null } | null>;
 
 /** Idempotent. Stamps ONLY a pending row whose deadline is NULL, AND ONLY when
- *  the junction has actually been reached. Anchors the deadline to the junction,
- *  not to the moment of the write. Caller must hold the businesses row lock. */
+ *  the junction has actually been reached — activation non-NULL AND an active
+ *  connection, both proven in this helper's own SQL. Deadline is
+ *  now() + IMPORT_OFFER_WINDOW_DAYS; there is NO junction anchor (revision 4).
+ *  Caller must hold the businesses row lock. */
 export function createImportOffer(tx: TransactionSql, businessId: string):
   Promise<'created' | 'unchanged'>;
 
@@ -257,8 +259,11 @@ holding *one* half of the junction would have been handed an offer. So the
 - `accounts.subscription_activated_at IS NOT NULL`, **and**
 - an `active` `zernio_connections` row for the business.
 
-Both non-NULL by construction before `GREATEST` is applied, so no one-sided
-anchor is reachable.
+Both are required in the same statement, so a one-sided location cannot be
+handed an offer. (Revisions 2–3 also *combined* those two timestamps with
+`GREATEST` to derive the deadline, which is where `GREATEST(NULL, x) = x` bit.
+Revision 4 deletes that expression — but the eligibility requirement stands on
+its own and is what the round-2 High actually asked for.)
 
 **There is no junction anchor. The deadline is `now() + INTERVAL '7 days'`
 (owner adjudication, 2026-08-06, closing round 3).**
@@ -435,9 +440,11 @@ Precedence rules — each one is a round-1 finding, not a preference:
 **`GET`** — no CSRF wrapper (GETs are exempt, `draft-status:18-20`). Owner scope
 via `resolveOwnerScope`. Polled by the banner while `importing`. **Also calls
 `createImportOffer` idempotently** — the self-heal that makes best-effort offer
-creation on the Stripe path safe (F105/F106). Because the deadline is
-junction-anchored, a self-healed offer is indistinguishable from one created on
-time.
+creation on the Stripe path safe (F105/F106). A self-healed offer starts its
+7 days **at the repair**, not at the junction (revision 4): the owner gets a
+full window from the first moment they could have seen the offer. Do not add an
+anchor to make repair indistinguishable from on-time creation — that property
+was invented, not required, and cost two review rounds.
 
 Three constraints on the self-heal, each a round-2 finding:
 - It runs in its own `sql.begin` holding the `businesses` row lock. A GET that
@@ -630,7 +637,9 @@ rejections defensible and two **not**:
 **Sizing.** Round 2 assessed 57 tests / ~2,880 lines as large but cohesive and
 advised **against** splitting: the producer gates, the API, and the UI depend on
 each other, and D5's reclassification gate is the right instrument. Revision 3
-takes that advice. Estimates raised to 850 prod / 2400 test.
+takes that advice. Estimates raised to **800 prod / 2400 test** — the figures
+carried by both intake copies, which are what step 5's `reclassify` row measures
+against. (Revision 3 drafted 850; the intake landed at 800. The intake wins.)
 
 ---
 
