@@ -33,8 +33,14 @@ worker-side consent guard, so a hand-inserted `zernio_initial_backfill` outbox
 row still imports without consent. ADR 0015 accepts exactly this class of
 intermediate state ("`main` is briefly incoherent mid-epic") on the standing
 condition that production holds zero customers and GA stays gated behind
-#286–#290. #677 closes the two *product* enqueue paths, so the only remaining
-opening is the manual admin path — which is the one #679 exists to close.
+#286–#290. #677 closes **all three** product enqueue paths (see D4), so the only
+remaining opening is the manual admin path — which is the one #679 exists to
+close.
+
+> **Corrected 2026-08-06 (plan review round 1, F102).** This paragraph
+> originally claimed the same thing while #677 gated only *two* paths, which was
+> false: `reactivateLocationTransaction` is owner-reachable, not an admin seam.
+> See D4.
 
 **Note for the post-merge lab-notes sweep (step 8):** a parked worktree is
 invisible to the cross-worktree surface check. "No overlap" from
@@ -81,3 +87,55 @@ branching, and every case lands correctly:
 No new export on `import-consent.ts`, no terminal-state list to keep in sync
 with the enum, and no branch to test in isolation. Anti-slop: assert impossible
 states rather than branching around them.
+
+**Amended 2026-08-06 (plan review round 1, F103/F104).** The *lineage key* was
+wrong even though the no-branching claim holds. URL-mode adds store a
+`google_maps_url` with a NULL `google_place_id` until `validate_place_id`
+resolves it (`add-location-tx.ts:263-279`), so a place-id-only lookup misses a
+declined URL-mode sibling and re-offers it. The match is now: `google_place_id`
+when the new row has one, else `google_maps_url` — never NULL to NULL — scoped
+by `account_id`, ordered `archived_at DESC, created_at DESC, id DESC` so a
+timestamp tie is deterministic.
+
+---
+
+## D4 — Surface amendment: the third enqueue gate (#676 absorbed) · **owner-approved**
+
+**Counts as amendment 1 of the abort-criteria budget** (a new file outside any
+tree the surface covered: `src/lib/locations/archive-location-tx.ts`).
+
+Plan review round 1 (F102) established a fact the intake got wrong:
+`reactivateLocationTransaction` is **owner-reachable** via
+`src/app/api/locations/reactivate/route.ts:111`. Its own module header calls it
+"admin re-activate" (`archive-location-tx.ts:8`), which is what the intake's
+gate-scope question was framed on — so the owner's original "absorb the two
+sites I already edit" answer was given on a false premise.
+
+Left un-gated, an owner who declined could **archive the location and reactivate
+it from the locations UI** to get the import anyway: a D8 violation reachable in
+two clicks, no SQL required.
+
+Re-presented to the owner with the corrected fact (2026-08-06). Decision:
+**absorb all three gates; #676 is absorbed into #677** and noted on the tracker
+at merge rather than retitled now.
+
+Consequences recorded in both intake copies: `archive-location-tx.ts` added to
+`allowed_edit_surface`; the "third path stays with #676" non-goal removed;
+reactivation gating added to `user_visible_behavior`; estimates raised
+600/1250 → 780/2100 prod/test lines. The stale header comment at `:8` is
+corrected in the same edit.
+
+---
+
+## D5 — Test-count growth is a retitle-class change, not an amendment
+
+`tests_to_add` grew 28 → 57 across the round-1 triage. Per the workflow's abort
+criteria, `tests_to_add` changes are **owner-approved deviations-file entries,
+not `allowed_edit_surface` amendments**, and do not consume the budget (the
+#643 lesson). Recorded here for the audit trail; the driving findings and their
+accept/reject verdicts are in the plan's §6 review appendix.
+
+Estimates were raised *with* the test growth rather than after it, so the step-5
+`reclassify` row measures the diff against a post-review estimate. If the actual
+diff still exceeds 2× either bucket, that is a genuine signal and step 0 gets
+re-run — not a bookkeeping artifact.
