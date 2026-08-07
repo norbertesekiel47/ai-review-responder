@@ -151,16 +151,43 @@ Decided from the code rather than asked, and worth not re-deriving:
    `2f281ad2` (T1+T2), `27d4b8eb` (T3+T4), `635f5aef` (T5+T6). **All 69 titles
    assert; zero `.todo` remain.** Gate GREEN 26/26 in full mode with the four
    live-DB rows running.
-4. **NEXT: step 6 — dual review**, then step 5's `--review` gate (adds
-   diff-coverage), then step 8's high lane: **staging ride before `main`**, PR,
-   then pause for owner merge approval. Merge order is **#677 → #679 →
-   #676(absorbed)**.
-4. Step 5 gate: `scripts/verify-gate.sh`. **`TEST_DATABASE_POOL_URL` must be
-   set** — four live-DB suites carry this feature's load-bearing semantics, and
-   a gate with the SKIP warning is not review-ready for this ticket. Run
-   `pnpm test:db:setup` first if the local DB is behind head.
-5. Step 8 is the **high lane**: staging ride before `main`, then PR, then pause
-   for owner merge approval.
+4. ~~Step 6 — deviations read-back~~ — **done at `7f4658c8`.** All nine entries
+   ACCEPT, zero RE-PLAN, each verdict checked against code rather than against
+   the file's own prose.
+5. ~~Step 7 — review, round 1~~ — **done.** Three axes in parallel: spec
+   `APPROVE WITH CHANGES`, standards `REQUEST CHANGES`, Codex adversarial
+   `needs-attention`. Reports + consolidated triage committed at `a161730f`
+   (`docs/reviews/<branch>/`). **10 accepted, 5 rejected with reasoning, 3
+   escalated to the owner.** `branchReviewRounds = 1`.
+6. ~~Owner decisions~~ — **done at `a34e2467`** (D10–D13): ship order
+   re-affirmed; extract the triplicated enqueue now; inheritance must not carry
+   a live deadline.
+7. ~~Fix round~~ — **done at `1a1905d6`** (four parallel batches, disjoint file
+   sets) **and `e3a23329`** (locked-title restore + the `reclassify` step-0
+   re-run, D15).
+8. **Gate GREEN 28/28 in full mode at `e3a23329`**, `--review` variant, so
+   `diff-coverage` and `merge-coverage` both pass and all four live-DB rows ran.
+   `reclassify` no longer fires.
+9. **NEXT: step 8, the high lane.** Land on `staging` first (push →
+   full stack auto-deploys; migrations to the staging Supabase project FIRST —
+   though **no migration rides this ticket**), smoke the touched path, then open
+   the PR to `main`, confirm CI green, and **PAUSE for owner merge approval**.
+   Merge order is **#677 → #679 → #676(absorbed)**.
+
+**Standing totals at review completion:** surface amendments **1 of 2** (D4
+only — D2, D8, D9, D14 were all inside existing trees or mechanical
+consequences of settled scope); `planReviewRounds` **3** (exhausted);
+`branchReviewRounds` **1**; gate-fail rounds **1 of 3**; `tests_to_add` **70**;
+`open_questions` **[]**.
+
+**Two things deliberately NOT done, both to protect the surface budget** — a
+2nd amendment is itself an abort trigger, so neither was worth it:
+- `src/lib/shared/worker-types.ts:226-227` keeps a stale `needs_backfill`
+  JSDoc (D13). Outside the surface. Handed to #679.
+- `ImportOfferBanner` shares stagger index `section-enter-2` with the hero band,
+  so they animate together instead of stepping. `console.css` defines only
+  `-1…6` and all six are claimed; stepping the page means renumbering
+  `NeedsAttentionList.tsx`, outside the surface. Cosmetic only.
 
 ## Traps this feature has already walked into once
 
