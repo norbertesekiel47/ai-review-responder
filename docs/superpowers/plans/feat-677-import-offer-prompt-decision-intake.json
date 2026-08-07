@@ -156,7 +156,7 @@
     "add-location leaves import consent pending when no archived sibling exists for the place",
     "add-location inherits consent from the most recently archived sibling in the same account and ignores foreign-account siblings",
     "add-location inherits consent through google_maps_url when the archived sibling has a NULL google_place_id",
-    "add-location copies accepted and live-pending sibling consent verbatim including both timestamps",
+    "add-location copies accepted sibling consent verbatim and inherits a live-pending sibling decision without its deadline",
     "ImportOfferBanner renders the one-time import wording and the automatic-handling reassurance",
     "ImportOfferBanner renders nothing when no import offer is pending",
     "ImportOfferBanner posts the accept decision and only shows importing after the request succeeds",
@@ -177,7 +177,8 @@
     "readImportOfferView reports the imported count for a completed run against live Postgres",
     "readImportOfferView returns the offer state for a live pending offer against live Postgres",
     "ImportOfferBanner renders the imported count and announces the terminal transition through LiveRegion",
-    "every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT"
+    "every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT",
+    "add-location copies an expired sibling's past deadline so the re-added row still derives expired"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "800",

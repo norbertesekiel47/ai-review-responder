@@ -474,3 +474,149 @@ The plan did not specify this; the constraint found it.
 
 **Budget:** owner approved both batches on D8's reading — mechanical consequences
 of approved scope do not consume the 2-amendment budget. **Still 1 of 2 used (D4).**
+
+---
+
+## D10 — Round-1 review: three owner decisions (owner-decided, 2026-08-07)
+
+Step 7 round 1 ran three axes (spec `APPROVE WITH CHANGES`, standards
+`REQUEST CHANGES`, Codex adversarial `needs-attention`). Triage is in
+`docs/reviews/feat-677-import-offer-prompt-decision/triage-round-1.md`: 10
+accepted, 5 rejected with reasoning, 3 escalated. The three escalations and the
+owner's calls:
+
+**1. Ship order — RE-AFFIRMED.** Codex returned a no-ship on the ground that
+consent is not enforced at the worker trust boundary. Correct, and already
+known: D1 + ADR 0015 R2 + the `Import consent` glossary entry all record that the
+fail-closed guard is #679's. Its own remedy ("hold behind a rollout gate until
+#679 is deployed") is materially what ADR 0015 R2 decided. Premises re-checked
+at review time and all still hold — production holds zero customers, GA stays
+gated behind #286–#290, and the only remaining opening is the manual admin path
+that #679 exists to close. **Merge order #677 → #679 stands.**
+
+**2. Enqueue triplication — EXTRACT NOW.** See D11.
+
+**3. Inheritance bypassing the junction — FIX, with a refinement the owner's
+chosen option required.** See D12.
+
+---
+
+## D11 — The recorded `ci:outbox-seam` blocker was false (owner-decided, 2026-08-07)
+
+The handoff's "Decided from the code" section recorded, as settled: *"The outbox
+enqueue is a raw `INSERT INTO job_outbox`. No helper exists for
+`ZERNIO_INITIAL_BACKFILL`; minting one turns every raw producer red under
+`ci:outbox-seam`."* Round 1's standards axis called this false; verified, and it
+is.
+
+**What the audit actually does.** `scripts/ci/outbox-seam-audit.ts:84` pins
+`HELPER_MODULE` to `src/lib/shared/job-outbox-helpers.ts`, and `:458` derives the
+helper-topic key set **only** from that file. So the true statement is narrower
+than the recorded one:
+
+- Minting a helper **in `job-outbox-helpers.ts`** → every raw `ZERNIO_INITIAL_BACKFILL`
+  producer turns red and must migrate in the same PR. This part was right.
+- Extracting a shared function **anywhere else** → the audit does not see a
+  helper, one raw `INSERT` remains for a topic with no helper, which is legal
+  under invariant #2's carve-out. **CI stays green.**
+
+The recorded reasoning conflated the two, and the cost was three copies of the
+enqueue across three directories with the completed-run guard spelled three
+different ways.
+
+**Not a cosmetic cost.** The copies had already diverged: the three gates
+suppress on **any** completed run while `readImportOfferView` scopes to
+`run_reason = 'initial'`, so a completed *reactivation* run permanently
+suppresses an initial import the banner still reports as `importing`, on a 4s
+poll, forever. Found independently by two axes (spec #4, standards #7).
+
+**Owner decision: extract `enqueueInitialImport` into `import-consent.ts` now**,
+in this ticket, rather than ticket it. Reasoning recorded because it cuts against
+the small-diff bias: the divergence has already produced a real bug, the fix for
+that bug edits those same predicates anyway, and doing both in one pass is less
+total risk than two. It also hands #679 **one** chokepoint to put its
+fail-closed guard behind instead of four.
+
+**No surface amendment** — every file involved is already in
+`allowed_edit_surface`. Budget stays **1 of 2 (D4)**.
+
+---
+
+## D12 — Inheritance must not carry a LIVE deadline; the first-choice fix would have tripped the abort criteria (owner-decided + orchestrator correction, 2026-08-07)
+
+**The defect.** `add-location-tx.ts:280-306` copies `import_offer_expires_at`
+straight from the archived sibling — a direct write to the deadline column that
+bypasses `createImportOffer`, the module whose own header states it proves both
+junction halves *"because the callers do not check, so the helper must."*
+Inheritance is a caller that writes the column without going through it.
+
+Confirmed reachable, three steps each verified against code: the copy at
+`add-location-tx.ts:280-306` (no junction predicate) → `import-offer-view.ts:105-109`
+returns `state: 'offer'` for any `pending` row with a non-NULL live deadline (no
+junction check) → `recordImportDecisionAndEnqueue`'s guard is `pending AND
+IS NOT NULL AND > now()` (no junction check, by design). So: archive a location
+holding a live unanswered offer, re-add the same place, and the new row presents
+an answerable offer with **no active `zernio_connections` row**, possibly before
+its own activation. Accepting enqueues an import the worker cannot service.
+
+**Severity, stated precisely.** Not a consent violation — the owner genuinely was
+offered the import for that place, and nothing imports without their Yes. The
+blast radius is an enqueue for an unconnected location, which fails visibly. It
+is a broken invariant, not unauthorized access.
+
+**The correction that matters for the next session.** The owner chose "inherit
+the decision, leave the deadline NULL". Presented that way it was incomplete:
+leaving the deadline NULL for an *expired* sibling makes the re-added row
+eligible for a fresh offer, and `user_visible_behavior` locks the opposite,
+verbatim — *"Re-adding a location whose archived row … had declined **or let the
+offer expire** does not re-offer the import; the new row inherits that
+decision."* Per step 5's abort criteria, a deviation that invalidates a locked
+intake decision means post-mortem and teardown. The option as literally stated
+would have aborted the branch to fix a Medium.
+
+**The rule actually implemented** — delivers the owner's intent, preserves every
+locked behaviour: **copy the deadline only when it is already in the past; leave
+it NULL when it is live.**
+
+| Sibling state | Deadline | Result | Status |
+|---|---|---|---|
+| `declined` | irrelevant | never re-offered | locked ✅ |
+| `accepted` | irrelevant | import runs for the new row | locked ✅ |
+| `pending`, deadline passed | **copied** | derives expired, never re-offered | locked ✅ |
+| `pending`, deadline live | **NULL** | fresh offer at the new row's OWN junction | **hole closed** |
+
+D3's "no branching, copies all three verbatim" gives way to one `CASE`. That is
+a demotion of an aesthetic argument by evidence: D3's case was "every case lands
+correctly", and the live-pending case does not.
+
+**Test consequences** (deviations-file entries per D5, NOT surface amendments —
+budget stays **1 of 2**):
+
+- **Title 48 retitled.** Was *"add-location copies accepted and live-pending
+  sibling consent verbatim including both timestamps"* — "verbatim including
+  both timestamps" is now false for the live-pending half.
+- **One title added, 69 → 70**, pinning the expired case: the past deadline IS
+  copied, so the row still derives expired. That is the regression guard for the
+  locked `user_visible_behavior` item this deviation came within one option of
+  breaking.
+
+**Codex's wider claim is separately rejected** — that inherited `accepted` causes
+a second import for the same place. Reviews are stored per `business_id`; a
+re-added row has zero reviews and genuinely needs its inventory. D3's table is
+right about that.
+
+---
+
+## D13 — One stale JSDoc is deliberately left for #679 (surface-budget decision, 2026-08-07)
+
+Round 1 (standards #4) found three JSDocs still describing the `needs_backfill`
+predicate this diff deletes. Two are fixed here (`finalize-tx.ts:30`,
+`worker/ingress/stripe/shared.ts:79`). The third, **`src/lib/shared/worker-types.ts:226-227`,
+is NOT** — `src/lib/shared/**` is not in `allowed_edit_surface` (only
+`src/lib/shared/__tests__/**` is), so touching it would be **amendment 2 of 2**,
+and a 2nd surface amendment is itself an abort trigger.
+
+Spending the teardown budget on a comment is the wrong trade. Handed to #679,
+which already needs its own amendments for the migration and the analytics doc.
+CLAUDE.md's "grep the filename to clean every cross-reference in the same change"
+is knowingly and narrowly broken here, with the reason recorded.
