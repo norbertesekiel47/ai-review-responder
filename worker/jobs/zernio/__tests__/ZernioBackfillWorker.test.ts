@@ -10,6 +10,7 @@ import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-co
 const {
   sqlReturnQueue,
   mockSql,
+  sqlCalls,
   resetMockSql,
   mkTaggedResult,
   mockMarkOutboxCompleted,
@@ -98,6 +99,7 @@ import {
   IMPORT_TARGET_COUNT,
   IMPORT_FLOOR_MONTHS,
 } from '../ZernioBackfillWorker';
+import * as jobEligibility from '../job-eligibility';
 import { resetWorkerConfigForTests } from '../../../../src/lib/config/worker';
 
 // handleZernioBackfill now takes the injected client as its leading arg;
@@ -159,20 +161,56 @@ function page(reviews: ZernioReview[], nextPageToken?: string) {
   return { reviews, nextPageToken };
 }
 
-/** Push the 4 standard SQL results for a run that proceeds to the fetch:
- *  1. INSERT zernio_backfill_runs (ON CONFLICT DO NOTHING → no rows)
- *  2. SELECT run row → not yet completed
- *  3. SELECT businesses⋈accounts (eligibility gate) → active
- *  4. SELECT zernio_connections → connected_at row
+/** The derived Import consent state the guard's SELECT returns (#679). */
+type ImportConsentFixture = 'accepted' | 'declined' | 'pending' | 'expired' | 'missing';
+
+/**
+ * True once T3 exports `guardImportConsent` from job-eligibility.ts.
+ *
+ * T0 SCAFFOLD — DELETE THIS AND THE `if` BELOW IN T4, once the gate is wired
+ * in. `sqlReturnQueue` is a FIFO of results for AWAITED queries, so a result
+ * the handler does not consume shifts every later query onto the wrong row.
+ * Queuing the consent read before the code that reads it exists would turn 30
+ * unrelated backfill tests red with "Backfill row not found" — noise that hides
+ * exactly the 26 titles this eval commit is supposed to fail on.
+ */
+const consentGuardShipped = (): boolean =>
+  typeof (jobEligibility as unknown as { guardImportConsent?: unknown }).guardImportConsent
+    === 'function';
+
+/** Queue the consent gate's one read. 'missing' = no businesses row at all. */
+function pushImportConsentState(state: ImportConsentFixture) {
+  if (!consentGuardShipped()) return;
+  sqlReturnQueue.push(mkTaggedResult(state === 'missing' ? [] : [{ state }]));
+}
+
+/** Push the 5 standard SQL results for a run that proceeds to the fetch:
+ *  1. SELECT businesses (Import consent gate, #679) → 'accepted'
+ *  2. INSERT zernio_backfill_runs (ON CONFLICT DO NOTHING → no rows)
+ *  3. SELECT run row → not yet completed
+ *  4. SELECT businesses⋈accounts (eligibility gate) → active
+ *  5. SELECT zernio_connections → connected_at row
  *  Counts/completed UPDATE results are not queued — the mock yields [] on an
  *  empty queue, which is what an UPDATE returns anyway.
+ *
+ *  The consent read is FIRST because the fail-closed gate runs before the
+ *  zernio_backfill_runs INSERT (#679 T4): a refused run must leave no durable
+ *  trace at all. `importDecision` varies the derived state — 'missing' queues
+ *  no row, i.e. the businesses row does not exist.
  */
 function pushImportSqlSetup(opts: {
   runId?: string;
   connectedAt?: Date | null;
   noConnection?: boolean;
+  importDecision?: 'accepted' | 'declined' | 'pending' | 'expired' | 'missing';
 } = {}) {
-  const { runId = 'run-1', connectedAt = new Date(CONNECTED_MS), noConnection = false } = opts;
+  const {
+    runId = 'run-1',
+    connectedAt = new Date(CONNECTED_MS),
+    noConnection = false,
+    importDecision = 'accepted',
+  } = opts;
+  pushImportConsentState(importDecision);
   sqlReturnQueue.push(mkTaggedResult([]));
   sqlReturnQueue.push(mkTaggedResult([{ id: runId, completed_at: null }]));
   sqlReturnQueue.push(mkTaggedResult([{
@@ -305,6 +343,9 @@ describe('ZernioBackfillWorker', () => {
   // cancelled to pin the archived-before-subscription ordering: the exit must
   // be the queryable archived path, not the silent subscription skip.
   it('archived location: skip-as-success — listReviews never called, structured log, outbox completed', async () => {
+    // 0. SELECT businesses (Import consent gate, #679) → accepted, so the run
+    //    reaches the archived guard rather than exiting one gate earlier.
+    pushImportConsentState('accepted');
     // 1. INSERT zernio_backfill_runs (no result needed)
     sqlReturnQueue.push(mkTaggedResult([]));
     // 2. SELECT run row (not yet completed)
@@ -333,24 +374,32 @@ describe('ZernioBackfillWorker', () => {
     expect(findCompletedAtUpdates()).toHaveLength(0);
   });
 
-  // Row-missing guard: the shared eligibility gate checks "no businesses⋈
-  // accounts row" BEFORE reading archived_at, and the backfill lane keeps its
-  // historical subscription_status=missing skip line.
-  it('missing business/account row: skip-as-success with subscription_status=missing log', async () => {
-    // 1. INSERT zernio_backfill_runs (no result needed)
-    sqlReturnQueue.push(mkTaggedResult([]));
-    // 2. SELECT run row (not yet completed)
-    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
-    // 3. SELECT business → no row
-    sqlReturnQueue.push(mkTaggedResult([]));
+  // Row-missing guard, REWRITTEN for #679. With the fail-closed consent gate
+  // running FIRST, a missing `businesses` row is intercepted there and
+  // `guardZernioJobEligibility`'s backfill-only `subscription_status=missing`
+  // line becomes unreachable for this worker. That is deliberate — the
+  // fail-closed reason is the more accurate one — so the test asserts the new
+  // authority rather than a branch that can no longer fire.
+  it('handleZernioBackfill blocks a missing business row before the subscription_status=missing skip line', async () => {
+    // The consent gate's SELECT finds no row → fail closed. Nothing else is
+    // queued: no INSERT, no run SELECT, no eligibility SELECT should run.
+    pushImportConsentState('missing');
 
     await handleZernioBackfill(sqlArg, makeJob());
 
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockImportReview).not.toHaveBeenCalled();
+    expect(findBackfillInsertCalls()).toHaveLength(0);
     expect(mockLogger.log).toHaveBeenCalledWith(
-      expect.stringContaining('subscription_status=missing'),
+      expect.any(String),
+      expect.objectContaining({ reason: 'missing', business_id: 'biz-1' }),
     );
+    // The old skip line is now dead for the backfill lane. Asserting its
+    // ABSENCE is what stops a later edit from re-ordering the guards and
+    // quietly reopening the consent hole while the test still passed.
+    for (const call of mockLogger.log.mock.calls) {
+      expect(String(call[0])).not.toContain('subscription_status=missing');
+    }
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
@@ -963,7 +1012,9 @@ describe('consented import selection (#675)', () => {
   });
 
   it('skips all provider and storage work when the run is already completed', async () => {
-    // 1. INSERT (ON CONFLICT no-op); 2. run SELECT → completed sentinel.
+    // 0. consent gate → accepted; 1. INSERT (ON CONFLICT no-op);
+    // 2. run SELECT → completed sentinel.
+    pushImportConsentState('accepted');
     sqlReturnQueue.push(mkTaggedResult([]));
     sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: new Date(T_NOW - 86_400_000) }]));
 
@@ -1002,6 +1053,7 @@ describe('consented import selection (#675)', () => {
     // Attempt 2, same correlation_id: the correlation-keyed claim resolves to
     // the SAME (now completed) run row → sentinel skip, no provider work.
     resetHarnessForNextRun();
+    pushImportConsentState('accepted');
     sqlReturnQueue.push(mkTaggedResult([]));
     sqlReturnQueue.push(mkTaggedResult([{ id: 'run-r', completed_at: new Date(T_NOW) }]));
 
@@ -1073,5 +1125,150 @@ describe('consented import selection (#675)', () => {
     expect(importedIds().sort()).toEqual(['dup-b', 'r-a', 'r-c']);
     const [countsCall] = findImportCountsCalls();
     expect(countsCall!.slice(1)).toEqual([3, 0, null, 'run-1']);
+  });
+});
+
+// ── #679 fail-closed Import consent gate (spec §5.3) ─────────────────────
+// Titles are the intake's tests_to_add VERBATIM (promised-tests gate).
+//
+// The four enqueue producers have been consent-gated since #677, but the WORKER
+// was not: a hand-inserted zernio_initial_backfill outbox row still imported a
+// customer's review history without consent. ADR 0015 §3 accepted that only
+// while production held zero customers. These titles close it.
+
+describe('import consent gate (#679)', () => {
+  /** First `sqlCalls` index whose flattened text matches, or -1. */
+  function firstSqlCallIndex(needle: string): number {
+    return sqlCalls.findIndex((call) => call.text.includes(needle));
+  }
+
+  it('handleZernioBackfill runs guardImportConsent before inserting the zernio_backfill_runs row', async () => {
+    // Ordering IS the contract (T4, owner decision 2026-08-07): the gate runs
+    // immediately after extractOutboxHandle and BEFORE the run-row INSERT, so a
+    // refused run leaves no durable trace at all — not even a claimed
+    // zernio_backfill_runs row an operator would later read as "the import was
+    // attempted".
+    pushImportSqlSetup();
+    mockListReviews.mockResolvedValueOnce(page([]));
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    const consentIndex = firstSqlCallIndex('import_decision');
+    const insertIndex = firstSqlCallIndex('INSERT INTO zernio_backfill_runs');
+    expect(consentIndex, 'no Import consent read was issued').toBeGreaterThanOrEqual(0);
+    expect(insertIndex).toBeGreaterThanOrEqual(0);
+    expect(consentIndex).toBeLessThan(insertIndex);
+    // And it is the FIRST statement the handler runs, not merely an earlier one.
+    expect(consentIndex).toBe(0);
+  });
+
+  it('handleZernioBackfill writes no zernio_backfill_runs row when consent blocks the run', async () => {
+    pushImportConsentState('pending');
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    // The queryable proof the block holds (intake `observability` item 3): zero
+    // zernio_backfill_runs rows for a business whose consent is not accepted.
+    expect(findBackfillInsertCalls()).toHaveLength(0);
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+    // Skip-as-success: completed, never failed or thrown.
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('handleZernioBackfill leaves completed_at untouched when consent blocks the run', async () => {
+    pushImportConsentState('declined');
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    // Nothing durable is written at all — no run row to stamp, no counts, no
+    // completion. Spec §5.1's retryability lives on the completed_at IS NULL
+    // sentinel, and a consent skip must never consume it.
+    expect(findCompletedAtUpdates()).toHaveLength(0);
+    expect(findImportCountsCalls()).toHaveLength(0);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('handleZernioBackfill blocks a hand-inserted outbox row for a pending business', async () => {
+    // THE HOLE THIS TICKET CLOSES. A row nobody's consent produced — the admin
+    // re-enqueue path, or a bug — is refused on the same predicate, which is
+    // what makes D8's "blocked permanently, admin path included" true rather
+    // than aspirational.
+    pushImportConsentState('pending');
+
+    await handleZernioBackfill(sqlArg, makeJob({ outbox_id: 'outbox-hand-inserted-1' }));
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockImportReview).not.toHaveBeenCalled();
+    expect(findBackfillInsertCalls()).toHaveLength(0);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(
+      sqlArg, 'outbox-hand-inserted-1', undefined,
+    );
+  });
+
+  it('handleZernioBackfill gates a reactivation backfill on accepted consent', async () => {
+    // No exemption for backfill_reason 'reactivation'. The reactivation producer
+    // (archive-location-tx.ts) already requires `accepted`, and an answered
+    // decision outranks its deadline — so a post-expiry reactivation catch-up
+    // for an accepted business still passes, while a declined one does not.
+    pushImportConsentState('declined');
+
+    await handleZernioBackfill(sqlArg, makeJob({ backfill_reason: 'reactivation' }));
+
+    expect(findBackfillInsertCalls()).toHaveLength(0);
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+
+    // The other half, so the gate cannot be read as "reactivation is blocked":
+    // accepted consent still runs the catch-up through its correlation-keyed
+    // claim.
+    resetHarnessForNextRun();
+    pushImportSqlSetup({ runId: 'run-r', importDecision: 'accepted' });
+    mockListReviews.mockResolvedValueOnce(page([makeReview('rev-reactivated', inWindowMs(0))]));
+
+    await handleZernioBackfill(sqlArg, makeJob({ backfill_reason: 'reactivation' }));
+
+    const [reactivationInsert] = findBackfillInsertCalls();
+    expect(reactivationInsert).toBeDefined();
+    expect((reactivationInsert![0] as readonly string[]).join('?')).toContain('ON CONFLICT (correlation_id)');
+    expect(mockImportReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleZernioBackfill makes no Zernio API call when consent blocks the run', async () => {
+    // `observability` item 4: a block must be distinguishable from a fetch that
+    // returned nothing — no listReviews call means no api_costs row and no
+    // pagination log line.
+    pushImportConsentState('expired');
+
+    await handleZernioBackfill(sqlArg, makeJob());
+
+    expect(mockListReviews).not.toHaveBeenCalled();
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockOpenPhiReviewException).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+  });
+
+  it('handleZernioBackfill throws on an unsupported tier before reaching the consent guard', async () => {
+    // THE MALFORMED-PAYLOAD CARVE-OUT, pinned so a later reorder is a red test
+    // rather than a silent behaviour change. `isSubscriptionTier` throws at
+    // ZernioBackfillWorker.ts:135-137, before extractOutboxHandle and therefore
+    // before the consent gate. That ordering STAYS: an unparseable tier is an
+    // impossible state to assert on, not a state to branch around, and no import
+    // happens on either path — only the outbox disposition differs (throw/retry
+    // rather than skip-complete), so the consent promise is intact. Moving
+    // consent ahead of tier validation was proposed in review and rejected: it
+    // trades a loud bug signal for a silent skip.
+    const unsupportedTier = 'retired_tier' as unknown as SubscriptionTierValue;
+
+    await expect(handleZernioBackfill(
+      sqlArg,
+      makeJob({ subscription_tier: unsupportedTier }),
+    )).rejects.toThrow('invalid_ws8_subscription_tier:retired_tier');
+
+    // No consent read, and no transaction opened for one.
+    expect(sqlCalls).toHaveLength(0);
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 });
