@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 7 — THRESHOLD EXCEEDED, a review is overdue** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05; #682 — #674 importReview keystone, 2026-08-05; #685+#686 — #673 import-consent schema, migrations 100+101, 2026-08-05; #689 — #675 consented-import selection, 2026-08-06)
+**Merges since last architecture pass: 8 — THRESHOLD EXCEEDED, a review is overdue** (#640 — #625 consent ledger, 2026-08-01; #647 — #643 suppression ledger, 2026-08-03; #654 — #644 unsubscribe opt-out, 2026-08-03; #659 — #645 manual suppression paths, 2026-08-05; #682 — #674 importReview keystone, 2026-08-05; #685+#686 — #673 import-consent schema, migrations 100+101, 2026-08-05; #689 — #675 consented-import selection, 2026-08-06; #691 — #677 import offer + decision API, 2026-08-07)
 
 Scope the next pass should cover: the four findings this pass opened — **#590** (gate-wiring drift: `ci:*` set spelled out in three unsynchronised places), **#591** (two worker suites forked the shared `sql` mock), **#592** (`exec` blind spot in the SQL vocabulary audits), **#593** (`solicitation_asks.evidence` discriminant enforced at read, not write) — plus whether #590's meta-audit actually closed the "checks that appear to run but exercise nothing" class, and the still-open **#581**, **#582**, **#587**.
 
@@ -153,6 +153,39 @@ permission classifier so the owner ran it by hand. feature.md step 8 still says
   the candidates in the lab-notes entry) and whether the amendment protocol should
   REQUIRE the amending session to open a PR against the running feature's intake
   copies rather than posting a comment and hoping.
+
+Added by #691 (#677), for the next pass to weigh. **The staging-reconcile item
+reached its SIXTH occurrence** (#647, #654, #659, #682, #685, #691) — same
+divergence, same `reset --hard` + `--force-with-lease`. feature.md step 8 still
+says "fast-forward `staging` onto `main`", which **cannot** work after a squash
+merge: `main` gets one new commit whose parent is the old `main`, so the branch
+tip is not an ancestor and `--ff-only` always fails. This is not an
+environment quirk to be re-diagnosed each ship; it is the deterministic
+consequence of squash-merging, and the workflow text is simply wrong. **The pass
+should decide whether step 8 says "reset `staging` to `main`" outright**, and
+whether the tree-equality check (`git rev-parse origin/staging^{tree}` ==
+`origin/main^{tree}`) that makes the force-push provably content-neutral belongs
+in the workflow as a required precondition. Two further findings:
+
+- **The `fallow`-outside-the-local-gate class reached its THIRD consecutive
+  occurrence** (#659, #689, #691), each costing a post-open fix commit, a gate
+  re-run, and — on RISK=high branches — a staging re-ride. The #689 lab note
+  already prescribes running `pnpm ci:fallow` before opening the PR; prescribing
+  it in lab-notes has now failed twice. **The pass should ask whether the
+  step-8 preflight should RUN it** rather than document it, given
+  `verify-gate.sh` deliberately excludes `ci:fallow*` and that exclusion is
+  correct on its own terms. Note the clone half has a surface-budget
+  interaction: fallow matches clones repo-wide, so the reported partner can sit
+  outside the branch's surface and "fix it there" costs an amendment.
+- **`verify-gate.sh` and the /feature workflow both own `.feature/state.json`'s
+  `phase`, and the gate's write is unconditional.** Running the gate after
+  review completion rewinds `reviewed` → `gate_green`, which makes a resumed
+  session re-enter step 7 and open a review round against feature.md's cap on
+  already-reviewed code. Hit twice in the #677 ship session. This is the mirror
+  of #675's opposite trap (the phase had to be *held* at `executing`). **The
+  pass should decide who owns that field** — a gate that only ever advances, a
+  gate that writes `lastGreenGateSha` but never `phase`, or an explicit
+  `--phase` flag.
 
 | Date | Trigger | Scope reviewed | Outcome |
 |------|---------|----------------|---------|

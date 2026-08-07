@@ -1668,3 +1668,122 @@ poller suite. Entropy counter now **7 — the architecture pass due since 6 is
 still owed.**
 
 ---
+
+## Consented Review Import — the offer (#677, PR #691, no migration, 2026-08-07)
+
+Closes #677, **absorbs #676**. Map #667. Merge order was and remains
+**#677 → #679 → #676(absorbed)**. Merged `fc2437ae`; 27 files,
+**+5,384 / −238** (1,540 production / 3,846 test).
+
+### What shipped
+
+#673 built the consent columns (migrations 100+101), #674 made `importReview`
+draft-free, #675 made selection consented and bounded. #677 ships the part that
+lets an owner actually say yes.
+
+**New modules**
+
+- `src/lib/reviews/import-consent.ts` — the single owner of spec §5.3's
+  derived-expiry predicate and of every write to it: `importConsentStateSql`
+  (composable fragment, **no interpolation — callers alias `businesses` as
+  `b`**), `readImportConsent`, `createImportOffer`, `recordImportDecisionAndEnqueue`,
+  and the one shared `enqueueInitialImport`.
+- `src/lib/reviews/import-offer-view.ts` — `readImportOfferView` → discriminated
+  union `none / offer / importing / imported / empty / failed`. `completed_at`
+  decides done, never `imported_count`. Run rows scoped to `run_reason='initial'`.
+
+**Route + UI**
+
+- `src/app/api/dashboard/import-offer/route.ts` — GET (state + self-heal),
+  POST (accept | decline, `withSameOrigin`, zod-validated). Four outcomes map to
+  200 / 409 / 409 / 404 so the banner can distinguish "too late" from "recorded"
+  without inspecting a body field.
+- `ImportOfferBanner.tsx` + `DashboardContent.tsx` mount. Polls only while
+  `importing`; advances only on a successful POST, never optimistically; query
+  key includes the scoped `locationId`.
+
+**All four enqueue producers gated** on `accepted` under the `businesses` row
+lock: connect finalize, Stripe activation resume, reactivation catch-up, and the
+decision route.
+
+### Decisions
+
+1. **Offer created at the junction, in-transaction** — not lazily on render.
+   `createImportOffer` proves both junction halves in its own SQL.
+2. **Deadline is `now() + 7 days` at creation; no junction anchor.** Anchoring
+   was self-invented, cost two High findings across two review rounds, deleted
+   by owner adjudication 2026-08-06.
+3. **`import_offer_expires_at IS NOT NULL` is load-bearing** — migration 100's
+   `pending` + NULL default is deliberately not an offer (round-1 Critical).
+4. **The GET writes, deliberately** — an idempotent self-heal behind two cheap
+   gates (is there any offer to create; may this owner be written for). This is
+   what makes best-effort offer creation on the Stripe path acceptable.
+5. **Inheritance copies a past deadline, never a live one** (D12) — the
+   first-choice phrasing would have invalidated a locked `user_visible_behavior`
+   term and tripped the abort criteria.
+
+### Three bugs review caught that tests did not
+
+- **A4** — three diverged copies of the enqueue guard, none matching the view's.
+  A completed *reactivation* run permanently suppressed the one-time initial
+  import while the banner, correctly scoped to `initial`, reported `importing`
+  forever on a 4s poll. Consolidated into one `enqueueInitialImport`, which also
+  hands #679 one chokepoint instead of three.
+- **A1** — a read-only GET minting 7-day offers for past-due owners, permanently
+  consuming a one-time offer they could never answer.
+- **A5** — every location took an exclusive row lock and ran a provably no-op
+  UPDATE on every dashboard mount and every 4s poll tick.
+
+### Plan defects found during execution
+
+- **D7** — the analytics events were impossible as specified: extending the
+  `analytics_events.event_name` CHECK needs a migration the intake's own
+  non-goals forbid. Moved to #679; `src/lib/analytics/events.ts` was **removed**
+  from the surface so the guard enforces the deferral.
+- **D9** — `importConsentStateSql`'s published signature was unimplementable
+  against the repo's hand-rolled `sql` mocks; and `ci:tenant-scope` cannot see
+  predicates inside subqueries, which reshaped three queries to bind tenant keys
+  at the top level (allowlist baseline **420 → 418**, a net shrink).
+- **D11** — the recorded `ci:outbox-seam` blocker was **false**; the audit
+  derives helper coverage only from `job-outbox-helpers.ts`.
+
+### Process
+
+Three plan-review rounds, all `REVISE`. Three review axes (spec / standards /
+Codex adversarial): 10 findings accepted and fixed across four parallel batches,
+5 rejected with reasoning, 3 escalated to owner decision. Surface amendments
+**1 of 2**. Gate-fail recovery rounds **2 of 3** (the second was the fallow fix).
+
+### Staging proof (2026-08-07)
+
+Full loop walked in-browser as the owner on `Tanicia Resort`
+(`019fd299…`), staging at `685226d4`:
+
+- GET self-healed a missing offer — deadline written `now()+7d` at page load.
+- The junction predicate **discriminated between two same-named businesses**:
+  only the one with an active connection got a deadline.
+- Accept committed `accepted` with the deadline preserved; the first accept
+  enqueued **nothing**, because a completed `initial` run from #675's staging
+  work already existed (the F101/A4 guard working as designed).
+- Clearing that run's `completed_at` produced the fresh enqueue
+  (`backfill_reason:'initial'` explicit) → `dispatched` in ~3s → `importing`
+  banner → `Import complete … imported=29 skipped=0 pages=4` with a
+  `correlation_id` matching the outbox payload exactly.
+- Insert-only held under a genuine re-run: every external reply hit
+  `ON CONFLICT`, `reviews` stayed at 66. Zero console errors.
+
+### CI
+
+`fallow` failed on first open (unused type export + a 9-line clone) — the third
+consecutive occurrence of the fallow-outside-the-local-gate class. Fixed
+in-surface: de-exported `ImportDecisionRejection`, and extracted a module-private
+`resolveScopeOrResponse` justified by the route's own two handlers, which
+dissolved the cross-file clone without touching the out-of-surface partner.
+Staging was re-ridden so it carried exactly what merged. Final: **15/15 green**.
+
+### Deliberately left
+
+- `src/lib/shared/worker-types.ts:226-227` stale `needs_backfill` JSDoc (D13) —
+  outside surface, handed to #679.
+- `ImportOfferBanner` shares stagger index `section-enter-2` with the hero band;
+  `console.css` defines only `-1…6` and all six are claimed. Cosmetic.
