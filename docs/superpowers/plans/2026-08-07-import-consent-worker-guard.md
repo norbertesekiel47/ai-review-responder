@@ -23,7 +23,7 @@ Two slices, both deferred here by earlier tickets in map #667:
 1. **The fail-closed Import consent gate in `ZernioBackfillWorker`** (spec §5.3).
    The four enqueue producers are all consent-gated as of #677, but the worker is
    not — a hand-inserted `zernio_initial_backfill` outbox row still imports
-   without consent. ADR 0015 R2 accepts that only while production holds zero
+   without consent. ADR 0015 §3 accepts that only while production holds zero
    customers. This is the last consent hole in the epic.
 2. **The two Import offer analytics events** (#677 deviation D7).
    `import_offer_created` / `import_decision_recorded` need the
