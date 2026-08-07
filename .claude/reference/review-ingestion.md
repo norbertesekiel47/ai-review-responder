@@ -21,14 +21,18 @@ hash comparison). These are separate concerns — never mix them.
 > → `live_ingest_update`, and Zernio backfill/import → `backfill` — both always manual.
 > So if you change what counts as "new" vs "update/import" here, you are also changing
 > what can auto-post to Google. See the auto-approval design spec §5 (origin lanes).
+> (Since #675 the consented Review import enqueues **no generation at all**, so the
+> `backfill` lane gains no new rows — the vocabulary survives for pre-#675 rows.)
 
 > **Trial note (since migration 069 / PR #362):** the new `'trialing'` subscription
 > status is treated like `'active'` for ingestion — `trialing` accounts ARE included in
 > the backfill-resume enqueue (`worker/ingress/stripe/shared.ts`) and the per-cadence
-> review pollers. The **service-start anchor** that splits a backfill into *gap* (answer
-> these) vs *historical* — `accounts.subscription_activated_at`, mirrored to
-> `businesses.subscription_activated_at` — is set at **trial start** for trials (not at
-> first payment), so a trial's backfill buckets reviews from the day the trial began.
+> review pollers. `accounts.subscription_activated_at` (mirrored to
+> `businesses.subscription_activated_at`) is set at **trial start** for trials (not at
+> first payment); it still gates the backfill-resume enqueue and is recorded on the
+> run row, but since #675 it **buckets nothing** — the gap/historical split is dead
+> vocabulary; the import selects purely by the Import window (see the Consented
+> Review import section below).
 > Don't re-gate ingestion on "paying" status; gate on `subscriptionGrantsFullAccess`.
 
 ## Stable Identity Construction (SerpAPI mode)
@@ -135,6 +139,42 @@ then **fails closed** on a location mismatch: `extractLocationFromReviewName`
 **skips archived locations** (PR A spend-leak fix): `guardZernioJobEligibility`
 short-circuits jobs for an archived `business`, so an archived location never
 ingests or generates a draft.
+
+## Consented Review import (#675, PR #689)
+
+`ZernioBackfillWorker` (topic `zernio_initial_backfill`) is the consented
+Review import executor — NOT a backfill that answers anything. Selection is
+the pure `selectImportWindow`: newest **100** reviews with `createTime ∈
+[now − 12 months, live-ingest cutoff)`; the CONTEXT.md glossary owns both the
+**Import window** and **Live-ingest cutoff** terms. The cutoff
+(`liveIngestCutoff` in `zernio-ingest-shared.ts`, shared with
+`ZernioRecentReviewPoller`) makes lane ownership disjoint by construction:
+live lane ≥ cutoff, import < cutoff. Null `connected_at` → poller owns
+nothing, import unbounded above.
+
+- **No generation, no notifications**: unanswered reviews store via
+  `importReview` (draft-free since #674 — zero `job_outbox` writes); answered
+  reviews go through `reconcileExternallyAnsweredReview({ consentedImport:
+  true })` regardless of `EXTERNAL_REPLY_IMPORT_ENABLED`.
+- **Counters**: runs write collapsed `imported_count`/`skipped_count` (+
+  `oldest_skipped_create_time`) on `zernio_backfill_runs`; the four legacy
+  `gap_*`/`historical_*` columns freeze at DEFAULT 0 (#680 drops them).
+  `skipped_count` counts cap overflow + PHI/malformed only — out-of-window
+  reviews are unselected, not "skipped".
+- **Pagination**: `ZERNIO_IMPORT_MAX_PAGES` (default 6) caps `listReviews`
+  paging (pageSize 50, page-boundary dedup by review id). Early stops
+  (target met / floor passed) are trusted only while ordering is clean; a
+  non-descending page disables both for the run and it pages to feed end,
+  best-effort (the staging sandbox feed IS non-descending in practice — see
+  lab-notes). Cap exhausted with `nextPageToken` set and <100 in-window →
+  **terminal** `ZernioImportPaginationCapExhaustedError` (failed outbox row +
+  Sentry; NO `review_exceptions` row — distinct from the ingest worker's
+  `zernio_pagination_cap_exhausted` exception path); `completed_at` stays
+  NULL so ops can bump the cap and re-enqueue (consent permitting, spec §5.3).
+- **Idempotency**: one-shot per business for `run_reason='initial'`
+  (`completed_at` sentinel); reactivation runs key on `correlation_id`.
+- **Release constraint**: #679's fail-closed `import_decision='accepted'`
+  pre-flight must land before real customers; enqueue gates are #676.
 
 ## ReviewSource Contract
 
@@ -257,10 +297,16 @@ ${reviewId}), 0) + 1` because terminal rows (failed, superseded) might
 already occupy version 1. Migration 031's `responses_one_posted_per_review`
 partial unique index protects against duplicate `posted` rows on retry.
 
-**Branch 3 — "matched WITH active responses":** today's supersede/protect
-logic UNCHANGED. The flag does NOT affect this branch — protecting our own
-already-posted replies from being clobbered by a webhook echo remains the
-same regardless of the flag.
+**Branch 3 — "matched WITH active responses":** the supersede/protect logic
+is flag-independent — protecting our own already-posted replies from being
+clobbered by a webhook echo remains the same regardless of the flag. Since
+#675 the branch has a **consented tail**: in the consented lane
+(`consentedImport: true`), after superseding stale active drafts the external
+reply IS stored (PHI-gated via `phiGateAndImportExternalReply`) — UNLESS
+`protectedIds.size > 0`, i.e. one of the active responses is our own posted
+reply, which already represents the text locally (an imported `posted` row
+would duplicate it). The live lane (flag path) still converges on a later
+poll instead; a one-shot import cannot, which is why the tail exists.
 
 **Race-safety on the review INSERT:** Branch 1 uses
 `ON CONFLICT (provider, provider_review_name) DO UPDATE SET id = reviews.id RETURNING id`.
