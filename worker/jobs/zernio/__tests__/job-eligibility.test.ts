@@ -45,9 +45,17 @@ const {
    * is a mocked collaborator and issues no query of its own — so the flag has
    * to be sampled at call time, which is exactly the mock-sql helper's
    * documented `isInTransaction()` use.
+   *
+   * The EXECUTOR the completion was handed is deliberately not recorded.
+   * `mock-sql.ts:99-103` invokes the `sql.begin` callback with the same mock
+   * object, so `exec === mockSql` holds whether the implementation passes `tx`
+   * or the outer client — an assertion on it cannot fail for the property it
+   * would name. `inTransaction` is the property with teeth here; that the
+   * completion rides the guard's OWN transaction (and therefore its
+   * `businesses` row lock) is proven against real Postgres in
+   * `job-eligibility.integration.test.ts`.
    */
   const completionCalls: {
-    exec: unknown;
     outboxId: string;
     attempt: number | undefined;
     inTransaction: boolean;
@@ -58,9 +66,8 @@ const {
     mkTaggedResult,
     completionCalls,
     mockMarkOutboxCompleted: vi.fn(
-      (exec: unknown, outboxId: string, attempt: number | undefined) => {
+      (_exec: unknown, outboxId: string, attempt: number | undefined) => {
         completionCalls.push({
-          exec,
           outboxId,
           attempt,
           inTransaction: harness.isInTransaction(),
@@ -121,6 +128,23 @@ function runGuard(
 /** The shared fragment's own text, as the mock renders it. */
 function sharedFragmentText(): string {
   return (importConsentStateSql(sqlArg) as unknown as { text: string }).text;
+}
+
+/**
+ * The fragment's `WHEN … THEN 'expired'` arm ALONE.
+ *
+ * Bounded on purpose: the question a NULL deadline turns on is WHICH arm the
+ * null-guard sits in, and a `toContain` over the whole fragment (or over the
+ * guard's whole query, as this file previously did) passes with the conjunct
+ * moved anywhere at all — including into a WHERE clause, where it would change
+ * which rows the guard sees rather than which state they derive to.
+ */
+function expiredArmOf(fragmentText: string): string {
+  const start = fragmentText.indexOf('WHEN');
+  const end = fragmentText.indexOf("THEN 'expired'");
+  expect(start, 'the shared fragment has no WHEN arm').toBeGreaterThan(-1);
+  expect(end, "the shared fragment has no THEN 'expired' arm").toBeGreaterThan(start);
+  return fragmentText.slice(start, end);
 }
 
 function consentRead() {
@@ -187,15 +211,32 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
 
   it('guardImportConsent blocks a pending business whose offer deadline is NULL', async () => {
     // Migration 100 DEFAULTs every business row to `pending` + NULL deadline,
-    // so this is the population the fail-closed gate exists for. The NULL is
-    // resolved IN THE DATABASE by the shared fragment's
-    // `import_offer_expires_at IS NOT NULL` arm — a guard that read the
-    // deadline into JS and branched there would have to re-derive expiry and
-    // would be the second spelling spec §5.3 forbids.
+    // so this is the population the fail-closed gate exists for.
+    //
+    // WHAT THIS SEAM CAN CONSTRUCT, AND WHERE THE CASE ACTUALLY LIVES (round-1
+    // review). The guard consumes the DERIVED state and never sees the deadline
+    // column, so `pushConsentState('pending')` on its own is byte-identical to
+    // the "has not expired" test above — a queued literal cannot express a NULL
+    // deadline, and a test that only queued one would advertise a case it never
+    // built. The NULL is decided one layer down, in the shared fragment, so that
+    // is where this pins it: the `'expired'` arm carries the
+    // `import_offer_expires_at IS NOT NULL` conjunct, so a NULL deadline cannot
+    // enter that arm and falls through to `ELSE b.import_decision` — which is
+    // precisely why `pending` is the state this population arrives as.
+    //
+    // Assert the derivation FIRST, then that the guard's query is that
+    // derivation, then the block. Reordered or dropped, the chain breaks: a
+    // guard that read `import_offer_expires_at` into JS and branched there would
+    // re-derive expiry (the second spelling spec §5.3 forbids) and would no
+    // longer contain the fragment at all.
+    const fragment = sharedFragmentText();
+    expect(expiredArmOf(fragment)).toContain('b.import_offer_expires_at IS NOT NULL');
+    expect(fragment).toContain('ELSE b.import_decision');
+
     pushConsentState('pending');
 
     expect(await runGuard()).toEqual({ kind: 'skipped' });
-    expect(consentRead().text).toContain('import_offer_expires_at IS NOT NULL');
+    expect(consentRead().text).toContain(fragment);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
   });
 
@@ -301,9 +342,9 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     expect(read.text).toContain('FOR UPDATE');
     expect(completionCalls).toHaveLength(1);
     expect(completionCalls[0]!.inTransaction).toBe(true);
-    // And it is the transaction handle that was passed, not the outer client.
-    // (The mock hands the callback the same object, so this is the weaker of
-    // the two assertions — `inTransaction` above is the one with teeth.)
-    expect(completionCalls[0]!.exec).toBe(mockSql);
+    // No assertion on WHICH executor the completion was handed: the mock gives
+    // the callback the same object either way, so `exec === mockSql` cannot
+    // fail. See the `completionCalls` note above — executor identity is pinned
+    // against real Postgres in the integration suite, by lock contention.
   });
 });

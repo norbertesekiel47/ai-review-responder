@@ -19,11 +19,32 @@ import { describe, expect, it } from 'vitest';
  */
 const RUNBOOK_PAGE = 'src/app/admin/runbook/page.tsx';
 
-/** The one scenario object, from its `id:` to the next scenario's (or the end). */
+/**
+ * The `SCENARIOS` array literal, and nothing else in the file.
+ *
+ * The outer bound is the whole point (round-1 review). A5 is the LAST entry, so
+ * a slice that ran "to the next scenario, else to the end" ran to the end of the
+ * FILE — every assertion below was then a whole-file-tail scan that would have
+ * survived A5's text being deleted outright, as long as the same strings turned
+ * up anywhere in the page component beneath it.
+ */
+function scenariosArray(source: string): string {
+  const open = source.indexOf('const SCENARIOS: Scenario[] = [');
+  expect(open, `SCENARIOS is missing from ${RUNBOOK_PAGE}`).toBeGreaterThan(-1);
+  const close = source.indexOf('\n];', open);
+  expect(close, `SCENARIOS is unterminated in ${RUNBOOK_PAGE}`).toBeGreaterThan(open);
+  return source.slice(open, close);
+}
+
+/**
+ * The one scenario object, from its `id:` to the next scenario's — or, for the
+ * last entry, to the end of the SCENARIOS array (never the end of the file).
+ */
 function scenarioBlock(source: string, id: string): string {
-  const start = source.indexOf(`id: '${id}'`);
+  const scenarios = scenariosArray(source);
+  const start = scenarios.indexOf(`id: '${id}'`);
   expect(start, `scenario ${id} is missing from ${RUNBOOK_PAGE}`).toBeGreaterThan(-1);
-  const rest = source.slice(start + `id: '${id}'`.length);
+  const rest = scenarios.slice(start + `id: '${id}'`.length);
   const next = rest.search(/id: 'A\d+'/);
   return next === -1 ? rest : rest.slice(0, next);
 }

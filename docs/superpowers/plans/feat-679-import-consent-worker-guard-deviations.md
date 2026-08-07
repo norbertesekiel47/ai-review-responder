@@ -412,3 +412,76 @@ plus the 10 titles the review rounds added (28 → 38). The estimate is recorded
 as-missed rather than back-fitted; silencing the warning by editing the number
 afterwards would defeat the check. The #643 lesson recurring: the features whose
 test rigour matters most are the ones whose test bucket is hardest to estimate.
+
+---
+
+## 2026-08-07 — round-1 review remediation (standards axis, three Low findings)
+
+All three were the same defect wearing three costumes — **a test that does not
+test what its name claims** — which is the exact class this branch spent D10, D11
+and D22 chasing. Recorded because the pattern kept regenerating inside tests
+written specifically to catch it.
+
+### D23 — an assertion that could not fail, deleted rather than annotated
+
+`job-eligibility.test.ts` asserted `completionCalls[0]!.exec === mockSql` under a
+comment conceding it was "the weaker of the two". It was not weaker, it was
+**vacuous**: `worker/__tests__/helpers/mock-sql.ts:99-103` invokes the `sql.begin`
+callback with the same mock object, so the assertion holds whether the guard
+passes `tx` or the outer client. Deleted, along with the now-unrecorded `exec`
+field on `completionCalls` — an annotated dead assertion still reads as coverage
+in a diff, and dead recorded data reads as an assertion waiting to happen.
+
+The test's locked title still bites: `inTransaction` (sampled at call time via the
+helper's documented `isInTransaction()`) is what pins the property. Verified by
+mutation — moving `markOutboxCompleted` out of `sql.begin` in
+`job-eligibility.ts` turns exactly that one test RED; the implementation file was
+reverted and `git diff` on it is empty. Executor identity is unobservable at a
+mock seam by construction; it is pinned against real Postgres in
+`job-eligibility.integration.test.ts`, by lock contention.
+
+### D24 — "…whose offer deadline is NULL" now pins the derivation, not a literal
+
+The title (locked — the promised-tests gate greps it verbatim) advertised a case
+the test never built: it queued `pushConsentState('pending')`, byte-identical to
+the "has not expired" test above it. **The guard consumes the DERIVED state and
+never sees the deadline column**, so at this seam a NULL deadline and a live offer
+are the same fixture. A queued literal cannot express NULL.
+
+The NULL is decided one layer down, so that is where the test now pins it: the
+shared fragment's `WHEN … THEN 'expired'` arm — **extracted and bounded**, because
+the question is which *arm* the null-guard sits in — must carry
+`b.import_offer_expires_at IS NOT NULL`, the fragment must fall through to
+`ELSE b.import_decision`, and the guard's query must contain that fragment. That
+chain is what makes `pending` the right fixture for this population instead of an
+assumption about it.
+
+The old assertion (`consentRead().text` contains the bare string) was scoped to
+the whole query and passed with the conjunct anywhere at all. Proven: a guard that
+re-spells the CASE inline **without** the null-guard while leaving the literal in
+its WHERE clause passes the old test GREEN and fails the new one. Both directions
+were run; `job-eligibility.ts` was reverted, `git diff` empty.
+
+The end-to-end NULL row against live Postgres is still not constructed anywhere —
+`job-eligibility.integration.test.ts` was out of this remediation's two-file scope.
+Stated in the test body rather than implied by the title.
+
+### D25 — the runbook A5 slice was scanning the whole file tail
+
+`scenarioBlock(source, 'A5')` sliced to the next `id: 'A\d+'`, else to the end of
+the string. A5 is the **last** entry in `SCENARIOS`, so `search` returned `-1` and
+every `toContain` became a whole-file scan of everything below the array. Bounded
+by extracting the `SCENARIOS` array literal first, so "no next scenario" now means
+end-of-array, never end-of-file.
+
+Mutation-proven in the decisive direction, not just the easy one: with A5's `fix`
+replaced by a placeholder **and its text moved to a comment below the array**, the
+old unbounded slice passes GREEN and the bounded slice fails RED. (The simple
+mutation — deleting A5's `fix` text outright — is also RED, and its failure
+message shows `block` correctly reduced to A5's own entry.)
+`src/app/admin/runbook/page.tsx` was reverted; `git diff` on it is empty.
+
+Scope note: `src/lib/reviews/import-consent.ts` was being edited concurrently by
+another agent throughout, so no mutation was routed through it — the Finding-2
+mutation was expressed in `job-eligibility.ts` instead, which reproduces the same
+regression without touching a contended file.
