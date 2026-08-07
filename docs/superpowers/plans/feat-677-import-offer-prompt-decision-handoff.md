@@ -65,9 +65,16 @@ Decided from the code rather than asked, and worth not re-deriving:
 
 ## State
 
-- **Branch commits:** intake → plan rev 1 → rev 2 → rev 3 → rev 4. No
-  implementation yet. **Read the plan's revision-4 header first: where earlier
-  revisions conflict, revision 4 wins, and §6/§7 are history, not instructions.**
+- **Branch commits:** intake → plan rev 1 → rev 2 → rev 3 → rev 4 → revision-4
+  prose reconciliation → T0 matrix fix (D6) → **T0 eval**. **Read the plan's
+  revision-4 header first: where earlier revisions conflict, revision 4 wins,
+  and §6/§7/§8 are history, not instructions.**
+- **Phase:** `executing`. T0 is committed; T1 ‖ T2 is next. No production code
+  exists yet — the 70 tests are the only artifact.
+- **`lastGreenGateSha` intentionally lags HEAD.** The last full gate ran at
+  `61c9c5af` (docs-only, 18/18 PASS). Everything since is docs plus the T0 test
+  files; the step-5 gate re-runs before review, and it must run with
+  `TEST_DATABASE_POOL_URL` **exported** (see traps).
 - **Enforcement:** ARMED (`scripts/arm-check.sh` clean at setup).
 - `.feature/state.json`: `planReviewRounds` = 3 — **exhausted**. The plan is
   locked by owner adjudication; do not open a fourth plan-review round.
@@ -86,15 +93,22 @@ Decided from the code rather than asked, and worth not re-deriving:
 
 ## Next actions
 
-1. `bash scripts/feature-state.sh set-phase executing`
-2. Dispatch **T0 alone** (the eval task — **70** verbatim test titles as failing
-   tests; the count is the intake's `tests_to_add` length, and plan T0's matrix
-   assigns every one of the 70 a suite + a live-DB verdict. Any number below 70
-   is a stale pre-revision-4 count). Then run the **first-task enforcement spot
-   check**: diff
-   `git status --porcelain` against `allowed_edit_surface`; an out-of-surface
-   path means the guard did not bind for subagent tool calls — STOP and report.
-3. Then **T1 ‖ T2**, then **T3 ‖ T4**, then T5, then T6 (plan §4).
+1. ~~`set-phase executing`~~ — **done** (phase is `executing`).
+2. ~~**T0**, the eval~~ — **done at `54ef9808`.** All 70 intake titles authored
+   VERBATIM, exactly once, in the suite the corrected matrix assigns (D6);
+   placement verified mechanically against the intake, 70/70. 68 are `it.todo`
+   (their modules do not exist, and importing a missing module reds the whole
+   *file* instead of the slice); **titles 13 and 70 assert**. 13 passes live —
+   it proves migration 101's three-valued CHECK, which
+   `MIGRATION_100_IMPORT_CONSENT` structurally cannot (F113). 70 is legibly red:
+   `producer source not found: ../import-consent.ts`. First-task enforcement
+   spot check PASS — 12 paths, all in surface, and the guard is confirmed live
+   (it blocked a Bash append mid-task).
+3. **NEXT: T1 ‖ T2**, then **T3 ‖ T4**, then T5, then T6 (plan §4). T1 fills in
+   assertions rather than building the live rig — running title 13 already
+   validated the harness end to end (connect → `assertSchemaReady` →
+   `seedTenantAccount` → business insert → cleanup) in
+   `import-consent.integration.test.ts`.
 4. Step 5 gate: `scripts/verify-gate.sh`. **`TEST_DATABASE_POOL_URL` must be
    set** — four live-DB suites carry this feature's load-bearing semantics, and
    a gate with the SKIP warning is not review-ready for this ticket. Run
@@ -103,6 +117,27 @@ Decided from the code rather than asked, and worth not re-deriving:
    for owner merge approval.
 
 ## Traps this feature has already walked into once
+
+- **`TEST_DATABASE_POOL_URL` in `.env.local` is NOT enough — it must be exported
+  into the shell.** `describeWithDb` reads `process.env.TEST_DATABASE_POOL_URL`
+  directly; it does **not** go through `resolveTestDatabaseUrl`, so it never sees
+  the `.env.local` disk fallback that CLAUDE.md's other gotcha describes. A bare
+  `pnpm vitest run <suite>.integration.test.ts` therefore prints
+  `TEST_DATABASE_POOL_URL unset — DB-gated integration suites SKIPPED` and exits
+  **green with zero tests run**, even though the variable is sitting in
+  `.env.local`. Confirmed at T0 (2026-08-07). `pnpm test:integration` only
+  *validates* presence in a separate `node -e` process — that does not export it
+  into vitest's environment either. Run live suites as:
+  `export TEST_DATABASE_POOL_URL=$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2-)`.
+  **This is the falsely-green step-5 gate for this ticket** — four live suites
+  carry the load-bearing semantics, and the SKIP line is a warning, not a
+  failure.
+- **A title *range* is a derived value copied by hand across four documents, and
+  it drifted three times.** Rev 3 left T0 ordering "57" after the intake reached
+  70; rev 4 fixed the count but built the matrix against the old numbering
+  (off by one from title 14 — see D6); the handoff kept "57" a revision longer
+  than the plan. Do not trust a remembered range: re-derive the row from
+  `tests_to_add` and check the partition.
 
 - **A parked worktree is invisible to the cross-worktree surface check.**
   `feature-setup.sh` reported "no overlap" while #679 held the same file, because
