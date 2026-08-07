@@ -151,3 +151,57 @@ Estimates were raised *with* the test growth rather than after it, so the step-5
 `reclassify` row measures the diff against a post-review estimate. If the actual
 diff still exceeds 2× either bucket, that is a genuine signal and step 0 gets
 re-run — not a bookkeeping artifact.
+
+---
+
+## D6 — T0's file matrix was off by one; corrected at the start of execution (owner-decided, 2026-08-07)
+
+Found while bootstrapping execution, before T0 was dispatched. **Revision 4
+renumbered `tests_to_add` to 70 correctly but built T0's file matrix against the
+old numbering**, in which the `import-consent` block held 14 titles; the intake's
+holds 13. Every range from title 14 onward was therefore shifted by one.
+
+This was not cosmetic. Four representative consequences, each of which would have
+survived a green test run:
+
+| Title | Actual subject | Where revision 4's matrix sent it |
+|---|---|---|
+| 14 | `finalize-tx` creates the offer, enqueues nothing when pending | `import-consent.integration.test.ts` |
+| 31 | **`live DB:`** accept rolls back the consent write when the outbox INSERT fails | `route.test.ts` — a **mocked** suite |
+| 49 | `ImportOfferBanner` renders the one-time wording | `add-location-tx.integration.test.ts` — a live DB suite |
+| 55 | `DashboardOperationalContent` renders the banner | `ImportOfferBanner.test.tsx` |
+
+Title 31 is the load-bearing one: a `live DB:` rollback title placed in a mocked
+suite cannot falsify rollback, which is the exact failure mode §2 exists to
+prevent. Three prose citations carried the same shift — titles 61 and 62 were
+described **swapped**, and the eval-bar's mount check cited title 56 for what is
+title 55. §2's binding/no-row citation (9–10 → 8–9), §6's `no_offer` citation
+(10 → 9), and three §7 forward references were shifted too.
+
+**Corrected matrix** now carries a per-row `Count` column, sums to 70, and
+partitions 1–70 with no gap or overlap — verified mechanically, subject-matched
+against every title, not by eye.
+
+**The one owner decision.** Re-indexing preserved every row's count except the
+add-location block (titles 44–48, 65), where the block boundary genuinely moved.
+Owner chose **§2's rationale over the old shape**: only title 45 (no archived
+sibling → stays pending) is a mocked binding assertion; all five lineage titles —
+44, 46, 47, 48, 65 — run live, because the disjunction over non-NULL keys, the
+`ORDER BY` tie-break, tenant scoping, and both cross-representation directions
+are SQL semantics a mocked `sql` tag cannot falsify. This makes the suite match
+§2's stated coverage ("consent lineage across archived siblings, incl. the
+URL-mode path") verbatim, and moves title 44 out of the mocked suite where the
+old 2/4 shape would have kept it.
+
+**No plan decision reopened, no review round opened** — `planReviewRounds` stays
+3. Per D5's precedent, test placement is a deviations-file entry, not an
+`allowed_edit_surface` amendment, so the abort budget is untouched (still 1 of 2
+used, D4).
+
+**Why this kept recurring, worth carrying forward:** three separate revisions
+mis-stated the test count or its indexing (rev 3 left "57", rev 4 fixed the count
+but shifted the matrix, and the handoff kept "57" a revision longer than the
+plan). A title *range* is a derived value copied by hand across four documents.
+The durable fix is the one now in T0: **state the counts, assert the partition,
+and re-derive the row from the intake before authoring it** — never trust a
+remembered range.

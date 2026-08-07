@@ -111,7 +111,7 @@ the banner.
 semantics and each caller's own mocked suite covers the bindings. Round 1
 rightly narrowed the rationale: the live suite must therefore itself assert
 business-id binding and the no-row / no-offer classifications, which it now
-does (titles 9–10). Called out so review does not read it as a gap.
+does (titles 8–9). Called out so review does not read it as a gap.
 
 **CI actually runs these** — `.github/workflows/ci.yml:118-133` gives the `test`
 job a `postgres:16` service and sets `TEST_DATABASE_POOL_URL`, and `pnpm test`
@@ -135,24 +135,39 @@ Author all **70** `tests_to_add` titles VERBATIM as failing tests, committed
 before any implementation. Slices not yet buildable use `.todo`; slices whose
 failure is meaningful now assert and red.
 
-| File | Titles | Live DB? |
-|---|---|---|
-| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | 1–14, 57–60, 62 | **yes** |
-| `src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts` | 15–20 | no |
-| `worker/ingress/stripe/__tests__/import-offer-resume.test.ts` | 21–24 | no |
-| `src/lib/locations/__tests__/archive-location-tx.test.ts` (existing) | 25–26, 63–64 | no |
-| `src/app/api/dashboard/import-offer/__tests__/route.test.ts` | 27–31, 35–40 | no |
-| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 32–34, 61, 68 | **yes** |
-| `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | 41–44, 66–67 | **yes** |
-| `src/lib/locations/__tests__/add-location-tx.test.ts` | 45–46 | no |
-| `src/lib/locations/__tests__/add-location-tx.integration.test.ts` | 47–49, 65 | **yes** |
-| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 50–55, 69 | no |
-| `src/components/dashboard/__tests__/` | 56 | no |
-| `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts` | 70 | no (source tripwire) |
+Title numbers below index `tests_to_add` in **both intake copies**, which are the
+authority. Re-derive the row you are about to author from the intake; do not
+trust a range you remember.
+
+| File | Titles | Count | Live DB? |
+|---|---|---|---|
+| `src/lib/reviews/__tests__/import-consent.integration.test.ts` | 1–13, 57–60, 62 | 18 | **yes** |
+| `src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts` | 14–19 | 6 | no |
+| `worker/ingress/stripe/__tests__/import-offer-resume.test.ts` | 20–23 | 4 | no |
+| `src/lib/locations/__tests__/archive-location-tx.test.ts` (existing) | 24–25, 63–64 | 4 | no |
+| `src/app/api/dashboard/import-offer/__tests__/route.test.ts` | 26–30, 34–39 | 11 | no |
+| `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` | 31–33, 61, 68 | 5 | **yes** |
+| `src/lib/reviews/__tests__/import-offer-view.integration.test.ts` | 40–43, 66–67 | 6 | **yes** |
+| `src/lib/locations/__tests__/add-location-tx.test.ts` | 45 | 1 | no |
+| `src/lib/locations/__tests__/add-location-tx.integration.test.ts` | 44, 46–48, 65 | 5 | **yes** |
+| `src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx` | 49–54, 69 | 7 | no |
+| `src/components/dashboard/__tests__/` | 55–56 | 2 | no |
+| `src/lib/reviews/__tests__/import-consent-lock-order-source.test.ts` | 70 | 1 | no (source tripwire) |
+
+**The counts sum to 70 and the ranges partition 1–70 with no gap and no overlap.
+Check that before authoring** — revision 4 shipped this matrix off by one from
+title 14 onward (it was built against a numbering in which the `import-consent`
+block held 14 titles; the intake's holds 13), which sent a `finalize-tx` title
+into the consent suite, a `live DB:` rollback title into a *mocked* suite, and an
+`ImportOfferBanner` title into the live `add-location` suite. Corrected
+2026-08-07 at the start of execution; the add-location mocked/live split is the
+owner's call of the same date, following §2 — only title 45 (no archived sibling
+→ stays pending) is a mocked binding assertion, and all five lineage titles are
+live.
 
 **Every concurrency and SQL-semantics title is live-DB.** Titles 61 (concurrent
-self-heal vs decision) and 62 (concurrent producers → one job) are races that a
-mocked `sql` tag cannot express at all. Title 70 is a *source* tripwire in the
+producers → exactly one job) and 62 (concurrent self-heal vs a decision) are
+races that a mocked `sql` tag cannot express at all. Title 70 is a *source* tripwire in the
 style of `location-lifecycle-lock-order-source.test.ts` — it reads the producer
 files and asserts each acquires the `businesses` row lock before its topic
 `INSERT`, which is the only check that survives a future producer being added.
@@ -171,7 +186,7 @@ assertions, not the titles, carry these:
    accept-then-decline example is too weak.
 4. **A dead UI passing its tests** → the banner tests drive the buttons and
    assert the POST body and the post-response state, not just rendered copy.
-5. **A feature that is never mounted** → title 56 asserts
+5. **A feature that is never mounted** → title 55 asserts
    `DashboardOperationalContent` actually renders the banner.
 
 `fast-check` house style: the "invariants" describe block in
@@ -564,7 +579,7 @@ Full report: `docs/reviews/feat-677-import-offer-prompt-decision/plan-review-rou
 Verdict `REVISE`. 33 proposed missing tests, 16 plan-level findings.
 
 **ACCEPTED and folded into this revision** — F100 (Critical: NULL deadline
-answerable → `IS NOT NULL` in the guard, `no_offer` classification, title 10);
+answerable → `IS NOT NULL` in the guard, `no_offer` classification, title 9);
 F101 (in-flight dedup at all producers); F102 (reactivation is owner-facing →
 third gate absorbed, owner re-decision); F103 (URL-mode lineage via
 `google_maps_url`); F104 (deterministic tie-break + account predicate); F105 +
@@ -617,9 +632,9 @@ or, for F107, `NO`. Ten defects introduced by revision 2's own fixes.
 | Reactivation's generic completed-run predicate suppressed the archived-period catch-up | Consent gate **only**; `backfill_reason: 'reactivation'` semantics untouched |
 | Zero-row classification race on concurrent self-heal | Removed by the row lock, not by widening the classifier |
 | Lineage key chosen from the new row only, missing the cross-representation case | Disjunction over non-NULL keys, both directions pinned |
-| Live view suite omitted positive-complete and pending-offer SQL | Titles 67–68 |
-| Banner suite omitted `imported` rendering and `LiveRegion` | Title 70 |
-| Self-heal did not emit `import_offer_created` | Emitted in the same transaction; title 69 |
+| Live view suite omitted positive-complete and pending-offer SQL | Titles 66–67 |
+| Banner suite omitted `imported` rendering and `LiveRegion` | Title 69 |
+| Self-heal did not emit `import_offer_created` | Emitted in the same transaction; title 68 |
 | Intake still misstated the `draft` route as a thin domain-call precedent | Reworded to cite only its real CSRF / scope / zod traits |
 
 **Rejected-finding reassessment.** Round 2 judged three of revision 2's five
