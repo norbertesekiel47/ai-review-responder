@@ -485,3 +485,69 @@ Scope note: `src/lib/reviews/import-consent.ts` was being edited concurrently by
 another agent throughout, so no mutation was routed through it — the Finding-2
 mutation was expressed in `job-eligibility.ts` instead, which reproduces the same
 regression without touching a contended file.
+
+### D26 — [2026-08-07] both analytics emissions moved into savepoints; the header's hazard and producer list were both wrong
+
+Round-1 High, raised independently by two review axes. Both `enqueueAnalyticsEvent`
+calls in `import-consent.ts` ran **unguarded inside their caller's transaction**.
+Postgres aborts the whole transaction on any error, so a database whose migration
+102 had not landed would raise `23514` from `analytics_events_event_name_check`
+*inside* the caller. The documented consequence — "rolls back a legitimate owner
+Import consent decision" — **understated it**. `createImportOffer` is called by
+`finalizeConnectionTx` (`finalize-tx.ts:208`), and `select-location/route.ts:97-108`
+rethrows anything that is not `23505`: the real blast radius was a **connect
+outage**, in which no owner with an activated subscription could connect a Google
+Business Profile at all. That is CLAUDE.md's "observability must never poison the
+success path", violated by a metric.
+
+FIX (owner-approved): each emission runs in its own savepoint via a new private
+`emitConsentEvent(tx, input)` — two callers, one log shape. `tx.savepoint(cb)` is
+the real postgres.js v3.4.9 API (verified in `node_modules/postgres/types/index.d.ts:724`
+and `src/index.js:283-288`, not assumed): it issues `SAVEPOINT`, and on throw issues
+`ROLLBACK TO SAVEPOINT` and rethrows, leaving the parent transaction usable.
+Catching that rethrow is what converts a fatal emission into a lost metric. Logged
+at `warn` (not silently swallowed, and not `log` — unlike `logRejection`'s expiries
+and declines this is never an ordinary outcome) with business id, event name and
+the error text only; no review text, tokens or handles.
+
+**Atomicity on the success path is preserved.** A savepoint that commits commits
+with its parent, so an event still dies with a decision that rolls back for any
+other reason. The guard is one-directional by construction, and
+"…rolls back import_decision_recorded when the decision transaction aborts" still
+passes — that test aborts via the *outbox* enqueue, downstream of the savepoint.
+
+DEMONSTRATED IN THREE DIRECTIONS against the local test DB, driving the real
+module from a scratch script outside the repo (no repo file was added, no DDL was
+run, no test file was written). The injected failure had to originate in
+**Postgres**, not JS: `enqueueAnalyticsEvent` throws a plain `Error` for an
+unregistered name *before* it touches the database, and a plain JS throw does not
+poison a transaction — a demonstration built on one would pass with or without the
+savepoint. So the injection pointed the emission's `business_id` at a non-existent
+uuid, tripping `analytics_events_business_id_fkey` (`23503`) at statement time:
+the same class of in-transaction constraint failure as the real `23514`.
+
+1. *Injection, savepoint removed* (baseline, proving the savepoint is what does the
+   work): call throws `23503`, `import_decision` stays `pending`, no enqueue. The
+   owner's answer is destroyed by a metric.
+2. *Injection, savepoint in place, connect-shaped transaction*: `createImportOffer`
+   returns `created`, the transaction **continues** and commits a later write, the
+   offer deadline commits, zero analytics rows, one `warn` line. The connect
+   survives.
+3. *Injection reverted*: both scenarios emit normally again (one analytics row
+   each), no `warn`. `git diff` on the file shows only the intended change; no
+   `0000000000ff` residue.
+
+TWO DOC CORRECTIONS in the same header. The deploy-ordering note now names the
+connect-outage consequence and states the **residual** risk accurately — the
+savepoint contains the blast radius, so an unmigrated project now silently
+under-counts offers and answers while consent, connect and Review import all keep
+working. Migration 102 should still land staging-first, but that ordering is no
+longer the difference between shipping and an outage. Separately, the header
+listed `add-location-tx.ts` as one of `createImportOffer`'s three producers; it is
+not one. Verified: that file only *mentions* the helper in prose explaining why it
+stamps `import_offer_expires_at` itself, and neither imports nor calls it. The
+three real producers are `finalize-tx.ts:208`, `worker/ingress/stripe/shared.ts:159`,
+and the GET self-heal in `src/app/api/dashboard/import-offer/route.ts`.
+
+Scope: one file. Tests were deliberately NOT touched — a follow-up agent owns the
+test for this behaviour.

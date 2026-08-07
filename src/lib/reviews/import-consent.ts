@@ -32,10 +32,18 @@
 // a count of facts that actually landed, not of calls that were made.
 //
 // They live in the WRITERS, not at the call sites, because `createImportOffer`
-// has three producers (`finalize-tx.ts`, `add-location-tx.ts`, and the GET
-// self-heal in `src/app/api/dashboard/import-offer/route.ts`) and emitting at
-// each would repeat the key, the properties and the only-when-written condition
-// three times over. Precedent: `recordSuppression`
+// has three producers and emitting at each would repeat the key, the properties
+// and the only-when-written condition three times over:
+//
+//   1. `src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts:208` — the
+//      connect junction, inside the Zernio connect transaction.
+//   2. `worker/ingress/stripe/shared.ts:159` — the Stripe §5.2 activation resume.
+//   3. `src/app/api/dashboard/import-offer/route.ts` — the GET self-heal.
+//
+// `src/lib/locations/add-location-tx.ts` is NOT a producer, although an earlier
+// revision of this header listed it as one. That file only MENTIONS this helper
+// in prose explaining why it stamps `import_offer_expires_at` itself; it neither
+// imports nor calls it. Precedent for writer-owned emission: `recordSuppression`
 // (`src/lib/solicitation/suppression.ts`).
 //
 // Both keys are business-scoped — `import_offer_created_<businessId>`,
@@ -44,24 +52,42 @@
 // requires `pending`), so a replay drops on `ON CONFLICT (event_key) DO NOTHING`
 // rather than double-counting, and the key needs no discriminator.
 //
-// THE PRECONDITION BOTH WRITERS NOW INHERIT — this is an interface fact, not an
-// implementation detail. The database's `analytics_events_event_name_check` must
-// ADMIT both names (migration 102). An unregistered name raises INSIDE the
-// enclosing transaction, so on an unmigrated project the emission rolls back a
-// legitimate owner Import consent decision — losing the answer, not just the
-// metric. Migration 102 must therefore reach a Supabase project BEFORE the
-// emitting code does: staging first, prod in lockstep at promotion.
+// EACH EMISSION RUNS IN ITS OWN SAVEPOINT (`emitConsentEvent`), and that is a
+// SAFETY property rather than a tidiness one. The database's
+// `analytics_events_event_name_check` must ADMIT both names (migration 102); an
+// unregistered name raises `23514` INSIDE the enclosing transaction. Unguarded,
+// the consequence is NOT the "rolled-back consent decision" this header used to
+// claim — it is a CONNECT OUTAGE. `createImportOffer` runs inside
+// `finalizeConnectionTx`, and `select-location/route.ts` rethrows anything that
+// is not `23505`, so on a project whose migration 102 had not landed NO owner
+// with an activated subscription could connect a Google Business Profile at all.
+// A missing metric must never poison the success path (CLAUDE.md working rules).
+//
+// THE SAVEPOINT CONTAINS THE BLAST RADIUS, so the residual risk is now the
+// METRIC, not the feature: a failed emission rolls back only itself, is logged
+// at `warn`, and consent, connect and Review import all keep working while the
+// offer-to-answer counts silently under-report. Migration 102 should still reach
+// a Supabase project BEFORE the emitting code does — staging first, prod in
+// lockstep at promotion — but that ordering is no longer the difference between
+// shipping and an outage, and the warn line is how a project that got the order
+// wrong announces itself.
+//
+// ATOMICITY ON THE SUCCESS PATH IS UNCHANGED. A savepoint that COMMITS commits
+// with its parent, so an event still dies with a decision that rolls back for
+// any other reason — which is exactly what "…rolls back
+// import_decision_recorded when the decision transaction aborts" pins.
 //
 // AND THE EMISSION MUST USE THE TRANSACTION HANDLE, NEVER THE OUTER `sql`.
 // `recordImportDecisionAndEnqueue` has both in scope; an event written against
 // `sql` would pass every happy-path test while committing independently of a
-// decision that later rolls back — a recorded decision that never happened.
-// Pinned behaviourally by "…rolls back import_decision_recorded when the
-// decision transaction aborts", not by executor identity.
+// decision that later rolls back — a recorded decision that never happened. The
+// savepoint handle is derived FROM `tx` and inherits that property; passing the
+// outer `sql` into `emitConsentEvent` would forfeit it. Pinned behaviourally by
+// the abort test above, not by executor identity.
 //
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { enqueueAnalyticsEvent, type EnqueueAnalyticsEventInput } from '@/lib/analytics/enqueue';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -255,8 +281,10 @@ export async function createImportOffer(
   //
   // `tx`, so the event lands in the caller's transaction: an Import offer that
   // rolls back takes its event with it, and one that commits can never be
-  // missing from the numerator.
-  await enqueueAnalyticsEvent(tx, {
+  // missing from the numerator. Savepointed, so the reverse is NOT true — this
+  // helper runs inside `finalizeConnectionTx`, and a failing emission here must
+  // not be able to take a Google Business Profile connection down with it.
+  await emitConsentEvent(tx, {
     eventName: 'import_offer_created',
     eventKey: `import_offer_created_${businessId}`,
     distinctId: accountId,
@@ -352,8 +380,10 @@ export async function recordImportDecisionAndEnqueue(
     //
     // `tx`, never the outer `sql` — see the module header. Emitting BEFORE the
     // enqueue is also what keeps that boundary observable: an enqueue failure
-    // must be able to take this row down with it.
-    await enqueueAnalyticsEvent(tx, {
+    // must be able to take this row down with it. The savepoint does not weaken
+    // that — it only stops the arrow pointing the other way, from a failed
+    // metric back onto the owner's answer.
+    await emitConsentEvent(tx, {
       eventName: 'import_decision_recorded',
       eventKey: `import_decision_recorded_${businessId}`,
       distinctId: accountId,
@@ -401,6 +431,50 @@ function logRejection(
     decision,
   });
   return rejection;
+}
+
+/**
+ * Emit one Import consent analytics event inside ITS OWN SAVEPOINT.
+ *
+ * The single reason this function exists: both emissions run inside a caller's
+ * transaction that is doing something far more important than counting. Postgres
+ * aborts the WHOLE transaction on any error, so an unguarded emission makes the
+ * analytics table a hard dependency of connecting a Google Business Profile —
+ * `createImportOffer` is called by `finalizeConnectionTx`, and
+ * `select-location/route.ts` rethrows anything that is not `23505`. See the
+ * module header for the full failure mode; the rule it violates is CLAUDE.md's
+ * "observability must never poison the success path".
+ *
+ * `tx.savepoint` is postgres.js's `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` pair
+ * (v3.4.9, `TransactionSql.savepoint(cb)`): on throw it rolls back to the
+ * savepoint and rethrows, leaving the parent transaction usable. Catching that
+ * rethrow is what turns a fatal emission into a lost metric.
+ *
+ * IT DOES NOT MAKE THE EVENT INDEPENDENT. A savepoint that commits commits with
+ * its parent, so an event still dies with the fact it reports — the property
+ * "…rolls back import_decision_recorded when the decision transaction aborts"
+ * pins. The guard is one-directional by construction, which is the whole point.
+ *
+ * `warn`, not `log`: unlike `logRejection`'s expiries and declines this is never
+ * an ordinary outcome. It means the emitting code reached a database whose
+ * `analytics_events_event_name_check` does not admit the name (migration 102 not
+ * applied), or something genuinely broken — either way a human should look. Only
+ * the business id, the event name and the error text are logged: no review text,
+ * no tokens, no handles, and not the properties.
+ */
+async function emitConsentEvent(
+  tx: TransactionSql,
+  input: EnqueueAnalyticsEventInput,
+): Promise<void> {
+  try {
+    await tx.savepoint((sp) => enqueueAnalyticsEvent(sp, input));
+  } catch (error) {
+    createWorkerLogger(LOG_PREFIX).warn('Import consent analytics emission failed', {
+      business_id: input.businessId ?? null,
+      event_name: input.eventName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
