@@ -35,7 +35,10 @@ export interface TenantScopeAllowlistEntry {
  * entry therefore always requires an explicit, reviewable baseline bump in
  * the same PR — silent growth (and shrink-then-regrow masking) both fail CI.
  */
-export const ALLOWLIST_BASELINE = 420;
+// 420 → 418 (#677): two entries deleted, both describing the `needs_backfill`
+// SELECT that this ticket removes from `finalize-tx.ts`. A SHRINK — two fewer
+// tenant-scope suppressions in the tree.
+export const ALLOWLIST_BASELINE = 418;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1699,13 +1702,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'provider-ingress',
     reason: "Zernio OAuth finalize uses a server-side stored connect intent with connectionId and stored.businessId as the tenant boundary.",
   },
-  {
-    file: "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
-    table: "zernio_connections",
-    sqlSnippet: "SELECT ( NOT EXISTS ( SELECT 1 FROM zernio_connections WHERE business_id = ${stored.businessId} AND id != ${connectionId} AND connected_at IS NOT NULL ) OR NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs WHERE business_id = ${stored.businessId} AND completed_at IS NOT NULL ) ) AS needs_backfill",
-    category: 'provider-ingress',
-    reason: "Zernio OAuth finalize uses a server-side stored connect intent with connectionId and stored.businessId as the tenant boundary.",
-  },
+  // REMOVED by #677, along with its `zernio_backfill_runs` twin further down: the
+  // `needs_backfill` SELECT both entries described no longer exists. That
+  // predicate asked "has a backfill ever completed?" as a proxy for "should we
+  // import?"; the Review import is consent-gated now, so finalize asks whether the
+  // owner accepted the Import offer. The replacement statements bind their tenant
+  // keys in top-level predicates and need no suppression.
   {
     file: "src/lib/approval/create-link.ts",
     table: "notification_deliveries",
@@ -2168,13 +2170,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'worker-job-scoped',
     reason: "Publisher activation check starts from the publish job responseId/businessId pair and joins back to the owning account and location.",
   },
-  {
-    file: "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
-    table: "zernio_backfill_runs",
-    sqlSnippet: "SELECT ( NOT EXISTS ( SELECT 1 FROM zernio_connections WHERE business_id = ${stored.businessId} AND id != ${connectionId} AND connected_at IS NOT NULL ) OR NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs WHERE business_id = ${stored.businessId} AND completed_at IS NOT NULL ) ) AS needs_backfill",
-    category: 'tenant-root-lookup',
-    reason: "Zernio finalize checks backfill completion for stored.businessId, which was resolved from the owner-scoped connect flow.",
-  },
+  // REMOVED by #677 — the `zernio_backfill_runs` twin of the entry deleted above.
+  // Same deleted `needs_backfill` SELECT; the reasoning is recorded there.
   {
     file: "worker/background/schedulers/MonthlyImpactScheduler.ts",
     table: "monthly_impact_emails",

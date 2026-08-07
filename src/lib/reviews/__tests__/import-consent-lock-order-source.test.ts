@@ -22,12 +22,27 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+/**
+ * COMMENTS ARE STRIPPED BEFORE SCANNING, and that is load-bearing.
+ *
+ * These producers document the very rule this test enforces — "`SELECT … FOR
+ * UPDATE` is a NO-OP outside `sql.begin()`" appears verbatim in
+ * `stripe/shared.ts`'s header. Scanning raw text found that sentence's `FOR
+ * UPDATE` before the real `sql.begin` below it and failed a correctly-ordered
+ * producer. A source tripwire that can be fooled by prose is worse than none: it
+ * would have been "fixed" by deleting the explanation.
+ *
+ * Strips `/* … *\/` blocks and whole-line `//` comments only. Trailing inline
+ * comments are left alone deliberately — removing them would need real
+ * tokenization to avoid mangling `'https://…'` inside a string literal.
+ */
 function read(relativeUrl: string): string {
   const url = new URL(relativeUrl, import.meta.url);
-  // A named failure beats an ENOENT stack: before T1/T3 land, the point of this
-  // test is to be legibly red, not to explode.
+  // A named failure beats an ENOENT stack.
   expect(existsSync(url), `producer source not found: ${relativeUrl}`).toBe(true);
-  return readFileSync(url, 'utf8');
+  return readFileSync(url, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
 }
 
 function segment(source: string, startMarker: string, endMarker?: string): string {
@@ -48,13 +63,10 @@ function expectOrder(source: string, markers: readonly string[]): void {
 }
 
 describe('import consent production lock-order binding', () => {
-  // T0 leaves this deferred and **T3 restores the assertion** (plan T3). Until
-  // T3 writes the four producers, this test's only possible failure is "the file
-  // does not exist yet" — which says nothing about the feature and is exactly the
-  // "not yet buildable" case T0 defines as deferred. The body below is already
-  // complete; T3 drops the `.todo` suffix from the declaration and it starts
-  // guarding.
-  it.todo('every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT', () => {
+  // Deferred by T0 (its subject files did not exist), RESTORED by T3 now that all
+  // four producers are written. From here on this is the check that survives a
+  // fifth producer being added without the lock.
+  it('every zernio_initial_backfill producer acquires the businesses row lock before its outbox INSERT', () => {
     // Producer 1 — the acceptance transaction. Opens its own sql.begin and takes
     // the row lock as its FIRST statement.
     const consentSource = read('../import-consent.ts');

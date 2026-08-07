@@ -216,7 +216,12 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/apply-subscription-state.ts:423',
   'worker/ingress/stripe/apply-subscription-state.ts:432',
   'worker/ingress/stripe/apply-subscription-state.ts:435',
-  'worker/ingress/stripe/shared.ts:112',
+  // :112 → :137 (#677). Same SQL predicate, same `-- enum:` annotation; the line
+  // moved because `maybeEnqueueBackfillResume` is now wrapped in `sql.begin` with
+  // a businesses row lock (round-2 F107 — it previously ran on root `sql`, so
+  // `createImportOffer` had no transaction and its dedup was unserialized). A
+  // line-keyed allowlist shifts whenever anything is inserted above the entry.
+  'worker/ingress/stripe/shared.ts:137',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   'src/lib/dashboard/types.ts:148',

@@ -423,25 +423,50 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     tier?: string;
     activatedAt?: Date;
     includeOutboxResult?: boolean;
+    /**
+     * #677: the enqueue now happens ONLY on 'accepted'. Defaults to accepted so
+     * the pre-existing tests keep asserting the enqueue they were written for;
+     * the gate itself is covered by titles 20–23 in
+     * worker/ingress/stripe/__tests__/import-offer-resume.test.ts.
+     */
+    importConsent?: 'pending' | 'accepted' | 'declined' | 'expired';
   } = {}) {
     // After B1.4: the primary business ID comes from transition.primaryBusinessId
     // (returned by the applier's resolveAccount). queueHappyPath must be called
     // with primaryBizId: TEST_BIZ_PENDING so the backfill path gets a non-null
     // resumeBusinessId. No post-tx "find primary business" SQL fires.
     //
-    // maybeEnqueueBackfillResume then does:
-    //   SELECT … (predicate match → returns target row)
-    //   INSERT INTO job_outbox … (conditional on no in-flight outbox row)
+    // maybeEnqueueBackfillResume does, since #677 (Review import is consent-gated):
+    //   SELECT account_id … FOR UPDATE  (the businesses row lock — round-2 F107;
+    //                                    this path previously ran on root `sql`
+    //                                    with no transaction at all, so
+    //                                    createImportOffer had none to run in)
+    //   SELECT …                        (predicate match → returns target row)
+    //   UPDATE … SET import_offer_expires_at   (createImportOffer, idempotent)
+    //   SELECT … AS decided_at          (readImportConsent)
+    //   INSERT INTO job_outbox …        (ONLY when consent is 'accepted')
+    //
+    // sqlReturnQueue is a strict FIFO, so these must be fed in exactly that order
+    // or every later result lands on the wrong query.
+    sqlReturnQueue.push([{ account_id: 'acct-1' }]);
     sqlReturnQueue.push([{
       zernio_account_id: opts.accountId ?? 'zacct-1',
       zernio_location_id: opts.locationId ?? 'zloc-1',
       subscription_tier: opts.tier ?? 'copilot',
       subscription_activated_at: opts.activatedAt ?? new Date('2026-04-15T00:00:00Z'),
     }]);
-    // Outbox INSERT — count=1 (a new row was inserted).
+    // An unsupported tier throws immediately after the target SELECT, so the
+    // offer/consent results are only consumed on paths that get past it —
+    // `includeOutboxResult: false` is how that test says "stop here".
+    const consent = opts.importConsent ?? 'accepted';
     if (opts.includeOutboxResult !== false) {
-      const insertOutbox: any = []; insertOutbox.count = 1;
-      sqlReturnQueue.push(insertOutbox);
+      sqlReturnQueue.push([]); // createImportOffer → 'unchanged'
+      sqlReturnQueue.push([{ state: consent, decided_at: null, expires_at: null }]);
+      if (consent === 'accepted') {
+        // Outbox INSERT — count=1 (a new row was inserted).
+        const insertOutbox: any = []; insertOutbox.count = 1;
+        sqlReturnQueue.push(insertOutbox);
+      }
     }
   }
 
@@ -481,7 +506,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(resumeSelect!.text).toMatch(/a\.subscription_activated_at/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_tier/);
     expect(resumeSelect!.text).not.toMatch(/b\.subscription_activated_at/);
-    expectExactSqlCalls(22);
+    // 22 → 25 (#677): +3 statements on this branch — the businesses row lock,
+    // createImportOffer, and readImportConsent.
+    expectExactSqlCalls(25);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
@@ -489,6 +516,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     // primaryBizId needed so the backfill path attempts the predicate SELECT
     queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
+    // #677: the row lock comes first and must find the business, otherwise this
+    // would test "business not found" rather than "predicate miss".
+    sqlReturnQueue.push([{ account_id: 'acct-1' }]);
     // SELECT returns no row (no active connection OR completed run exists).
     sqlReturnQueue.push([]);
 
@@ -496,7 +526,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getBackfillInsertCalls()).toHaveLength(0);
-    expectExactSqlCalls(21);
+    expectExactSqlCalls(22);
   });
 
   it('flag=ON + no zernio_backfill_runs row at all (admin connected Zernio pre-checkout) → enqueues backfill', async () => {
@@ -516,7 +546,8 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
 
     const inserts = getBackfillInsertCalls();
     expect(inserts).toHaveLength(1);
-    expectExactSqlCalls(22);
+    // 22 → 25 (#677): row lock + createImportOffer + readImportConsent.
+    expectExactSqlCalls(25);
   });
 
   it('rejects an unsupported backfill tier before the child outbox INSERT', async () => {
@@ -539,13 +570,20 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       expect.stringContaining('invalid_ws8_subscription_tier:retired_tier'),
     );
     expect(sqlReturnQueue).toHaveLength(0);
-    expectExactSqlCalls(21);
+    // 21 → 22 (#677): only +1 here. The tier guard throws right after the target
+    // SELECT, so createImportOffer and readImportConsent never run — which is the
+    // point of "before the child outbox INSERT".
+    expectExactSqlCalls(22);
   });
 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment', { primaryBizId: TEST_BIZ_PENDING });
+    // #677: businesses row lock, then the predicate SELECT, then
+    // createImportOffer, then readImportConsent — the FIFO order the production
+    // path issues them in.
+    sqlReturnQueue.push([{ account_id: 'acct-1' }]);
     // SELECT for predicate → returns target.
     sqlReturnQueue.push([{
       zernio_account_id: 'zacct-1',
@@ -553,6 +591,8 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       subscription_tier: 'copilot',
       subscription_activated_at: new Date('2026-04-15T00:00:00Z'),
     }]);
+    sqlReturnQueue.push([]); // createImportOffer → 'unchanged'
+    sqlReturnQueue.push([{ state: 'accepted', decided_at: null, expires_at: null }]);
     // INSERT … SELECT WHERE NOT EXISTS → count=0 (in-flight row blocked it).
     const insertSkipped: any = []; insertSkipped.count = 0;
     sqlReturnQueue.push(insertSkipped);
@@ -571,7 +611,8 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insertSql).toBeDefined();
     expect(insertSql!.text).toContain('NOT EXISTS');
     expect(insertSql!.text).toMatch(/status\s+IN/);
-    expectExactSqlCalls(22);
+    // 22 → 25 (#677): row lock + createImportOffer + readImportConsent.
+    expectExactSqlCalls(25);
   });
 
   // ── D3: overage outbox enqueue on recovery ────────────────────────────

@@ -88,6 +88,7 @@
     "src/app/api/dashboard/import-offer/**",
     "src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts",
     "src/app/api/zernio/connect/_shared/finalize/__tests__/**",
+    "src/app/api/zernio/connect/select-location/__tests__/**",
     "src/components/dashboard/account-state/ImportOfferBanner.tsx",
     "src/components/dashboard/account-state/__tests__/**",
     "src/components/dashboard/DashboardContent.tsx",
@@ -100,6 +101,10 @@
     "src/lib/shared/__tests__/**",
     "CONTEXT.md",
     "docs/directory.md",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "scripts/ci/static-policy-audit.ts",
+    "scripts/ci/__tests__/**",
+    "worker/ingress/__tests__/**",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],

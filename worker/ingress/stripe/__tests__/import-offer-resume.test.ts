@@ -21,21 +21,157 @@
 //     *publishing*; skipping durable offer creation behind it would lose the
 //     offer with no replay path.
 //
-import { describe, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => {
+  const sqlCalls: { text: string; values: unknown[] }[] = [];
+  const scenario = {
+    lockedAccountId: 'acct-1' as string | null,
+    target: {
+      zernio_account_id: 'zacct-1',
+      zernio_location_id: 'zloc-1',
+      subscription_tier: 'copilot',
+      subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+    } as Record<string, unknown> | null,
+    importConsent: 'pending' as 'pending' | 'accepted' | 'declined' | 'expired' | null,
+    publishingEnabled: true,
+  };
+
+  const mockSql: any = vi.fn((s: TemplateStringsArray, ...v: unknown[]) => {
+    const text = Array.from(s).join('?');
+    sqlCalls.push({ text, values: v });
+
+    if (/import_decision_at AS decided_at/.test(text)) {
+      return Promise.resolve(
+        scenario.importConsent === null
+          ? []
+          : [{ state: scenario.importConsent, decided_at: null, expires_at: null }],
+      );
+    }
+    if (/SET import_offer_expires_at/.test(text)) return Promise.resolve([{ id: 'biz-1' }]);
+    if (/SELECT account_id[\s\S]*FROM businesses[\s\S]*FOR UPDATE/.test(text)) {
+      return Promise.resolve(
+        scenario.lockedAccountId ? [{ account_id: scenario.lockedAccountId }] : [],
+      );
+    }
+    if (/FROM zernio_connections zc/.test(text)) {
+      return Promise.resolve(scenario.target ? [scenario.target] : []);
+    }
+    return Promise.resolve([]);
+  });
+  mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockSql));
+  mockSql.json = vi.fn((v: unknown) => v);
+
+  const mockPublishingEnabled = vi.fn(() => scenario.publishingEnabled);
+  return { mockSql, sqlCalls, scenario, mockPublishingEnabled };
+});
+
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+vi.mock('../../../../src/lib/publishing/flags', () => ({
+  zernioPublishingEnabled: mockPublishingEnabled,
+}));
+vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7-resume') }));
+
+import { resumePrimaryBusinessBackfill } from '../shared';
+
+const BUSINESS_ID = '11111111-1111-4111-8111-111111111111';
+
+function importEnqueued(): boolean {
+  return sqlCalls.some(
+    (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('zernio_initial_backfill'),
+  );
+}
+
+function offerCreateAttempted(): boolean {
+  return sqlCalls.some((c) => /SET import_offer_expires_at/.test(c.text));
+}
+
+beforeEach(() => {
+  sqlCalls.length = 0;
+  scenario.lockedAccountId = 'acct-1';
+  scenario.importConsent = 'pending';
+  scenario.publishingEnabled = true;
+  scenario.target = {
+    zernio_account_id: 'zacct-1',
+    zernio_location_id: 'zloc-1',
+    subscription_tier: 'copilot',
+    subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+  };
+});
 
 describe('stripe activation resume — Import offer', () => {
-  it.todo('resumePrimaryBusinessBackfill enqueues the import only when import consent is accepted');
+  it('resumePrimaryBusinessBackfill enqueues the import only when import consent is accepted', async () => {
+    scenario.importConsent = 'accepted';
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+    expect(importEnqueued()).toBe(true);
+
+    // The whole path runs inside one transaction taking the businesses row lock
+    // FIRST (round-2 F107). Before #677 this ran on root sql with no transaction,
+    // so createImportOffer had none to run in and the dedup was unserialized.
+    expect(mockSql.begin).toHaveBeenCalled();
+    const lockIndex = sqlCalls.findIndex((c) => /FROM businesses[\s\S]*FOR UPDATE/.test(c.text));
+    const insertIndex = sqlCalls.findIndex(
+      (c) => c.text.includes('INSERT INTO job_outbox') && c.values.includes('zernio_initial_backfill'),
+    );
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(lockIndex).toBeLessThan(insertIndex);
+
+    sqlCalls.length = 0;
+    scenario.importConsent = 'pending';
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+    expect(importEnqueued()).toBe(false);
+  });
 
   // The §5.2 bug itself: a pre-checkout connection meeting a pending offer. The
   // offer must be created (durably, so the banner can show it) while the import
   // stays un-enqueued (consent has not been given).
-  it.todo('resumePrimaryBusinessBackfill creates the offer and enqueues nothing when a pre-checkout connection meets a pending offer');
+  it('resumePrimaryBusinessBackfill creates the offer and enqueues nothing when a pre-checkout connection meets a pending offer', async () => {
+    scenario.importConsent = 'pending';
+
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+
+    expect(offerCreateAttempted()).toBe(true);
+    expect(importEnqueued()).toBe(false);
+  });
 
   // past_due → active is a recovery transition, not a new junction. A location
   // that already declined must not be re-imported by a billing state change —
   // this path fires on every reactivation of the subscription, so it is the most
   // likely place for a declined location to be silently overridden.
-  it.todo('resumePrimaryBusinessBackfill does not re-enqueue for a declined location on past_due to active recovery');
+  it('resumePrimaryBusinessBackfill does not re-enqueue for a declined location on past_due to active recovery', async () => {
+    scenario.importConsent = 'declined';
 
-  it.todo('resumePrimaryBusinessBackfill enqueues nothing for a derived-expired offer');
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+
+    expect(importEnqueued()).toBe(false);
+    // createImportOffer is still CALLED, and that is correct: it is idempotent and
+    // refuses to touch an answered row, so the declined decision survives. Spec
+    // §7 — re-connect after declining stays declined.
+    expect(offerCreateAttempted()).toBe(true);
+  });
+
+  it('resumePrimaryBusinessBackfill enqueues nothing for a derived-expired offer', async () => {
+    scenario.importConsent = 'expired';
+
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+
+    expect(importEnqueued()).toBe(false);
+  });
+
+  it('creates the offer even when zernio publishing is disabled', async () => {
+    // Round-1 Medium (F106). The kill switch governs PUBLISHING; offer creation is
+    // durable state the owner is entitled to see. Skipping it behind the flag
+    // would lose the offer with no replay path — the owner would simply never be
+    // asked. So creation sits BEFORE the early return and only the enqueue is
+    // gated. Not one of the 69 intake titles: it asserts the ORDERING of two
+    // steps inside title 21's path, and it is the assertion that fails if someone
+    // moves the flag check up.
+    scenario.publishingEnabled = false;
+    scenario.importConsent = 'accepted';
+
+    await resumePrimaryBusinessBackfill(BUSINESS_ID);
+
+    expect(offerCreateAttempted()).toBe(true);
+    expect(importEnqueued()).toBe(false);
+  });
 });

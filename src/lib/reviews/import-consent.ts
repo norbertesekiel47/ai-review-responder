@@ -72,10 +72,19 @@ export type ImportDecisionOutcome =
 /**
  * Spec §5.3's derivation, spelled ONCE, as a composable fragment.
  *
- * `alias` is the SQL alias of the `businesses` row in the caller's query — this
- * returns a bare `CASE` expression for a SELECT list, so the caller controls the
- * FROM and the scoping. Fragment shape follows `suppressionMatchSql`
- * (`src/lib/solicitation/suppression.ts:75-92`).
+ * **The caller MUST alias its `businesses` row as `b`.** The fragment hardcodes
+ * that alias and takes no interpolation at all.
+ *
+ * An earlier draft took an `alias` parameter and injected it with postgres.js's
+ * identifier form, `db(alias)`. That is the correct postgres.js API and it worked
+ * against real Postgres — but this helper is called from four producers whose
+ * suites use hand-rolled `sql` mocks (`vi.fn((strings, ...values) => …)`), and
+ * those mocks implement only the tagged-template call form. `db('b')` reaches
+ * them as a bare string and dies on `strings.join is not a function`, in test
+ * files across several directories. A fragment this widely called should not
+ * require every mock in the repo to grow identifier support, so the alias is a
+ * fixed contract instead of a parameter. No interpolation also means nothing to
+ * bind wrong.
  *
  * `now()` is POSTGRES's, never a JS `Date`. postgres.js decodes `timestamptz`
  * into a JS Date and silently truncates microseconds to milliseconds (CLAUDE.md
@@ -86,15 +95,13 @@ export type ImportDecisionOutcome =
  * The boundary is `<=`, inclusive, exactly as §5.3 writes it: a deadline that has
  * arrived has passed.
  */
-export function importConsentStateSql(db: SqlExecutor, alias: string) {
-  // The alias is a caller-supplied identifier, not user input; it is
-  // interpolated as an identifier via sql(), never as a value.
+export function importConsentStateSql(db: SqlExecutor) {
   return db`CASE
-    WHEN ${db(alias)}.import_decision = 'pending'
-      AND ${db(alias)}.import_offer_expires_at IS NOT NULL
-      AND ${db(alias)}.import_offer_expires_at <= now()
+    WHEN b.import_decision = 'pending'
+      AND b.import_offer_expires_at IS NOT NULL
+      AND b.import_offer_expires_at <= now()
     THEN 'expired'
-    ELSE ${db(alias)}.import_decision
+    ELSE b.import_decision
   END`;
 }
 
@@ -121,7 +128,7 @@ export async function readImportConsent(
     expires_at: Date | null;
   }[]>`
     SELECT
-      ${importConsentStateSql(db, 'b')} AS state,
+      ${importConsentStateSql(db)} AS state,
       b.import_decision_at AS decided_at,
       b.import_offer_expires_at AS expires_at
     FROM businesses b

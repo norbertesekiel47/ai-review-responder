@@ -36,7 +36,11 @@ const {
     ],
   };
   const txScenario = {
-    needsBackfill: false,
+    // #677 replaced `needsBackfill` with Import consent: finalizeConnectionTx no
+    // longer runs a needs_backfill predicate, it asks whether the owner accepted
+    // the Import offer. Default 'pending' (migration 100's DEFAULT), so a test
+    // must opt IN to the enqueue.
+    importConsent: 'pending' as 'pending' | 'accepted' | 'declined' | 'expired' | null,
     accountSubscriptionActivatedAt: new Date('2026-05-01T00:00:00.000Z'),
     existingConnectionId: null as string | null,
   };
@@ -51,8 +55,18 @@ const {
         subscription_activated_at: txScenario.accountSubscriptionActivatedAt,
       }]);
     }
-    if (/needs_backfill/.test(raw)) {
-      return Promise.resolve([{ needs_backfill: txScenario.needsBackfill }]);
+    // readImportConsent — matched on its aliased column, before the generic
+    // businesses branches.
+    if (/import_decision_at AS decided_at/.test(raw)) {
+      return Promise.resolve(
+        txScenario.importConsent === null
+          ? []
+          : [{ state: txScenario.importConsent, decided_at: null, expires_at: null }],
+      );
+    }
+    // createImportOffer.
+    if (/SET import_offer_expires_at/.test(raw)) {
+      return Promise.resolve([]);
     }
     if (/FROM zernio_connections[\s\S]*FOR UPDATE/.test(raw)) {
       return Promise.resolve(
@@ -190,7 +204,7 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
         flags: {},
       },
     ];
-    txScenario.needsBackfill = false;
+    txScenario.importConsent = 'pending';
     txScenario.accountSubscriptionActivatedAt = new Date('2026-05-01T00:00:00.000Z');
     txScenario.existingConnectionId = null;
     mockRequireRole.mockResolvedValue({
@@ -217,7 +231,9 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
   });
 
   it('uses account subscription fields under a row lock when enqueueing initial backfill', async () => {
-    txScenario.needsBackfill = true;
+    // The enqueue is consent-gated from #677 on; this test is about the row lock
+    // and the payload, so it opts in to an accepted offer.
+    txScenario.importConsent = 'accepted';
 
     const res = await POST(makeRequest());
 

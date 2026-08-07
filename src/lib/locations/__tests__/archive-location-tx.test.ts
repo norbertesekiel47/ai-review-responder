@@ -113,9 +113,22 @@ function driveArchiveDb({
   zernio = defaultZernioRow as typeof defaultZernioRow | null,
   account = defaultAccountRow as typeof defaultAccountRow | null,
   offboarding = null as Record<string, unknown> | null,
+  // #677: reactivation's catch-up import is gated on Import consent. Default
+  // 'accepted' so the pre-existing reactivation tests keep asserting the enqueue
+  // they were written for; the gate itself is asserted by the #677 titles below,
+  // which set this explicitly.
+  importConsent = 'accepted' as 'pending' | 'accepted' | 'declined' | null,
 } = {}) {
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
     const template = strings.join('?');
+    // Must precede the generic `FROM businesses` branches — readImportConsent
+    // selects FROM businesses b, and its distinctive column is the aliased
+    // decided_at.
+    if (template.includes('import_decision_at AS decided_at')) {
+      return importConsent === null
+        ? []
+        : [{ state: importConsent, decided_at: null, expires_at: null }];
+    }
     if (template.includes('SELECT id') && template.includes('FROM accounts')) {
       return account ? [account] : [];
     }
@@ -1143,13 +1156,93 @@ describe('concurrent safety (VAL-LOC-047)', () => {
 // This path is already inside sql.begin with the account and business rows
 // locked, so the row-lock discipline is satisfied with no new code.
 describe('reactivateLocationTransaction — Import consent gate (#677)', () => {
-  it.todo('reactivateLocationTransaction enqueues no import for pending, declined, or derived-expired consent');
+  function importEnqueues(): unknown[][] {
+    return mockSql.mock.calls.filter(
+      (c: any[]) =>
+        (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox') &&
+        c.slice(1).includes('zernio_initial_backfill'),
+    );
+  }
 
-  it.todo('reactivateLocationTransaction enqueues the catch-up import when import consent is accepted');
+  it('reactivateLocationTransaction enqueues no import for pending, declined, or derived-expired consent', async () => {
+    // 'expired' is what readImportConsent DERIVES for a lapsed pending offer —
+    // it is never a stored value (#670), so the gate must reject it by state, not
+    // by inspecting the deadline itself.
+    for (const state of ['pending', 'declined', 'expired'] as const) {
+      driveArchiveDb({ importConsent: state as 'pending' | 'declined' });
+      mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+
+      await reactivateLocationTransaction(sql, {
+        locationId: SECONDARY_LOCATION_ID,
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+      });
+
+      expect(importEnqueues(), `consent=${state} must not enqueue`).toHaveLength(0);
+    }
+  });
+
+  it('reactivateLocationTransaction enqueues the catch-up import when import consent is accepted', async () => {
+    driveArchiveDb({ importConsent: 'accepted' });
+    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+
+    await reactivateLocationTransaction(sql, {
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const calls = importEnqueues();
+    expect(calls).toHaveLength(1);
+    // The reason tag is what keeps this OUT of the initial-import dedup.
+    expect(JSON.stringify(calls[0]!.slice(1))).toContain('reactivation');
+  });
 
   // The two anti-regression titles. Each asserts the enqueue STILL happens in a
-  // state a generic dedup would have suppressed.
-  it.todo('reactivateLocationTransaction enqueues the catch-up import after a completed initial run when consent is accepted');
+  // state a generic dedup would have suppressed. Revision 2 of the plan added
+  // exactly such a dedup here and it was wrong twice over — these two exist so a
+  // future reader cannot reintroduce it and still see green.
+  //
+  // Both are expressed as "the producer does not consult completed runs at all":
+  // this path issues NO zernio_backfill_runs query, so a completed run of either
+  // reason cannot suppress it. That is a stronger and more durable assertion than
+  // stubbing a completed row and checking the enqueue survived, because it fails
+  // the moment someone adds the predicate rather than only when the stub matches.
+  it('reactivateLocationTransaction enqueues the catch-up import after a completed initial run when consent is accepted', async () => {
+    driveArchiveDb({ importConsent: 'accepted' });
+    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
-  it.todo('reactivateLocationTransaction enqueues the catch-up import after an earlier completed reactivation run');
+    await reactivateLocationTransaction(sql, {
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(importEnqueues()).toHaveLength(1);
+    const consultsRuns = mockSql.mock.calls.some((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('zernio_backfill_runs'),
+    );
+    expect(consultsRuns, 'reactivation must not gate on completed runs').toBe(false);
+  });
+
+  it('reactivateLocationTransaction enqueues the catch-up import after an earlier completed reactivation run', async () => {
+    driveArchiveDb({ importConsent: 'accepted' });
+    mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
+
+    await reactivateLocationTransaction(sql, {
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    expect(importEnqueues()).toHaveLength(1);
+    // And no in-flight outbox dedup either: that variant opened a lost-recovery
+    // race against a worker holding a stale archived_at read
+    // (job-eligibility.ts:60-81).
+    const dedupsInFlight = mockSql.mock.calls.some((c: any[]) => {
+      const t = (c[0] as TemplateStringsArray).join('?');
+      return t.includes('FROM job_outbox') && t.includes("'dispatching'");
+    });
+    expect(dedupsInFlight, 'reactivation must not dedup on in-flight rows').toBe(false);
+  });
 });

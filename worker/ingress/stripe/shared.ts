@@ -1,9 +1,10 @@
 import type Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
 import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
+import { createImportOffer, readImportConsent } from '../../../src/lib/reviews/import-consent';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
 
 export const LOG_PREFIX = '[ingress/stripe]';
@@ -90,66 +91,106 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  * error boundary. Call that, not this, from a handler.
  */
 async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
-  if (!zernioPublishingEnabled()) return;
+  // Producer 2 of 4, and the §5.2 fix. This is the OTHER junction ordering: the
+  // owner connected Google BEFORE checkout, so activation is the second half to
+  // arrive and finalize already ran without a junction to act on.
+  //
+  // THE WHOLE THING RUNS IN ONE TRANSACTION HOLDING THE businesses ROW LOCK
+  // (round-2 F107). Before #677 this path ran on root `sql` with no transaction
+  // at all — which meant `createImportOffer` (a TransactionSql helper) had
+  // nothing to run in, and the check-then-insert dedup below was unserialized
+  // against the other three producers. `SELECT … FOR UPDATE` is a NO-OP outside
+  // sql.begin() under Supabase's transaction pooling (CLAUDE.md gotcha), so
+  // "mostly safe" was not available as a position.
+  //
+  // OFFER CREATION SITS BEFORE THE KILL-SWITCH RETURN (round-1 Medium, F106).
+  // `zernioPublishingEnabled()` governs PUBLISHING. Skipping durable offer
+  // creation behind it would lose the offer with no replay path — the owner would
+  // simply never be asked. The publishing gate therefore guards only the enqueue.
+  await sql.begin(async (tx) => {
+    const [locked] = await tx<{ account_id: string }[]>`
+      SELECT account_id
+      FROM businesses
+      WHERE id = ${businessId}::uuid
+        AND archived_at IS NULL
+      FOR UPDATE
+    `;
+    if (!locked) return;
 
-  const [target] = await sql<{
-    zernio_account_id: string;
-    zernio_location_id: string;
-    subscription_tier: string;
-    subscription_activated_at: Date;
-  }[]>`
-    SELECT
-      zc.zernio_account_id,
-      zc.zernio_location_id,
-      a.subscription_tier,
-      a.subscription_activated_at
-    FROM zernio_connections zc
-    JOIN businesses b ON b.id = zc.business_id
-    JOIN accounts a ON a.id = b.account_id
-    WHERE zc.business_id = ${businessId}::uuid
-      AND zc.status = 'active'
-      AND b.archived_at IS NULL
-      AND a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
-      AND a.subscription_activated_at IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM zernio_backfill_runs br
-        WHERE br.business_id = ${businessId}::uuid
-          AND br.completed_at IS NOT NULL
+    const [target] = await tx<{
+      zernio_account_id: string;
+      zernio_location_id: string;
+      subscription_tier: string;
+      subscription_activated_at: Date;
+    }[]>`
+      SELECT
+        zc.zernio_account_id,
+        zc.zernio_location_id,
+        a.subscription_tier,
+        a.subscription_activated_at
+      FROM zernio_connections zc
+      JOIN businesses b ON b.id = zc.business_id
+      JOIN accounts a ON a.id = b.account_id
+      WHERE zc.business_id = ${businessId}::uuid
+        AND zc.status = 'active'
+        AND b.archived_at IS NULL
+        AND a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
+        AND a.subscription_activated_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM zernio_backfill_runs br
+          WHERE br.business_id = ${businessId}::uuid
+            AND br.completed_at IS NOT NULL
+        )
+      LIMIT 1
+    `;
+
+    if (!target) return;
+    if (!isSubscriptionTier(target.subscription_tier)) {
+      throw new Error(`invalid_ws8_subscription_tier:${target.subscription_tier}`);
+    }
+
+    // The junction is established by the query above (active connection +
+    // activated subscription), so this is an offer-creating site.
+    await createImportOffer(tx, businessId, locked.account_id);
+
+    if (!zernioPublishingEnabled()) return;
+
+    const consent = await readImportConsent(tx, businessId, locked.account_id);
+    if (consent?.state !== 'accepted') {
+      console.log(
+        `${LOG_PREFIX} Review import not enqueued for business=${businessId} — import consent is ${consent?.state ?? 'unknown'}`,
+      );
+      return;
+    }
+
+    const payload = {
+      business_id: businessId,
+      zernio_account_id: target.zernio_account_id,
+      zernio_location_id: target.zernio_location_id,
+      subscription_tier: target.subscription_tier,
+      subscription_activated_at: target.subscription_activated_at.toISOString(),
+      backfill_reason: 'initial',
+      correlation_id: uuidv7(),
+    } satisfies ZernioInitialBackfillPayload;
+
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      SELECT
+        ${uuidv7()},
+        ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
+        'business',
+        ${businessId}::uuid,
+        ${tx.json(payload)},
+        'pending'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM job_outbox jo
+        WHERE jo.aggregate_id = ${businessId}::uuid
+          AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
+          AND jo.status IN ('pending', 'dispatching', 'dispatched')
       )
-    LIMIT 1
-  `;
-
-  if (!target) return;
-  if (!isSubscriptionTier(target.subscription_tier)) {
-    throw new Error(`invalid_ws8_subscription_tier:${target.subscription_tier}`);
-  }
-
-  const payload = {
-    business_id: businessId,
-    zernio_account_id: target.zernio_account_id,
-    zernio_location_id: target.zernio_location_id,
-    subscription_tier: target.subscription_tier,
-    subscription_activated_at: target.subscription_activated_at.toISOString(),
-    correlation_id: uuidv7(),
-  } satisfies ZernioInitialBackfillPayload;
-
-  await sql`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    SELECT
-      ${uuidv7()},
-      ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL},
-      'business',
-      ${businessId}::uuid,
-      ${jsonb(payload)},
-      'pending'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM job_outbox jo
-      WHERE jo.aggregate_id = ${businessId}::uuid
-        AND jo.topic = ${QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL}
-        AND jo.status IN ('pending', 'dispatching', 'dispatched')
-    )
-  `;
-  console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+    `;
+    console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+  });
 }
 
 /**

@@ -267,3 +267,111 @@ Consequences, all applied:
 CHECK plus a doc-parity audit. Three rounds reviewed the event names as a naming
 question. A cited-artifact check should extend to the constraints and audits that
 govern an artifact, not just confirm the artifact exists.
+
+---
+
+## D8 — Surface amendment: `select-location/__tests__/**` (owner-approved, 2026-08-07)
+
+Found running T3's suites. Gating producer 1 (`finalizeConnectionTx`) broke one
+test in a suite that is **not** the producer's own:
+`src/app/api/zernio/connect/select-location/__tests__/route.test.ts` — *"uses
+account subscription fields under a row lock when enqueueing initial backfill"*.
+That route is a CALLER of `finalizeConnectionTx`, and its test asserted the
+unconditional enqueue that D4 deliberately replaced with a consent gate.
+
+**Amendment:** `src/app/api/zernio/connect/select-location/__tests__/**` added to
+`allowed_edit_surface` in both intake copies. **Test-only** — no production file in
+that directory is touched by this ticket.
+
+**The fix, one knob:** that suite's hoisted harness had its own `needsBackfill`
+scenario field driving a `needs_backfill` mock branch. Both are gone with the
+predicate; the harness now carries `importConsent` (default `'pending'`, migration
+100's DEFAULT, so a test must opt IN to the enqueue) and the one affected test sets
+`'accepted'` because it is about the row lock and the payload, not the gate.
+
+**Budget:** owner accepted the reading that this does **not** consume the
+2-amendment budget — it is the mechanical test fallout of already-approved scope
+(D4 gated all three producers; this route calls producer 1), the same reasoning
+D5 and D6 used for test-placement changes. **Still 1 of 2 used (D4).** Had it
+counted, the abort criteria would have tripped on a one-line test fix.
+
+**Related, and inside the surface already:** two other suites needed the same
+treatment and got it without an amendment —
+`finalize/__tests__/finalize-modules.test.ts` (its two `needs_backfill`-named tests
+were REMOVED, not ported: they named a predicate this ticket deletes, and titles
+14–19 in `import-offer-junction.test.ts` are their replacement) and
+`locations/__tests__/archive-location-tx.test.ts` (gained the same `importConsent`
+knob, defaulting to `'accepted'` there so its pre-existing reactivation tests keep
+asserting the enqueue they were written for).
+
+**Worth carrying forward:** the plan sized T3 as "the third gate is one added
+conjunct". True of the production edit. What it did not size is that a
+behaviour-changing gate invalidates assertions in every suite that exercises a
+CALLER of the gated function — and callers' suites are not in the producer's
+directory, so they are not in the producer's surface either. When a future task
+gates an existing side effect, budget for caller-suite fallout at intake.
+
+---
+
+## D9 — Audit-config and consumer-test amendments (owner-approved, 2026-08-07)
+
+Four more paths, all forced by T3/T4's approved production changes. Owner approved
+both batches; like D8 they are consequences of settled scope, not new scope.
+
+**Batch 1 — `scripts/ci/tenant-scope-allowlist.ts` + `scripts/ci/static-policy-audit.ts`.**
+
+- **Deleted two `tenant-scope` allowlist entries** whose `sqlSnippet` is the
+  verbatim `needs_backfill` SELECT that T3 removes from `finalize-tx.ts`, and
+  dropped `ALLOWLIST_BASELINE` **420 → 418**. Not optional: the audit fails on
+  *unused* entries, so deleting the query it described forces deleting the entry.
+  A **shrink** — two fewer suppressions in the tree.
+- **Moved one `static-policy` entry, `shared.ts:112` → `:137`.** The allowlist is
+  keyed `file:line`, and wrapping `maybeEnqueueBackfillResume` in `sql.begin` +
+  a businesses row lock (round-2 F107) pushed the `IN ('active','trialing')`
+  predicate down 25 lines. Same literal, same rule, same annotation.
+
+**Batch 2 — `worker/ingress/__tests__/**` + `scripts/ci/__tests__/**`.**
+
+- `stripe-activation-enqueue.test.ts` (4 tests): asserted the post-activation
+  resume enqueues unconditionally. It is consent-gated now, and the suite's
+  `sqlReturnQueue` is a **strict FIFO**, so the three new statements (row lock,
+  `createImportOffer`, `readImportConsent`) had to be fed in exact order — a
+  missing entry silently shifts every later result onto the wrong query. Also
+  bumped three `expectExactSqlCalls` 22 → 25, and one 21 → **22** (the tier guard
+  throws right after the target SELECT, so offer/consent never run — the +1 vs +3
+  asymmetry *is* the assertion that "before the child outbox INSERT" still holds).
+- `static-policy-audit.test.ts` (1 test): hardcoded `shared.ts:112` as a sample
+  allowlist member. Retargeted to `:137` with a note that these are samples, not a
+  contract, and that `file:line` keys shift on any insertion above them.
+
+**Two production findings that came out of this, both kept:**
+
+1. **`importConsentStateSql` lost its `alias` parameter.** It injected the alias via
+   postgres.js's identifier form `db(alias)` — correct against real Postgres, but
+   the four producers' suites use hand-rolled `sql` mocks that implement only the
+   tagged-template call form, so `db('b')` arrived as a bare string and died on
+   `strings.join is not a function` across several directories. A fragment called
+   from four producers must not require every mock in the repo to grow identifier
+   support: the alias is now a fixed contract (callers alias `businesses` as `b`)
+   and the fragment takes no interpolation at all.
+2. **`ci:tenant-scope` strips subqueries before analysing predicates**, so a
+   `business_id` bound inside `EXISTS (…)` is invisible to it and the table reads
+   as unscoped. Three sites were restructured to bind tenant keys in **top-level**
+   predicates: `createImportOffer` joins the junction halves instead of testing
+   them with `EXISTS` (safe — `accounts.id` is the PK and
+   `zernio_connections_one_active_per_business` makes an active row unique per
+   business); `finalize-tx`'s completed-run guard became its own statement ahead of
+   the INSERT; and `import-offer-view` uses a `LEFT JOIN` for the run row plus a
+   second, conditional query for the newest outbox row.
+
+**Also surfaced by a live fixture, and it changed behaviour:** the DB carries
+`zernio_backfill_runs_one_initial_per_business`, a UNIQUE partial index on
+`(business_id) WHERE run_reason = 'initial'`. A fixture seeding two `initial` runs
+was rejected, which exposed that **reactivation runs recur by design** — so
+"newest run wins" would have flipped the banner back to "Importing your reviews…"
+every time an archived location was reactivated, months after the one-time import
+finished. `readImportOfferView` now scopes run rows to `run_reason = 'initial'`.
+The plan did not specify this; the constraint found it.
+
+**Budget:** owner approved both batches on D8's reading — mechanical consequences
+of approved scope do not consume the 2-amendment budget. **Still 1 of 2 used (D4).**

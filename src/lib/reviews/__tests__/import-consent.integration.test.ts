@@ -148,7 +148,7 @@ async function clearOutbox(): Promise<void> {
 /** Evaluate the composable predicate the way a real consumer would. */
 async function derivedState(): Promise<ImportConsentState | null> {
   const [row] = await sql()<{ state: ImportConsentState }[]>`
-    SELECT ${importConsentStateSql(sql(), 'b')} AS state
+    SELECT ${importConsentStateSql(sql())} AS state
     FROM businesses b WHERE b.id = ${businessId}::uuid
   `;
   return row?.state ?? null;
@@ -235,7 +235,7 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
     await sql().begin(async (tx) => {
       const state = async () => {
         const [row] = await tx<{ state: ImportConsentState }[]>`
-          SELECT ${importConsentStateSql(tx, 'b')} AS state
+          SELECT ${importConsentStateSql(tx)} AS state
           FROM businesses b WHERE b.id = ${businessId}::uuid
         `;
         return row!.state;
@@ -520,11 +520,85 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
   // owner a full window from the first moment they could have seen the offer.
   // This title pins that behaviour so a future reader does not "fix" it back
   // into an anchor — the anchor was self-invented and cost two review rounds.
-  it.todo('a self-healed offer starts its seven days at the repair, not at the failed junction write');
+  it('a self-healed offer starts its seven days at the repair, not at the failed junction write', async () => {
+    // The junction happened in the past and its offer write FAILED — the
+    // connection is old, the activation is old, and the deadline is still NULL.
+    await setActivated(true);
+    await sql()`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
+    await sql()`
+      INSERT INTO zernio_connections (
+        id, business_id, zernio_profile_id, zernio_account_id,
+        zernio_location_id, status, connected_at, created_at
+      ) VALUES (
+        ${randomUUID()}::uuid, ${businessId}::uuid, 'prof-old', 'acct-old',
+        'loc-old', 'active', now() - interval '20 days', now() - interval '20 days'
+      )
+    `;
+    await sql()`
+      UPDATE accounts SET subscription_activated_at = now() - interval '20 days'
+      WHERE id = ${tenant!.accountId}::uuid
+    `;
+    await setConsent({ decision: 'pending', expiresAtSql: null });
+
+    // The repair (what the GET self-heal does).
+    expect(await sql().begin((tx) => createImportOffer(tx, businessId, tenant!.accountId)))
+      .toBe('created');
+
+    // 7 days from NOW, not from the 20-day-old junction — which under an anchor
+    // would have produced a deadline 13 days in the PAST, i.e. an offer that was
+    // already expired the first time the owner could see it.
+    const [check] = await sql()<{ days_out: string }[]>`
+      SELECT round(extract(epoch FROM (import_offer_expires_at - now())) / 86400)::text AS days_out
+      FROM businesses WHERE id = ${businessId}::uuid
+    `;
+    expect(Number(check!.days_out)).toBe(IMPORT_OFFER_WINDOW_DAYS);
+    expect(await derivedState()).toBe('pending');
+  });
 
   // The classification race the businesses row lock exists to remove: under READ
   // COMMITTED a concurrent self-heal could turn a NULL deadline into a live one
   // between the guarded UPDATE and the re-read, making the classifier report
   // already_answered for a row that is still answerable.
-  it.todo('a concurrent self-heal during a decision does not misclassify a live pending offer as already answered');
+  it('a concurrent self-heal during a decision does not misclassify a live pending offer as already answered', async () => {
+    await atJunction();
+    await clearOutbox();
+
+    // The race: a decision arrives while the row still has a NULL deadline, at the
+    // same moment a self-heal stamps one. Both take the same businesses row lock,
+    // so they serialize — and the ONLY two legal outcomes are
+    //   heal-then-decide  → 'recorded'  (the offer became answerable first), or
+    //   decide-then-heal  → 'no_offer'  (there was genuinely no offer yet).
+    // 'already_answered' is the bug: it would mean the classifier re-read a row
+    // that changed under it and concluded someone else had answered, when nobody
+    // had. That is what the lock exists to make impossible.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await setConsent({ decision: 'pending', expiresAtSql: null });
+      await clearOutbox();
+
+      const [outcome] = await Promise.all([
+        recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'),
+        sql().begin(async (tx) => {
+          await tx`
+            SELECT id FROM businesses
+            WHERE id = ${businessId}::uuid AND account_id = ${tenant!.accountId}::uuid
+            FOR UPDATE
+          `;
+          return createImportOffer(tx, businessId, tenant!.accountId);
+        }),
+      ]);
+
+      expect(['recorded', 'no_offer'], `attempt ${attempt} returned ${outcome}`)
+        .toContain(outcome);
+
+      // And the row never lands in a state the outcome contradicts.
+      const row = await readRaw();
+      if (outcome === 'recorded') {
+        expect(row.import_decision).toBe('accepted');
+        expect(await outboxCount()).toBe(1);
+      } else {
+        expect(row.import_decision).toBe('pending');
+        expect(await outboxCount()).toBe(0);
+      }
+    }
+  });
 });
