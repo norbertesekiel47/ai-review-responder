@@ -223,8 +223,20 @@ export interface IngestZernioReviewPayload extends BasePayload {
 }
 
 /**
- * ZernioInitialBackfillPayload — emitted by the connect-callback when the
- * `needs_backfill` predicate is satisfied, and by reactivation catch-up.
+ * ZernioInitialBackfillPayload — emitted by FOUR producers:
+ *   1. the Zernio connect-callback finalize tx
+ *      (`src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts`),
+ *   2. Stripe activation auto-recovery (`maybeEnqueueBackfillResume`,
+ *      `worker/ingress/stripe/shared.ts`),
+ *   3. the Import consent acceptance tx (`recordImportDecisionAndEnqueue`,
+ *      `src/lib/reviews/import-consent.ts`), and
+ *   4. location reactivation catch-up (`src/lib/locations/archive-location-tx.ts`).
+ *
+ * 1–3 all delegate to the shared `enqueueInitialImport` and carry
+ * `backfill_reason: 'initial'`. Producer 4 deliberately does NOT: it enqueues
+ * `backfill_reason: 'reactivation'`, which the worker's
+ * `ON CONFLICT (business_id) WHERE run_reason = 'initial' DO NOTHING` does not
+ * dedup, because the archived-period catch-up is supposed to run again.
  */
 export interface ZernioInitialBackfillPayload extends BasePayload {
   business_id: string;
