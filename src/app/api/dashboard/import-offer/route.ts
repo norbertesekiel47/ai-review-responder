@@ -101,19 +101,42 @@ async function selfHealImportOffer(locationId: string, accountId: string): Promi
   });
 }
 
-export async function GET(request: NextRequest): Promise<Response> {
-  let accountId: string;
-  let locationId: string;
+/**
+ * `resolveOwnerScope` plus the `ScopeError` → Response mapping, once for the two
+ * handlers below. They differ only in `allowReadOnly`, and a non-`ScopeError`
+ * still rethrows — the mapping is the only thing shared.
+ *
+ * Extracted because BOTH handlers in this file carried the same nine-line
+ * preamble; `fallow`'s duplication gate then also matched it against
+ * `past-replies/draft-status/route.ts:48-54`, which is outside this ticket's
+ * surface and is deliberately left alone. Two in-file callers justify the helper
+ * on their own — the cross-file clone dissolving is a side effect, not the reason.
+ */
+type ScopeOutcome =
+  | { ok: true; scope: Awaited<ReturnType<typeof resolveOwnerScope>> }
+  | { ok: false; response: Response };
+
+async function resolveScopeOrResponse(
+  request: NextRequest,
+  options?: { allowReadOnly: boolean },
+): Promise<ScopeOutcome> {
   try {
-    ({ accountId, locationId } = await resolveOwnerScope(sql, request, {
-      allowReadOnly: true,
-    }));
+    return { ok: true, scope: await resolveOwnerScope(sql, request, options) };
   } catch (err) {
     if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+      return {
+        ok: false,
+        response: NextResponse.json({ error: err.message }, { status: err.statusCode }),
+      };
     }
     throw err;
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  const resolved = await resolveScopeOrResponse(request, { allowReadOnly: true });
+  if (!resolved.ok) return resolved.response;
+  const { accountId, locationId } = resolved.scope;
 
   try {
     // Self-heal, THEN read — never the reverse. Reading first would show state one
@@ -131,16 +154,9 @@ export async function GET(request: NextRequest): Promise<Response> {
 }
 
 export const POST = withSameOrigin()(async (request: NextRequest): Promise<Response> => {
-  let accountId: string;
-  let locationId: string;
-  try {
-    ({ accountId, locationId } = await resolveOwnerScope(sql, request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
+  const resolved = await resolveScopeOrResponse(request);
+  if (!resolved.ok) return resolved.response;
+  const { accountId, locationId } = resolved.scope;
 
   let decision: 'accepted' | 'declined';
   try {

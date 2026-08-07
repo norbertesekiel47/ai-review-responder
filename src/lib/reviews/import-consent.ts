@@ -79,8 +79,14 @@ export type ImportDecisionOutcome =
   | 'expired'
   | 'no_offer';
 
-/** Every outcome that is NOT a recorded decision, i.e. every rejection class. */
-export type ImportDecisionRejection = Exclude<ImportDecisionOutcome, 'recorded'>;
+/**
+ * Every outcome that is NOT a recorded decision, i.e. every rejection class.
+ *
+ * Module-private: it names the two rejection helpers' shared shape, and callers
+ * consume the wider `ImportDecisionOutcome` instead. Exporting it left a type
+ * with no consumer, which is a `fallow` dead-code finding (CI gate, #675 D14).
+ */
+type ImportDecisionRejection = Exclude<ImportDecisionOutcome, 'recorded'>;
 
 /**
  * Spec §5.3's derivation, spelled ONCE, as a composable fragment.
