@@ -111,6 +111,7 @@
     "recordImportDecisionAndEnqueue rolls back import_decision_recorded when the decision transaction aborts",
     "createImportOffer keeps the caller transaction usable when the emission fails",
     "recordImportDecisionAndEnqueue commits the decision and still enqueues when the emission fails",
+    "recordImportDecisionAndEnqueue rethrows a code-less emission failure instead of swallowing it as schema drift",
     "import_offer_created uses a business-scoped event key so a replayed offer mints once",
     "import_decision_recorded uses a business-scoped event key so a replayed decision mints once",
     "migration 102 replaces the analytics event_name CHECK constraint idempotently",

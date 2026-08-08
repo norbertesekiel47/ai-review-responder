@@ -297,8 +297,8 @@ refused run leaves **no durable trace at all**. Record it in the deviations file
 **Malformed-payload carve-out — stated explicitly, as round-1 finding 5 requires.**
 `isSubscriptionTier` throws at lines 135–137, *before* `extractOutboxHandle` and
 therefore before the consent guard. **That ordering stays.** An unparseable tier is
-an impossible state to assert on (CLAUDE.md: assert impossible states, don't branch
-around them), and no import happens on either path — only the outbox disposition
+an impossible state to assert on (`.claude/commands/feature.md:55`: assert impossible
+states, don't branch around them), and no import happens on either path — only the outbox disposition
 differs (throw/retry rather than skip-complete), so the consent promise is intact.
 The existing test at lines 259–273 remains the authority and is not weakened. The
 new title *"handleZernioBackfill throws on an unsupported tier before reaching the

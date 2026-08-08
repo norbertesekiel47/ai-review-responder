@@ -25,10 +25,15 @@
 // the feature area that deliberately make a statement fail. Every moved title
 // moved VERBATIM — the `promised-tests` gate greps them wherever they live.
 //
-// The last two titles are NEW (review round 2). They pin the `emitConsentEvent`
-// savepoint's own property — a FAILING emission rolls back only itself — which
-// the moved eight did not cover: deleting the savepoint outright left all of them
-// green, so a revert of the connect-outage fix was invisible to CI.
+// Three titles below are NOT among the moved eight. Two arrived in review round 2
+// and pin the `emitConsentEvent` savepoint's own property — a FAILING emission
+// rolls back only itself — which the moved eight did not cover: deleting the
+// savepoint outright left all of them green, so a revert of the connect-outage
+// fix was invisible to CI. The third arrived in review round 3 and pins the
+// BOUND on that swallow: round 2 narrowed the catch to errors carrying a string
+// `code`, and then tested the narrowing with two `23514`s — which carry one, and
+// are therefore swallowed with or without the narrowing. Deleting the rethrow
+// left all ten green. See `codelessPoison`.
 //
 // WHY LIVE POSTGRES: every property that matters here is a transaction
 // boundary or an `ON CONFLICT`. Both events are emitted from INSIDE the writing
@@ -299,9 +304,71 @@ function isAnalyticsEmission(first: unknown): boolean {
 }
 
 /**
+ * How the emission is made to fail, injected at the point `enqueueAnalyticsEvent`
+ * writes. Two implementations, and the DIFFERENCE BETWEEN THEM is the property
+ * `emitConsentEvent`'s catch is narrowed on: whether the error carries a string
+ * `code`.
+ */
+type EmissionPoison = (handle: postgresType.TransactionSql) => Promise<void>;
+
+/**
+ * The default: a REAL Postgres `23514`, i.e. the schema-drift class the catch is
+ * SUPPOSED to swallow. See `UNREGISTERED_EVENT_NAME` for why this name and this
+ * constraint.
+ */
+const checkViolationPoison: EmissionPoison = async (handle) => {
+  await handle`
+    INSERT INTO analytics_events (id, event_key, event_name, distinct_id)
+    VALUES (
+      ${randomUUID()}::uuid,
+      ${`emission-poison-${randomUUID()}`},
+      ${UNREGISTERED_EVENT_NAME},
+      'emission-poison'
+    )
+  `;
+};
+
+/** The message the real class-2 wiring bug produces, asserted verbatim below. */
+const CODELESS_EMISSION_MESSAGE = 'tx.savepoint is not a function';
+
+/**
+ * The other side of the narrowing: an error with NO `code`, which the catch must
+ * RETHROW rather than swallow.
+ *
+ * WHY THIS EXISTS AT ALL (review round 3). Round 2 bounded the catch —
+ * `if (errorStringProperty(error, 'code') === undefined) throw error;` — and then
+ * pinned it with two `23514` injections. A `23514` carries a string `code`, so it
+ * is swallowed whether or not the bound is there; deleting that line left the
+ * whole suite green. An untested guard on the highest-risk path is exactly the
+ * defect this branch keeps producing, so the code-less half needs its own
+ * injection.
+ *
+ * A `TypeError` carrying the real wiring bug's message, because that is the
+ * documented class-2 hazard `import-consent.ts` names: a handle without
+ * `.savepoint` (root `sql`, `sql.reserve()`, a `Sql`-shaped mock) is not schema
+ * drift, and swallowing it kills both events forever behind a warn that reads
+ * like a missing migration. Round 2 found it had ALREADY happened —
+ * `import-offer-junction.test.ts`'s `mockTx` had no `savepoint`.
+ *
+ * FABRICATED IN JS, DELIBERATELY, and that inverts this file's other doctrine
+ * rather than breaking it. The `23514`/`23503` injections must originate in
+ * Postgres because they assert the caller SURVIVES an aborted transaction, and a
+ * JS throw leaves the transaction perfectly healthy — it would prove nothing.
+ * Here the assertion is the opposite one: the caller must DIE. A JS throw is the
+ * whole hazard, and the rollback it produces can only have come from the rethrow,
+ * because the savepoint's own `ROLLBACK TO SAVEPOINT` left Postgres with a usable
+ * transaction. Injecting it here rather than by hiding `savepoint` keeps the
+ * throw INSIDE the savepoint, so that ordering is what the test actually
+ * exercises.
+ */
+const codelessPoison: EmissionPoison = () =>
+  Promise.reject(new TypeError(CODELESS_EMISSION_MESSAGE));
+
+/**
  * A `TransactionSql` on which the analytics emission — and ONLY the analytics
- * emission — fails with a REAL Postgres error, raised on the caller's own
- * connection at the exact point `enqueueAnalyticsEvent` writes.
+ * emission — fails, at the exact point `enqueueAnalyticsEvent` writes. By default
+ * it fails with a REAL Postgres error raised on the caller's own connection;
+ * `poison` swaps in the code-less variant.
  *
  * WHY IT SNIFFS THE STATEMENT RATHER THAN HOOKING `savepoint`. The mutation this
  * exists to kill is deleting the savepoint, and an injection that fires only
@@ -325,12 +392,15 @@ function isAnalyticsEmission(first: unknown): boolean {
  * Non-DDL, no lock stronger than the caller already holds, and the poison row
  * never commits on any path.
  */
-function failingEmission(base: postgresType.TransactionSql): postgresType.TransactionSql {
+function failingEmission(
+  base: postgresType.TransactionSql,
+  poison: EmissionPoison = checkViolationPoison,
+): postgresType.TransactionSql {
   return new Proxy(base, {
     get(target, prop) {
       if (prop === 'savepoint') {
         return (callback: (sp: postgresType.TransactionSql) => Promise<unknown>) =>
-          target.savepoint((sp) => callback(failingEmission(sp)));
+          target.savepoint((sp) => callback(failingEmission(sp, poison)));
       }
       const value: unknown = Reflect.get(target, prop);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -345,22 +415,17 @@ function failingEmission(base: postgresType.TransactionSql): postgresType.Transa
         // the event name itself would have: after the row is written, inside
         // whatever scope wrote it.
         await forwarded;
-        await target`
-          INSERT INTO analytics_events (id, event_key, event_name, distinct_id)
-          VALUES (
-            ${randomUUID()}::uuid,
-            ${`emission-poison-${randomUUID()}`},
-            ${UNREGISTERED_EVENT_NAME},
-            'emission-poison'
-          )
-        `;
+        await poison(target);
       })();
     },
   });
 }
 
 /** `failingEmission`, reached through the `sql.begin` that owns the decision. */
-function failingEmissionExecutor(base: postgresType.Sql): postgresType.Sql {
+function failingEmissionExecutor(
+  base: postgresType.Sql,
+  poison: EmissionPoison = checkViolationPoison,
+): postgresType.Sql {
   return new Proxy(base, {
     get(target, prop) {
       if (prop !== 'begin') {
@@ -368,7 +433,7 @@ function failingEmissionExecutor(base: postgresType.Sql): postgresType.Sql {
         return typeof value === 'function' ? value.bind(target) : value;
       }
       return (callback: (tx: postgresType.TransactionSql) => Promise<unknown>) =>
-        target.begin((tx) => callback(failingEmission(tx)));
+        target.begin((tx) => callback(failingEmission(tx, poison)));
     },
   });
 }
@@ -659,6 +724,52 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
     expect((await readRaw()).import_decision).toBe('accepted');
     // … and the enqueue downstream of the emission still ran.
     expect(await outboxCount()).toBe(1);
+    expect(await readAnalytics('import_decision_recorded')).toHaveLength(0);
+  });
+
+  it('recordImportDecisionAndEnqueue rethrows a code-less emission failure instead of swallowing it as schema drift', async () => {
+    // THE BOUND ON THE SWALLOW, which the two titles above structurally cannot
+    // reach (review round 3). They inject a `23514`; a `23514` carries a string
+    // `code`, so `emitConsentEvent`'s
+    // `if (errorStringProperty(error, 'code') === undefined) throw error;` is
+    // dead weight for them and deleting it leaves them green. Only an error
+    // WITHOUT a code can tell the guarded catch from an unbounded one.
+    //
+    // The distinction is not academic. A code-less error here means a wiring bug
+    // — a handle that is not a `TransactionSql` at all — and an unbounded catch
+    // converts it into a permanent, silent loss of BOTH events behind a warn
+    // line that reads like a missing migration. Round 2 found that exact state
+    // already shipped in `import-offer-junction.test.ts`'s `mockTx`.
+    await atJunction();
+    await clearRuns();
+    await clearOutbox();
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+    await clearAnalytics();
+
+    // `.then(reject, identity)` rather than `expect(...).rejects`, because the
+    // load-bearing assertion is an ABSENCE on the thrown value — `rejects` can
+    // match a shape but cannot show that `code` is missing, and missing `code` is
+    // the entire discriminator under test.
+    const thrown: unknown = await recordImportDecisionAndEnqueue(
+      failingEmissionExecutor(sql(), codelessPoison), businessId, tenant!.accountId, 'accepted',
+    ).then(
+      (outcome) => { throw new Error(`expected a rejection, got outcome '${outcome}'`); },
+      (error: unknown) => error,
+    );
+
+    // The injected error reached the caller UNCHANGED, and it is the code-less
+    // shape — not something Postgres minted on the way out.
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect(thrown).toHaveProperty('message', CODELESS_EMISSION_MESSAGE);
+    expect(thrown).not.toHaveProperty('code');
+
+    // And the rethrow took the whole transaction with it: the owner's answer did
+    // not land, and the Review import was never enqueued. This is the assertion
+    // that inverts the two titles above — there the caller COMMITS, here it must
+    // not — so the pair cannot both pass under one behaviour.
+    expect((await readRaw()).import_decision).toBe('pending');
+    expect((await readRaw()).import_decision_at).toBeNull();
+    expect(await outboxCount()).toBe(0);
     expect(await readAnalytics('import_decision_recorded')).toHaveLength(0);
   });
 

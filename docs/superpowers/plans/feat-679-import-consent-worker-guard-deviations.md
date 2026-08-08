@@ -753,7 +753,7 @@ an abstraction.
 is how every other false-coverage defect on this branch was caught, and the same
 technique D27 itself used for the abort injection.
 
-Rules applied: CLAUDE.md "assert impossible states, don't branch around them"
+Rules applied: `.claude/commands/feature.md:55` "assert impossible states, don't branch around them"
 (a `TransactionSql` without `.savepoint` is impossible in production — every
 caller passes a real handle) and "no abstraction before the second use".
 
@@ -778,7 +778,7 @@ live-DB tests and all 42 unit tests GREEN, so a revert of the connect-outage fix
 was invisible to CI. New titles were added to
 `src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts` covering
 the *failure* direction (a failed emission rolls back only itself and leaves the
-parent transaction usable); the success direction was already pinned at `:435-462`.
+parent transaction usable); the success direction was already pinned at `:552-590`.
 
 Per feature.md, `tests_to_add` additions are owner-approved deviations-file
 entries, **not** surface amendments — they do not count against the budget. Both
@@ -802,7 +802,15 @@ Mutation evidence:
   (try/catch removed): both new tests **RED**, all 8 pre-existing tests green.
   That green is precisely the reviewers' finding reproduced. Restored.
 - **B** — emission moved outside the transaction: the existing rollback test at
-  `:435-462` went **RED** (`55P03`), confirming it was not weakened. Restored.
+  `:552-590` went **RED** (`55P03`), confirming it was not weakened. Restored.
+
+**Citation correction (round 3, spec axis Low).** Both references above read
+`:435-462` when first written — correct at `3b7e0404`, stale by the time the same
+commit landed, because it inserted 117 lines above them and moved the rollback
+test to `:552-590`. Third stale-citation finding across three rounds on this
+branch. The durable lesson is not "check citations harder": a `file.ts:NNN`
+reference into a file the SAME commit edits is stale before it is committed.
+Cite by test title or symbol, not line number, when the target moves with you.
 
 **Process note.** This work was dispatched with a "no sibling agent is running"
 premise that did NOT hold — the orchestrator was concurrently editing
@@ -865,3 +873,82 @@ Third recorded instance of the wrapper losing a task id. feature.md already says
 "dispatch via direct `codex exec` and record the codex session id" for plan
 reviews; the same should apply to step 7's adversarial axis. **Promote to lab
 notes at step 8.**
+
+### D37 — [2026-08-08] round 3: the narrowing was itself unpinned, and the fix inverts this suite's injection doctrine on purpose
+
+Round-3 standards axis, Medium — **the finding of the round**, and the sharpest
+one on the branch. D32's catch narrowing shipped with no test. Both existing
+failure titles inject `23514`, which carries a string `code` and is therefore
+swallowed *whether or not the guard exists*, so deleting
+`if (errorStringProperty(error, 'code') === undefined) throw error;` left every
+suite green. **That is round 2's decisive defect — an untested guard on the
+highest-risk path — reintroduced by round 2's own fix.**
+
+Closed by one title, added to `tests_to_add` in both intake copies (40 → 41):
+
+- `recordImportDecisionAndEnqueue rethrows a code-less emission failure instead of swallowing it as schema drift`
+
+Mutation evidence:
+- **Kill** — guard line deleted → `1 failed | 10 passed`, on
+  `expected a rejection, got outcome 'recorded'`. Restored → 11 passed. The same
+  run independently reproduced the finding: with the guard gone, all ten
+  pre-existing titles stayed green.
+- **Counter-mutation** — the injection was parameterized (`EmissionPoison`;
+  default `checkViolationPoison` = the unchanged `23514`, new `codelessPoison`).
+  Swapping the new test to `checkViolationPoison` against UNMUTATED shipped code
+  turns it RED. So it discriminates on **code-presence**, not on "the emission
+  failed". The two `23514` titles assert the caller **commits**; this one asserts
+  it must **not**.
+
+**Deliberate inversion of this suite's injection doctrine — do not "fix" it back.**
+Everywhere else on this branch the rule is *the failure must originate in
+Postgres*, because a JS throw does not poison a Postgres transaction (D27, and
+two agents shipped invalid demos on it in round 1). This test injects a
+JS-fabricated `TypeError` with no `code`, on purpose: the other tests assert the
+caller **survives** an aborted transaction, which a JS throw cannot produce,
+whereas this one asserts the rethrow **propagates**. The savepoint's own
+`ROLLBACK TO SAVEPOINT` leaves Postgres healthy, so the observed rollback can
+only have come from the rethrow. The reasoning is documented on `codelessPoison`
+at the injection site.
+
+### D38 — [2026-08-08] round 3: three more findings on D32's own landing
+
+All accepted, all fixed, none of them correctness bugs in the shipped hazard path
+— but together they are why the round happened.
+
+1. **The `as` cast dropped an object-ness guard.**
+   `typeof (error as { code?: unknown }).code` throws on a `null`/`undefined`
+   rejection, so the catch block itself would have aborted the caller. Replaced
+   with the established `errorStringProperty`
+   (`src/lib/payments/stripe-error-inspect.ts:41`, 6 existing callers including
+   `src/lib/db/transient-error.ts:61`, which asks this exact question). The
+   original justification — that this matched `duplicate-location.ts:24` /
+   `create-business.ts:62` — was **wrong**: those narrow to one SPECIFIC code;
+   this asks only whether a code exists. Precedent-over-invention applies, and a
+   6-caller helper already owned it.
+
+2. **The JSDoc headline contradicted the code.** "ONLY a Postgres error is
+   swallowed" — the code swallows any string-`code` error, including postgres.js
+   `CONNECTION_*` and Node socket codes, all under a `warn` the same comment
+   framed as "migration 102 not applied". Rewritten to the real contract, with
+   #697 named for the imprecise signal.
+
+3. **A rule was misattributed to CLAUDE.md.** "Assert impossible states, don't
+   branch around them" lives at `.claude/commands/feature.md:55` and appears in
+   neither CLAUDE.md. Fixed at all **three** carrying sites, not just the one
+   the reviewer cited.
+
+**Cross-axis conflict, resolved on evidence.** Standards wanted
+`instanceof postgres.PostgresError`; the adversarial axis's driver-source
+taxonomy (codex `019fdfbb-e197-7f32-a4c0-5538f8c5c6bb`) shows that would rethrow
+a transient blip straight into `finalizeConnectionTx` and reintroduce the connect
+outage in the NARROW direction. The wider duck-type stands: a lost connection
+independently rejects the enclosing `begin`, so swallowing it locally cannot
+manufacture a quiet success.
+
+**Process lesson (promote to lab notes at step 8).** A review agent's mutation
+Edit was **denied by the permission system**, so it reported F3 as a static
+inference and flagged it as unverified rather than claiming it had run. It was
+correct anyway. Two lessons: a reviewer that cannot mutate is still worth
+running, and the harness should grant review agents mutate-and-revert rights or
+they will keep hedging findings they cannot execute.

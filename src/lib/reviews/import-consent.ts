@@ -91,6 +91,7 @@ import { enqueueAnalyticsEvent, type EnqueueAnalyticsEventInput } from '@/lib/an
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { errorStringProperty } from '@/lib/payments/stripe-error-inspect';
 import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 type SqlExecutor = Sql | TransactionSql;
@@ -462,17 +463,46 @@ function logRejection(
  * error text are logged: no review text, no tokens, no handles, and not the
  * properties.
  *
- * ONLY a Postgres error is swallowed. Round 2 found the catch unbounded, and it
+ * ONLY an error carrying a string `code` is swallowed — which is broader than
+ * "a Postgres error", and deliberately so: it also covers postgres.js
+ * connection-lifecycle errors (`CONNECTION_CLOSED`/`_ENDED`/`_DESTROYED`/
+ * `CONNECT_TIMEOUT`, minted on plain `Error`s at
+ * `node_modules/postgres/src/errors.js:16-27`) and Node OS-socket codes
+ * (`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`). Those are infrastructure failures, not
+ * schema drift, and they land under the same `warn` — a known imprecision in the
+ * signal, tracked with the missing durable sink as #697. Swallowing them is
+ * still correct here: a lost connection independently rejects the enclosing
+ * `begin`, so it can never be converted into a quiet success.
+ *
+ * Round 2 found the catch unbounded, and it
  * was already hiding a real one: `import-offer-junction.test.ts`'s `mockTx` has
  * no `savepoint`, so five of its six tests threw `TypeError: tx.savepoint is not
  * a function`, emitted nothing, and stayed green. A handle without `.savepoint`
  * (root `sql`, `sql.reserve()`, a `Sql`-shaped mock) is a wiring bug, not schema
  * drift, and swallowing it kills both events forever behind a warn that reads
  * like a missing migration. Postgres errors carry a string `code`; a `TypeError`
- * does not — that is the whole discriminator, matching the inline `code` checks
- * used at `src/lib/locations/duplicate-location.ts:24` and
- * `src/lib/onboarding/create-business.ts:62` rather than inventing a predicate.
- * This is CLAUDE.md's "assert impossible states, don't branch around them".
+ * does not — that is the whole discriminator, spelled with the established
+ * `errorStringProperty` helper, which `src/lib/db/transient-error.ts:61` already
+ * uses for exactly this "does this error carry a string `code`" question. It is
+ * NOT the `duplicate-location.ts:24` / `create-business.ts:62` shape: those
+ * narrow to one SPECIFIC code, this one only asks whether a code exists.
+ * This is `.claude/commands/feature.md:55`'s "assert impossible states, don't
+ * branch around them".
+ *
+ * Three error classes reach this catch, and only the first is swallowed:
+ *   1. Postgres errors — SQLSTATEs (`23514` when 102 is unapplied, `23503`),
+ *      `57014` statement timeouts, postgres.js `CONNECTION_*`, and Node socket
+ *      errors (`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`). All carry a string `code`.
+ *      Round 3 verified this against the driver source: nothing transient
+ *      escapes, so the narrowing cannot resurrect the connect outage. A lost
+ *      connection still rejects the enclosing `begin` on its own, so it is
+ *      never converted into a quiet success.
+ *   2. A `TypeError` from a handle without `.savepoint` — a wiring bug.
+ *   3. `enqueueAnalyticsEvent`'s own plain `Error` on an unregistered name
+ *      (`src/lib/analytics/enqueue.ts:24-26`). Unreachable while `eventName` is
+ *      typed `AnalyticsEventName` — deleting a name from the registry fails
+ *      compilation at the call site before it can fail at runtime.
+ * 2 and 3 are impossible states and are rethrown deliberately.
  */
 async function emitConsentEvent(
   tx: TransactionSql,
@@ -481,7 +511,7 @@ async function emitConsentEvent(
   try {
     await tx.savepoint((sp) => enqueueAnalyticsEvent(sp, input));
   } catch (error) {
-    if (typeof (error as { code?: unknown }).code !== 'string') throw error;
+    if (errorStringProperty(error, 'code') === undefined) throw error;
     createWorkerLogger(LOG_PREFIX).warn('Import consent analytics emission failed', {
       business_id: input.businessId ?? null,
       event_name: input.eventName,
