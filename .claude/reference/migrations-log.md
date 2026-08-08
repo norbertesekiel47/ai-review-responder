@@ -1861,7 +1861,14 @@ Revisit triggers:
   outcome (T3/T4). Written via `markOutboxOwnerUnreachable`
   (`src/lib/shared/outbox.ts`) with the same attempt-guarded CAS as the sibling
   outbox writers; value owned by `OUTBOX_COMPLETION_REASON`
-  (`src/lib/shared/outbox-completion-reason.ts`). **No new index** — the lookups
+  (`src/lib/shared/outbox-completion-reason.ts`). **Since #695 that writer is
+  `markOutboxCompletedWithReason(exec, outboxId, reason, attempt?)`** — the
+  reason-specific helper was deleted and generalized, the emitted UPDATE and the
+  persisted `owner_unreachable` value unchanged — and the column carries a second
+  member, `import_consent_blocked`, stamped by `guardImportConsent` on a refused
+  `zernio_initial_backfill` row (**no migration**; ADR 0016). The vocabulary is an
+  **operational-window signal, not an audit log**: `ArchivalPoller` deletes
+  completed `job_outbox` rows 7 days after `completed_at`. **No new index** — the lookups
   reuse `idx_responses_pending_approval_created` and
   `idx_jo_send_notification_by_aggregate` from migration 082. Additive
   (`ADD COLUMN IF NOT EXISTS`, no default, existing rows stay NULL);

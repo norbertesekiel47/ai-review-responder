@@ -202,7 +202,7 @@ Reactivation is deliberately **not** routed through it: it enqueues with
 run_reason = 'initial'` does not dedup it, because the archived-period catch-up
 must recur.
 
-### The chokepoint (#679, PR #698)
+### The chokepoint (#679, PR #698; block reason + ADR 0016 at #695, PR #714)
 
 The four gates above are producer-side, so they only bind code that goes through
 a producer. `guardImportConsent` (`worker/jobs/zernio/job-eligibility.ts`) closes
@@ -212,22 +212,36 @@ and before the run-row INSERT, and proceeds only on `accepted`.
 | Derived state | Outcome |
 |---|---|
 | `accepted` | proceed |
-| `pending` / `declined` / derived `expired` / no `businesses` row | log `import consent blocked — skipping backfill` with a structured `reason`, complete the outbox row, mint no run row |
+| `pending` / `declined` / derived `expired` / no `businesses` row | log `import consent blocked — skipping backfill` with a structured `reason`, complete the outbox row **stamped `completion_reason='import_consent_blocked'`** (#695), mint no run row |
 
-Three properties to preserve if you touch it:
+Four properties to preserve if you touch it:
 
 - **It is a separate function from `guardZernioJobEligibility`, not a `jobKind`
   branch.** A merged guard would have two callers, one of which (the live-ingest
   worker) must never reach consent code.
 - **Its body must stay inside `sql.begin` with `SELECT … FOR UPDATE` and
-  `markOutboxCompleted(tx, …)`.** Without both, the guard can read `pending`
-  while the owner accepts; the acceptance's in-flight dedup then inserts no
-  replacement and the guard completes the row, leaving `accepted` with no
+  `markOutboxCompletedWithReason(tx, …)`.** Without both, the guard can read
+  `pending` while the owner accepts; the acceptance's in-flight dedup then inserts
+  no replacement and the guard completes the row, leaving `accepted` with no
   completed run and no runnable outbox row. `FOR UPDATE` is a no-op outside
   `sql.begin()` under transaction pooling. Lock order is business-before-outbox,
-  matching all four producers.
+  matching all four producers. The reason must be written on **that same `tx`** —
+  `markOutboxCompletedWithReason` (`src/lib/shared/outbox.ts`) generalized the
+  deleted `markOutboxOwnerUnreachable` at #695 and takes the reason as a parameter.
 - **Every skip is skip-as-success** — completed, never failed or retried, so a
   declined or expired import cannot churn the queue forever.
+- **The block reason is an operational-window signal, NOT an audit record**
+  (#695, ADR `docs/adr/0016-import-consent-enforcement-locus.md`). The column has
+  existed since migration 083, so this added no migration. `ArchivalPoller` deletes
+  completed `job_outbox` rows 7 days after `completed_at`, and a refusal *completes*
+  rather than fails, so it takes the 7-day arm — the same life `owner_unreachable`
+  has always had (ADR 0010). What outlives the window is
+  `businesses.import_decision` / `import_decision_at`. There is no backfill, so a
+  NULL on a pre-#695 row is not evidence of a genuine import; ONE marker covers all
+  four refusal states, with the per-state detail only in the log line; and nothing
+  reads it in code — no poller, no alert, no admin surface.
+  `guardZernioJobEligibility`'s three skips deliberately keep `completion_reason`
+  NULL via plain `markOutboxCompleted` — they are not policy refusals.
 
 Because every producer converges here, the admin / hand-inserted path is covered
 too: spec D8's "admin path included" holds structurally, not by convention.

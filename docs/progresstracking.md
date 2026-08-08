@@ -890,7 +890,8 @@ bounds the ACCESS EXCLUSIVE lock). Applied staging 2026-07-21 → prod
 2026-07-21 in lockstep (owner-confirmed). `NotificationWorker` records
 `completion_reason='owner_unreachable'` on `no_verified_enrollments` via
 `markOutboxOwnerUnreachable` (attempt-guarded CAS, `src/lib/shared/outbox.ts`;
-value owned by `OUTBOX_COMPLETION_REASON`,
+generalized to `markOutboxCompletedWithReason` at #695 — same emitted UPDATE, same
+persisted value; value owned by `OUTBOX_COMPLETION_REASON`,
 `src/lib/shared/outbox-completion-reason.ts`). `checkOwnerUnreachable`
 (health-alert): latest-COMPLETED-reason predicate, **4h age floor** — durable,
 keeps firing until the draft resolves — and the pre-existing zero-delivery
@@ -1827,7 +1828,9 @@ chokepoint they all converge on.
   would have two callers, one of which must never reach consent code. Splitting
   makes live-ingest independence structural, not a runtime branch.
 - **The guard's body is one transaction, and that is correctness.** Without
-  `sql.begin` + `SELECT … FOR UPDATE` + `markOutboxCompleted(tx, …)`, the guard
+  `sql.begin` + `SELECT … FOR UPDATE` + `markOutboxCompleted(tx, …)` (the guard's
+  writer since #695 is `markOutboxCompletedWithReason(tx, …)` — same transaction,
+  now also stamping the block reason), the guard
   can read `pending` from an in-flight row while the owner accepts; the
   acceptance's in-flight dedup then inserts no replacement and the guard
   completes the row. Result: `accepted`, no completed run, no runnable outbox
@@ -2201,3 +2204,138 @@ a new-issue rule would fire exactly once, ever.
   (CLAUDE.md: "an existing-but-not-run suite is how #520 shipped"), and out of
   scope for an observability fix — mitigated here by running the suite locally on
   every gate pass plus the five mutations.
+
+## Import consent enforcement locus + block reason (2026-08-08, #695 → PR #714)
+
+An ADR plus one observability marker. **No migration, no env var, no flag, no new
+dependency, no new runtime file.** `/feature` lane at RISK = high — 3 plan-review
+rounds, 1 branch-review round across three axes, full staging ride.
+
+### The question, and the answer
+
+The adversarial axis of #679's review challenged the *enforcement locus*: the
+`job_outbox` insertion boundary is also a chokepoint every producer shares — product
+code, the admin manual-SQL re-enqueue path (`src/app/admin/runbook/page.tsx`), any
+future producer — and unlike the worker guard it sits **before** dispatch. A `CHECK`
+constraint or `BEFORE INSERT` trigger there would enforce **Import consent** with no
+per-worker guard at all, and spec §5.3's own "no enqueue-time gate can ever cover
+manual SQL" sentence, read literally, is answered by that proposal.
+
+`docs/adr/0016-import-consent-enforcement-locus.md` **files the challenge and
+declines it.** Enforcement stays at `guardImportConsent` in `ZernioBackfillWorker`.
+Against, in descending weight:
+
+1. **It forces a second spelling of the derived-expiry predicate, and nothing can
+   check the two against each other.** A trigger must re-express
+   `importConsentStateSql` — `pending AND import_offer_expires_at <= now()` — in
+   PL/pgSQL, inside a migration. §5.3 exists to give that predicate exactly one
+   owner (#670). Stated precisely, because overstating it is how an ADR loses its
+   authority the first time someone checks it: a later migration *can*
+   `CREATE OR REPLACE` the trigger function, so this is **unenforced drift plus a
+   two-environment deploy coupling**, not literal impossibility. On this predicate
+   that is decisive.
+2. **`job_outbox` is topic-agnostic infrastructure** shared by 32 topics; a
+   topic-specific trigger makes every later reader pay to learn why one is special.
+3. **The marginal gain is small**, and this ticket shrinks it further — "row never
+   created" vs "row no-op-completes without importing anything"; in both cases
+   nothing is stored and nothing reaches Google.
+4. **It would not remove the worker guard.** An insert-time gate cannot see consent
+   that changes between enqueue and dispatch, so the proposal buys two enforcement
+   points to keep in sync, not one — and its "removes the transaction + row lock"
+   argument falls with it.
+
+### What shipped
+
+- `src/lib/shared/outbox.ts` — **`markOutboxOwnerUnreachable` is DELETED**, replaced
+  by `markOutboxCompletedWithReason(exec, outboxId, reason, attempt?)`. A
+  rename-and-parameterize, not a sibling, so the outbox seam stops growing one
+  method per reason. Returns `void` (no caller needed the CAS result). Same emitted
+  UPDATE, same attempt-guarded `dispatchedRow` CAS, same `warnOutboxNoop` — and
+  **`owner_unreachable`'s persisted wire value is unchanged**, so both poller
+  readers are untouched.
+- `src/lib/shared/outbox-completion-reason.ts` — adds
+  `OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED = 'import_consent_blocked'` plus
+  the exported `OutboxCompletionReason` union the writer's parameter takes.
+- `worker/jobs/zernio/job-eligibility.ts` — `guardImportConsent`'s skip branch
+  completes the refused `zernio_initial_backfill` row via
+  `markOutboxCompletedWithReason` on the **same `tx`**, inside its unchanged
+  `sql.begin` + `businesses … FOR UPDATE`. The proceed/skip decision, the signature,
+  `ImportConsentGate`, the serialization, the lock, `importConsentStateSql` and the
+  structured log line are all unchanged.
+- `worker/jobs/notification/NotificationWorker.ts` — call-site swap only.
+- `docs/adr/0016-import-consent-enforcement-locus.md` (new) + spec §5.3, `CONTEXT.md`
+  and `.claude/CLAUDE.md` updated to cite it **by filename**, not by number (D7).
+
+**Column from migration 083** — `job_outbox.completion_reason` has existed since the
+owner-unreachable work (#516), so this ticket adds no migration.
+
+**Deliberate non-goal:** `guardZernioJobEligibility`'s three skips (missing row,
+archived location, failed subscription guard) keep using plain `markOutboxCompleted`
+and leave `completion_reason` NULL. They are not policy refusals, and 29 assertions
+in `ZernioBackfillWorker.test.ts` legitimately still name the plain writer.
+
+### What the marker is — and what it is NOT
+
+Corrected mid-flight (D8, owner-decided): the intake said "durably queryable", which
+was an **overclaim**. `ArchivalPoller` deletes completed `job_outbox` rows 7 days
+after `completed_at` (`ArchivalPoller.ts:60`), and a refusal *completes* rather than
+fails, so it takes the 7-day arm and not the 90-day dead-letter one. It is an
+**operational-window signal, not an audit record** — the same life `owner_unreachable`
+has always had (ADR 0010), i.e. a property of the sink, not of this ticket. What
+outlives the window is `businesses.import_decision` / `import_decision_at`, plus the
+log line under the log sink's own retention.
+
+Three further stated limits, all recorded in ADR 0016 alongside the operator query:
+
+- **No backfill of historical rows** — pre-change refusals also carry NULL, so
+  outside the post-deploy band NULL means "genuine import OR pre-deployment
+  refusal". The query's `created_at >= '<deploy timestamp>'` bound is what makes it
+  trustworthy, and it is trustworthy in exactly one band: after that timestamp and
+  within the last seven days.
+- **ONE marker for all four refusal states.** It records THAT a refusal happened,
+  not which state caused it; a `pending` refusal whose owner later accepts keeps the
+  marker. A per-state column would put a point-in-time fact where readers would
+  inevitably compare it against current state. The detail lives only in the
+  structured log line `import consent blocked — skipping backfill` — the ONLY record
+  of it in the `missing` case.
+- **Nothing reads it in code** — no poller, no alert, no Sentry capture, no PostHog
+  event, no `/admin/jobs` rendering. A refusal is the guard working, not an incident.
+
+### Verification
+
+Verify gate GREEN ×4 (`--review` mode 25/25, last at `70bf042d` post-merge of
+`origin/main`); both live-DB suites executed, 0 skipped. 14 new/retargeted test
+titles across `outbox.test.ts`, `job-eligibility.test.ts`,
+`job-eligibility.integration.test.ts`, `ZernioBackfillWorker.test.ts`,
+`NotificationWorker.test.ts` and `NotificationFailoverPoller.integration.test.ts`.
+
+**Staging ride:** `e447ee5b..70bf042d` pushed, worker restarted, Railway check
+`Success`. A hand-inserted `zernio_initial_backfill` row for a `pending`-consent
+location completed in 3.5s with `completion_reason='import_consent_blocked'`,
+`attempts=1`, `last_error=null`, **0** `zernio_backfill_runs` and **0** reviews
+imported. Every other topic stayed NULL. The synthetic outbox row self-purges via
+`ArchivalPoller` in 7 days — itself a live demonstration of the window limit above.
+
+**Review:** one round, three axes — spec & correctness PASS (3 Low), standards PASS
+(1 Medium, 1 Low), adversarial (Codex) needs-attention (1 Medium, the locus question
+the ADR answers). F1–F3 fixed in round 1; F4 (five stale doc cross-references)
+deferred to this post-merge sweep because all five sat outside
+`allowed_edit_surface` and adding them would have been amendment #2 — an abort
+trigger. They are fixed in the same change as this entry.
+
+### Workflow notes — two lessons, both promoted to lab-notes
+
+- **An eval that passes while the feature is unbuilt is worse than no eval** (D5).
+  A shared mock recorder made `reason` optional, so `expect(x.reason).toBe(CONST)`
+  compared `undefined` to `undefined` and passed at T1 with nothing implemented.
+  Three plan-review rounds missed it. Round-1 finding F1 then found the same shape
+  structurally re-armed by a **dead recorder** whose only effect was forcing the
+  field optional. Guard: assert the *writer* was called, and keep the recorder's
+  field required.
+- **When a call site swaps writers, grep for suites that MOCK the module — not just
+  importers of the removed symbol** (D6). Different searches:
+  `rg markOutboxOwnerUnreachable` finds files importing the deleted export; only
+  `rg 'vi\.mock\(.*shared/outbox'` finds files that stub the module and assert on
+  the superseded writer. A module mock missing the new export fails at CALL time, so
+  typecheck cannot see it, and three targeted per-suite green runs missed it. Only
+  the whole-repo gate found `ZernioBackfillWorker.test.ts`.
