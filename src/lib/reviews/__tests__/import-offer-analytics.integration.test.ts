@@ -1,16 +1,16 @@
 // src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts
 //
-// NAMED FOR THE **Import offer**, not for Import consent, and that is load
-// bearing rather than taste. `scripts/verify-gate.sh:193` derives each
-// integration row's name AND its coverage directory from
-// `tr -c 'a-zA-Z0-9' '-' | cut -c1-40`. The obvious name,
-// `import-consent-analytics.integration.test.ts`, truncates to exactly the same
-// 40 characters as `import-consent.integration.test.ts` — the two rows then
-// share a status file and a coverage directory, which surfaced as one spurious
+// NAMED FOR THE **Import offer**, not for Import consent — originally to dodge
+// a harness bug, now simply because it is the accurate name. HISTORICAL: at
+// #679 `scripts/verify-gate.sh` derived each integration row's name AND its
+// coverage directory from `tr -c 'a-zA-Z0-9' '-' | cut -c1-40`, and the obvious
+// name `import-consent-analytics.integration.test.ts` truncated to exactly the
+// same 40 characters as `import-consent.integration.test.ts`. The two rows then
+// shared a status file and a coverage directory, which surfaced as one spurious
 // FAIL and could just as easily have surfaced as a PASS reported for a suite
-// that failed. Filed as its own issue; do not rename this file back without
-// re-checking the 40-character prefix against every sibling
-// `*.integration.test.ts` in this directory.
+// that failed. **Fixed at #696 (PR #701)**: `row_slug` in `scripts/gate-rows.sh`
+// appends a hash of the full path, so the 40-character prefix is no longer an
+// identifier and this file's name carries no constraint.
 //
 // #679 T2 — the two Import offer analytics events (`import_offer_created`,
 // `import_decision_recorded`), deferred out of #677 (deviations D7) because
