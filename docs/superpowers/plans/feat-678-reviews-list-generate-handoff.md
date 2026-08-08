@@ -7,9 +7,34 @@ Branch: `feat-678-reviews-list-generate` (base `main` @ `13212b55`)
 
 ## Where we are
 
-Step 3 (PLAN) — **round 1 complete: `VERDICT: REVISE`, 9 findings, all accepted and all revisions applied.** Plan, review report, and deviations file are committed.
+Step 3 (PLAN) — round 1 complete (`VERDICT: REVISE`, 9 findings, all accepted).
+**Round 2 (verification-only) DISPATCHED**; counter already incremented to 2.
 
-**Next action: dispatch plan review round 2 (verification-only).** Run `bash scripts/feature-state.sh incr-round plan` FIRST (counter is at 1; it survives session resumes, and an uncounted round is how #628 reached round 5 under a "max 3" cap). Round 2 re-submits ONLY the findings-and-fixes delta — the reviewer verifies each of F1–F9 landed and may flag a defect a FIX introduced, but may NOT open new fronts against unchanged plan sections. Then set phase `plan_approved` and go to step 4.
+Brief: `<session-scratchpad>/codex-plan-round2-brief.md` · raw JSONL:
+`<session-scratchpad>/codex-plan-round2.jsonl`. If that scratchpad is gone (it is
+session-scoped), the brief is reconstructible from `plan-round1.md` — the mandate
+is: for each of F1–F9, did the fix reach the **checkboxed step** a subagent
+executes, and did any fix introduce a defect. Nothing else is in scope.
+
+**On the round-2 verdict:**
+- `APPROVED` → write the report to `docs/reviews/feat-678-reviews-list-generate/plan-round2.md`, commit it, `bash scripts/feature-state.sh set-phase plan_approved`, go to step 4.
+- `REVISE` → apply, then round 3 is the LAST (counter cap). After round 3, surface the disagreement to the owner; their call substitutes for APPROVED.
+
+### F3 was fixed for real at `6c93de6d` — before round 2 dispatched
+
+Round 1's commit recorded F3 as a **rationale paragraph** under Task 4 while Step 1's
+SQL block and the Self-review "known gap" still described the pre-fix design. A
+subagent following Step 1 verbatim would have built the `LEFT JOIN` with no orphan
+LATERAL and never deleted the separate orphan query (`load-replies.ts:162-205`) —
+reintroducing the exact double-render defect F3 was raised to prevent. Now applied:
+`orphan_sidecar` + `orphan_superseded` LATERALs + `is_orphan` column (T4 Step 1),
+Step 2a deletes the query and the `bucketReplies` merge, T5 Step 2b drops
+`groupReplies`' second parameter. Full write-up: `plan-round1.md` →
+"Orchestrator-found, pre-round-2".
+
+**Generalise it:** a review fix that lands as prose *about* the change rather than
+an edit *to* the executable step reads as addressed at every later checkpoint. Check
+the step, not the discussion.
 
 ### Dispatching codex — two traps that cost this session ~35 minutes
 
@@ -64,14 +89,14 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 ## Next steps
 
-1. `bash scripts/feature-state.sh incr-round plan`, then dispatch round 2 (verification-only) against the "Round-1 revisions" section at the foot of the plan. Brief it to confirm F1–F9 landed and to flag only defects a FIX introduced.
+1. ~~Dispatch round 2~~ — DONE (counter at 2). Triage its findings table; write the report to `docs/reviews/feat-678-reviews-list-generate/plan-round2.md` and COMMIT it (uncommitted reports vanish with the worktree).
 2. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then step 4. Hard stop after round 3 — surface the remaining disagreement to the owner; their call substitutes for APPROVED.
 3. Step 4 dispatch order: **T1 alone** (mandatory first-task enforcement spot check — diff `git status --porcelain` against `allowed_edit_surface`; any out-of-surface file means STOP), then **T2 / T4 / T6 in parallel** (disjoint files, no edges), then T3 and T5, then T7, then T8.
 4. Step 5 gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7. **`TEST_DATABASE_POOL_URL` must be set** — a SKIP row on the integration suite makes the gate non-review-ready for this DB-touching branch.
 
 ## Budgets
 
-- Plan review rounds: **1 of 3 used**.
+- Plan review rounds: **2 of 3 used** (round 2 dispatched; counter incremented BEFORE dispatch).
 - `allowed_edit_surface` amendments: **1 of 2 USED** (deviations D1 — the flags.ts collapse needed 6 out-of-surface files). **A second amendment trips the abort criteria** — there is no slack left. Test-title changes and `verification_commands` fixes are deviations-file entries, NOT amendments.
 - Gate-fail rounds: 0 of 3.
 - `tests_to_add`: **37 → 50 titles** (D3). Both intake copies updated and verified byte-identical.
