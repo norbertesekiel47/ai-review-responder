@@ -23,19 +23,22 @@
 //      that misses it runs in the fully parallel project alongside ~740 other
 //      files, unsynchronized against every other live-DB writer.
 //
-// R2 — NO RUN-TIME DDL. A live-DB suite must not apply migration SQL. DDL takes
-//      ACCESS EXCLUSIVE locks; a sibling suite holding ordinary row locks on the
-//      same relations in the opposite order deadlocks against it (40P01), and
-//      the victim is whichever transaction Postgres picks — so the failure lands
-//      somewhere unrelated and reads as flake. The schema is provisioned once by
-//      `pnpm test:db:setup`; suites assert it with `assertSchemaReady`.
+// R2 — NO RUN-TIME DDL. A live-DB suite must not execute DDL — not merely "apply
+//      migration SQL", but any statement taking ACCESS EXCLUSIVE on a shared
+//      relation, whatever its provenance. A sibling suite holding ordinary row
+//      locks on the same relations in the opposite order deadlocks against it
+//      (40P01), and the victim is whichever transaction Postgres picks — so the
+//      failure lands somewhere unrelated and reads as flake. The schema is
+//      provisioned once by `pnpm test:db:setup`; suites assert it with
+//      `assertSchemaReady`.
 //
 //      Detection is on EXECUTED SQL, extracted from the AST — every tagged
-//      template and every `.unsafe()` call — not on the file mentioning a
+//      template, and every `.unsafe()` call reachable without a type checker
+//      (`isUnsafeCall` states that bound) — not on the file mentioning a
 //      migration path. The first cut keyed on `supabase/migrations` AND
 //      `.unsafe(`, an incidental marker: DDL run without naming that path was
 //      invisible, which is how three sites shipped (#694). There is no tag-NAME
-//      allowlist: `sql()` alone is 770 of 1201 templates in these files, so a
+//      allowlist: `sql()` alone is 770 of 1469 templates in these files, so a
 //      name list would miss the majority (the #592 shape, one layer down).
 //
 //      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_SUITES
@@ -138,29 +141,91 @@ const DDL_VERB =
 /** Per-line escape hatch, modelled on `outbox-seam-ignore` (#568). */
 const DDL_PRAGMA = 'live-db-ddl-ignore';
 
+/**
+ * Replaces SQL comment bodies with spaces, preserving every offset so a
+ * finding's reported line still matches the source. A DDL verb inside a `--` or
+ * block comment is not executed DDL — the audit promises to ignore it, and
+ * before #694's review it flagged it, because the raw template text was matched.
+ *
+ * BOUND: a `--` inside a SQL string literal (`WHERE note = '--'`) blanks the
+ * rest of that line, so DDL after it on the SAME line would be missed. Closing
+ * that needs a SQL lexer, which is more machinery than a CI guard against
+ * accidental DDL warrants — recorded rather than silently tolerated, per this
+ * audit's own convention of naming its blast radius.
+ */
+function blankSqlComments(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, (match) => ' '.repeat(match.length))
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '));
+}
+
+/**
+ * A `.unsafe()` template with substitutions is only PARTIALLY readable: its
+ * static spans are visible, but a substitution at a STATEMENT-START position
+ * could be an entire DDL statement — `sql.unsafe(`${ddl}`)` reads as no DDL at
+ * all. A DDL verb can only begin a statement, so that is the only position
+ * where a hidden substitution can carry one past the verb match. Interpolation
+ * MID-statement (the common `setConsent` shape, a test-controlled literal in an
+ * UPDATE) leaves the verb visible and stays readable.
+ *
+ * Deliberately NOT applied to tagged templates: Postgres.js parameterises a
+ * tagged template's substitutions, so a substitution there arrives as a bind
+ * value and cannot carry a statement. The asymmetry is the point — `.unsafe()`
+ * is the only seam where interpolation becomes SQL text.
+ */
+function hidesStatementStart(node: ts.TemplateExpression): boolean {
+  let priorStatic = node.head.text;
+  for (const span of node.templateSpans) {
+    const trimmed = blankSqlComments(priorStatic).trimEnd();
+    if (trimmed === '' || trimmed.endsWith(';')) return true;
+    priorStatic += span.literal.text;
+  }
+  return false;
+}
+
 interface ExecutedSql {
   /** Absolute offset in the source where `text` begins. */
   start: number;
-  /** SQL source text, or null when a `.unsafe()` argument is not statically readable. */
+  /**
+   * SQL source text, or null when a `.unsafe()` argument is not statically
+   * readable — an opaque expression, or a template whose substitution sits where
+   * a statement begins and could therefore BE the DDL.
+   */
   text: string | null;
   /** Line of the executing node — used to report an unreadable argument. */
   line: number;
 }
 
+/**
+ * `.unsafe()` reached through a property access (`db.unsafe(…)`) or a
+ * string-keyed element access (`sql['unsafe'](…)`).
+ *
+ * BOUND: a receiver-less alias is invisible — `const { unsafe } = sql`,
+ * `sql.unsafe.bind(sql)`, or the handle passed anywhere as a function value.
+ * Resolving those needs a type checker; this walk has no symbol table, so it
+ * cannot tell the Postgres.js method from an unrelated local of the same name.
+ * Zero occurrences in the tree today (49 `.unsafe()` calls, every one a
+ * property access), and a suite reaching for one of those forms is doing
+ * something deliberate enough to be reviewed — same blast-radius honesty
+ * LIVE_DB_MARKERS carries above.
+ */
 function isUnsafeCall(node: ts.Node): node is ts.CallExpression {
-  return (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    node.expression.name.text === 'unsafe'
-  );
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'unsafe';
+  if (ts.isElementAccessExpression(callee)) {
+    const key = callee.argumentExpression;
+    return ts.isStringLiteralLike(key) && key.text === 'unsafe';
+  }
+  return false;
 }
 
 /**
  * Every statement a live-DB suite EXECUTES. No tag-name allowlist: `sql()` alone
- * accounts for 770 of the 1201 tagged templates in these files and is a
+ * accounts for 770 of the 1469 tagged templates in these files and is a
  * CallExpression, so a name list (SQL_TAG_NAMES) would miss the majority — the
  * #592 defect shape. In a file that reaches the live DB, a tagged template IS
- * SQL; all 21 distinct tag forms in the 78 suites are DB handles.
+ * SQL; all 21 distinct tag forms in the 80 suites are DB handles.
  */
 function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
   const out: ExecutedSql[] = [];
@@ -180,7 +245,7 @@ function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
         arg !== undefined &&
         (ts.isStringLiteral(arg) ||
           ts.isNoSubstitutionTemplateLiteral(arg) ||
-          ts.isTemplateExpression(arg));
+          (ts.isTemplateExpression(arg) && !hidesStatementStart(arg)));
       out.push({
         start: readable ? arg.getStart(source) : node.getStart(source),
         text: readable ? arg.getText(source) : null,
@@ -197,21 +262,27 @@ function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
 /**
  * 0-based lines carrying executed DDL, minus pragma'd ones. An unreadable
  * `.unsafe()` argument counts as DDL: unresolvable SQL must never pass as safe.
+ *
+ * The lines are derived from `source` rather than passed in — one string, one
+ * representation — and stay RAW: `blankSqlComments` applies only to the text the
+ * DDL verb is matched against, because `lineHasPragma` has to see the pragma
+ * comment it keys on.
  */
-function unpragmaedDdlLines(source: ts.SourceFile, lines: readonly string[]): number[] {
+function unpragmaedDdlLines(source: ts.SourceFile): number[] {
+  const lines: string[] = source.getFullText().split('\n');
   const hits = new Set<number>();
   for (const sql of extractExecutedSql(source)) {
     if (sql.text === null) {
       hits.add(sql.line);
       continue;
     }
-    for (const match of sql.text.matchAll(DDL_VERB)) {
+    for (const match of blankSqlComments(sql.text).matchAll(DDL_VERB)) {
       hits.add(source.getLineAndCharacterOfPosition(sql.start + (match.index ?? 0)).line);
     }
   }
   return [...hits]
     .sort((a, b) => a - b)
-    .filter((line) => !lineHasPragma([...lines], line, DDL_PRAGMA));
+    .filter((line) => !lineHasPragma(lines, line, DDL_PRAGMA));
 }
 
 export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding[] {
@@ -237,7 +308,7 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
     true,
     file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  const ddlLines = unpragmaedDdlLines(source, text.split('\n'));
+  const ddlLines = unpragmaedDdlLines(source);
   if (ddlLines.length === 0) return findings;
 
   const firstAt = `first at line ${(ddlLines[0] ?? 0) + 1}`;

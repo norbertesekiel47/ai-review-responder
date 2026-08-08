@@ -108,6 +108,16 @@ describe('live-db-suites-audit', () => {
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
   });
 
+  // The property-access receiver was the only shape recognised, so the audit's
+  // claim to see every `.unsafe()` call overreached by one cheap form.
+  it('flags DDL executed through the bracket-indexed sql["unsafe"]() form', () => {
+    const findings = auditLiveDbSuite(
+      'src/lib/x/__tests__/x.integration.test.ts',
+      LIVE_DB + "await sql['unsafe']('DROP TABLE job_outbox');\n",
+    );
+    expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+  });
+
   // PRECISION. Reach without precision is a broken gate: every fixture below is
   // lifted from a REAL suite that must stay clean. A detector that greps for DDL
   // verbs fails all four — the distinction is EXECUTED SQL versus SQL a suite
@@ -133,6 +143,22 @@ describe('live-db-suites-audit', () => {
     expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
+  // A comment INSIDE an executed template — the same promise as the TS-comment
+  // case above, one level in. The raw template text was matched, so a verb only
+  // a Postgres parser would ever skip was reported as executed DDL.
+  it('ignores a DDL verb that appears only inside a SQL comment within an executed template', () => {
+    const dashDash =
+      LIVE_DB +
+      'await tx`\n' +
+      '  -- migration 083 replaced this ALTER TABLE reviews with an assertion\n' +
+      '  SELECT count(*) FROM reviews\n' +
+      '`;\n';
+    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', dashDash)).toEqual([]);
+
+    const block = LIVE_DB + 'await tx`SELECT 1 /* not a CREATE INDEX, just a note */`;\n';
+    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', block)).toEqual([]);
+  });
+
   // migration-076-judge-verdicts-governor.integration.test.ts:115-142
   it('ignores a DDL verb that appears only in a string constant that is never executed', () => {
     const source =
@@ -149,6 +175,24 @@ describe('live-db-suites-audit', () => {
     expect(source).not.toContain('supabase/migrations');
     const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source);
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+  });
+
+  // A template WITH substitutions read as statically readable, so an entire
+  // statement smuggled in at a statement-start position matched no verb and
+  // passed clean — a hole in the same "cannot prove" rule the test above pins.
+  // The second half is the bound that keeps the fix honest: failing closed on
+  // ALL interpolation would flag real suites, e.g. `setConsent` in
+  // import-consent.integration.test.ts, which interpolates a test-controlled
+  // literal MID-statement and so leaves the verb visible.
+  it('fails closed on a substitution standing where a statement begins, not on one mid-statement', () => {
+    const atStart = LIVE_DB + 'await db.unsafe(`${migrationSql}`);\n';
+    expect(atStart).not.toContain('ALTER');
+    const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', atStart);
+    expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+
+    const midStatement =
+      LIVE_DB + "await sql().unsafe(`UPDATE businesses SET import_decision = '${decision}'`);\n";
+    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', midStatement)).toEqual([]);
   });
 
   // PRAGMA. `live-db-ddl-ignore` follows `outbox-seam-ignore` (#568) and must
@@ -247,12 +291,17 @@ describe('live-db-suites-audit', () => {
   // above: with the tightened detector, every live-DB suite in the repository
   // is clean.
   //
-  // This is what makes a REACH regression loud. The fixtures above prove the
-  // detector's rules in isolation; only a scan of the real tree catches a change
-  // that narrows what the detector can SEE — the #694 failure mode itself, where
-  // an audit reported `passed` on a tree that was executing DDL. `pnpm
-  // ci:live-db-suites` checks the same property in CI, but this puts it inside
-  // `pnpm test`, where it fails next to the rules it depends on.
+  // What this makes loud is a PRECISION regression, not a reach one: a change
+  // that starts firing on a real suite — one of the 1469 tagged templates the
+  // detector now reads as SQL — or a newly added suite that genuinely executes
+  // DDL. It cannot catch reach going backwards, and must not be read as if it
+  // could: a detector that goes blind produces no findings, `offenders` comes
+  // out empty, and this test PASSES — which is precisely the #694 mode, an audit
+  // reporting `passed` on a tree that was executing DDL. Reach is pinned by the
+  // fixtures above, each of which asserts a finding IS produced.
+  //
+  // `pnpm ci:live-db-suites` checks the same property in CI, but this puts it
+  // inside `pnpm test`, where it fails next to the rules it depends on.
   //
   // Precedent for a unit test that reads the repository: src/__tests__/ci-audit-wiring.test.ts
   it('every live-DB suite in the repository passes the tightened detector', async () => {
