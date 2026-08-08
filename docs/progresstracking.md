@@ -1931,3 +1931,136 @@ fallow-outside-the-local-gate class.
   out of surface.
 - `.claude/CLAUDE.md` cited a nonexistent "ADR 0015 R2" (the ADR has §§1–4; R2 is
   spec §8a) — corrected in this sweep.
+
+---
+
+## Verify-gate row identity (#696, PR #701, no migration, 2026-08-08)
+
+Workflow tooling. No runtime code, no migration, no env var, no feature flag.
+Filed out of #679's fix round as deviation D30 and fixed here.
+
+### The defect
+
+`scripts/verify-gate.sh` derived two dynamic row names by truncating a string to
+40 characters:
+
+```sh
+SAFE=$(echo "$FILE" | tr -c 'a-zA-Z0-9' '-' | cut -c1-40)
+```
+
+A row's name is simultaneously three things: its slot in the `NAMES`/`RESULTS`
+arrays that produce the PASS/FAIL table, its `.feature/logs/<name>.log`, and —
+for integration rows — its `--coverage.reportsDirectory`. Two inputs sharing a
+40-character prefix therefore shared all three.
+
+`src/lib/reviews/__tests__/import-consent.integration.test.ts` is **exactly** 40
+slug characters (`src-lib-reviews---tests---import-consent`), so every
+`import-consent-*.integration.test.ts` sibling collided with it.
+
+The observed symptom at #679 was a spurious `GATE: RED` — two vitest processes
+racing one coverage directory to an `ENOENT`, while both suites passed 30/30 run
+individually. #679 worked around it by renaming its extracted suite to
+`import-offer-analytics.integration.test.ts` and recording the constraint in
+that file's header.
+
+**The reason it earned its own ticket is the other direction of the same race: a
+shared status slot can record PASS for a suite that actually FAILED** — a silent
+green in the check that is the mechanical backstop for a whole `/feature` run,
+and therefore in every downstream claim resting on it.
+
+The ticket named the integration row (`:193`). The `extra-${SAFE}` row for
+`verification_commands` (`:167`) carried the identical truncation and is fixed
+here too.
+
+### What shipped
+
+| File | Change |
+|---|---|
+| `scripts/gate-rows.sh` | **New, 68 lines.** `row_slug` — the readable 40-char prefix plus a 6-char hash of the full input; truncation is for reading, the hash is for identity. `assert_unique_row_name` — non-zero if a candidate name is already registered. Hash tool resolved once at source time (`shasum`, falling back to `sha1sum`). |
+| `scripts/verify-gate.sh` | Both slug sites route through `row_slug`. `launch()` asserts uniqueness before registering; the rejected-destructive-extra path asserts its own (it registers via `NAMES+=` and never reaches `launch`), and `REJECTED_EXTRAS` became an array. `gate_abort()` extracted and shared with the db-provision failure path. |
+| `scripts/ci/__tests__/gate-rows.test.ts` | **New, 183 lines, 10 tests.** |
+
+Its own file rather than inlined: bash has no in-file unit-test seam, because
+sourcing `verify-gate.sh` runs the gate. Precedent for the location —
+`scripts/ci/__tests__/merge-coverage.test.ts` covers a script in `scripts/`.
+
+### Review round 1 — 7 findings, 3 blocking, all accepted
+
+Full report and triage table: `docs/reviews/fix-696-gate-row-slug-collision/`.
+Each blocking finding is the ticket's own theme recurring inside its own fix.
+
+1. **The fix violated its own locked invariant.** `gate-rows.sh` ran `exit 1` at
+   **source** time when no hash tool was on PATH. A sourced file's `exit`
+   terminates the caller — and it fired *above* the line defining `gate_abort`,
+   so the gate died without writing `.feature/gate-status.json`, leaving the
+   previous run's `{"passed":true}` for `.claude/hooks/stop-gate.sh` to read as
+   this run's result. Fixed: `gate_abort` is defined before the `source`, the
+   library never exits, the caller aborts on an unset `GATE_ROW_HASH_CMD`.
+2. **The wiring test could not see what it claimed to enforce.** It asserted
+   `verify-gate.sh`'s source *text* and passed 7/7 against a mutant whose
+   `launch()` asserted uniqueness over `${PIDS[@]}` instead of `${NAMES[@]}` —
+   the fix entirely disarmed. Deleted; three tests now run the **real**
+   `launch`/`gate_abort` bodies (`sed`-extracted from the script) and one runs
+   the real gate with its library removed.
+3. **A failed library load surfaced as a bogus collision.** With
+   `assert_unique_row_name` undefined, `launch` read the resulting exit 127 as a
+   duplicate and aborted naming an innocent row. A post-source
+   `command -v row_slug` guard now names the real cause; `CDPATH= cd` closes one
+   route into that state.
+
+Knowingly not fixed: `kill $(jobs -p)` in `gate_abort` does not reach
+grandchildren (reproduced). Per-row process groups need `set -m`, which changes
+the `jobs -rp` throttle the fan-out depends on — a regression risk on a path
+that only runs when the gate itself has a bug. The comment was corrected to
+claim only what the call does.
+
+### Verification
+
+Mutation matrix, baseline 10/10 green, run against copies with repo files
+untouched:
+
+| Mutation | Result |
+|---|---|
+| `launch` asserts over `${PIDS[@]}` instead of `${NAMES[@]}` | 1 red |
+| `${NAMES[@]+"${NAMES[@]}"}` → `"${NAMES[@]}"` | 2 red (on `bash 3.2.57`) |
+| `gate-rows.sh` regains its source-time `exit 1` | 1 red |
+| post-source load guard deleted | 1 red |
+| `row_slug` drops the hash suffix | 2 red |
+| `assert_unique_row_name` always returns 0 | 1 red |
+
+`scripts/verify-gate.sh --review` GREEN at HEAD, 21 rows including
+`diff-coverage` — the fixed gate verified its own branch. CI 13/13 green.
+
+### Gotchas worth carrying (promoted to `lab-notes.md`, 2026-08-08 — #696)
+
+- A **"is it wired?" test asserting source text** is the same defect class as the
+  bug it guards. Extract to a sourced library, or `eval` the real function body
+  out of the script; keep text assertions for genuinely textual properties, and
+  write them as patterns not literals.
+- **`exit` in a sourced bash file kills the caller.** A library signals, the
+  entry point decides — and the entry point's abort path is defined *before* the
+  `source` line. Follow every `source` with a `command -v <symbol>` guard.
+- Under `set -u` on **bash 3.2** (what `/usr/bin/env bash` resolves to on macOS)
+  `"${ARR[@]}"` on an **empty** array is a fatal unbound-variable error. Use
+  `${ARR[@]+"${ARR[@]}"}`.
+- Whenever a derived string is used as a **key** — a log filename, a cache key, a
+  lock name, a job id — a lossy transform on the way in is a correctness bug, not
+  a cosmetic one.
+
+### Workflow notes
+
+- The `reclassify` trigger fired (production 147 vs an estimated 65). Step 0 was
+  re-run with the real numbers: lane **unchanged** (small — 147 ≤ ~150 lines, 3
+  code files, one seam, no migration, no dependency). The estimate predated the
+  review round whose fixes are real production code. `allowed_edit_surface` was
+  never amended.
+- `scripts/gate-rows.sh` is deliberately **not** added to `docs/directory.md`:
+  that table is scoped to `tsx` operational scripts and lists none of the twelve
+  existing `.sh` files. Recorded as deviation D3 for a future inventory pass to
+  settle as a whole.
+- The #679 workaround is retired as a *live* constraint — the header note in
+  `import-offer-analytics.integration.test.ts` is now marked historical. The file
+  keeps its name, which was always the accurate one.
+- The post-merge sweep ran from a **fresh worktree off `origin/main`**, not the
+  main checkout: a concurrent session had uncommitted #671/#672 work sitting in
+  the shared checkout's working tree.
