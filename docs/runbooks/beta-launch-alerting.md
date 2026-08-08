@@ -51,6 +51,20 @@ email shares the Resend provider with the product.
 - [ ] **Cost-cap alert routed to Discord** — issues tagged
   `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
   Discord channel.
+- [ ] **Import consent analytics drift routed to Discord** — issues tagged
+  `subsystem:import_consent_analytics` at level `warning`. Emitted by
+  `emitConsentEvent` (`src/lib/reviews/import-consent.ts`) when an **Import
+  offer** / **Import decision** analytics emission fails inside its savepoint and
+  is swallowed; `tags.event_name` says which of the two was lost.
+  **This one fires from BOTH lanes** — the Vercel Next server (Zernio connect,
+  the dashboard Import offer route) and the Railway worker (the Stripe activation
+  resume) — so route it on the tag, not on a project or a service.
+  **It is a P2, not a page**: the caller committed and only a metric was lost, so
+  the actionable pattern is *repetition*, not a single event. The overwhelmingly
+  likely cause is migration 102 not applied to that Supabase project (`23514` on
+  `analytics_events_event_name_check`); the fix is to apply it, never to silence
+  the rule. A single event during a database blip is expected noise — postgres.js
+  connection errors carry a `code` and land under the same tag by design (#697).
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 

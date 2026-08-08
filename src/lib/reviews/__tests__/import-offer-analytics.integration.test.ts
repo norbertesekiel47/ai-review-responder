@@ -47,9 +47,24 @@
 // is where the previous version of this slice broke that rule.
 //
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
+
+// The durable half of the swallowed-emission signal (#697). `emitConsentEvent`
+// reports to Sentry as well as to stdout, and an inert real client would let the
+// four titles at the bottom of this file pass while capturing nothing — Sentry
+// is never initialized under vitest, so `captureMessage` is a no-op that throws
+// nothing and records nothing. Mocking it is the only way to observe the call.
+// Factory shape and `vi.hoisted` handle per
+// `worker/background/pollers/health-alert/__tests__/emit.test.ts`.
+//
+// The module is replaced with ONLY `captureMessage`, which is safe because
+// nothing else in this suite's import graph touches `@sentry/node`:
+// `import-consent.ts` is the sole importer reached from here.
+const { mockCaptureMessage } = vi.hoisted(() => ({ mockCaptureMessage: vi.fn() }));
+vi.mock('@sentry/node', () => ({ captureMessage: mockCaptureMessage }));
+
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   cleanupTenantAccount,
@@ -246,6 +261,20 @@ const foreignKeyPoison = async (tx: postgresType.TransactionSql): Promise<void> 
 /** `analytics_events_event_name_check`, the constraint migration 102 rewrites. */
 const CHECK_VIOLATION = '23514';
 const EVENT_NAME_CONSTRAINT = 'analytics_events_event_name_check';
+
+/**
+ * The Sentry issue title and the tag its alert rule routes on, spelled out here
+ * rather than imported from `import-consent.ts` DELIBERATELY.
+ *
+ * Both strings are an operator-facing contract: the title is the Sentry issue
+ * grouping key and the subsystem is what `docs/runbooks/beta-launch-alerting.md`
+ * §1's Discord rule matches. Importing them would make any rename pass silently
+ * on both sides while every configured alert rule stopped matching — the exact
+ * failure #697 exists to prevent, one level up. A second, independent spelling
+ * turns that rename into a red test.
+ */
+const EMISSION_FAILURE_MESSAGE = 'Import consent analytics emission failed';
+const EMISSION_FAILURE_SUBSYSTEM = 'import_consent_analytics';
 
 /**
  * An event name the live CHECK does NOT admit.
@@ -746,6 +775,143 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
     expect((await readRaw()).import_decision_at).toBeNull();
     expect(await outboxCount()).toBe(0);
     expect(await readAnalytics('import_decision_recorded')).toHaveLength(0);
+  });
+
+  // ── …and the swallow must reach a DURABLE sink (#697) ───────────────────────
+  //
+  // The two "keeps the caller usable" titles above pin that a failed emission
+  // costs only the metric. #697 is the bill for that: the cost was paid into a
+  // `warn` on stdout, which `createWorkerLogger` writes and nothing reads. The
+  // documented paging route is Sentry (`docs/runbooks/beta-launch-alerting.md`
+  // §1), so persistent schema drift could undercount both one-shot events
+  // indefinitely with nothing alerting.
+  //
+  // These four titles pin the sink and BOTH its bounds. They deliberately do not
+  // re-assert the transaction properties above — those have their own titles, and
+  // duplicating them here would mean two titles failing for one cause.
+
+  it('createImportOffer reports a swallowed emission failure to Sentry with a routable subsystem tag', async () => {
+    await atJunction();
+    await setConsent({ decision: 'pending', expiresAtSql: null });
+    await clearAnalytics();
+    mockCaptureMessage.mockReset();
+
+    expect(
+      await sql().begin((tx) => createImportOffer(failingEmission(tx), businessId, tenant!.accountId)),
+    ).toBe('created');
+
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [title, options] = mockCaptureMessage.mock.calls[0] as [
+      string,
+      { level: string; tags: Record<string, string>; extra: Record<string, unknown> },
+    ];
+    expect(title).toBe(EMISSION_FAILURE_MESSAGE);
+    // `warning`, not `error`: the caller committed and only a metric was lost, so
+    // this is a P2 an operator reads — not a page. The runbook routes both.
+    expect(options.level).toBe('warning');
+    // The TAG is the deliverable. Sentry alert rules in this project route on
+    // `subsystem` (health_alert, llm_circuit_breaker, …); a capture without one
+    // is durable but unroutable, which is the half of #697 that would be easy to
+    // ship and never notice.
+    expect(options.tags).toEqual({
+      subsystem: EMISSION_FAILURE_SUBSYSTEM,
+      event_name: 'import_offer_created',
+    });
+    expect(options.extra).toMatchObject({
+      business_id: businessId,
+      event_name: 'import_offer_created',
+    });
+    // The real cause reaches the operator: the constraint migration 102 rewrites,
+    // named in the error text, is what distinguishes drift from an outage.
+    expect(String(options.extra.error)).toContain(EVENT_NAME_CONSTRAINT);
+  });
+
+  it('recordImportDecisionAndEnqueue reports a swallowed emission failure to Sentry with a routable subsystem tag', async () => {
+    // The second writer needs its own title because the sink is what #697 is
+    // about and "one of the two events is observable" is not the property.
+    await atJunction();
+    await clearRuns();
+    await clearOutbox();
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+    await clearAnalytics();
+    mockCaptureMessage.mockReset();
+
+    expect(
+      await recordImportDecisionAndEnqueue(
+        failingEmissionExecutor(sql()), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).toBe('recorded');
+
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [title, options] = mockCaptureMessage.mock.calls[0] as [
+      string,
+      { level: string; tags: Record<string, string>; extra: Record<string, unknown> },
+    ];
+    expect(title).toBe(EMISSION_FAILURE_MESSAGE);
+    expect(options.level).toBe('warning');
+    expect(options.tags).toEqual({
+      subsystem: EMISSION_FAILURE_SUBSYSTEM,
+      event_name: 'import_decision_recorded',
+    });
+    expect(options.extra).toMatchObject({
+      business_id: businessId,
+      event_name: 'import_decision_recorded',
+    });
+  });
+
+  it('a Sentry capture that throws does not resurface into the caller transaction', async () => {
+    // THE BOUND THAT MATTERS. #697 asks for an alert on a path whose entire
+    // reason to exist is that observability must never poison the success path
+    // (CLAUDE.md) — `createImportOffer` runs inside `finalizeConnectionTx`, and
+    // `select-location/route.ts` rethrows anything that is not `23505`, so an
+    // escaping capture is a CONNECT OUTAGE. Adding the sink is only safe because
+    // the capture carries its own catch; this title is what makes deleting that
+    // catch fail. Same shape as `llmCircuitBreaker.emitTransition`.
+    await atJunction();
+    await setConsent({ decision: 'pending', expiresAtSql: null });
+    await clearAnalytics();
+    mockCaptureMessage.mockReset();
+    mockCaptureMessage.mockImplementationOnce(() => {
+      throw new Error('sentry transport unavailable');
+    });
+
+    const postCaptureName = `Sentry Throw Location ${randomUUID()}`;
+    const result = await sql().begin(async (tx) => {
+      const outcome = await createImportOffer(failingEmission(tx), businessId, tenant!.accountId);
+      // The caller carrying on past the offer, on its OWN handle — 25P02 here
+      // would mean the throw escaped the savepoint AND aborted the transaction.
+      await tx`UPDATE businesses SET name = ${postCaptureName} WHERE id = ${businessId}::uuid`;
+      return outcome;
+    });
+
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    expect(result).toBe('created');
+    const row = await readRaw();
+    expect(row.import_offer_expires_at).not.toBeNull();
+    expect(row.name).toBe(postCaptureName);
+  });
+
+  it('a code-less emission failure reports nothing to Sentry before it rethrows', async () => {
+    // The narrowing's other half, at the sink. A handle without `.savepoint` is a
+    // wiring bug, not schema drift; it already rethrows (title above). It must
+    // also stay OUT of the drift alert — an alert that fires on both classes
+    // reads like a missing migration when the truth is a mis-wired handle, which
+    // is exactly the confusion `import-consent.ts`'s catch was narrowed to end.
+    // The rethrow ordering is the assertion: nothing is captured on the way out.
+    await atJunction();
+    await clearRuns();
+    await clearOutbox();
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+    await clearAnalytics();
+    mockCaptureMessage.mockReset();
+
+    await expect(
+      recordImportDecisionAndEnqueue(
+        failingEmissionExecutor(sql(), codelessPoison), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
   it('import_offer_created uses a business-scoped event key so a replayed offer mints once', async () => {
