@@ -65,7 +65,7 @@ describe('enforceDashboardRegenRateLimit', () => {
   });
 
   it('returns a 429 no-store response when the burst window is over limit', async () => {
-    mockEval.mockResolvedValueOnce(6).mockResolvedValueOnce(1); // burst 6 > 5
+    mockEval.mockResolvedValueOnce(11).mockResolvedValueOnce(1); // burst 11 > 10
 
     const result = await enforceDashboardRegenRateLimit(ACCOUNT_ID);
 
@@ -73,6 +73,15 @@ describe('enforceDashboardRegenRateLimit', () => {
     expect(result?.status).toBe(429);
     expect(result?.headers.get('Cache-Control')).toBe('no-store, private');
     expect(await result?.json()).toEqual({ error: 'rate_limited' });
+  });
+
+  it('allows the 10th burst request and the 30th hour request — the #672 policy limits, pinned from the allowed side', async () => {
+    // Pins BURST_MAX=10 / HOUR_MAX=30 at the boundary. The over-limit tests
+    // alone cannot catch a limit that drifts UPWARD, which is the direction
+    // that quietly widens an owner-controlled LLM spend surface (#672 G2).
+    mockEval.mockResolvedValueOnce(10).mockResolvedValueOnce(30);
+
+    await expect(enforceDashboardRegenRateLimit(ACCOUNT_ID)).resolves.toBeNull();
   });
 
   it('returns 429 when the hour window is over limit even though burst is fine', async () => {
@@ -86,7 +95,7 @@ describe('enforceDashboardRegenRateLimit', () => {
   it('still increments BOTH windows when the burst layer is already over limit', async () => {
     // No early return may skip the hour counter — both layers must advance so
     // a blocked burst window does not desync the sustained window.
-    mockEval.mockResolvedValueOnce(6).mockResolvedValueOnce(2);
+    mockEval.mockResolvedValueOnce(11).mockResolvedValueOnce(2);
 
     await enforceDashboardRegenRateLimit(ACCOUNT_ID);
 
@@ -102,7 +111,7 @@ describe('enforceDashboardRegenRateLimit', () => {
   });
 
   it('emits exactly ONE structured warn log with a hashed account id (never the raw id) on block', async () => {
-    mockEval.mockResolvedValueOnce(6).mockResolvedValueOnce(1); // burst over
+    mockEval.mockResolvedValueOnce(11).mockResolvedValueOnce(1); // burst over
 
     await enforceDashboardRegenRateLimit(ACCOUNT_ID);
 

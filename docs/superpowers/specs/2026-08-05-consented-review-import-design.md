@@ -329,6 +329,72 @@ correctly groups as unanswered but must not offer `Generate`. The two `COUNT(*)`
 totals and the orphan query must move with the JOIN or the denominators go
 wrong. Prototype the decisions were taken against: `#671` comment thread.
 
+#### 6.3b Rate limit and cost policy (locked — #672, 2026-08-08)
+
+**The mechanism already exists; #672 changes one number and locks the rest.**
+The four layers below are already composed in
+`src/app/api/dashboard/reviews/[reviewId]/regenerate/route.ts` — the same route
+#669 named as the Generate door's target — so the on-demand list inherits them
+by wiring, not by new machinery:
+
+| Layer | Redis key | Limit | On Redis failure | Enforced at |
+|---|---|---|---|---|
+| Per-owner-account **rate** | `dashregen:owner:{acct}:burst` / `:hour` | **10**/60s + 30/hr | **open** | `src/lib/shared/dashboard-regen-rate-limit.ts` |
+| Per-review daily cap — sync UX peek | `regen:{reviewId}:{date}` (GET) | 3/day | **open** | `enforceRegenBudgetForReview` (same file) |
+| Per-review daily cap — **authoritative** | `regen:{reviewId}:{date}` (Lua INCR) | 3/day | terminal | `worker/jobs/response-generation/generate-draft.ts:109` |
+| Per-business **spend** + global + concurrency | `cost:daily:{bizId}:{date}`, `cost:global:{date}`, `gen:active:{bizId}` | tier cents / $100 / 3 | terminal (budget), retryable (transport) | `withCostGuard` → `reserveCost` |
+
+The ticket's "per-review cap, per-account cap, or both?" resolves to **both, and
+both already exist** — with the per-account axis denominated in **cents, not
+clicks**, which is the correct axis because it bounds margin directly rather
+than by proxy.
+
+**C1 — The first `Generate` on a review is free by construction; do not change
+the `version > 1` guard.** `generate-draft.ts:106` charges the per-review regen
+budget only for `version > 1`. A `Generate` on a never-replied imported review
+is version 1, so it consumes no regen budget — but it is still rate-limited and
+still cost-reserved. The per-review axis **self-arms**: discard that draft and
+the next attempt is version ≥ 2 and charged, so the sequence is one free draft
+then three charged regenerations per review per day. Dropping the guard was
+rejected outright — it exists to stop the live lane's own auto-draft from eating
+the owner's regen budget, and removing it would charge every ingested review.
+
+**C2 — `BURST_MAX` 5 → 10; `HOUR_MAX` stays 30.** The hourly layer is the spend
+bound (30 × the 15¢ pessimistic reserve ≈ $4.50/hr worst case); the burst layer
+only exists to stop a click-storm. At 5/60s an owner deliberately working
+through a freshly imported 100-row list is 429'd every few clicks, which reads
+as broken rather than as policy. Raising only the burst layer keeps worst-case
+hourly spend **unchanged**. Raising the hourly cap too was rejected: it is the
+one number that actually bounds spend.
+
+**C3 — The `Generate` door shares the existing per-owner counter.** It becomes
+the third caller of `enforceDashboardRegenRateLimit`, alongside
+`/api/dashboard/reviews/[reviewId]/regenerate` and the `mode:'regenerate'`
+branch of `/api/dashboard/past-replies/draft`. Separate counters were rejected
+because alternating `Generate` and `Regenerate` would then double effective
+throughput past a limit both are meant to respect.
+
+**C4 — Live-lane starvation is a ceiling-sizing constraint, not new machinery.**
+On-demand generation and the live-ingest lane share
+`cost:daily:{businessId}:{date}`, and exhausting it **terminally drops** a draft
+— `alertCostCapExhausted` (`generate-draft.ts:72`) pages Sentry rather than
+retrying (beta-launch gate B3). So an owner working through their import can
+starve the draft for a genuinely new 1★ review that afternoon. This is real, and
+it is bounded: C2/C3 cap the on-demand lane at 30 drafts/hr ≈ $4.50/hr, so a
+two-hour triage session costs ≈ $9 of headroom. `DAILY_COST_LIMIT_CENTS_COPILOT`
+/ `_AUTOPILOT` are required-with-no-default and **still unset** — they must be
+chosen before GA regardless, so the constraint is recorded there (see
+`.claude/reference/env-vars.md`) rather than enforced by a second reservation
+path. A reserved live-lane floor was rejected as a percentage nobody can tune
+without production data, for a load with 0 accounts behind it.
+
+**Not changed by #672**: rate limits still **fail open** by design and must not
+be "fixed" to strict; the pre-LLM Redis cost reservation remains what keeps
+spend safe; pre-LLM Redis **transport** failures stay retryable
+(`CostInfraUnavailableError`) while **budget-exceeded** stays terminal. Upstash
+remains a single-instance SPOF across cache + rate-limit + cost-reserve +
+regen-budget. Full matrix: lab-notes "Cost-guard fail-open/retry matrix".
+
 ### 6.4 Regenerate on an already-answered review
 
 Publishing here **edits the owner's live reply on Google** (`findReply` →
