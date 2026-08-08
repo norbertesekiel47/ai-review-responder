@@ -20,7 +20,8 @@
     "The Reviews list shows every review for the location — not only replied ones — grouped `Unanswered` then `Answered`, newest-first inside each group, 50 per page",
     "A never-replied review shows `Generate`; clicking expands the row inline to the generated draft with `Approve & post` (S7)",
     "An already-replied review shows `Regenerate`, which opens the existing EditReplyDrawer two-pane comparison (S7), with `N of 3 today` beside it, disabled at 3 of 3",
-    "A review with a pending draft shows a `Draft ready` cross-link to Needs Action and no `Generate` button (S2)",
+    "A review with a pending draft that is NOT moderation-held shows a `Draft ready` cross-link to Needs Action and no `Generate` button (S2)",
+    "A review whose draft is held by moderation shows a muted `Under review` marker with no Generate, no draft text, and no cross-link (invariant #4)",
     "A review whose generation is in flight shows `Generating…` and no `Generate` button, and survives a page refresh in that state",
     "An orphan row (repost failed, no live Google reply) sits in `Unanswered` with its existing recovery card and no `Generate`",
     "Answered rows carry a provenance badge: `Posted by you before joining`, `Replied on Google`, `Auto-approved`, or `You approved` (S3)",
@@ -138,7 +139,9 @@
     "GET draft-status never returns response_text or ready for a moderation-held response",
     "PastReplyCard leaves Regenerate enabled and hides the counter when the budget map has no entry",
     "discarding a v1 Generate draft retains it and the next POST generate enqueues v2",
-    "EDIT_REPLIES_ENABLED alone preserves stale-marking, edit-publish dispatch, and orphan conversion after view-flag retirement"
+    "EDIT_REPLIES_ENABLED alone preserves stale-marking, edit-publish dispatch, and orphan conversion after view-flag retirement",
+    "an orphan row keeps its failed_response_id and superseded text after the single-query merge",
+    "the Reviews list renders a moderation-held draft as held with no Generate, no draft text, and no cross-link"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "900",

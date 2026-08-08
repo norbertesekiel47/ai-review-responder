@@ -106,13 +106,14 @@ T1 (eval)  ───────────────────────
 - Create: `src/lib/past-replies/__tests__/reviews-list.test.ts`
 - Create: `src/lib/past-replies/__tests__/load-replies.integration.test.ts`
 - Create: `src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts`
+- Create: `src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/generate-version.integration.test.ts` — **F9**: the C1 chain (`discarding a v1 Generate draft retains it and the next POST generate enqueues v2`) needs live Postgres; a mocked `MAX(version)=2` passes vacuously and proves nothing about the retention C1 depends on. Live-DB conventions apply: `*.integration.test.ts` name, **no** migration SQL, must call `assertSchemaReady` (`ci:live-db-suites`).
 - Create: `src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts`
 - Create: `src/lib/costs/__tests__/regen-budget-batch.test.ts`
 - Create: `worker/jobs/response-generation/__tests__/on-demand-lane.property.test.ts`
 - Create: `src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx`
 - Modify: `src/lib/past-replies/__tests__/flags.test.ts`
 
-All 37 titles from `.feature/intake.json` → `tests_to_add` must appear **VERBATIM**. The `promised-tests` gate row matches them literally; a retitle is a deviations-file entry, not a silent edit.
+All **52** titles from `.feature/intake.json` → `tests_to_add` must appear **VERBATIM**. The `promised-tests` gate row matches them literally; a retitle is a deviations-file entry, not a silent edit. (37 at intake → 50 after round 1 (D3) → 52 after round 2 (D8).)
 
 - [ ] **Step 1: Author every test body that can be written against types that already exist**
 
@@ -184,7 +185,7 @@ Expected: failures naming unresolved imports (`deriveRowState`, `provenanceBadge
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A && git commit -m "test(#678): eval task — 37 failing specs for the Reviews list + Generate door"
+git add -A && git commit -m "test(#678): eval task — 52 failing specs for the Reviews list + Generate door"
 ```
 
 ---
@@ -490,15 +491,35 @@ export async function GET(
   const businessId = ownedRows[0].business_id;
 
   try {
-    const draftRows = await sqlRead<{ id: string; status: string; response_text: string | null }[]>`
-      SELECT id, status, response_text
-      FROM responses
-      WHERE review_id = ${reviewId}::uuid
-        AND business_id = ${businessId}::uuid
-        AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
-      ORDER BY version DESC
+    // F5 / invariant #4: a high-severity moderation flag leaves the draft at
+    // `pending_approval` with an OPEN `flagged_responses` row. Returning it as
+    // `ready` would hand the owner held text plus an `Approve & post` button —
+    // the exact release path `src/lib/moderation/held-draft.ts` exists to block.
+    // The `held` flag is SELECTed (not filtered) so a held draft is
+    // distinguishable from "no draft at all"; filtering would make this route
+    // report `idle` for both and the list fall through to `generate` (D9).
+    const draftRows = await sqlRead<
+      { id: string; status: string; response_text: string | null; held: boolean }[]
+    >`
+      SELECT
+        resp.id, resp.status, resp.response_text,
+        EXISTS (
+          SELECT 1 FROM flagged_responses f
+          WHERE f.response_id = resp.id AND f.status = 'open'
+        ) AS held
+      FROM responses resp
+      WHERE resp.review_id = ${reviewId}::uuid
+        AND resp.business_id = ${businessId}::uuid
+        AND resp.status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
+      ORDER BY resp.version DESC
       LIMIT 1
     `;
+    if (draftRows[0]?.held) {
+      // Never `ready`, never `response_text`. `idle` stops the poller; the list
+      // row re-renders as `held` from its own query. Admin re-notification at
+      // /admin/flagged is the owner's only path back.
+      return NextResponse.json({ status: 'idle' }, { status: 200, headers: NO_STORE_HEADERS });
+    }
     if (draftRows[0]) {
       return NextResponse.json(
         { status: 'ready', response_id: draftRows[0].id, response_text: draftRows[0].response_text },
@@ -578,6 +599,7 @@ SELECT
   fail_sidecar.id AS failed_response_id,
   fail_sidecar.posting_error AS failed_posting_error,
   draft.id AS draft_response_id,
+  COALESCE(draft.held, false) AS draft_held,
   (pending_gen.exists IS NOT NULL) AS generation_in_flight,
   -- F3: orphan is now DATA, not caller discipline. An orphan is a
   -- post_after_delete_failed_* sibling with NO live posted sibling — the
@@ -591,11 +613,22 @@ LEFT JOIN responses resp
   ON resp.review_id = r.id AND resp.status = 'posted'
 LEFT JOIN LATERAL ( ...existing delete_failed_* sidecar, unchanged... ) fail_sidecar ON true
 -- NEW: live non-posted response → `Draft ready`, never `Generate` (S2).
+-- F5 / invariant #4: carry `held` rather than filtering held drafts out. If a
+-- held draft were excluded here, `draft_response_id` would be NULL and
+-- `deriveRowState` would fall through to `generate` — offering an LLM spend the
+-- partial unique index would then reject (at most one non-terminal response per
+-- review). Selected, it resolves to the `held` state instead (D9).
 LEFT JOIN LATERAL (
-  SELECT id FROM responses
-  WHERE review_id = r.id
-    AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
-  ORDER BY version DESC LIMIT 1
+  SELECT
+    resp2.id,
+    EXISTS (
+      SELECT 1 FROM flagged_responses f
+      WHERE f.response_id = resp2.id AND f.status = 'open'
+    ) AS held
+  FROM responses resp2
+  WHERE resp2.review_id = r.id
+    AND resp2.status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
+  ORDER BY resp2.version DESC LIMIT 1
 ) draft ON true
 -- NEW: in-flight generation → `Generating…`, survives a refresh (D-C).
 LEFT JOIN LATERAL (
@@ -728,6 +761,7 @@ git add src/lib/past-replies/load-replies.ts src/lib/past-replies/__tests__/ && 
 export type ReviewRowState =
   | 'recover'      // orphan: repost failed, no live reply — /retry or /restore-original
   | 'regenerate'   // posted sibling exists — EditReplyDrawer, replaces a LIVE Google reply
+  | 'held'         // draft held by moderation — no text, no affordance (invariant #4)
   | 'draft_ready'  // live non-posted response — cross-link to Needs Action (S2)
   | 'generating'   // generate_response outbox row in flight
   | 'generate';    // never replied, nothing in flight
@@ -736,18 +770,21 @@ export function deriveRowState(r: {
   response_id: string | null;
   failed_response_id: string | null;
   draft_response_id: string | null;
+  draft_held: boolean;
   generation_in_flight: boolean;
   is_orphan: boolean;
 }): ReviewRowState {
   if (r.is_orphan) return 'recover';
   if (r.response_id !== null) return 'regenerate';
-  if (r.draft_response_id !== null) return 'draft_ready';
+  if (r.draft_response_id !== null) return r.draft_held ? 'held' : 'draft_ready';
   if (r.generation_in_flight) return 'generating';
   return 'generate';
 }
 ```
 
-Precedence rationale, in order: an orphan has a superseded draft and must reach recovery, never Generate (D-G); a posted sibling always means Regenerate; a live draft outranks an in-flight outbox row because the response row is the settled fact.
+Precedence rationale, in order: an orphan has a superseded draft and must reach recovery, never Generate (D-G); a posted sibling always means Regenerate; a held draft outranks `draft_ready` because invariant #4 makes the hold absolute — and it is checked on the SAME branch as `draft_ready` so a held draft can never fall through to `generate` (D9); a live draft outranks an in-flight outbox row because the response row is the settled fact.
+
+**`held` is a sixth state, not a variant of `draft_ready`.** Round 1's F5 fix said a held draft "groups as unanswered with no affordance", but the five-state union had no way to represent that: filtering the draft out yields `generate` (offers an LLM spend the partial unique index would reject), keeping it yields `draft_ready` (surfaces held content and `Approve & post`). Neither satisfies invariant #4 — see deviations D9.
 
 - [ ] **Step 2: Add the four-valued provenance badge (D-E)**
 
@@ -786,6 +823,18 @@ Import `APPROVAL_METHOD` from `@/lib/auto-approval/types` — no string literals
 Same merge-and-sort shape as today, but the predicate is `deriveRowState(row) === 'regenerate'` (answered) vs everything else (unanswered), and orphan rows land in `unanswered` (D-G). Keep `sortByDateDesc` and `canEdit` unchanged.
 
 `groupReplies` now takes **one** row array, not two — post-F3 there is no separate orphan list to merge, so the `orphanRows` parameter (`replies-view.ts:143`) and the `orphanGapCount` / `orphanHistCount` it returned are deleted, as are `OrphanRow` (`:28`) and `toOrphanCardRow` (`:100`). The section denominators are exactly `unansweredTotal` / `answeredTotal` — orphans need no separate term because they have no posted sibling and Step 2's `NOT EXISTS` count already includes them.
+
+**Carry `toOrphanCardRow`'s field mapping into `toCardRow` before deleting it.** Deleting the mapper without this silently breaks recovery: `PastReplyCard` decides an orphan is recoverable via `!!row.failed_response_id && row.posted_at === null` (`PastReplyCard.tsx:157`) and gates the recovery actions on `row.failed_response_id` (`:201`). The old mapper (`replies-view.ts:100-117`) fed those from the orphan query's columns; post-F3 they come from the Step 1 LATERALs. So `toCardRow` must map, **when `is_orphan` is true**:
+
+| `PastReplyRow` field | Source (Step 1 column) | Why |
+|---|---|---|
+| `failed_response_id` | `orphan_failed_response_id` | what `PastReplyCard:157,201` reads to offer recovery at all |
+| `response_id` | `orphan_failed_response_id` | the old mapper set both; `/retry` + `/restore-original` address the failed response by id |
+| `failed_posting_error` | `orphan_posting_error` | drives the recovery copy |
+| `approved_text` | `superseded_text ?? null` | the "original" pane of the recovery drawer |
+| `posted_at`, `approval_method`, `version` | `null` | an orphan has no live posted reply — and `posted_at === null` is half of the card's own orphan predicate |
+
+For non-orphan rows these keep reading `resp.*` / `fail_sidecar.*` exactly as today. A test title pins it (D8): `an orphan row keeps its failed_response_id and superseded text after the single-query merge`.
 
 - [ ] **Step 3: Run and commit**
 
@@ -889,7 +938,9 @@ Draft text + `Approve & post` posting to `POST /api/dashboard/reviews/{reviewId}
 
 - [ ] **Step 3: `PastReplyCard` renders `row_state`**
 
-A `switch` on the five states — no derivation in the component. `regenerate` also renders `{used} of {limit} today` from the budget map and disables the button at `remaining === 0`; when the map has no entry (fail-open), render no counter and leave the button enabled. Answered rows render the provenance badge.
+A `switch` on the **six** states — no derivation in the component. `regenerate` also renders `{used} of {limit} today` from the budget map and disables the button at `remaining === 0`; when the map has no entry (fail-open), render no counter and leave the button enabled. Answered rows render the provenance badge.
+
+`held` renders a neutral, non-actionable row: the review text, a muted `Under review` marker, and **no button, no draft text, no cross-link** — the draft is not the owner's to see or act on until an admin disposition at `/admin/flagged` releases it (invariant #4; `held-draft.ts` header). Do not reuse the `draft_ready` cross-link: Needs Action does not surface held drafts either, so it would lead nowhere. Exhaustiveness: give the `switch` a `never`-typed default so adding a seventh state fails typecheck rather than rendering blank (`assert impossible states` — anti-slop).
 
 - [ ] **Step 4: `PastRepliesClient` — two sections, four tiles**
 
@@ -944,6 +995,14 @@ export function editRepliesEnabled(): boolean {
 - [ ] **Step 4: Registry + docs, same change**
 
 Delete the `PAST_REPLIES_VIEW_ENABLED` row from `.claude/reference/env-vars.md` and `.env.example`, and fix `EDIT_REPLIES_ENABLED`'s cross-reference to it. Grep the filename across `docs/` and clean every stale cross-reference (working rule). Update `CONTEXT.md` → **Reviews list** and **On-demand generation** to "implemented at #678", spec §6.3a/§6.3b as-built, `docs/currents.md`, `docs/directory.md`.
+
+**F8 — the three LIVE (non-`docs/`) references must be edited here too**, not just grepped. These are why D1 widened the surface; a `docs/`-only sweep leaves them stale and `ci:process-env` red:
+
+- [ ] `scripts/ci/process-env-baseline.ts` — drop the `PAST_REPLIES_VIEW_ENABLED` entry. **Run `pnpm ci:process-env` after**; this file IS the audit's baseline, so a stale entry fails the gate rather than merely reading wrong.
+- [ ] `.claude/reference/env-vars.md` — the registry row (above) plus any prose mention.
+- [ ] `.claude/reference/review-ingestion.md` and `.claude/reference/lab-notes.md` — rewrite the sentences that describe the flag's behaviour; do not merely delete the flag name and leave a dangling clause.
+
+**Leave historical plans and completed runbooks alone** — `docs/superpowers/plans/2026-0*` and `docs/runbooks/evidence/**` are history, not cross-references to fix. The working rule targets live pointers.
 
 - [ ] **Step 5: Full gate, then commit**
 
@@ -1066,3 +1125,36 @@ New title: `EDIT_REPLIES_ENABLED alone preserves stale-marking, edit-publish dis
 `discarding a v1 Generate draft retains it and the next POST generate enqueues v2`
 must run against live Postgres. A mocked `MAX(version)=2` passes vacuously and
 proves nothing about the retention behaviour C1 depends on.
+
+---
+
+# Round-2 revisions (applied)
+
+Plan review round 2 (verification-only) returned `VERDICT: REVISE`. It confirmed
+F1, F2, F3, F4, F6, F7 landed in the executable steps; **F5 and F9 had not, and
+F8 was partial** — all three existed only in the Round-1 appendix above, exactly
+the failure mode the F3 pre-dispatch catch had already exposed once. It also
+found two defects the fixes themselves introduced. Full table:
+`docs/reviews/feat-678-reviews-list-generate/plan-round2.md`.
+
+**The systematic lesson — the round-1 revision pass wrote an appendix and patched
+only two tasks.** Four of nine fixes never reached a checkbox. Any future round's
+brief must ask "does the executable step do it?", never "does the plan say it?".
+
+| # | Was | Now applied at |
+|---|---|---|
+| F5 | Appendix only; Task 3's poller returned every non-terminal draft as `ready` with text, Task 4's LATERAL had no held check | Task 3 poller `EXISTS(... flagged_responses ...) AS held` → `{status:'idle'}`; Task 4 draft LATERAL carries `held`; Task 5 `held` state |
+| F8 | Appendix only; Task 8 Step 4 grepped `docs/` and never edited the 3 live refs | Task 8 Step 4 checkboxes for `process-env-baseline.ts`, `review-ingestion.md`, `lab-notes.md` |
+| F9 | Appendix only; Task 1 created no integration suite for the generate route | Task 1 creates `generate-version.integration.test.ts` |
+| Defect A | F3's deletion of `toOrphanCardRow` left the orphan field mapping unspecified — recovery silently unreachable | Task 5 mapping table (`failed_response_id`, `response_id`, `failed_posting_error`, `approved_text`, nulls) |
+| Defect B | Five-state union could not represent "held, no affordance" — filtered → `generate`, kept → `draft_ready` | Sixth `held` state + `draft_held` on the same branch as `draft_ready` (D9) |
+
+Also corrected: the stale "37 titles" count at Task 1 (now 52 — see D8).
+
+**Not adopted from round 1's F5 wording:** "use `hasOpenFlag`". That function is
+`(tx: TransactionSql, responseId)` — an in-tx, post-`FOR UPDATE` release gate
+(`held-draft.ts:38`). Neither new site is a transaction, and `held-draft.ts` is
+**outside `allowed_edit_surface`**, so adding a read-path helper there would burn
+surface amendment #2 of 2 and trip the abort criteria. Both sites spell the
+`EXISTS` inline against `flagged_responses`, with a comment naming `held-draft.ts`
+as the semantic owner. Consolidating the predicate is a #680 follow-up (D6).
