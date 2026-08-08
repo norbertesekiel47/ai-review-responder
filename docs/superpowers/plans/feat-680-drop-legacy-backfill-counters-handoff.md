@@ -2,7 +2,9 @@
 
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-680-drop-legacy-backfill-counters`
 **Branch:** `feat-680-drop-legacy-backfill-counters` · base `origin/main` @ `431126e9` (rebased 2026-08-08)
-**Current step:** 3 (PLAN) — codex round 2 **re-submitted**. NOT approved, NOT executing.
+**Current step:** 3 (PLAN) — **all three review rounds spent.** Round 3 returned `REVISE` with two
+findings; both accepted and applied (commit `837ab6ed`). NOT approved, NOT executing.
+**BLOCKING on an owner decision** — see "Round cap reached" below.
 
 ## Read these, in order — never the prior transcript
 
@@ -93,18 +95,38 @@ destructive-keyword assertions over the WHOLE `executableSql`, guard body includ
 - T3 anchors re-verified post-rebase: spec §8a R4 `:477`, ADR 0015 `:131`, stale runbook query
   `:355-357` + comments `:359-362` + §5.2 bullets `:376-377`.
 
-## Next actions
+## Round cap reached — BLOCKING on owner decision
 
-1. Read the round-2 verdict from `<b2dde277>/codex-plan-review-680-r2b.jsonl` (last `agent_message`).
-2. On `REVISE`: revise and re-submit ONLY the findings-and-fixes delta as **round 3 — the last
-   permitted round**. After it, surface remaining disagreement to the owner rather than looping.
-3. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, update this file, then
+| round | verdict | findings | blockers |
+|---|---|---|---|
+| 1 | REVISE | 10 | 1 |
+| 2 | REVISE | 7 | 2 |
+| 3 | REVISE | 2 | **0** |
+
+Converging hard. **All 19 findings were accepted after independent verification against disk;
+none was ever rejected.** Triage docs: `docs/reviews/feat-680-drop-legacy-backfill-counters/plan-review-round-{1,2,3}.md`.
+
+There is **no surviving disagreement to escalate** — every round-3 finding was applied. The open
+question is narrower: rounds 2 and 3 both found their blocker-class defects **in the fixes, not the
+original plan**, and F18 was a fix that read correctly and did nothing (`SET LOCAL` outside a
+transaction is a warning-only no-op). The F18/F19 fixes are themselves now unreviewed. Whether that
+warrants a fourth round past the cap is the owner's call, not the workflow's.
+
+## Next actions (after the owner decides)
+
+1. On "proceed": `bash scripts/feature-state.sh set-phase plan_approved`, update this file, then
    execute T1 → T2 → T3 **in this session** (owner decision: no per-task subagent dispatch; the
    tasks are serial and mechanical). Step 7 review agents ARE wanted.
-4. Step 5 full gate with `TEST_DATABASE_POOL_URL` set — a SKIP row on the changed integration
+2. Step 5 full gate with `TEST_DATABASE_POOL_URL` set — a SKIP row on the changed integration
    suites is not review-ready for DB-touching work (#520 class).
-5. Ship high-risk lane: preflight → apply 103 to staging → ride `staging` → PR → owner merge
+3. Ship high-risk lane: preflight → apply 103 to staging → ride `staging` → PR → owner merge
    approval → apply to prod in lockstep at promotion.
+
+## Guard SQL as of `837ab6ed` — the shape T2 must author
+
+Statement list is **four**: `SET lock_timeout` · `SET search_path = public, pg_temp` (session-level,
+NOT `SET LOCAL` — F18) · the `DO $$` guard (cardinality check: 0 → RETURN, 4 → reconcile, partial →
+RAISE — F12) · one four-column `ALTER`. Test 1 pins the whole normalized text (F11).
 
 ## Open item, NOT a blocker
 
