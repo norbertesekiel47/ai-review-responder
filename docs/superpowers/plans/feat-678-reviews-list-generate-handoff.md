@@ -7,7 +7,16 @@ Branch: `feat-678-reviews-list-generate` (base `main` @ `13212b55`)
 
 ## Where we are
 
-Step 3 (PLAN) — plan written, round-1 adversarial review dispatched. `.feature/state.json` holds `planReviewRounds=1`.
+Step 3 (PLAN) — **round 1 complete: `VERDICT: REVISE`, 9 findings, all accepted and all revisions applied.** Plan, review report, and deviations file are committed.
+
+**Next action: dispatch plan review round 2 (verification-only).** Run `bash scripts/feature-state.sh incr-round plan` FIRST (counter is at 1; it survives session resumes, and an uncounted round is how #628 reached round 5 under a "max 3" cap). Round 2 re-submits ONLY the findings-and-fixes delta — the reviewer verifies each of F1–F9 landed and may flag a defect a FIX introduced, but may NOT open new fronts against unchanged plan sections. Then set phase `plan_approved` and go to step 4.
+
+### Dispatching codex — two traps that cost this session ~35 minutes
+
+1. **Close stdin.** `codex exec --json "$(cat brief.md)"` hangs on `Reading additional input from stdin...` and burns the whole timeout. Always append `< /dev/null`, and run it with `run_in_background: true`.
+2. **The JSONL schema is `{"type":"item.completed","item":{"type":"agent_message","text":…}}`** — NOT `.msg.type`. A `jq 'select(.msg.type=="agent_message")'` filter returns empty against a *finished* run and reads as "still running". Extract with:
+   `python3 -c "import json,sys;[print(o['item']['text']) for o in map(json.loads,open(sys.argv[1])) if o.get('item',{}).get('type')=='agent_message']" <file>`
+3. Codex may claim it ran `verify-gate.sh`. It did not — its sandbox declined the call (correctly; the gate drops the test DB schema). Never take that as gate evidence.
 
 ## Read these, in this order — never the prior transcript
 
@@ -42,6 +51,9 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 ## Corrections already applied to the plan — do not re-introduce
 
+0. **The orphan query is GONE as a separate query** (F3). Under `LEFT JOIN` its `NOT EXISTS` disjointness guarantee is false, so every orphan review would render twice — once `generate`, once `recover` — and its un-offset `LIMIT 50` would merge into every page. The main query is now the single row source with the orphan data as a third LATERAL. The plan originally asserted the opposite; do not restore it.
+0b. **`ORDER BY` carries `, r.id DESC`.** Without a total order, equal `review_date` values at an OFFSET boundary duplicate or drop rows across pages.
+0c. **Moderation-held drafts never surface** as `ready` (poller) or `draft_ready` (list) — invariant #4. Use `hasOpenFlag`.
 1. **Version is `COALESCE(MAX(version),0)+1`, never hardcoded `1`.** Verified: discard sets `status='superseded'` and RETAINS the row, so `MAX(version)` climbs and C1's per-review budget self-arms. Hardcoding `1` creates an unbounded free-regeneration loop.
 2. **No separate offboarding check in the Generate route.** `assertWritableSubscriptionForAccount` already resolves offboarding in the same query and returns `403 account_offboarding_blocked`. A second `getOffboardingState` call is a duplicate round trip and a second spelling of a one-owner guard. (Found during this session's own cited-artifact check, before codex reported.)
 
@@ -60,8 +72,10 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 ## Budgets
 
 - Plan review rounds: **1 of 3 used**.
-- `allowed_edit_surface` amendments: **0 of 2** (a 2nd triggers the abort criteria). Test-title retitles and `verification_commands` fixes are deviations-file entries, NOT amendments.
+- `allowed_edit_surface` amendments: **1 of 2 USED** (deviations D1 — the flags.ts collapse needed 6 out-of-surface files). **A second amendment trips the abort criteria** — there is no slack left. Test-title changes and `verification_commands` fixes are deviations-file entries, NOT amendments.
 - Gate-fail rounds: 0 of 3.
+- `tests_to_add`: **37 → 50 titles** (D3). Both intake copies updated and verified byte-identical.
+- Estimates deliberately NOT re-padded despite the scope growth (D4) — 900 prod / 1100 test stand. If the trigger fires, that is the control working.
 
 ## Watch items for step 7
 
