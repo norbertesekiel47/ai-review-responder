@@ -23,7 +23,7 @@ A census of tag forms across all 78 live-DB suites:
                                           (* = in SQL_TAG_NAMES)
 ```
 
-`SQL_TAG_NAMES` (`sql`, `tx`, `db`, `exec`) would see ~530 of 1469 templates and **miss `sql()` — the single most common executor in these files, 770 uses**. That is the #592 defect shape `sql-tag-scan.ts`'s own header warns about, and repeating it here would ship the same class of bug this ticket exists to fix.
+`SQL_TAG_NAMES` (`sql`, `tx`, `db`, `exec`) would see ~530 of ~1470 templates and **miss `sql()` — the single most common executor in these files, 770 uses**. That is the #592 defect shape `sql-tag-scan.ts`'s own header warns about, and repeating it here would ship the same class of bug this ticket exists to fix.
 
 All 21 distinct forms are DB handles. There is no `it.each`/`describe.each` table, no `css`, no `gql`, no `String.raw` in any of the 80 files. So: **every tagged template and every `.unsafe()` call in a live-DB suite is presumed SQL.** A future non-SQL tagged template containing a DDL verb is handled by the pragma.
 
@@ -332,7 +332,7 @@ function isUnsafeCall(node: ts.Node): node is ts.CallExpression {
 
 /**
  * Every statement a live-DB suite EXECUTES. No tag-name allowlist: `sql()` alone
- * accounts for 770 of the 1469 tagged templates in these files and is a
+ * accounts for 770 of the ~1470 tagged templates in these files and is a
  * CallExpression, so a name list (SQL_TAG_NAMES) would miss the majority — the
  * #592 defect shape. In a file that reaches the live DB, a tagged template IS
  * SQL; all 21 distinct tag forms in the 80 suites are DB handles.
@@ -443,7 +443,7 @@ State what changed and why the marker died. Keep the deadlock rationale verbatim
 //      migration path. The first cut keyed on `supabase/migrations` AND
 //      `.unsafe(`, an incidental marker: DDL run without naming that path was
 //      invisible, which is how three sites shipped (#694). There is no tag-NAME
-//      allowlist: `sql()` alone is 770 of 1469 templates in these files, so a
+//      allowlist: `sql()` alone is 770 of ~1470 templates in these files, so a
 //      name list would miss the majority (the #592 shape, one layer down).
 //
 //      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_SUITES
@@ -789,7 +789,7 @@ Append, in the house `- [DATE] WHAT FAILED → WHY → CORRECT APPROACH` format:
   stranded a `tmp_block_import_topic_analytics` CHECK that caused 14 spurious
   failures across three suites → detection is now AST extraction of EXECUTED SQL
   (every tagged template + every `.unsafe()` call) with a DDL-verb match over
-  the extracted text only. NO tag-name allowlist: `sql()` is 770 of 1469
+  the extracted text only. NO tag-name allowlist: `sql()` is 770 of ~1470
   templates in live-DB suites and is a CallExpression, so `SQL_TAG_NAMES` would
   miss the majority (the #592 shape one layer down). Escapes: file allowlists
   MIGRATION_SHAPE_SUITES / DDL_PROBE_SUITES (both lock-enforced) and a per-line

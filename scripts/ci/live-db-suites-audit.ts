@@ -38,8 +38,14 @@
 //      migration path. The first cut keyed on `supabase/migrations` AND
 //      `.unsafe(`, an incidental marker: DDL run without naming that path was
 //      invisible, which is how three sites shipped (#694). There is no tag-NAME
-//      allowlist: `sql()` alone is 770 of 1469 templates in these files, so a
-//      name list would miss the majority (the #592 shape, one layer down).
+//      allowlist: `sql()` alone is the PLURALITY of tagged templates in these
+//      files — roughly 770 of ~1470 at the time of writing — and its tag is a
+//      CallExpression, so a name list would miss more than it caught (the #592
+//      shape, one layer down). Treat the figures as a point-in-time census, not
+//      a constant: they drift by one whenever a template is added or moves
+//      between files, and an exact count written here went stale twice inside
+//      #694's own review. Recount with: walk every git-tracked `*.test.ts` that
+//      contains a LIVE_DB_MARKERS string, counting TaggedTemplateExpressions.
 //
 //      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_SUITES
 //      (applying the migration IS the subject) and DDL_PROBE_SUITES (session-
@@ -168,10 +174,24 @@ function blankSqlComments(sql: string): string {
  * MID-statement (the common `setConsent` shape, a test-controlled literal in an
  * UPDATE) leaves the verb visible and stays readable.
  *
- * Deliberately NOT applied to tagged templates: Postgres.js parameterises a
- * tagged template's substitutions, so a substitution there arrives as a bind
- * value and cannot carry a statement. The asymmetry is the point — `.unsafe()`
- * is the only seam where interpolation becomes SQL text.
+ * Deliberately NOT applied to tagged templates — but NOT because Postgres.js
+ * parameterises them. It does not always: a nested `Query` substitution is
+ * spliced in as raw SQL text (`fragment()`), so `` sql`${sql.unsafe('select 42')}` ``
+ * really executes, which no bind value could. Round 2 of #694's review proved
+ * that live, against an earlier version of this comment that claimed otherwise.
+ *
+ * The real reason the check is unnecessary here is that this walk visits the
+ * PRODUCING node: the inner `sql.unsafe('…')` is itself a `.unsafe()` call the
+ * visitor sees on its own, so DDL smuggled through a fragment is caught at the
+ * point it is built rather than the point it is spliced.
+ *
+ * BOUND, and it follows directly: a fragment built OUTSIDE the scanned set is
+ * invisible. `listTestFiles()` globs `*.test.ts`/`*.test.tsx` only, so the ten
+ * `__tests__/helpers/*.ts` modules are never scanned — a helper exporting
+ * `` sql`ALTER TABLE job_outbox …` `` that a suite interpolates as `` sql`${addCheck}` ``
+ * audits clean. Widening the glob is a behaviour change (helper files do not
+ * match `*.integration.test.ts` and would trip R1's naming rule), so it is
+ * tracked separately rather than smuggled in here.
  */
 function hidesStatementStart(node: ts.TemplateExpression): boolean {
   let priorStatic = node.head.text;
@@ -221,11 +241,13 @@ function isUnsafeCall(node: ts.Node): node is ts.CallExpression {
 }
 
 /**
- * Every statement a live-DB suite EXECUTES. No tag-name allowlist: `sql()` alone
- * accounts for 770 of the 1469 tagged templates in these files and is a
- * CallExpression, so a name list (SQL_TAG_NAMES) would miss the majority — the
- * #592 defect shape. In a file that reaches the live DB, a tagged template IS
- * SQL; all 21 distinct tag forms in the 80 suites are DB handles.
+ * Every statement a live-DB suite EXECUTES. No tag-name allowlist: `sql()` is the
+ * plurality of tagged templates in these files (~770 of ~1470) and its tag is a
+ * CallExpression, so a name list (SQL_TAG_NAMES) would miss more than it caught —
+ * the #592 defect shape. In a file that reaches the live DB, a tagged template IS
+ * SQL; all 21 distinct tag forms across the marker-passing suites are DB handles,
+ * and none of those files carries a non-SQL tagged-template DSL. See the header
+ * for why the counts are a census rather than a constant.
  */
 function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
   const out: ExecutedSql[] = [];

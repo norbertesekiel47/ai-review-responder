@@ -260,7 +260,13 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     // skipped its `finally` and `tmp_block_import_topic` survived on `job_outbox`,
     // blocking every sibling suite that enqueues `zernio_initial_backfill` (#679
     // deviations D20). Counting the relation's constraints across the aborted
-    // transaction pins that directly — where the previous grep of the poison's
+    // transaction pins the COMMITTED-leak half of that: if the injection ever
+    // starts leaving an object behind on a normal run, this goes red. It cannot
+    // pin the TIMEOUT case itself — a timeout means this line never executes.
+    // What rules that case out is structural, not assertive: the injection holds
+    // no schema on any path, so there is nothing for a skipped `finally` to
+    // strand. The assertion guards the property; the design is what guarantees
+    // it under a timeout. Preferred over the previous grep of the poison's
     // `Function.toString()` for DDL keywords inspected the wrong thing (the
     // poison, not the shared mechanism), duplicated `ci:live-db-suites` in a
     // strictly weaker place, and failed OPEN on any refactor that moved the

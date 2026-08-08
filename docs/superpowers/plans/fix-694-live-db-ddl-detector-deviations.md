@@ -130,10 +130,15 @@ drift by one whenever SQL moves between a suite and a non-test helper.
 `1201` in four places (lines 26, 335, 446, 792) and `78 files` at line 28; it is
 outside this batch's edit surface and was left for the orchestrator.
 
-**Verdict:** ACCEPT. The recount is self-consistent — commit `8b87c859` moved
-templates out of a `*.test.ts` file into `abort-injection.ts`, which is exactly
-the one-template drift the entry predicts. Orchestrator fixed the plan file's
-five stale sites (`1201` ×4, `78 files`) in the same round.
+**Verdict:** ~~ACCEPT~~ → **ACCEPT the count, REJECT the mechanism. Superseded by
+D7.** Review round 2 recounted independently and both axes agree HEAD is **1470
+templates / 771 `sql()`**, not 1469/770 — and the explanation above is FALSE:
+`8b87c859` moved the count 1468 → 1469 (UP, not down), and `abort-injection.ts`
+holds ZERO tagged templates. The orchestrator accepted a plausible-sounding
+mechanism without checking it, which then wrote a bogus drift rule into this file
+instructing the next recount to reproduce the error. Corrected in D7; the
+numbers are no longer stated exactly anywhere, which removes the failure mode
+rather than re-deriving it a fourth time.
 
 ---
 
@@ -214,3 +219,72 @@ descriptive fields, and S5 was rejected with its concern satisfied elsewhere.
 
 **Verdict:** ACCEPT (self-triaged; F4 was the orchestrator's error and is the
 most useful finding of the round — it invalidated a claim in three places).
+
+---
+
+## D7 — review round 2: two false CLAIMS shipped by round 1's fixes (R1, R2/R2-1, R2-2)
+
+**What round 2 found.** All 14 round-1 findings VERIFIED, several with
+mutation-proofs (pragmas removed → `runtime-ddl` fires; lock markers stripped →
+both allowlists fire; `rejects.toMatchObject` still red on resolve). But the
+fixes introduced three defects, and every one is a COMMENT asserting something
+untrue — no behaviour was wrong.
+
+**R1 — the tagged-template exclusion was justified by a false premise.** The
+round-1 fix wrote: "Postgres.js parameterises a tagged template's substitutions,
+so a substitution there arrives as a bind value and cannot carry a statement."
+That is wrong. Postgres.js splices a nested `Query` substitution as raw SQL via
+`fragment()`, proved live by the reviewer: `` sql`${sql.unsafe('select 42 as n')}` ``
+returns `[{n:42}]`, which no bind value could do. The exclusion is still CORRECT,
+for a different reason — the walk visits the PRODUCING node, so the inner
+`.unsafe()` is caught where it is built rather than where it is spliced.
+
+Following the true reason exposed a real bound the false one hid:
+`listTestFiles()` globs `*.test.ts`/`*.test.tsx`, so the ten
+`__tests__/helpers/*.ts` modules are never scanned. A helper exporting
+`` sql`ALTER TABLE job_outbox …` `` that a suite interpolates as `` sql`${addCheck}` ``
+audits clean.
+
+**What was done.** The comment now states the true reason and names the bound.
+The glob is NOT widened: helper files do not match `*.integration.test.ts` and
+would immediately trip R1's naming rule, so closing it needs naming carve-outs
+and a `NOT_LIVE_DB` expansion — a behaviour change, on a ticket about the DDL
+detector rather than the file glob, at round 2 of a cap of 3. Filed as its own
+issue so the hole does not evaporate with this branch.
+
+**R2 / R2-1 — the census went stale AGAIN, inside the same review.** Round 1's S8
+fix corrected `1201` → `1469`; round 1's OTHER fix commit (`1301455f`) then added
+a `sql()` template (`jobOutboxConstraintCount`) and invalidated it in the same
+round. Round 2 also found pre-fix `1201`/`78` still in `handoff.md` and both
+intake copies, which the S8 sweep missed.
+
+**What was done.** Stopped stating exact figures anywhere. The load-bearing claim
+is that `sql()` is the PLURALITY, which no drift can falsify; the numbers are now
+approximate ("~770 of ~1470"), explicitly labelled a point-in-time census, and
+paired with the recount method. Three strikes (S8 → R2 → this) is enough evidence
+that an exact count in a comment is a maintenance trap. Also settled the 80-vs-78
+disagreement between the two axes, which was an ambiguity in the orchestrator's
+own wording, not a discrepancy: **80 marker-passing files, 78 audit-visible**
+after `NOT_LIVE_DB`, and those 2 excluded files hold zero templates — so template
+counts are definition-independent. Both reviewers were right.
+
+**R2-2 — the strands-nothing comment overclaimed.** It said counting constraints
+"pins directly" the vitest-TIMEOUT stranding. It cannot: on a timeout the
+assertion never executes. Corrected to say what is true — the assertion pins the
+COMMITTED-leak half, and the timeout case is ruled out STRUCTURALLY (the
+injection holds no schema on any path, so a skipped `finally` has nothing to
+strand). The design guarantees it; the assertion guards it.
+
+**Standings on the two judgement calls round 2 was asked to re-examine.** S2:
+both axes agree the `poison` parameter should stay (inlining it would give a
+generically-named helper knowledge of `analytics_events` and migration 102); the
+standards axis proposed a third fixture module owning poison + SQLSTATE, declined
+as abstraction with no second shape to justify it — two callers each owning their
+own fixture is the correct arrangement. S5: rejection upheld by the reviewer with
+no reservation.
+
+**Verdict:** ACCEPT. The pattern across both rounds is worth stating once: every
+single finding in this review — 14 in round 1, 3 in round 2 — was either a claim
+that was false or a test that proved less than its name promised. The executable
+parts were right from the first pass. On a feature whose entire subject is "an
+audit that asserted something it did not check", that is the fitting result.

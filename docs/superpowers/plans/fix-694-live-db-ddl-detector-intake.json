@@ -32,7 +32,7 @@
     "The abort injection holds no schema, takes no ACCESS EXCLUSIVE lock, and strands nothing on the shared container whether its test passes, fails, or times out"
   ],
   "edge_cases": [
-    "sql() call-form tag: 770 of 1201 tagged templates in live-DB suites are tagged `sql()`, a CallExpression — a tag-name allowlist misses every one",
+    "sql() call-form tag: `sql()` is the PLURALITY of tagged templates in live-DB suites (~770 of ~1470 at the time of writing) and is a CallExpression — a tag-name allowlist misses every one. Figures are a point-in-time census, not a constant: an exact count went stale twice during review (S8, R2)",
     "db! NonNullExpression tag (73 uses) and one-off handles (sqlA(), observerSql(), dbC, boundedSql, recorder!, tierSql(), handle, seed, client, observer) — 21 distinct forms total",
     "DDL verb inside a regex literal: migration-093/095/096/100/102 assert constraint text with /ALTER TABLE .../i and execute nothing",
     "DDL verb inside expect().toContain('CREATE UNIQUE INDEX'): migration-091/093/096 read pg_indexes and assert on the returned indexdef",

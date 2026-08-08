@@ -292,7 +292,7 @@ describe('live-db-suites-audit', () => {
   // is clean.
   //
   // What this makes loud is a PRECISION regression, not a reach one: a change
-  // that starts firing on a real suite — one of the 1469 tagged templates the
+  // that starts firing on a real suite — one of the ~1470 tagged templates the
   // detector now reads as SQL — or a newly added suite that genuinely executes
   // DDL. It cannot catch reach going backwards, and must not be read as if it
   // could: a detector that goes blind produces no findings, `offenders` comes
