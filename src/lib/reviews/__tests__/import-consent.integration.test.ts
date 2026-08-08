@@ -791,7 +791,7 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
   // ── #679 T2 LIVES NEXT DOOR ─────────────────────────────────────────────────
   //
   // The eight Import offer analytics titles are in
-  // `import-consent-analytics.integration.test.ts`, moved there in review round
+  // `import-offer-analytics.integration.test.ts`, moved there in review round
   // 1: they are a distinct feature slice, they pushed this file past 1000
   // lines, and one of them deliberately aborts a transaction — a blast radius
   // worth keeping out of the suite that owns the predicate, the offer and the

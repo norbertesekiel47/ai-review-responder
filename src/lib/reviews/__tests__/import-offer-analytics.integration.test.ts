@@ -1,4 +1,16 @@
-// src/lib/reviews/__tests__/import-consent-analytics.integration.test.ts
+// src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts
+//
+// NAMED FOR THE **Import offer**, not for Import consent, and that is load
+// bearing rather than taste. `scripts/verify-gate.sh:193` derives each
+// integration row's name AND its coverage directory from
+// `tr -c 'a-zA-Z0-9' '-' | cut -c1-40`. The obvious name,
+// `import-consent-analytics.integration.test.ts`, truncates to exactly the same
+// 40 characters as `import-consent.integration.test.ts` — the two rows then
+// share a status file and a coverage directory, which surfaced as one spurious
+// FAIL and could just as easily have surfaced as a PASS reported for a suite
+// that failed. Filed as its own issue; do not rename this file back without
+// re-checking the 40-character prefix against every sibling
+// `*.integration.test.ts` in this directory.
 //
 // #679 T2 — the two Import offer analytics events (`import_offer_created`,
 // `import_decision_recorded`), deferred out of #677 (deviations D7) because

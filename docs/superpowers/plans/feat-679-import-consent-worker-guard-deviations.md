@@ -614,7 +614,7 @@ the module header names.
 
 FINDING (Medium). Appending eight #679 titles plus their fixtures pushed
 `import-consent.integration.test.ts` from 790 to 1039 lines with a distinct feature
-slice. Moved verbatim to `src/lib/reviews/__tests__/import-consent-analytics.integration.test.ts`
+slice. Moved verbatim to `src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts`
 (1039 → 807 lines / 22 titles in the original, 504 / 8 in the new one), following
 the precedent this branch
 already set with the migration-102 shape suite. All eight titles carried across
@@ -653,11 +653,45 @@ logs a warn, so on a database at 101 those titles pass and the metric silently
 under-counts. The real precondition is on the suites that **assert an event row
 exists** — they fail as "expected length 1, received 0", which is just as opaque
 and is what the assertion now prevents. Applied to exactly those two:
-`import-consent-analytics.integration.test.ts` (all eight titles) and
+`import-offer-analytics.integration.test.ts` (all eight titles) and
 `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` (the GET
 self-heal title). `import-consent.integration.test.ts` deliberately does NOT carry
 it, and says why in the comment where the slice used to be — asserting a
 precondition a suite does not have is its own small lie.
+
+---
+
+## 2026-08-07 — orchestrator, after the fix round
+
+### D30 — the extracted suite's obvious name collided with its parent in the gate
+
+`import-consent-analytics.integration.test.ts` was the natural name for D28's
+extraction, and it silently broke the gate. `scripts/verify-gate.sh:193` derives
+both an integration row's NAME and its coverage directory from
+`tr -c 'a-zA-Z0-9' '-' | cut -c1-40`, and
+
+    src/lib/reviews/__tests__/import-consent.integration.test.ts
+    src/lib/reviews/__tests__/import-consent-analytics.integration.test.ts
+
+both truncate to exactly `src-lib-reviews---tests---import-consent` — the parent
+name is 40 characters on the nose. The two rows then shared a status file and a
+coverage directory, and the gate went RED with an `ENOENT` on
+`.feature/coverage/…/.tmp` while both suites passed 30/30 when run directly.
+
+**The spurious red is the mild half.** Two rows sharing a status file can equally
+report **PASS for a suite that failed** — a silent-green in the mechanism that is
+supposed to be this branch's mechanical backstop.
+
+**Action.** Renamed to `import-offer-analytics.integration.test.ts` (slug
+`src-lib-reviews---tests---import-offer-a`), verified distinct from every sibling
+`*.integration.test.ts` in the directory, with the reason recorded in the file
+header so it does not get "tidied" back. The gate's truncation is filed
+separately — `scripts/**` is outside `allowed_edit_surface`, and fixing a shared
+harness deserves its own diff and its own verification rather than riding a
+feature branch.
+
+**Naming note:** the new name is also the more accurate one. The events measure
+the **Import offer** lifecycle (created → answered), not Import consent as such.
 
 ### Scope note — what was deliberately NOT touched
 
