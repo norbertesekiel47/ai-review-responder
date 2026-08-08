@@ -2064,3 +2064,49 @@ untouched:
 - The post-merge sweep ran from a **fresh worktree off `origin/main`**, not the
   main checkout: a concurrent session had uncommitted #671/#672 work sitting in
   the shared checkout's working tree.
+
+---
+
+## Live-DB DDL detector (2026-08-08, #694 → PR #705)
+
+CI/test tooling. No runtime code, no migration, no flag, no dependency.
+
+**The defect.** `ci:live-db-suites` rule R2 ("a live-DB suite must not execute
+DDL at run time") was `text.includes('supabase/migrations') && text.includes('.unsafe(')`
+— a proxy for DDL, not DDL. Three suites executed DDL without naming a migration
+path and passed clean. One of them forced a transaction abort by adding a
+temporary CHECK constraint to `job_outbox` and dropping it in a `finally`; a
+vitest timeout skips the `finally`, so `tmp_block_import_topic_analytics`
+stranded on the shared test container and blocked every sibling suite enqueuing
+`zernio_initial_backfill` — 14 spurious failures across three suites.
+
+**What shipped.** AST extraction of executed SQL, DDL-verb match over extracted
+text only, SQL comments blanked to equal-length whitespace so reported line
+numbers survive, fail-closed on unreadable `.unsafe()` arguments (including a
+template whose substitution stands where a statement begins). Two lock-enforced
+allowlists (migration-shape + the new DDL-probe) and a per-line
+`-- live-db-ddl-ignore` pragma for statically-invisible safety. Signature and
+finding shape unchanged — the module was deepened, not widened.
+
+**Seven sites, not three.** The census found four the ticket didn't name: a
+second bootstrap `ALTER TABLE` in `health-alert/checks`, two `auth.uid()` RLS
+probes (`outreach-render`, `migration-091`), and three pg_temp index builds in
+`migration-080`. `migration-091` had been executing probe DDL on **no allowlist
+at all**, so its `acquireLiveDbLock` enrolment had never once been verified.
+
+**Process notes worth keeping:**
+- T1–T4 were planned as parallel and run **serially**: three of them execute
+  live-DB suites against the shared container, and proving a DDL fix while a
+  sibling task mutates that container is the exact interference this ticket
+  exists to remove.
+- Two review rounds, 16 findings, **every one a false claim or a test that
+  proved less than its name promised** — the executable logic was right from the
+  first pass. Fitting, on a ticket about an audit asserting something it never
+  checked.
+- The audit header's exact template count went stale **three times inside the
+  feature's own review**, each correction itself reviewed. Now stated as an
+  approximate, explicitly point-in-time census with the recount method attached.
+- Known bound filed as **#706** rather than patched at round 2: `listTestFiles()`
+  globs `*.test.ts`, so DDL in a fragment built inside `__tests__/helpers/*.ts`
+  is invisible. Widening the glob trips the naming rule on helper files — a
+  behaviour change needing its own design.
