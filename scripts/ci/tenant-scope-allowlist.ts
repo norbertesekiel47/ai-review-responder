@@ -48,7 +48,21 @@ export interface TenantScopeAllowlistEntry {
 //     `zernio_backfill_runs` entry went with the `NOT EXISTS` completed-run
 //     subquery, which now lives (scoped to `run_reason = 'initial'`) in
 //     `enqueueInitialImport`.
-export const ALLOWLIST_BASELINE = 414;
+//   414 → 412 (#678), also a SHRINK. The Reviews list rewrote every
+//     `load-replies.ts` query, and this allowlist keys on exact SQL text, so
+//     all EIGHT of that file's entries were orphaned by construction — none of
+//     them avoidable by writing better SQL. Replaced by six:
+//       - three for `load-replies.ts`: the LEFT-JOIN + four-LATERAL main query
+//         and the two `EXISTS` / `NOT EXISTS` group counts. The new AVG query
+//         needs NO entry — it no longer joins `responses`, so
+//         `r.business_id = ${locationId}` scopes it outright.
+//       - three for the new Generate door
+//         (`api/dashboard/reviews/[reviewId]/generate/route.ts`), the same
+//         shape `past-replies/draft/route.ts` already carries: the route proves
+//         ownership via `businesses.account_id` BEFORE opening the tx, so the
+//         in-tx reads key on `review_id` alone.
+//     `draft-status/route.ts` needs none — it binds `resp.business_id`.
+export const ALLOWLIST_BASELINE = 412;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1257,26 +1271,56 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'background-global-scan',
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
+  // #678 — the Reviews list. These three replace the four pre-#678 entries for
+  // this file (two activation-split COUNTs, the posted-only AVG, the posted-JOIN
+  // main query) plus the two for the orphan query F3 deleted. The new AVG needs
+  // NO entry: it no longer joins `responses`, so `r.business_id = ${locationId}`
+  // scopes it outright — a net shrink in exempted surface, 414 -> 412.
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId} AND ${activatedAtIso}::timestamptz IS NOT NULL AND r.review_date >= ${activatedAtIso}::timestamptz",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.external_reply_ingested_at, r.star_rating, r.reviewer_name, resp.id AS response_id, resp.approved_text, resp.approval_method, resp.posted_at, resp.version, fail_sidecar.id AS failed_response_id, fail_sidecar.posting_error AS failed_posting_error, draft.id AS draft_response_id, COALESCE(draft.held, false) AS draft_held, (pending_gen.exists IS NOT NULL) AS generation_in_flight, (orphan_sidecar.id IS NOT NULL AND resp.id IS NULL) AS is_orphan, orphan_sidecar.id AS orphan_failed_response_id, orphan_sidecar.posting_error AS orphan_posting_error, orphan_superseded.approved_text AS superseded_text FROM reviews r LEFT JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' LEFT JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${deletePfx} ORDER BY created_at DESC LIMIT 1 ) fail_sidecar ON true LEFT JOIN LATERAL ( SELECT resp2.id, EXISTS ( SELECT 1 FROM flagged_responses f WHERE f.response_id = resp2.id AND f.status = 'open' ) AS held FROM responses resp2 WHERE resp2.review_id = r.id AND resp2.status = ANY(${[...NON_TERMINAL_STATUSES] as string[]}::text[]) ORDER BY resp2.version DESC LIMIT 1 ) draft ON true LEFT JOIN LATERAL ( SELECT 1 AS exists FROM job_outbox WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE} AND aggregate_id = r.id AND status IN ('pending', 'dispatching', 'dispatched') LIMIT 1 ) pending_gen ON true LEFT JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) orphan_sidecar ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) orphan_superseded ON true WHERE r.business_id = ${locationId} ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}",
     category: 'tenant-root-lookup',
-    reason: "Authenticated past-replies page uses the owner-selected locationId resolved for the current account before aggregating joined response rows.",
+    reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
   },
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId} AND ( ${activatedAtIso}::timestamptz IS NULL OR r.review_date < ${activatedAtIso}::timestamptz )",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' )",
     category: 'tenant-root-lookup',
-    reason: "Authenticated past-replies page uses the owner-selected locationId resolved for the current account before aggregating joined response rows.",
+    reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
   },
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT AVG(r.star_rating)::float AS avg FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId}",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r WHERE r.business_id = ${locationId} AND EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' )",
     category: 'tenant-root-lookup',
-    reason: "Authenticated past-replies page uses the owner-selected locationId resolved for the current account before aggregating joined response rows.",
+    reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
+  },
+  // #678 — the Generate door. Identical shape to the three entries
+  // `src/app/api/dashboard/past-replies/draft/route.ts` already carries: the
+  // route proves ownership via `businesses.account_id` BEFORE opening the tx,
+  // so these in-tx reads key on `review_id` alone.
+  {
+    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId}::uuid AND status = 'posted' LIMIT 1",
+    category: 'tenant-root-lookup',
+    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
+  },
+  {
+    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT id, status FROM responses WHERE review_id = ${reviewId}::uuid AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1",
+    category: 'tenant-root-lookup',
+    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
+  },
+  {
+    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM responses WHERE review_id = ${reviewId}::uuid",
+    category: 'tenant-root-lookup',
+    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
   },
   {
     file: "src/app/api/approve/[token]/route.ts",
@@ -1971,20 +2015,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Zernio ingest worker has already resolved businessId from the active provider connection; review/response ids derive from that scoped batch.",
   },
   {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId} AND ${activatedAtIso}::timestamptz IS NOT NULL AND r.review_date >= ${activatedAtIso}::timestamptz",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId} AND ( ${activatedAtIso}::timestamptz IS NULL OR r.review_date < ${activatedAtIso}::timestamptz )",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
     file: "src/lib/accounts/tier-snapshot.ts",
     table: "businesses",
     sqlSnippet: "UPDATE businesses SET subscription_tier = ${account.subscription_tier}, updated_at = NOW() WHERE account_id = ${accountId}::uuid AND subscription_tier IS DISTINCT FROM ${account.subscription_tier}::text",
@@ -2095,27 +2125,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, provider FROM reviews WHERE business_id = ${businessId} AND ( (provider = 'zernio' AND provider_review_name = ${providerReviewName}) OR ( provider = 'serpapi_poll' AND reviewer_name = ${targetReviewerName} AND star_rating = ${matchFields.star_rating} AND COALESCE(NULLIF(trim(review_text), ''), '') = ${targetComment} AND ABS(EXTRACT(EPOCH FROM (review_date - to_timestamp(${targetCreatedAtMs} / 1000.0)))) < 86400 ) ) FOR UPDATE",
     category: 'worker-job-scoped',
     reason: "Zernio ingest worker has already resolved businessId from the active provider connection; review/response ids derive from that scoped batch.",
-  },
-  {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "responses",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.external_reply_ingested_at, r.star_rating, r.reviewer_name, resp.id AS response_id, resp.approved_text, resp.approval_method, resp.posted_at, resp.version, fail_sidecar.id AS failed_response_id, fail_sidecar.posting_error AS failed_posting_error FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' LEFT JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${deletePfx} ORDER BY created_at DESC LIMIT 1 ) fail_sidecar ON true WHERE r.business_id = ${locationId} ORDER BY r.review_date DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "responses",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.star_rating, r.reviewer_name, fail_resp.id AS failed_response_id, fail_resp.posting_error AS failed_posting_error, superseded.approved_text AS superseded_text FROM reviews r JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${postAfterPfx} ORDER BY created_at DESC LIMIT 1 ) fail_resp ON true LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses WHERE review_id = r.id AND status = 'superseded' ORDER BY created_at DESC LIMIT 1 ) superseded ON true WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses posted_check WHERE posted_check.review_id = r.id AND posted_check.status = 'posted' ) ORDER BY r.review_date DESC LIMIT 50",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
     file: "src/lib/admin/business-channels-service.ts",

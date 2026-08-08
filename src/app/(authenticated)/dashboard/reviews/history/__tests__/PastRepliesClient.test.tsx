@@ -1,4 +1,13 @@
 // @vitest-environment jsdom
+//
+// #678 rewrote this surface into the **Reviews list**: two sections
+// (`Unanswered` / `Answered`) over every review for the location, instead of the
+// activation-split gap/historical buckets. The three regression guards that
+// pinned the old bucketing (`hasHistoricalSection` for orphan-only hist rows and
+// the two orphan-count reconciliations) are DELETED with the behaviour they
+// guarded — orphans now arrive from the single row source, land in `Unanswered`
+// by row state, and are already inside the `NOT EXISTS` unanswered denominator,
+// so there is no count to reconcile.
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,54 +19,71 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-function row(overrides: Partial<Parameters<typeof PastRepliesClient>[0]['gapRows'][number]> = {}) {
+type ListRow = Parameters<typeof PastRepliesClient>[0]['answeredRows'][number];
+
+function row(overrides: Partial<ListRow> = {}): ListRow {
   return {
-    review_id: overrides.review_id ?? 'review-1',
-    review_text: overrides.review_text ?? 'A thoughtful review',
-    review_date: overrides.review_date ?? '2026-05-01T10:00:00Z',
-    reviewer_name: overrides.reviewer_name ?? 'Alex',
-    star_rating: overrides.star_rating ?? 5,
-    response_id: overrides.response_id ?? 'response-1',
-    approved_text: overrides.approved_text ?? 'A thoughtful reply',
-    approval_method: overrides.approval_method ?? null,
-    posted_at: overrides.posted_at ?? '2026-05-02T10:00:00Z',
-    external_reply_ingested_at: overrides.external_reply_ingested_at ?? null,
-    canEdit: overrides.canEdit ?? true,
-    review_content_hash: overrides.review_content_hash ?? 'hash-abc',
-    version: overrides.version ?? 1,
-    failed_response_id: overrides.failed_response_id ?? null,
-    failed_posting_error: overrides.failed_posting_error ?? null,
+    review_id: 'review-1',
+    review_text: 'A thoughtful review',
+    review_date: '2026-05-01T10:00:00Z',
+    reviewer_name: 'Alex',
+    star_rating: 5,
+    response_id: 'response-1',
+    approved_text: 'A thoughtful reply',
+    approval_method: null,
+    posted_at: '2026-05-02T10:00:00Z',
+    external_reply_ingested_at: null,
+    row_state: 'regenerate',
+    canEdit: true,
+    review_content_hash: 'hash-abc',
+    version: 1,
+    failed_response_id: null,
+    failed_posting_error: null,
+    ...overrides,
   };
 }
 
+/** An orphan: repost failed, no live Google reply — groups under Unanswered. */
+function orphanRow(overrides: Partial<ListRow> = {}): ListRow {
+  return row({
+    review_id: 'orphan-review-1',
+    response_id: 'fail-resp-orphan-1',
+    approved_text: null,
+    posted_at: null,
+    version: null,
+    row_state: 'recover',
+    canEdit: true,
+    failed_response_id: 'fail-resp-orphan-1',
+    failed_posting_error: 'post_after_delete_failed_http_400',
+    ...overrides,
+  });
+}
+
 const baseProps = {
-  gapRows: [row()],
-  histRows: [],
-  gapTotal: 1,
-  histTotal: 0,
+  unansweredRows: [],
+  answeredRows: [row()],
+  unansweredTotal: 0,
+  answeredTotal: 1,
   avgStarRating: 5,
-  hasHistoricalSection: false,
+  regenBudgets: {},
   page: 1,
   totalPages: 1,
 };
 
 describe('PastRepliesClient', () => {
-  it('uses the current page denominator when an active-period filter is active', async () => {
+  it('uses the current page denominator when a rating filter is active', async () => {
     const user = userEvent.setup();
 
     render(
       <PastRepliesClient
-        gapRows={[
-          row({ review_id: 'gap-1', response_id: 'response-1', star_rating: 5 }),
-          row({ review_id: 'gap-2', response_id: 'response-2', star_rating: 5 }),
-          row({ review_id: 'gap-3', response_id: 'response-3', star_rating: 1 }),
+        {...baseProps}
+        answeredRows={[
+          row({ review_id: 'a-1', response_id: 'response-1', star_rating: 5 }),
+          row({ review_id: 'a-2', response_id: 'response-2', star_rating: 5 }),
+          row({ review_id: 'a-3', response_id: 'response-3', star_rating: 1 }),
         ]}
-        histRows={[]}
-        gapTotal={47}
-        histTotal={0}
+        answeredTotal={47}
         avgStarRating={4.4}
-        hasHistoricalSection={false}
-        page={1}
         totalPages={5}
       />,
     );
@@ -70,51 +96,67 @@ describe('PastRepliesClient', () => {
     expect(screen.queryByText('2 of 47')).not.toBeInTheDocument();
   });
 
-  it('shows first-run copy for a brand-new account with zero replies and no filter', () => {
+  it('shows first-run copy for a brand-new location with zero reviews and no filter', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[]}
-        histRows={[]}
-        gapTotal={0}
-        histTotal={0}
-        hasHistoricalSection={false}
+        unansweredRows={[]}
+        answeredRows={[]}
+        unansweredTotal={0}
+        answeredTotal={0}
       />,
     );
 
-    expect(screen.getByText('No replies yet')).toBeInTheDocument();
+    expect(screen.getAllByText('No reviews yet')).toHaveLength(2);
     expect(
-      screen.getByText('Approved replies will appear here as you respond to your reviews.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('No replies match this filter')).not.toBeInTheDocument();
+      screen.getAllByText('Your Google reviews will appear here as they come in.'),
+    ).toHaveLength(2);
+    expect(screen.queryByText(/match this filter/i)).not.toBeInTheDocument();
   });
 
   it('shows filter-empty copy (not first-run) when a filter matches nothing', async () => {
     const user = userEvent.setup();
+    render(<PastRepliesClient {...baseProps} answeredRows={[row({ star_rating: 5 })]} />);
+
+    // Filter to a rating with no matches → both sections empty out.
+    await user.click(screen.getByRole('button', { name: /^1/ }));
+
+    expect(screen.getByText('No replied reviews match this filter')).toBeInTheDocument();
+    expect(screen.getByText('No unanswered reviews match this filter')).toBeInTheDocument();
+    expect(screen.queryByText('No reviews yet')).not.toBeInTheDocument();
+  });
+
+  // ── Grouping ─────────────────────────────────────────────────────────────
+
+  it('renders unanswered rows above answered rows, each under its own heading', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[row({ star_rating: 5 })]}
-        gapTotal={1}
-        histTotal={0}
-        hasHistoricalSection={false}
+        unansweredRows={[
+          row({ review_id: 'u-1', row_state: 'generate', response_id: null, approved_text: null, posted_at: null }),
+        ]}
+        answeredRows={[row({ review_id: 'a-1' })]}
+        unansweredTotal={1}
+        answeredTotal={1}
       />,
     );
 
-    // Filter to a rating with no matches → gap section empties.
-    await user.click(screen.getByRole('button', { name: /^1/ }));
-
-    expect(screen.getByText('No replies match this filter')).toBeInTheDocument();
-    expect(screen.queryByText('No replies yet')).not.toBeInTheDocument();
+    const headings = screen
+      .getAllByText(/^unanswered$|^answered$/i)
+      // The stat-tile labels sit next to an inline icon, so trim the joined text.
+      .map((node) => node.textContent?.trim());
+    expect(headings).toEqual(['Unanswered', 'Answered', 'Unanswered', 'Answered']);
+    // The unanswered row offers Generate; the answered one never does.
+    expect(screen.getByRole('button', { name: /^generate$/i })).toBeInTheDocument();
   });
 
   // ── Flag-off: read-only (Phase A inertness) ─────────────────────────────
 
-  it('flag-off: no Edit CTA, no lock badge, no recovery button', () => {
+  it('flag-off: no Regenerate CTA, no lock badge, no recovery button', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[
+        answeredRows={[
           row({ canEdit: true }),
           row({ review_id: 'r2', response_id: 'rsp2', canEdit: false }),
           row({
@@ -124,42 +166,42 @@ describe('PastRepliesClient', () => {
             failed_posting_error: 'delete_failed_auth',
           }),
         ]}
-        gapTotal={3}
+        answeredTotal={3}
         editRepliesEnabled={false}
       />,
     );
 
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
   });
 
-  // ── Flag-on: Edit CTA for canEdit rows ──────────────────────────────────
+  // ── Flag-on: Regenerate CTA for canEdit rows ────────────────────────────
 
-  it('flag-on: Edit CTA is present for a canEdit=true row', () => {
+  it('flag-on: Regenerate CTA is present for a canEdit=true row', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[row({ canEdit: true })]}
+        answeredRows={[row({ canEdit: true })]}
         editRepliesEnabled={true}
       />,
     );
 
-    expect(screen.getByRole('button', { name: /edit reply/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
   });
 
-  it('flag-on: clicking Edit CTA opens the drawer', async () => {
+  it('flag-on: clicking Regenerate opens the drawer', async () => {
     const user = userEvent.setup();
 
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[row({ canEdit: true })]}
+        answeredRows={[row({ canEdit: true })]}
         editRepliesEnabled={true}
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /edit reply/i }));
+    await user.click(screen.getByRole('button', { name: /regenerate/i }));
 
     // Drawer opens — confirm by the presence of the manual-edit CTA inside the drawer.
     expect(screen.getByRole('button', { name: /edit manually/i })).toBeInTheDocument();
@@ -171,12 +213,12 @@ describe('PastRepliesClient', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[row({ canEdit: true })]}
+        answeredRows={[row({ canEdit: true })]}
         editRepliesEnabled={true}
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /edit reply/i }));
+    await user.click(screen.getByRole('button', { name: /^regenerate this reply$/i }));
 
     expect(
       screen.getByText('Draft generated by AI. Review carefully before approving.'),
@@ -190,13 +232,13 @@ describe('PastRepliesClient', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[row({ canEdit: false })]}
+        answeredRows={[row({ canEdit: false })]}
         editRepliesEnabled={true}
       />,
     );
 
     expect(screen.getByText(/editing unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
   });
 
   // ── Flag-on: recovery affordance ────────────────────────────────────────
@@ -205,7 +247,7 @@ describe('PastRepliesClient', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[
+        answeredRows={[
           row({
             failed_response_id: 'fail-abc',
             failed_posting_error: 'delete_failed_timeout',
@@ -226,7 +268,7 @@ describe('PastRepliesClient', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[
+        answeredRows={[
           row({
             failed_response_id: 'fail-abc',
             failed_posting_error: 'delete_failed_timeout',
@@ -243,202 +285,60 @@ describe('PastRepliesClient', () => {
     expect(screen.getByRole('button', { name: /retry posting/i })).toBeInTheDocument();
   });
 
-  // ── Orphan-only rows (spec §5: no posted sibling) ───────────────────────
+  // ── Orphan rows (D-G) ────────────────────────────────────────────────────
   //
-  // page.tsx emits orphan rows via orphanCardRow: response_id = failed_response_id,
-  // posted_at = null, approved_text = superseded text or null, canEdit = true.
-  // They are merged into gapRows / histRows before being passed to this client.
-  // The client must render them as recovery cards, NOT drop them, and NOT show
-  // an edit lock (canEdit=true + recovery branch wins).
+  // An orphan has no live Google reply, so it groups under `Unanswered` — but
+  // it does have a superseded draft, so it renders the recovery card and is
+  // never offered Generate (that would race /retry and /restore-original).
 
-  it('orphan-only gap row: recovery button visible, no edit lock, not dropped', () => {
-    // Simulates an orphan row merged into gapRows by page.tsx.
-    const orphanRow = row({
-      review_id: 'orphan-review-1',
-      response_id: 'fail-resp-orphan-1',  // = failed_response_id
-      approved_text: null,                  // no superseded text
-      posted_at: null,
-      external_reply_ingested_at: null,
-      version: null,
-      canEdit: true,                        // always true for orphans
-      failed_response_id: 'fail-resp-orphan-1',
-      failed_posting_error: 'post_after_delete_failed_http_400',
-    });
-
+  it('orphan row: sits in Unanswered with recovery, no edit lock, and no Generate', () => {
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[orphanRow]}
-        gapTotal={1}
+        unansweredRows={[orphanRow()]}
+        answeredRows={[]}
+        unansweredTotal={1}
+        answeredTotal={0}
         editRepliesEnabled={true}
       />,
     );
 
-    // Recovery affordance must be visible.
-    expect(
-      screen.getByRole('button', { name: /needs attention/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /needs attention/i })).toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
-    // Edit CTA must NOT appear alongside the recovery button.
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^generate$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/pending recovery/i)).toBeInTheDocument();
   });
 
-  it('orphan-only: clicking recovery button opens drawer in recovery state', async () => {
+  it('orphan row: clicking recovery button opens drawer in recovery state', async () => {
     const user = userEvent.setup();
-
-    const orphanRow = row({
-      review_id: 'orphan-review-2',
-      response_id: 'fail-resp-orphan-2',
-      approved_text: 'Original approved text',
-      posted_at: null,
-      external_reply_ingested_at: null,
-      version: null,
-      canEdit: true,
-      failed_response_id: 'fail-resp-orphan-2',
-      failed_posting_error: 'post_after_delete_failed_timeout',
-    });
 
     render(
       <PastRepliesClient
         {...baseProps}
-        gapRows={[orphanRow]}
-        gapTotal={1}
+        unansweredRows={[
+          orphanRow({
+            review_id: 'orphan-review-2',
+            response_id: 'fail-resp-orphan-2',
+            approved_text: 'Original approved text',
+            failed_response_id: 'fail-resp-orphan-2',
+            failed_posting_error: 'post_after_delete_failed_timeout',
+          }),
+        ]}
+        answeredRows={[]}
+        unansweredTotal={1}
+        answeredTotal={0}
         editRepliesEnabled={true}
       />,
     );
 
     await user.click(screen.getByRole('button', { name: /needs attention/i }));
 
-    // Drawer opens in recovery state.
     expect(screen.getByRole('button', { name: /retry posting/i })).toBeInTheDocument();
-  });
-
-  // ── Fix 1 regression guard: historical section renders for orphan-only rows ──
-  //
-  // Before this fix: hasHistoricalSection={histTotal > 0} gated the section on
-  // posted count only. An owner editing a historical reply that orphans
-  // (DELETE OK + POST fail) produces an orphan histRow but histTotal stays 0 →
-  // the section was hidden and the recovery card silently vanished.
-  // After fix: hasHistoricalSection = histTotal > 0 || orphanHistRows.length > 0.
-
-  it('historical section renders when only orphan hist rows exist (histTotal=0)', () => {
-    // Simulates the scenario where an owner's edit orphaned a historical
-    // reply: histTotal=0 (no posted hist rows), but a hist orphan is merged in.
-    const orphanHistRow = row({
-      review_id: 'hist-orphan-review-1',
-      response_id: 'hist-fail-resp-1',
-      approved_text: null,
-      posted_at: null,
-      external_reply_ingested_at: null,
-      version: null,
-      canEdit: true,
-      failed_response_id: 'hist-fail-resp-1',
-      failed_posting_error: 'post_after_delete_failed_http_400',
-    });
-
-    render(
-      <PastRepliesClient
-        gapRows={[]}
-        histRows={[orphanHistRow]}
-        gapTotal={0}
-        histTotal={0}          // posted-only count: 0
-        avgStarRating={null}
-        hasHistoricalSection={true}  // page.tsx now passes true when orphanHistRows.length > 0
-        page={1}
-        totalPages={1}
-        editRepliesEnabled={true}
-      />,
-    );
-
-    // Section heading must be visible.
-    expect(screen.getByText(/from before you joined/i)).toBeInTheDocument();
-    // Recovery affordance must be visible inside that section.
-    expect(
-      screen.getByRole('button', { name: /needs attention/i }),
-    ).toBeInTheDocument();
-  });
-
-  // ── Fix 2: section header count includes orphan rows (no "N of M" with N > M) ──
-
-  it('gap section header count includes orphan rows when hasGapOrphans=true', () => {
-    // 2 posted gap rows (gapTotal=2) + 1 orphan gap row merged in (gapRows.length=3).
-    // Without fix: header shows "3 of 2". After fix: "3 of 3".
-    const orphanGapRow = row({
-      review_id: 'gap-orphan-review-1',
-      response_id: 'gap-fail-resp-1',
-      approved_text: null,
-      posted_at: null,
-      external_reply_ingested_at: null,
-      version: null,
-      canEdit: true,
-      failed_response_id: 'gap-fail-resp-1',
-      failed_posting_error: 'post_after_delete_failed_timeout',
-    });
-
-    render(
-      <PastRepliesClient
-        gapRows={[
-          row({ review_id: 'gap-posted-1', response_id: 'rsp-1' }),
-          row({ review_id: 'gap-posted-2', response_id: 'rsp-2' }),
-          orphanGapRow,
-        ]}
-        histRows={[]}
-        gapTotal={2}           // posted-only count
-        histTotal={0}
-        avgStarRating={4}
-        hasHistoricalSection={false}
-        hasGapOrphans={true}   // signals that gapRows includes orphan rows
-        page={1}
-        totalPages={1}
-        editRepliesEnabled={true}
-      />,
-    );
-
-    // Header must show "3 of 3", not "3 of 2".
-    expect(screen.getByText('3 of 3')).toBeInTheDocument();
-    expect(screen.queryByText('3 of 2')).not.toBeInTheDocument();
-  });
-
-  it('hist section header count includes orphan rows when histTotal is partial', () => {
-    // 1 posted hist row (histTotal=1) + 1 orphan hist row merged in (histRows.length=2).
-    // Without fix: header shows "2 of 1". After fix: "2 of 2".
-    const orphanHistRow = row({
-      review_id: 'hist-orphan-review-2',
-      response_id: 'hist-fail-resp-2',
-      approved_text: null,
-      posted_at: null,
-      external_reply_ingested_at: null,
-      version: null,
-      canEdit: true,
-      failed_response_id: 'hist-fail-resp-2',
-      failed_posting_error: 'post_after_delete_failed_http_400',
-    });
-
-    render(
-      <PastRepliesClient
-        gapRows={[]}
-        histRows={[
-          row({ review_id: 'hist-posted-1', response_id: 'rsp-hist-1' }),
-          orphanHistRow,
-        ]}
-        gapTotal={0}
-        histTotal={1}          // posted-only count
-        avgStarRating={null}
-        hasHistoricalSection={true}
-        page={1}
-        totalPages={1}
-        editRepliesEnabled={true}
-      />,
-    );
-
-    // Header must show "2 of 2", not "2 of 1".
-    expect(screen.getByText('2 of 2')).toBeInTheDocument();
-    expect(screen.queryByText('2 of 1')).not.toBeInTheDocument();
   });
 
   // ── Regenerate preview: accept-as-is vs edit-further publish paths ────────
   //
-  // The regenerate flow: Regenerate with AI → POST /draft (returns outbox_id)
+  // The regenerate flow: Regenerate → POST /draft (returns outbox_id)
   // → poll /draft-status (returns response_id) → preview. From preview:
   //   - "Update on Google" (accept-as-is) → /publish ONLY, no PATCH
   //     (worker draft keeps edited_text NULL → 'regenerate_as_is').
@@ -487,7 +387,7 @@ describe('PastRepliesClient', () => {
     }
 
     async function openPreview(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByRole('button', { name: /edit reply/i }));
+      await user.click(screen.getByRole('button', { name: /^regenerate this reply$/i }));
       await user.click(screen.getByRole('button', { name: /regenerate with ai/i }));
       // Poll fires on a 1500ms timer; advance to the preview state.
       await waitFor(
@@ -500,7 +400,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       const { calls } = installFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await openPreview(user);
@@ -518,7 +418,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await openPreview(user);
@@ -532,7 +432,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       const { calls } = installFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await openPreview(user);
@@ -596,7 +496,7 @@ describe('PastRepliesClient', () => {
     }
 
     async function triggerConflict(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByRole('button', { name: /edit reply/i }));
+      await user.click(screen.getByRole('button', { name: /^regenerate this reply$/i }));
       await user.click(screen.getByRole('button', { name: /edit manually/i }));
       // Submit the manual editor → POST /draft → 409 conflict.
       await user.click(screen.getByRole('button', { name: /update on google/i }));
@@ -611,7 +511,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installConflictFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);
@@ -625,7 +525,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       const { calls } = installConflictFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);
@@ -642,7 +542,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installConflictFetchMock();
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);
@@ -664,7 +564,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'approved' });
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);
@@ -678,7 +578,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'edited' });
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);
@@ -692,7 +592,7 @@ describe('PastRepliesClient', () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'awaiting_owner_connect' });
       render(
-        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+        <PastRepliesClient {...baseProps} answeredRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
       await triggerConflict(user);

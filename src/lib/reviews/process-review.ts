@@ -13,7 +13,7 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
-import { replyEditingFlagEnabled } from '@/lib/past-replies/flags';
+import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
 import {
   STALE_AFTER_REVIEW_CHANGED,
@@ -289,9 +289,10 @@ async function processExistingReview(
   // (no recoverable orphan exists — no-op).
   //
   // Gated behind EDIT_REPLIES_ENABLED so Phase A is fully inert when the flag
-  // is off — no new behavior until the flag is on. The worker keys on the raw
-  // edit flag alone (the view flag is a UI concern); see past-replies/flags.ts.
-  if (replyEditingFlagEnabled()) {
+  // is off — no new behavior until the flag is on. Since #678 retired
+  // PAST_REPLIES_VIEW_ENABLED, that one flag is the whole predicate; see
+  // past-replies/flags.ts.
+  if (editRepliesEnabled()) {
     await tx`
       UPDATE responses
       SET posting_error = ${STALE_AFTER_REVIEW_CHANGED}, updated_at = NOW()

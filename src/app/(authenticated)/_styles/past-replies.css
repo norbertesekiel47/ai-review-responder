@@ -386,3 +386,171 @@
   transition: all 140ms var(--rw-ease);
 }
 .pr-recovery-btn:hover { background: rgba(242, 195, 185, 0.30); border-color: #F2C3B9; }
+
+/* ── Reviews list row states (#678) ──────────────────────────────────────── */
+/* One block per state the card switches on: generate / generating / draft_ready
+   / held, plus the Regenerate counter. Warm Editorial Console tokens only — the
+   sage accent ramp is the actionable colour here, blush stays reserved for the
+   recovery/attention state above. */
+
+/* Shared one-line affordance row (Generate button, status, cross-link). */
+.pr-gen-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+/* `generate` — the primary in-row action. Filled sage: it is the only CTA on an
+   unanswered row, so it carries more weight than the outline Regenerate pill. */
+.pr-generate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 13px;
+  border-radius: 9999px;
+  border: 1px solid var(--rw-accent-600);
+  background: var(--rw-accent-600);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 650;
+  font-family: var(--rw-font-body);
+  cursor: pointer;
+  transition: background 140ms var(--rw-ease), transform 140ms var(--rw-ease);
+}
+.pr-generate-btn:hover { background: var(--rw-accent-700); transform: translateY(-1px); }
+.pr-generate-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* `generating` / `publishing` — a quiet in-progress line, never a button. */
+.pr-gen-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rw-app-text-muted);
+  font-family: var(--rw-font-body);
+}
+.pr-gen-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rw-accent-500);
+  animation: prGenPulse 1.4s ease-in-out infinite;
+}
+@keyframes prGenPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.82); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pr-gen-dot { animation: none; opacity: 0.8; }
+  .pr-generate-btn:hover { transform: none; }
+}
+
+/* The in-row expansion (S7) — a recessed panel, not the two-pane drawer. */
+.pr-gen-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-app-border-soft);
+}
+.pr-gen-draft {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--rw-app-text);
+  white-space: pre-wrap;
+}
+.pr-gen-disclosure {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--rw-app-text-soft);
+}
+.pr-gen-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pr-gen-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 13px;
+  border-radius: 9999px;
+  border: 1px solid var(--rw-accent-600);
+  background: var(--rw-accent-600);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 650;
+  font-family: var(--rw-font-body);
+  cursor: pointer;
+  transition: background 140ms var(--rw-ease);
+}
+.pr-gen-primary:hover:not(:disabled) { background: var(--rw-accent-700); }
+.pr-gen-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.pr-gen-textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--rw-app-border);
+  background: var(--rw-white);
+  color: var(--rw-app-text);
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: var(--rw-font-body);
+}
+.pr-gen-textarea:focus {
+  outline: none;
+  border-color: var(--rw-accent-500);
+  box-shadow: 0 0 0 3px var(--rw-accent-50);
+}
+.pr-gen-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rw-accent-800);
+  font-family: var(--rw-font-body);
+}
+.pr-gen-error {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--rw-danger);
+}
+
+/* `draft_ready` — a cross-link into Needs Action, never a second spend (S2). */
+.pr-draft-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
+  font-size: 11px;
+  font-weight: 650;
+  font-family: var(--rw-font-body);
+  text-decoration: none;
+  transition: background 140ms var(--rw-ease);
+}
+.pr-draft-link:hover { background: var(--rw-accent-50); }
+
+/* `held` — muted, non-actionable (invariant #4). Deliberately the same yellow
+   as the pending_approval badge: it is a wait state, not a failure. */
+.pr-prov-held { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
+
+/* Regenerate counter — absent entirely when the budget is UNKNOWN (F6). */
+.pr-regen-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--rw-app-text-soft);
+  font-family: var(--rw-font-body);
+}
+.pr-edit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pr-edit-btn:disabled:hover { background: #fff; border-color: rgba(151, 179, 174, 0.4); }

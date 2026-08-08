@@ -390,11 +390,18 @@ method now normalizes `reviewReply` to either `null` or an object (never
 `ZernioReview` outside `listReviews`, the omitted-field case still doesn't
 misroute as "answered" and crash on `.comment`.
 
-**The published-reply text** is shown in the dashboard's "Past Replies"
-tab via the read-only `PastReplyCard` component (gated by the SEPARATE
-`PAST_REPLIES_VIEW_ENABLED` flag). The dual-flag rollout decouples the
-write decision from the UI-expose decision — operators can ingest silently
-first, soak, then turn on the UI.
+**The published-reply text** is shown on the **Reviews list**
+(`dashboard/reviews/history`) via the `PastReplyCard` component. That surface
+is **no longer flag-gated**: `PAST_REPLIES_VIEW_ENABLED` was retired at #678
+(spec `docs/superpowers/specs/2026-08-05-consented-review-import-design.md`
+§6.3a S4) because the Reviews list is the consented **Review import**'s only
+destination — keeping the gate would have let `import_decision='accepted'`
+coexist with the imported reviews landing on a `notFound()`. Consequence for
+rollout: `EXTERNAL_REPLY_IMPORT_ENABLED` alone now decides both the write and
+the exposure, so there is no silent-soak window — flipping it on shifts the
+dashboard "total responded" count and surfaces the imported replies in the
+same step. `EDIT_REPLIES_ENABLED` still separately gates every mutation
+(Regenerate → republish), which is the risk that actually warranted a flag.
 
 ## Onboarding-demo lane (PR #2, 2026-05-04)
 

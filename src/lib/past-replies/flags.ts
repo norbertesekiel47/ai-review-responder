@@ -1,28 +1,22 @@
 /**
- * Single authoritative owner for the Past Replies / reply-editing feature flags.
+ * Single authoritative owner for the reply-editing feature flag.
  * Mirrors the `<feature>/flags.ts` convention (see `auto-approval/flags.ts`).
  *
- * Three distinct facts — do not conflate them:
- *   - pastRepliesViewEnabled():   the read-only archive view is on.
- *   - replyEditingFlagEnabled():  the RAW `EDIT_REPLIES_ENABLED` flag. The worker
- *     stale-marking path gates on this alone — the view flag is a UI concern
- *     there. Owners flip both together in rollout, so EDIT ⇒ VIEW in practice.
- *   - editRepliesEnabled():       editing posted replies is FULLY enabled — the
- *     user-facing routes require BOTH flags (view + edit).
+ * `PAST_REPLIES_VIEW_ENABLED` was retired at #678 (spec §6.3a S4): once the
+ * **Reviews list** is the consented **Review import**'s only destination, the
+ * flag would let `import_decision='accepted'` coexist with the imported reviews
+ * landing on a `notFound()`. `EDIT_REPLIES_ENABLED` is **KEPT** — it gates the
+ * live-Google mutation, a different and larger risk.
+ *
+ * With the view flag gone, the old composite (`view && edit`) and the old raw
+ * read are the same predicate, so exactly ONE function survives: a second
+ * accessor is how the six call sites would silently drift apart again.
  *
  * Server-authoritative (invariant #13): never expose via a `NEXT_PUBLIC_*`
  * companion; the browser learns the state through API responses / props.
  */
 import { readFlag } from '@/lib/config/flags';
 
-export function pastRepliesViewEnabled(): boolean {
-  return readFlag('PAST_REPLIES_VIEW_ENABLED');
-}
-
-export function replyEditingFlagEnabled(): boolean {
-  return readFlag('EDIT_REPLIES_ENABLED');
-}
-
 export function editRepliesEnabled(): boolean {
-  return pastRepliesViewEnabled() && replyEditingFlagEnabled();
+  return readFlag('EDIT_REPLIES_ENABLED');
 }

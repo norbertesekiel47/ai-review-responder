@@ -293,6 +293,24 @@ asymmetrically should use a dual flag. Cost: one extra env-var line in
 the runbook. Benefit: independent revocation + soak windows decoupled
 from UI launch timing.
 
+- [2026-08-08] **The UI half of this pair is RETIRED — do not resurrect it for
+  this feature.** #678 deleted `PAST_REPLIES_VIEW_ENABLED` (spec
+  `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.3a
+  S4). WHAT WOULD HAVE FAILED → once the **Reviews list** became the consented
+  **Review import**'s only destination, a `false` view flag would have let
+  `import_decision='accepted'` coexist with the imported reviews landing on a
+  `notFound()` — the owner consents to an import they can then never see. WHY →
+  a *destination* surface cannot be independently revocable from the write that
+  targets it; the two flags stopped being orthogonal the moment consent pointed
+  at the page. CORRECT APPROACH → the Reviews list renders unconditionally and
+  `EXTERNAL_REPLY_IMPORT_ENABLED` alone governs the import (no silent-soak
+  window any more — turning it on shifts "total responded" and surfaces the rows
+  in one step). The surviving flag, `EDIT_REPLIES_ENABLED`, gates the
+  live-Google *mutation*, which is a genuinely separable and larger risk;
+  `editRepliesEnabled()` in `src/lib/past-replies/flags.ts` is its only reader.
+  The dual-flag pattern above still holds for write-vs-expose pairs that stay
+  orthogonal — it does not hold when one flag can 404 the other's output.
+
 ### `cherry-pick eb4d183 c2360cd 891e975` worked clean; `ca53663` and `9e0ca93` had to be redone manually
 When cherry-picking a fix-pass branch onto a stripped-down replacement
 branch, fix commits that touched code added in earlier-dropped commits

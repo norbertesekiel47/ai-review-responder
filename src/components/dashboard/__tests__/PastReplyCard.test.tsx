@@ -18,6 +18,9 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     approval_method: null,
     posted_at: '2026-04-02T10:00:00Z',
     external_reply_ingested_at: null,
+    // #678: the card renders a SERVER-derived row state. The default fixture is
+    // an answered row; the orphan fixtures below override it to 'recover'.
+    row_state: 'regenerate',
     review_content_hash: 'hash-abc',
     version: 1,
     canEdit: true,
@@ -30,7 +33,7 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
 describe('PastReplyCard', () => {
   // ── Flag-off read-only ────────────────────────────────────────────────────
 
-  it('renders without Edit CTA, lock badge, or recovery button when editRepliesEnabled is false', () => {
+  it('renders without Regenerate CTA, lock badge, or recovery button when editRepliesEnabled is false', () => {
     render(
       <PastReplyCard
         row={makeRow()}
@@ -39,15 +42,15 @@ describe('PastReplyCard', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
   });
 
-  it('renders without Edit CTA when editRepliesEnabled is omitted (default off)', () => {
+  it('renders without Regenerate CTA when editRepliesEnabled is omitted (default off)', () => {
     render(<PastReplyCard row={makeRow()} isImported={false} />);
 
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
   });
 
   it('shows auto-approved provenance from approval_method', () => {
@@ -61,9 +64,9 @@ describe('PastReplyCard', () => {
     expect(screen.getByText('Auto-approved')).toBeInTheDocument();
   });
 
-  // ── canEdit=true → Edit CTA ───────────────────────────────────────────────
+  // ── canEdit=true → Regenerate CTA ───────────────────────────────────────────────
 
-  it('shows Edit CTA when canEdit=true and editRepliesEnabled=true', () => {
+  it('shows Regenerate CTA when canEdit=true and editRepliesEnabled=true', () => {
     render(
       <PastReplyCard
         row={makeRow({ canEdit: true })}
@@ -72,11 +75,11 @@ describe('PastReplyCard', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: /edit reply/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
   });
 
-  it('calls onEditClick with the row when Edit CTA is clicked', async () => {
+  it('calls onEditClick with the row when Regenerate CTA is clicked', async () => {
     const user = userEvent.setup();
     const onEditClick = vi.fn();
     const row = makeRow({ canEdit: true });
@@ -90,7 +93,7 @@ describe('PastReplyCard', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /edit reply/i }));
+    await user.click(screen.getByRole('button', { name: /regenerate/i }));
 
     expect(onEditClick).toHaveBeenCalledOnce();
     expect(onEditClick).toHaveBeenCalledWith(row);
@@ -98,7 +101,7 @@ describe('PastReplyCard', () => {
 
   // ── canEdit=false → lock badge ────────────────────────────────────────────
 
-  it('shows lock badge (not Edit CTA) when canEdit=false and editRepliesEnabled=true', () => {
+  it('shows lock badge (not Regenerate CTA) when canEdit=false and editRepliesEnabled=true', () => {
     render(
       <PastReplyCard
         row={makeRow({ canEdit: false })}
@@ -108,7 +111,7 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.getByText(/editing unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
   });
 
   // ── Recovery branch ───────────────────────────────────────────────────────
@@ -128,11 +131,11 @@ describe('PastReplyCard', () => {
     expect(
       screen.getByRole('button', { name: /needs attention/i }),
     ).toBeInTheDocument();
-    // Edit CTA should NOT be shown alongside the recovery button.
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    // Regenerate CTA should NOT be shown alongside the recovery button.
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
   });
 
-  it('recovery button takes precedence over canEdit Edit CTA', () => {
+  it('recovery button takes precedence over canEdit Regenerate CTA', () => {
     // A row can be both canEdit=true AND have a failed sibling — recovery wins.
     render(
       <PastReplyCard
@@ -149,7 +152,7 @@ describe('PastReplyCard', () => {
     expect(
       screen.getByRole('button', { name: /needs attention/i }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
   });
 
   it('calls onRecoveryClick with the row when recovery button is clicked', async () => {
@@ -185,8 +188,8 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
-    // Should show Edit CTA instead.
-    expect(screen.getByRole('button', { name: /edit reply/i })).toBeInTheDocument();
+    // Should show Regenerate CTA instead.
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
   });
 
   // ── Orphan-only recovery card (spec §5: no posted sibling) ───────────────
@@ -207,6 +210,7 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-999',
       approved_text: null,       // no superseded sibling text
       posted_at: null,           // no posted reply
+      row_state: 'recover',
       external_reply_ingested_at: null,
       version: null,
       canEdit: true,             // orphanCardRow always sets this
@@ -226,8 +230,8 @@ describe('PastReplyCard', () => {
     expect(
       screen.getByRole('button', { name: /needs attention/i }),
     ).toBeInTheDocument();
-    // Edit CTA must NOT appear alongside the recovery button.
-    expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+    // Regenerate CTA must NOT appear alongside the recovery button.
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
   });
 
@@ -236,6 +240,7 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-000',
       approved_text: null,
       posted_at: null,
+      row_state: 'recover',
       canEdit: true,
       failed_response_id: 'fail-resp-000',
       failed_posting_error: 'post_after_delete_failed_timeout',
@@ -259,6 +264,7 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-111',
       posted_at: null,
+      row_state: 'recover',
       approved_text: 'Original reply text',
       canEdit: true,
       failed_response_id: 'fail-resp-111',
@@ -287,6 +293,7 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-1',
       posted_at: null,
+      row_state: 'recover',
       external_reply_ingested_at: null,
       canEdit: true,
       failed_response_id: 'fail-resp-badge-1',
@@ -313,6 +320,7 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-2',
       posted_at: null,
+      row_state: 'recover',
       // external_reply_ingested_at being set is unusual for an orphan, but we
       // guard the badge by posted_at===null + failed_response_id, not isImported.
       external_reply_ingested_at: '2026-03-01T00:00:00Z',

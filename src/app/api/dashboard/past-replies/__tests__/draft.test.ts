@@ -164,7 +164,6 @@ function seedTxRows(...rowsets: unknown[][]) {
 beforeEach(() => {
   vi.clearAllMocks();
   txQueue.length = 0;
-  process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   // Default: getRequestScope resolves to the primary location.
@@ -178,7 +177,6 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.EDIT_REPLIES_ENABLED;
-  delete process.env.PAST_REPLIES_VIEW_ENABLED;
 });
 
 async function importPOST() {
@@ -191,16 +189,6 @@ async function importPOST() {
 describe('POST /api/dashboard/past-replies/draft', () => {
   it('returns 503 feature_disabled when EDIT_REPLIES_ENABLED is off', async () => {
     process.env.EDIT_REPLIES_ENABLED = 'false';
-    const POST = await importPOST();
-    const res = await POST(makeRequest({ body: validBody() }));
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe('feature_disabled');
-  });
-
-  it('returns 503 feature_disabled when EDIT is on but PAST_REPLIES_VIEW is off', async () => {
-    process.env.EDIT_REPLIES_ENABLED = 'true';
-    process.env.PAST_REPLIES_VIEW_ENABLED = 'false';
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
     expect(res.status).toBe(503);
