@@ -395,3 +395,22 @@ unchanged since setup.
 4. PR to `main`, all CI green, **pause for owner merge approval**.
 5. Apply migration 102 to **prod** Supabase in lockstep at promotion, before the
    emitting code goes live.
+
+### Why the ordering survives the savepoint (round-2 correction)
+
+Both analytics emissions are wrapped in a postgres.js SAVEPOINT
+(`emitConsentEvent`, `src/lib/reviews/import-consent.ts`, commit `bfac89d4`), so
+an unapplied 102 rolls back only the failed insert. **The cost is a lost metric
+plus a `warn` line — not a lost owner decision, and not a failed connect.**
+
+Round 1 found the pre-savepoint radius was materially worse than the plan had
+described: `createImportOffer` rides `finalizeConnectionTx`, and
+`select-location/route.ts` rethrows anything that is not `23505`, so an
+unapplied 102 broke **Google Business Profile connect entirely**. The spec and
+adversarial axes converged on it independently.
+
+**Step ordering above is unchanged and still load-bearing.** The savepoint
+contains the blast radius; it does not make the ordering optional. A deploy that
+leads the migration silently drops every `import_offer_created` and
+`import_decision_recorded` until 102 lands, and the only signal is a stdout
+`warn` with no durable or paged sink — tracked as **#697**.

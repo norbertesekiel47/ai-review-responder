@@ -458,9 +458,21 @@ function logRejection(
  * `warn`, not `log`: unlike `logRejection`'s expiries and declines this is never
  * an ordinary outcome. It means the emitting code reached a database whose
  * `analytics_events_event_name_check` does not admit the name (migration 102 not
- * applied), or something genuinely broken — either way a human should look. Only
- * the business id, the event name and the error text are logged: no review text,
- * no tokens, no handles, and not the properties.
+ * applied) — a human should look. Only the business id, the event name and the
+ * error text are logged: no review text, no tokens, no handles, and not the
+ * properties.
+ *
+ * ONLY a Postgres error is swallowed. Round 2 found the catch unbounded, and it
+ * was already hiding a real one: `import-offer-junction.test.ts`'s `mockTx` has
+ * no `savepoint`, so five of its six tests threw `TypeError: tx.savepoint is not
+ * a function`, emitted nothing, and stayed green. A handle without `.savepoint`
+ * (root `sql`, `sql.reserve()`, a `Sql`-shaped mock) is a wiring bug, not schema
+ * drift, and swallowing it kills both events forever behind a warn that reads
+ * like a missing migration. Postgres errors carry a string `code`; a `TypeError`
+ * does not — that is the whole discriminator, matching the inline `code` checks
+ * used at `src/lib/locations/duplicate-location.ts:24` and
+ * `src/lib/onboarding/create-business.ts:62` rather than inventing a predicate.
+ * This is CLAUDE.md's "assert impossible states, don't branch around them".
  */
 async function emitConsentEvent(
   tx: TransactionSql,
@@ -469,6 +481,7 @@ async function emitConsentEvent(
   try {
     await tx.savepoint((sp) => enqueueAnalyticsEvent(sp, input));
   } catch (error) {
+    if (typeof (error as { code?: unknown }).code !== 'string') throw error;
     createWorkerLogger(LOG_PREFIX).warn('Import consent analytics emission failed', {
       business_id: input.businessId ?? null,
       event_name: input.eventName,

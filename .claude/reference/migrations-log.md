@@ -999,13 +999,20 @@ Revisit triggers:
   re-ADD under `SET lock_timeout = '5s'` as 046 → 058 → 069 → 089 → 094 → 097;
   the new list is a strict superset of 097's **in the same order**, so existing
   rows always pass. Registering the names only in `ANALYTICS_EVENT_NAMES` would
-  not have been enough (089's lesson): without the CHECK entry every emitting
-  transaction rolls back, and for `import_decision_recorded` that transaction
-  carries the owner's **Import consent** decision — the answer would be lost,
-  not just the metric — while `ci:analytics-events` cannot catch it (it
-  compares the TS allowlist against `docs/analytics/events.md`, never the
-  database). **Deploy ordering is load-bearing:** apply to staging, then to
-  production at promotion, in both cases BEFORE the emitting code goes live.
+  not have been enough (089's lesson): without the CHECK entry the emission
+  raises `23514`, while `ci:analytics-events` cannot catch it (it compares the
+  TS allowlist against `docs/analytics/events.md`, never the database).
+  **What an unapplied 102 costs — corrected at #679 review round 2:** both
+  emissions are wrapped in a postgres.js SAVEPOINT (`emitConsentEvent`), so a
+  rejected insert rolls back only itself and the enclosing transaction stays
+  usable — the cost is a lost metric plus a `warn`, NOT a lost owner decision.
+  Pre-savepoint it was much worse than either: `createImportOffer` is called by
+  `finalizeConnectionTx` and `select-location/route.ts` rethrows non-`23505`, so
+  an unapplied 102 broke **GBP connect entirely**. **Deploy ordering is still
+  load-bearing:** apply to staging, then to production at promotion, in both
+  cases BEFORE the emitting code goes live. The savepoint contains the blast
+  radius; it does not make the ordering optional, and the only drift signal is a
+  stdout `warn` with no durable or paged sink (**#697**).
   Shape suite:
   `src/lib/shared/__tests__/migration-102-import-consent-analytics-events.integration.test.ts`
   — five text assertions plus one LIVE assertion (a bogus `event_name` inside a

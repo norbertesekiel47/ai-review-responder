@@ -17,13 +17,18 @@
 // they need the `analytics_events.event_name` CHECK extended, which needed a
 // migration that ticket's non-goals forbade.
 //
-// WHY ITS OWN FILE (review round 1, Medium). These eight titles are a distinct
-// feature slice appended to `import-consent.integration.test.ts`, which they
-// pushed from 790 to 1039 lines. The branch had already set the precedent by
+// WHY ITS OWN FILE (review round 1, Medium). The first eight titles are a
+// distinct feature slice appended to `import-consent.integration.test.ts`, which
+// they pushed from 790 to 1039 lines. The branch had already set the precedent by
 // opening a separate file for the migration-102 shape slice. Splitting also
-// shrinks the blast radius of the abort injection below, which is the one test
-// in the feature area that deliberately makes a transaction fail. Every title
+// shrinks the blast radius of the two failure injections below, the only tests in
+// the feature area that deliberately make a statement fail. Every moved title
 // moved VERBATIM — the `promised-tests` gate greps them wherever they live.
+//
+// The last two titles are NEW (review round 2). They pin the `emitConsentEvent`
+// savepoint's own property — a FAILING emission rolls back only itself — which
+// the moved eight did not cover: deleting the savepoint outright left all of them
+// green, so a revert of the connect-outage fix was invisible to CI.
 //
 // WHY LIVE POSTGRES: every property that matters here is a transaction
 // boundary or an `ON CONFLICT`. Both events are emitted from INSIDE the writing
@@ -122,11 +127,12 @@ async function atJunction(): Promise<void> {
 
 async function readRaw() {
   const [row] = await sql()<{
+    name: string;
     import_decision: string;
     import_decision_at: Date | null;
     import_offer_expires_at: Date | null;
   }[]>`
-    SELECT import_decision, import_decision_at, import_offer_expires_at
+    SELECT name, import_decision, import_decision_at, import_offer_expires_at
     FROM businesses WHERE id = ${businessId}::uuid
   `;
   return row!;
@@ -252,6 +258,117 @@ function abortingExecutor(base: postgresType.Sql): postgresType.Sql {
           return result;
         });
       };
+    },
+  });
+}
+
+// ── The failed-emission injection ───────────────────────────────────────────
+
+/** `analytics_events_event_name_check`, the constraint migration 102 rewrites. */
+const CHECK_VIOLATION = '23514';
+const EVENT_NAME_CONSTRAINT = 'analytics_events_event_name_check';
+
+/**
+ * An event name the live CHECK does NOT admit.
+ *
+ * This is the FAITHFUL injection for `emitConsentEvent`: the production hazard is
+ * emitting code that reached a database whose `analytics_events_event_name_check`
+ * does not admit the name because migration 102 has not landed, which raises
+ * `23514` at statement time inside the caller's transaction. Same table, same
+ * constraint, same SQLSTATE — reproduced by offering the constraint a name it
+ * rejects rather than by narrowing the constraint, because narrowing it is DDL on
+ * the most contended analytics relation in the live-DB set (the round-1 High this
+ * suite already paid for; see `abortingExecutor`).
+ *
+ * It is also why the `23503` foreign-key injection above could not be reused
+ * here: `enqueueAnalyticsEvent` derives `business_id` and `account_id` from the
+ * SAME ids that gate the consent write, so an id that fails the FK also fails the
+ * write and nothing is ever emitted to break.
+ */
+const UNREGISTERED_EVENT_NAME = 'import_consent_emission_poison';
+
+/** True for `enqueueAnalyticsEvent`'s INSERT, false for every other statement. */
+function isAnalyticsEmission(first: unknown): boolean {
+  const raw: unknown = (first as { raw?: unknown } | undefined)?.raw;
+  if (!Array.isArray(raw)) return false;
+  const fragments: unknown[] = raw;
+  return fragments
+    .filter((fragment): fragment is string => typeof fragment === 'string')
+    .join('')
+    .includes('INSERT INTO analytics_events');
+}
+
+/**
+ * A `TransactionSql` on which the analytics emission — and ONLY the analytics
+ * emission — fails with a REAL Postgres error, raised on the caller's own
+ * connection at the exact point `enqueueAnalyticsEvent` writes.
+ *
+ * WHY IT SNIFFS THE STATEMENT RATHER THAN HOOKING `savepoint`. The mutation this
+ * exists to kill is deleting the savepoint, and an injection that fires only
+ * inside `tx.savepoint` cannot see that deletion — with the savepoint gone the
+ * hook is never reached, the emission succeeds, and the test proves only that a
+ * method was called. Keying on the statement makes the injection fire on BOTH
+ * shapes, so what the test observes is the actual difference between them: with
+ * the savepoint the parent transaction survives, without it Postgres has aborted
+ * it and everything downstream dies.
+ *
+ * THE FAILURE ORIGINATES IN POSTGRES, never in JS — a plain JS throw does not
+ * poison a transaction, so a test built on one passes with or without the guard
+ * (deviations D26 records this being demonstrated by hand). The injected
+ * statement is an INSERT whose `event_name` the live CHECK rejects; the test
+ * asserts that rejection directly as a precondition, so an injection that
+ * silently stopped firing cannot masquerade as a savepoint that worked.
+ *
+ * The savepoint handle is wrapped EXPLICITLY: postgres.js mints it from a fresh
+ * `Sql` inside `scope()` (`src/index.js:251-256`), so it does not inherit this
+ * proxy, and without the wrap the shipped path escapes the injection entirely.
+ * Non-DDL, no lock stronger than the caller already holds, and the poison row
+ * never commits on any path.
+ */
+function failingEmission(base: postgresType.TransactionSql): postgresType.TransactionSql {
+  return new Proxy(base, {
+    get(target, prop) {
+      if (prop === 'savepoint') {
+        return (callback: (sp: postgresType.TransactionSql) => Promise<unknown>) =>
+          target.savepoint((sp) => callback(failingEmission(sp)));
+      }
+      const value: unknown = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    // Every other statement forwards untouched, and forwards the postgres.js
+    // `Query` object itself rather than a wrapper — callers destructure its rows.
+    apply(target: postgresType.TransactionSql, _thisArg: unknown, args: unknown[]) {
+      const forwarded = (target as unknown as (...call: unknown[]) => unknown)(...args);
+      if (!isAnalyticsEmission(args[0])) return forwarded;
+      return (async () => {
+        // The real emission runs FIRST, so the poison lands where a `23514` from
+        // the event name itself would have: after the row is written, inside
+        // whatever scope wrote it.
+        await forwarded;
+        await target`
+          INSERT INTO analytics_events (id, event_key, event_name, distinct_id)
+          VALUES (
+            ${randomUUID()}::uuid,
+            ${`emission-poison-${randomUUID()}`},
+            ${UNREGISTERED_EVENT_NAME},
+            'emission-poison'
+          )
+        `;
+      })();
+    },
+  });
+}
+
+/** `failingEmission`, reached through the `sql.begin` that owns the decision. */
+function failingEmissionExecutor(base: postgresType.Sql): postgresType.Sql {
+  return new Proxy(base, {
+    get(target, prop) {
+      if (prop !== 'begin') {
+        const value: unknown = Reflect.get(target, prop);
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return (callback: (tx: postgresType.TransactionSql) => Promise<unknown>) =>
+        target.begin((tx) => callback(failingEmission(tx)));
     },
   });
 }
@@ -460,6 +577,89 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
     // it reports live and die together.
     expect((await readRaw()).import_decision).toBe('pending');
     expect(await outboxCount()).toBe(0);
+  });
+
+  // ── The other direction: a FAILING emission must not take the caller with it ──
+  //
+  // The abort test above pins the arrow that points from the caller INTO the
+  // event. These two pin the arrow that must NOT exist — from a failed event back
+  // onto the caller — which is the `emitConsentEvent` savepoint's entire reason to
+  // exist. Unguarded, `createImportOffer`'s emission raises `23514` inside
+  // `finalizeConnectionTx` and no owner with an activated subscription can connect
+  // a Google Business Profile at all (deviations D26). The savepoint is
+  // one-directional by construction, so both directions need their own title.
+
+  it('createImportOffer keeps the caller transaction usable when the emission fails', async () => {
+    await atJunction();
+    await setConsent({ decision: 'pending', expiresAtSql: null });
+    await clearAnalytics();
+
+    // PRECONDITION, not decoration: the injected statement is rejected BY
+    // POSTGRES, on the real constraint, with the SQLSTATE an unmigrated database
+    // raises. Everything below asserts an ABSENCE, and an injection that quietly
+    // stopped firing produces the same absences as a savepoint that worked.
+    await expect(
+      sql()`
+        INSERT INTO analytics_events (id, event_key, event_name, distinct_id)
+        VALUES (
+          ${randomUUID()}::uuid,
+          ${`emission-poison-precondition-${randomUUID()}`},
+          ${UNREGISTERED_EVENT_NAME},
+          'emission-poison-precondition'
+        )
+      `,
+    ).rejects.toMatchObject({
+      code: CHECK_VIOLATION,
+      constraint_name: EVENT_NAME_CONSTRAINT,
+    });
+
+    const postEmissionName = `Import Analytics Location ${randomUUID()}`;
+    const result = await sql().begin(async (tx) => {
+      const outcome = await createImportOffer(failingEmission(tx), businessId, tenant!.accountId);
+      // A statement issued AFTER the failed emission, on the caller's OWN handle
+      // — this is `finalizeConnectionTx` carrying on past the offer. Postgres
+      // rejects it with 25P02 in an aborted transaction, so reaching the commit
+      // at all is the property.
+      await tx`
+        UPDATE businesses SET name = ${postEmissionName} WHERE id = ${businessId}::uuid
+      `;
+      return outcome;
+    });
+
+    // The emission failed and the caller never learned about it.
+    expect(result).toBe('created');
+
+    const row = await readRaw();
+    // The caller's own write, issued BEFORE the failed emission, committed …
+    expect(row.import_offer_expires_at).not.toBeNull();
+    // … and so did the one issued after it.
+    expect(row.name).toBe(postEmissionName);
+    // Only the metric was lost — the savepoint rolled back the emission alone.
+    expect(await readAnalytics('import_offer_created')).toHaveLength(0);
+  });
+
+  it('recordImportDecisionAndEnqueue commits the decision and still enqueues when the emission fails', async () => {
+    // The same property one layer deeper, and the statement after the failed
+    // emission is PRODUCTION code rather than the test's: `enqueueInitialImport`
+    // runs after `emitConsentEvent`, so an aborted transaction loses the owner's
+    // answer AND never starts the Review import.
+    await atJunction();
+    await clearRuns();
+    await clearOutbox();
+    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
+    await clearAnalytics();
+
+    expect(
+      await recordImportDecisionAndEnqueue(
+        failingEmissionExecutor(sql()), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).toBe('recorded');
+
+    // The owner's answer survived the metric that failed while reporting it …
+    expect((await readRaw()).import_decision).toBe('accepted');
+    // … and the enqueue downstream of the emission still ran.
+    expect(await outboxCount()).toBe(1);
+    expect(await readAnalytics('import_decision_recorded')).toHaveLength(0);
   });
 
   it('import_offer_created uses a business-scoped event key so a replayed offer mints once', async () => {

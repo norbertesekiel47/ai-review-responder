@@ -13,16 +13,28 @@
 --
 -- Why a migration at all: registering the names only in ANALYTICS_EVENT_NAMES
 -- is NOT enough (089's lesson, restated in 094's and 097's headers). Without
--- the CHECK entry every emitting transaction ROLLS BACK on the constraint —
--- and for import_decision_recorded that transaction is a legitimate owner
--- consent decision, so the owner's "yes" would be lost, not just the metric.
--- `ci:analytics-events` cannot catch it either: it only compares the TS
--- allowlist against docs/analytics/events.md, never the database.
+-- the CHECK entry the emission raises 23514. `ci:analytics-events` cannot catch
+-- it either: it only compares the TS allowlist against docs/analytics/events.md,
+-- never the database.
 --
--- DEPLOY ORDERING (high-risk lane): apply to STAGING first, then PRODUCTION at
--- promotion, in both cases BEFORE the emitting code goes live. An app deploy
--- that leads this migration turns every Import offer mint and every owner
--- Import decision into a rolled-back transaction.
+-- WHAT AN UNAPPLIED 102 ACTUALLY COSTS — corrected at #679 review round 2.
+-- Both emissions are wrapped in a postgres.js SAVEPOINT (emitConsentEvent,
+-- src/lib/reviews/import-consent.ts), so a rejected insert rolls back only
+-- ITSELF and the enclosing transaction stays usable. The cost is a LOST METRIC
+-- plus a `warn` line — NOT a lost owner decision, and NOT a failed connect.
+--
+-- That correction matters because the pre-savepoint blast radius was far worse
+-- than "the metric": createImportOffer is called by finalizeConnectionTx, and
+-- select-location/route.ts rethrows anything that is not 23505 — so an
+-- unapplied 102 broke Google Business Profile connect ENTIRELY. Two review axes
+-- converged on it independently. The savepoint (commit bfac89d4) contains it.
+--
+-- DEPLOY ORDERING STILL STANDS (high-risk lane): apply to STAGING first, then
+-- PRODUCTION at promotion, in both cases BEFORE the emitting code goes live.
+-- The savepoint contains the blast radius; it does not make the ordering
+-- optional. A deploy that leads this migration silently loses every
+-- import_offer_created and import_decision_recorded until it is applied, and
+-- the only signal is a stdout `warn` with no durable or paged sink (#697).
 --
 -- Same shape as 046 → 058 → 069 → 089 → 094 → 097: DROP + re-ADD is idempotent
 -- in its end state, but the swap takes a brief ACCESS EXCLUSIVE lock on

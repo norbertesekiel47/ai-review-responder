@@ -319,7 +319,7 @@ describe('GET /api/dashboard/import-offer', () => {
   });
 
   // completed_at decides done, never imported_count — the count DEFAULTs to 0
-  // and is written incrementally (ZernioBackfillWorker.ts:379).
+  // and is written incrementally (ZernioBackfillWorker.ts:416).
   //
   // These four assert the ROUTE surfaces each view state faithfully. Which state
   // the SQL actually produces for a given row set is the view module's contract

@@ -708,3 +708,160 @@ the **Import offer** lifecycle (created → answered), not Import consent as suc
   its own client; `response-status-sql.integration.test.ts` dials `localhost:5432`
   and gets ECONNREFUSED). Confirmed by stashing this change and re-running: same
   three, same messages.
+
+### D31 — [2026-08-08] SURFACE AMENDMENT 1 of 2: the junction suite's `mockTx` had no `savepoint`
+
+**Owner-approved 2026-08-08.** `allowed_edit_surface` gains exactly one file:
+`src/app/api/zernio/connect/_shared/finalize/__tests__/import-offer-junction.test.ts`.
+Both intake copies updated; `.feature/state.json`'s `intakeSha256` re-derives on
+the next `set-phase` (the script hashes `.feature/intake.json` itself).
+
+**This is amendment 1 of 2. A second amendment triggers step 5's abort criteria.**
+
+Why it was needed. Round 2's standards axis found `emitConsentEvent`'s `catch`
+unbounded — it swallowed a JS programming error exactly as it swallowed a
+Postgres constraint failure. Not theoretical: this suite's `mockTx` is missing
+`savepoint`, so since `bfac89d4` five of its six titles threw
+`TypeError: tx.savepoint is not a function`, emitted nothing, and stayed green.
+Narrowing the catch makes that omission loud, which requires completing the mock
+— and the file sits outside the original surface.
+
+**Correction to the finding as reported** (verified by the orchestrator, not
+accepted on the agent's word): the count is **5 of 6**, not 6 of 6, and the
+suite never asserts analytics at all — no `analytics` or `savepoint` token
+appears in it, and its six titles are all `finalize-tx` enqueue behaviour. So it
+is NOT false coverage of that suite's own claims. It is a live demonstration
+that the unbounded catch absorbed a real wiring error.
+
+Evidence, both directions:
+- **Pre-fix probe** — replacing the catch body with a rethrow surfaced
+  `TypeError: tx.savepoint is not a function` on 5 of 6 titles. Reverted.
+- **Post-fix mutation** — with the narrowing in place, omitting `mockTx.savepoint`
+  → **5 failed, 1 passed**. Restored. The narrowing is load-bearing.
+
+### D32 — [2026-08-08] the catch now discriminates on the Postgres `code` property
+
+`emitConsentEvent` rethrows anything without a string `code`. A `PostgresError`
+carries one; a `TypeError` does not — that is the whole discriminator. No new
+predicate helper was introduced: the house pattern is the inline `code` check at
+`src/lib/locations/duplicate-location.ts:24` and
+`src/lib/onboarding/create-business.ts:62`, and a single call site does not earn
+an abstraction.
+
+**This supersedes D27's disposition.** D27 recorded the unbounded catch as
+"structurally undetectable" and left it. It was detectable — by mutation, which
+is how every other false-coverage defect on this branch was caught, and the same
+technique D27 itself used for the abort injection.
+
+Rules applied: CLAUDE.md "assert impossible states, don't branch around them"
+(a `TransactionSql` without `.savepoint` is impossible in production — every
+caller passes a real handle) and "no abstraction before the second use".
+
+### D33 — [2026-08-08] the swallowed-emission alert sink was filed, not built
+
+Adversarial round 2 (Medium): the `warn` reaches no durable or paged sink
+(`src/lib/shared/logger.ts:89-98`), so persistent migration-102 drift could
+undercount events indefinitely. **Owner decision: file, don't build** — filed as
+**#697**. The alerting seam is out of surface, the intake's `observability`
+contract names no Sentry signal, and migration-before-code ordering remains the
+enforced primary control.
+
+Recorded because it is a real residual risk, not a dismissed one: the savepoint
+traded a loud failure (connect outage) for a quiet one (lost metric + warn). That
+trade holds only while the deploy-ordering rule holds.
+
+### D34 — [2026-08-08] tests added beyond `tests_to_add` (not an amendment)
+
+Round 2's decisive finding — converged across the spec and standards axes — was
+that the savepoint itself shipped **unpinned**: deleting it entirely left all 37
+live-DB tests and all 42 unit tests GREEN, so a revert of the connect-outage fix
+was invisible to CI. New titles were added to
+`src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts` covering
+the *failure* direction (a failed emission rolls back only itself and leaves the
+parent transaction usable); the success direction was already pinned at `:435-462`.
+
+Per feature.md, `tests_to_add` additions are owner-approved deviations-file
+entries, **not** surface amendments — they do not count against the budget. Both
+titles were added to `tests_to_add` in both intake copies so the gate's
+`promised-tests` row enforces their continued existence (38 → 40):
+
+- `createImportOffer keeps the caller transaction usable when the emission fails`
+- `recordImportDecisionAndEnqueue commits the decision and still enqueues when the emission fails`
+
+**Injection chosen: `23514` from `analytics_events_event_name_check`** — the real
+migration-102 scenario, reproduced by offering the live CHECK an unadmitted name.
+No DDL. The `23503` FK route used elsewhere on this branch was unusable here:
+`enqueueAnalyticsEvent` derives `business_id`/`account_id` from the same ids that
+gate the consent write, so an id that fails the FK also fails the write. A
+`Proxy` sniffs the emission's INSERT and wraps the postgres.js savepoint handle
+(minted fresh by `scope()`, so it does not inherit the proxy), which makes the
+injection fire on **both** shapes rather than only when `savepoint` is called.
+
+Mutation evidence:
+- **A** — `emitConsentEvent` body reverted to `await enqueueAnalyticsEvent(tx, input);`
+  (try/catch removed): both new tests **RED**, all 8 pre-existing tests green.
+  That green is precisely the reviewers' finding reproduced. Restored.
+- **B** — emission moved outside the transaction: the existing rollback test at
+  `:435-462` went **RED** (`55P03`), confirming it was not weakened. Restored.
+
+**Process note.** This work was dispatched with a "no sibling agent is running"
+premise that did NOT hold — the orchestrator was concurrently editing
+`src/lib/reviews/import-consent.ts` (the catch narrowing, D32) and four doc
+sites. The agent detected the drift itself, re-applied and reverted its mutations
+against the current file, and confirmed byte-identity. No harm, but the premise
+was wrong and the agent was right to flag it: concurrent orchestrator edits are
+as much a sibling as another subagent.
+
+### D36 — [2026-08-08] SURFACE AMENDMENT 2 of 2 + EXPLICIT OWNER OVERRIDE of the abort criteria
+
+**Owner-approved 2026-08-08, with the abort rule consciously overridden.**
+`allowed_edit_surface` gains one more file:
+`worker/ingress/stripe/__tests__/import-offer-resume.test.ts`.
+
+**Amendments now stand at 2 of 2. Step 5's abort criteria — "a 2nd amendment of
+`allowed_edit_surface` … stop patching, write a post-mortem, tear the branch
+down, restart at step 1" — were triggered and deliberately NOT followed.** This
+is recorded loudly rather than quietly so a resumed session or a reviewer sees
+the override rather than inferring the budget was never spent.
+
+What triggered it. The D32 catch narrowing (owner-approved) turned up a **second**
+`mockTx` with no `savepoint`, in the Stripe activation resume suite. Two of its
+six titles failed with `tx.savepoint is not a function`, surfaced through
+`maybeEnqueueBackfillResume`'s own logging. Identical class to D31, identical
+one-line fix — here `begin` hands the same object back as the transaction, so
+`savepoint` goes on `mockSql`.
+
+Why the override, and why it is not sunk-cost reasoning:
+- The abort criteria exist to catch **scope sprawl and lane misclassification**.
+  This is neither. It is one line, in a test mock, with zero production change.
+- It is not a new defect — it is the *same* defect, in its second and (proven)
+  final location. The full suite ran: 2 failures, 1 file, 10818 passed.
+- The alternative was to revert an accepted fix that all three review axes
+  independently flagged, re-burying the defect.
+- feature.md itself warns that "#643 nearly hit teardown over two test-title
+  renames". Tearing down an otherwise-green branch carrying 4 fixes and 40
+  pinned tests over two `mockTx.savepoint` lines is that failure mode exactly.
+
+**The budget is now fully spent.** Any further widening is a real teardown
+decision, not another judgement call.
+
+**Process lesson for lab notes (step 8):** narrowing an over-wide `catch` is not
+a local change — it converts every latent swallow into a live failure. The blast
+radius is "every mock that stands in for the narrowed type", and it is only
+discoverable by running the FULL suite, not the touched suites. Budget a surface
+amendment per incomplete mock before starting, or scope the narrowing to a
+type-level fix instead.
+
+### D35 — [2026-08-08] the `codex:codex-rescue` plugin path failed twice; direct `codex exec` is the working lane
+
+Round 2's adversarial dispatch: the companion wrapper launched job
+`task-msjolvby-y182uu` and then recorded **no job at all**
+(`codex-companion.mjs status` → "No jobs recorded yet"), and the rescue subagent
+is scoped forward-only — it cannot poll, retrieve, or write up a result, and
+correctly refused to when asked. Direct `codex exec -s read-only -C <worktree>`
+produced the review (session `019fdef1-ae8a-7ca2-9503-cfcd21406cbc`).
+
+Third recorded instance of the wrapper losing a task id. feature.md already says
+"dispatch via direct `codex exec` and record the codex session id" for plan
+reviews; the same should apply to step 7's adversarial axis. **Promote to lab
+notes at step 8.**
