@@ -1,0 +1,55 @@
+{
+  "classification": "normal",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Make every dynamic verify-gate.sh row name collision-free and assert uniqueness at registration, so two checks can never share a status slot and a log file.",
+  "non_goals": [
+    "Changing which checks the gate runs, their order, or the parallel fan-out",
+    "Changing gate-status.json's schema or the Stop hook / arm-check contract",
+    "Fixing #694 (ci:live-db-suites R2 DDL detector) — same theme, separate ticket",
+    "Reverting the #679 call-site workaround (import-offer-analytics.integration.test.ts keeps its name)"
+  ],
+  "user_visible_behavior": [
+    "Integration and extra rows print as <truncated-path-prefix>-<6-char-hash> instead of a bare 40-char prefix",
+    "Two changed *.integration.test.ts files sharing a 40-character path prefix produce two distinct rows, two distinct log files, and two distinct coverage directories",
+    "A duplicate row name aborts the gate with a named error and a RED gate-status.json instead of silently overwriting a row"
+  ],
+  "invariants": [
+    "One row name = one status slot = one .feature/logs/<name>.log = one coverage directory",
+    "A failed check can never be reported as PASS",
+    "The gate never exits with a stale-green .feature/gate-status.json on disk"
+  ],
+  "edge_cases": [
+    "Two integration suites whose paths share exactly the first 40 slug characters (the live #696 example)",
+    "Two verification_commands sharing a 40-character prefix (line 167 has the same truncation as line 193)",
+    "A rejected destructive extra colliding with another rejected extra",
+    "bash 3.2 on macOS: no `wait -n`, no associative arrays, and `${NAMES[@]}` on an empty array under `set -u`"
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/verify-gate.sh — the db-provision failure path (writes a RED gate-status.json, prints the table, exits 1) is the precedent for an abort",
+    "scripts/ci/__tests__/merge-coverage.test.ts — a test under scripts/ci/__tests__/ covering a script that lives in scripts/",
+    "src/__tests__/ci-audit-wiring.test.ts — reading a config/script file as text and asserting it cannot drift"
+  ],
+  "allowed_edit_surface": [
+    "scripts/verify-gate.sh",
+    "scripts/gate-rows.sh",
+    "scripts/ci/__tests__/gate-rows.test.ts"
+  ],
+  "tests_to_add": [
+    "derives distinct slugs for integration suites sharing a 40-character path prefix",
+    "keeps the truncated path prefix readable in the derived slug",
+    "accepts a row name that is not already registered",
+    "exits non-zero when a row name is already registered",
+    "routes every dynamic row name in verify-gate.sh through row_slug"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "65",
+  "estimated_test_lines": "80",
+  "dependencies_added": [],
+  "rollback_plan": "Not DB-touching. Revert the single commit; no state, no flag, no migration.",
+  "observability": [
+    "The gate's printed table is the signal: each integration/extra row now carries a hash suffix, and a duplicate prints `verify-gate: duplicate row name '<name>'` and exits RED",
+    "scripts/ci/__tests__/gate-rows.test.ts fails if a bare 40-char truncation is reintroduced at any dynamic row site"
+  ],
+  "open_questions": []
+}
