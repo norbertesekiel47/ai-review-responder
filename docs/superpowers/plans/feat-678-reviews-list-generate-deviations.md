@@ -246,3 +246,39 @@ simply needs no edit. The three genuinely live references F8 names —
 `.claude/reference/lab-notes.md` — are real and still require the rewrite.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D12 — the task graph's T2/T4/T6 parallel claim is wrong: T6 edits T4's file
+
+**Trigger:** step 4 dispatch. The plan's task graph marks `T2`, `T4`, `T6`
+"mutually independent → parallel dispatch" and justifies it with disjoint file
+sets: `worker-types.ts` · `load-replies.ts` · `tracker.ts`. But **Task 6 Step 2
+edits `src/lib/past-replies/load-replies.ts`** (the batched peek call site) and
+its Step 3 `git add` names that file explicitly. T4 owns that same file for its
+whole rewrite. Dispatching them concurrently races two agents on one file —
+and, in a shared worktree, on one git index.
+
+**Decision:** re-sequence, do not re-plan. The corrected graph is
+
+```
+T1  ──> T2 ∥ T4          (genuinely disjoint)
+    ──> T3 ∥ T5 ∥ T6      (T3 needs T2; T5 and T6 need T4)
+    ──> T7 ──> T8
+```
+
+T6 moves from "parallel with T4" to "after T4". Every task's *content* is
+unchanged; only the dispatch order moves. Parallelism is preserved (2-way then
+3-way), and no two concurrent agents share a file.
+
+**Also folded into T6:** `PastRepliesPageView` must expose `regenBudgets` as a
+plain `Record<string, RegenBudgetStatus>`, not the `Map` that
+`peekRegenBudgetBatch` returns. Task 4 Step 3's renamed-field list omits the
+field entirely, and Task 6 Step 2's snippet stops at the `Map`. T1's eval pins
+both ends: `regen-budget-batch.test.ts:74,95` requires the FUNCTION to return a
+`Map`, while `past-reply-card-states.test.tsx:19,170` requires the client prop to
+be a record — a `Map` does not survive the server→client boundary. The
+conversion therefore belongs at the `load-replies.ts` seam, which T6 Step 2
+already owns.
+
+**Verdict:** ACCEPT.
