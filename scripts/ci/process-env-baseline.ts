@@ -200,7 +200,8 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // channels/publishing cluster then dropped notification/eligibility.ts (CHANNELS_*_ENABLED)
   // and zernio/zernio-ingest-shared.ts (EXTERNAL_REPLY_IMPORT_ENABLED). Stage-4 flag-ban batch
   // dropped publisher/ResponsePublisherWorker.ts + publisher/failed-hook.ts — their last read
-  // (EDIT_REPLIES_ENABLED) now goes through replyEditingFlagEnabled() (past-replies/flags.ts).
+  // (EDIT_REPLIES_ENABLED) now goes through editRepliesEnabled() (past-replies/flags.ts —
+  // renamed from replyEditingFlagEnabled() when #678 retired PAST_REPLIES_VIEW_ENABLED).
   // The static-policy audit now BANS new inline process.env.*_ENABLED/*_DISABLED reads outside
   // the flags.ts modules + startup-assert.ts + scripts/ (the readFlag convention is enforced).
   'worker/redis-connection.ts',

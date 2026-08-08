@@ -28,7 +28,6 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
     DATABASE_POOL_URL: process.env.DATABASE_POOL_URL,
     ALLOW_E2E_DB_WRITES: process.env.ALLOW_E2E_DB_WRITES,
     EDIT_REPLIES_ENABLED: process.env.EDIT_REPLIES_ENABLED,
-    PAST_REPLIES_VIEW_ENABLED: process.env.PAST_REPLIES_VIEW_ENABLED,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     TEST_DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL,
   };
@@ -55,11 +54,9 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
     process.env.DATABASE_POOL_URL = testDbUrl;
     process.env.ALLOW_E2E_DB_WRITES = 'true';
     process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
-    // The discard route (DELETE /past-replies/draft/:id) is flag-gated. Both
-    // names are set so this suite is correct on either side of Task 8's
-    // `flags.ts` collapse — after it, only EDIT_REPLIES_ENABLED is read.
+    // The discard route (DELETE /past-replies/draft/:id) is flag-gated on
+    // EDIT_REPLIES_ENABLED alone since #678 retired PAST_REPLIES_VIEW_ENABLED.
     process.env.EDIT_REPLIES_ENABLED = 'true';
-    process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   }
   return { testDbUrl, originalEnv };
 });
@@ -209,7 +206,6 @@ describeWithDb(
       process.env.DATABASE_POOL_URL = originalEnv.DATABASE_POOL_URL;
       process.env.ALLOW_E2E_DB_WRITES = originalEnv.ALLOW_E2E_DB_WRITES;
       process.env.EDIT_REPLIES_ENABLED = originalEnv.EDIT_REPLIES_ENABLED;
-      process.env.PAST_REPLIES_VIEW_ENABLED = originalEnv.PAST_REPLIES_VIEW_ENABLED;
       process.env.NEXT_PUBLIC_APP_URL = originalEnv.NEXT_PUBLIC_APP_URL;
     });
 

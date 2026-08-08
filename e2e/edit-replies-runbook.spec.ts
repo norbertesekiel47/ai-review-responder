@@ -186,7 +186,7 @@ test.describe('Scenario 1 — Edit CTAs visible with EDIT_REPLIES_ENABLED=true',
     console.log('✅ Edit CTAs are visible with EDIT_REPLIES_ENABLED=true.');
   });
 
-  test('1-B: PAST_REPLIES_VIEW_ENABLED=true — page does not show "feature disabled" message', async ({ page }) => {
+  test('1-B: the Reviews list renders without a "feature disabled" message', async ({ page }) => {
     await login(page);
     await goToPastReplies(page);
 

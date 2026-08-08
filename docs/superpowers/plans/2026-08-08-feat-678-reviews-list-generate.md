@@ -963,11 +963,11 @@ git add -A && git commit -m "feat(#678): Reviews list surface — grouping, row 
 
 **Blocking edges:** T7.
 
-- [ ] **Step 1: Capture the flag's current per-environment values BEFORE deleting it**
+- [x] **Step 1: Capture the flag's current per-environment values BEFORE deleting it** _(owned by the orchestrator, not this task — captured out-of-band for the PR body.)_
 
 Invoke the `flag-flip` skill and record the current Railway + Vercel values for `PAST_REPLIES_VIEW_ENABLED` in each environment. These go in the PR description as the **revert precondition** — reverting this PR restores the flag read, and a missing env var would 404 the list.
 
-- [ ] **Step 2: Collapse `flags.ts` to one function**
+- [x] **Step 2: Collapse `flags.ts` to one function**
 
 ```ts
 /**
@@ -988,23 +988,23 @@ export function editRepliesEnabled(): boolean {
 }
 ```
 
-- [ ] **Step 3: Update every call site**
+- [x] **Step 3: Update every call site**
 
 `ReviewsTabs.tsx` (drop `historyEnabled`, label → `All Reviews`), `ReviewsContent.tsx` (drop the prop), `reviews/page.tsx` (drop the flag read), the seven `past-replies/__tests__/*` files, `flags.test.ts`, `e2e/edit-replies-runbook.spec.ts`, and the worker integration test. Every `editRepliesEnabled()` and `replyEditingFlagEnabled()` caller now points at the one function.
 
-- [ ] **Step 4: Registry + docs, same change**
+- [x] **Step 4: Registry + docs, same change**
 
 Delete the `PAST_REPLIES_VIEW_ENABLED` row from `.claude/reference/env-vars.md` and `.env.example`, and fix `EDIT_REPLIES_ENABLED`'s cross-reference to it. Grep the filename across `docs/` and clean every stale cross-reference (working rule). Update `CONTEXT.md` → **Reviews list** and **On-demand generation** to "implemented at #678", spec §6.3a/§6.3b as-built, `docs/currents.md`, `docs/directory.md`.
 
 **F8 — the three LIVE (non-`docs/`) references must be edited here too**, not just grepped. These are why D1 widened the surface; a `docs/`-only sweep leaves them stale and `ci:process-env` red:
 
-- [ ] `scripts/ci/process-env-baseline.ts` — drop the `PAST_REPLIES_VIEW_ENABLED` entry. **Run `pnpm ci:process-env` after**; this file IS the audit's baseline, so a stale entry fails the gate rather than merely reading wrong.
-- [ ] `.claude/reference/env-vars.md` — the registry row (above) plus any prose mention.
-- [ ] `.claude/reference/review-ingestion.md` and `.claude/reference/lab-notes.md` — rewrite the sentences that describe the flag's behaviour; do not merely delete the flag name and leave a dangling clause.
+- [x] `scripts/ci/process-env-baseline.ts` — **no-op verification per D11**: the baseline is a set of FILE PATHS, not variable names, so there was no entry to drop. `pnpm ci:process-env` green. Its prose citation of the now-deleted `replyEditingFlagEnabled()` was corrected in place.
+- [x] `.claude/reference/env-vars.md` — the registry row struck through as **RETIRED at #678** (with the revert precondition), `EDIT_REPLIES_ENABLED` rewritten as the sole gate, and the two prose mentions (`EXTERNAL_REPLY_IMPORT_ENABLED`'s soak note, `EDIT_EXISTING_REPLIES_ENABLED`'s "two-flag split") corrected.
+- [x] `.claude/reference/review-ingestion.md` and `.claude/reference/lab-notes.md` — sentences rewritten, not merely stripped: review-ingestion now states the surface is unflagged and that there is no silent-soak window; lab-notes carries a dated `- [2026-08-08]` entry recording why a *destination* surface cannot be independently revocable from the write that targets it.
 
 **Leave historical plans and completed runbooks alone** — `docs/superpowers/plans/2026-0*` and `docs/runbooks/evidence/**` are history, not cross-references to fix. The working rule targets live pointers.
 
-- [ ] **Step 5: Full gate, then commit**
+- [x] **Step 5: Full gate, then commit** _(gate owned by the orchestrator; this task ran `lint` + `typecheck` + `ci:process-env` + `ci:static-policy` + `ci:feature-surface` + the four affected vitest paths, all green.)_
 
 ```bash
 bash scripts/verify-gate.sh

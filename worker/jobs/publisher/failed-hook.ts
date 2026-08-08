@@ -17,7 +17,7 @@ import {
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
 import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from '../../../src/lib/publishing/orphan-markers';
-import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
+import { editRepliesEnabled } from '../../../src/lib/past-replies/flags';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
 import { anchorReviewLockOrder } from '../../../src/lib/approval/outcomes';
 import { completeRun, findActiveReviewRun } from '../../../src/lib/agents/run-spine';
@@ -78,7 +78,7 @@ async function tryOrphanExhaustion(
   job: Job<PublishResponsePayload>,
   state: PublisherFailedHookState,
 ): Promise<boolean> {
-  if (!replyEditingFlagEnabled()) return false;
+  if (!editRepliesEnabled()) return false;
   state.coupledTerminalTxStarted = true;
   const handled = await attemptOrphanConversion(
     sql,

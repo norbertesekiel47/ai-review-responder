@@ -529,3 +529,45 @@ second button beside it — and the three suites that queried it by name
 reconciliations) are deleted with the behaviour they guarded.
 
 **Verdict:**
+
+---
+
+## D17 — T8: `worker/jobs/publisher/__tests__/**` is outside the surface, so one stale `PAST_REPLIES_VIEW_ENABLED` reference survives
+
+**Trigger:** Task 8's brief lists "the worker integration test" among the call
+sites to update. `worker/jobs/publisher/__tests__/edit-existing-reply.integration.test.ts`
+sets, captures and restores `process.env.PAST_REPLIES_VIEW_ENABLED` in three
+places, and carries the comment "Edit routes require BOTH flags". D1 added
+`worker/jobs/publisher/ResponsePublisherWorker.ts` and `failed-hook.ts` to
+`allowed_edit_surface` but **not** that directory's `__tests__/`, so
+`edit-surface-guard.sh` blocks the edit.
+
+**Why it is not worth an amendment:** the surviving reference is three
+assignments of a now-unread env var plus one comment — it names no deleted
+symbol, changes no behaviour, and the suite still passes because it sets
+`EDIT_REPLIES_ENABLED=true` alongside it, which is the whole predicate now.
+Widening the surface would burn amendment **#2 of 2**, which trips the abort
+criteria, for a cosmetic cleanup.
+
+**Decision:** leave the file untouched; the reference is reported as a known
+surviving hit and folded into #680's cleanup alongside the frozen legacy
+columns. `scripts/ci/process-env-baseline.ts` needed no entry deletion (D11
+confirmed), but its *prose* citation of the deleted `replyEditingFlagEnabled()`
+was corrected in place — that file IS in the surface.
+
+**Same fence, four LIVE docs — these are the ones that matter operationally.**
+`docs/runbooks/**`, `docs/adr/**` and `docs/eservices-variables.md` are all
+outside `allowed_edit_surface` (only `docs/directory.md`, `docs/currents.md`,
+`docs/superpowers/{plans,specs}/**` and `docs/reviews/**` are in), so five
+now-wrong instructions survive and need a **follow-up PR** — they will otherwise
+tell a future operator to set a variable that no longer exists:
+
+| File:line | Says | Should say |
+|---|---|---|
+| `docs/runbooks/deployment-guide.md:155` | "requires `PAST_REPLIES_VIEW_ENABLED=true`" | `EDIT_REPLIES_ENABLED` is the sole gate |
+| `docs/runbooks/gbp-api-application.md:67` | "`PAST_REPLIES_VIEW_ENABLED=true` (every edit route checks both flags)" | one flag, not both |
+| `docs/runbooks/edit-existing-replies-testing-runbook.md:23` | sets the retired var in its env block | drop the line |
+| `docs/eservices-variables.md:120` | lists the flag in the tracked-vars roster | drop the entry |
+| `docs/adr/0015-…:11,45` | cites it as a live flag in the unflagged-replacement rationale | note it was retired at #678 (this ADR's own posture) |
+
+**Verdict:**

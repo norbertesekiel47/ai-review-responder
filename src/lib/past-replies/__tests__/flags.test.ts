@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFlag } from '@/lib/config/flags';
 import * as flagsModule from '../flags';
-import {
-  editRepliesEnabled,
-  pastRepliesViewEnabled,
-  replyEditingFlagEnabled,
-} from '../flags';
+import { editRepliesEnabled } from '../flags';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -26,54 +22,25 @@ describe('past-replies flag helpers', () => {
     ['mixed case true', 'True'],
     ['numeric true', '1'],
     ['padded true', ' true '],
-  ])('keeps the view flag disabled for %s values', (_label, value) => {
+  ])('stays disabled for %s EDIT_REPLIES_ENABLED values', (_label, value) => {
     if (value === undefined) {
-      delete process.env.PAST_REPLIES_VIEW_ENABLED;
+      delete process.env.EDIT_REPLIES_ENABLED;
     } else {
-      process.env.PAST_REPLIES_VIEW_ENABLED = value;
+      process.env.EDIT_REPLIES_ENABLED = value;
     }
 
-    expect(pastRepliesViewEnabled()).toBe(false);
+    expect(editRepliesEnabled()).toBe(false);
   });
 
-  it('enables the view only for exact string true', () => {
-    process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
-    expect(pastRepliesViewEnabled()).toBe(true);
-  });
-
-  it('reads the raw edit flag only from exact EDIT_REPLIES_ENABLED=true', () => {
-    process.env.EDIT_REPLIES_ENABLED = 'TRUE';
-    expect(replyEditingFlagEnabled()).toBe(false);
-
+  it('enables editing only for exact string true', () => {
     process.env.EDIT_REPLIES_ENABLED = 'true';
-    expect(replyEditingFlagEnabled()).toBe(true);
-  });
-
-  // LEGACY — deleted by Task 8 along with `pastRepliesViewEnabled` and
-  // `replyEditingFlagEnabled`. It asserts the pre-#678 composite and therefore
-  // contradicts the two #678 titles below on purpose: they are the eval, this is
-  // the behaviour they replace.
-  describe('editRepliesEnabled requires BOTH flags (the user-facing invariant)', () => {
-    it.each([
-      ['both off', undefined, undefined, false],
-      ['view only', 'true', undefined, false],
-      ['edit only', undefined, 'true', false],
-      ['view on, edit false', 'true', 'false', false],
-      ['both on', 'true', 'true', true],
-    ])('%s', (_label, view, edit, expected) => {
-      if (view === undefined) delete process.env.PAST_REPLIES_VIEW_ENABLED;
-      else process.env.PAST_REPLIES_VIEW_ENABLED = view;
-      if (edit === undefined) delete process.env.EDIT_REPLIES_ENABLED;
-      else process.env.EDIT_REPLIES_ENABLED = edit;
-
-      expect(editRepliesEnabled()).toBe(expected);
-    });
+    expect(editRepliesEnabled()).toBe(true);
   });
 });
 
 // ── #678 T1 EVAL — PAST_REPLIES_VIEW_ENABLED retirement (S4, F8) ─────────────
 //
-// RED until Task 8 collapses `flags.ts` to one function. The view flag is
+// `flags.ts` is collapsed to one function. The view flag is
 // DELETED rather than flipped: once the **Reviews list** is the consented Review
 // import's only destination, keeping it would let `import_decision='accepted'`
 // coexist with the imported reviews landing on a `notFound()`.
