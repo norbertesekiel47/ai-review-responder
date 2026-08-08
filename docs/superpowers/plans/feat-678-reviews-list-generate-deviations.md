@@ -200,3 +200,49 @@ genuinely open to preference.
 - `past-replies/draft/route.ts` is 253 lines, not 254 (cosmetic; plan prose only).
 
 **Verdict:** ACCEPT.
+
+---
+
+## D10 — `peekRegenBudgetBatch` must catch its own Redis failure (T1)
+
+**Trigger:** authoring the eval. The locked title reads
+`peekRegenBudgetBatch fails open to an empty map when Redis is unavailable` —
+it names the FUNCTION as the thing that fails open. Task 6 Step 1's code block
+has no `try/catch`; it lets an `mget` rejection propagate and relies on Task 6
+Step 2's caller-side catch in `load-replies.ts` to produce the empty map.
+
+Both spellings deliver D-F's behaviour (no counters, every Regenerate enabled),
+but only one satisfies the title, and a title is contract while a plan code
+block is guidance.
+
+**Decision:** the eval asserts the FUNCTION resolves to an empty `Map` and does
+not throw. Task 6 must wrap the `mget` in a `try/catch` returning the empty map.
+Step 2's caller-side catch stays as defence in depth — it is what covers a
+synchronous `getCacheRedis()` throw before the `mget` is even issued — so this is
+an addition to Step 1, not a replacement of Step 2.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D11 — F8's `scripts/ci/process-env-baseline.ts` entry does not exist (T1 observation)
+
+**Trigger:** T1 checked every cited artifact before writing tests that set the
+retired flag. Task 8 Step 4 lists a checkbox to "drop the
+`PAST_REPLIES_VIEW_ENABLED` entry" from `scripts/ci/process-env-baseline.ts` and
+to run `pnpm ci:process-env` after, on the grounds that a stale entry fails the
+gate. `grep -rn 'PAST_REPLIES_VIEW_ENABLED' scripts/` returns **zero** hits: the
+baseline is a set of FILE PATHS that read `process.env`, not a set of variable
+names, and it excludes test files entirely (0 `__tests__` entries).
+
+No work is lost — `src/lib/past-replies/flags.ts` reads the flag through
+`readFlag`, so the file-path baseline is unaffected by the retirement either way.
+
+**Decision:** Task 8 should treat that checkbox as a no-op verification (run
+`pnpm ci:process-env`, expect green, tick it) rather than hunting for an entry to
+delete. `scripts/ci/process-env-baseline.ts` stays in `allowed_edit_surface`; it
+simply needs no edit. The three genuinely live references F8 names —
+`.claude/reference/env-vars.md`, `.claude/reference/review-ingestion.md`,
+`.claude/reference/lab-notes.md` — are real and still require the rewrite.
+
+**Verdict:** ACCEPT.
