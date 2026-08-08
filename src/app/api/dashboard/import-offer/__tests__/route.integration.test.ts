@@ -98,6 +98,17 @@ async function analyticsCount(): Promise<number> {
   return Number(row!.n);
 }
 
+/**
+ * `job_outbox`'s constraint count — the relation the replaced temporary CHECK
+ * constraint used to strand on. Read-only over `pg_constraint`; issues no DDL.
+ */
+async function jobOutboxConstraintCount(): Promise<number> {
+  const [row] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = 'job_outbox'::regclass
+  `;
+  return row!.n;
+}
+
 // ── The abort injection ─────────────────────────────────────────────────────
 
 /** `analytics_events_business_id_fkey`. Asserted, so a lock timeout cannot pass for it. */
@@ -129,17 +140,11 @@ const FOREIGN_KEY_VIOLATION = '23503';
  * statement time: SQLSTATE 23503. It lands AFTER the consent write and AFTER the
  * enqueue, so it survives a refactor that moves either.
  *
- * WHY `gbp_connected` AND NOT AN IMPORT EVENT NAME. The SQLSTATE has to be
- * deterministic without this suite acquiring a migration-102 precondition — 102
- * registers the two Import offer names and is unrelated to this suite's subject,
- * so depending on it here would be gratuitous coupling. `gbp_connected` has been
- * in `analytics_events_event_name_check` since migration 046 created the table,
- * and every later swap (058, 069, 089, 094, 097, 102) is a strict superset in
- * the same order — so on any database at or past migration 100, which
- * `assertSchemaReady` already proves, the CHECK admits it and the foreign key is
- * the only constraint the row violates. `account_id` is left NULL, so the row
- * could not satisfy `analyticsCount`'s account predicate even if it somehow
- * survived.
+ * The event name is one migration 102 registers and `beforeAll` asserts that
+ * registration, so the CHECK admits the row and the foreign key is the only
+ * constraint it violates — the SQLSTATE is deterministic. `account_id` is left
+ * NULL, so the row could not satisfy `analyticsCount`'s account predicate even
+ * if it somehow survived.
  */
 const foreignKeyPoison = async (tx: postgresType.TransactionSql): Promise<void> => {
   await tx`
@@ -147,7 +152,7 @@ const foreignKeyPoison = async (tx: postgresType.TransactionSql): Promise<void> 
     VALUES (
       ${randomUUID()}::uuid,
       ${`forced-abort-${randomUUID()}`},
-      'gbp_connected',
+      'import_decision_recorded',
       'forced-abort',
       ${randomUUID()}::uuid
     )
@@ -240,19 +245,27 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     // helper's, the poison is this suite's, and neither may reintroduce the
     // temporary constraint the pair replaced.
     await setOffer("now() + interval '3 days'");
-    let raised: unknown;
-    try {
-      await recordImportDecisionAndEnqueue(
-        abortingExecutor(sql(), foreignKeyPoison), businessId, tenant!.accountId, 'accepted',
-      );
-    } catch (error) {
-      raised = error;
-    }
+    const constraintsBefore = await jobOutboxConstraintCount();
+
     // Originates in Postgres — a JS throw would not poison the transaction.
-    expect((raised as { code?: string }).code).toBe(FOREIGN_KEY_VIOLATION);
-    // Non-DDL by construction: the injection is the only thing this suite runs
-    // that could strand an object, and it holds no schema.
-    expect(String(foreignKeyPoison)).not.toMatch(/\b(?:ALTER|CREATE|DROP)\s+\w/i);
+    await expect(
+      recordImportDecisionAndEnqueue(
+        abortingExecutor(sql(), foreignKeyPoison), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
+
+    // AND IT STRANDED NOTHING on the shared container, which is the property the
+    // "without executing any DDL" half of the title is actually for. This is the
+    // exact regression the temporary-constraint approach caused: a vitest TIMEOUT
+    // skipped its `finally` and `tmp_block_import_topic` survived on `job_outbox`,
+    // blocking every sibling suite that enqueues `zernio_initial_backfill` (#679
+    // deviations D20). Counting the relation's constraints across the aborted
+    // transaction pins that directly — where the previous grep of the poison's
+    // `Function.toString()` for DDL keywords inspected the wrong thing (the
+    // poison, not the shared mechanism), duplicated `ci:live-db-suites` in a
+    // strictly weaker place, and failed OPEN on any refactor that moved the
+    // statement out of the function body (review round 1, B3).
+    expect(await jobOutboxConstraintCount()).toBe(constraintsBefore);
   });
 
   it('live DB: a rejected late POST leaves decision, decision_at, expires_at, outbox rows and analytics rows unchanged', async () => {

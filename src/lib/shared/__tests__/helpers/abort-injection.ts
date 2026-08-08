@@ -32,14 +32,21 @@
 import type postgresType from 'postgres';
 
 /**
- * Wraps `base` so that `.begin(cb)` runs `cb` to completion and THEN runs
- * `poison` on the same transaction, aborting it after the writer's work.
+ * Wraps `base` so that `.begin(cb)` — and `.begin(options, cb)`, whose options
+ * are forwarded untouched — runs `cb` to completion and THEN runs `poison` on
+ * the same transaction, aborting it after the writer's work.
  *
  * A `Proxy` over a REAL `Sql`, never a `{ begin } as unknown as Sql` cast: a
  * bare object cast would typecheck the caller against a local restatement of
  * the interface instead of the shipped one (#679 deviations D22). A `get`-only
  * trap does not intercept `apply`, so the tagged-template call form forwards
  * untouched.
+ *
+ * `poison` is a PARAMETER, not a constant, because a deterministic SQLSTATE
+ * depends on which constraints the CALLER's fixture satisfies — a poison is a
+ * suite's fixture, not shared vocabulary. That is the whole justification; it
+ * does not rest on today's two callers passing different statements (they pass
+ * the same one).
  */
 export function abortingExecutor(
   base: postgresType.Sql,
@@ -52,14 +59,27 @@ export function abortingExecutor(
         return typeof value === 'function' ? value.bind(target) : value;
       }
       return (...args: unknown[]) => {
+        // EVERY LEADING ARGUMENT IS FORWARDED — do not re-simplify this to
+        // `target.begin(wrapped)`. Postgres.js supports `begin(options, cb)` as
+        // well as `begin(cb)`, and this repo uses it: `src/lib/escalations/
+        // list.ts:43` calls `sql.begin('isolation level repeatable read read
+        // only', …)`. Passing only the wrapped callback would silently DROP a
+        // writer's isolation level, and the test would still pass — the worst
+        // failure mode a test helper can have (review round 1, B1). Neither of
+        // today's two callers uses the options form; a future one may.
         const callback = args[args.length - 1] as (
           tx: postgresType.TransactionSql,
         ) => Promise<unknown>;
-        return target.begin(async (tx) => {
+        const leading = args.slice(0, -1);
+        const wrapped = async (tx: postgresType.TransactionSql): Promise<unknown> => {
           const result = await callback(tx);
           await poison(tx);
           return result;
-        });
+        };
+        return (target.begin as (...forwarded: unknown[]) => Promise<unknown>)(
+          ...leading,
+          wrapped,
+        );
       };
     },
   });
