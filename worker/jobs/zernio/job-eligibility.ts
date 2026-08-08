@@ -18,7 +18,8 @@ import {
   checkSubscription,
   type AccountFlagsInput,
 } from '../../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxCompletedWithReason } from '../../../src/lib/shared/outbox';
+import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
 import {
   importConsentStateSql,
   type ImportConsentState,
@@ -173,6 +174,20 @@ type ImportConsentBlockReason = ImportConsentState | 'missing';
  * Tenant scope: `b.id` alone, no `account_id`. The backfill payload carries no
  * account id, and `businesses.id` IS the tenant key — `guardZernioJobEligibility`
  * above binds exactly the same way.
+ *
+ * THE REFUSAL IS DURABLE, NOT JUST LOGGED (#695). The completed row carries
+ * `completion_reason = 'import_consent_blocked'`, so a policy refusal is
+ * separable by SQL from a genuine completed import — previously the only trace
+ * was the log line above plus the ABSENCE of a `zernio_backfill_runs` row.
+ *
+ * ONE marker covers all four refusal states, and it proves only THAT a refusal
+ * happened, not which state caused it. The state at refusal time lives in the log
+ * line above and NOWHERE else: reading `businesses` afterwards can disagree (a
+ * `pending` refusal whose owner later accepts) or find nothing at all (the
+ * `missing` case). That is the deliberate trade — a per-state marker would put a
+ * point-in-time fact in a column readers would inevitably compare against current
+ * state. Nothing reads the marker in code — no poller, no alert — because a
+ * refusal is this guard working correctly (ADR 0016).
  */
 export async function guardImportConsent(sql: Sql, input: {
   businessId: string;
@@ -197,7 +212,9 @@ export async function guardImportConsent(sql: Sql, input: {
       reason,
       business_id: businessId,
     });
-    await markOutboxCompleted(tx, outboxId, attempt);
+    await markOutboxCompletedWithReason(
+      tx, outboxId, OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, attempt,
+    );
     return { kind: 'skipped' };
   });
 }
