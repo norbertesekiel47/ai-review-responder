@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { SKIP_REASON_ARCHIVED_LOCATION, type ZernioInitialBackfillPayload } from '../../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
 import type { ZernioReview } from '../../../../src/lib/zernio/types';
 import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
 
@@ -14,6 +15,7 @@ const {
   resetMockSql,
   mkTaggedResult,
   mockMarkOutboxCompleted,
+  mockMarkOutboxCompletedWithReason,
   mockMarkOutboxFailed,
   mockListReviews,
   mockProcessReview,
@@ -34,6 +36,11 @@ const {
     ...createMockSql(),
     mkTaggedResult,
     mockMarkOutboxCompleted: vi.fn(),
+    // #695: the refusal writer. `guardImportConsent` completes a consent-refused
+    // row through THIS one (stamping completion_reason), while every other skip
+    // in this worker still uses the plain writer above — keeping them separate
+    // mocks is what lets a test name which writer ran.
+    mockMarkOutboxCompletedWithReason: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockListReviews: vi.fn(),
     mockProcessReview: vi.fn(),
@@ -50,6 +57,7 @@ const {
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
   markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({
     outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback,
@@ -397,7 +405,14 @@ describe('ZernioBackfillWorker', () => {
     for (const call of mockLogger.log.mock.calls) {
       expect(String(call[0])).not.toContain('subscription_status=missing');
     }
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+    // #695: the refusal is completed through the REASON writer. Naming it (and
+    // asserting the plain writer stayed silent) is the second half of the same
+    // claim the log loop above makes — the eligibility gate's plain-completion
+    // skip never ran, the consent guard owned this row.
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-backfill-1', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
+    );
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   // Reconcile failure → partial counts written, completed_at NOT set, worker
@@ -1169,9 +1184,12 @@ describe('import consent gate (#679)', () => {
     expect(findBackfillInsertCalls()).toHaveLength(0);
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockImportReview).not.toHaveBeenCalled();
-    // Skip-as-success: completed, never failed or thrown.
+    // Skip-as-success: completed, never failed or thrown — and since #695 the
+    // completion carries the durable refusal marker.
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-backfill-1', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
+    );
   });
 
   it('handleZernioBackfill leaves completed_at untouched when consent blocks the run', async () => {
@@ -1184,7 +1202,9 @@ describe('import consent gate (#679)', () => {
     // sentinel, and a consent skip must never consume it.
     expect(findCompletedAtUpdates()).toHaveLength(0);
     expect(findImportCountsCalls()).toHaveLength(0);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-backfill-1', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
+    );
   });
 
   it('handleZernioBackfill blocks a hand-inserted outbox row for a pending business', async () => {
@@ -1199,8 +1219,9 @@ describe('import consent gate (#679)', () => {
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockImportReview).not.toHaveBeenCalled();
     expect(findBackfillInsertCalls()).toHaveLength(0);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(
-      sqlArg, 'outbox-hand-inserted-1', undefined,
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-hand-inserted-1',
+      OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
     );
   });
 
@@ -1215,7 +1236,9 @@ describe('import consent gate (#679)', () => {
 
     expect(findBackfillInsertCalls()).toHaveLength(0);
     expect(mockListReviews).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-backfill-1', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
+    );
 
     // The other half, so the gate cannot be read as "reactivation is blocked":
     // accepted consent still runs the catch-up through its correlation-keyed
@@ -1243,7 +1266,9 @@ describe('import consent gate (#679)', () => {
     expect(mockListReviews).not.toHaveBeenCalled();
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
     expect(mockOpenPhiReviewException).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      sqlArg, 'outbox-backfill-1', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, undefined,
+    );
   });
 
   it('handleZernioBackfill throws on an unsupported tier before reaching the consent guard', async () => {

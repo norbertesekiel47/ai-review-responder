@@ -93,6 +93,44 @@ guard, not an eval, and forcing it red would mean asserting something false.
 
 ---
 
+## D6 — a SIXTH reference site the plan did not enumerate (not an amendment)
+
+**What.** `worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts` — added
+`mockMarkOutboxCompletedWithReason` to the `vi.hoisted` block and to the
+`src/lib/shared/outbox` `vi.mock` factory, and retargeted **six** consent-refusal
+assertions onto the reason writer. In surface (`worker/jobs/zernio/__tests__/**`),
+so no amendment is consumed; the budget stays at 1 of 2.
+
+**Why.** Task 1 enumerated **five** test files. This is the sixth, and the whole-repo
+`pnpm test` gate row is what found it — the branch went RED with
+`No "markOutboxCompletedWithReason" export is defined on the … mock`. Nothing in the
+targeted per-suite runs T1/T2/T3 each performed could have caught it: every one of
+them ran only the five planned files.
+
+**Why it is the round-1 blocker's exact class, recurring.** Round 1 caught that
+`markOutboxOwnerUnreachable` had a second reference in the failover poller's
+integration suite (D1). The lesson recorded there was "count the references." It got
+applied to the *deleted symbol* and not to the *changed call site*: `guardImportConsent`
+swapping writers breaks any suite that mocks the outbox module and asserts on the old
+writer, which is a different search than "who imports the deleted symbol." A grep for
+`markOutboxOwnerUnreachable` finds D1's file; only a grep for
+`vi.mock(.*shared/outbox` finds this one.
+
+**Not a production defect.** Purely a mocking artifact — an incomplete mock factory
+plus assertions naming the superseded writer. Production behavior was already pinned
+by the 14 promised tests including five against live Postgres, and is unchanged. The
+fix additionally asserts `mockMarkOutboxCompleted` was NOT called on the
+missing-business path, which pins that a refusal does not double-complete (the reason
+writer owns the row alone) — matching `job-eligibility.test.ts`'s length-1
+`completionCalls` pins.
+
+**29 plain-writer assertions in that file were deliberately left alone** — the
+`accepted` paths and all three `guardZernioJobEligibility` skips legitimately keep
+`completion_reason` NULL, which is an explicit intake non-goal. Retargeting one of
+those would have masked a regression.
+
+---
+
 ## D4 — estimates deliberately NOT raised
 
 D3 adds ~60 test lines beyond the locked `estimated_test_lines` of ±225. The estimate
