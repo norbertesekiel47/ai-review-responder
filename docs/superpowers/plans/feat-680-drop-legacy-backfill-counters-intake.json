@@ -62,7 +62,7 @@
     "The ZernioBackfillWorker LEGACY_COUNTER_COLUMNS guards are KEPT and retargeted, not deleted. Owner-approved 2026-08-08, reversing the grilling decision. Rationale: the worker suite is mock-sql based, so a reintroduced legacy column name is invisible to it; the original 'it would be a hard 42703' argument is the reason to keep the guard, since failing in CI beats failing in production."
   ],
   "tests_to_add": [
-    "migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs",
+    "migration 103 executable SQL is exactly a bounded lock, a pinned search_path, the preflight guard, and the four legacy-column DROPs",
     "migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop",
     "migration 103 preflight raises when a legacy-work row disagrees with its collapsed counters",
     "migration 103 preflight passes matching pre-#675 rows and post-#675 zero-legacy rows",

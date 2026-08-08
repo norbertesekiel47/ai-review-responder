@@ -74,8 +74,10 @@ New suite — seven tests, titles VERBATIM from the intake.
 **A. Statement-level assertions over the migration text** (no DB; 094/102 idiom — local
 `const executableSql = sql.replace(/--.*$/gm, '')` so header prose is never mistaken for a statement):
 
-1. `migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs`
-   — **the plan-review BLOCKER (F1), restructured after F11.** Final-state introspection alone
+1. `migration 103 executable SQL is exactly a bounded lock, a pinned search_path, the preflight guard, and the four legacy-column DROPs`
+   — **the plan-review BLOCKER (F1), restructured after F11.** (Title corrected after F19: the F13
+   fix added a fourth statement, and the previous title enumerated only three while claiming
+   "exactly" — an inaccurate locked title is exactly the drift these titles exist to prevent.) Final-state introspection alone
    cannot catch a migration that drops the columns *and* erases surviving counter values, nor
    distinguish 103 from a hand-dropped database — so the migration's executable text must be
    constrained directly.
@@ -176,15 +178,30 @@ explicit Rollback paragraph); `101_import_decision_three_valued_check.sql` (pref
 Body — exactly **four** statements, in this order (test 1 pins the whole text):
 
 1. `SET lock_timeout = '5s';`
-2. `SET LOCAL search_path = public, pg_temp;` — added after plan-review F13. Postgres searches the
-   session's temporary schema **first** for relations unless `pg_temp` is placed explicitly, so
-   without this a same-name temp table would make `to_regclass`, the guard's unqualified `FROM`, and
-   the unqualified `ALTER` all target the temp table: 103 would report success while leaving
-   `public.zernio_backfill_runs` untouched and unreconciled. Practically unreachable — a migration
-   applies in a fresh session — but the plan previously asserted "resolves to `public` in a real
-   apply" *unconditionally*, and this statement is what makes that claim true **by construction
-   rather than by assumption**. It does not disturb T1 tests 3–4, which extract and execute only the
-   `DO` block and set their own `search_path`.
+2. `SET search_path = public, pg_temp;` — added after plan-review F13, **session-level, NOT
+   `SET LOCAL`** (corrected after F18). Postgres searches the session's temporary schema **first**
+   for relations unless `pg_temp` is placed explicitly, so without this a same-name temp table would
+   make `to_regclass`, the guard's unqualified `FROM`, and the unqualified `ALTER` all target the
+   temp table: 103 would report success while leaving `public.zernio_backfill_runs` untouched and
+   unreconciled. Practically unreachable — a migration applies in a fresh session — but the plan
+   previously asserted "resolves to `public` in a real apply" *unconditionally*, and this statement
+   is what makes that claim true **by construction rather than by assumption**.
+
+   **Why session-level and not `SET LOCAL`** (F18): `SET LOCAL` outside a transaction block is a
+   no-op that only emits a warning, and this repo applies migrations with plain
+   `psql -v ON_ERROR_STOP=1 -q -f "$migration"` (`scripts/test-db-setup.sh:53`) — no
+   `--single-transaction`, and no migration carries its own `BEGIN`/`COMMIT`. Every statement
+   autocommits separately, so a `SET LOCAL` here would not govern the later `DO` and `ALTER` at all,
+   leaving F13 unfixed while *looking* fixed. Session-level `SET` is also the house precedent: 099,
+   100, 101 and 102 all use bare `SET lock_timeout = '5s'`.
+
+   **Consequence to state in the header:** a session-level `SET` persists for the rest of that psql
+   session. `test-db-setup.sh` invokes psql once per migration so it cannot leak there, and 103 is
+   head today; a future migration sharing a session would inherit `public, pg_temp`, which is a sane
+   search_path for every migration in this repo but should not be silently relied upon.
+
+   Neither form disturbs T1 tests 3–4, which extract and execute only the `DO` block and set their
+   own `search_path`.
 3. An **executable fail-closed preflight guard** (`DO $$ … $$`) — owner-approved 2026-08-08 after
    plan-review F2, replacing the originally-locked "manual query documented in the header". It is
    existence-guarded on `gap_processed_count` so the migration stays re-runnable after the DROP, and
