@@ -78,7 +78,15 @@
     "docs/currents.md",
     "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "src/components/dashboard/__tests__/**",
+    "src/lib/reviews/process-review.ts",
+    "worker/jobs/publisher/ResponsePublisherWorker.ts",
+    "worker/jobs/publisher/failed-hook.ts",
+    "src/app/api/dashboard/past-replies/**",
+    "scripts/ci/process-env-baseline.ts",
+    ".claude/reference/review-ingestion.md",
+    ".claude/reference/lab-notes.md"
   ],
   "tests_to_add": [
     "loadPastRepliesPageView returns never-replied reviews as unanswered rows",
@@ -117,7 +125,20 @@
     "PastReplyCard renders Regenerate with the remaining regeneration count for an answered review",
     "PastReplyCard disables Regenerate at three of three today",
     "PastReplyCard renders a Draft ready cross-link and no Generate for a review with a pending draft",
-    "ReviewsTabs renders the All Reviews tab unconditionally"
+    "ReviewsTabs renders the All Reviews tab unconditionally",
+    "persistResponseAndNotify keeps an on_demand_generate v1 draft owner-only when AUTO_APPROVAL_ENABLED is true even if suppress_notification is false",
+    "POST generate serializes two simultaneous clicks for one review and commits exactly one generate_response job",
+    "Generate racing live-ingest regeneration for the same unanswered review leaves exactly one in-flight generate_response version",
+    "loadPastRepliesPageView returns each orphan review exactly once as recover and never as generate",
+    "consecutive Reviews-list pages are disjoint and each contains at most PAGE_SIZE unique reviews, including orphan recovery rows",
+    "Reviews-list pagination uses review_id as a deterministic tie-breaker when review dates are equal",
+    "GET draft-status returns 404 without querying draft text for a review owned by another account",
+    "GET draft-status returns generating, ready, failed, and idle from the authoritative review state",
+    "GET draft-status resumes a draft in another active location owned by the same account regardless of current-location cookie",
+    "GET draft-status never returns response_text or ready for a moderation-held response",
+    "PastReplyCard leaves Regenerate enabled and hides the counter when the budget map has no entry",
+    "discarding a v1 Generate draft retains it and the next POST generate enqueues v2",
+    "EDIT_REPLIES_ENABLED alone preserves stale-marking, edit-publish dispatch, and orphan conversion after view-flag retirement"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "900",

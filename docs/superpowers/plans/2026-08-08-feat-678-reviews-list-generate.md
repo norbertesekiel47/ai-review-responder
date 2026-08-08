@@ -29,7 +29,7 @@
 
 These were resolved in this session's grilling; they are contract, not suggestion.
 
-**D-A — The Generate door lives at `api/dashboard/reviews/[reviewId]/generate`.** Beside `/regenerate` and `/approve`, using `requireDashboardReviewOwner` + `withSameOrigin`. C3's "third caller of `enforceDashboardRegenRateLimit`" then reads literally. Its in-transaction body mirrors `past-replies/draft/route.ts` **inline** (that file is the named precedent and keeps its tx body inline at 254 lines) — do **not** extract a `src/lib/responses/on-demand-generate.ts` module: one caller, and `src/lib/responses/**` is outside the allowed edit surface.
+**D-A — The Generate door lives at `api/dashboard/reviews/[reviewId]/generate`.** Beside `/regenerate` and `/approve`, using `requireDashboardReviewOwner` + `withSameOrigin`. C3's "third caller of `enforceDashboardRegenRateLimit`" then reads literally. Its in-transaction body mirrors `past-replies/draft/route.ts` **inline** (that file is the named precedent and keeps its tx body inline at 253 lines) — do **not** extract a `src/lib/responses/on-demand-generate.ts` module: one caller, and `src/lib/responses/**` is outside the allowed edit surface.
 
 **D-B — Version comes from `COALESCE(MAX(version),0)+1`, never hardcoded `1`.** C1's self-arming depends on it: discarding a draft sets `status='superseded'` and **retains the row** (verified in `past-replies/draft/[responseId]/route.ts`), so `MAX(version)` is preserved and the next Generate is version ≥ 2 and charged. Hardcoding `1` would create an unbounded free-regeneration loop.
 
@@ -595,7 +595,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) pending_gen ON true
 WHERE r.business_id = ${locationId}
-ORDER BY (resp.id IS NOT NULL), r.review_date DESC
+ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC
 LIMIT ${PAGE_SIZE} OFFSET ${offset}
 ```
 
@@ -623,7 +623,7 @@ SELECT AVG(r.star_rating)::float AS avg FROM reviews r WHERE r.business_id = ${l
 
 `totalPages = Math.max(1, Math.ceil((unansweredTotal + answeredTotal) / PAGE_SIZE))` — now a true denominator over all reviews, so the tail pages of a fresh import are reachable.
 
-The orphan query keeps its `NOT EXISTS` posted-sibling exclusion **unchanged** — it is what guarantees zero `review_id` overlap with the main query, and that guarantee is now load-bearing for grouping as well as de-dup.
+**F3 (plan review round 1, High) — the orphan query must MOVE with the JOIN.** Its `NOT EXISTS` clause guaranteed disjointness only because the main query INNER JOINed `posted`. Under `LEFT JOIN` the main query returns *every* review, so each orphan review would appear **twice** — once as `generate`, once as `recover` — and its un-offset `LIMIT 50` would merge into *every* page. Fix: the main query becomes the **single row source**. Fold the orphan recovery data in as a third LATERAL (most-recent `post_after_delete_failed_*` sibling) and delete the separate orphan query and its merge. `deriveRowState` then reads `is_orphan` from that LATERAL instead of from caller discipline, which also closes the plan's own self-declared "known gap".
 
 - [ ] **Step 3: Rename the returned view fields**
 
@@ -898,3 +898,95 @@ git add -A && git commit -m "feat(#678): retire PAST_REPLIES_VIEW_ENABLED; Histo
 **Type consistency.** `ReviewRowState`, `ProvenanceBadge`, `deriveRowState`, `provenanceBadge`, `groupReplies`, `peekRegenBudgetBatch`, `PastRepliesPageView`'s four renamed fields, and the route error strings (`review_not_found`, `already_answered`, `draft_already_exists`, `regenerate_in_progress`, `rate_limited`, `regen_limit_reached`) are spelled identically in every task that mentions them.
 
 **Known gap for the reviewer:** T4's `is_orphan` input to `deriveRowState` is set by the caller (orphan rows come from a separate query, not a column) — T5's mapper must pass `is_orphan: true` for `toOrphanCardRow` and `false` for `toCardRow`. That is the one place the discriminant depends on caller discipline rather than data.
+
+---
+
+# Round-1 revisions (apply before executing)
+
+Plan review round 1 returned `VERDICT: REVISE` — 9 findings, all accepted.
+Full triage: `docs/reviews/feat-678-reviews-list-generate/plan-round1.md`.
+Owner decisions on the two that needed one: `…-deviations.md` D1, D2.
+
+Already patched into the tasks above: **F3** (orphan query folded into the main
+query as a third LATERAL — Task 4), **F7** (`, r.id DESC` tie-breaker — Task 4),
+**D5** (`generate-draft.ts:107`, not `:106`).
+
+Apply the rest as follows.
+
+## F1 — the property test must exercise production (Task 1 / Task 2)
+
+The two `fast-check` properties stay (they satisfy the property-test-per-invariant
+requirement and are cheap regression on the lane *set*), but they are **no longer
+the primary evidence** — a hand-copied predicate drifts from `persist.ts`. Add a
+test through the real `persistResponseAndNotify`:
+
+`persistResponseAndNotify keeps an on_demand_generate v1 draft owner-only when AUTO_APPROVAL_ENABLED is true even if suppress_notification is false`
+
+Assert: `approval_method` stays null, **no** `publish_response` outbox row, **no**
+auto-policy audit row, and the candidate-only policy evaluation is skipped.
+Passing `suppress_notification: false` is deliberate — it isolates `origin_lane`
+as the guard actually under test.
+
+## F5 — moderation-held drafts must not surface (Task 3 + Task 4)
+
+**Invariant #4.** A high-severity moderated draft stays `pending_approval` with an
+open `flagged_responses` row. As drafted, the poller returns *any* non-terminal
+response as `ready` **with its text**, and the list renders `Draft ready` — both
+surface held content and offer `Approve & post`.
+
+Use `hasOpenFlag` (`src/lib/moderation/held-draft.ts`) — already the owner of this
+fact and already imported by `http-routes.ts`. In the poller, a held response
+returns `{ status: 'idle' }` (never `ready`, never `response_text`). In the list
+query, a held response must not produce `draft_ready`; it groups as unanswered
+with no affordance, since the owner's only path is admin re-notification.
+
+New title: `GET draft-status never returns response_text or ready for a moderation-held response`
+
+## F4 — poller titles (Task 1)
+
+Three titles were added to `tests_to_add` (see D3). Task 3's "the poller titles"
+previously referred to titles that did not exist — the #643 fabricated-citation
+class. The third title pins the **intended** authorization model: same-account
+sibling-location access is correct, not a leak; only cross-account is a leak.
+
+## F6 — fail-open at the consumer (Task 7)
+
+New title: `PastReplyCard leaves Regenerate enabled and hides the counter when the budget map has no entry`.
+A missing map entry means **unknown**, never **0 remaining** — inverting that
+disables every Regenerate button during a Redis outage.
+
+## F2 — the race (Task 3, test only)
+
+Add the two serialization titles plus the live-ingest race title. **Do not fix
+`process-review.ts` here** — owner deferred to #680 (deviations D2). The file is
+in-surface for the flag rename only.
+
+## F8 — flags.ts truly collapses (Task 8, amendment #1)
+
+Surface widened (deviations D1). One function survives:
+
+```ts
+export function editRepliesEnabled(): boolean {
+  return readFlag('EDIT_REPLIES_ENABLED');
+}
+```
+
+`replyEditingFlagEnabled` and `pastRepliesViewEnabled` are both **deleted**.
+Rename the six call sites: `process-review.ts`, `ResponsePublisherWorker.ts`,
+`failed-hook.ts` (these three called the raw-flag name) and the three
+`past-replies` routes (`draft-status`, `draft/[responseId]`,
+`_shared/edit-reply-request.ts`). Zero behaviour change — with the view flag gone
+the composite and the raw read are the same predicate.
+
+Also sweep the live non-`docs/` references codex found: `.claude/reference/review-ingestion.md`,
+`.claude/reference/lab-notes.md`, `scripts/ci/process-env-baseline.ts`. **Leave
+historical plans and completed runbooks alone** — they are history, not
+cross-references to fix.
+
+New title: `EDIT_REPLIES_ENABLED alone preserves stale-marking, edit-publish dispatch, and orphan conversion after view-flag retirement`
+
+## F9 — C1 through the real chain (Task 3)
+
+`discarding a v1 Generate draft retains it and the next POST generate enqueues v2`
+must run against live Postgres. A mocked `MAX(version)=2` passes vacuously and
+proves nothing about the retention behaviour C1 depends on.
