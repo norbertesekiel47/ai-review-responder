@@ -282,3 +282,51 @@ conversion therefore belongs at the `load-replies.ts` seam, which T6 Step 2
 already owns.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D13 — Task 4 cannot land green: `ci:tenant-scope` needs an allowlist edit outside the surface
+
+**Trigger:** T4 execution. Rewriting the four `load-replies.ts` queries makes
+`pnpm ci:tenant-scope` fail with **11 findings**, and every one of them can only
+be cleared by editing `scripts/ci/tenant-scope-allowlist.ts` — a file that is
+**not** in `allowed_edit_surface` and that neither the plan nor the intake
+mentions. `scripts/verify-gate.sh` runs every `ci:*` script, so this blocks the
+verify gate for the whole branch, not just T4.
+
+**Why it is not avoidable by writing better SQL.** The allowlist is keyed on the
+**exact normalized SQL text**, so changing a query orphans its entry and
+`findUnusedAllowlistEntries` fires — 8 of the 11 findings are *unused* entries for
+SQL that no longer exists. Even a hypothetically perfectly-scoped rewrite would
+still leave those 8 red. The remaining 3 are new `responses` findings the audit
+cannot resolve on its own: `responses` is reached through a `LEFT JOIN` and
+through `NOT EXISTS` / `EXISTS` subqueries that `stripSelectSubqueries` removes
+before predicate analysis, so no bound `business_id` predicate is visible to it.
+Restructuring the counts as a `LEFT JOIN … IS NULL` anti-join would satisfy the
+audit but is forbidden: the locked eval discriminates the two counts on
+`/NOT\s+EXISTS/` (`reviews-list.test.ts:104`).
+
+**The exact required patch** (deterministic; verified against the audit output):
+
+- **Delete the 8 stale entries** for `src/lib/past-replies/load-replies.ts` —
+  the two activation-split COUNTs (`responses` + `reviews`), the posted-only
+  `AVG`, the old posted-JOIN main query, and the two for the now-deleted orphan
+  query.
+- **Add 3 entries**, all `file: "src/lib/past-replies/load-replies.ts"`,
+  `table: "responses"`, `category: 'tenant-root-lookup'`, reusing the existing
+  reason string: one for the new LEFT-JOIN + four-LATERAL main query, one for the
+  `NOT EXISTS` unanswered count, one for the `EXISTS` answered count. The new
+  `AVG` query needs **no** entry — it no longer joins `responses`, so
+  `r.business_id = ${locationId}` scopes it outright, which is a small net
+  reduction in exempted surface.
+- **`ALLOWLIST_BASELINE` 414 → 409.**
+
+**Not done here.** T4 left the file untouched: `scripts/ci/tenant-scope-allowlist.ts`
+is outside the fence, and D1 already spent amendment 1 of 2 — spending the last
+one is an owner-level call, not a subagent's. Deciding whether this counts as a
+*surface amendment* at all is the open question: it is CI bookkeeping the audit
+itself demands whenever a scoped query changes, not production code or docs, and
+the same edit will be required again by any future task that touches these
+queries (T6 does not — it appends a field, not a query).
+
+**Verdict:**
