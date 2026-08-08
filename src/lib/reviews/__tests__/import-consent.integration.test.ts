@@ -175,49 +175,6 @@ async function clearRuns(): Promise<void> {
   await sql()`DELETE FROM zernio_backfill_runs WHERE business_id = ${businessId}::uuid`;
 }
 
-// ── Analytics fixtures (#679 T2) ────────────────────────────────────────────
-//
-// `import_offer_created` / `import_decision_recorded` were deferred out of #677
-// (deviations D7) because they need the analytics_events.event_name CHECK
-// extended, which needed a migration that ticket's non-goals forbade. They are
-// emitted from INSIDE the two writers — never from their callers — for the same
-// reason `recordSuppression` does: moving them out repeats the event key, the
-// properties and the "only when actually written" condition at three
-// createImportOffer sites.
-
-interface AnalyticsRow {
-  event_key: string;
-  event_name: string;
-  account_id: string | null;
-  distinct_id: string;
-  properties: unknown;
-}
-
-/** Postgres.js + PgBouncer can hand JSONB back as a string (CLAUDE.md gotcha). */
-function analyticsProperties(row: AnalyticsRow): Record<string, unknown> {
-  const { properties } = row;
-  return (
-    typeof properties === 'string' ? JSON.parse(properties) : properties
-  ) as Record<string, unknown>;
-}
-
-async function readAnalytics(
-  eventName: 'import_offer_created' | 'import_decision_recorded',
-  exec: postgresType.Sql | postgresType.TransactionSql = sql(),
-): Promise<AnalyticsRow[]> {
-  return exec<AnalyticsRow[]>`
-    SELECT event_key, event_name, account_id, distinct_id, properties
-    FROM analytics_events
-    WHERE account_id = ${tenant!.accountId}::uuid
-      AND event_name = ${eventName}
-    ORDER BY event_key
-  `;
-}
-
-async function clearAnalytics(): Promise<void> {
-  await sql()`DELETE FROM analytics_events WHERE account_id = ${tenant!.accountId}::uuid`;
-}
-
 /** Evaluate the composable predicate the way a real consumer would. */
 async function derivedState(): Promise<ImportConsentState | null> {
   const [row] = await sql()<{ state: ImportConsentState }[]>`
@@ -831,209 +788,20 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
     }
   });
 
-  // ── #679 T2: the two Import offer analytics events ──────────────────────────
+  // ── #679 T2 LIVES NEXT DOOR ─────────────────────────────────────────────────
   //
-  // The offer-created → decision-recorded ratio is the offer-to-answer churn
-  // signal #677's intake named and D7 deferred here (`observability` item 2).
-  // Both events are emitted from INSIDE the writing transaction, so an event
-  // can never outlive the fact it reports.
+  // The eight Import offer analytics titles are in
+  // `import-consent-analytics.integration.test.ts`, moved there in review round
+  // 1: they are a distinct feature slice, they pushed this file past 1000
+  // lines, and one of them deliberately aborts a transaction — a blast radius
+  // worth keeping out of the suite that owns the predicate, the offer and the
+  // F3 transition.
   //
-  // These titles are LIVE because every property that matters is a transaction
-  // boundary or an ON CONFLICT: a mocked `sql` tag can prove the call was made
-  // and nothing else.
-
-  it('createImportOffer records import_offer_created in the same transaction', async () => {
-    await atJunction();
-    await setConsent({ decision: 'pending', expiresAtSql: null });
-    await clearAnalytics();
-
-    const seen = await sql().begin(async (tx) => {
-      const result = await createImportOffer(tx, businessId, tenant!.accountId);
-      // Read INSIDE the same transaction. Reading after the commit would pass
-      // just as well for an emission that used the OUTER `sql` handle and
-      // therefore committed independently of the offer write.
-      return { result, rows: await readAnalytics('import_offer_created', tx) };
-    });
-
-    expect(seen.result).toBe('created');
-    expect(seen.rows).toHaveLength(1);
-    const event = seen.rows[0]!;
-    // distinct_id is the account id, matching every other account-scoped event.
-    expect(event.distinct_id).toBe(tenant!.accountId);
-    expect(event.account_id).toBe(tenant!.accountId);
-    expect(analyticsProperties(event)).toEqual({ window_days: IMPORT_OFFER_WINDOW_DAYS });
-  });
-
-  it('createImportOffer records no analytics event when the offer already exists', async () => {
-    // The idempotent re-entry. `createImportOffer` runs on EVERY dashboard mount
-    // through the GET self-heal, so an emission on the `unchanged` branch would
-    // re-mint an offer-created event on every render and destroy the ratio the
-    // event exists to measure.
-    await atJunction();
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '6 days'" });
-    await clearAnalytics();
-
-    const seen = await sql().begin(async (tx) => {
-      const result = await createImportOffer(tx, businessId, tenant!.accountId);
-      return { result, rows: await readAnalytics('import_offer_created', tx) };
-    });
-
-    expect(seen.result).toBe('unchanged');
-    expect(seen.rows).toHaveLength(0);
-  });
-
-  it('recordImportDecisionAndEnqueue records import_decision_recorded on an accepted decision', async () => {
-    await atJunction();
-    await clearRuns();
-    await clearOutbox();
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
-    await clearAnalytics();
-
-    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
-      .toBe('recorded');
-
-    const rows = await readAnalytics('import_decision_recorded');
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.distinct_id).toBe(tenant!.accountId);
-    expect(analyticsProperties(rows[0]!)).toEqual({ decision: 'accepted' });
-  });
-
-  it('recordImportDecisionAndEnqueue records import_decision_recorded on a declined decision', async () => {
-    // A decline is an ANSWER, not a rejection: it is the denominator half of the
-    // churn ratio, and it takes the early-return branch before the enqueue — the
-    // branch an emission placed next to `enqueueInitialImport` would miss.
-    await atJunction();
-    await clearRuns();
-    await clearOutbox();
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
-    await clearAnalytics();
-
-    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'declined'))
-      .toBe('recorded');
-
-    const rows = await readAnalytics('import_decision_recorded');
-    expect(rows).toHaveLength(1);
-    expect(analyticsProperties(rows[0]!)).toEqual({ decision: 'declined' });
-    expect(await outboxCount()).toBe(0);
-  });
-
-  it('recordImportDecisionAndEnqueue records no analytics event when the decision is rejected', async () => {
-    // All three rejection classes, because the value of the event is that its
-    // count equals the number of decisions that actually landed.
-    await atJunction();
-    await clearRuns();
-
-    const cases: Array<{ rejection: string; arrange: () => Promise<void> }> = [
-      { rejection: 'no_offer', arrange: () => setConsent({ decision: 'pending', expiresAtSql: null }) },
-      {
-        rejection: 'expired',
-        arrange: () => setConsent({ decision: 'pending', expiresAtSql: "now() - interval '1 second'" }),
-      },
-      {
-        rejection: 'already_answered',
-        arrange: () => setConsent({
-          decision: 'declined',
-          expiresAtSql: "now() + interval '3 days'",
-          decidedAtSql: 'now()',
-        }),
-      },
-    ];
-
-    for (const testCase of cases) {
-      await testCase.arrange();
-      await clearOutbox();
-      await clearAnalytics();
-
-      expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
-        .toBe(testCase.rejection);
-
-      expect(await readAnalytics('import_decision_recorded'), testCase.rejection).toHaveLength(0);
-    }
-  });
-
-  it('recordImportDecisionAndEnqueue rolls back import_decision_recorded when the decision transaction aborts', async () => {
-    // THE EXECUTOR-IDENTITY BUG, pinned BEHAVIOURALLY. `recordImportDecision-
-    // AndEnqueue` has both `sql` and `tx` in scope; an emission written against
-    // the outer `sql` passes every happy-path test above while COMMITTING
-    // independently of a decision that later rolls back — a recorded decision
-    // that never happened. Observing a committed event after a successful call
-    // cannot tell the two apart, so force the abort instead.
-    await atJunction();
-    await clearRuns();
-    await clearOutbox();
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
-    await clearAnalytics();
-
-    // A deferred CHECK that rejects the import topic makes the enqueue raise
-    // INSIDE the acceptance transaction, without touching production code.
-    await sql().unsafe(`
-      ALTER TABLE job_outbox ADD CONSTRAINT tmp_block_import_topic_analytics
-        CHECK (topic <> 'zernio_initial_backfill') NOT VALID
-    `);
-    try {
-      await expect(
-        recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'),
-      ).rejects.toThrow();
-    } finally {
-      await sql().unsafe('ALTER TABLE job_outbox DROP CONSTRAINT tmp_block_import_topic_analytics');
-    }
-
-    expect(await readAnalytics('import_decision_recorded')).toHaveLength(0);
-    // And the decision itself did not survive either — the event and the fact
-    // it reports live and die together.
-    expect((await readRaw()).import_decision).toBe('pending');
-    expect(await outboxCount()).toBe(0);
-  });
-
-  it('import_offer_created uses a business-scoped event key so a replayed offer mints once', async () => {
-    // Both events are at-most-once per business by construction (the offer write
-    // requires a NULL deadline; the decision write requires `pending`), so the
-    // key needs no discriminator — and a replay must drop on
-    // `ON CONFLICT (event_key) DO NOTHING` rather than double-count.
-    await atJunction();
-    await setConsent({ decision: 'pending', expiresAtSql: null });
-    await clearAnalytics();
-
-    expect(await sql().begin((tx) => createImportOffer(tx, businessId, tenant!.accountId)))
-      .toBe('created');
-    const first = await readAnalytics('import_offer_created');
-    expect(first).toHaveLength(1);
-    expect(first[0]!.event_key).toContain(businessId);
-
-    // The replay: the deadline is cleared and the offer written a second time.
-    // The WRITE succeeds again; the EVENT must not.
-    await setConsent({ decision: 'pending', expiresAtSql: null });
-    expect(await sql().begin((tx) => createImportOffer(tx, businessId, tenant!.accountId)))
-      .toBe('created');
-
-    const after = await readAnalytics('import_offer_created');
-    expect(after).toHaveLength(1);
-    expect(after[0]!.event_key).toBe(first[0]!.event_key);
-  });
-
-  it('import_decision_recorded uses a business-scoped event key so a replayed decision mints once', async () => {
-    await atJunction();
-    await clearRuns();
-    await clearOutbox();
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
-    await clearAnalytics();
-
-    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
-      .toBe('recorded');
-    const first = await readAnalytics('import_decision_recorded');
-    expect(first).toHaveLength(1);
-    expect(first[0]!.event_key).toContain(businessId);
-
-    // The replay: the row is put back to `pending` and answered again. Nothing
-    // in production does this, which is the point — the key, not the caller, is
-    // what makes the count right.
-    await setConsent({ decision: 'pending', expiresAtSql: "now() + interval '3 days'" });
-    await clearOutbox();
-    expect(await recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'))
-      .toBe('recorded');
-
-    const after = await readAnalytics('import_decision_recorded');
-    expect(after).toHaveLength(1);
-    expect(after[0]!.event_key).toBe(first[0]!.event_key);
-  });
+  // Nothing here depends on migration 102. Both writers still EMIT on the paths
+  // exercised above, but each emission runs in its own savepoint
+  // (`emitConsentEvent`), so a database whose `analytics_events_event_name_check`
+  // does not admit the two names under-counts silently rather than failing
+  // anything in this file. The suite next door, which ASSERTS those rows,
+  // carries the explicit precondition instead
+  // (`assertAnalyticsEventNamesRegistered`).
 });

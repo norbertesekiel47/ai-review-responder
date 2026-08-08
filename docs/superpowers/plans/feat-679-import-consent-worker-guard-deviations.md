@@ -551,3 +551,126 @@ and the GET self-heal in `src/app/api/dashboard/import-offer/route.ts`.
 
 Scope: one file. Tests were deliberately NOT touched — a follow-up agent owns the
 test for this behaviour.
+
+---
+
+## 2026-08-07 — round-1 review remediation (standards axis, one High + two Medium)
+
+### D27 — [2026-08-07] the run-time DDL is gone; the abort now comes from Postgres, through a `Proxy` over a real `Sql`
+
+FINDING (High, `import-consent.integration.test.ts:969-979`). "…rolls back
+import_decision_recorded when the decision transaction aborts" forced its abort by
+adding a temporary CHECK constraint to `job_outbox` and dropping it in a `finally`.
+A vitest **timeout skips the `finally`**, stranding the constraint on the shared
+container and breaking every sibling suite that enqueues `zernio_initial_backfill`
+— already observed as 14 spurious failures across three suites (D20). It also took
+ACCESS EXCLUSIVE on the most contended relation in the live-DB set from a suite
+that is not migration-shape and holds no cross-process lock, and the file header
+claimed the opposite in the same breath.
+
+REPLACEMENT — evaluated against the review's §2 proposal rather than adopted from
+it. §2 proposed a `Proxy` whose `begin` runs the writer's callback and then throws
+a **JS** `ForcedAbort`. Rejected on the ground D26 already established with a live
+demonstration: a plain JS throw does not poison a Postgres transaction, so a test
+built on one proves nothing about a transaction that is actually in aborted state
+— the state the real hazard produces. The `Proxy` itself was kept (it is what
+keeps the test typed against the shipped `Sql` instead of D22's local restatement,
+and a `get`-only trap forwards the tagged-template call form untouched); what
+changed is what it does at the end of the callback. It issues **real SQL on the
+writer's own connection**: an `analytics_events` INSERT whose `business_id` points
+at a uuid that does not exist, tripping `analytics_events_business_id_fkey` —
+SQLSTATE **23503**, the same in-transaction constraint class as the `23514` this
+test stands in for, and the same injection D26 used. No schema change, no ACCESS
+EXCLUSIVE lock, and nothing left behind on pass, fail or timeout.
+
+The assertion tightened with it: `.rejects.toThrow()` → `.rejects.toMatchObject({
+code: '23503' })`. That is load-bearing, not decoration — a bare `toThrow()` would
+be satisfied by the lock-timeout error the mutation produces, and the mutation
+would go green.
+
+TWO DETAILS THE SUITE'S CLIENT NOW CARRIES, both for the mutation and neither
+cosmetic. `max: 4` — the outer-`sql` mutation needs a SECOND connection to be
+observable at all; on `max: 1` it queues in JS and reads as an unexplained hang.
+`connection: { lock_timeout: 5_000 }` — that mutated INSERT takes `FOR KEY SHARE`
+on the businesses row through the same FK, against the `FOR UPDATE` the acceptance
+transaction holds on another pooled connection: an application-level deadlock
+Postgres cannot detect. Bounded, the mutation fails in ~5s naming `55P03`;
+unbounded, it fails as a 30s vitest timeout. Nothing on the green path waits on a
+lock, so the bound never fires on a passing run.
+
+MUTATION-VERIFIED. `emitConsentEvent(tx, …)` → `enqueueAnalyticsEvent(sql, …)` (the
+outer handle, unguarded — the exact bug the module header warns about) turns
+**4 of the 8** titles red in ~5s each, including this one, with
+`expected … { code: '23503' }` / `received { code: '55P03' }`. Reverted;
+`git diff src/lib/reviews/import-consent.ts` is empty.
+
+WORTH KNOWING FOR THE NEXT AGENT: the savepoint from D26 makes the *swallowing*
+form of that mutation — routing the outer `sql` through `emitConsentEvent` —
+structurally undetectable, because `sql.savepoint` does not exist and the `catch`
+eats the `TypeError`. The detectable bug is the unguarded one, and that is the one
+the module header names.
+
+### D28 — [2026-08-07] the #679 analytics slice moved to its own suite
+
+FINDING (Medium). Appending eight #679 titles plus their fixtures pushed
+`import-consent.integration.test.ts` from 790 to 1039 lines with a distinct feature
+slice. Moved verbatim to `src/lib/reviews/__tests__/import-consent-analytics.integration.test.ts`
+(1039 → 807 lines / 22 titles in the original, 504 / 8 in the new one), following
+the precedent this branch
+already set with the migration-102 shape suite. All eight titles carried across
+**character-for-character** — verified by grepping each of the intake's 38
+`tests_to_add` entries against the test tree: 38 found, 0 missing, and all eight
+now resolve to the new file. The split also puts the one test that deliberately
+aborts a transaction in a file of its own.
+
+One consequence worth stating: the comments in the new file describe the removed
+constraint pair **without spelling `ALTER TABLE` / `DROP CONSTRAINT`**. Prose is
+not DDL, but the detector §3 of the review proposes for #694 keys on those verbs
+plus `.unsafe(`, and this suite uses `.unsafe(` for ordinary fixture DML — a
+comment quoting the thing it removed would have booked a false positive against
+the audit that is being fixed *because* it misses real ones. `rg -n 'ALTER TABLE|
+CREATE INDEX|DROP CONSTRAINT' src/lib/reviews/__tests__/` is now empty.
+
+### D29 — [2026-08-07] the migration-102 precondition, and where it actually sits
+
+FINDING (Medium). `assertSchemaReady(db, [MIGRATION_100_IMPORT_CONSENT])` never
+grew a migration-102 entry, and 102 correctly exports no `SchemaRequirement` — a
+presence check on a constraint name that has existed since 046 proves nothing.
+
+FIX: `assertAnalyticsEventNamesRegistered(db, MIGRATION_102_IMPORT_CONSENT_EVENTS)`
+in `schema-ready.ts`, beside `assertSchemaReady` and with the same loud,
+`pnpm test:db:setup`-naming failure. It reads `pg_get_constraintdef` for
+`analytics_events_event_name_check` and asserts the DEFINITION admits both names —
+the only proof available for a constraint-replacing migration. Read-only, so like
+its neighbour it can never be the blocking side of a deadlock. Shaped generically
+(`{ migration, eventNames }`) because 094 and 097 have the same structural gap.
+
+WHERE IT LANDED, AND A CORRECTION TO THE FINDING'S REASONING. The review argued
+the precondition now sits on "~10 pre-existing #677 titles" that would fail with an
+opaque `23514`. That was true when the review was written and **is no longer**:
+D26's savepoint (commit `bfac89d4`, after the review) catches the rejection and
+logs a warn, so on a database at 101 those titles pass and the metric silently
+under-counts. The real precondition is on the suites that **assert an event row
+exists** — they fail as "expected length 1, received 0", which is just as opaque
+and is what the assertion now prevents. Applied to exactly those two:
+`import-consent-analytics.integration.test.ts` (all eight titles) and
+`src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts` (the GET
+self-heal title). `import-consent.integration.test.ts` deliberately does NOT carry
+it, and says why in the comment where the slice used to be — asserting a
+precondition a suite does not have is its own small lie.
+
+### Scope note — what was deliberately NOT touched
+
+- `scripts/ci/live-db-suites-audit.ts` (the review's second High). Outside
+  `allowed_edit_surface`, and tightening the detector turns two **pre-existing**
+  suites red. Filed as **#694**, per the orchestrator triage.
+- `src/app/api/dashboard/import-offer/__tests__/route.integration.test.ts:150`
+  keeps its `tmp_block_import_topic` constraint pair. It is the pre-existing fork
+  point this branch copied from, not something #679 introduced; converting it is
+  the natural follow-up once #694 gives the pattern a shared home. This branch
+  fixed its own site.
+- Three failures in `pnpm vitest run src/lib/shared` are pre-existing and
+  environmental (`migration-056-…` sees `account_offboardings` as absent through
+  its own client; `response-status-sql.integration.test.ts` dials `localhost:5432`
+  and gets ECONNREFUSED). Confirmed by stashing this change and re-running: same
+  three, same messages.

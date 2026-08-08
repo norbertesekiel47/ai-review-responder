@@ -39,8 +39,10 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
+  assertAnalyticsEventNamesRegistered,
   assertSchemaReady,
   MIGRATION_100_IMPORT_CONSENT,
+  MIGRATION_102_IMPORT_CONSENT_EVENTS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   createImportOffer,
@@ -100,6 +102,14 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     // max:4 — titles 33 and 61 are races and need genuinely separate sessions.
     db = postgres(testDatabaseUrl!, { max: 4, prepare: false });
     await assertSchemaReady(db, [MIGRATION_100_IMPORT_CONSENT]);
+    // The precondition `assertSchemaReady` structurally cannot carry (#679
+    // review round 1): migration 102 adds no relation, column or index, and its
+    // constraint NAME has existed since 046 — so it correctly exports no
+    // SchemaRequirement. "…self-heal records import_offer_created in the same
+    // transaction" ASSERTS the event row exists; on a database at 101 the
+    // emission is rejected, swallowed by its savepoint, and that title fails as
+    // "expected length 1, received 0" instead of naming the behind-head DB.
+    await assertAnalyticsEventNamesRegistered(db, MIGRATION_102_IMPORT_CONSENT_EVENTS);
     tenant = await seedTenantAccount(db, {
       userName: 'Decision Owner',
       accountDisplayName: 'Decision Account',
