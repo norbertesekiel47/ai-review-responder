@@ -7,7 +7,77 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-07 (Import offer #677 SHIPPED — PR #691, **no migration**: the consented Review import is now **owner-gated end to end**. An **Import offer** is minted server-side at the subscribe+connect junction with a `now() + 7 days` deadline, surfaced by `ImportOfferBanner` through `GET/POST /api/dashboard/import-offer`, and answered once — terminally, first-write-wins. All **four** enqueue producers (connect finalize, Stripe activation resume, reactivation catch-up, the decision route) now gate on `import_decision='accepted'` under the `businesses` row lock and share ONE `enqueueInitialImport`, replacing three hand-copied guards that had already diverged. Absorbs #676. Proven on staging through the browser: self-heal minted a deadline, the junction predicate correctly refused a same-named location with no active connection, accept → enqueue → dispatched in ~3s → `importing` → worker completion with a matching correlation_id, and the re-run stayed insert-only (zero duplicate reviews). **Release constraint UNCHANGED: #679's fail-closed worker pre-flight must land before real customers — enforcement today is at the four producers, not at the chokepoint, so a hand-inserted row still imports without consent (ADR 0015 R2).** Earlier: Consented review import #675 SHIPPED — PR #689, **no migration**: `ZernioBackfillWorker` is now the consented Review import executor — the newest **100** reviews inside the 12-month **Import window**, upper-bounded by the **Live-ingest cutoff** (`connected_at − 5 min`) so lane ownership is disjoint *by construction* and the #674 lost-draft hazard is structurally impossible. Nothing is auto-drafted (zero `job_outbox` writes from the import); answered reviews land as list rows with imported `posted` responses; the gap/historical counter split is dead — collapsed `imported_count`/`skipped_count` only (#680 drops the frozen legacy columns). Pagination is loud: `ZERNIO_IMPORT_MAX_PAGES` cap-out with target unmet fails terminally, never truncates silently. Proven twice on staging (imported=29 skipped=0, dirty-ordering best-effort lane fired live). **Release constraint: #679's fail-closed `import_decision='accepted'` worker pre-flight must land before real customers onboard.** Earlier: Manual suppression paths #645 SHIPPED — PR #659, **migration 098 staging+prod lockstep**: the Suppression ledger is now writable *and fixable* by humans. Admin manual entry (§7.3) and the audited **Correction path** (§8.2) behind AAL2 at `/admin/suppressions`; owner do-not-contact mark/clear (§7.5/§7.6) on `/dashboard/requests/contacts`. A correction is ONE data-modifying CTE, so a removal cannot commit without its audit record — and a blank "why" aborts the whole statement, leaving the opt-out in place. An owner may never clear a `global` row: the control is not rendered at all. Proven end-to-end on staging through the browser. Earlier: Unsubscribe opt-out #644 SHIPPED — PR #654, **no migration**: the Suppression ledger now has its first writer. RFC 8058 one-click ingress on Railway + the `/u/<token>` recipient landing path on Vercel, both live and both proven on staging with `SOLICITATION_SEND_ENABLED` **off** (DR1). Two live pre-existing limiter bypasses closed as side effects — percent-encoded ingress paths and absolute-form request targets — affecting Stripe, Resend, Telegram, Twilio and Zernio alike. `SESSION_COOKIE_SECRET` is now boot-asserted on deployed worker lanes and **deliberately unset on Railway prod** until the Solicitation agent ships; that worker has never successfully deployed, so the gate has nothing to crash-loop. Earlier: Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+Last updated: 2026-08-08 (Import consent worker guard #679 SHIPPED — PR #698, **migration 102 staging+prod lockstep**: the last consent hole in the Review import is closed, and the release constraint #675 and #677 both carried is **DISCHARGED**. `ZernioBackfillWorker` now runs a fail-closed pre-flight — it proceeds only on `import_decision='accepted'`, and `pending`, `declined`, derived `expired` and a missing `businesses` row all no-op-complete with a logged reason, so the admin/hand-inserted path is covered at the one chokepoint every enqueue producer shares (ADR 0015 §3's accepted gap, D8's "admin path included"). Enforcement is no longer producers-only. The guard is a SEPARATE function from `guardZernioJobEligibility`, not a `jobKind` branch, so live-ingest independence is structural rather than a runtime flag a future edit can flip; its whole body runs inside `sql.begin` with `SELECT … FOR UPDATE` + `markOutboxCompleted(tx, …)` because without that serialization an owner's accept can race the guard into silent permanent data loss. Migration 102 also registers the two **Import offer** analytics events #677 deferred (`import_offer_created`, `import_decision_recorded`), both emitted from inside their writing transaction under a SAVEPOINT so a rejected insert costs a metric, never an owner's decision. Every skip is skip-as-success — the outbox row is completed, never failed or retried, so a declined import cannot churn the queue forever. Proven on staging with six assertions: all four block reasons against real hand-inserted rows (zero `zernio_backfill_runs`, zero reviews each), `accepted` still importing (`imported=29 skipped=0 pages=4`), and both analytics events landing through their real writers. Earlier: Import offer #677 SHIPPED — PR #691, **no migration**: the consented Review import is now **owner-gated end to end**. An **Import offer** is minted server-side at the subscribe+connect junction with a `now() + 7 days` deadline, surfaced by `ImportOfferBanner` through `GET/POST /api/dashboard/import-offer`, and answered once — terminally, first-write-wins. All **four** enqueue producers (connect finalize, Stripe activation resume, reactivation catch-up, the decision route) now gate on `import_decision='accepted'` under the `businesses` row lock and share ONE `enqueueInitialImport`, replacing three hand-copied guards that had already diverged. Absorbs #676. Proven on staging through the browser: self-heal minted a deadline, the junction predicate correctly refused a same-named location with no active connection, accept → enqueue → dispatched in ~3s → `importing` → worker completion with a matching correlation_id, and the re-run stayed insert-only (zero duplicate reviews). **Release constraint DISCHARGED at #679 (PR #698) — the fail-closed worker pre-flight has landed, so enforcement is no longer producers-only and a hand-inserted row can no longer import without consent.** Earlier: Consented review import #675 SHIPPED — PR #689, **no migration**: `ZernioBackfillWorker` is now the consented Review import executor — the newest **100** reviews inside the 12-month **Import window**, upper-bounded by the **Live-ingest cutoff** (`connected_at − 5 min`) so lane ownership is disjoint *by construction* and the #674 lost-draft hazard is structurally impossible. Nothing is auto-drafted (zero `job_outbox` writes from the import); answered reviews land as list rows with imported `posted` responses; the gap/historical counter split is dead — collapsed `imported_count`/`skipped_count` only (#680 drops the frozen legacy columns). Pagination is loud: `ZERNIO_IMPORT_MAX_PAGES` cap-out with target unmet fails terminally, never truncates silently. Proven twice on staging (imported=29 skipped=0, dirty-ordering best-effort lane fired live). **Release constraint DISCHARGED at #679 (PR #698) — the fail-closed `import_decision='accepted'` worker pre-flight has landed.** Earlier: Manual suppression paths #645 SHIPPED — PR #659, **migration 098 staging+prod lockstep**: the Suppression ledger is now writable *and fixable* by humans. Admin manual entry (§7.3) and the audited **Correction path** (§8.2) behind AAL2 at `/admin/suppressions`; owner do-not-contact mark/clear (§7.5/§7.6) on `/dashboard/requests/contacts`. A correction is ONE data-modifying CTE, so a removal cannot commit without its audit record — and a blank "why" aborts the whole statement, leaving the opt-out in place. An owner may never clear a `global` row: the control is not rendered at all. Proven end-to-end on staging through the browser. Earlier: Unsubscribe opt-out #644 SHIPPED — PR #654, **no migration**: the Suppression ledger now has its first writer. RFC 8058 one-click ingress on Railway + the `/u/<token>` recipient landing path on Vercel, both live and both proven on staging with `SOLICITATION_SEND_ENABLED` **off** (DR1). Two live pre-existing limiter bypasses closed as side effects — percent-encoded ingress paths and absolute-form request targets — affecting Stripe, Resend, Telegram, Twilio and Zernio alike. `SESSION_COOKIE_SECRET` is now boot-asserted on deployed worker lanes and **deliberately unset on Railway prod** until the Solicitation agent ships; that worker has never successfully deployed, so the gate has nothing to crash-loop. Earlier: Suppression ledger #643 SHIPPED — PR #647, migrations 096–097 staging+prod lockstep: the opt-out record exists and cannot be laundered by delete-and-re-upload, but **nothing writes to it yet** — #644/#645/#627 land the first writers, so zero suppression rows is the expected steady state. Earlier: Consent ledger #625 SHIPPED — PR #640, migrations 093–095 staging+prod lockstep, the `consent_attested` tautology and the §1.2 re-upload trap are dead. Earlier: Solicitation watch-mode SHIPPED — wayfinder map #528 destination reached: PRs #554/#561/#564/#570/#571/#574/#575, migrations 084–089 staging+prod lockstep, `SOLICITATION_WATCH_ENABLED=true` live on staging; architecture review 2026-07-24 completed with 6 findings, counter now 4. Earlier: Restraint policy module — PR #551: first Phase 2 Solicitation code merged, pure sentiment-blind `evaluateAsk`/`evaluateBatch` in `src/lib/solicitation/`; arch-review counter hits the 5/5 threshold. Earlier same day: Agentic staging E2E campaign — PRs #518–#522: WS1–WS8 proven end-to-end on staging against a LIVE Google profile (Phases A–D), three launch-blocking bugs found by live testing and fixed (#518 trial checkout `payment_status`, #519 onboarding page/route flag drift, #520 governor re-suspension immunity), Zernio go-live gate CLOSED (no limits, pay-per-use), prod schema verified through 083 (078 deliberately awaits the WS8 cutover), production stack deliberately NOT stood up until launch. Earlier: 2026-07-21 Reliability follow-ups P4/P8/P9 — PRs #514–#516: bounded Stripe calls under tier-change locks, LLM provider circuit breaker, owner-unreachable escalation + migration 083; the 10-finding pre-production reliability report fully closed. Earlier: 2026-07-20 Production reliability guards #508 — seven pre-production hardening guards P1/P2/P3/P5/P6/P7/P10 merged via PR #508. Same day: Scalability verification remainders #511 — boot-enforced summed LLM worker-slot cap + migration 082 failover indexes, merged via PR #511. Earlier: 2026-07-15 WS8 Copilot/Autopilot tier wiring implemented on the execution branch; integration-owner PR/review/remote rollout still pending. Earlier: 2026-07-06 Modularity A+ campaign COMPLETE — db-imports singleton importers 105→0, the DB-injection convention + LLM-task seam are permanent CI-enforced invariants, PRs #438–#456; see the [exit re-audit](audits/2026-07-06-modularity-aplus-exit-audit.md). Earlier: 2026-06-26 Modularity-audit remediation COMPLETE; 1-Month Free Trial #362 2026-06-22; Beta-launch alerting gate #354 2026-06-20; Channels go live + auto-approved post FYI 2026-06-14→15; Multi-location launch hardening 2026-06-11.)
+
+## Quick summary — Import consent worker guard (2026-08-08, PR #698)
+
+#677 made every **product** path ask for consent. #679 makes the *worker* refuse
+to run without it — which is a different guarantee, and the one that actually
+holds when something skips the product path.
+
+Until now a `zernio_initial_backfill` row inserted by hand — by an admin, by a
+future producer nobody remembered to gate, by a bug — imported a customer's
+review history with no consent on record. ADR 0015 §3 accepted that gap
+explicitly, on the reasoning that production holds zero customers. That
+reasoning expires the moment a real customer onboards, which is why this was the
+release constraint #675 and #677 both carried. It is now discharged.
+
+**The guard proceeds only on `accepted`.** `pending`, `declined`, derived
+`expired` and a missing `businesses` row all no-op-complete with a logged
+reason. Because every enqueue producer converges on this one worker, the
+chokepoint covers the admin path too — D8's "admin path included" now holds
+structurally rather than by convention.
+
+**Three decisions worth knowing before you touch it:**
+
+- **It is a separate function, not a `jobKind === 'backfill'` branch inside
+  `guardZernioJobEligibility`.** A merged guard would have two callers, one of
+  which must never reach consent code. Splitting makes live-ingest independence
+  structural instead of a runtime branch a future edit can flip.
+- **The whole body runs inside `sql.begin` with `SELECT … FOR UPDATE` and
+  `markOutboxCompleted(tx, …)`** — correctness, not tidiness. Without
+  serialization the guard reads `pending` from an in-flight row, the owner
+  accepts, the acceptance's in-flight dedup sees that row and inserts no
+  replacement, and the guard then completes it: `accepted`, no completed run, no
+  runnable outbox row. Silent permanent loss for a customer who said yes.
+  `FOR UPDATE` is a no-op outside `sql.begin()` under transaction pooling, so
+  both halves are load-bearing. Lock order is business-before-outbox, matching
+  all four other writers.
+- **Expiry is derived in Postgres via the shared `importConsentStateSql`
+  fragment**, imported and never re-spelled — which is why the query must alias
+  `businesses` as `b`. Reading the deadline into JS would be a second spelling
+  of the predicate *and* would drag a `Date` across the boundary postgres.js
+  truncates to milliseconds.
+
+**Every skip is skip-as-success.** The outbox row is completed — never failed,
+thrown, or retried — so a declined or expired import cannot churn the queue
+forever.
+
+Migration **102** also registers the two **Import offer** analytics events #677
+deferred here (its non-goals forbade a migration): `import_offer_created` and
+`import_decision_recorded`, both emitted from inside their writing transaction
+under a SAVEPOINT. That savepoint matters more than it looks — before it, an
+unapplied 102 raised `23514` inside `finalizeConnectionTx`, and
+`select-location/route.ts` rethrows non-`23505`, so a missing migration broke
+Google Business Profile connect *entirely*. It now costs a lost metric and a
+`warn`. The deploy ordering is still load-bearing, not optional (**#697** is the
+missing durable sink for that swallowed warning).
+
+**The new shape:**
+
+| File | Role |
+|---|---|
+| `worker/jobs/zernio/job-eligibility.ts` | `guardImportConsent` — the fail-closed gate; still owns `guardZernioJobEligibility` for both Zernio workers |
+| `worker/jobs/zernio/ZernioBackfillWorker.ts` | call site, before the run-row INSERT |
+| `src/lib/reviews/import-consent.ts` | the two savepoint-wrapped emissions, in the writers |
+| `supabase/migrations/102_import_consent_analytics_events.sql` | the CHECK allowlist superset |
+| `src/app/admin/runbook/page.tsx` | A5 re-enqueue now conditioned on `accepted` |
+
+Filed, not fixed here: **#694** (a `ci:live-db-suites` detector keying on an
+incidental marker), **#695** (enforce at the `job_outbox` boundary instead of
+per-worker), **#696** (`verify-gate.sh` truncating row slugs to 40 chars so
+colliding rows share a status file), **#697** (the swallowed emission reaches no
+durable or paged sink).
 
 ## Quick summary — Import offer (2026-08-07, PR #691)
 
@@ -52,11 +122,12 @@ the import. The past deadline IS copied so the new row still derives expired; a
 junction — copying it would have presented an answerable offer for a location
 with no connection.
 
-**Still open:** enforcement is at the four producers, not at the one chokepoint
-every path shares. A hand-inserted `zernio_initial_backfill` row still imports
-without consent until #679 lands its fail-closed worker pre-flight. Analytics
-events for the offer moved to #679 too — the `analytics_events.event_name`
-CHECK needs a migration this ticket's non-goals forbid.
+**Closed at #679 (PR #698):** enforcement was at the four producers, not at the
+one chokepoint every path shares, so a hand-inserted `zernio_initial_backfill`
+row still imported without consent. `guardImportConsent` now covers that
+chokepoint. The offer's analytics events also moved to #679 — the
+`analytics_events.event_name` CHECK needed a migration this ticket's non-goals
+forbade — and shipped there as migration 102.
 
 ## Quick summary — Consented review import (2026-08-06, PR #689)
 
@@ -101,9 +172,9 @@ norm there, not the exception).
 - `worker/background/pollers/ZernioRecentReviewPoller.ts` — delegates its
   recency boundary to `liveIngestCutoff` (grace complementarity)
 - `CONTEXT.md` — **Import window** and **Live-ingest cutoff** glossary terms
-- Release constraint: **#679 (fail-closed `import_decision='accepted'`
-  pre-flight) must land before real customers**; the enqueue gates **shipped at
-  #677** (PR #691), which absorbed #676.
+- Release constraint **DISCHARGED**: the enqueue gates shipped at **#677**
+  (PR #691, which absorbed #676) and the fail-closed
+  `import_decision='accepted'` pre-flight at **#679** (PR #698).
 
 ## Quick summary — Manual suppression paths (2026-08-05, PR #659)
 

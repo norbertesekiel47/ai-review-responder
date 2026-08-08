@@ -1026,8 +1026,10 @@ Revisit triggers:
   both new names and `convalidated` is true, plus a live probe inside a
   deliberately-aborted `DO` block (a bogus `event_name` raised
   `check_violation`, both new names inserted, zero residue after the rollback).
-  **NOT YET APPLIED to PRODUCTION** — applies at promotion, in the same change
-  window and BEFORE the emitting code goes live.
+  **and PRODUCTION (`udeyaqnvpojbwgoaxwdg`) 2026-08-08**, same change window,
+  same verification, and BEFORE the emitting code went live — prod was still on
+  097's identical 23-name list at the moment of application, so the superset swap
+  re-validated nothing that could fail.
 
 - **101** — `import_decision_three_valued_check`: **corrective tighten of 100's
   CHECK** (#673 fallout; #670 amendment). `businesses.import_decision` drops
