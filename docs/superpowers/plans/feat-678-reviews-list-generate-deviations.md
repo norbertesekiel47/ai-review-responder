@@ -528,7 +528,28 @@ second button beside it — and the three suites that queried it by name
 (`hasHistoricalSection` for orphan-only hist rows, and the two orphan-count
 reconciliations) are deleted with the behaviour they guarded.
 
-**Verdict:**
+**ORCHESTRATOR (2026-08-08): all three verified before acceptance.**
+
+(a) Confirmed by reading the diff, not the report. `/answered/i` genuinely
+matches `Unanswered`, so the original threw `getMultipleElementsFoundError` and
+tested nothing; the replacement anchors the patterns and pins exact counts. The
+locked-title check still reports **0 missing of 52** — the repair touched
+assertions, never a title. This is the one class of eval edit that is legitimate:
+the test was unsatisfiable as written, and the replacement is strictly stronger.
+
+(b) Confirmed the exhaustiveness survives: `PastReplyCard.tsx:190` casts once at
+the wire boundary and `:286` still holds `const unreachable: never = state`, so a
+seventh `ReviewRowState` member fails typecheck rather than rendering blank.
+**Flagged for step 7** — a reviewer should decide whether the eval's `ListRow`
+should instead have been retyped to `ReviewRowState`, which would delete the cast
+entirely. Not worth a fix round now: the cast is documented, narrow, and the
+server-side `ReviewsListRow` keeps the strong type.
+
+(c) Forced, not chosen — the tabs test is one of T7's 11 typecheck errors and no
+other file can clear it. `flags.ts` was left untouched, so T8's scope survived
+intact and its two red titles stayed red exactly as intended.
+
+**Verdict:** ACCEPT.
 
 ---
 
