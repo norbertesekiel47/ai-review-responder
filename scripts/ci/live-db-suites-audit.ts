@@ -30,15 +30,28 @@
 //      somewhere unrelated and reads as flake. The schema is provisioned once by
 //      `pnpm test:db:setup`; suites assert it with `assertSchemaReady`.
 //
-//      Migration-SHAPE suites are the sanctioned exception: proving a migration
-//      applies IS their subject. Each one is allowlisted below and must enrol in
-//      the cross-process lock (`acquireLiveDbLock`), which is the only mechanism
-//      that serializes them against suites in OTHER vitest processes.
+//      Detection is on EXECUTED SQL, extracted from the AST — every tagged
+//      template and every `.unsafe()` call — not on the file mentioning a
+//      migration path. The first cut keyed on `supabase/migrations` AND
+//      `.unsafe(`, an incidental marker: DDL run without naming that path was
+//      invisible, which is how three sites shipped (#694). There is no tag-NAME
+//      allowlist: `sql()` alone is 770 of 1201 templates in these files, so a
+//      name list would miss the majority (the #592 shape, one layer down).
+//
+//      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_SUITES
+//      (applying the migration IS the subject) and DDL_PROBE_SUITES (session-
+//      scoped `auth.uid()` redefinition inside a rolled-back tx); both are
+//      enforced to hold the cross-process lock. And a per-line
+//      `-- live-db-ddl-ignore: <reason>` pragma for DDL whose safety is invisible
+//      statically — a CREATE INDEX on a pg_temp table reads exactly like one on
+//      the shared table.
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import ts from 'typescript';
+import { lineHasPragma } from './lib/sql-tag-scan';
 
 export interface LiveDbSuiteFinding {
   file: string;
@@ -69,6 +82,19 @@ const MIGRATION_SHAPE_SUITES = new Set([
 ]);
 
 /**
+ * DDL-probe suites: the DDL redefines a SESSION-scoped object (`auth.uid()`) to
+ * make an RLS assertion mean something in both directions, inside a transaction
+ * that always rolls back. Safe by lock + rollback, not by target — so, like the
+ * migration-shape suites, every entry is enforced to hold the cross-process lock
+ * below. `migration-091` executes this DDL today and was on NO allowlist, so its
+ * lock enrolment had never been checked (#694).
+ */
+const DDL_PROBE_SUITES = new Set([
+  'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
+  'src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts',
+]);
+
+/**
  * 074 predates the shared lock and serializes on its own dedicated apply lock
  * (`withMigration074ApplyLock`), which is equally cross-process. Accepted as an
  * alternative to `acquireLiveDbLock` for that file only.
@@ -94,10 +120,99 @@ const LIVE_DB_MARKERS = [
   'helpers/describe-with-db',
   'helpers/schema-ready',
 ] as const;
-const MIGRATION_DIR_MARKER = 'supabase/migrations';
-const RAW_SQL_MARKER = '.unsafe(';
 const SHARED_LOCK_MARKER = 'acquireLiveDbLock';
 const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
+
+/**
+ * DDL that takes ACCESS EXCLUSIVE on its target. DCL (GRANT/REVOKE) is
+ * deliberately absent: every executed GRANT in the repo is inside a
+ * DDL_PROBE_SUITES file that already holds the lock, so including it would
+ * change no finding today (#694).
+ *
+ * `g` is required by `matchAll`, which clones the regex rather than advancing
+ * this one — `lastIndex` is never mutated, so no reset is needed.
+ */
+const DDL_VERB =
+  /\b(?:alter|drop)\s+(?:table|index|type|schema|policy|view|function|trigger|materialized)\b|\bcreate\s+(?:or\s+replace\s+)?(?:unique\s+)?(?:temp(?:orary)?\s+)?(?:table|index|type|schema|policy|view|function|trigger|extension|materialized)\b|\btruncate\b/gi;
+
+/** Per-line escape hatch, modelled on `outbox-seam-ignore` (#568). */
+const DDL_PRAGMA = 'live-db-ddl-ignore';
+
+interface ExecutedSql {
+  /** Absolute offset in the source where `text` begins. */
+  start: number;
+  /** SQL source text, or null when a `.unsafe()` argument is not statically readable. */
+  text: string | null;
+  /** Line of the executing node — used to report an unreadable argument. */
+  line: number;
+}
+
+function isUnsafeCall(node: ts.Node): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'unsafe'
+  );
+}
+
+/**
+ * Every statement a live-DB suite EXECUTES. No tag-name allowlist: `sql()` alone
+ * accounts for 770 of the 1201 tagged templates in these files and is a
+ * CallExpression, so a name list (SQL_TAG_NAMES) would miss the majority — the
+ * #592 defect shape. In a file that reaches the live DB, a tagged template IS
+ * SQL; all 21 distinct tag forms in the 78 suites are DB handles.
+ */
+function extractExecutedSql(source: ts.SourceFile): ExecutedSql[] {
+  const out: ExecutedSql[] = [];
+  const lineOf = (node: ts.Node): number =>
+    source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(node)) {
+      out.push({
+        start: node.template.getStart(source),
+        text: node.template.getText(source),
+        line: lineOf(node),
+      });
+    } else if (isUnsafeCall(node)) {
+      const arg = node.arguments[0];
+      const readable =
+        arg !== undefined &&
+        (ts.isStringLiteral(arg) ||
+          ts.isNoSubstitutionTemplateLiteral(arg) ||
+          ts.isTemplateExpression(arg));
+      out.push({
+        start: readable ? arg.getStart(source) : node.getStart(source),
+        text: readable ? arg.getText(source) : null,
+        line: lineOf(node),
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(source);
+  return out;
+}
+
+/**
+ * 0-based lines carrying executed DDL, minus pragma'd ones. An unreadable
+ * `.unsafe()` argument counts as DDL: unresolvable SQL must never pass as safe.
+ */
+function unpragmaedDdlLines(source: ts.SourceFile, lines: readonly string[]): number[] {
+  const hits = new Set<number>();
+  for (const sql of extractExecutedSql(source)) {
+    if (sql.text === null) {
+      hits.add(sql.line);
+      continue;
+    }
+    for (const match of sql.text.matchAll(DDL_VERB)) {
+      hits.add(source.getLineAndCharacterOfPosition(sql.start + (match.index ?? 0)).line);
+    }
+  }
+  return [...hits]
+    .sort((a, b) => a - b)
+    .filter((line) => !lineHasPragma([...lines], line, DDL_PRAGMA));
+}
 
 export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding[] {
   if (NOT_LIVE_DB.has(file)) return [];
@@ -115,17 +230,27 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
     });
   }
 
-  const appliesDdl = text.includes(MIGRATION_DIR_MARKER) && text.includes(RAW_SQL_MARKER);
-  if (!appliesDdl) return findings;
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const ddlLines = unpragmaedDdlLines(source, text.split('\n'));
+  if (ddlLines.length === 0) return findings;
 
-  if (!MIGRATION_SHAPE_SUITES.has(file)) {
+  const firstAt = `first at line ${(ddlLines[0] ?? 0) + 1}`;
+
+  if (!MIGRATION_SHAPE_SUITES.has(file) && !DDL_PROBE_SUITES.has(file)) {
     findings.push({
       file,
       rule: 'runtime-ddl',
       reason:
-        'live-DB suite applies migration SQL at run time — ACCESS EXCLUSIVE locks ' +
-        'deadlock sibling suites (#573). Provision with `pnpm test:db:setup` and ' +
-        'assert with assertSchemaReady() instead',
+        `live-DB suite executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
+        'deadlock sibling suites (#573). Provision with `pnpm test:db:setup` and assert ' +
+        'with assertSchemaReady() instead, or add a `-- live-db-ddl-ignore: <reason>` ' +
+        'pragma if the target provably cannot be a shared relation',
     });
     return findings;
   }
@@ -138,8 +263,8 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
       file,
       rule: 'unlocked-ddl',
       reason:
-        'allowlisted migration-shape suite applies DDL without the cross-process ' +
-        'live-DB lock — call acquireLiveDbLock() in beforeAll and release it in afterAll',
+        `allowlisted suite executes DDL (${firstAt}) without the cross-process live-DB ` +
+        'lock — call acquireLiveDbLock() in beforeAll and release it in afterAll',
     });
   }
   return findings;
