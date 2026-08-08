@@ -1,22 +1,23 @@
 # Handoff — #679 Import consent worker guard
 
-**Updated 2026-08-08, after branch review round 3 (the last round) and its fix
-round.** Everything below is a pointer or a fact; nothing restates content that
+**Updated 2026-08-08, mid-step-8: staging ride complete, PR #698 open.**
+Everything below is a pointer or a fact; nothing restates content that
 lives in a file. A fresh session needs only this doc, then the files it names.
 **Do not go looking for the prior transcript.**
 
 ## Current position
 
-**Step 7 COMPLETE — all three review rounds done and triaged. Gate GREEN.
-Next action: step 8, RISK = high lane, starting with migration 102 on the
-staging Supabase project.**
+**Step 8 IN PROGRESS, RISK = high lane. Migration 102 applied to staging;
+staging ride green with six assertions; PR #698 open to `main`.
+Next action: confirm the last CI checks, then PAUSE for owner merge approval.**
 
 | Fact | Value |
 |---|---|
 | Branch | `feat-679-import-consent-worker-guard` |
 | Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-679-import-consent-worker-guard` |
 | Base (fork point) | `main@2f369582` |
-| HEAD | `abcf977f` |
+| HEAD | `0dad901f` |
+| PR | **#698** → `main` |
 | Phase | `reviewed` |
 | Plan review rounds | **2 of 3** — `APPROVED` at round 2 |
 | Branch review rounds | **3 of 3 — EXHAUSTED.** No further review rounds are permitted. |
@@ -104,8 +105,12 @@ caught any of them.
   export it from `.env.local` or live-DB suites silently skip. The gate resolves it.
 - **Do not run `pnpm test:db:setup`** — it drops schema `public`. Migration 102 is
   already applied to the local `repworth-testdb` container.
-- **`reclassify` WARN is expected**, re-checked four times (latest: prod 507, test
-  2305 vs estimates 230/700). Step 0 re-run each time → **same lane**. Growth is
+- **`reclassify` WARN is expected**, re-checked five times. Latest at `0dad901f`:
+  prod **542**, test **2416** vs estimates 230/700 — the "507 / 2305" an earlier
+  revision of this doc called "latest" was measured at `4c4e9df9`, one fix round
+  stale; round 3 added +30 prod / +111 test and the step-8 doc commit +5 prod.
+  Step 0 re-run each time → **same lane**, and it cannot escalate further: the
+  branch is already high / mixed / DB-touching, the maximum. Growth is
   review-driven hardening plus a metric that counts comment lines as production. Do
   not "fix" it by editing the estimate.
 - **`.claude/CLAUDE.md` cites a nonexistent "ADR 0015 R2"** (the ADR has §§1–4;
@@ -120,22 +125,63 @@ caught any of them.
 - **#696** — `verify-gate.sh:193` truncates row slugs to 40 chars; colliding rows share a status file and can report PASS for a failed suite. Worked around here by a rename (D30).
 - **#697** — a swallowed analytics emission reaches no durable or paged sink. The savepoint traded a loud failure for a quiet one; this is the missing half.
 
+## STAGING RIDE — DONE 2026-08-08, six assertions
+
+`staging` fast-forwarded `2f369582..0dad901f`. Railway worker `1afb4e96` SUCCESS,
+Vercel staging `dpl_Gz27sWSAyE6emC9LvJXMLhQwQjRN` READY → `staging.repworth.net`.
+Migration 102 applied to `kubdiqdhqbhwmqfditeg` BEFORE the push, verified by schema
+introspection (never the ledger): both names in `pg_get_constraintdef`,
+`convalidated` true, plus a live probe in a deliberately-aborted `DO` block —
+bogus `event_name` → `check_violation`, both new names accepted, zero residue.
+
+| # | Assertion | Evidence |
+|---|---|---|
+| A | hand-inserted row, `pending` business `019fd4b6…` | `import consent blocked — skipping backfill reason=pending`; outbox `completed`, 1 attempt, `last_error` NULL; **0** `zernio_backfill_runs`, **0** reviews |
+| B | aggregate_id with no `businesses` row | `reason=missing`; outbox `completed` |
+| C | `pending` + deadline `now() - 1 day` on `019fd2c3…` | `reason=expired` — derived in Postgres, nothing stores `'expired'` |
+| D | `declined` on `019fd2c3…` | `reason=declined`; outbox `completed` |
+| E | `accepted` `019fd299…`, `completed_at` cleared | **proceeded** — `Import complete … imported=29 skipped=0 pages=4 window=[2025-08-08…, 2026-08-06…)`; outbox `completed`; still ONE run row, re-completed idempotently |
+| F | both analytics events, real writers | `import_offer_created` (`properties={"window_days":7}`) from the dashboard GET self-heal, `import_decision_recorded` (`properties={"decision":"accepted"}`) from the owner clicking the banner; both business-scoped keys, both `account_id`/`business_id` scoped |
+
+Two things worth keeping:
+
+- **F was driven through the browser, not `curl`.** `staging.repworth.net` is
+  behind Vercel team-SSO *and* app auth — an anonymous request 302s to
+  `vercel.com/sso-api`. Both writers (`createImportOffer`'s GET self-heal and
+  `recordImportDecisionAndEnqueue`'s POST) are Next.js routes, so there is no
+  headless path today. Setup: reset `019fd299…` to `pending` / NULL deadline; the
+  banner then mints a fresh offer on render.
+- **Accepting enqueued NOTHING, and that is correct** — `enqueueInitialImport`'s
+  `run_reason='initial'` completed-run guard (F101/A4), the same behaviour #677's
+  ride recorded. Consent still committed: `import_decision_at` is byte-identical to
+  the event's `created_at`, proving both landed in one transaction.
+
+Staging was left in the coherent post-smoke state (`accepted`, live deadline,
+both events) rather than forced back to the old timestamps, which would have
+contradicted the events just emitted. `019fd2c3…` was restored to `pending` /
+NULL / NULL.
+
 ## REMAINING WORK — step 8, RISK = high lane
 
-1. Apply migration 102 to the **staging** Supabase project first.
-2. Push branch to `staging`; full stack auto-deploys (Railway worker + Vercel staging).
-3. Smoke: a hand-inserted `zernio_initial_backfill` row for a `pending` business
-   no-op-completes with the block log line and mints **no** `zernio_backfill_runs`
-   row; an `accepted` business still imports; both events land in `analytics_events`.
-4. PR → `main`, all CI green, then **PAUSE for owner merge approval**.
-5. Apply 102 to **prod** Supabase in lockstep at promotion, **before** the emitting
-   code is live. The savepoint contains the blast radius; it does not make the
-   ordering optional.
+1. ~~Apply migration 102 to **staging**~~ — done, above.
+2. ~~Push branch to `staging`~~ — done; both services green at `0dad901f`.
+3. ~~Smoke~~ — done, six assertions above.
+4. **PR #698 is open to `main`.** Confirm all CI checks green, then **PAUSE for
+   owner merge approval**.
+5. Apply 102 to **prod** Supabase (`udeyaqnvpojbwgoaxwdg`) in lockstep at
+   promotion, **before** the emitting code is live. The savepoint contains the
+   blast radius; it does not make the ordering optional. Then remove the "NOT YET
+   APPLIED to PRODUCTION" sentence from the migrations-log 102 entry.
 6. After merge: `git pull --ff-only` on `main`, fast-forward `staging`,
    `bash scripts/feature-cleanup.sh` (dry run first), `document-feature` sweep,
-   domain sweep, entropy counter.
+   domain sweep (CONTEXT.md's **Import consent** term still says the worker guard
+   "does not exist yet" — it is this branch), entropy counter, and promote the
+   process lessons below into lab notes.
 
-## Process lessons — promote to lab notes at step 8
+## Process lessons — promote to lab notes AFTER merge
+
+(feature.md puts the deviations-triage promotion rule in "After merge", not
+step 8; an earlier revision of this doc said step 8. Follow feature.md.)
 
 1. **Mutation is the only reliable detector of false coverage.** Every one of the
    ~10 instances on this branch was caught by mutation; none by reading. A fix for
