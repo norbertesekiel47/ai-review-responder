@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { SendNotificationPayload } from '../../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
@@ -9,7 +10,7 @@ const {
   mockTx,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
-  mockMarkOutboxOwnerUnreachable,
+  mockMarkOutboxCompletedWithReason,
   mockSendApprovalEmail,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -33,7 +34,7 @@ const {
     mockTx,
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
-    mockMarkOutboxOwnerUnreachable: vi.fn(),
+    mockMarkOutboxCompletedWithReason: vi.fn(),
     mockSendApprovalEmail: vi.fn().mockResolvedValue({ messageId: 'msg-123' }),
   };
 });
@@ -45,7 +46,7 @@ vi.mock('../../../../src/lib/db/server', () => ({
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
-  markOutboxOwnerUnreachable: mockMarkOutboxOwnerUnreachable,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
@@ -220,7 +221,7 @@ function beforeEachSetup() {
   mockTx.mockClear();
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
-  mockMarkOutboxOwnerUnreachable.mockReset();
+  mockMarkOutboxCompletedWithReason.mockReset();
   mockSendApprovalEmail.mockReset().mockResolvedValue({ messageId: 'msg-123' });
   mockGetVerifiedEnrollments.mockReset();
   mockGetChannel.mockReset();
@@ -398,15 +399,51 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(mockSql, makeJob());
 
-    expect(mockMarkOutboxOwnerUnreachable).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
     // makeJob() has no outbox_attempt, so extractOutboxHandle yields attempt=undefined.
-    const [execArg, outboxIdArg, attemptArg] = mockMarkOutboxOwnerUnreachable.mock.calls[0]!;
+    const [execArg, outboxIdArg, reasonArg, attemptArg] =
+      mockMarkOutboxCompletedWithReason.mock.calls[0]!;
     expect(execArg).toBe(mockSql);
     expect(typeof outboxIdArg).toBe('string');
+    expect(reasonArg).toBe(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE);
     expect(attemptArg).toBeUndefined();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+  });
+
+  // 3d. The generalization's ONE regression surface, driven with an EXPLICIT
+  //     outbox handle so the attempt forwarding is exercised too.
+  it('NotificationWorker still stamps owner_unreachable through the generalized reason helper', async () => {
+    // The generalization's failure mode is a lost, wrong, or MISPOSITIONED marker:
+    // HealthAlertPoller.checkOwnerUnreachable and NotificationFailoverPoller both
+    // key on this exact value, and a worker passing anything else makes them go
+    // quiet with no error. Assert the FULL call tuple, not just the reason — the
+    // argument list grew by one and an off-by-one would put the attempt where the
+    // reason belongs, which a reason-only assertion cannot see.
+    //
+    // Drive the job with an EXPLICIT outbox_attempt (round-1 finding): the file's
+    // other owner-unreachable test uses a payload without one, so `attempt` is
+    // `undefined` there and forwarding is untested.
+    mockGetVerifiedEnrollments.mockResolvedValue([]);
+
+    const job = makeJob();
+    Object.assign(job.data, { outbox_id: 'ob-owner-1', outbox_attempt: 7 });
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],  // 1: response+review SELECT
+      [mockBusinessRow()],  // 2: business SELECT
+    );
+
+    await handleSendNotification(mockSql, job);
+
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
+    const [, outboxIdArg, reasonArg, attemptArg] =
+      mockMarkOutboxCompletedWithReason.mock.calls[0]!;
+    expect(outboxIdArg).toBe('ob-owner-1');
+    expect(reasonArg).toBe(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE);
+    expect(attemptArg).toBe(7);
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   // 4. Email send failure — throws for BullMQ retry (all channels fail)

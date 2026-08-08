@@ -1,8 +1,8 @@
 // Live-Postgres suite for the NotificationFailoverPoller owner-unreachable arm
 // (F1 Task 4). The unit suite pins control flow against a mock sql; this proves
 // the real predicate + advisory-locked at-most-once re-enqueue + admin escalation
-// against a real schema, plus the markOutboxOwnerUnreachable attempt-guarded CAS
-// (Step 6b).
+// against a real schema, plus the markOutboxCompletedWithReason attempt-guarded
+// CAS (Step 6b).
 //
 // processOwnerUnreachable is module-private, so the suite drives the public
 // runFailoverPollerOnce entry and asserts ONLY the owner-unreachable effects
@@ -52,7 +52,7 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { OUTBOX_COMPLETION_REASON } from '@/lib/shared/outbox-completion-reason';
-import { markOutboxOwnerUnreachable } from '@/lib/shared/outbox';
+import { markOutboxCompletedWithReason } from '@/lib/shared/outbox';
 import { sql } from '@/lib/db/server';
 import { runFailoverPollerOnce } from '../NotificationFailoverPoller';
 
@@ -350,7 +350,7 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
     expect(await countAdminAlertDeliveries(responseId)).toBe(0);
   });
 
-  it('Step 6b: markOutboxOwnerUnreachable is attempt-guarded — stale N-1 no-ops while dispatched, N wins', async () => {
+  it('markOutboxCompletedWithReason preserves owner_unreachable against live Postgres and rejects a superseded attempt', async () => {
     const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
     const attempt = 2;
     const outboxId = await insertSendNotifOutbox({
@@ -362,7 +362,9 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
 
     // Exercise the STALE attempt FIRST while the row is still 'dispatched' — this
     // proves the attempts guard, not just status gating.
-    await markOutboxOwnerUnreachable(sql, outboxId, attempt - 1);
+    await markOutboxCompletedWithReason(
+      sql, outboxId, OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE, attempt - 1,
+    );
     const [stale] = await sql<{ status: string; completion_reason: string | null }[]>`
       SELECT status, completion_reason FROM job_outbox WHERE id = ${outboxId}::uuid
     `;
@@ -370,7 +372,9 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
     expect(stale?.completion_reason).toBeNull();
 
     // The winning attempt transitions it to completed + owner_unreachable.
-    await markOutboxOwnerUnreachable(sql, outboxId, attempt);
+    await markOutboxCompletedWithReason(
+      sql, outboxId, OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE, attempt,
+    );
     const [won] = await sql<{ status: string; completion_reason: string | null }[]>`
       SELECT status, completion_reason FROM job_outbox WHERE id = ${outboxId}::uuid
     `;

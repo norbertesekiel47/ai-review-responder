@@ -24,8 +24,8 @@ import {
   lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompleted,
   markOutboxCompletedIfOwned,
+  markOutboxCompletedWithReason,
   markOutboxFailed,
-  markOutboxOwnerUnreachable,
   recordOutboxTransientError,
 } from '../outbox';
 import { mkTaggedResult } from '../../../../worker/__tests__/helpers/mock-sql';
@@ -81,6 +81,9 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
     expect(q.text).toContain("status = 'dispatched'");
     expect(q.text).toContain('attempts =');
     expect(q.values).toEqual(['outbox-1', 3]);
+    // A generic completion must stay reasonless: if `markOutboxCompleted` ever
+    // grew a reason, every ordinary completed row would look like a policy event.
+    expect(sqlCalls.at(-1)!.text).not.toContain('completion_reason');
   });
 
   it('markOutboxCompleted drops the attempts guard on the legacy (no-attempt) path', async () => {
@@ -163,26 +166,64 @@ describe('outbox writers — dispatchedRow attempt-guard composition', () => {
   });
 });
 
-describe('markOutboxOwnerUnreachable (invariants)', () => {
-  it('composes the marker + attempt-guard and no-ops-with-warn iff a concrete attempt fails to match', async () => {
+describe('markOutboxCompletedWithReason (invariants)', () => {
+  it('markOutboxCompletedWithReason completes the dispatched row and stamps the supplied completion_reason', async () => {
+    // The new capability: the reason is a PARAMETER, not baked into the method
+    // name. Swept over every vocabulary member so adding one can't skip a site.
+    for (const reason of Object.values(OUTBOX_COMPLETION_REASON)) {
+      resetMockSql();
+      sqlReturnQueue.push(mkTaggedResult([{ id: 'x' }]));
+
+      await markOutboxCompletedWithReason(execMock, 'outbox-1', reason, 3);
+
+      const q = sqlCalls.at(-1)!;
+      expect(q.text).toContain("SET status = 'completed'");
+      // `completed_at` is what makes a completed row auditable — it is the only
+      // record of WHEN the marker landed, and every other outbox writer sets it.
+      // A generalization that dropped it would leave reasoned completions as the
+      // one class of completed row with no completion timestamp.
+      expect(q.text).toContain('completed_at = NOW()');
+      expect(q.text).toContain('completion_reason');
+      expect(q.values).toContain(reason);
+      // Row scoping lives in the shared `dispatchedRow` fragment, but the bind
+      // has to arrive from THIS caller — assert the id reached the values.
+      expect(q.values).toContain('outbox-1');
+    }
+  });
+
+  it('OUTBOX_COMPLETION_REASON preserves the persisted owner_unreachable wire value', () => {
+    // The vocabulary is self-referential: the writer, both pollers, and every
+    // fixture resolve the SAME constant, so renaming its VALUE (not its key)
+    // would strand every historical row while leaving all of them green. This is
+    // the one place a bare literal is correct — comparing the constant to the
+    // durable wire value is the whole assertion.
+    expect(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE).toBe('owner_unreachable');
+    expect(OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED).toBe('import_consent_blocked');
+  });
+
+  it('markOutboxCompletedWithReason guards on the dispatched attempt so a superseded attempt stamps no reason', async () => {
     await fc.assert(fc.asyncProperty(
       fc.option(fc.integer({ min: 0, max: 50 }), { nil: undefined }), // dispatched-attempt param
       fc.integer({ min: 0, max: 50 }),                                // the row's ACTUAL attempts
       fc.boolean(),                                                    // row is currently 'dispatched'?
-      async (attempt, actualAttempts, isDispatched) => {
+      fc.constantFrom(...Object.values(OUTBOX_COMPLETION_REASON)),     // every vocabulary member
+      async (attempt, actualAttempts, isDispatched, reason) => {
         resetMockSql();
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const rowMatches = typeof attempt === 'number'
           ? (isDispatched && attempt === actualAttempts)
           : isDispatched;
         sqlReturnQueue.push(mkTaggedResult(rowMatches ? [{ id: 'x' }] : []));
-        await markOutboxOwnerUnreachable(execMock, 'outbox-1', attempt);
+        await markOutboxCompletedWithReason(execMock, 'outbox-1', reason, attempt);
         const q = sqlCalls.at(-1)!;
         expect(q.text).toContain("SET status = 'completed'");
         expect(q.text).toContain('completion_reason');
-        expect(q.values).toContain(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE);
+        expect(q.values).toContain(reason);
+        // HOISTED out of the attempt branch (round-1 finding): the legacy
+        // no-attempt path still must not overwrite a terminal row, and the old
+        // assertion only covered the guarded path.
+        expect(q.text).toContain("status = 'dispatched'");
         if (typeof attempt === 'number') {
-          expect(q.text).toContain("status = 'dispatched'");
           expect(q.text).toContain('attempts =');
           expect(q.values).toContain(attempt);
         } else {
@@ -192,6 +233,25 @@ describe('markOutboxOwnerUnreachable (invariants)', () => {
         warn.mockRestore();
       },
     ), { numRuns: 200 });
+  });
+
+  it('markOutboxCompletedWithReason warns and swallows a 0-row update rather than throwing', async () => {
+    // The warn label must name the REASON, not just the method — an operator
+    // reading the line needs to know which marker was lost to the race.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sqlReturnQueue.push(mkTaggedResult([]));
+
+    await expect(
+      markOutboxCompletedWithReason(
+        execMock, 'outbox-9', OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED, 4,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain(
+      OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED,
+    );
+    warn.mockRestore();
   });
 });
 

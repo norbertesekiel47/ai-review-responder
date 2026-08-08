@@ -56,6 +56,43 @@ From round-1 eval holes, all verified as genuine gaps:
    against live Postgres; `pending` (the migration-100 default population the gate
    exists for) was not.
 
+## D5 — three T1 assertions added: the plan's `guardImportConsent` reason tests could not fail (not an amendment)
+
+**What.** Added one line — `expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1)`
+— to three of Task 1 Step 3's four new titles (#7 `completes a refused backfill
+row …`, #8 `stamps import_consent_blocked for a businesses row that does not
+exist`, #9 `writes the block reason inside its own consent transaction`). Every
+line the plan specified is kept verbatim; nothing was removed or reworded, and no
+title changed. Confined to `worker/jobs/zernio/__tests__/job-eligibility.test.ts`,
+inside the allowed edit surface.
+
+**Why.** As written, all four passed GREEN at the eval commit, which is the one
+thing a failing eval may not do. Two independent causes, both invisible from the
+plan text:
+
+1. `completionCalls` is shared by BOTH recorders (Step 3 sub-step 1 deliberately
+   keeps `mockMarkOutboxCompleted` for `guardZernioJobEligibility`). So
+   `expect(completionCalls).toHaveLength(1)` and `completionCalls[0]!.inTransaction`
+   are satisfied by the guard's CURRENT plain-completion call — they say nothing
+   about which writer ran.
+2. `OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED` is `undefined` until T2, and
+   the plain recorder pushes no `reason`, so
+   `expect(completionCalls[0]!.reason).toBe(OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED)`
+   compares `undefined` to `undefined` and passes.
+
+The added line names the reason WRITER, which is what the three titles actually
+claim, and it is the same assertion Step 3 sub-step 3 already retargets onto all
+five pre-existing block cases — so this is the file's own convention, not a new
+one. All three now fail at T1 (`called 0 times`) for the right reason and turn
+green at T3.
+
+**Left green deliberately:** title #10 (`stamps no completion_reason when consent
+is accepted`) is a negative pin — `completionCalls` empty, reason writer never
+called — which holds before AND after the change by design. It is a regression
+guard, not an eval, and forcing it red would mean asserting something false.
+
+---
+
 ## D4 — estimates deliberately NOT raised
 
 D3 adds ~60 test lines beyond the locked `estimated_test_lines` of ±225. The estimate
