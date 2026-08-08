@@ -38,10 +38,10 @@
 //
 //   blocker  BEGIN; SELECT … FOR UPDATE on the hand-inserted job_outbox row.
 //            Held. This is the pause point BETWEEN the guard's consent read and
-//            its `markOutboxCompleted` — the window the bug lives in, and a
+//            its `markOutboxCompletedWithReason` — the window the bug lives in, and a
 //            window no production code exposes.
 //   guard    guardImportConsent(). Under EITHER implementation it stalls on the
-//            blocker's row lock at `markOutboxCompleted`. The difference is what
+//            blocker's row lock at `markOutboxCompletedWithReason`. The difference is what
 //            it holds while stalled: the correct one holds the `businesses` row
 //            lock it took with `SELECT … FOR UPDATE` inside `sql.begin`; an
 //            unserialized one holds nothing.
@@ -86,6 +86,7 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
   assertSchemaReady,
+  MIGRATION_083_OUTBOX_OWNER_UNREACHABLE,
   MIGRATION_100_IMPORT_CONSENT,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { recordImportDecisionAndEnqueue } from '@/lib/reviews/import-consent';
@@ -290,7 +291,7 @@ interface HeldLock {
 /**
  * Open a transaction that takes `SELECT … FOR UPDATE` on one job_outbox row and
  * HOLDS it until released — the pause point between the guard's consent read and
- * its `markOutboxCompleted`.
+ * its `markOutboxCompletedWithReason`.
  *
  * A row lock, not an advisory one, because the guard must block on the exact
  * statement the bug hinges on. This session never touches `businesses`, so it
@@ -331,7 +332,14 @@ describeWithDb('import consent guard against live Postgres', { timeout: 60_000 }
     blockerDb = connectAs(APP_BLOCKER);
     guardDb = connectAs(APP_GUARD);
     acceptDb = connectAs(APP_ACCEPT);
-    await assertSchemaReady(db, [MIGRATION_100_IMPORT_CONSENT]);
+    // BOTH migrations, not just 100: the `#695 durable block reason` tests read
+    // and write `job_outbox.completion_reason`, which migration 083 added. A DB
+    // provisioned without 083 must fail loudly here rather than four tests
+    // deep with an opaque `column "completion_reason" does not exist`.
+    await assertSchemaReady(db, [
+      MIGRATION_083_OUTBOX_OWNER_UNREACHABLE,
+      MIGRATION_100_IMPORT_CONSENT,
+    ]);
     tenant = await seedTenantAccount(db, {
       userName: 'Consent Guard Owner',
       accountDisplayName: 'Consent Guard Account',
@@ -446,7 +454,7 @@ describeWithDb('import consent guard against live Postgres', { timeout: 60_000 }
 
     try {
       // 1. The guard runs. It reads consent — `pending` — and then stalls inside
-      //    `markOutboxCompleted` on the blocker's row lock. Both implementations
+      //    `markOutboxCompletedWithReason` on the blocker's row lock. Both implementations
       //    stall identically here; the difference is invisible until step 3.
       guard = track(
         guardImportConsent(guardDb!, {
@@ -518,7 +526,7 @@ describeWithDb('import consent guard against live Postgres', { timeout: 60_000 }
       expect(
         acceptanceWasBlockedByTheGuard,
         'the acceptance was never blocked by the guard — guardImportConsent is not holding the ' +
-          'businesses row lock across its consent read and its markOutboxCompleted',
+          'businesses row lock across its consent read and its markOutboxCompletedWithReason',
       ).toBe(true);
     } finally {
       // Releasing twice is a no-op; leaving the blocker's transaction open is

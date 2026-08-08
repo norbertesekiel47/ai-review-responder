@@ -41,11 +41,19 @@ const {
   const harness = createMockSql();
 
   /**
-   * Every `markOutboxCompleted` invocation WITH the transaction context it was
-   * made in. `sqlCalls` carries `inTransaction` per query, but the completion
-   * is a mocked collaborator and issues no query of its own — so the flag has
-   * to be sampled at call time, which is exactly the mock-sql helper's
-   * documented `isInTransaction()` use.
+   * Every `markOutboxCompletedWithReason` invocation WITH the transaction
+   * context it was made in. `sqlCalls` carries `inTransaction` per query, but
+   * the completion is a mocked collaborator and issues no query of its own — so
+   * the flag has to be sampled at call time, which is exactly the mock-sql
+   * helper's documented `isInTransaction()` use.
+   *
+   * `reason` is REQUIRED, not optional, and that is load-bearing. When this
+   * array also recorded the plain writer, `reason` had to be optional, and
+   * `expect(completionCalls[0]!.reason).toBe(OUTBOX_COMPLETION_REASON.X)`
+   * therefore compared `undefined` to `undefined` and passed while the feature
+   * was still unbuilt (deviations D5). Only the reason writer records here, so
+   * a regression to the plain writer leaves the array EMPTY and the assertions
+   * throw rather than silently pass.
    *
    * The EXECUTOR the completion was handed is deliberately not recorded.
    * `mock-sql.ts:99-103` invokes the `sql.begin` callback with the same mock
@@ -59,7 +67,7 @@ const {
   const completionCalls: {
     outboxId: string;
     attempt: number | undefined;
-    reason?: string;
+    reason: string;
     inTransaction: boolean;
   }[] = [];
 
@@ -67,18 +75,14 @@ const {
     ...harness,
     mkTaggedResult,
     completionCalls,
-    mockMarkOutboxCompleted: vi.fn(
-      (_exec: unknown, outboxId: string, attempt: number | undefined) => {
-        completionCalls.push({
-          outboxId,
-          attempt,
-          inTransaction: harness.isInTransaction(),
-        });
-      },
-    ),
-    // `guardZernioJobEligibility` in this same module still calls the PLAIN
-    // `markOutboxCompleted`, so both recorders stay: a module mock that dropped
-    // one would make that export `undefined` for the other guard's three skips.
+    // A bare stub, deliberately NOT a recorder. `guardImportConsent` — the only
+    // export this suite exercises — never calls the plain writer: it completes a
+    // refusal through `markOutboxCompletedWithReason` and completes nothing at
+    // all on the accepted path. The stub exists solely so the module mock keeps
+    // the `markOutboxCompleted` export defined for `guardZernioJobEligibility`,
+    // whose three reasonless skips are covered in `ZernioBackfillWorker.test.ts`.
+    // Recording it here bought nothing and cost the D5 optionality above.
+    mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxCompletedWithReason: vi.fn(
       (_exec: unknown, outboxId: string, reason: string, attempt: number | undefined) => {
         completionCalls.push({

@@ -162,7 +162,7 @@ type ImportConsentBlockReason = ImportConsentState | 'missing';
  * completed initial run, and no runnable outbox row — silent permanent data
  * loss for a customer who said yes, violating spec §5.1's accepted-but-
  * incomplete retryability. The fix is the `businesses` row lock plus issuing
- * `markOutboxCompleted` on the SAME `tx`, so either interleaving resolves:
+ * `markOutboxCompletedWithReason` on the SAME `tx`, so either interleaving resolves:
  * guard-first completes the row and acceptance inserts a fresh runnable one;
  * acceptance-first means the guard reads `accepted` and proceeds.
  * `SELECT … FOR UPDATE` is a NO-OP outside `sql.begin()` under Supabase's
