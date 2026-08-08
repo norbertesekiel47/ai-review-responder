@@ -362,3 +362,40 @@ bookkeeping, not an amendment. It still gets a deviations entry and still needs
 the owner's sign-off — it just does not burn amendment budget.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D14 — Task 3's Generate door adds 3 `ci:tenant-scope` findings the plan's SQL cannot clear
+
+**Trigger:** T3 execution. The Generate door written exactly as Task 3 specifies
+adds **3** findings on top of D13's 11:
+
+```
+src/app/api/dashboard/reviews/[reviewId]/generate/route.ts: responses: missing account_id or business_id scope   (x3)
+```
+
+They are the three in-transaction `responses` reads — the `status = 'posted'`
+sibling check, the `NON_TERMINAL_STATUSES` existing-draft check, and
+`COALESCE(MAX(version), 0) + 1`. All three key on `review_id` alone, exactly
+mirroring the named precedent `src/app/api/dashboard/past-replies/draft/route.ts`,
+which carries **three** `tenant-root-lookup` allowlist entries for the identical
+shape (`tenant-scope-allowlist.ts:1667`, `:1674`, `:1681`, reason: "Owner
+past-replies transaction has already resolved request account/location scope
+before this row-level lock or mutation."). The scope proof is real and runs
+first: the account-scoped `reviews ⋈ businesses` lookup, then `SELECT … FROM
+reviews WHERE id = … AND business_id = … FOR UPDATE`. The audit strips
+subqueries before predicate analysis and cannot see it.
+
+The sibling `draft-status/route.ts` produces **no** finding — its draft read
+already binds `resp.business_id = ${businessId}`.
+
+**Decision:** left as the plan writes it. T3's fence forbids editing
+`scripts/ci/tenant-scope-allowlist.ts`, and adding `AND business_id = …` to the
+three tx reads would be a silent rewrite of contract SQL that two review rounds
+blessed. The remedy is 3 more allowlist entries folded into D13's patch, all
+`file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts"`,
+`table: "responses"`, `category: 'tenant-root-lookup'`, reusing the
+`past-replies/draft` reason string — making D13's `ALLOWLIST_BASELINE` land at
+**412**, not 409.
+
+**Verdict:**
