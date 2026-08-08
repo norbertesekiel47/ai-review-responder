@@ -196,6 +196,15 @@ export const MIGRATION_074_TRUST_DIAL_VETO_WINDOW: SchemaRequirement = {
   indexes: ['notification_deliveries_pending_post_notice_claim'],
 };
 
+/**
+ * 083 adds one nullable TEXT column to `job_outbox` and nothing else — no
+ * index, no constraint — so the column is the only presence proof available.
+ */
+export const MIGRATION_083_OUTBOX_OWNER_UNREACHABLE: SchemaRequirement = {
+  migration: '083_outbox_owner_unreachable',
+  columns: ['job_outbox.completion_reason'],
+};
+
 export const MIGRATION_085_COMPETITOR_RATING_NUMERIC: SchemaRequirement = {
   migration: '085_competitor_rating_numeric',
   columnTypes: [{ column: 'competitor_snapshots.rating', dataType: 'numeric' }],
