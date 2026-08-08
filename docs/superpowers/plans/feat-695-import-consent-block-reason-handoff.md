@@ -67,13 +67,26 @@ touching them would have been amendment #2, an abort trigger. `docs/directory.md
 - `docs/currents.md:722`, `:226`
 - `docs/progresstracking.md:892`, `:1830`
 
-**2. A CLAUDE.md gotcha appears to be WRONG — verify before trusting it.**
-`.claude/CLAUDE.md` states `resolveTestDatabaseUrl()` falls back to reading
-`.env.local` off disk, so live-DB suites do not sleep when `TEST_DATABASE_POOL_URL`
-is unset. **Two independent agents observed the opposite in this worktree**: both
-integration suites silently SKIPPED until the variable was exported explicitly. Silent
-skipping is the #520 class. Confirm against `resolveTestDatabaseUrl` and either fix the
-code or correct the gotcha — do not leave the doc and the behaviour disagreeing.
+**2. ~~A CLAUDE.md gotcha appears to be WRONG~~ — RESOLVED 2026-08-08, no action owed.**
+This entry originally claimed `.claude/CLAUDE.md`'s `TEST_DATABASE_POOL_URL` gotcha
+contradicted observed behaviour, because two agents saw both integration suites
+silently SKIP until the variable was exported. **That was a misreading and the claim
+is withdrawn.** The behaviour is already documented, from #694:
+
+> `pnpm vitest run <file>` does not hydrate `.env.local`, so a live-DB suite SKIPS
+> instead of failing … `pnpm test:integration` works only because its npm script
+> shells out to `dotenv` first.
+> — `.claude/reference/lab-notes.md`, `[2026-08-08] #694`
+
+Both agents had invoked `pnpm vitest run <file>` directly, which is exactly that
+documented case. CLAUDE.md's gotcha describes a **different** path
+(`resolveTestDatabaseUrl()` under a whole-repo `pnpm test`), so the two do not
+conflict. The prescribed workaround — `export $(grep -E '^TEST_DATABASE_POOL_URL=' .env.local | xargs)`
+before a direct `vitest run` — is what every gate run on this branch used, which is
+why all four gates executed the live suites with 0 skipped.
+
+Kept rather than deleted because "the docs look wrong" is a conclusion a future
+session could re-derive from the same observation; this records why it is not.
 
 ## Lessons worth promoting to lab-notes (D5, D6)
 
