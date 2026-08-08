@@ -787,4 +787,21 @@ describeWithDb('import consent against live Postgres', { timeout: 30_000 }, () =
       }
     }
   });
+
+  // ── #679 T2 LIVES NEXT DOOR ─────────────────────────────────────────────────
+  //
+  // The eight Import offer analytics titles are in
+  // `import-offer-analytics.integration.test.ts`, moved there in review round
+  // 1: they are a distinct feature slice, they pushed this file past 1000
+  // lines, and one of them deliberately aborts a transaction — a blast radius
+  // worth keeping out of the suite that owns the predicate, the offer and the
+  // F3 transition.
+  //
+  // Nothing here depends on migration 102. Both writers still EMIT on the paths
+  // exercised above, but each emission runs in its own savepoint
+  // (`emitConsentEvent`), so a database whose `analytics_events_event_name_check`
+  // does not admit the two names under-counts silently rather than failing
+  // anything in this file. The suite next door, which ASSERTS those rows,
+  // carries the explicit precondition instead
+  // (`assertAnalyticsEventNamesRegistered`).
 });

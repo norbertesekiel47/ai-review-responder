@@ -33,6 +33,10 @@ describe('analytics events', () => {
       'solicitation_consent_upgraded',
       'solicitation_suppressed',
       'solicitation_suppressed_at_dispatch',
+      // #679 T1 — the two Import offer events, registered in the DB CHECK by
+      // migration 102 and emitted by src/lib/reviews/import-consent.ts.
+      'import_offer_created',
+      'import_decision_recorded',
     ]);
   });
 
@@ -69,6 +73,11 @@ describe('analytics events', () => {
       // transaction — a client-postable variant would let anyone forge consent.
       'solicitation_consent_recorded',
       'solicitation_consent_upgraded',
+      // #679: the Import offer facts are written by server code inside the
+      // consent transaction — a client-postable variant would let anyone forge
+      // an Import consent decision.
+      'import_offer_created',
+      'import_decision_recorded',
     ]) {
       expect(isClientEnqueueableEventName(name)).toBe(false);
     }

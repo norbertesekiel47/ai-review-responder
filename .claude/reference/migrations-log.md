@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **101** — next migration is **102**
+Current head: **102** — next migration is **103**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,53 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **102** — `import_consent_analytics_events`: extends the
+  `analytics_events.event_name` DB CHECK allowlist with `import_offer_created`
+  + `import_decision_recorded` (#679 T1, epic #667; spec
+  `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §5.1,
+  deferred here by #677 deviation D7 whose non-goals forbade a migration). Both
+  are emitted from `src/lib/reviews/import-consent.ts` in #679 T2 —
+  `createImportOffer` in the caller's transaction when an **Import offer** is
+  actually minted, `recordImportDecisionAndEnqueue` inside its own `sql.begin`
+  on the `recorded` path. **Constraint-only: no new relation, column or
+  index**, and the constraint name (`analytics_events_event_name_check`) has
+  existed since 046 — hence **no `SchemaRequirement` export and no
+  `assertSchemaReady` entry**, because a presence check on that name would pass
+  against a 097-era database and prove nothing; 094 and 097, the exact
+  analogues, likewise have none. No retention-policy row either. Same DROP +
+  re-ADD under `SET lock_timeout = '5s'` as 046 → 058 → 069 → 089 → 094 → 097;
+  the new list is a strict superset of 097's **in the same order**, so existing
+  rows always pass. Registering the names only in `ANALYTICS_EVENT_NAMES` would
+  not have been enough (089's lesson): without the CHECK entry the emission
+  raises `23514`, while `ci:analytics-events` cannot catch it (it compares the
+  TS allowlist against `docs/analytics/events.md`, never the database).
+  **What an unapplied 102 costs — corrected at #679 review round 2:** both
+  emissions are wrapped in a postgres.js SAVEPOINT (`emitConsentEvent`), so a
+  rejected insert rolls back only itself and the enclosing transaction stays
+  usable — the cost is a lost metric plus a `warn`, NOT a lost owner decision.
+  Pre-savepoint it was much worse than either: `createImportOffer` is called by
+  `finalizeConnectionTx` and `select-location/route.ts` rethrows non-`23505`, so
+  an unapplied 102 broke **GBP connect entirely**. **Deploy ordering is still
+  load-bearing:** apply to staging, then to production at promotion, in both
+  cases BEFORE the emitting code goes live. The savepoint contains the blast
+  radius; it does not make the ordering optional, and the only drift signal is a
+  stdout `warn` with no durable or paged sink (**#697**).
+  Shape suite:
+  `src/lib/shared/__tests__/migration-102-import-consent-analytics-events.integration.test.ts`
+  — five text assertions plus one LIVE assertion (a bogus `event_name` inside a
+  rolled-back transaction must fail with SQLSTATE `23514`), because
+  superset-plus-subset permits a CHECK carrying extra DB-only names. It is also
+  the new owner of the live CHECK ⟺ `ANALYTICS_EVENT_NAMES` drift guard, handed
+  off from 097's suite, which now pins its own historical 23-name list (the
+  089 → 094 → 097 precedent). **Applied to STAGING (`kubdiqdhqbhwmqfditeg`)
+  2026-08-08** — verified the way this log's header demands, by schema
+  introspection and never the migration ledger: `pg_get_constraintdef` carries
+  both new names and `convalidated` is true, plus a live probe inside a
+  deliberately-aborted `DO` block (a bogus `event_name` raised
+  `check_violation`, both new names inserted, zero residue after the rollback).
+  **NOT YET APPLIED to PRODUCTION** — applies at promotion, in the same change
+  window and BEFORE the emitting code goes live.
 
 - **101** — `import_decision_three_valued_check`: **corrective tighten of 100's
   CHECK** (#673 fallout; #670 amendment). `businesses.import_decision` drops

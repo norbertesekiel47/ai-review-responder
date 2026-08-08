@@ -85,6 +85,13 @@ const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
     return Promise.resolve([]);
   });
   mockTx.json = vi.fn((v: unknown) => v);
+  // postgres.js's TransactionSql carries `savepoint`; `emitConsentEvent` wraps
+  // both Import offer analytics emissions in it. Without this the emission threw
+  // `TypeError: tx.savepoint is not a function` on five of the six titles below
+  // and the old unbounded catch swallowed it — green suite, no event, no signal.
+  // Round 2 narrowed that catch to Postgres errors, so the omission is now loud;
+  // this completes the mock to match the real handle.
+  mockTx.savepoint = vi.fn((cb: (sp: typeof mockTx) => Promise<unknown>) => cb(mockTx));
 
   const mockSql: any = vi.fn(() => Promise.resolve([]));
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));

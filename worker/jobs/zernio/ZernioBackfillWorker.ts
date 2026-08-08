@@ -51,7 +51,7 @@ import {
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
-import { guardZernioJobEligibility } from './job-eligibility';
+import { guardImportConsent, guardZernioJobEligibility } from './job-eligibility';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
 import type { MonitoredReview } from '../../../src/lib/reviews/types';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
@@ -136,6 +136,37 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     throw new Error(`invalid_ws8_subscription_tier:${subscription_tier}`);
   }
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
+
+  // Fail-closed Import consent gate (#679, spec §5.3) — the FIRST thing this
+  // worker does after resolving its outbox handle, and deliberately BEFORE the
+  // zernio_backfill_runs INSERT below (owner decision 2026-08-07; this deviates
+  // from spec §5.3's literal "joins the existing pre-flight guards" placement).
+  // A refused run must leave NO durable trace at all: running it alongside the
+  // other guards would mint a claimed zernio_backfill_runs row for an import
+  // that must never happen, which an operator would later read as "the import
+  // was attempted". Guard internals — transaction, businesses row lock,
+  // in-transaction markOutboxCompleted, the derived-expiry fragment — live in
+  // job-eligibility.ts.
+  //
+  // Applies to BOTH backfill_reason values. The reactivation producer
+  // (archive-location-tx.ts) already requires 'accepted', and an answered
+  // decision outranks its deadline, so a post-Import-window reactivation
+  // catch-up for an accepted business still passes.
+  //
+  // The isSubscriptionTier throw above stays AHEAD of this gate (carve-out,
+  // plan T4): an unparseable tier is an impossible state to assert on, no
+  // Review import happens on either path, and only the outbox disposition
+  // differs (throw/retry rather than skip-complete).
+  const consent = await guardImportConsent(sql, {
+    businessId: business_id,
+    outboxId,
+    attempt,
+    logger,
+  });
+  if (consent.kind === 'skipped') {
+    return;
+  }
+
   const isReactivationBackfill = backfill_reason === 'reactivation';
   const runReason = isReactivationBackfill ? 'reactivation' : 'initial';
   const correlationId = job.data.correlation_id ?? uuidv7();
@@ -195,14 +226,20 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
     return;
   }
 
-  // Shared pre-flight gates (row-missing, archived-location, subscription) —
-  // guard ordering + skip semantics live in job-eligibility.ts. On skip the
-  // OUTBOX row completes, but completed_at on the zernio_backfill_runs row is
-  // NOT set — billing may be restored later (past_due → active,
-  // pending_payment → active) or the location un-archived, and the owner
-  // deserves a backfill at that point. A future reconnect (or ops-triggered
-  // re-enqueue) retries via the same zernio_backfill_runs row
-  // (completed_at IS NULL → idempotent re-entry).
+  // Shared pre-flight gates (archived-location, subscription) — guard ordering
+  // + skip semantics live in job-eligibility.ts. Its row-missing branch is
+  // UNREACHABLE for this worker as of #679: guardImportConsent runs first and a
+  // missing businesses row yields no consent state, so the fail-closed gate
+  // intercepts it and logs { reason: 'missing' } instead of
+  // subscription_status=missing. That is deliberate — do not restore a backfill
+  // assertion on the old line.
+  //
+  // On skip the OUTBOX row completes, but completed_at on the
+  // zernio_backfill_runs row is NOT set — billing may be restored later
+  // (past_due → active, pending_payment → active) or the location un-archived,
+  // and the owner deserves a backfill at that point. A future reconnect (or
+  // ops-triggered re-enqueue, consent permitting) retries via the same
+  // zernio_backfill_runs row (completed_at IS NULL → idempotent re-entry).
   const eligibility = await guardZernioJobEligibility(sql, {
     businessId: business_id,
     outboxId,

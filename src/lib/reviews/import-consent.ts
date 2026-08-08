@@ -24,18 +24,74 @@
 // as `pending AND import_offer_expires_at <= now()`: no poller, no stored
 // 'expired', and nothing fires at the expiry moment.
 //
-// NO ANALYTICS EVENTS IN THIS MODULE (deviations D7, owner decision 2026-08-07).
-// `import_offer_created` / `import_decision_recorded` need the
-// `analytics_events.event_name` CHECK extended, which needs a migration this
-// ticket's non-goals forbid — #679 carries them. Adding an
-// `enqueueAnalyticsEvent` call here would raise a CHECK violation INSIDE the
-// acceptance transaction and roll back a legitimate consent decision.
+// TWO ANALYTICS EVENTS, BOTH EMITTED FROM INSIDE THE WRITING TRANSACTION (#679
+// T2, restoring #677's deferred D7). `createImportOffer` emits
+// `import_offer_created` on — and only on — the `'created'` branch;
+// `recordImportDecisionAndEnqueue` emits `import_decision_recorded` on — and only
+// on — the `'recorded'` path. Every other branch emits nothing: an event here is
+// a count of facts that actually landed, not of calls that were made.
+//
+// They live in the WRITERS, not at the call sites, because `createImportOffer`
+// has three producers and emitting at each would repeat the key, the properties
+// and the only-when-written condition three times over:
+//
+//   1. `src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts:208` — the
+//      connect junction, inside the Zernio connect transaction.
+//   2. `worker/ingress/stripe/shared.ts:159` — the Stripe §5.2 activation resume.
+//   3. `src/app/api/dashboard/import-offer/route.ts` — the GET self-heal.
+//
+// `src/lib/locations/add-location-tx.ts` is NOT a producer, although an earlier
+// revision of this header listed it as one. That file only MENTIONS this helper
+// in prose explaining why it stamps `import_offer_expires_at` itself; it neither
+// imports nor calls it. Precedent for writer-owned emission: `recordSuppression`
+// (`src/lib/solicitation/suppression.ts`).
+//
+// Both keys are business-scoped — `import_offer_created_<businessId>`,
+// `import_decision_recorded_<businessId>` — and at-most-once per business by
+// construction (the offer write requires a NULL deadline, the decision write
+// requires `pending`), so a replay drops on `ON CONFLICT (event_key) DO NOTHING`
+// rather than double-counting, and the key needs no discriminator.
+//
+// EACH EMISSION RUNS IN ITS OWN SAVEPOINT (`emitConsentEvent`), and that is a
+// SAFETY property rather than a tidiness one. The database's
+// `analytics_events_event_name_check` must ADMIT both names (migration 102); an
+// unregistered name raises `23514` INSIDE the enclosing transaction. Unguarded,
+// the consequence is NOT the "rolled-back consent decision" this header used to
+// claim — it is a CONNECT OUTAGE. `createImportOffer` runs inside
+// `finalizeConnectionTx`, and `select-location/route.ts` rethrows anything that
+// is not `23505`, so on a project whose migration 102 had not landed NO owner
+// with an activated subscription could connect a Google Business Profile at all.
+// A missing metric must never poison the success path (CLAUDE.md working rules).
+//
+// THE SAVEPOINT CONTAINS THE BLAST RADIUS, so the residual risk is now the
+// METRIC, not the feature: a failed emission rolls back only itself, is logged
+// at `warn`, and consent, connect and Review import all keep working while the
+// offer-to-answer counts silently under-report. Migration 102 should still reach
+// a Supabase project BEFORE the emitting code does — staging first, prod in
+// lockstep at promotion — but that ordering is no longer the difference between
+// shipping and an outage, and the warn line is how a project that got the order
+// wrong announces itself.
+//
+// ATOMICITY ON THE SUCCESS PATH IS UNCHANGED. A savepoint that COMMITS commits
+// with its parent, so an event still dies with a decision that rolls back for
+// any other reason — which is exactly what "…rolls back
+// import_decision_recorded when the decision transaction aborts" pins.
+//
+// AND THE EMISSION MUST USE THE TRANSACTION HANDLE, NEVER THE OUTER `sql`.
+// `recordImportDecisionAndEnqueue` has both in scope; an event written against
+// `sql` would pass every happy-path test while committing independently of a
+// decision that later rolls back — a recorded decision that never happened. The
+// savepoint handle is derived FROM `tx` and inherits that property; passing the
+// outer `sql` into `emitConsentEvent` would forfeit it. Pinned behaviourally by
+// the abort test above, not by executor identity.
 //
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { enqueueAnalyticsEvent, type EnqueueAnalyticsEventInput } from '@/lib/analytics/enqueue';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { errorStringProperty } from '@/lib/payments/stripe-error-inspect';
 import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 type SqlExecutor = Sql | TransactionSql;
@@ -217,7 +273,28 @@ export async function createImportOffer(
     RETURNING b.id
   `;
 
-  return rows.length > 0 ? 'created' : 'unchanged';
+  if (rows.length === 0) return 'unchanged';
+
+  // ONLY the `'created'` branch emits. This helper runs on EVERY dashboard mount
+  // through the GET self-heal, and on every 4s poll tick while importing, so an
+  // emission on `unchanged` would re-mint the same fact on every render and
+  // destroy the offer-to-answer ratio the event exists to measure.
+  //
+  // `tx`, so the event lands in the caller's transaction: an Import offer that
+  // rolls back takes its event with it, and one that commits can never be
+  // missing from the numerator. Savepointed, so the reverse is NOT true — this
+  // helper runs inside `finalizeConnectionTx`, and a failing emission here must
+  // not be able to take a Google Business Profile connection down with it.
+  await emitConsentEvent(tx, {
+    eventName: 'import_offer_created',
+    eventKey: `import_offer_created_${businessId}`,
+    distinctId: accountId,
+    accountId,
+    businessId,
+    properties: { window_days: IMPORT_OFFER_WINDOW_DAYS },
+  });
+
+  return 'created';
 }
 
 /**
@@ -297,6 +374,25 @@ export async function recordImportDecisionAndEnqueue(
       return logRejection(classifyRejection(current), businessId, decision);
     }
 
+    // The decision LANDED — emit before the branch, so a decline (which returns
+    // early, without an enqueue) is counted too. A decline is an ANSWER: it is
+    // the denominator half of the offer-to-answer ratio, and an emission placed
+    // next to `enqueueInitialImport` would silently miss it.
+    //
+    // `tx`, never the outer `sql` — see the module header. Emitting BEFORE the
+    // enqueue is also what keeps that boundary observable: an enqueue failure
+    // must be able to take this row down with it. The savepoint does not weaken
+    // that — it only stops the arrow pointing the other way, from a failed
+    // metric back onto the owner's answer.
+    await emitConsentEvent(tx, {
+      eventName: 'import_decision_recorded',
+      eventKey: `import_decision_recorded_${businessId}`,
+      distinctId: accountId,
+      accountId,
+      businessId,
+      properties: { decision },
+    });
+
     if (decision === 'declined') return 'recorded';
 
     await enqueueInitialImport(tx, businessId, accountId);
@@ -336,6 +432,92 @@ function logRejection(
     decision,
   });
   return rejection;
+}
+
+/**
+ * Emit one Import consent analytics event inside ITS OWN SAVEPOINT.
+ *
+ * The single reason this function exists: both emissions run inside a caller's
+ * transaction that is doing something far more important than counting. Postgres
+ * aborts the WHOLE transaction on any error, so an unguarded emission makes the
+ * analytics table a hard dependency of connecting a Google Business Profile —
+ * `createImportOffer` is called by `finalizeConnectionTx`, and
+ * `select-location/route.ts` rethrows anything that is not `23505`. See the
+ * module header for the full failure mode; the rule it violates is CLAUDE.md's
+ * "observability must never poison the success path".
+ *
+ * `tx.savepoint` is postgres.js's `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` pair
+ * (v3.4.9, `TransactionSql.savepoint(cb)`): on throw it rolls back to the
+ * savepoint and rethrows, leaving the parent transaction usable. Catching that
+ * rethrow is what turns a fatal emission into a lost metric.
+ *
+ * IT DOES NOT MAKE THE EVENT INDEPENDENT. A savepoint that commits commits with
+ * its parent, so an event still dies with the fact it reports — the property
+ * "…rolls back import_decision_recorded when the decision transaction aborts"
+ * pins. The guard is one-directional by construction, which is the whole point.
+ *
+ * `warn`, not `log`: unlike `logRejection`'s expiries and declines this is never
+ * an ordinary outcome. It means the emitting code reached a database whose
+ * `analytics_events_event_name_check` does not admit the name (migration 102 not
+ * applied) — a human should look. Only the business id, the event name and the
+ * error text are logged: no review text, no tokens, no handles, and not the
+ * properties.
+ *
+ * ONLY an error carrying a string `code` is swallowed — which is broader than
+ * "a Postgres error", and deliberately so: it also covers postgres.js
+ * connection-lifecycle errors (`CONNECTION_CLOSED`/`_ENDED`/`_DESTROYED`/
+ * `CONNECT_TIMEOUT`, minted on plain `Error`s at
+ * `node_modules/postgres/src/errors.js:16-27`) and Node OS-socket codes
+ * (`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`). Those are infrastructure failures, not
+ * schema drift, and they land under the same `warn` — a known imprecision in the
+ * signal, tracked with the missing durable sink as #697. Swallowing them is
+ * still correct here: a lost connection independently rejects the enclosing
+ * `begin`, so it can never be converted into a quiet success.
+ *
+ * Round 2 found the catch unbounded, and it
+ * was already hiding a real one: `import-offer-junction.test.ts`'s `mockTx` has
+ * no `savepoint`, so five of its six tests threw `TypeError: tx.savepoint is not
+ * a function`, emitted nothing, and stayed green. A handle without `.savepoint`
+ * (root `sql`, `sql.reserve()`, a `Sql`-shaped mock) is a wiring bug, not schema
+ * drift, and swallowing it kills both events forever behind a warn that reads
+ * like a missing migration. Postgres errors carry a string `code`; a `TypeError`
+ * does not — that is the whole discriminator, spelled with the established
+ * `errorStringProperty` helper, which `src/lib/db/transient-error.ts:61` already
+ * uses for exactly this "does this error carry a string `code`" question. It is
+ * NOT the `duplicate-location.ts:24` / `create-business.ts:62` shape: those
+ * narrow to one SPECIFIC code, this one only asks whether a code exists.
+ * This is `.claude/commands/feature.md:55`'s "assert impossible states, don't
+ * branch around them".
+ *
+ * Three error classes reach this catch, and only the first is swallowed:
+ *   1. Postgres errors — SQLSTATEs (`23514` when 102 is unapplied, `23503`),
+ *      `57014` statement timeouts, postgres.js `CONNECTION_*`, and Node socket
+ *      errors (`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`). All carry a string `code`.
+ *      Round 3 verified this against the driver source: nothing transient
+ *      escapes, so the narrowing cannot resurrect the connect outage. A lost
+ *      connection still rejects the enclosing `begin` on its own, so it is
+ *      never converted into a quiet success.
+ *   2. A `TypeError` from a handle without `.savepoint` — a wiring bug.
+ *   3. `enqueueAnalyticsEvent`'s own plain `Error` on an unregistered name
+ *      (`src/lib/analytics/enqueue.ts:24-26`). Unreachable while `eventName` is
+ *      typed `AnalyticsEventName` — deleting a name from the registry fails
+ *      compilation at the call site before it can fail at runtime.
+ * 2 and 3 are impossible states and are rethrown deliberately.
+ */
+async function emitConsentEvent(
+  tx: TransactionSql,
+  input: EnqueueAnalyticsEventInput,
+): Promise<void> {
+  try {
+    await tx.savepoint((sp) => enqueueAnalyticsEvent(sp, input));
+  } catch (error) {
+    if (errorStringProperty(error, 'code') === undefined) throw error;
+    createWorkerLogger(LOG_PREFIX).warn('Import consent analytics emission failed', {
+      business_id: input.businessId ?? null,
+      event_name: input.eventName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**

@@ -18,6 +18,7 @@ const {
   mockOpenPhiReviewException,
   mockHandleZernioIngestError,
   mockApplyIngestionAuthErrorFallback,
+  mockGuardImportConsent,
   mockLogger,
 } = await vi.hoisted(async () => {
   const { createMockSql, mockWorkerLogger } =
@@ -25,6 +26,7 @@ const {
 
   return {
     ...createMockSql(),
+    mockGuardImportConsent: vi.fn(),
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockListReviews: vi.fn(),
@@ -64,6 +66,16 @@ vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
 vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
 }));
+// PARTIAL mock: `guardZernioJobEligibility` stays the real implementation for
+// every other test in this file; only #679's consent gate is replaced by a spy,
+// so "the live lane never reaches it" is an observation rather than an
+// assumption. Live-ingest independence is STRUCTURAL by design — the gate is a
+// separate function called only by handleZernioBackfill, not a `jobKind` branch
+// inside guardZernioJobEligibility that a future edit could flip.
+vi.mock('../job-eligibility', async () => {
+  const actual = await vi.importActual<typeof import('../job-eligibility')>('../job-eligibility');
+  return { ...actual, guardImportConsent: mockGuardImportConsent };
+});
 
 import {
   handleZernioReviewIngest,
@@ -507,5 +519,41 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-ingest-1', undefined);
+  });
+
+  // 12. #679 — the live lane is NOT consent-gated.
+  it('handleZernioReviewIngest does not call guardImportConsent', async () => {
+    // Import consent governs the IMPORT lane only. The live lane (webhook +
+    // recent poller) owns createTime >= the live-ingest cutoff and has always
+    // been ungated; gating it would silently stop drafting replies for reviews
+    // the owner is waiting on. Spec §5.3 keeps the two structurally separate.
+    //
+    // The export check is half the claim: "does not call it" only means
+    // something once the function exists, so this fails today for the right
+    // reason (T3 has not shipped it) rather than passing vacuously forever.
+    const actual = await vi.importActual<Record<string, unknown>>('../job-eligibility');
+    expect(
+      typeof actual.guardImportConsent,
+      'guardImportConsent is not exported by job-eligibility.ts yet',
+    ).toBe('function');
+
+    pushActiveBiz();
+    pushActiveConn();
+    mockListReviews.mockResolvedValueOnce({
+      reviews: [makeZernioReview()],
+      nextPageToken: undefined,
+    });
+    mockProcessReview.mockResolvedValueOnce(undefined);
+
+    await handleZernioReviewIngest(sqlArg, makeJob());
+
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    expect(mockGuardImportConsent).not.toHaveBeenCalled();
+    // And no consent read reached the database by any other route.
+    for (const call of mockSql.mock.calls) {
+      const template = call[0];
+      if (!Array.isArray(template)) continue;
+      expect((template as readonly string[]).join('?')).not.toContain('import_decision');
+    }
   });
 });

@@ -401,6 +401,67 @@ export const MIGRATION_100_IMPORT_CONSENT: SchemaRequirement = {
 };
 
 /**
+ * The precondition a `SchemaRequirement` structurally cannot carry.
+ *
+ * `analytics_events_event_name_check` has existed under that NAME since 046,
+ * and 094 / 097 / 102 each REPLACE it with a wider list. Presence therefore
+ * proves nothing, which is why none of the three exports a requirement — the
+ * only proof available is the constraint's DEFINITION.
+ *
+ * A suite that ASSERTS an analytics row exists depends on that definition:
+ * every emission runs inside its caller's transaction, and an unregistered name
+ * is a `23514` at statement time. Where the emitter savepoints (Import consent
+ * does, `import-consent.ts`), the rejection is swallowed and the suite fails as
+ * "expected length 1, received 0"; where it does not, the caller's whole
+ * transaction dies. Neither names the actual problem, which is that the
+ * database is behind head — the loud, named failure `assertSchemaReady` exists
+ * to give (#679 review round 1).
+ */
+export interface AnalyticsEventNameRequirement {
+  /** Migration that registered these names. Named in the failure message. */
+  migration: string;
+  /** Event names the live CHECK must admit. */
+  eventNames: readonly string[];
+}
+
+/** #679 T1 — the two Import offer events. */
+export const MIGRATION_102_IMPORT_CONSENT_EVENTS: AnalyticsEventNameRequirement = {
+  migration: '102_import_consent_analytics_events',
+  eventNames: ['import_offer_created', 'import_decision_recorded'],
+};
+
+/**
+ * Throws unless the live `analytics_events_event_name_check` ADMITS every name.
+ *
+ * Read-only (`pg_get_constraintdef` over `pg_constraint`), so like
+ * `assertSchemaReady` it can never be the blocking side of a deadlock.
+ */
+export async function assertAnalyticsEventNamesRegistered(
+  db: postgres.Sql,
+  requirement: AnalyticsEventNameRequirement,
+): Promise<void> {
+  const [row] = await db<{ definition: string }[]>`
+    SELECT pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint
+    WHERE conname = 'analytics_events_event_name_check'
+      AND conrelid = 'analytics_events'::regclass
+  `;
+
+  const missing = row
+    ? requirement.eventNames.filter((name) => !row.definition.includes(`'${name}'`))
+    : [...requirement.eventNames];
+  if (missing.length === 0) return;
+
+  throw new Error(
+    `test database is behind head — analytics_events_event_name_check ` +
+      `${row ? `does not admit ${missing.join(', ')}` : 'is absent from analytics_events'}\n` +
+      `  ${requirement.migration}\n` +
+      `Re-provision it with \`${SETUP_COMMAND}\`. Suites assert schema; they no ` +
+      `longer apply migrations at run time (#573).`,
+  );
+}
+
+/**
  * Throws unless every requirement is already present on the connected
  * database. Read-only: it takes no lock stronger than ACCESS SHARE, so it can
  * never be the blocking side of a deadlock.

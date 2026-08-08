@@ -39,8 +39,10 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import {
+  assertAnalyticsEventNamesRegistered,
   assertSchemaReady,
   MIGRATION_100_IMPORT_CONSENT,
+  MIGRATION_102_IMPORT_CONSENT_EVENTS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   createImportOffer,
@@ -100,6 +102,14 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     // max:4 — titles 33 and 61 are races and need genuinely separate sessions.
     db = postgres(testDatabaseUrl!, { max: 4, prepare: false });
     await assertSchemaReady(db, [MIGRATION_100_IMPORT_CONSENT]);
+    // The precondition `assertSchemaReady` structurally cannot carry (#679
+    // review round 1): migration 102 adds no relation, column or index, and its
+    // constraint NAME has existed since 046 — so it correctly exports no
+    // SchemaRequirement. "…self-heal records import_offer_created in the same
+    // transaction" ASSERTS the event row exists; on a database at 101 the
+    // emission is rejected, swallowed by its savepoint, and that title fails as
+    // "expected length 1, received 0" instead of naming the behind-head DB.
+    await assertAnalyticsEventNamesRegistered(db, MIGRATION_102_IMPORT_CONSENT_EVENTS);
     tenant = await seedTenantAccount(db, {
       userName: 'Decision Owner',
       accountDisplayName: 'Decision Account',
@@ -255,6 +265,45 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     // check-then-insert race and both can insert.
     expect(await outboxRows()).toHaveLength(1);
     expect((await consentRow()).import_decision).toBe('accepted');
+  });
+
+  // The title #677 parked here and moved to #679 with the rest of the analytics
+  // slice (deviations D7). Restored as a SAME-TRANSACTION assertion, because the
+  // self-healed offer is precisely the one that would otherwise vanish from the
+  // offer-created → decision-recorded ratio: its junction-time write FAILED, so
+  // if the event rode the junction instead of the writer it was never emitted.
+  it('GET import-offer self-heal records import_offer_created in the same transaction', async () => {
+    // The state the self-heal exists for: pending, no deadline, at the junction.
+    await setOffer(null);
+
+    const seen = await sql().begin(async (tx) => {
+      // The route's self-heal transaction, reproduced rather than imported —
+      // `route.ts` reads the `sql` singleton at module scope, which this suite
+      // cannot point at the test database (same reason as finalizeLikeProducer
+      // above). Row lock, then createImportOffer, one transaction
+      // (`route.ts:93-101`).
+      await tx`
+        SELECT id FROM businesses
+        WHERE id = ${businessId}::uuid AND account_id = ${tenant!.accountId}::uuid
+        FOR UPDATE
+      `;
+      const result = await createImportOffer(tx, businessId, tenant!.accountId);
+      // Read INSIDE the transaction: an event written against the outer client
+      // would commit even if the repair rolled back, reporting an offer the
+      // owner never received.
+      const rows = await tx<{ event_key: string; distinct_id: string }[]>`
+        SELECT event_key, distinct_id FROM analytics_events
+        WHERE account_id = ${tenant!.accountId}::uuid
+          AND event_name = 'import_offer_created'
+      `;
+      return { result, rows };
+    });
+
+    expect(seen.result).toBe('created');
+    expect(seen.rows).toHaveLength(1);
+    // Business-scoped key: two tabs racing the self-heal mint one event.
+    expect(seen.rows[0]!.event_key).toContain(businessId);
+    expect(seen.rows[0]!.distinct_id).toBe(tenant!.accountId);
   });
 
   it('createImportOffer under concurrency stamps exactly one deadline', async () => {

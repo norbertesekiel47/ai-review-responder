@@ -25,6 +25,8 @@ export const ANALYTICS_EVENT_NAMES = [
   'solicitation_consent_upgraded',
   'solicitation_suppressed',
   'solicitation_suppressed_at_dispatch',
+  'import_offer_created',
+  'import_decision_recorded',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

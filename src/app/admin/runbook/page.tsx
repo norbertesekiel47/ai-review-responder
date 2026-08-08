@@ -99,10 +99,12 @@ const SCENARIOS: Scenario[] = [
         Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?),
         subscription_status (cancelled?). Check <AdminLink href="/admin/jobs" /> for failed
         ingest_zernio_review or zernio_initial_backfill rows. Check
-        zernio_backfill_runs.completed_at for first-connect status.
+        zernio_backfill_runs.completed_at for first-connect status. For a missing Review
+        import, read businesses.import_decision + businesses.import_offer_expires_at first —
+        that is what separates an Import consent block from an outage.
       </>
     ),
-    fix: 'Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. If first-connect backfill never completed (zernio_backfill_runs.completed_at IS NULL), re-enqueue zernio_initial_backfill outbox row.',
+    fix: "Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. Review import: re-enqueue a zernio_initial_backfill outbox row ONLY when import_decision = 'accepted' AND no initial run completed (zernio_backfill_runs.completed_at IS NULL for run_reason = 'initial'). The worker fails closed — on any other state the row no-op-completes and imports nothing. A declined or expired decision is permanent, admin path included: no re-enqueue, no re-offer, nothing to route around it. Expired is derived, never stored — import_decision = 'pending' AND import_offer_expires_at <= now(); there is no 'expired' value to look for.",
   },
 ];
 

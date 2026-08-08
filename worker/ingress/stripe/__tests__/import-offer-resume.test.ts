@@ -71,6 +71,12 @@ const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => 
   });
   mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockSql));
   mockSql.json = vi.fn((v: unknown) => v);
+  // `begin` hands this same object back as the transaction, so it must carry
+  // postgres.js's `savepoint` too — `emitConsentEvent` wraps both Import offer
+  // analytics emissions in one. Until #679 round 2 narrowed that catch to
+  // Postgres errors, the resulting `TypeError: tx.savepoint is not a function`
+  // was swallowed as if it were schema drift and these titles stayed green.
+  mockSql.savepoint = vi.fn((cb: (sp: unknown) => Promise<unknown>) => cb(mockSql));
 
   const mockPublishingEnabled = vi.fn(() => scenario.publishingEnabled);
   return { mockSql, sqlCalls, scenario, mockPublishingEnabled };
