@@ -99,6 +99,53 @@ email shares the Resend provider with the product.
 > `subsystem:health_alert` / cost-cap are still unchecked). Until then, billing-reconcile
 > drift pages only via the high-priority → email path.
 
+## 1a-do. The Sentry click-path — every unconfigured rule, in one sitting
+
+> **§1 and §1a above are authoritative** for *which* signals must route and *why*.
+> This section adds only the **click-path and the exact field values**, in the
+> order to do them, so the whole set can be configured in one session. If the two
+> ever disagree, §1/§1a win — do not add a new signal here without adding it
+> there first.
+>
+> Org `repworth-nv`. Do staging first, then repeat for the production project.
+> Tick the matching box in §1/§1a as you complete each one.
+
+**Step 0 — the integration (blocks every rule below).**
+Sentry → Settings → Integrations → Discord → Add Installation → authorise → pick
+the server. Confirm the Sentry bot has **View Channel + Send Messages** in
+`#repworth-alerts`. Copy the channel ID (Discord Developer Mode → right-click the
+channel → Copy Channel ID). On the Sentry free tier the native integration is not
+available — create a Discord channel **webhook** instead and use it everywhere
+below. → ticks the §1 "Install the Sentry → Discord integration" box.
+
+Each rule below: Sentry → Alerts → Create Alert → **Issues** → set _When_,
+_If_ (filter), _Then_ (action) → name it → Save.
+
+| # | Rule name | _If_ filter | _When_ trigger | Level |
+|---|---|---|---|---|
+| 1 | `health-alert → discord` | `subsystem` equals `health_alert` | issue is **first seen** | `error` + `warning` |
+| 2 | `cost-cap → discord` | `cost_event` equals `limit_exceeded` | issue is **first seen** | any |
+| 3 | `stripe-reconcile-drift → discord` | `feature` equals `stripe_reconciliation` | issue is **first seen** | `error` + `warning` |
+| 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
+
+_Then_ action for all four: **Send a notification to the Discord integration** →
+your server → the `#repworth-alerts` channel ID from step 0.
+
+**Rule 4 is the odd one, and the difference is not cosmetic.** Rules 1–3 fire on
+a new issue. Rule 4 must not. Its capture title is a **constant string**, so every
+occurrence — both **Import offer** event names, every location, the Vercel lane
+and the Railway lane alike — groups into ONE Sentry issue. A first-seen trigger
+would fire once, ever, and then stay silent through exactly the repetition that
+is the signal. See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
+
+**Step 5 — the dead-man switch.** The cron monitor is NOT an alert rule; it is
+configured in §4 of this runbook (slug `health-alert-poller`, auto-created on
+first check-in). Do §4 after the four rules above.
+
+**Verify, do not assume.** Each rule is unproven until you have seen it deliver.
+§4's acceptance drills are how — do not tick a §1 box on the strength of a saved
+rule alone.
+
 ## 1b. Poller-resume — restoring the 5-minute `HealthAlertPoller` cadence (post-#505)
 
 `HEALTH_ALERT_POLL_INTERVAL_MS` was overridden on staging to `86400000` (24h)
