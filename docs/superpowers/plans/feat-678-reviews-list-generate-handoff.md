@@ -7,34 +7,50 @@ Branch: `feat-678-reviews-list-generate` (base `main` @ `13212b55`)
 
 ## Where we are
 
-Step 3 (PLAN) — round 1 complete (`VERDICT: REVISE`, 9 findings, all accepted).
-**Round 2 (verification-only) DISPATCHED**; counter already incremented to 2.
+Step 3 (PLAN) — rounds 1 and 2 both returned `REVISE`; **all findings from both are
+now applied to the executable task steps** and committed (`69b55982`).
+**Round 3 (verification-only, the LAST) is the next action.**
 
-Brief: `<session-scratchpad>/codex-plan-round2-brief.md` · raw JSONL:
-`<session-scratchpad>/codex-plan-round2.jsonl`. If that scratchpad is gone (it is
-session-scoped), the brief is reconstructible from `plan-round1.md` — the mandate
-is: for each of F1–F9, did the fix reach the **checkboxed step** a subagent
-executes, and did any fix introduce a defect. Nothing else is in scope.
+Reports: `docs/reviews/feat-678-reviews-list-generate/plan-round1.md` +
+`plan-round2.md` (both have full findings tables + triage verdicts).
 
-**On the round-2 verdict:**
-- `APPROVED` → write the report to `docs/reviews/feat-678-reviews-list-generate/plan-round2.md`, commit it, `bash scripts/feature-state.sh set-phase plan_approved`, go to step 4.
-- `REVISE` → apply, then round 3 is the LAST (counter cap). After round 3, surface the disagreement to the owner; their call substitutes for APPROVED.
+**On the round-3 verdict:**
+- `APPROVED` → write `plan-round3.md`, commit, `bash scripts/feature-state.sh set-phase plan_approved`, go to step 4.
+- `REVISE` → **do NOT dispatch a round 4.** The cap is 3. Surface the remaining disagreement to the owner with both positions; their call substitutes for APPROVED (feature.md step 3.4).
 
-### F3 was fixed for real at `6c93de6d` — before round 2 dispatched
+### THE recurring defect on this branch — check this first, always
 
-Round 1's commit recorded F3 as a **rationale paragraph** under Task 4 while Step 1's
-SQL block and the Self-review "known gap" still described the pre-fix design. A
-subagent following Step 1 verbatim would have built the `LEFT JOIN` with no orphan
-LATERAL and never deleted the separate orphan query (`load-replies.ts:162-205`) —
-reintroducing the exact double-render defect F3 was raised to prevent. Now applied:
-`orphan_sidecar` + `orphan_superseded` LATERALs + `is_orphan` column (T4 Step 1),
-Step 2a deletes the query and the `bucketReplies` merge, T5 Step 2b drops
-`groupReplies`' second parameter. Full write-up: `plan-round1.md` →
-"Orchestrator-found, pre-round-2".
+**Four of nine round-1 fixes never reached a checkbox.** They were written into the
+`# Round-1 revisions` appendix, which reads as "addressed" at every later checkpoint
+because the plan demonstrably *discusses* the fix:
 
-**Generalise it:** a review fix that lands as prose *about* the change rather than
-an edit *to* the executable step reads as addressed at every later checkpoint. Check
-the step, not the discussion.
+- **F3** — caught by the orchestrator pre-round-2 (`6c93de6d`). Step 1's SQL had no
+  orphan LATERAL and the Self-review still described the pre-fix design.
+- **F5, F8, F9** — caught by round 2. Poller still returned held drafts as `ready`;
+  Task 8 Step 4 grepped `docs/` and never edited the three live refs; Task 1 created
+  no integration suite.
+
+Written up as deviations **D7**, and it is a `/feature` workflow lesson, not a #678
+one — **promote to lab-notes at step 8**.
+
+**The test to apply, every time:** *if a subagent executes only the checkboxes of
+the owning task, does the fixed behaviour result?* Never "does the plan say it?".
+
+### Round-2 outcomes that change the shape of the work
+
+- **`held` is a sixth `ReviewRowState`** (D9) — the five-state union had no correct
+  configuration for a moderation-held draft: filtered → `generate` (offers an LLM
+  spend the partial unique index then rejects), kept → `draft_ready` (surfaces held
+  text). **Adds a user-visible state the owner-signed intake does not name** —
+  ratification pending, nothing blocks on it. `Under review` is the label most open
+  to owner preference.
+- **`hasOpenFlag` is NOT usable on the read paths** (D6) — it is
+  `(tx: TransactionSql, …)`, an in-tx post-`FOR UPDATE` release gate, and
+  `held-draft.ts` is **outside the surface** (a helper there burns amendment 2 of 2
+  → abort criteria). Both new sites spell the `EXISTS` inline. Do not "fix" this.
+- **Orphan field mapping** (round-2 Defect A) — F3's deletion of `toOrphanCardRow`
+  must carry its mapping into `toCardRow`, or `PastReplyCard:157,201` classifies a
+  row `recover` and then renders no recovery affordance.
 
 ### Dispatching codex — two traps that cost this session ~35 minutes
 
@@ -47,12 +63,13 @@ the step, not the discussion.
 
 | # | Artifact | Why |
 |---|---|---|
-| 1 | `.feature/intake.json` | The locked contract. Owner-signed. `allowed_edit_surface`, the **50** `tests_to_add` titles (verbatim — the gate matches literally), invariants, edge cases. |
+| 1 | `.feature/intake.json` | The locked contract. Owner-signed. `allowed_edit_surface`, the **52** `tests_to_add` titles (verbatim — the gate matches literally), invariants, edge cases. |
 | 2 | `docs/superpowers/plans/2026-08-08-feat-678-reviews-list-generate.md` | The plan. Tasks T1–T8, the task graph, and **"Design decisions taken during planning" D-A…D-H** — these are contract, not suggestion. |
 | 3 | `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.3a, §6.3b, §6.4 | Design of record. S1–S7 (surface), C1–C4 (cost policy). Locked by #671 / #672. |
 | 4 | `CONTEXT.md` → **Reviews list**, **On-demand generation** | Glossary. Use these terms verbatim in code, commits, and tickets. |
 | 5 | `docs/reviews/feat-678-reviews-list-generate/plan-round1.md` | Round-1 findings table + triage verdicts. |
-| 5b | `docs/superpowers/plans/feat-678-reviews-list-generate-deviations.md` | D1–D5. **Read before step 6** — D1 carries a scope fence on `process-review.ts`. |
+| 5a | `docs/reviews/feat-678-reviews-list-generate/plan-round2.md` | Round-2 table + the two fix-introduced defects. |
+| 5b | `docs/superpowers/plans/feat-678-reviews-list-generate-deviations.md` | D1–D9. **Read before step 6** — D1 carries a scope fence on `process-review.ts`; D6/D9 are round-2 shape changes. |
 | 6 | `gh issue view 678` | Ticket + the four unblocking comments (#669 reuse map, #671 surface lock, #672 cost policy). |
 
 ## Ticket context
@@ -79,7 +96,7 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 0. **The orphan query is GONE as a separate query** (F3). Under `LEFT JOIN` its `NOT EXISTS` disjointness guarantee is false, so every orphan review would render twice — once `generate`, once `recover` — and its un-offset `LIMIT 50` would merge into every page. The main query is now the single row source with the orphan data as a third LATERAL. The plan originally asserted the opposite; do not restore it.
 0b. **`ORDER BY` carries `, r.id DESC`.** Without a total order, equal `review_date` values at an OFFSET boundary duplicate or drop rows across pages.
-0c. **Moderation-held drafts never surface** as `ready` (poller) or `draft_ready` (list) — invariant #4. Use `hasOpenFlag`.
+0c. **Moderation-held drafts never surface** as `ready` (poller) or `draft_ready` (list) — invariant #4. They resolve to the sixth state `held` (D9). Do NOT reach for `hasOpenFlag`: it is `(tx: TransactionSql, …)` and `held-draft.ts` is out of surface — both sites spell the `EXISTS` inline (D6).
 1. **Version is `COALESCE(MAX(version),0)+1`, never hardcoded `1`.** Verified: discard sets `status='superseded'` and RETAINS the row, so `MAX(version)` climbs and C1's per-review budget self-arms. Hardcoding `1` creates an unbounded free-regeneration loop.
 2. **No separate offboarding check in the Generate route.** `assertWritableSubscriptionForAccount` already resolves offboarding in the same query and returns `403 account_offboarding_blocked`. A second `getOffboardingState` call is a duplicate round trip and a second spelling of a one-owner guard. (Found during this session's own cited-artifact check, before codex reported.)
 
@@ -89,17 +106,17 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 ## Next steps
 
-1. ~~Dispatch round 2~~ — DONE (counter at 2). Triage its findings table; write the report to `docs/reviews/feat-678-reviews-list-generate/plan-round2.md` and COMMIT it (uncommitted reports vanish with the worktree).
+1. ~~Rounds 1-2~~ — DONE, both REVISE, all findings applied + reports committed. Next: `incr-round plan`, dispatch round 3 (verification-only over `plan-round2.md`'s table, applying the D7 test).
 2. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then step 4. Hard stop after round 3 — surface the remaining disagreement to the owner; their call substitutes for APPROVED.
 3. Step 4 dispatch order: **T1 alone** (mandatory first-task enforcement spot check — diff `git status --porcelain` against `allowed_edit_surface`; any out-of-surface file means STOP), then **T2 / T4 / T6 in parallel** (disjoint files, no edges), then T3 and T5, then T7, then T8.
 4. Step 5 gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7. **`TEST_DATABASE_POOL_URL` must be set** — a SKIP row on the integration suite makes the gate non-review-ready for this DB-touching branch.
 
 ## Budgets
 
-- Plan review rounds: **2 of 3 used** (round 2 dispatched; counter incremented BEFORE dispatch).
+- Plan review rounds: **2 of 3 used**; round 3 is the LAST. Increment BEFORE dispatch (`incr-round plan`).
 - `allowed_edit_surface` amendments: **1 of 2 USED** (deviations D1 — the flags.ts collapse needed 6 out-of-surface files). **A second amendment trips the abort criteria** — there is no slack left. Test-title changes and `verification_commands` fixes are deviations-file entries, NOT amendments.
 - Gate-fail rounds: 0 of 3.
-- `tests_to_add`: **37 → 50 titles** (D3). Both intake copies updated and verified byte-identical.
+- `tests_to_add`: **37 → 50 (D3) → 52 (D8)**. Both intake copies verified byte-identical at each step (`989ef287…`).
 - Estimates deliberately NOT re-padded despite the scope growth (D4) — 900 prod / 1100 test stand. If the trigger fires, that is the control working.
 
 ## Watch items for step 7
