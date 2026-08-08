@@ -122,3 +122,36 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 - The in-flight status literal `('pending','dispatching','dispatched')` is re-spelled by hand in two new places (the route guard, the list LATERAL). `ci:outbox-status` checks members **and order**.
 - The new live-DB suite must be `*.integration.test.ts`, must NOT apply migration SQL, and must call `assertSchemaReady` (`ci:live-db-suites`).
 - C4 (`DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` still unset) is a non-goal here but must be carried into the PR body so the ticket does not close believing the ceiling question is settled operationally.
+
+## `PAST_REPLIES_VIEW_ENABLED` — captured values (Task 8 Step 1, 2026-08-08)
+
+Captured **before** the deletion landed, per the intake's `rollback_plan`. Copy
+this table into the PR description — it is the revert precondition.
+
+| Surface | Environment | `PAST_REPLIES_VIEW_ENABLED` | `EDIT_REPLIES_ENABLED` |
+|---|---|---|---|
+| Vercel | Production | `true` | **absent** |
+| Vercel | Preview | **absent** | **absent** |
+| Vercel | Staging (Custom Env) | `true` | `true` |
+| Railway `repworth-worker` | production | **absent** | **absent** |
+| Railway `repworth-worker` | staging | `true` | `true` |
+
+### The merge is behaviour-neutral in every environment — verified, not assumed
+
+The capture exists to answer one question the plan never asked outright: today
+the worker's `replyEditingFlagEnabled()` is the **composite** `EDIT && VIEW`, and
+after retirement it becomes `EDIT` alone. Any environment with `EDIT=true` and
+`VIEW=false` would therefore have its publisher DELETE-then-POST edit branch —
+a **live Google mutation** — switch from inert to active on merge, silently.
+
+No environment is in that state:
+
+- **Railway production**: both absent → composite false today, `EDIT` false after. Inert before and after.
+- **Vercel production**: `VIEW=true`, `EDIT` absent → edit routes false today (composite) and false after (`EDIT` alone). The list page was already reachable, and becomes unconditionally reachable. No change.
+- **Staging (both surfaces)**: both `true` → composite true today, `EDIT` true after. No change.
+- **Vercel preview**: both absent → nothing gated on either.
+
+### Two facts worth carrying into the PR
+
+1. **The registry was stale.** `.claude/reference/env-vars.md:526` documented `PAST_REPLIES_VIEW_ENABLED` as *"Off (code-complete on `feat/past-replies-view`, 2026-05-02)"*, but Vercel Production has held `true` for ~49 days. Task 8 deletes the row, so the staleness dies with it — but it is a reminder that the registry's "current value" column drifts and is not evidence of deployed state.
+2. **Revert exposure is preview-only.** Reverting this PR restores the flag *read*, and the env var must exist before the reverted build boots or the list 404s. Production and staging both carry it on both surfaces, so a revert is safe there. **Vercel Preview does not** — a revert would 404 the Reviews list on preview deploys until the var is added. Not a blocker; a note for whoever reverts.
