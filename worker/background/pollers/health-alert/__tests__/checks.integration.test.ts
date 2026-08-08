@@ -12,6 +12,7 @@ import { OUTBOX_COMPLETION_REASON } from '@/lib/shared/outbox-completion-reason'
 import {
   assertSchemaReady,
   MIGRATION_071_RUN_SPINE,
+  MIGRATION_083_OUTBOX_OWNER_UNREACHABLE,
   MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { startOrGetActiveRun } from '@/lib/agents/run-spine';
@@ -213,18 +214,16 @@ const registerSuite = testDatabaseUrl ? describe : describe.skip;
 registerSuite('owner-unreachable health checks against live local Postgres', () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
-    // Assert, never apply (#573): agent_runs itself (071) plus the 091 widening
-    // that makes 'solicitation_send_batch' a legal kind. A DB behind head fails
-    // loudly here instead of as a mystifying CHECK violation in the fixture.
+    // Assert, never apply (#573): agent_runs itself (071), the 091 widening that
+    // makes 'solicitation_send_batch' a legal kind, and 083's
+    // job_outbox.completion_reason that the owner-unreachable check reads. A DB
+    // behind head fails loudly here instead of as a mystifying CHECK violation
+    // or undefined-column error in the fixture.
     await assertSchemaReady(db, [
       MIGRATION_071_RUN_SPINE,
       MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
+      MIGRATION_083_OUTBOX_OWNER_UNREACHABLE,
     ]);
-    // Bring the shared local test DB current with T1's migration 083 column
-    // (job_outbox.completion_reason). Test-DB bootstrap only — migration
-    // 083_outbox_owner_unreachable.sql remains the authoritative owner of this
-    // column; CI runs against a fully migrated DB where this is a no-op.
-    await db`ALTER TABLE job_outbox ADD COLUMN IF NOT EXISTS completion_reason TEXT`;
     tenant = await seedTenantAccount(db, {
       userName: 'Owner Unreachable Integration Owner',
       accountDisplayName: 'Owner Unreachable Integration Account',

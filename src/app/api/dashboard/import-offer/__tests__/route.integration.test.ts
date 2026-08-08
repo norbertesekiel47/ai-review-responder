@@ -44,6 +44,7 @@ import {
   MIGRATION_100_IMPORT_CONSENT,
   MIGRATION_102_IMPORT_CONSENT_EVENTS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import {
   createImportOffer,
   recordImportDecisionAndEnqueue,
@@ -96,6 +97,67 @@ async function analyticsCount(): Promise<number> {
   `;
   return Number(row!.n);
 }
+
+/**
+ * `job_outbox`'s constraint count — the relation the replaced temporary CHECK
+ * constraint used to strand on. Read-only over `pg_constraint`; issues no DDL.
+ */
+async function jobOutboxConstraintCount(): Promise<number> {
+  const [row] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = 'job_outbox'::regclass
+  `;
+  return row!.n;
+}
+
+// ── The abort injection ─────────────────────────────────────────────────────
+
+/** `analytics_events_business_id_fkey`. Asserted, so a lock timeout cannot pass for it. */
+const FOREIGN_KEY_VIOLATION = '23503';
+
+/**
+ * THIS SUITE'S POISON for the shared `abortingExecutor`
+ * (`@/lib/shared/__tests__/helpers/abort-injection`): the writer runs its whole
+ * transaction and Postgres then aborts it with a REAL error, raised on the
+ * writer's own connection, inside the writer's own `sql.begin`.
+ *
+ * IT REPLACED A TEMPORARY CHECK CONSTRAINT (#694). The rollback title below used
+ * to force its abort with `ALTER TABLE job_outbox ADD CONSTRAINT
+ * tmp_block_import_topic … / DROP CONSTRAINT` in a `finally`. A vitest TIMEOUT
+ * skips the `finally`, so the constraint strands on the shared container and
+ * blocks every sibling suite that enqueues `zernio_initial_backfill` — the
+ * sibling copy of exactly this pair produced 14 spurious failures across three
+ * suites (#679 deviations D20). It also took ACCESS EXCLUSIVE on `job_outbox`,
+ * the most contended relation in the live-DB set, against suites in other
+ * vitest processes that nothing serializes it against. The helper header carries
+ * the full reasoning; the poison stays here because a deterministic SQLSTATE
+ * depends on this fixture's own constraints.
+ *
+ * THE FAILURE MUST ORIGINATE IN POSTGRES, not in JS. A plain JS throw does not
+ * poison a Postgres transaction, so a test built on one proves nothing about a
+ * transaction that is actually in aborted state — which is the state the real
+ * hazard produces. The statement is an INSERT whose `business_id` points at a
+ * uuid that does not exist, tripping `analytics_events_business_id_fkey` at
+ * statement time: SQLSTATE 23503. It lands AFTER the consent write and AFTER the
+ * enqueue, so it survives a refactor that moves either.
+ *
+ * The event name is one migration 102 registers and `beforeAll` asserts that
+ * registration, so the CHECK admits the row and the foreign key is the only
+ * constraint it violates — the SQLSTATE is deterministic. `account_id` is left
+ * NULL, so the row could not satisfy `analyticsCount`'s account predicate even
+ * if it somehow survived.
+ */
+const foreignKeyPoison = async (tx: postgresType.TransactionSql): Promise<void> => {
+  await tx`
+    INSERT INTO analytics_events (id, event_key, event_name, distinct_id, business_id)
+    VALUES (
+      ${randomUUID()}::uuid,
+      ${`forced-abort-${randomUUID()}`},
+      'import_decision_recorded',
+      'forced-abort',
+      ${randomUUID()}::uuid
+    )
+  `;
+};
 
 describeWithDb('import-offer decision API against live Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
@@ -153,21 +215,19 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
   it('live DB: accept rolls back the import consent write when the job_outbox INSERT fails', async () => {
     await setOffer("now() + interval '3 days'");
 
-    // Force the outbox INSERT to fail INSIDE the acceptance transaction, without
-    // touching production code: a deferred CHECK on job_outbox that rejects the
-    // import topic. A mocked sql tag cannot prove rollback at all — it has no
-    // transaction to roll back.
-    await sql().unsafe(`
-      ALTER TABLE job_outbox ADD CONSTRAINT tmp_block_import_topic
-        CHECK (topic <> 'zernio_initial_backfill') NOT VALID
-    `);
-    try {
-      await expect(
-        recordImportDecisionAndEnqueue(sql(), businessId, tenant!.accountId, 'accepted'),
-      ).rejects.toThrow();
-    } finally {
-      await sql().unsafe('ALTER TABLE job_outbox DROP CONSTRAINT tmp_block_import_topic');
-    }
+    // Force a statement to fail INSIDE the acceptance transaction, without
+    // touching production code and without DDL: the writer runs to completion —
+    // consent write and outbox INSERT included — and Postgres then rejects a
+    // real foreign key on the same transaction, leaving it in the aborted state
+    // a failing outbox INSERT produces. A mocked sql tag cannot prove rollback at
+    // all — it has no transaction to roll back. See `foreignKeyPoison` for why
+    // this replaced the temporary `tmp_block_import_topic` CHECK constraint it
+    // used to add and drop in a `finally` (#694).
+    await expect(
+      recordImportDecisionAndEnqueue(
+        abortingExecutor(sql(), foreignKeyPoison), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).rejects.toThrow();
 
     // The consent write must NOT have survived. If it had, the owner would be
     // recorded as having consented to an import that was never queued — and the
@@ -176,6 +236,42 @@ describeWithDb('import-offer decision API against live Postgres', { timeout: 30_
     expect(row.import_decision).toBe('pending');
     expect(row.import_decision_at).toBeNull();
     expect(await outboxRows()).toHaveLength(0);
+  });
+
+  it('the shared abort injection raises a real Postgres error without executing any DDL', async () => {
+    // The rollback title above asserts three ABSENCES, and an injection that
+    // quietly stopped firing produces the same absences as a rollback that
+    // worked. This pins the injection itself: the mechanism is the shared
+    // helper's, the poison is this suite's, and neither may reintroduce the
+    // temporary constraint the pair replaced.
+    await setOffer("now() + interval '3 days'");
+    const constraintsBefore = await jobOutboxConstraintCount();
+
+    // Originates in Postgres — a JS throw would not poison the transaction.
+    await expect(
+      recordImportDecisionAndEnqueue(
+        abortingExecutor(sql(), foreignKeyPoison), businessId, tenant!.accountId, 'accepted',
+      ),
+    ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
+
+    // AND IT STRANDED NOTHING on the shared container, which is the property the
+    // "without executing any DDL" half of the title is actually for. This is the
+    // exact regression the temporary-constraint approach caused: a vitest TIMEOUT
+    // skipped its `finally` and `tmp_block_import_topic` survived on `job_outbox`,
+    // blocking every sibling suite that enqueues `zernio_initial_backfill` (#679
+    // deviations D20). Counting the relation's constraints across the aborted
+    // transaction pins the COMMITTED-leak half of that: if the injection ever
+    // starts leaving an object behind on a normal run, this goes red. It cannot
+    // pin the TIMEOUT case itself — a timeout means this line never executes.
+    // What rules that case out is structural, not assertive: the injection holds
+    // no schema on any path, so there is nothing for a skipped `finally` to
+    // strand. The assertion guards the property; the design is what guarantees
+    // it under a timeout. Preferred over the previous grep of the poison's
+    // `Function.toString()` for DDL keywords inspected the wrong thing (the
+    // poison, not the shared mechanism), duplicated `ci:live-db-suites` in a
+    // strictly weaker place, and failed OPEN on any refactor that moved the
+    // statement out of the function body (review round 1, B3).
+    expect(await jobOutboxConstraintCount()).toBe(constraintsBefore);
   });
 
   it('live DB: a rejected late POST leaves decision, decision_at, expires_at, outbox rows and analytics rows unchanged', async () => {
