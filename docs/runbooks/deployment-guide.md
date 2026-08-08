@@ -152,7 +152,7 @@ and no webhook endpoints, which is exactly what staging must exercise.
 | Telegram channel | `CHANNELS_TELEGRAM_ENABLED=false` | code complete; ⚠️ dev `.env.local` may have this `true` — keep it **OFF** in Railway |
 | WhatsApp channel | `CHANNELS_WHATSAPP_ENABLED=false` | code complete; **Meta verification + template already approved** — flip on when ready |
 | Ranking tracking | `RANKING_TRACKING_ENABLED=false` | feature not ready; SerpAPI cost |
-| Edit existing replies | `EDIT_REPLIES_ENABLED=false` | code complete on `main`; requires `PAST_REPLIES_VIEW_ENABLED=true` |
+| Edit existing replies | `EDIT_REPLIES_ENABLED=false` | code complete on `main`; **sole gate** since #678 retired `PAST_REPLIES_VIEW_ENABLED` — the **Reviews list** now renders unconditionally, so this flag alone governs the live-Google mutation |
 | Pre-pay demo lane | `ONBOARDING_DEMO_ENABLED=false` | code complete; pre-paywall demo preview + 3-step wizard |
 | `MOCK_EXTERNAL_APIS` | **must be `false`** in any deployed env | mock mode no-ops real Zernio / Resend / Stripe |
 

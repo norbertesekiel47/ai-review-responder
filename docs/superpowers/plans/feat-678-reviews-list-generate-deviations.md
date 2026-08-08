@@ -591,4 +591,84 @@ tell a future operator to set a variable that no longer exists:
 | `docs/eservices-variables.md:120` | lists the flag in the tracked-vars roster | drop the entry |
 | `docs/adr/0015-…:11,45` | cites it as a live flag in the unflagged-replacement rationale | note it was retired at #678 (this ADR's own posture) |
 
-**Verdict:**
+**OWNER RULING (2026-08-08): fix them now, as CI-adjacent bookkeeping — budget NOT
+burned.** `allowed_edit_surface` widened in both intake copies (verified
+byte-identical) to add the five files. Amendment budget stays at **1 of 2**.
+
+This extends the D13 precedent one step: D13 covered an edit a *tool*
+mechanically demanded, this covers an edit the *repo working rule* demands
+("when deleting a doc reference, clean every live cross-reference in the same
+change"). The common test is that the edit is a mechanical consequence of an
+in-surface change rather than new scope — and that shipping without it leaves
+the tree in a state the project's own rules call broken. Five docs that instruct
+an operator to set a variable which no longer exists is that state.
+
+**Applied.** `deployment-guide.md` and `gbp-api-application.md` now name
+`EDIT_REPLIES_ENABLED` as the **sole** gate; `edit-existing-replies-testing-runbook.md`
+drops the retired line from its `.env.local` block with a note on why;
+`eservices-variables.md` moves the flag out of the live roster into a `Retired:`
+line. `adr/0015` gets a **dated superseding note** at Decision §1 rather than a
+rewrite — its Context §11 mention is left exactly as written, because it
+accurately records the flag landscape at the 2026-08-05 decision, and an ADR is
+a historical record, not a live document. The note frames the retirement as this
+ADR's own reasoning applied one ticket later: the flag's only job was hiding an
+incomplete surface, and the surface is now complete.
+
+**Verified after the sweep** — every surviving `PAST_REPLIES_VIEW_ENABLED`
+mention outside `docs/progress-archive/**`, `completed_runbooks/**` and the
+2026-05/06 plans is now either a retirement record or sits beneath an explicit
+`HISTORICAL — superseded at #678` marker (`currents.md:1608`). `lab-notes.md`
+keeps the two-flag rollout *pattern* — it generalizes beyond this feature — with
+a dated entry recording that this feature's UI half is retired and must not be
+resurrected.
+
+The `worker/jobs/publisher/__tests__/` reference stands as T8 left it: three
+assignments of a now-unread env var, behaviour-neutral, folded into #680.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D18 — the re-classification trigger fired on both buckets (2.7×), and the lane did not change
+
+**Trigger:** the step-5 gate's `reclassify` row:
+
+```
+RECLASSIFY: production 2438 > 2x estimated_prod_lines (900);
+            test 3034 > 2x estimated_test_lines (1100)
+```
+
+59 files. The workflow's response to this is not advisory — it says STOP and
+re-run step 0 with the real numbers.
+
+**Step 0, re-run against the actual diff.** Measured against the EPIC criteria,
+none of the four hold:
+
+| EPIC criterion | Actual |
+|---|---|
+| surface can't be declared tighter than a few top-level directories | declared file-by-file; `ci:feature-surface` passes 38/38 in-surface |
+| spans multiple risk domains (schema + billing + worker) | **no migration**, no billing; `worker/` is a 3-file flag rename |
+| decomposes into more than ~8 tracer tickets | decomposed into exactly **8**, all landed |
+| open investigation questions grilling can't resolve | `open_questions` empty since intake |
+
+Classification therefore stands at **RISK=high · SURFACE=mixed ·
+db_touching=true** — already the heaviest non-epic lane, and the one whose
+controls actually ran: 3 plan-review rounds (spent), dual + adversarial review
+(step 7), staging ride before the PR (step 8).
+
+**What was actually wrong was the estimate, not the lane.** D4 recorded the
+owner's decision not to pad 900/1100 precisely so this trigger would stay
+meaningful, and it did its job: it fired, forced an explicit re-derivation, and
+the re-derivation confirmed the lane. That is the control working, not failing.
+
+**Calibration note for future intakes.** The 2.7× miss is concentrated in work
+the intake named but did not size: the eval task alone shipped ~2,360 test lines
+against a 1,100 estimate, because 52 locked titles across 9 files (37 → 50 → 52
+via D3/D8) were counted as titles, not as lines. A `tests_to_add` list that grows
+by 40% mid-plan is itself a signal the test estimate has moved; neither D3 nor D8
+revisited it.
+
+**OWNER RULING (2026-08-08):** proceed to step 7 review under the existing high
+lane.
+
+**Verdict:** ACCEPT.

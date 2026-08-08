@@ -15,12 +15,13 @@ git checkout feat/edit-existing-replies-revival
 pnpm install
 ```
 
-In `.env.local`:
+In `.env.local` (`PAST_REPLIES_VIEW_ENABLED` was retired at #678 — the
+**Reviews list** at `dashboard/reviews/history` renders unconditionally now, so
+`EDIT_REPLIES_ENABLED` is the only flag this runbook needs):
 
 ```bash
 MOCK_EXTERNAL_APIS=true            # bypass real Zernio/Stripe/etc locally
 EXTERNAL_REPLY_IMPORT_ENABLED=true # ingestion of pre-RepWorth replies (writes)
-PAST_REPLIES_VIEW_ENABLED=true     # the Past Replies tab (read surface)
 EDIT_REPLIES_ENABLED=true          # the edit/regenerate/republish + recovery
 # TEST_DATABASE_POOL_URL=...        # only needed for §11 (pnpm test:integration)
 ```

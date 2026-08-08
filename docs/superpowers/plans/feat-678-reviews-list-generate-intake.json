@@ -88,7 +88,12 @@
     "scripts/ci/process-env-baseline.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
     ".claude/reference/review-ingestion.md",
-    ".claude/reference/lab-notes.md"
+    ".claude/reference/lab-notes.md",
+    "docs/runbooks/deployment-guide.md",
+    "docs/runbooks/gbp-api-application.md",
+    "docs/runbooks/edit-existing-replies-testing-runbook.md",
+    "docs/eservices-variables.md",
+    "docs/adr/0015-consented-import-unflagged-replacement.md"
   ],
   "tests_to_add": [
     "loadPastRepliesPageView returns never-replied reviews as unanswered rows",
