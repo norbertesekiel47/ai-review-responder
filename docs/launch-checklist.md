@@ -45,7 +45,9 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
 - [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
   the worker refuses to start without the non-email alert sink.
 - [ ] **Sentry alert routing → Slack/PagerDuty** for `subsystem:health_alert` and
-  `cost_event:limit_exceeded`.
+  `cost_event:limit_exceeded`, plus `subsystem:import_consent_analytics` (#697 —
+  a P2 whose signal is *repetition*, so route it on an event-frequency
+  condition, not on "a new issue is created"; alerting runbook §1).
 - [ ] **Sentry Cron monitor `health-alert-poller`** + **external `/ready`
   synthetic check** (worker + Next.js) configured.
 - [ ] **Alerting acceptance drills** run on staging (runbook §4).

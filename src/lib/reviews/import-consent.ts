@@ -64,13 +64,19 @@
 // A missing metric must never poison the success path (CLAUDE.md working rules).
 //
 // THE SAVEPOINT CONTAINS THE BLAST RADIUS, so the residual risk is now the
-// METRIC, not the feature: a failed emission rolls back only itself, is logged
-// at `warn`, and consent, connect and Review import all keep working while the
-// offer-to-answer counts silently under-report. Migration 102 should still reach
-// a Supabase project BEFORE the emitting code does — staging first, prod in
-// lockstep at promotion — but that ordering is no longer the difference between
-// shipping and an outage, and the warn line is how a project that got the order
-// wrong announces itself.
+// METRIC, not the feature: a failed emission rolls back only itself, and
+// consent, connect and Review import all keep working while the offer-to-answer
+// counts under-report. Migration 102 should still reach a Supabase project
+// BEFORE the emitting code does — staging first, prod in lockstep at promotion —
+// but that ordering is no longer the difference between shipping and an outage.
+//
+// AND THE UNDER-REPORTING ANNOUNCES ITSELF (#697). It used to do so only into a
+// `warn` on stdout, which nothing reads, so a project that got the migration
+// order wrong could undercount both one-shot events indefinitely with nothing
+// alerting. `emitConsentEvent` now ALSO captures to Sentry — `level: 'warning'`,
+// tagged `subsystem: import_consent_analytics` so the runbook's alert rule can
+// route it — inside its own `try`/`catch`, because an alert that can throw is
+// the connect outage above, re-opened one layer out.
 //
 // ATOMICITY ON THE SUCCESS PATH IS UNCHANGED. A savepoint that COMMITS commits
 // with its parent, so an event still dies with a decision that rolls back for
@@ -86,6 +92,7 @@
 // the abort test above, not by executor identity.
 //
 import type { Sql, TransactionSql } from 'postgres';
+import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { enqueueAnalyticsEvent, type EnqueueAnalyticsEventInput } from '@/lib/analytics/enqueue';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
@@ -97,6 +104,19 @@ import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 type SqlExecutor = Sql | TransactionSql;
 
 const LOG_PREFIX = '[import-consent]';
+
+/**
+ * The two operator-facing strings of the swallowed-emission alert (#697).
+ *
+ * `EMISSION_FAILURE_SUBSYSTEM` is not decoration: every Sentry alert rule in this
+ * project routes on `tags.subsystem` (`docs/runbooks/beta-launch-alerting.md` §1
+ * — `health_alert`, `llm_circuit_breaker`, `stripe_reconciliation`), so a capture
+ * without one is durable but unpaged. Renaming either string silently unhooks the
+ * configured Discord rule, which is why `import-offer-analytics.integration.test.ts`
+ * spells both out a second time rather than importing them.
+ */
+const EMISSION_FAILURE_MESSAGE = 'Import consent analytics emission failed';
+const EMISSION_FAILURE_SUBSYSTEM = 'import_consent_analytics';
 
 /**
  * The Import offer window: 7 days from creation.
@@ -463,16 +483,39 @@ function logRejection(
  * error text are logged: no review text, no tokens, no handles, and not the
  * properties.
  *
+ * TWO SINKS, AND THE SENTRY ONE IS THE POINT (#697). "A human should look" was
+ * the claim; a `warn` alone could not deliver it. `createWorkerLogger.warn`
+ * writes structured JSON to stdout and nothing reads it, while the documented
+ * paging route for this project is Sentry (`docs/runbooks/beta-launch-alerting.md`
+ * §1) — so persistent schema drift could undercount BOTH one-shot events
+ * indefinitely with nothing alerting. The capture is `level: 'warning'` (the
+ * caller committed; only a metric was lost — a P2 to read, not a page) and
+ * tagged `subsystem` + `event_name`, because a Sentry alert rule matches on
+ * tags and an untagged capture is durable but unroutable.
+ *
+ * IT CARRIES ITS OWN CATCH, and that is load-bearing rather than defensive.
+ * Adding an alert to this path re-opens the exact hazard the savepoint closed:
+ * `createImportOffer` runs inside `finalizeConnectionTx`, `select-location/
+ * route.ts` rethrows anything that is not `23505`, and a capture that throws
+ * would therefore break Google Business Profile connect outright. CLAUDE.md's
+ * "observability must never poison the success path" is the rule; the inner
+ * `try`/`catch` is the enforcement, pinned by "a Sentry capture that throws does
+ * not resurface into the caller transaction".
+ *
  * ONLY an error carrying a string `code` is swallowed — which is broader than
  * "a Postgres error", and deliberately so: it also covers postgres.js
  * connection-lifecycle errors (`CONNECTION_CLOSED`/`_ENDED`/`_DESTROYED`/
  * `CONNECT_TIMEOUT`, minted on plain `Error`s at
  * `node_modules/postgres/src/errors.js:16-27`) and Node OS-socket codes
  * (`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`). Those are infrastructure failures, not
- * schema drift, and they land under the same `warn` — a known imprecision in the
- * signal, tracked with the missing durable sink as #697. Swallowing them is
- * still correct here: a lost connection independently rejects the enclosing
- * `begin`, so it can never be converted into a quiet success.
+ * schema drift, and they land under the same `warn` — and now under the same
+ * Sentry tag. That imprecision SURVIVES #697 and was left deliberately: #697's
+ * scope was the missing sink, not the classifier, and an infrastructure error
+ * reaching this alert is never a false positive in the way that matters, because
+ * a lost connection independently rejects the enclosing `begin` and therefore
+ * always arrives alongside a real failure of its own. Swallowing them is still
+ * correct here for the same reason: it can never be converted into a quiet
+ * success.
  *
  * Round 2 found the catch unbounded, and it
  * was already hiding a real one: `import-offer-junction.test.ts`'s `mockTx` has
@@ -512,11 +555,37 @@ async function emitConsentEvent(
     await tx.savepoint((sp) => enqueueAnalyticsEvent(sp, input));
   } catch (error) {
     if (errorStringProperty(error, 'code') === undefined) throw error;
-    createWorkerLogger(LOG_PREFIX).warn('Import consent analytics emission failed', {
+    const detail = {
       business_id: input.businessId ?? null,
       event_name: input.eventName,
       error: error instanceof Error ? error.message : String(error),
-    });
+    };
+    // Sentry FIRST, in its own catch, then the log line — both sinks, neither
+    // able to reach the caller. `@sentry/node` routes to whichever client is
+    // initialized (Next server via `src/instrumentation.ts`, worker via
+    // `worker/sentry.ts`); `@sentry/nextjs` re-exports this same module
+    // instance, which is why one import serves both lanes this code runs in
+    // (`report-caught-error.ts:9-13` documents the same property).
+    try {
+      Sentry.captureMessage(EMISSION_FAILURE_MESSAGE, {
+        level: 'warning',
+        tags: { subsystem: EMISSION_FAILURE_SUBSYSTEM, event_name: input.eventName },
+        extra: detail,
+      });
+    } catch {
+      // The savepoint's whole purpose, one layer out: an alerting failure must
+      // not resurface into the caller's transaction. `createImportOffer` runs
+      // inside `finalizeConnectionTx` and `select-location/route.ts` rethrows
+      // anything that is not `23505`, so an escaping capture is a connect
+      // outage — the same one the savepoint closed. Shape follows
+      // `llmCircuitBreaker.emitTransition` (`src/lib/llm/circuit-breaker.ts`).
+    }
+    // OUTSIDE the guard above, deliberately: this is the fallback sink for the
+    // one case the durable sink cannot cover — Sentry itself being unreachable.
+    // Moving it inside that `try` reads like tidying and deletes the last signal
+    // on exactly that path. Pinned by "a Sentry capture that throws does not
+    // resurface into the caller transaction".
+    createWorkerLogger(LOG_PREFIX).warn(EMISSION_FAILURE_MESSAGE, detail);
   }
 }
 
