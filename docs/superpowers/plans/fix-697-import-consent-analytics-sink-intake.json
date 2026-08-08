@@ -1,0 +1,63 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Give a swallowed Import consent analytics emission a durable, routable Sentry signal — a guarded captureMessage at level 'warning' tagged subsystem:import_consent_analytics — alongside the structured warn it already emits, without making observability able to poison the caller's transaction.",
+  "non_goals": [
+    "Any change to emitConsentEvent's savepoint, its catch narrowing (errorStringProperty(error,'code')), or which error classes are swallowed vs rethrown — #679 round 2 fixed that and it is out of scope",
+    "A HealthAlertPoller counter or any aggregation of repeated drift (option B on #697, deliberately declined: these are one-shot per-business events and Sentry already groups them)",
+    "#695's durable policy-block reason for the consent guard — a different sink with an open architectural question; the two are NOT designed together (owner decision 2026-08-08)",
+    "Any change to the two analytics event names, their keys, migration 102, or the analytics_events CHECK constraint",
+    "Widening reportCaughtError's interface to carry a level or extra tags for one caller",
+    "Configuring the Sentry alert rule itself — that is an ops action; this change only adds the runbook checklist item that names the tag to route on"
+  ],
+  "user_visible_behavior": [
+    "No owner-visible behavior change. The only observable difference is operational: a failed Import offer / Import decision analytics emission now mints a Sentry issue 'Import consent analytics emission failed' at level 'warning' tagged subsystem=import_consent_analytics and event_name=<the event>, in whichever lane the emission ran (Next server via instrumentation.ts, worker via worker/sentry.ts).",
+    "The existing structured warn line on stdout is retained verbatim — this is an additional sink, not a replacement."
+  ],
+  "invariants": [
+    "Observability must never poison the success path (CLAUDE.md): the captureMessage is wrapped in its own try/catch, so a Sentry failure can never resurface into the caller's transaction. This is the property that keeps the #679 connect outage closed.",
+    "The savepoint stays one-directional: a failed emission still rolls back only itself; a caller abort still takes the event with it.",
+    "Only errors carrying a string `code` are swallowed; a code-less error (a handle without .savepoint) still rethrows, and reports nothing to Sentry on its way out.",
+    "No review text, tokens, handles, or event properties reach Sentry — only business_id, event_name, and the error message, the same fields the warn already carries.",
+    "src/lib/** domain modules receive their DB client as a parameter (invariant #15) — unchanged here; emitConsentEvent already takes tx."
+  ],
+  "edge_cases": [
+    "Sentry uninitialized (local dev, preview without SENTRY_DSN): captureMessage is an inert no-op and must not throw or change the swallow behavior.",
+    "Sentry.captureMessage itself throws (transport/serializer failure): swallowed by the inner catch; the warn still emits and the caller's transaction stays usable.",
+    "A code-less emission failure (mockTx or a Sql-shaped handle without .savepoint): rethrown BEFORE any Sentry call, so a wiring bug is not laundered into a drift alert.",
+    "A connection-lifecycle error (CONNECTION_CLOSED, ECONNREFUSED) carries a string code and is therefore swallowed and reported — a known imprecision in the signal, documented on #697; it cannot manufacture a quiet success because a lost connection independently rejects the enclosing begin.",
+    "Both writers must report: createImportOffer's import_offer_created and recordImportDecisionAndEnqueue's import_decision_recorded run through the same emitConsentEvent, so one implementation covers both, but both are pinned by their own test."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/llm/circuit-breaker.ts:185-205 — the verbatim shape: a src/lib domain module doing Sentry.captureMessage at level 'warning' with tags {subsystem, …} PLUS its structured warn line, the whole block wrapped in try/catch with the 'observability must never poison the path' comment",
+    "src/lib/shared/report-caught-error.ts:1-12 — the documented reason @sentry/node is runtime-safe from a route-reachable src/lib module (@sentry/nextjs re-exports the same module instance)",
+    "src/lib/notifications/contact-notify.ts:46-53 — captureMessage + subsystem tag + extra, for a non-throwing drift condition",
+    "worker/background/pollers/health-alert/emit.ts:12-17 — the subsystem/finding tag convention the runbook's Sentry rules route on",
+    "src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts:632-750 — the existing failing-emission injections (failingEmission / failingEmissionExecutor / codelessPoison) that the new titles extend"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/reviews/import-consent.ts",
+    "src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts",
+    "docs/runbooks/beta-launch-alerting.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "createImportOffer reports a swallowed emission failure to Sentry with a routable subsystem tag",
+    "recordImportDecisionAndEnqueue reports a swallowed emission failure to Sentry with a routable subsystem tag",
+    "a Sentry capture that throws does not resurface into the caller transaction",
+    "a code-less emission failure reports nothing to Sentry before it rethrows"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "60",
+  "estimated_test_lines": "110",
+  "dependencies_added": [],
+  "rollback_plan": "Not db_touching and not flag-gated: revert the single commit. The change is additive observability inside one catch block — no schema, no env var, no flag, no contract change. A partial revert is never needed.",
+  "observability": [
+    "A Sentry issue titled 'Import consent analytics emission failed', level 'warning', tags subsystem=import_consent_analytics and event_name=import_offer_created|import_decision_recorded, extra carrying business_id and the error message — this IS the deliverable.",
+    "The pre-existing stdout warn line ('[import-consent] Import consent analytics emission failed') is retained, so Railway/Vercel log search stays a second, independent read.",
+    "docs/runbooks/beta-launch-alerting.md §1 gains a checklist item naming subsystem:import_consent_analytics as a tag to route to the Discord alert channel — without it the signal is durable but not paged."
+  ],
+  "open_questions": []
+}
