@@ -247,7 +247,87 @@ change.** Sentiment classification still runs at the write site.
 - Per-row `Generate` / `Regenerate`.
 - Rate-limit / cost-guard the buttons. 100 rows × a regenerate button is an
   owner-controlled spend surface; clicking regenerate repeatedly on one review
-  is normal user behaviour, not abuse.
+  is normal user behaviour, not abuse. Policy is owned by **#672**, not here.
+
+#### 6.3a The surface (locked — #671, 2026-08-08)
+
+**The Past Replies archive becomes the Reviews list.** `reviews/history` is
+widened in place rather than extended-from or duplicated. Seven decisions,
+owner-adjudicated against a prototype:
+
+**S1 — Locus: `reviews/history` becomes the list.** Not a new surface, and not
+`dashboard/reviews`. Two asymmetries decided it. First, half the import already
+lands in history and the other half lands nowhere: `ZernioBackfillWorker.ts:364`
+routes answered reviews through `reconcileExternallyAnsweredReview({
+consentedImport: true })`, which writes a `posted` response with
+`external_reply_ingested_at` — exactly what `load-replies.ts:117` selects — so
+imported *answered* rows are already visible there today, while imported
+*unanswered* rows appear on no surface at all. Second, `dashboard/reviews` is an
+action queue, not a list: `ReviewFeedCard.tsx:59-66` filters client-side to
+`pending_approval` plus live auto-post deadlines ("History owns settled
+replies"), fed by the Redis-cached `/api/dashboard` payload at `LIMIT 10`. An
+imported review can never appear there under any status, and extending it would
+mean a new query, a new paginated API, and the loss of the queue's "what is
+waiting on you" identity. History already carries pagination, search + star
+filters, the review-beside-reply card, and the `EditReplyDrawer` that #669
+certified as the Regenerate lane.
+
+**S2 — `Needs Action` survives; the two tabs keep distinct jobs.** `Needs
+Action` stays the approval queue (unchanged: `pending_approval` + veto windows).
+`All Reviews` is the inventory. A review whose draft is pending appears in
+**both** — in the list it renders a `Draft ready` cross-link to `Needs Action`
+and **no `Generate` button**, since a draft already exists. Hiding it from the
+list was rejected: a row that vanishes and reappears as its draft lands makes
+"All Reviews" a lie.
+
+**S3 — The `gap` / `historical` bucketing is deleted.** The two section headers
+(`From your active period` / `From before you joined`, derived from
+`subscription_activated_at`) are replaced by the D6 grouping: `Unanswered` then
+`Answered`. The activation fact survives as a **per-row provenance badge** on
+answered rows — `Posted by you before joining` / `Auto-approved` / `You
+approved` — so an owner never wonders why RepWorth is showing a reply it did not
+write, or offering to replace it. This retires the last consumer of the
+gap/historical vocabulary that CONTEXT.md already marks dead for the Import
+window.
+
+**S4 — `PAST_REPLIES_VIEW_ENABLED` is retired at #678.** Once this surface is
+the import's only destination, the flag would let `import_decision='accepted'`
+coexist with the imported reviews landing on a `notFound()`. Deleting the gate
+matches §8a's "the old path is deleted, not gated" posture and is safe on the
+same grounds: prod holds 0 businesses, so there is no external consumer.
+`EDIT_REPLIES_ENABLED` is **kept** — it gates the live-Google mutation, which is
+a different and larger risk. Both env-var registry entries move in that same
+change.
+
+**S5 — `PAGE_SIZE` stays 50.** A fresh import lands as 2 pages; the S6 sort puts
+every actionable row on page 1 regardless. Raising it to 100 was rejected as a
+number that stops meaning anything at real volume.
+
+**S6 — Sort: unanswered first, then newest-first within each group.** D6 locks
+only the grouping; within each group the existing `ORDER BY r.review_date DESC`
+is unchanged, so the leading key is the only addition. Rating-ordering inside
+`Unanswered` was rejected — it buries a scathing review from last week under an
+old one — as was a pinned negatives band, which is the third grouping level D6
+declined.
+
+**S7 — `Generate` is inline; `Regenerate` opens the drawer.** A never-replied
+review has nothing live on Google to compare against, so its row expands in
+place to a draft with `Approve & post`; a two-pane drawer would render an empty
+left pane and overstate the risk. `Regenerate` opens the existing
+`EditReplyDrawer` (#669) for the §6.4 treatment below. Collapsing both into one
+affordance was rejected in both directions: it makes replacing a live Google
+reply feel identical to writing a first draft, which is the distinction §6.4
+exists to preserve.
+
+**Implementation notes for #678** (guidance, not contract): the list change is
+principally `JOIN responses resp … status='posted'` →
+`LEFT JOIN` in `load-replies.ts:117`, plus `ORDER BY (resp.id IS NOT NULL),
+r.review_date DESC` (`false` sorts before `true`, so unanswered lead). The
+`Draft ready` state needs a second LATERAL for the live non-posted response —
+a pending draft leaves `resp.id` NULL under the posted-only join, so it
+correctly groups as unanswered but must not offer `Generate`. The two `COUNT(*)`
+totals and the orphan query must move with the JOIN or the denominators go
+wrong. Prototype the decisions were taken against: `#671` comment thread.
 
 ### 6.4 Regenerate on an already-answered review
 
@@ -259,10 +339,17 @@ replace), not appends. Requirements:
   rewriting a human's own words is the failure mode that ends customer
   relationships. Invariant #3 governs; this path is owner-approval-only.
 
+Locked at #671: the comparison is a **two-pane drawer** — `On Google now` beside
+`Proposed replacement` — carrying an explicit warning that publishing *replaces*
+rather than appends, and that RepWorth never does this on its own. The primary
+action reads `Replace reply on Google`, never a bare "Publish"; the decline
+action reads `Keep my reply`. Both panes are always rendered, so the owner
+cannot approve a replacement without having seen what it destroys.
+
 Related existing surfaces (already built, behind flags): the Past Replies
 archive at `src/app/(authenticated)/dashboard/reviews/history/`,
 `src/lib/past-replies/load-replies.ts`, gated by `PAST_REPLIES_VIEW_ENABLED` +
-`EDIT_REPLIES_ENABLED`.
+`EDIT_REPLIES_ENABLED` — the first of which S4 retires.
 
 ---
 
