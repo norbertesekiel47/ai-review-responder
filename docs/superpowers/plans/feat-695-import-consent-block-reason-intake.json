@@ -6,12 +6,13 @@
   "non_goals": [
     "No job_outbox trigger, CHECK constraint, or migration — the Import consent enforcement locus stays ZernioBackfillWorker per spec §5.3, re-affirmed by ADR 0016.",
     "No change to guardImportConsent's proceed/skip decision, its sql.begin serialization, its businesses FOR UPDATE lock, or the importConsentStateSql derived-expiry predicate.",
-    "No per-state reason values — one 'import_consent_blocked' member; the specific refusal state (pending | declined | expired | missing) stays in the existing structured log line and is recoverable from businesses.import_decision + import_offer_expires_at.",
+    "No per-state reason values — one 'import_consent_blocked' member; the specific refusal state (pending | declined | expired | missing) stays in the existing structured log line.",
     "No HealthAlertPoller check, no Sentry capture, no PostHog event — a refusal is the guard working, not an incident.",
     "No /admin/jobs rendering of completion_reason; SURFACE stays backend.",
     "No completion_reason on guardZernioJobEligibility's three skips (missing row, archived location, subscription guard) — they stay generic completions.",
-    "No change to owner_unreachable semantics, its two poller readers, or the tenant-scope allowlist entries that spell its SQL.",
-    "No backfill of historical rows; legacy and other-topic rows keep completion_reason NULL."
+    "No change to owner_unreachable's PERSISTED VALUE, its two poller readers, or the tenant-scope allowlist entries that spell its SQL. Only the writing helper's name and signature change.",
+    "No backfill of historical rows; legacy and other-topic rows keep completion_reason NULL.",
+    "No modification of worker/__tests__/helpers/mock-sql.ts — distinguishing the tx handle from the outer sql client in a unit test would require changing a helper shared by many suites, for a property already proven against real Postgres by the integration suite's forced-race test."
   ],
   "user_visible_behavior": [
     "None for owners — no UI, no notification, no API shape change.",
@@ -22,24 +23,26 @@
     "Spec §5.3 single-owner: importConsentStateSql stays the ONE spelling of the derived-expiry predicate — nothing re-spells it in SQL, PL/pgSQL, or a migration.",
     "Import consent stays fail-closed: only 'accepted' proceeds; every other state and a missing businesses row are skip-as-success (outbox row completed, never failed, thrown, or retried).",
     "#679's data-loss window stays closed: the businesses row lock and the in-transaction outbox completion remain both load-bearing.",
-    "owner_unreachable behaviour is unchanged after the helper generalization — same emitted UPDATE, same attempt-guarded CAS, same 0-row warn, same two poller readers.",
-    "completion_reason values are written and read only via OUTBOX_COMPLETION_REASON — no bare string literal at any site (CLAUDE.md working rules)."
+    "owner_unreachable's PERSISTED VALUE is unchanged and pinned against live Postgres — same emitted UPDATE, same attempt-guarded CAS, same 0-row warn, same two poller readers.",
+    "completion_reason values are written and read only via OUTBOX_COMPLETION_REASON — no bare string literal at any site, tests included (CLAUDE.md working rules)."
   ],
   "edge_cases": [
     "Superseded dispatch attempt: the reason write uses the same attempt-guarded dispatchedRow CAS, so a stale attempt updates 0 rows and warns rather than stamping a reason onto a newer attempt's row.",
-    "Missing businesses row (reason 'missing'): still marked import_consent_blocked — a hand-inserted row for a deleted location is a refusal, not a separate class.",
+    "Missing businesses row (reason 'missing'): still marked import_consent_blocked — a hand-inserted row for a deleted location is a refusal, not a separate class. Note this is also the case where the refusal state is NOT recoverable from the businesses row, so the log line is the only per-state record.",
     "Guard-first-then-owner-accepts interleaving (#679): the refused row completes WITH the marker and recordImportDecisionAndEnqueue inserts a fresh runnable row; the marker sits on the old row id and must not make the fresh row look pre-refused.",
-    "A row refused as 'pending' whose business later becomes 'accepted': completion_reason stays 'import_consent_blocked' on the historical row — it records what happened, not current state.",
+    "A row refused as 'pending' whose business later becomes 'accepted': completion_reason stays 'import_consent_blocked' on the historical row — it records that a refusal happened, not current state, and the state at refusal time is NOT re-derivable from the business row afterwards.",
     "checkOwnerUnreachable's `completion_reason IS DISTINCT FROM 'owner_unreachable'` predicate must not be perturbed by a new non-NULL value appearing on a different topic.",
-    "Legacy rows enqueued before this change, and every other one of the 32 topics, keep completion_reason NULL."
+    "Legacy rows refused BEFORE this change keep completion_reason NULL, so NULL does not universally mean 'genuine import' — the operator query is reliable only for post-deployment refusals, and ADR 0016 must say so.",
+    "Every other one of the 32 topics keeps completion_reason NULL."
   ],
   "existing_patterns_to_follow": [
     "src/lib/shared/outbox.ts — markOutboxOwnerUnreachable is the exact shape being generalized (dispatchedRow attempt-guarded CAS + warnOutboxNoop on 0 rows); this is its second use, so generalizing is warranted rather than duplicating.",
     "src/lib/shared/outbox-completion-reason.ts — the single-owner vocabulary constant that gains one member.",
-    "docs/adr/0010-owner-unreachable-outcome.md — the ADR shape for 'why this outbox outcome is a distinct, durable one'.",
+    "docs/adr/0010-owner-unreachable-outcome.md — the ADR shape for 'why this outbox outcome is a distinct, durable one'. Note it has Status / Context / Decision / Consequences / Post-implementation review and NO 'Alternatives considered' section; ADR 0016 adds that section because rejecting an alternative is its whole subject.",
     "docs/adr/0015-consented-import-unflagged-replacement.md — the ADR shape for a locked Review-import decision.",
     "worker/jobs/zernio/job-eligibility.ts guardImportConsent — the one call site; its sql.begin / FOR UPDATE structure is untouched.",
     "src/lib/shared/__tests__/outbox.test.ts 'markOutboxOwnerUnreachable (invariants)' describe block — the unit-test shape for the generalized helper.",
+    "worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts 'Step 6b' — the live-Postgres pin for the persisted marker value and the attempt-guarded CAS.",
     "worker/jobs/zernio/__tests__/job-eligibility.test.ts — existing 'guardImportConsent …' title convention, matched verbatim by the new titles."
   ],
   "allowed_edit_surface": [
@@ -50,6 +53,7 @@
     "worker/jobs/zernio/__tests__/**",
     "worker/jobs/notification/NotificationWorker.ts",
     "worker/jobs/notification/__tests__/**",
+    "worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts",
     "docs/adr/0016-import-consent-enforcement-locus.md",
     "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
     "docs/superpowers/plans/**",
@@ -62,23 +66,26 @@
     "markOutboxCompletedWithReason completes the dispatched row and stamps the supplied completion_reason",
     "markOutboxCompletedWithReason guards on the dispatched attempt so a superseded attempt stamps no reason",
     "markOutboxCompletedWithReason warns and swallows a 0-row update rather than throwing",
+    "OUTBOX_COMPLETION_REASON preserves the persisted owner_unreachable wire value",
+    "markOutboxCompletedWithReason preserves owner_unreachable against live Postgres and rejects a superseded attempt",
     "NotificationWorker still stamps owner_unreachable through the generalized reason helper",
     "guardImportConsent completes a refused backfill row with completion_reason import_consent_blocked",
     "guardImportConsent stamps import_consent_blocked for a businesses row that does not exist",
-    "guardImportConsent writes the block reason on the transaction handle, never the outer sql client",
+    "guardImportConsent writes the block reason inside its own consent transaction",
     "guardImportConsent stamps no completion_reason when consent is accepted",
     "guardImportConsent persists completion_reason=import_consent_blocked on the outbox row for a declined import",
     "guardImportConsent persists completion_reason=import_consent_blocked on the outbox row for a derived-expired import",
+    "guardImportConsent persists completion_reason=import_consent_blocked on the outbox row for a live pending import",
     "guardImportConsent leaves completion_reason NULL on the outbox row when consent is accepted"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "±180 (≈50 code across 4 files + ≈130 docs: ADR 0016 ~100, spec §5.3 amendment ~12, CONTEXT.md ~6, CLAUDE.md ~2 — docs/adr and CONTEXT.md count toward this bucket, only docs/superpowers/plans and docs/reviews are excluded)",
-  "estimated_test_lines": "±225 (outbox.test.ts ~50, job-eligibility.test.ts ~70, job-eligibility.integration.test.ts ~90, NotificationWorker.test.ts ~15)",
+  "estimated_prod_lines": "±180 (≈50 code across 4 files + ≈130 docs: ADR 0016 ~100, spec §5.3 amendment ~12, CONTEXT.md ~6, CLAUDE.md ~2 — docs/adr and CONTEXT.md count toward this bucket, only docs/superpowers/plans and docs/reviews are excluded). DELIBERATELY NOT RAISED after the round-1 review added three test titles: inflating an estimate to match reality defeats the step-5 reclassify detector.",
+  "estimated_test_lines": "±225 (outbox.test.ts ~50, job-eligibility.test.ts ~70, job-eligibility.integration.test.ts ~90, NotificationWorker.test.ts ~15). Same note: left at the locked value so the reclassify row measures against the original estimate, not a moved goalpost.",
   "dependencies_added": [],
-  "rollback_plan": "Revert the commit. No migration to reverse — job_outbox.completion_reason has existed since migration 083 and is nullable with no CHECK constraint, so historical rows carrying 'import_consent_blocked' are inert after a revert and no reader interprets them. No feature flag, no env var, no data backfill. The helper generalization reverts with the same commit, restoring markOutboxOwnerUnreachable at its single NotificationWorker call site.",
+  "rollback_plan": "Revert the commit. No migration to reverse — job_outbox.completion_reason has existed since migration 083 and is nullable with no CHECK constraint, so historical rows carrying 'import_consent_blocked' are inert after a revert and no reader interprets them. No feature flag, no env var, no data backfill. The helper generalization reverts with the same commit, restoring markOutboxOwnerUnreachable at its two call sites (NotificationWorker.ts and the failover poller's integration suite).",
   "observability": [
-    "Durable signal (new): SELECT completion_reason, count(*) FROM job_outbox WHERE topic = 'zernio_initial_backfill' AND status = 'completed' GROUP BY 1 — an 'import_consent_blocked' bucket counts refusals, the NULL bucket counts genuine imports. Before this change the two were indistinguishable.",
-    "Existing signal (unchanged): the structured worker log line 'import consent blocked — skipping backfill' carrying { reason, business_id } — the per-state detail the single marker deliberately does not duplicate.",
+    "Durable signal (new): SELECT completion_reason, count(*) FROM job_outbox WHERE topic = 'zernio_initial_backfill' AND status = 'completed' GROUP BY 1 — an 'import_consent_blocked' bucket counts refusals. Reliable for post-deployment rows only: refusals from before this change are also NULL, so NULL means 'genuine import OR pre-deployment refusal'.",
+    "Existing signal (unchanged): the structured worker log line 'import consent blocked — skipping backfill' carrying { reason, business_id } — the per-state detail the single marker deliberately does not duplicate, and the ONLY record of it when the businesses row is gone.",
     "How I would know it broke — marker regression: a refusal that leaves completion_reason NULL (the pre-change behaviour) means the guard stopped stamping.",
     "How I would know it broke — generalization regression: HealthAlertPoller.checkOwnerUnreachable and NotificationFailoverPoller going quiet, or send_notification rows completing with completion_reason NULL where the owner had zero verified enrollments, means owner_unreachable marking was lost in the refactor."
   ],
