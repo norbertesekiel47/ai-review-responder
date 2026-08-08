@@ -50,21 +50,32 @@
     "docs/adr/0015-consented-import-unflagged-replacement.md",
     "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
     "docs/runbooks/evidence/**",
+    "docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],
+  "_amendments": [
+    "A1 (auto-approved, narrow): +1 file docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md — its operator query at :355-377 selects all four dropped columns and would raise 42703 if reused after 103. Cleaning it is the repo's own cross-reference rule, found by codex plan review round 1 (MINOR)."
+  ],
+  "_decision_changes_after_plan_review_round_1": [
+    "The reconciliation preflight is now an EXECUTABLE fail-closed DO/RAISE guard inside migration 103, not a manual query documented in the header. Owner-approved 2026-08-08, reversing the grilling decision. Rationale: a guard that never fires is indistinguishable from a working guard on clean data (both report zero abort rows), so only an executable guard whose FAILING branch is tested can be trusted — and it removes the operator-must-remember failure mode. The header still documents it and the per-environment results are still logged.",
+    "The ZernioBackfillWorker LEGACY_COUNTER_COLUMNS guards are KEPT and retargeted, not deleted. Owner-approved 2026-08-08, reversing the grilling decision. Rationale: the worker suite is mock-sql based, so a reintroduced legacy column name is invisible to it; the original 'it would be a hard 42703' argument is the reason to keep the guard, since failing in CI beats failing in production."
+  ],
   "tests_to_add": [
+    "migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs",
+    "migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop",
+    "migration 103 preflight raises when a legacy-work row disagrees with its collapsed counters",
+    "migration 103 preflight passes matching pre-#675 rows and post-#675 zero-legacy rows",
     "the four legacy gap_*/historical_* counters are absent from zernio_backfill_runs",
     "imported_count, skipped_count and oldest_skipped_create_time survive the drop with their 100-era shape",
     "a backfill run INSERT naming only the surviving columns succeeds and defaults both counters to 0",
-    "the header preflight is the two-branch predicate, not the naive collapsed = legacy sums form",
     "zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 after the #680 drop of the legacy four",
-    "writes only imported_count and skipped_count on the counters UPDATE",
-    "reactivation INSERT names only the surviving run columns"
+    "ZernioBackfillWorker counters UPDATE never names a migration-103-dropped legacy counter",
+    "ZernioBackfillWorker reactivation INSERT never names a migration-103-dropped legacy counter"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "175 (migration 103 ~55, migrations-log entry + head bump ~40, staging evidence doc ~70, ADR 0015 + spec §8a R4 ticks ~12)",
-  "estimated_test_lines": "155 (new migration-103 shape suite ~110, migration-100 suite retarget ~20, ZernioBackfillWorker.test.ts guard deletion + two retitles ~25)",
+  "estimated_prod_lines": "200 (migration 103 ~80 incl. the executable preflight guard, migrations-log entry + head bump ~40, staging evidence doc ~70, ADR 0015 + spec §8a R4 ticks + stale-runbook note ~15)",
+  "estimated_test_lines": "260 (new migration-103 suite ~200 — statement-list + lock assertions plus a pg_temp-shadowed execution of the migration's OWN preflight guard proving BOTH branches, migration-100 suite retarget ~20, ZernioBackfillWorker.test.ts guard retarget + retitles ~25)",
   "dependencies_added": [],
   "rollback_plan": "No down migration (099/100 precedent). Reverting this PR removes the migration FILE but does NOT un-drop already-applied columns — the header states 103 as the epic's point of no return. If the DROP must be undone: re-ADD the four columns as INTEGER NOT NULL DEFAULT 0; their historical values are unrecoverable, which is precisely why the two-branch preflight proving collapsed = legacy sums is the gate (and why the exposure is 1 staging row / 0 prod rows). Apply order is staging first, prod at promotion; if the staging apply or its preflight fails, do not promote and do not merge.",
   "observability": [

@@ -24,13 +24,24 @@ rows** under the two-branch reconciliation preflight. The epic is proven on stag
   #675/#677 narrowed it. The ticket's third bullet is **already satisfied** — 0 diff (deviation D1).
 - The one new file is a per-migration shape suite, an instance of the established pattern
   (074/076/077/078/088/091/100/102), not a new abstraction.
-- **No `schema-ready.ts` entry.** `SchemaRequirement` models presence; a presence check cannot
-  express "these four are gone". Precedent: 102 deliberately has no entry because a presence check
-  there proves nothing. The new suite asserts absence directly against `information_schema` and
-  reuses `MIGRATION_100_IMPORT_CONSENT` via `assertSchemaReady` to prove the DB is at/after 100.
-- **No `live-db-suites-audit.ts` allowlist entry.** The new suite executes no DDL — introspection
-  plus one rolled-back INSERT. It still takes `acquireLiveDbLock`, matching its sibling
-  `migration-100-import-consent.integration.test.ts` exactly.
+- **No generic `SchemaRequirement` entry in `schema-ready.ts`.** `SchemaRequirement` models
+  presence; a presence check cannot express "these four are gone". (Correction, plan review F7: 102
+  is *not* an example of "no entry" — `schema-ready.ts:437-470` holds a specialized
+  `MIGRATION_102_IMPORT_CONSENT_EVENTS` requirement with its own definition-aware assertion. The
+  accurate statement is that no *generic* requirement fits absence.) The new suite asserts absence
+  directly against `information_schema` and reuses `MIGRATION_100_IMPORT_CONSENT` via
+  `assertSchemaReady` to prove the DB is at/after 100.
+- **Precedent split (correction, plan review F5/F8).** The suites are not one uniform pattern:
+  074/076/077/078/088 sit in `MIGRATION_SHAPE_SUITES` and 091 in `DDL_PROBE_SUITES` — all DDL
+  allowlists. Only **100** (live introspection with `acquireLiveDbLock` + `assertSchemaReady`) and
+  **094/102** (text-only over the migration file via a local
+  `const executableSql = sql.replace(/--.*$/gm, '')`) model what this suite does. Follow those two,
+  not the allowlisted five.
+- **`live-db-suites-audit.ts` allowlist:** the suite's introspection and rolled-back INSERT execute
+  no DDL, but the preflight-branch tests create a `pg_temp` replica of the pre-103 shape. That is
+  the documented sanctioned escape — it takes `acquireLiveDbLock` and a per-line
+  `-- live-db-ddl-ignore: <reason>`, because a `CREATE TABLE` on `pg_temp` reads exactly like one on
+  the shared table.
 
 ## Tasks
 
@@ -48,40 +59,70 @@ Serial: T1 → T2 → T3. No mutually independent pair (T3 needs T2's final migr
 suite skeleton (`acquireLiveDbLock` + `assertSchemaReady` + text assertions over the migration file);
 `migration-100-import-consent.integration.test.ts` for the `information_schema.columns` idiom.
 
-New suite — four tests, titles VERBATIM from the intake:
+New suite — seven tests, titles VERBATIM from the intake.
 
-1. `the four legacy gap_*/historical_* counters are absent from zernio_backfill_runs`
+**A. Statement-level assertions over the migration text** (no DB; 094/102 idiom — local
+`const executableSql = sql.replace(/--.*$/gm, '')` so header prose is never mistaken for a statement):
+
+1. `migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs`
+   — **the plan-review BLOCKER (F1).** Split `executableSql` on `;`, trim, drop empties, and assert
+   the resulting statement list is exactly: one `SET lock_timeout`, one `DO $$ … $$` guard, one
+   `ALTER TABLE zernio_backfill_runs` naming all four `DROP COLUMN IF EXISTS` and nothing else.
+   Assert NO `UPDATE`, `DELETE`, `TRUNCATE`, or `CASCADE` anywhere. Final-state introspection alone
+   cannot catch a migration that drops the columns *and* erases surviving counter values, nor
+   distinguish 103 from a hand-dropped database.
+2. `migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop`
+   — the bound exists AND precedes the `ALTER` in statement order (intake E8).
+
+**B. Preflight guard behaviour — BOTH branches** (live DB; `acquireLiveDbLock`;
+`-- live-db-ddl-ignore` for the `pg_temp` fixture). Extract the `DO` block from the migration file
+and execute **the migration's own text**, against a `pg_temp.zernio_backfill_runs` replica of the
+pre-103 shape shadowing the real table via `SET LOCAL search_path = pg_temp, public`, all inside a
+transaction that always rolls back:
+
+3. `migration 103 preflight raises when a legacy-work row disagrees with its collapsed counters`
+   — seed one row with nonzero legacy counters whose sums differ from the collapsed values; the
+   guard must RAISE. **This is the only test that can prove the guard works at all**: on clean data
+   a broken guard and a working guard both report zero abort rows, and both environments are
+   currently clean, so apply-time evidence cannot distinguish them.
+4. `migration 103 preflight passes matching pre-#675 rows and post-#675 zero-legacy rows`
+   — seed a reconciling pre-#675 row (collapsed = legacy sums) and a post-#675 row (all four legacy
+   at 0, `imported_count` nonzero); the guard must NOT raise. Pins the disjunction against a
+   regression to the naive form, which flags the second row (observed live: both staging rows).
+
+**C. Final-state introspection** (live DB, the migration-100 idiom):
+
+5. `the four legacy gap_*/historical_* counters are absent from zernio_backfill_runs`
    — `information_schema.columns` filtered to the four names → expect length 0. **The failure
    message must name migration 103 and `pnpm test:db:setup`**, so a behind-head local DB reads as
    "DB behind head", not "expected 0 got 4" (intake E4).
-2. `imported_count, skipped_count and oldest_skipped_create_time survive the drop with their 100-era shape`
+6. `imported_count, skipped_count and oldest_skipped_create_time survive the drop with their 100-era shape`
    — the three survivors present; both counters `integer`, `is_nullable='NO'`, `column_default='0'`.
-3. `a backfill run INSERT naming only the surviving columns succeeds and defaults both counters to 0`
+7. `a backfill run INSERT naming only the surviving columns succeeds and defaults both counters to 0`
    — inside `sql().begin` + deliberate rollback, INSERT naming none of the counters,
    `RETURNING imported_count, skipped_count` → both 0. Proves the DROP left the defaults intact.
-4. `the header preflight is the two-branch predicate, not the naive collapsed = legacy sums form`
-   — read `supabase/migrations/103_*.sql` as text; assert the header contains the post-#675 zero
-   guard (`NOT (gap_processed_count = 0`) and the ABORT instruction. This pins the encoding: the
-   naive form flags healthy rows and was the first thing to go wrong in this ticket's own recon
-   (intake E1). Text assertion, no DDL, no DB.
 
-Retarget in the migration-100 suite (its current `toHaveLength(7)` asserts the legacy four are
-PRESENT and goes red the moment the local DB passes 103 — intake E6):
+In `ZernioBackfillWorker.test.ts` — **KEEP** `LEGACY_COUNTER_COLUMNS` (`:218-223`) and both assertion
+loops (`:701`, `:1075`), retitled to name 103 as the reason the columns cannot exist. **This reverses
+the grilling decision to delete them** (owner-approved 2026-08-08 after plan-review F3/F4). The
+suite is mock-`sql` based, so a reintroduced legacy column name is invisible to every other check
+and would surface only as a production 42703 — "it would be a hard 42703" is the argument *for* the
+guard, not against it, because failing in CI beats failing in production.
 
-5. `zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 after the #680 drop of the legacy four`
+9. `ZernioBackfillWorker counters UPDATE never names a migration-103-dropped legacy counter`
+10. `ZernioBackfillWorker reactivation INSERT never names a migration-103-dropped legacy counter`
+
+Retarget in the migration-100 suite (correction F6 — its `toHaveLength(7)` asserts the legacy four
+are PRESENT and goes red the moment the local DB passes 103; intake E6):
+
+8. `zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 after the #680 drop of the legacy four`
    — same body, expectation moves 7 → 3, comment rewritten to point at 103 as the owner of absence.
 
-In `ZernioBackfillWorker.test.ts` — delete `LEGACY_COUNTER_COLUMNS` (`:218-223`) and both assertion
-loops (`:701`, `:1075`); the columns cannot exist, so a regression is a hard 42703 and the new suite
-pins absence. Keep every positive assertion. Retitle:
-
-6. `writes only imported_count and skipped_count on the counters UPDATE` (was `…; legacy counters
-   stay at their defaults` — meaningless once they are gone)
-7. `reactivation INSERT names only the surviving run columns` (was `…names no legacy counter column`)
-
-**Expected state after T1:** tests 1–4 RED (no migration file, DB at 102), test 5 RED (columns still
-present), tests 6–7 GREEN immediately — they are renames of already-passing assertions, not new
-behaviour. That asymmetry is expected and is not a reason to split the task.
+**Expected state after T1** (corrected per F6 — the original claim that tests 1–4 would all be red
+was wrong): RED are 1, 2, 3, 4 (no migration file yet), 5 and 8 (columns still present at 102).
+Already GREEN are 6 and 7 (the three survivors exist with that shape from migration 100) and 9–10
+(retitles of assertions that already pass). That asymmetry is expected and is not a reason to split
+the task.
 
 ---
 
@@ -92,16 +133,51 @@ behaviour. That asymmetry is expected and is not a reason to split the task.
 **Precedent:** `100_import_consent_and_backfill_counters.sql` (header structure, `SET lock_timeout`,
 explicit Rollback paragraph); `101_import_decision_three_valued_check.sql` (preflight-in-header).
 
-Body: `SET lock_timeout = '5s';` then one `ALTER TABLE zernio_backfill_runs DROP COLUMN IF EXISTS ×4`.
+Body — exactly three statements, in this order (test 1 pins the list):
+
+1. `SET lock_timeout = '5s';`
+2. An **executable fail-closed preflight guard** (`DO $$ … $$`) — owner-approved 2026-08-08 after
+   plan-review F2, replacing the originally-locked "manual query documented in the header". It is
+   existence-guarded on `gap_processed_count` so the migration stays re-runnable after the DROP, and
+   RAISEs with the offending row count when the two-branch predicate finds anything:
+
+   ```sql
+   DO $$
+   DECLARE unreconciled BIGINT;
+   BEGIN
+     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'zernio_backfill_runs'
+                      AND column_name = 'gap_processed_count')
+     THEN RETURN;                       -- already dropped: nothing to reconcile
+     END IF;
+     SELECT count(*) INTO unreconciled FROM zernio_backfill_runs
+     WHERE NOT (gap_processed_count = 0 AND historical_processed_count = 0
+                AND gap_skipped_count = 0 AND historical_skipped_count = 0)
+       AND (imported_count <> gap_processed_count + historical_processed_count
+         OR skipped_count  <> gap_skipped_count  + historical_skipped_count);
+     IF unreconciled > 0 THEN
+       RAISE EXCEPTION 'migration 103 preflight: % unreconciled backfill run(s)', unreconciled;
+     END IF;
+   END $$;
+   ```
+
+   **Why executable rather than documented:** a guard that never fires is indistinguishable from a
+   working guard on clean data — both report zero abort rows, and both environments are clean today.
+   Making it a migration statement removes the operator-must-remember failure mode *and* makes the
+   failing branch testable (T1 tests 3–4). The migration cannot apply against unreconciled data.
+3. One `ALTER TABLE zernio_backfill_runs` with four `DROP COLUMN IF EXISTS`.
 
 Header must carry, each as a stated decision rather than a bare comment:
 
-- The **two-branch preflight SQL** with the ABORT instruction, and why the naive form is wrong —
-  post-#675 rows hold all four legacy counters at 0 while `imported_count` is non-zero, so the naive
-  predicate flags healthy rows (observed: both staging rows flag under it, zero under two-branch).
-- Why a pre-#675 row with real work but zero legacy counters **cannot exist** — the pre-#675 worker
-  dual-wrote both sets in one UPDATE, so non-zero collapsed implies non-zero legacy (intake E3).
-  Without this, the next reader has to re-derive that the disjunction is sound.
+- Why the **naive predicate is wrong** — post-#675 rows hold all four legacy counters at 0 while
+  `imported_count` is non-zero, so it flags healthy rows (observed: both staging rows flag under it,
+  zero under two-branch).
+- The soundness argument, **narrowed per plan-review F9**: what is guaranteed is that a *nonzero
+  collapsed* value implies nonzero legacy counters, because the pre-#675 worker dual-wrote both sets
+  in one UPDATE. The broader "a pre-#675 row with real work but zero legacy counters cannot exist"
+  is false — a run interrupted after its review writes but before the final counter UPDATE leaves
+  all six counters at 0. Such a row is harmless: `imported_count = 0` means there is nothing to
+  reconcile, and it satisfies both branches. State the narrow claim, not the broad one.
 - **Point of no return** (intake E7): reverting this PR removes the migration file but does not
   un-drop applied columns. After 103, reverting a pre-#675 epic PR puts the old dual-writing worker
   against a schema without those columns (42703). This is where ADR 0015 §4's revert-only backout
@@ -119,7 +195,14 @@ test 4 goes green on the header text.
 
 **Blocking edges:** T2.
 **Files:** `.claude/reference/migrations-log.md`, `docs/adr/0015-consented-import-unflagged-replacement.md`,
-`docs/superpowers/specs/2026-08-05-consented-review-import-design.md`.
+`docs/superpowers/specs/2026-08-05-consented-review-import-design.md`,
+`docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md` (surface amendment A1).
+
+- The completed runbook's operator query at `:355-377` selects all four dropped columns and its
+  `:361`/`:377` notes explain them; reused after 103 it raises 42703 (plan-review F10). It is a
+  *completed* runbook, so do not rewrite its history — annotate the query as superseded by 103 and
+  point at `imported_count`/`skipped_count`. This is the repo's own cross-reference rule: ticking a
+  checklist item means grepping the filename and fixing every reference in the same change.
 
 - migrations-log: head `102` → `103`, plus the entry in the house shape (what/why, the two-branch
   preflight and its per-environment result, the point-of-no-return note, shape-suite pointer, and
