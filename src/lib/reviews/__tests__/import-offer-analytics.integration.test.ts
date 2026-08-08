@@ -817,13 +817,19 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
       subsystem: EMISSION_FAILURE_SUBSYSTEM,
       event_name: 'import_offer_created',
     });
-    expect(options.extra).toMatchObject({
+    // `toEqual`, not `toMatchObject`, and the difference is the PII invariant.
+    // The intake locks "only business_id, event_name and the error text leave the
+    // process — no review text, no tokens, no handles, and not the event
+    // `properties`". A subset matcher cannot see an ADDED key, so a later
+    // `...input` spread into `detail` would ship the properties to Sentry green.
+    // The key set is the assertion.
+    expect(options.extra).toEqual({
       business_id: businessId,
       event_name: 'import_offer_created',
+      // The real cause reaches the operator: the constraint migration 102
+      // rewrites, named in the error text, distinguishes drift from an outage.
+      error: expect.stringContaining(EVENT_NAME_CONSTRAINT),
     });
-    // The real cause reaches the operator: the constraint migration 102 rewrites,
-    // named in the error text, is what distinguishes drift from an outage.
-    expect(String(options.extra.error)).toContain(EVENT_NAME_CONSTRAINT);
   });
 
   it('recordImportDecisionAndEnqueue reports a swallowed emission failure to Sentry with a routable subsystem tag', async () => {
@@ -853,9 +859,11 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
       subsystem: EMISSION_FAILURE_SUBSYSTEM,
       event_name: 'import_decision_recorded',
     });
-    expect(options.extra).toMatchObject({
+    // Exact key set, for the reason given on the title above.
+    expect(options.extra).toEqual({
       business_id: businessId,
       event_name: 'import_decision_recorded',
+      error: expect.stringContaining(EVENT_NAME_CONSTRAINT),
     });
   });
 
@@ -875,17 +883,39 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
       throw new Error('sentry transport unavailable');
     });
 
-    const postCaptureName = `Sentry Throw Location ${randomUUID()}`;
-    const result = await sql().begin(async (tx) => {
-      const outcome = await createImportOffer(failingEmission(tx), businessId, tenant!.accountId);
-      // The caller carrying on past the offer, on its OWN handle — 25P02 here
-      // would mean the throw escaped the savepoint AND aborted the transaction.
-      await tx`UPDATE businesses SET name = ${postCaptureName} WHERE id = ${businessId}::uuid`;
-      return outcome;
-    });
+    // The stdout sink is the FALLBACK when the durable one is down, and it only
+    // survives because the warn sits OUTSIDE the inner guard. Nothing else pins
+    // that ordering: moving the warn inside the capture's `try` — which looks
+    // like tidying, and matches a careless reading of the `circuit-breaker.ts`
+    // precedent — deletes the last remaining signal on exactly the path where
+    // Sentry cannot be reached, and leaves every other title green.
+    // `createWorkerLogger` writes level `warn` through `console.warn`.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
-    expect(result).toBe('created');
+    const postCaptureName = `Sentry Throw Location ${randomUUID()}`;
+    try {
+      const result = await sql().begin(async (tx) => {
+        const outcome = await createImportOffer(failingEmission(tx), businessId, tenant!.accountId);
+        // The caller carrying on past the offer, on its OWN handle — 25P02 here
+        // would mean the throw escaped the savepoint AND aborted the transaction.
+        await tx`UPDATE businesses SET name = ${postCaptureName} WHERE id = ${businessId}::uuid`;
+        return outcome;
+      });
+
+      expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+      expect(result).toBe('created');
+      expect(
+        warnSpy.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes(EMISSION_FAILURE_MESSAGE),
+        ),
+      ).toBe(true);
+    } finally {
+      // `finally`, because a vitest timeout or a failed expect above would
+      // otherwise leave `console.warn` stubbed for every suite that follows in
+      // this serialized project.
+      warnSpy.mockRestore();
+    }
+
     const row = await readRaw();
     expect(row.import_offer_expires_at).not.toBeNull();
     expect(row.name).toBe(postCaptureName);

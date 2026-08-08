@@ -40,6 +40,7 @@
     "src/lib/reviews/import-consent.ts",
     "src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts",
     "docs/runbooks/beta-launch-alerting.md",
+    "docs/launch-checklist.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],

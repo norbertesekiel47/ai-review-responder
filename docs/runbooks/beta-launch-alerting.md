@@ -65,6 +65,12 @@ email shares the Resend provider with the product.
   `analytics_events_event_name_check`); the fix is to apply it, never to silence
   the rule. A single event during a database blip is expected noise — postgres.js
   connection errors carry a `code` and land under the same tag by design (#697).
+  **Use an event-FREQUENCY condition, not "a new issue is created."** The capture
+  title is a constant, so every occurrence — both event names, every business,
+  both lanes — groups into ONE Sentry issue. A new-issue rule would therefore
+  fire exactly once, ever, and then stay silent through the very repetition that
+  is the actionable signal. Suggested: _The issue is seen more than 3 times in
+  one hour_.
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 

@@ -580,6 +580,11 @@ async function emitConsentEvent(
       // outage — the same one the savepoint closed. Shape follows
       // `llmCircuitBreaker.emitTransition` (`src/lib/llm/circuit-breaker.ts`).
     }
+    // OUTSIDE the guard above, deliberately: this is the fallback sink for the
+    // one case the durable sink cannot cover — Sentry itself being unreachable.
+    // Moving it inside that `try` reads like tidying and deletes the last signal
+    // on exactly that path. Pinned by "a Sentry capture that throws does not
+    // resurface into the caller transaction".
     createWorkerLogger(LOG_PREFIX).warn(EMISSION_FAILURE_MESSAGE, detail);
   }
 }
