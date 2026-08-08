@@ -24,7 +24,7 @@
     "Import consent stays fail-closed: only 'accepted' proceeds; every other state and a missing businesses row are skip-as-success (outbox row completed, never failed, thrown, or retried).",
     "#679's data-loss window stays closed: the businesses row lock and the in-transaction outbox completion remain both load-bearing.",
     "owner_unreachable's PERSISTED VALUE is unchanged and pinned against live Postgres — same emitted UPDATE, same attempt-guarded CAS, same 0-row warn, same two poller readers.",
-    "completion_reason values are written and read only via OUTBOX_COMPLETION_REASON — no bare string literal at any site, tests included (CLAUDE.md working rules)."
+    "completion_reason values are written and read only via OUTBOX_COMPLETION_REASON — no bare string literal at any site, tests included (CLAUDE.md working rules). EXACTLY ONE exception, recorded here so it is not read as a violation: the wire-value contract test ('OUTBOX_COMPLETION_REASON preserves the persisted owner_unreachable wire value') compares the constant TO a literal, which is its entire purpose — a vocabulary whose every reader resolves the same constant cannot otherwise detect a renamed value stranding historical rows."
   ],
   "edge_cases": [
     "Superseded dispatch attempt: the reason write uses the same attempt-guarded dispatchedRow CAS, so a stale attempt updates 0 rows and warns rather than stamping a reason onto a newer attempt's row.",
