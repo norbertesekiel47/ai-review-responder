@@ -22,11 +22,12 @@ Step 3 (PLAN) — **round 1 complete: `VERDICT: REVISE`, 9 findings, all accepte
 
 | # | Artifact | Why |
 |---|---|---|
-| 1 | `.feature/intake.json` | The locked contract. Owner-signed. `allowed_edit_surface`, the 37 `tests_to_add` titles (verbatim — the gate matches literally), invariants, edge cases. |
+| 1 | `.feature/intake.json` | The locked contract. Owner-signed. `allowed_edit_surface`, the **50** `tests_to_add` titles (verbatim — the gate matches literally), invariants, edge cases. |
 | 2 | `docs/superpowers/plans/2026-08-08-feat-678-reviews-list-generate.md` | The plan. Tasks T1–T8, the task graph, and **"Design decisions taken during planning" D-A…D-H** — these are contract, not suggestion. |
 | 3 | `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.3a, §6.3b, §6.4 | Design of record. S1–S7 (surface), C1–C4 (cost policy). Locked by #671 / #672. |
 | 4 | `CONTEXT.md` → **Reviews list**, **On-demand generation** | Glossary. Use these terms verbatim in code, commits, and tickets. |
-| 5 | `docs/reviews/feat-678-reviews-list-generate/` | Review reports, once round 1 lands. |
+| 5 | `docs/reviews/feat-678-reviews-list-generate/plan-round1.md` | Round-1 findings table + triage verdicts. |
+| 5b | `docs/superpowers/plans/feat-678-reviews-list-generate-deviations.md` | D1–D5. **Read before step 6** — D1 carries a scope fence on `process-review.ts`. |
 | 6 | `gh issue view 678` | Ticket + the four unblocking comments (#669 reuse map, #671 surface lock, #672 cost policy). |
 
 ## Ticket context
@@ -63,11 +64,10 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 ## Next steps
 
-1. Read the codex round-1 verdict: `/private/tmp/.../scratchpad/codex-plan-round1.jsonl` (extract with `jq -r 'select(.msg.type=="agent_message")|.msg.message'`). Copy the findings table into `docs/reviews/feat-678-reviews-list-generate/plan-round1.md` and **commit it** — uncommitted reports vanish with the worktree.
-2. On `REVISE`: fix, then `bash scripts/feature-state.sh incr-round plan` before re-submitting **verification-only** deltas. Hard stop after round 3 — surface the disagreement to the owner.
-3. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then step 4.
-4. Step 4 dispatch order: **T1 alone** (mandatory first-task enforcement spot check — diff `git status --porcelain` against `allowed_edit_surface`; any out-of-surface file means STOP), then **T2 / T4 / T6 in parallel** (disjoint files, no edges), then T3 and T5, then T7, then T8.
-5. Step 5 gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7. **`TEST_DATABASE_POOL_URL` must be set** — a SKIP row on the integration suite makes the gate non-review-ready for this DB-touching branch.
+1. `bash scripts/feature-state.sh incr-round plan`, then dispatch round 2 (verification-only) against the "Round-1 revisions" section at the foot of the plan. Brief it to confirm F1–F9 landed and to flag only defects a FIX introduced.
+2. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then step 4. Hard stop after round 3 — surface the remaining disagreement to the owner; their call substitutes for APPROVED.
+3. Step 4 dispatch order: **T1 alone** (mandatory first-task enforcement spot check — diff `git status --porcelain` against `allowed_edit_surface`; any out-of-surface file means STOP), then **T2 / T4 / T6 in parallel** (disjoint files, no edges), then T3 and T5, then T7, then T8.
+4. Step 5 gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7. **`TEST_DATABASE_POOL_URL` must be set** — a SKIP row on the integration suite makes the gate non-review-ready for this DB-touching branch.
 
 ## Budgets
 
