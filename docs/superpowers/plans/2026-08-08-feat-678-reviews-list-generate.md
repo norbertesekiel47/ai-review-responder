@@ -66,7 +66,7 @@ These were resolved in this session's grilling; they are contract, not suggestio
 | File | Change |
 |---|---|
 | `src/lib/shared/worker-types.ts` | One entry: `ON_DEMAND_GENERATE: 'on_demand_generate'`. |
-| `src/lib/past-replies/load-replies.ts` | `LEFT JOIN` + 2 LATERALs; counts → unanswered/answered; `ORDER BY (resp.id IS NOT NULL), r.review_date DESC`; avg over all reviews; batched budget peek. |
+| `src/lib/past-replies/load-replies.ts` | `LEFT JOIN` + 4 LATERALs (2 new + 2 folding in the deleted orphan query, F3); separate orphan query **deleted**; counts → unanswered/answered; `ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC`; avg over all reviews; batched budget peek. |
 | `src/lib/past-replies/replies-view.ts` | `bucketReplies` → `groupReplies`; add `deriveRowState` + `provenanceBadge`; delete `isHistorical` as a *bucketing* predicate (kept as a badge input). |
 | `src/lib/past-replies/flags.ts` | Collapse three functions → one `editRepliesEnabled()`. |
 | `src/lib/costs/tracker.ts` | Add `peekRegenBudgetBatch`. |
@@ -561,9 +561,13 @@ git add "src/app/api/dashboard/reviews/[reviewId]" && \
 - Modify: `src/lib/past-replies/load-replies.ts`
 - Test: `src/lib/past-replies/__tests__/reviews-list.test.ts`, `__tests__/load-replies.integration.test.ts`
 
-- [ ] **Step 1: Replace the posted-only JOIN with the LEFT JOIN + two LATERALs**
+- [ ] **Step 1: Replace the posted-only JOIN with the LEFT JOIN + four LATERALs**
 
-The main query becomes (comments abbreviated here — keep the existing file's comment density, which is high and load-bearing):
+The main query becomes the **single row source** for the page (F3 — the separate
+orphan query is deleted in Step 2a). Comments abbreviated here; keep the existing
+file's comment density, which is high and load-bearing, and keep every
+`-- review-status-ignore:` comment verbatim — they are what stops `ci:reviews-status`
+from flagging the unqualified `responses.status` literals inside these subqueries.
 
 ```sql
 SELECT
@@ -574,7 +578,14 @@ SELECT
   fail_sidecar.id AS failed_response_id,
   fail_sidecar.posting_error AS failed_posting_error,
   draft.id AS draft_response_id,
-  (pending_gen.exists IS NOT NULL) AS generation_in_flight
+  (pending_gen.exists IS NOT NULL) AS generation_in_flight,
+  -- F3: orphan is now DATA, not caller discipline. An orphan is a
+  -- post_after_delete_failed_* sibling with NO live posted sibling — the
+  -- `resp.id IS NULL` conjunct is what the deleted query's NOT EXISTS did.
+  (orphan_sidecar.id IS NOT NULL AND resp.id IS NULL) AS is_orphan,
+  orphan_sidecar.id AS orphan_failed_response_id,
+  orphan_sidecar.posting_error AS orphan_posting_error,
+  orphan_superseded.approved_text AS superseded_text
 FROM reviews r
 LEFT JOIN responses resp
   ON resp.review_id = r.id AND resp.status = 'posted'
@@ -594,10 +605,32 @@ LEFT JOIN LATERAL (
     AND status IN ('pending', 'dispatching', 'dispatched')
   LIMIT 1
 ) pending_gen ON true
+-- NEW (F3): the deleted orphan query's JOIN LATERAL, now LEFT and folded in.
+-- LEFT, not JOIN — this query must still return non-orphan reviews.
+LEFT JOIN LATERAL (
+  SELECT id, posting_error FROM responses
+  WHERE review_id = r.id
+    AND status = 'failed'
+    AND posting_error LIKE ${postAfterPfx}
+  ORDER BY created_at DESC LIMIT 1
+) orphan_sidecar ON true
+-- NEW (F3): superseded text for the recovery drawer's "original" pane.
+LEFT JOIN LATERAL (
+  SELECT COALESCE(approved_text, response_text) AS approved_text FROM responses
+  WHERE review_id = r.id AND status = 'superseded'
+  ORDER BY created_at DESC LIMIT 1
+) orphan_superseded ON true
 WHERE r.business_id = ${locationId}
 ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC
 LIMIT ${PAGE_SIZE} OFFSET ${offset}
 ```
+
+`fail_sidecar` and `orphan_sidecar` stay **separate** columns rather than one
+COALESCEd pair: they carry different meanings (a `delete_failed_*` badge on a
+healthy posted reply vs. the `post_after_delete_failed_*` failure that IS the
+`recover` state), and only the latter may drive `deriveRowState`. Their scopes are
+mutually exclusive by construction — `fail_sidecar` is read only when
+`resp.id IS NOT NULL`, `orphan_sidecar` only when it is NULL.
 
 `false` sorts before `true` in Postgres, so unanswered lead (S6). The `status IN ('pending','dispatching','dispatched')` list is the byte-for-byte in-flight contract from `src/lib/shared/job-outbox-status.ts` — re-spelled by hand exactly as every other site does; `ci:outbox-status` checks members **and order**.
 
@@ -623,7 +656,37 @@ SELECT AVG(r.star_rating)::float AS avg FROM reviews r WHERE r.business_id = ${l
 
 `totalPages = Math.max(1, Math.ceil((unansweredTotal + answeredTotal) / PAGE_SIZE))` — now a true denominator over all reviews, so the tail pages of a fresh import are reachable.
 
-**F3 (plan review round 1, High) — the orphan query must MOVE with the JOIN.** Its `NOT EXISTS` clause guaranteed disjointness only because the main query INNER JOINed `posted`. Under `LEFT JOIN` the main query returns *every* review, so each orphan review would appear **twice** — once as `generate`, once as `recover` — and its un-offset `LIMIT 50` would merge into *every* page. Fix: the main query becomes the **single row source**. Fold the orphan recovery data in as a third LATERAL (most-recent `post_after_delete_failed_*` sibling) and delete the separate orphan query and its merge. `deriveRowState` then reads `is_orphan` from that LATERAL instead of from caller discipline, which also closes the plan's own self-declared "known gap".
+- [ ] **Step 2a: Delete the separate orphan query and its merge (F3)**
+
+**Why (plan review round 1, High).** The orphan query's `NOT EXISTS` clause
+guaranteed disjointness only because the main query INNER JOINed `posted`. Under
+`LEFT JOIN` the main query returns *every* review, so each orphan review would
+appear **twice** — once as `generate`, once as `recover` — and its un-offset
+`LIMIT 50` would merge into *every* page.
+
+Concretely, in `load-replies.ts`:
+
+- Delete the `sql<OrphanRow[]>` query (today `:162-205`) from the `Promise.all`
+  array, and the `orphanRows` binding it destructures into.
+- Its data now arrives per-row from the `orphan_sidecar` / `orphan_superseded`
+  LATERALs added in Step 1 — including `superseded_text`, which the recovery
+  drawer needs and which no other LATERAL carries.
+- Delete the `bucketReplies(…, orphanRows, …)` merge and the `orphanGapCount` /
+  `orphanHistCount` it returned (Task 5 replaces the whole bucketing step).
+- `OrphanRow` and `toOrphanCardRow` live in `replies-view.ts` (`:28`, `:100`),
+  **not** `types.ts`. `load-replies.ts` is their only non-test consumer, so both
+  are deleted in Task 5 when that file is rewritten — this step only drops the
+  `OrphanRow` import at `load-replies.ts:11`. `orphan-markers.ts` constants
+  (`postAfterPfx`, `deletePfx`) are still needed by the Step 1 LATERALs.
+
+**Consequence for pagination — state it in the test.** Orphans are now inside the
+`LIMIT ${PAGE_SIZE} OFFSET ${offset}` window and inside `unansweredTotal` (they
+have no posted sibling, so Step 2's `NOT EXISTS` count already includes them).
+That is the correct fix to the un-offset `LIMIT 50`, and it means orphan cards
+are now paginated like every other row rather than being repeated on each page.
+
+`deriveRowState` reads `is_orphan` from the row instead of from caller
+discipline, which also closes the plan's own self-declared "known gap".
 
 - [ ] **Step 3: Rename the returned view fields**
 
@@ -720,7 +783,9 @@ Import `APPROVAL_METHOD` from `@/lib/auto-approval/types` — no string literals
 
 - [ ] **Step 2b: Replace `bucketReplies` with `groupReplies`**
 
-Same merge-and-sort shape as today, but the predicate is `deriveRowState(row) === 'regenerate'` (answered) vs everything else (unanswered), and orphan rows land in `unanswered` (D-G). Keep `sortByDateDesc` and `canEdit` unchanged. Delete `orphanGapCount` / `orphanHistCount` — the section denominators are now the two group totals plus the orphan rows merged into `unanswered`.
+Same merge-and-sort shape as today, but the predicate is `deriveRowState(row) === 'regenerate'` (answered) vs everything else (unanswered), and orphan rows land in `unanswered` (D-G). Keep `sortByDateDesc` and `canEdit` unchanged.
+
+`groupReplies` now takes **one** row array, not two — post-F3 there is no separate orphan list to merge, so the `orphanRows` parameter (`replies-view.ts:143`) and the `orphanGapCount` / `orphanHistCount` it returned are deleted, as are `OrphanRow` (`:28`) and `toOrphanCardRow` (`:100`). The section denominators are exactly `unansweredTotal` / `answeredTotal` — orphans need no separate term because they have no posted sibling and Step 2's `NOT EXISTS` count already includes them.
 
 - [ ] **Step 3: Run and commit**
 
@@ -897,7 +962,7 @@ git add -A && git commit -m "feat(#678): retire PAST_REPLIES_VIEW_ENABLED; Histo
 
 **Type consistency.** `ReviewRowState`, `ProvenanceBadge`, `deriveRowState`, `provenanceBadge`, `groupReplies`, `peekRegenBudgetBatch`, `PastRepliesPageView`'s four renamed fields, and the route error strings (`review_not_found`, `already_answered`, `draft_already_exists`, `regenerate_in_progress`, `rate_limited`, `regen_limit_reached`) are spelled identically in every task that mentions them.
 
-**Known gap for the reviewer:** T4's `is_orphan` input to `deriveRowState` is set by the caller (orphan rows come from a separate query, not a column) — T5's mapper must pass `is_orphan: true` for `toOrphanCardRow` and `false` for `toCardRow`. That is the one place the discriminant depends on caller discipline rather than data.
+**Closed by F3 — was the known gap.** `is_orphan` used to be caller-set (orphan rows arrived from a separate query, not a column), making the discriminant depend on mapper discipline. Step 1's `orphan_sidecar` LATERAL makes it a column on the single row source, so `deriveRowState` reads data in every path and `toOrphanCardRow` disappears along with the query that fed it.
 
 ---
 
@@ -908,8 +973,19 @@ Full triage: `docs/reviews/feat-678-reviews-list-generate/plan-round1.md`.
 Owner decisions on the two that needed one: `…-deviations.md` D1, D2.
 
 Already patched into the tasks above: **F3** (orphan query folded into the main
-query as a third LATERAL — Task 4), **F7** (`, r.id DESC` tie-breaker — Task 4),
-**D5** (`generate-draft.ts:107`, not `:106`).
+query — Task 4 Step 1 LATERALs + Step 2a deletion), **F7** (`, r.id DESC`
+tie-breaker — Task 4), **D5** (`generate-draft.ts:107`, not `:106`).
+
+> **F3 was completed pre-round-2, not in the round-1 commit.** The round-1 commit
+> recorded F3 as a rationale paragraph under Task 4 while leaving Step 1's SQL
+> block and the Self-review "known gap" describing the *pre-fix* design — a
+> subagent following Step 1 verbatim would have built no orphan LATERAL and left
+> `deriveRowState` with no `is_orphan` source. Applied for real at `7300c480+`:
+> Step 1 gained `orphan_sidecar` + `orphan_superseded` and the `is_orphan` column,
+> Step 2a now deletes the separate query and its merge, Task 5 Step 2b drops
+> `groupReplies`' second parameter, and the "known gap" note is retired. Recorded
+> here because "the fix is described" and "the fix is applied" are different
+> states, and only the second one survives into code.
 
 Apply the rest as follows.
 

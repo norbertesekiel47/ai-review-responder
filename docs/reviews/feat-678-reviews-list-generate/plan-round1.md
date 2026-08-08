@@ -57,6 +57,36 @@ Independently confirmed by the orchestrator before codex reported: `persist.ts:8
 
 **F0 (Medium, fixed in plan already).** The plan's separate `getOffboardingState` + `isProcessingBlocked` call in the Generate route is redundant — `assertWritableSubscriptionForAccount` resolves offboarding in the **same query** (`LEFT JOIN account_offboardings`) and returns `403 account_offboarding_blocked`. Removed.
 
+## Orchestrator-found, pre-round-2 (F3 was described, not applied)
+
+Found while building the round-2 brief, before dispatch. The round-1 commit
+(`7300c480`) recorded F3 as a **rationale paragraph** under Task 4 but never
+edited the artifacts a subagent actually executes:
+
+- Task 4 Step 1's SQL block still had only `fail_sidecar` / `draft` / `pending_gen`
+  — no orphan LATERAL, no `is_orphan` column — while its header said "two LATERALs".
+- The Self-review "Known gap for the reviewer" still asserted the **pre-fix**
+  design (`is_orphan` set by caller discipline, orphan rows from a separate
+  query), directly contradicting the F3 paragraph 270 lines above it.
+- The file-structure table row still carried the pre-F7 `ORDER BY`.
+
+Impact had it shipped: Task 4 produces the `LEFT JOIN` **without** deleting the
+separate orphan query, which is precisely the double-render + un-offset-`LIMIT 50`
+defect F3 was raised to prevent — F3 would have been marked addressed while the
+bug remained. Verified against source before fixing: the orphan query is live at
+`load-replies.ts:162-205`, and `OrphanRow`/`toOrphanCardRow` live in
+`replies-view.ts:28,:100` (the plan said `types.ts`).
+
+Applied: Step 1 gains `orphan_sidecar` + `orphan_superseded` LATERALs and the
+`is_orphan` column; new Step 2a deletes the separate query, the `bucketReplies`
+merge, and the stale import; Task 5 Step 2b drops `groupReplies`' second
+parameter; the "known gap" note is retired; the table row is corrected.
+
+**Lesson (same class as F4's fabricated citation):** a review fix that lands as
+prose *about* the change, rather than as an edit *to* the executable step, reads
+as addressed at every later checkpoint. Round 2's brief asks specifically whether
+each fix reached the artifact a subagent runs, not whether the plan discusses it.
+
 ## Noted, not accepted
 
 Codex emitted `"The gate is running now"` after its `verify-gate.sh` invocation was **declined** by its own sandbox policy (correctly — the gate provisions the test DB and would drop the schema under a read-only audit). No gate ran during this review. It self-corrected in its final message. Recorded so no later reader mistakes that line for gate evidence.
