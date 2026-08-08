@@ -62,6 +62,7 @@ import {
   MIGRATION_100_IMPORT_CONSENT,
   MIGRATION_102_IMPORT_CONSENT_EVENTS,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import {
   createImportOffer,
   IMPORT_OFFER_WINDOW_DAYS,
@@ -199,21 +200,18 @@ async function clearAnalytics(): Promise<void> {
 const FOREIGN_KEY_VIOLATION = '23503';
 
 /**
- * A `Sql` that lets `recordImportDecisionAndEnqueue` run its whole transaction
- * and then aborts it with a REAL Postgres error, raised on the writer's own
- * connection, inside the writer's own `sql.begin`.
+ * THIS SUITE'S POISON for the shared `abortingExecutor`
+ * (`@/lib/shared/__tests__/helpers/abort-injection`), which lets
+ * `recordImportDecisionAndEnqueue` run its whole transaction and then aborts it
+ * with a REAL Postgres error, raised on the writer's own connection, inside the
+ * writer's own `sql.begin`.
  *
- * NON-DDL BY CONSTRUCTION, and that is the whole point (review round 1, High).
- * The previous version of this test forced its abort by adding a temporary
- * CHECK constraint to `job_outbox` and dropping it in a `finally`. A vitest
- * TIMEOUT skips the `finally`, so the constraint stranded on the shared
- * container and blocked every sibling suite that enqueues
- * `zernio_initial_backfill` — 14 spurious failures across three suites, already
- * observed (deviations D20). It also took ACCESS EXCLUSIVE on the most
- * contended relation in the live-DB set, against suites in other vitest
- * processes that nothing serializes it against. This injection holds no schema,
- * takes no ACCESS EXCLUSIVE lock, and leaves nothing behind whether the test
- * passes, fails, or times out.
+ * The MECHANISM moved to the helper at #694 — this was its first use, the route
+ * suite is the second, and the helper header carries the NON-DDL-by-construction
+ * reasoning (review round 1, High: a temporary CHECK constraint dropped in a
+ * `finally` strands on a vitest TIMEOUT; deviations D20). The POISON stayed
+ * here, because the event name and the foreign key it violates are this
+ * fixture's, not shared vocabulary.
  *
  * THE FAILURE MUST ORIGINATE IN POSTGRES, not in JS. A plain JS throw does not
  * poison a Postgres transaction, so a test built on one proves nothing about a
@@ -225,47 +223,23 @@ const FOREIGN_KEY_VIOLATION = '23503';
  * stands in for (an `analytics_events_event_name_check` rejection on a database
  * that never got migration 102). It lands AFTER the emission and AFTER the
  * enqueue, so it survives a refactor that moves either.
- *
- * A `Proxy` over a REAL `Sql`, never a `{ begin } as unknown as Sql` cast: a
- * bare object cast would typecheck the test against a local restatement of the
- * interface (deviations D22's failure class) instead of the shipped one. A
- * `get`-only trap does not intercept `apply`, so the tagged-template call form
- * forwards untouched.
  */
-function abortingExecutor(base: postgresType.Sql): postgresType.Sql {
-  return new Proxy(base, {
-    get(target, prop) {
-      if (prop !== 'begin') {
-        const value: unknown = Reflect.get(target, prop);
-        return typeof value === 'function' ? value.bind(target) : value;
-      }
-      return (...args: unknown[]) => {
-        const callback = args[args.length - 1] as (
-          tx: postgresType.TransactionSql,
-        ) => Promise<unknown>;
-        return target.begin(async (tx) => {
-          const result = await callback(tx);
-          // The event name is one migration 102 registered (asserted in
-          // beforeAll), so the ONLY constraint this row violates is the
-          // foreign key — the SQLSTATE is deterministic. `account_id` is left
-          // NULL, so the row could not satisfy `readAnalytics`'s account
-          // predicate even if it somehow survived.
-          await tx`
-            INSERT INTO analytics_events (id, event_key, event_name, distinct_id, business_id)
-            VALUES (
-              ${randomUUID()}::uuid,
-              ${`forced-abort-${randomUUID()}`},
-              'import_decision_recorded',
-              'forced-abort',
-              ${randomUUID()}::uuid
-            )
-          `;
-          return result;
-        });
-      };
-    },
-  });
-}
+const foreignKeyPoison = async (tx: postgresType.TransactionSql): Promise<void> => {
+  // The event name is one migration 102 registered (asserted in beforeAll), so
+  // the ONLY constraint this row violates is the foreign key — the SQLSTATE is
+  // deterministic. `account_id` is left NULL, so the row could not satisfy
+  // `readAnalytics`'s account predicate even if it somehow survived.
+  await tx`
+    INSERT INTO analytics_events (id, event_key, event_name, distinct_id, business_id)
+    VALUES (
+      ${randomUUID()}::uuid,
+      ${`forced-abort-${randomUUID()}`},
+      'import_decision_recorded',
+      'forced-abort',
+      ${randomUUID()}::uuid
+    )
+  `;
+};
 
 // ── The failed-emission injection ───────────────────────────────────────────
 
@@ -629,11 +603,12 @@ describeWithDb('import consent analytics against live Postgres', { timeout: 30_0
 
     // The writer runs its whole transaction and Postgres then rejects a real
     // foreign key inside it — no schema change, nothing left behind. See
-    // `abortingExecutor` for why the failure must come from Postgres and why
-    // this replaced the temporary-constraint pair it used to force.
+    // `foreignKeyPoison` and the shared `abortingExecutor` for why the failure
+    // must come from Postgres and why this replaced the temporary-constraint
+    // pair it used to force.
     await expect(
       recordImportDecisionAndEnqueue(
-        abortingExecutor(sql()), businessId, tenant!.accountId, 'accepted',
+        abortingExecutor(sql(), foreignKeyPoison), businessId, tenant!.accountId, 'accepted',
       ),
     ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
 
