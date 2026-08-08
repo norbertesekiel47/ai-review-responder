@@ -46,6 +46,10 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import {
+  assertSchemaReady,
+  MIGRATION_083_OUTBOX_OWNER_UNREACHABLE,
+} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { OUTBOX_COMPLETION_REASON } from '@/lib/shared/outbox-completion-reason';
 import { markOutboxOwnerUnreachable } from '@/lib/shared/outbox';
@@ -166,11 +170,10 @@ async function cleanupDomainRows(): Promise<void> {
 describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     assertLocalDatabaseUrl(testDatabaseUrl);
-    // Bring the shared local test DB current with T1's migration 083 column
-    // (job_outbox.completion_reason). Test-DB bootstrap only — migration
-    // 083_outbox_owner_unreachable.sql remains the authoritative owner of this
-    // column; CI runs against a fully migrated DB where this is a no-op.
-    await sql`ALTER TABLE job_outbox ADD COLUMN IF NOT EXISTS completion_reason TEXT`;
+    // Assert, never apply (#573): migration 083 owns job_outbox.completion_reason,
+    // which every owner-unreachable assertion in this suite reads. A DB behind
+    // head fails loudly here instead of as an undefined-column error mid-fixture.
+    await assertSchemaReady(sql as unknown as Sql, [MIGRATION_083_OUTBOX_OWNER_UNREACHABLE]);
     tenant = await seedTenantAccount(sql as unknown as Sql, {
       userName: 'Owner-Unreachable Integration Owner',
       accountDisplayName: 'Owner-Unreachable Integration Account',

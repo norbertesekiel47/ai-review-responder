@@ -1011,8 +1011,12 @@ Revisit triggers:
   an unapplied 102 broke **GBP connect entirely**. **Deploy ordering is still
   load-bearing:** apply to staging, then to production at promotion, in both
   cases BEFORE the emitting code goes live. The savepoint contains the blast
-  radius; it does not make the ordering optional, and the only drift signal is a
-  stdout `warn` with no durable or paged sink (**#697**).
+  radius; it does not make the ordering optional. Since **#697** the drift signal
+  is no longer stdout-only: a swallowed emission also mints a Sentry issue at
+  `level: 'warning'` tagged `subsystem: import_consent_analytics`, so an
+  out-of-order deploy announces itself somewhere durable. That signal pages only
+  once the Sentry rule for the tag exists — an open checklist item in
+  `docs/runbooks/beta-launch-alerting.md` §1 and `docs/launch-checklist.md`.
   Shape suite:
   `src/lib/shared/__tests__/migration-102-import-consent-analytics-events.integration.test.ts`
   — five text assertions plus one LIVE assertion (a bogus `event_name` inside a

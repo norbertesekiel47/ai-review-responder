@@ -2064,3 +2064,140 @@ untouched:
 - The post-merge sweep ran from a **fresh worktree off `origin/main`**, not the
   main checkout: a concurrent session had uncommitted #671/#672 work sitting in
   the shared checkout's working tree.
+
+---
+
+## Live-DB DDL detector (2026-08-08, #694 → PR #705)
+
+CI/test tooling. No runtime code, no migration, no flag, no dependency.
+
+**The defect.** `ci:live-db-suites` rule R2 ("a live-DB suite must not execute
+DDL at run time") was `text.includes('supabase/migrations') && text.includes('.unsafe(')`
+— a proxy for DDL, not DDL. Three suites executed DDL without naming a migration
+path and passed clean. One of them forced a transaction abort by adding a
+temporary CHECK constraint to `job_outbox` and dropping it in a `finally`; a
+vitest timeout skips the `finally`, so `tmp_block_import_topic_analytics`
+stranded on the shared test container and blocked every sibling suite enqueuing
+`zernio_initial_backfill` — 14 spurious failures across three suites.
+
+**What shipped.** AST extraction of executed SQL, DDL-verb match over extracted
+text only, SQL comments blanked to equal-length whitespace so reported line
+numbers survive, fail-closed on unreadable `.unsafe()` arguments (including a
+template whose substitution stands where a statement begins). Two lock-enforced
+allowlists (migration-shape + the new DDL-probe) and a per-line
+`-- live-db-ddl-ignore` pragma for statically-invisible safety. Signature and
+finding shape unchanged — the module was deepened, not widened.
+
+**Seven sites, not three.** The census found four the ticket didn't name: a
+second bootstrap `ALTER TABLE` in `health-alert/checks`, two `auth.uid()` RLS
+probes (`outreach-render`, `migration-091`), and three pg_temp index builds in
+`migration-080`. `migration-091` had been executing probe DDL on **no allowlist
+at all**, so its `acquireLiveDbLock` enrolment had never once been verified.
+
+**Process notes worth keeping:**
+- T1–T4 were planned as parallel and run **serially**: three of them execute
+  live-DB suites against the shared container, and proving a DDL fix while a
+  sibling task mutates that container is the exact interference this ticket
+  exists to remove.
+- Two review rounds, 16 findings, **every one a false claim or a test that
+  proved less than its name promised** — the executable logic was right from the
+  first pass. Fitting, on a ticket about an audit asserting something it never
+  checked.
+- The audit header's exact template count went stale **three times inside the
+  feature's own review**, each correction itself reviewed. Now stated as an
+  approximate, explicitly point-in-time census with the recount method attached.
+- Known bound filed as **#706** rather than patched at round 2: `listTestFiles()`
+  globs `*.test.ts`, so DDL in a fragment built inside `__tests__/helpers/*.ts`
+  is invisible. Widening the glob trips the naming rule on helper files — a
+  behaviour change needing its own design.
+
+## Import consent analytics sink (2026-08-08, #697 → PR #708)
+
+Observability. No migration, no env var, no flag, no dependency, no new file.
+`/feature` SMALL lane at RISK = high — abbreviated intake, in-session
+implementation, one review axis, full staging ride.
+
+**The defect.** #679 wrapped both **Import offer** analytics emissions in a
+postgres.js savepoint so a failed emission rolls back only itself. That closed a
+real connect outage: an unapplied migration 102 raises `23514` inside
+`finalizeConnectionTx`, and `select-location/route.ts` rethrows non-`23505`, so a
+missing migration broke Google Business Profile connect entirely. But the
+savepoint converted a loud failure into a quiet one — a lost metric and a `warn`.
+`createWorkerLogger(...).warn` writes structured JSON to **stdout only**, while
+the documented paging path is `captureMessage`
+(`docs/runbooks/beta-launch-alerting.md` §1). Persistent analytics-schema drift
+could therefore undercount both one-shot events indefinitely with nothing
+alerting on it.
+
+**The fix.** A second sink beside the existing `warn`: `Sentry.captureMessage` at
+`level: 'warning'`, `tags: { subsystem: 'import_consent_analytics', event_name }`,
+`extra` carrying exactly `business_id` / `event_name` / the error text.
+
+**Design decisions, all locked during grilling:**
+
+- **Guarded `captureMessage`, not `reportCaughtError`.** The shared helper exists
+  and was the obvious reuse, but it fixes `level` at `error` (this is a P2 — the
+  caller committed, only a metric was lost) and tags only `endpoint`, which the
+  runbook's `subsystem`-keyed alert rules do not route on. Precedent followed
+  instead: `src/lib/llm/circuit-breaker.ts:185-205` — a `src/lib` domain module
+  doing a guarded `captureMessage` + `subsystem` tag while retaining its log line.
+- **Not a HealthAlertPoller counter** (the issue's option B). These events are
+  one-shot per business; aggregation would need a cross-lane counter store, since
+  this code runs in BOTH the Vercel Next server (connect finalize, the dashboard
+  Import offer route) and the Railway worker (the Stripe activation resume).
+- **#695 deliberately NOT designed together with this**, despite the issue
+  suggesting it. Different sink, different subject, and #695 carries an open
+  architectural question (DB trigger vs per-worker guard). Owner decision.
+- **`@sentry/node` from a route-reachable `src/lib` module is fine** —
+  `@sentry/nextjs` re-exports the same module instance, so one import serves both
+  lanes. Documented at `src/lib/shared/report-caught-error.ts:9-13`; verified
+  against the ESLint boundary guard.
+
+**Two bounds, both load-bearing, both pinned:**
+
+1. The capture carries **its own** `try`/`catch`. Without it, an alert that
+   throws is the #679 connect outage re-opened one layer out.
+2. The `warn` sits **outside** that guard, so it survives Sentry being
+   unreachable. Moving it inside looks like tidying toward the named precedent
+   and would delete the last sink on exactly the transport-failure path.
+
+**Verification.** Four new titles in
+`src/lib/reviews/__tests__/import-offer-analytics.integration.test.ts`, and five
+mutations each verified to turn only its intended title red: delete the capture
+(titles 1–3), delete the inner catch (title 3), capture above the code-less
+rethrow guard (title 4), leak `properties` into `extra` (titles 1–2), warn inside
+the guard (title 3).
+
+**Staging ride.** The change only shows itself when an emission FAILS, and
+staging has migration 102 applied. Rather than drop
+`analytics_events_event_name_check` on a shared database, the same `23514` was
+induced by offering the constraint a name it rejects, inside a transaction that
+was then aborted. `offer_outcome: "created"` confirmed the emitting branch really
+ran; Sentry issue `REPWORTH-STAGING-S` landed with the routable tag and was
+resolved with a synthetic-marker comment; zero rows persisted. Evidence:
+`docs/reviews/fix-697-import-consent-analytics-sink/staging-ride.md`.
+
+**Review.** One round, spec & correctness axis: no Critical/High/Medium, two Low,
+both accepted and fixed (mutations 4 and 5 are what now pin them). One surface
+amendment (1 of the 2-item budget): `docs/launch-checklist.md`, which carried a
+**second** inventory of Sentry routing tags that would otherwise have drifted
+from the runbook.
+
+**Residual ops gap (not code).** The Sentry rule for
+`subsystem:import_consent_analytics` is not configured, so the signal is durable
+but not paged. Both routing documents carry the checklist item, and both specify
+an **event-frequency** condition rather than "a new issue is created" — the
+capture title is a constant, so every occurrence groups into one Sentry issue and
+a new-issue rule would fire exactly once, ever.
+
+### Workflow notes
+
+- The reviewer's strongest finding was not a bug but a **missing guard on a
+  locked invariant**: `toMatchObject` on the Sentry `extra` is a subset
+  assertion, so the intake's "only three fields leave the process" rule had no
+  test. The key SET, not its contents, was where the invariant lived.
+- A rejected finding worth recording: the four new titles live in a live-DB
+  suite, which no *required* CI check runs. True, pre-existing, repo-wide
+  (CLAUDE.md: "an existing-but-not-run suite is how #520 shipped"), and out of
+  scope for an observability fix — mitigated here by running the suite locally on
+  every gate pass plus the five mutations.

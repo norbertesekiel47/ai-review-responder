@@ -77,6 +77,7 @@ type OutboxStatus = 'pending' | 'dispatching' | 'dispatched' | 'completed' | 'fa
  * preflight, index build, assert) resolves to this temp copy.
  */
 async function createTempOutbox(tx: postgresType.TransactionSql): Promise<void> {
+  // live-db-ddl-ignore: pg_temp, ON COMMIT DROP — locks no shared relation
   await tx`CREATE TEMP TABLE job_outbox (LIKE public.job_outbox INCLUDING DEFAULTS) ON COMMIT DROP`;
 }
 
@@ -178,6 +179,7 @@ async function runMonthlyPreflight(tx: postgresType.TransactionSql): Promise<voi
  */
 async function buildWeeklyIndex(tx: postgresType.TransactionSql): Promise<void> {
   await tx`
+    -- live-db-ddl-ignore: builds on the pg_temp job_outbox above, not public
     CREATE UNIQUE INDEX uniq_outbox_weekly_summary_week
       ON job_outbox(aggregate_id, (payload->>'week_start_date'))
       WHERE topic = 'weekly_summary' AND status IN ('pending','dispatching','dispatched')
@@ -186,6 +188,7 @@ async function buildWeeklyIndex(tx: postgresType.TransactionSql): Promise<void> 
 
 async function buildMonthlyIndex(tx: postgresType.TransactionSql): Promise<void> {
   await tx`
+    -- live-db-ddl-ignore: builds on the pg_temp job_outbox above, not public
     CREATE UNIQUE INDEX uniq_outbox_monthly_impact_month
       ON job_outbox(aggregate_id, (payload->>'month_start_date'))
       WHERE topic = 'send_monthly_impact' AND status IN ('pending','dispatching','dispatched')
