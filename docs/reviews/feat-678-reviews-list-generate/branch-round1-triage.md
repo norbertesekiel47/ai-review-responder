@@ -67,4 +67,42 @@ do not let it close with the ticket.**
 
 ## Adversarial approach
 
-Pending — codex background task `task-mskqg6zk-w7gm8q`. Verdicts appended on return.
+Codex task `task-mskqg6zk-w7gm8q` **completed** (19:08) and wrote its report. The
+harness notification never fired, so the task briefly looked abandoned — it was
+not. Recovered by polling the job JSON directly:
+`jq -r .status ~/.claude/plugins/data/codex-openai-codex/state/feat-678-reviews-list-generate-*/jobs/task-mskqg6zk-w7gm8q.json`.
+**A missing notification is not a dead agent** — check the job file before
+re-dispatching, or a completed high-risk review gets silently thrown away.
+
+| # | Sev | Verdict | Reasoning |
+|---|---|---|---|
+| A1 | High | **DEFER → #710** | D-A's boundary objection is *correct in principle*: a route holding a 77-line domain transaction contradicts invariant #12, and the cited precedent is existing debt rather than evidence of the right seam. **This also overturns my rejection of standards T4** — I rejected that on the mechanism (`runDashboardReviewAction` locks an existing response; Generate has none), and the rejection was right about the mechanism but wrong about the conclusion. Codex proposes a module in an allowed surface taking `tx` explicitly, which sidesteps the objection entirely. Deferred, not dismissed: it is a structural refactor of gate-green code on a branch already 2.7× estimate. |
+| A2 | High | **DEFER → #710, deferral RE-OPENED** | D2's recorded blast radius (*"a wasted LLM call, not corruption"*) is **false**. Because `on_demand_generate` is structurally non-auto, the worker never reaches the content-hash re-read at `persist.ts:154` — that comparison lives only inside auto-approval evaluation. So the surviving draft can answer review text the customer has since changed. The unique indexes decide *which* draft survives, never that it is *current*. The owner deferred this on bad information; #710 says so explicitly. Note the hazard is not unique to the new door — `regenerate` is also non-auto — but #678 widens exposure. |
+| A3 | High | **DEFER → #710** | A posted response and a moderation-held replacement draft can coexist (the list query left-joins them independently, correctly, for the edit-existing-reply workflow), but `deriveRowState` returns `regenerate` before considering `draft_held`. The row then renders Regenerate → the drawer reaches the unguarded legacy draft route → held text with Resume/Discard. **Deliberately not patched**: the verdict is REJECT/REMODEL, and adding a seventh mutually exclusive state does not fix a cross-product. A naive reorder would make `held` hide a live posted reply. **Pre-existing** — the pre-#678 `Edit reply` button reached the same drawer. |
+| A4 | Med | **ACCEPT (correction recorded)** | D6's "three spellings" inventory is wrong; there are **at least eight**. Five pre-existing sites were never counted: `aggregate-service.ts:404`, `service.ts:253`, `pending-count.ts:17,45`, `agents/read.ts:325`. No code change here — the correction matters because #710's scope was sized on the bad number. |
+
+### Design decisions CONFIRMED SOUND — recorded so they are not re-litigated
+
+- **D-H (invariant #3)** — ACCEPT. The protection is the whole typed chain, not the enum alone: producers must supply a `GenerateResponseOriginLane`, the enqueue helper serialises it, unknown runtime values normalise **fail-closed to `null`**, and the only auto-candidate predicate is an exact `live_ingest_new` match plus v1 plus notification eligibility. Posting stays behind an explicit owner transition stamping `approval_method='owner'`. A second Generate-specific guard *would duplicate policy and could drift* — the ticket's prohibition is vindicated, not merely obeyed.
+- **D-F (fail-open budget peek)** — ACCEPT. Advisory presentation, not spend authority; the worker's pre-LLM Lua `INCR` is the gate. Disabling every Regenerate during a Redis outage would convert an observability failure into a customer-facing denial with no spend-safety gain.
+- **D-C (second poller)** — ACCEPT. A genuine seam: attempt-keyed vs review-keyed, location- vs account-scoped, flag-gated vs not. Adapting the old route would conflate attempt status with review workflow state.
+
+---
+
+## Round-1 outcome
+
+**16 findings accepted and fixed** in `a408eee5` (verified: 52/52 titles intact,
+`ci:tenant-scope` 412/412, lint/typecheck clean, 404 tests passing).
+
+Two fixes were **improved on during application**, both by refusing to act on a
+reviewer's say-so:
+
+- **E2** — the "dead" `isImported` branch is REACHABLE. `provenance_badge` is optional on the component's declared contract and two existing tests exercise both supposedly-dead arms. The claim held only for production rows. Deleting it would have broken working tests to satisfy a wrong finding.
+- **A2 (orphan guard)** — rather than take a tenant-scope exemption, the new query was scoped natively with `AND business_id = …` (already resolved and locked). Zero cost, no new allowlist entry, audit still 412/412. Better than the instruction given.
+
+**4 deferred to #710** (A1, A2, A3, plus the standards deferrals T7/T8/T10/Q1),
+**2 rejected on evidence** (T6 re-litigates locked D-C; T4's mechanism does not
+fit — though A1 shows its *conclusion* was right).
+
+No round 2 required: every accepted finding is fixed and re-verified, and every
+deferral is recorded in a ticket rather than in this branch.
