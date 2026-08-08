@@ -672,3 +672,97 @@ revisited it.
 lane.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D19 — `tests_to_add` had no title for the inline Generate client state machine
+
+**Trigger:** PR #712's `fallow` check went red. The run summary is three
+categories, not one — worth recording, because the first read of the failure was
+"the complexity block":
+
+```
+✗ dead code: 1 issue · complexity: 4 findings · duplication: 2 clone groups · 69 changed files
+```
+
+Duplication is warn-level and never failed the gate; `● Large functions
+(10 shown, 14 total)` is likewise reported and not enforced. The two ERRORS were
+complexity and dead code, and both land in the same place. All four complexity
+rows sit in the two files T7 added for the on-demand generation lane:
+
+```
+useInlineGenerate.ts:108    tick                 CRITICAL  15 cyc / 16 cog / 48 ln   CRAP 240.0  (0% tested)
+useInlineGenerate.ts:189    submit               HIGH                                CRAP  56.0  (0% tested)
+InlineGeneratePanel.tsx:27  InlineGeneratePanel  HIGH      124 ln                    CRAP  50.5  (20% tested)
+useInlineGenerate.ts:78     serverMessage                                            CRAP  30.0  (0% tested)
+```
+
+`0% tested` is the whole finding. `useInlineGenerate.ts` and
+`InlineGeneratePanel.tsx` shipped with no test file of their own; the 20% on the
+panel is incidental coverage from `past-reply-card-states.test.tsx` rendering the
+`Generate` button and nothing past it. The dead-code error is the same file's
+`export type InlineGenerateState` — a union with no cross-file consumer, which is
+what an unexercised module looks like from the other side.
+
+**Decision:** write the missing tests rather than acknowledge the functions in
+`.fallowrc.jsonc`. 33 new titles across two new files —
+`__tests__/useInlineGenerate.test.tsx` (24: the POST → `starting` → `generating`
+→ poll → `ready` path, the `failed` and `idle` branches, both 429 bodies, the
+poll-timeout budget, refresh-resume, unmount mid-poll, and the approve / edit /
+reset terminals) and `__tests__/InlineGeneratePanel.test.tsx` (9: every rendered
+state driven through the real hook). Additive — none of the 52 locked titles is
+touched, renamed, or relaxed. `InlineGenerateState` drops its `export` rather
+than being acknowledged: the hook carries it by inference and the panel switches
+on `state.kind` without naming it, so there is nothing to publish. Gate result
+after both: `dead code 0 · complexity 0 · duplication 2 (warn)`, exit 0.
+
+**The two surviving clone groups are left alone, deliberately.** Neither belongs
+to this failure and neither is fixable inside this feature's surface.
+`worker/jobs/publisher/failed-hook.ts:192-200` ↔
+`worker/jobs/zernio/ingest-failed-hook.ts:147-150` is pre-existing on both sides
+and was swept into changed-file scope by D1's two-line flag rename; the second
+file is out of `allowed_edit_surface`. `generate/route.ts:55-78` ↔
+`regenerate/route.ts:17-31` is the shared owner-auth + rate-limit route preamble
+— extracting it is a design call, not a gate fix. Both are warn-level and the
+gate is green with them present.
+
+**What the gap actually was.** The 52 locked titles cover the query
+(`replies-view.ts`), the four routes, the six row states and the card. Every one
+of them is a server-side or render-once assertion. The client state machine that
+sits between the `Generate` click and the posted reply had no title at all,
+because `tests_to_add` was derived from the spec's SURFACE list and a state
+machine is not a surface. D18's calibration note read the same list as
+mis-*sized*; this is the same list pointed at the wrong things.
+
+**diff-coverage and CRAP are complementary, and this feature needed both.**
+The verify gate's `diff-coverage` row PASSED, correctly. It is an aggregate:
+added instrumented lines covered over added instrumented lines, whole diff,
+against an 80% floor (`scripts/diff-coverage.ts`). #678 added 2,438 production
+lines; these two files are 403 of them. Two files at 0% cannot drag a
+2,400-line diff under 80% — the signal is real, but it is a MEAN, and a mean
+hides its own tail.
+
+CRAP is per-function and multiplies complexity by untested-ness, so a
+15-cyclomatic polling state machine at 0% scores 240 while a one-branch getter at
+0% scores 2. It cannot be averaged away by well-covered neighbours, and it ranks
+what is worth testing instead of counting what happened to get tested. The two
+gates answer different questions — "did this PR carry its weight overall?" versus
+"is any single function dangerously untested?" — and only the second one could
+have found this. Neither is redundant; the lesson is not to read a green
+diff-coverage row as evidence that the risky code is covered.
+
+**Also cleared in the same pass:** react-doctor's `effect-needs-cleanup` at
+`useInlineGenerate.ts:102`. The effect DID return a cleanup and no timer could
+survive unmount — but proving it meant tracing a `cancelled` flag across two
+awaits into an effect-local `timerId` re-assigned from inside an async closure,
+which neither the analyzer nor a reader can do at a glance. Not suppressed: the
+poll now arms exactly one `const`-bound timer per effect run and continues by
+re-issuing the `generating` state, which carries `startedAt` (the
+POLL_TIMEOUT_MS anchor, moved out of an effect-local `let`). Confirmed against
+the analyzer on a scratch reproduction before committing to it — the `useRef`
+variant of the same shape still fires; this one does not. The identical
+pre-existing finding at `edit-reply/useEditReplyDraft.ts:150` is deliberately
+untouched: CI's `scope: changed` does not see it, and rewriting a file this PR
+otherwise leaves alone would widen the diff for no gate.
+
+**Verdict:**

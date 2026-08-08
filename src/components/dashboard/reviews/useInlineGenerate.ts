@@ -44,14 +44,20 @@ import { useCallback, useEffect, useState } from 'react';
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 60_000;
 
-export type InlineGenerateState =
+// Module-private: the hook's return type carries it by inference and
+// InlineGeneratePanel switches on `state.kind` without naming the union, so
+// exporting it would publish a symbol with no consumer.
+type InlineGenerateState =
   // Nothing in flight and no draft — the `Generate` button is the only affordance.
   | { kind: 'idle' }
   // In-flight POST /generate. Distinct from 'generating' so the polling effect
   // cannot fire before the server has committed the outbox row (the
   // 'creating_draft' precedent in useEditReplyDraft).
   | { kind: 'starting' }
-  | { kind: 'generating' }
+  // `startedAt` anchors the POLL_TIMEOUT_MS budget. It lives ON the state rather
+  // than in an effect-local `let` because continuing the poll re-issues this
+  // state (see the polling effect), and the budget must span every re-issue.
+  | { kind: 'generating'; startedAt: number }
   | { kind: 'ready'; responseId: string; text: string }
   | { kind: 'editing'; responseId: string; text: string }
   | { kind: 'publishing' }
@@ -92,21 +98,27 @@ export interface UseInlineGenerateParams {
 }
 
 export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGenerateParams) {
-  const [state, setState] = useState<InlineGenerateState>(
-    resumeGenerating ? { kind: 'generating' } : { kind: 'idle' },
+  const [state, setState] = useState<InlineGenerateState>(() =>
+    resumeGenerating ? { kind: 'generating', startedAt: Date.now() } : { kind: 'idle' },
   );
 
-  // Poll while a generation is outstanding. One effect run per transition INTO
-  // 'generating'; `tick` re-arms its own timer so a steady poll does not churn
-  // the effect.
+  // Poll while a generation is outstanding.
+  //
+  // The effect arms EXACTLY ONE timer per run, `const`-bound so its `clearTimeout`
+  // is statically paired with it. Continuing the poll re-issues the `generating`
+  // state — same `startedAt`, fresh object identity — which re-runs this effect
+  // and arms the next timer. The earlier shape re-assigned an effect-local
+  // `timerId` from inside the async callback: correct, but only provably so by
+  // tracing the `cancelled` guard across two awaits, which neither a reader nor a
+  // static analyzer can do at a glance (react-doctor/effect-needs-cleanup).
   useEffect(() => {
     if (state.kind !== 'generating') return;
-    const startedAt = Date.now();
+    const { startedAt } = state;
     let cancelled = false;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
 
-    const tick = async () => {
-      if (cancelled) return;
+    const timerId = setTimeout(async () => {
+      // No `cancelled` check before the first await: the cleanup's clearTimeout
+      // below runs synchronously, so a cancelled timer never enters this body.
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
         setState({
           kind: 'error',
@@ -129,7 +141,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
           return;
         }
         if (body.status === 'generating') {
-          timerId = setTimeout(tick, POLL_INTERVAL_MS);
+          setState({ kind: 'generating', startedAt });
           return;
         }
         if (body.status === 'ready' && body.response_id) {
@@ -152,12 +164,11 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
           message: err instanceof Error ? err.message : 'Network error while checking status.',
         });
       }
-    };
+    }, POLL_INTERVAL_MS);
 
-    timerId = setTimeout(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      if (timerId !== null) clearTimeout(timerId);
+      clearTimeout(timerId);
     };
   }, [state, reviewId]);
 
@@ -178,7 +189,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
         setState({ kind: 'error', message: serverMessage(body, `Generate failed (${res.status}).`) });
         return;
       }
-      setState({ kind: 'generating' });
+      setState({ kind: 'generating', startedAt: Date.now() });
     } catch (err) {
       setState({ kind: 'error', message: err instanceof Error ? err.message : 'Generate failed.' });
     }
