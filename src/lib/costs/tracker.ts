@@ -1,5 +1,6 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { getServerConfig } from '@/lib/config/server';
+import { createWorkerLogger } from '@/lib/shared/logger';
 import { CostInfraUnavailableError } from './errors';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import {
@@ -373,4 +374,59 @@ export async function peekRegenBudget(reviewId: string): Promise<RegenBudgetStat
   const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   const limit = MAX_REGEN_PER_SUBJECT_PER_DAY;
   return { used, limit, remaining: Math.max(0, limit - used) };
+}
+
+/**
+ * Batched sibling of peekRegenBudget for the **Reviews list**, which needs a
+ * counter per ANSWERED row (a Generate is free by construction — the door only
+ * charges `version > 1` — so unanswered rows are never passed in). One MGET
+ * instead of N GETs, and read-only exactly like the single-key peek: no INCR,
+ * no eval, no LLM spend.
+ *
+ * `regenBudgetKey` embeds `todayDateStr()` (UTC), so the whole batch shares one
+ * date — consistent with the single-key peek.
+ *
+ * FAILS OPEN (D-F, #678): a Redis outage resolves to an EMPTY map rather than
+ * throwing or reporting zeros, so no counter renders and every Regenerate stays
+ * enabled. A MISSING entry means UNKNOWN, never "0 remaining" — inverting that
+ * would disable every Regenerate button during an Upstash outage. The
+ * authoritative gate remains the worker's Lua INCR (checkRegenBudget), which is
+ * itself retryable on transport failure, so over-budget work is still refused
+ * before any spend even when this advisory peek is bypassed.
+ *
+ * Deliberately swallowed HERE rather than at the caller (D10): the failure is
+ * logged on the shared `regen_budget_peek_failed` stream, so the catch is
+ * observable, not silent. Callers may keep their own catch for a synchronous
+ * getCacheRedis() throw, which never reaches this try.
+ */
+export async function peekRegenBudgetBatch(
+  reviewIds: readonly string[],
+): Promise<Map<string, RegenBudgetStatus>> {
+  const out = new Map<string, RegenBudgetStatus>();
+  if (reviewIds.length === 0) return out;
+
+  const keys = reviewIds.map(regenBudgetKey);
+  let raw: (string | null)[];
+  try {
+    raw = await getCacheRedis().mget(...keys);
+  } catch (err) {
+    createWorkerLogger('[RegenBudgetPeek]').warn({
+      event: 'regen_budget_peek_failed',
+      peek: 'batch',
+      subject_count: reviewIds.length,
+      reason: err instanceof Error ? err.message : 'unknown',
+    });
+    return out;
+  }
+
+  reviewIds.forEach((reviewId, i) => {
+    const parsed = Number.parseInt(raw[i] ?? '', 10);
+    const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    out.set(reviewId, {
+      used,
+      limit: MAX_REGEN_PER_SUBJECT_PER_DAY,
+      remaining: Math.max(0, MAX_REGEN_PER_SUBJECT_PER_DAY - used),
+    });
+  });
+  return out;
 }

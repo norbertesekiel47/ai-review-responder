@@ -8,6 +8,11 @@ import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import {
+  peekRegenBudgetBatch,
+  type RegenBudgetStatus,
+} from '@/lib/costs/tracker';
+import { createWorkerLogger } from '@/lib/shared/logger';
+import {
   PAGE_SIZE,
   groupReplies,
   type ReviewRow,
@@ -39,6 +44,20 @@ export interface PastRepliesPageView {
   answeredTotal: number;
   /** Mean star rating across every review for the location, replied or not. */
   avgStarRating: number | null;
+  /**
+   * Advisory per-review regeneration counters keyed by `review_id`, for
+   * ANSWERED rows only — a first Generate is free by construction, so an
+   * unanswered review has no counter to read.
+   *
+   * A plain RECORD, not the `Map` `peekRegenBudgetBatch` returns (D12): this
+   * view crosses the server→client boundary and a `Map` does not serialize.
+   * The conversion belongs at this seam.
+   *
+   * A MISSING key means UNKNOWN, never "0 remaining" — no counter renders and
+   * the Regenerate button stays enabled (D-F). Inverting that would disable
+   * every Regenerate during an Upstash outage.
+   */
+  regenBudgets: Record<string, RegenBudgetStatus>;
   page: number;
   totalPages: number;
 }
@@ -318,6 +337,34 @@ export async function loadPastRepliesPageView(
 
   const { unansweredRows, answeredRows } = groupReplies(rows, activatedAtIso, hasPaidTier);
 
+  // ── Advisory regen-budget counters (D-F) ──────────────────────────────────
+  //
+  // ONE batched MGET, and only over the ANSWERED rows: a first Generate on a
+  // never-replied review is free by construction (the door charges only
+  // version > 1), so an unanswered review has no counter to read.
+  //
+  // Fail-open twice over. peekRegenBudgetBatch swallows its own MGET rejection
+  // and resolves to an empty map (D10); this catch covers the case that never
+  // reaches that try — a synchronous getCacheRedis() throw before the MGET is
+  // even issued. Either path leaves the record empty, so no counter renders and
+  // every Regenerate stays enabled. The authoritative gate is unaffected: it is
+  // the worker's Lua INCR (checkRegenBudget), which still refuses over-budget
+  // work before any spend.
+  let regenBudgetMap = new Map<string, RegenBudgetStatus>();
+  try {
+    regenBudgetMap = await peekRegenBudgetBatch(
+      answeredRows.map((r: PastReplyRow) => r.review_id),
+    );
+  } catch (err) {
+    // Same event name as the route-side peek (dashboard-regen-rate-limit.ts) so
+    // both peek sites are one observable stream.
+    createWorkerLogger('[ReviewsList]').warn({
+      event: 'regen_budget_peek_failed',
+      route: 'reviews_list',
+      reason: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
   return {
     locationDisplayName,
     unansweredRows,
@@ -325,6 +372,8 @@ export async function loadPastRepliesPageView(
     unansweredTotal,
     answeredTotal,
     avgStarRating,
+    // Map → Record at the seam (D12): the client prop is a plain record.
+    regenBudgets: Object.fromEntries(regenBudgetMap),
     page,
     // A TRUE denominator over all reviews, so the tail pages of a fresh Review
     // import are reachable (#671 landmine 3).
