@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
-import { OUTBOX_COMPLETION_REASON } from './outbox-completion-reason';
+import type { OutboxCompletionReason } from './outbox-completion-reason';
 
 /** Either the standalone `sql` client or an open `sql.begin()` transaction handle. */
 type SqlExecutor = postgres.Sql | postgres.TransactionSql;
@@ -115,29 +115,37 @@ export async function markOutboxCompletedIfOwned(
 }
 
 /**
- * Marks a send_notification outbox entry completed with a distinct
- * `owner_unreachable` reason — the approval draft's owner had ZERO verified
- * channel enrollments (NotificationWorker `no_verified_enrollments` branch), so
- * nothing was dispatched. Distinct from a plain markOutboxCompleted so
- * HealthAlertPoller + NotificationFailoverPoller can observe + escalate it. Same
- * attempt-guarded CAS as markOutboxCompletedIfOwned: a stale superseded attempt
- * no-ops (0 rows logged + swallowed). Idempotent re-marking on a later retry is
- * expected; downstream reads the LATEST completed reason, not the mere presence.
+ * Marks an outbox entry completed with a DURABLE reason, so a row that finished
+ * without doing its work is distinguishable by SQL from one that did.
+ *
+ * Generalized from `markOutboxOwnerUnreachable` at #695, when Import consent
+ * refusals became the second reason. One method parameterized by the vocabulary,
+ * rather than one method per reason: the latter grows the outbox seam's interface
+ * forever while every body stays this same eleven-line CAS.
+ *
+ * Same attempt-guarded CAS as `markOutboxCompletedIfOwned` — a stale superseded
+ * attempt no-ops (0 rows, logged and swallowed) rather than stamping a reason onto
+ * a newer attempt's row. Idempotent re-marking on a later retry is expected;
+ * downstream reads the LATEST completed reason, not the mere presence of one.
+ *
+ * Returns `void` deliberately: neither caller branches on the CAS result, and
+ * `markOutboxCompletedIfOwned` already models the shape that does.
  */
-export async function markOutboxOwnerUnreachable(
+export async function markOutboxCompletedWithReason(
   exec: SqlExecutor,
   outboxId: string,
+  reason: OutboxCompletionReason,
   attempt?: number,
 ): Promise<void> {
   const res = await exec`
     UPDATE job_outbox
     SET status = 'completed',
         completed_at = NOW(),
-        completion_reason = ${OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE}
+        completion_reason = ${reason}
     WHERE ${dispatchedRow(exec, outboxId, attempt)}
   `;
   if (hasAttempt(attempt) && res.count === 0) {
-    warnOutboxNoop('markOutboxOwnerUnreachable', outboxId, attempt);
+    warnOutboxNoop(`markOutboxCompletedWithReason(${reason})`, outboxId, attempt);
   }
 }
 
