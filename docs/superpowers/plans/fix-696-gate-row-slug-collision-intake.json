@@ -40,7 +40,9 @@
     "keeps the truncated path prefix readable in the derived slug",
     "accepts a row name that is not already registered",
     "exits non-zero when a row name is already registered",
-    "routes every dynamic row name in verify-gate.sh through row_slug"
+    "accepts the first row name when no rows are registered yet",
+    "routes every dynamic row name in verify-gate.sh through row_slug",
+    "registers every launched row through assert_unique_row_name"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "65",
