@@ -17,15 +17,18 @@
 # sources THIS file and calls both functions directly.
 
 # Resolved once, at source time. An empty hash suffix would silently reinstate
-# the collision this file exists to prevent, so a missing hash tool is fatal
-# here rather than degraded at the call site.
+# the collision this file exists to prevent, so a missing hash tool is fatal —
+# but deliberately NOT via `exit` here. This file is SOURCED: exiting would take
+# the gate down before it could record a RED gate-status.json, leaving the
+# previous run's green file on disk for .claude/hooks/stop-gate.sh to read as
+# this run's result. Instead GATE_ROW_HASH_CMD stays unset and the caller aborts
+# through its own gate_abort.
 if command -v shasum >/dev/null 2>&1; then
   GATE_ROW_HASH_CMD=shasum
 elif command -v sha1sum >/dev/null 2>&1; then
   GATE_ROW_HASH_CMD=sha1sum
 else
   echo "gate-rows: neither shasum nor sha1sum on PATH — cannot derive collision-free row names" >&2
-  exit 1
 fi
 
 # row_slug <string> — a filesystem-safe row name, unique per input.

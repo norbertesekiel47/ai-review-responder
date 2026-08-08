@@ -42,11 +42,14 @@
     "exits non-zero when a row name is already registered",
     "accepts the first row name when no rows are registered yet",
     "routes every dynamic row name in verify-gate.sh through row_slug",
-    "registers every launched row through assert_unique_row_name"
+    "never exits, so its caller can always record a RED gate-status.json",
+    "launches the first row when no rows are registered yet",
+    "aborts with a RED gate-status.json when a launched row name is already taken",
+    "aborts with a RED gate-status.json when the row library fails to load"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "65",
-  "estimated_test_lines": "80",
+  "estimated_prod_lines": "150",
+  "estimated_test_lines": "200",
   "dependencies_added": [],
   "rollback_plan": "Not DB-touching. Revert the single commit; no state, no flag, no migration.",
   "observability": [

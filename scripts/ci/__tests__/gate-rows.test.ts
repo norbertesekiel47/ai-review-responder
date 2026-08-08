@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -61,6 +62,20 @@ describe('row_slug', () => {
   });
 });
 
+describe('gate-rows.sh as a sourced library', () => {
+  it('never exits, so its caller can always record a RED gate-status.json', () => {
+    // `exit` in a sourced file terminates the CALLER. The hash-tool check used
+    // to do exactly that, taking the gate down before it could overwrite the
+    // previous run's {"passed":true} — which .claude/hooks/stop-gate.sh then
+    // reads as this run's success. Text is the right medium here: the property
+    // is "this token does not appear at any depth in this file".
+    const lines = readFileSync(LIB, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'));
+    expect(lines.filter((line) => /\bexit\b/.test(line))).toEqual([]);
+  });
+});
+
 describe('assert_unique_row_name', () => {
   it('accepts a row name that is not already registered', () => {
     const result = runWithLib('assert_unique_row_name build lint typecheck test');
@@ -90,17 +105,79 @@ describe('verify-gate.sh row wiring', () => {
     for (const assignment of assignments) {
       expect(assignment).toContain('row_slug');
     }
-    // The truncation itself now lives only in gate-rows.sh, where the hash
-    // suffix is applied in the same expression.
-    expect(source).not.toContain('cut -c1-40');
+    // Any truncation at all now lives only in gate-rows.sh, where the hash
+    // suffix is applied in the same expression. Matched as a pattern, not the
+    // literal `cut -c1-40`: `cut -c1-41` or `head -c 40` is the same bug.
+    expect(source).not.toMatch(/\b(cut\s+-c\s*1-\d+|head\s+-c\s*\d+)/);
   });
 
-  it('registers every launched row through assert_unique_row_name', () => {
-    const launchBody = source.slice(
-      source.indexOf('launch() {'),
-      source.indexOf('launch lint'),
+  // The two tests below run the REAL `launch` and `gate_abort` bodies rather
+  // than asserting that verify-gate.sh mentions them. A source-text assertion
+  // passed against a mutant whose launch() asserted uniqueness over ${PIDS[@]}
+  // instead of ${NAMES[@]} — correct-looking, completely disarmed.
+  function runLaunchHarness(snippet: string) {
+    const extract = (fn: string) =>
+      `eval "$(sed -n '/^${fn}() {/,/^}/p' ${shellQuote(GATE)})"`;
+    return spawnSync(
+      'bash',
+      [
+        '-uo',
+        'pipefail',
+        '-c',
+        [
+          'cd "$(mktemp -d)" || exit 9',
+          'mkdir -p .feature/logs',
+          `. ${shellQuote(LIB)}`,
+          extract('gate_abort'),
+          extract('launch'),
+          'MAX_PARALLEL=4',
+          snippet,
+        ].join('\n'),
+      ],
+      { encoding: 'utf8' },
     );
-    expect(launchBody).toContain('assert_unique_row_name');
-    expect(launchBody).toContain('gate_abort');
+  }
+
+  it('launches the first row when no rows are registered yet', () => {
+    // `set -u` + bash 3.2 (what /usr/bin/env bash is on macOS): expanding an
+    // EMPTY array as "${NAMES[@]}" is an unbound-variable error, so the very
+    // first `launch lint` would kill the gate before it wrote any status.
+    const result = runLaunchHarness('NAMES=(); PIDS=(); launch alpha true; echo "rc=$?"');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('rc=0');
+  });
+
+  it('aborts with a RED gate-status.json when a launched row name is already taken', () => {
+    const result = runLaunchHarness(
+      'NAMES=(); PIDS=(); launch alpha true; launch alpha true; echo "NO ABORT"; ' +
+        'cat .feature/gate-status.json',
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain('NO ABORT');
+    expect(result.stdout).toContain('GATE: RED');
+    expect(result.stderr).toContain("duplicate row name 'alpha'");
+  });
+
+  it('aborts with a RED gate-status.json when the row library fails to load', () => {
+    // A missing/unloadable gate-rows.sh used to surface as a bogus duplicate:
+    // `launch` read the exit 127 from an undefined assert_unique_row_name as a
+    // collision. Copy the gate WITHOUT its library to reproduce; the guard
+    // fires before any expensive row starts, so this stays a fast test.
+    const dir = mkdtempSync(join(tmpdir(), 'gate-rows-'));
+    try {
+      copyFileSync(GATE, join(dir, 'verify-gate.sh'));
+      const result = spawnSync('bash', [join(dir, 'verify-gate.sh')], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('GATE: RED');
+      expect(result.stdout).toContain('gate-rows.sh did not load');
+      const status = JSON.parse(readFileSync(join(dir, '.feature/gate-status.json'), 'utf8'));
+      expect(status.passed).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

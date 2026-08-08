@@ -51,21 +51,20 @@ REVIEW_MODE=false
 INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
 
-# Row identity. A row's name is also its log file and its coverage directory,
-# so name uniqueness is a correctness property rather than cosmetics (#696).
-# Sourced rather than inlined: sourcing THIS script would run the gate, which
-# left the derivation with no unit-test seam.
-GATE_SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=scripts/gate-rows.sh
-. "$GATE_SCRIPT_DIR/gate-rows.sh"
-
 # Fatal abort taken before the results table exists. Records a RED
 # gate-status.json on the way out: leaving the previous run's green file on
 # disk would let the Stop hook read a stale success as this run's result.
+#
+# Defined BEFORE anything that can fail, including the sourced row library, so
+# every later failure exits THROUGH here rather than around it.
 gate_abort() {
   local row="$1" message="$2"
-  # Rows already launched are detached children; without this they outlive the
-  # abort and keep burning CPU (`pnpm build`, the full vitest suite).
+  # Best effort: TERM the launched subshells so an abort does not leave a pile
+  # of visibly running rows. Their own children (pnpm → node) share this
+  # shell's process group and are NOT reaped — building per-row process groups
+  # would mean enabling job control, which changes the `jobs -rp` throttle the
+  # fan-out depends on. A duplicate row name is a gate bug that should never
+  # reach a user; this is tidiness, not a guarantee.
   kill $(jobs -p) 2>/dev/null || true
   printf '{"passed":false,"mode":"full","timestamp":%s,"checks":[{"name":"%s","result":"FAIL"}]}\n' \
     "$(date +%s)" "$row" > .feature/gate-status.json
@@ -74,6 +73,22 @@ gate_abort() {
   echo "GATE: RED — $message"
   exit 1
 }
+
+# Row identity. A row's name is also its log file and its coverage directory,
+# so name uniqueness is a correctness property rather than cosmetics (#696).
+# Sourced rather than inlined: sourcing THIS script would run the gate, which
+# left the derivation with no unit-test seam.
+# `CDPATH=` because an exported CDPATH makes `cd` resolve somewhere else and
+# print the directory it chose, silently pointing this at the wrong tree.
+GATE_SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/gate-rows.sh
+. "$GATE_SCRIPT_DIR/gate-rows.sh"
+# A library that did not load must not surface as a bogus collision: with
+# assert_unique_row_name undefined, `launch` reads the resulting exit 127 as a
+# duplicate and aborts naming a row that is perfectly fine.
+command -v row_slug >/dev/null 2>&1 && [ -n "${GATE_ROW_HASH_CMD:-}" ] \
+  || gate_abort "row-identity" \
+       "scripts/gate-rows.sh did not load (see above) — row names cannot be made collision-free."
 
 SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
 DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
@@ -187,15 +202,21 @@ fi
 # Destructive DB commands are REJECTED, not run: the gate owns provisioning
 # (serial, above) — a schema-dropping command can never be a safe parallel
 # peer of the suites reading that schema (#643 step-5 gate incident).
-REJECTED_EXTRAS=""
+#
+# A rejected extra never reaches `launch`, so it asserts its own name: row_slug
+# separates two DIFFERENT commands, but two IDENTICAL intake entries derive the
+# same slug and would share one row and one log (#696).
+REJECTED_EXTRAS=()
 while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
   SAFE=$(row_slug "$CMD")
   if echo "$CMD" | grep -qiE 'test:db:setup|db:setup|drop schema'; then
+    assert_unique_row_name "extra-${SAFE}" \
+      ${NAMES[@]+"${NAMES[@]}"} ${REJECTED_EXTRAS[@]+"${REJECTED_EXTRAS[@]}"} \
+      || gate_abort "row-name-collision" "duplicate gate row name 'extra-${SAFE}' (see above)."
     echo "rejected destructive verification_command: $CMD" > ".feature/logs/extra-${SAFE}.log"
     echo "The gate provisions the test DB serially when db_touching — remove this from the intake." >> ".feature/logs/extra-${SAFE}.log"
-    REJECTED_EXTRAS="${REJECTED_EXTRAS}extra-${SAFE}
-"
+    REJECTED_EXTRAS+=("extra-${SAFE}")
     continue
   fi
   launch "extra-${SAFE}" bash -c "$CMD"
@@ -247,10 +268,9 @@ done
 if [ -n "$DB_PROVISION_RESULT" ]; then
   NAMES+=("db-provision"); RESULTS+=("$DB_PROVISION_RESULT")
 fi
-while IFS= read -r REJECTED; do
-  [ -n "$REJECTED" ] || continue
+for REJECTED in ${REJECTED_EXTRAS[@]+"${REJECTED_EXTRAS[@]}"}; do
   NAMES+=("$REJECTED"); RESULTS+=("FAIL")
-done <<< "$REJECTED_EXTRAS"
+done
 
 # Synchronous post-check, appended after the parallel rows.
 run_sync() {
