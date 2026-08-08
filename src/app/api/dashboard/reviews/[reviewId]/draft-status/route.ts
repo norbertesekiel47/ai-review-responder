@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, sqlRead } from '@/lib/db/server';
 import { requireDashboardReviewOwner } from '@/lib/approval/http-routes';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -34,8 +35,11 @@ export async function GET(
   const { reviewId } = await params;
 
   // Tenant proof FIRST — identical shape to the generate door, so a caller can
-  // never observe another account's generation status or draft text.
-  const ownedRows = await sql<{ business_id: string }[]>`
+  // never observe another account's generation status or draft text. On the
+  // READ pool like every other query in this handler: the route is polled every
+  // ~1.5s per expanded row and writes nothing, so there is no read-your-write
+  // to preserve and no reason to spend a write-pool connection on it.
+  const ownedRows = await sqlRead<{ business_id: string }[]>`
     SELECT rv.business_id
     FROM reviews rv
     JOIN businesses b ON b.id = rv.business_id
@@ -101,7 +105,12 @@ export async function GET(
     if (!outbox) {
       return NextResponse.json({ status: 'idle' }, { status: 200, headers: NO_STORE_HEADERS });
     }
-    if (outbox.status === 'pending' || outbox.status === 'dispatching' || outbox.status === 'dispatched') {
+    // The in-flight set is IMPORTED, never re-spelled. Invariant #2's
+    // byte-for-byte hand-spelling requirement covers SQL literals only — it
+    // exists because a bind parameter inside an `ON CONFLICT … WHERE` predicate
+    // defeats partial-index inference. This is a JS comparison, so the exported
+    // constant is the right tool (import-offer-view.ts is the same call).
+    if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(outbox.status)) {
       return NextResponse.json({ status: 'generating' }, { status: 200, headers: NO_STORE_HEADERS });
     }
     if (outbox.status === 'completed') {

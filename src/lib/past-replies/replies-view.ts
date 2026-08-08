@@ -97,7 +97,6 @@ export type ReviewRowState =
  */
 export function deriveRowState(r: {
   response_id: string | null;
-  failed_response_id: string | null;
   draft_response_id: string | null;
   draft_held: boolean;
   generation_in_flight: boolean;
@@ -162,11 +161,12 @@ const toIso = (d: Date | null): string | null =>
  *
  * **Orphan rows are mapped from the `orphan_*` LATERALs, not from `resp.*`.**
  * This carries the deleted `toOrphanCardRow`'s field mapping (round-2 Defect A):
- * `PastReplyCard` decides a row is recoverable via
- * `!!row.failed_response_id && row.posted_at === null` (PastReplyCard.tsx:157)
- * and gates the recovery actions on `row.failed_response_id` (:201), so dropping
- * either makes recovery silently unreachable. `response_id` carries the failed
- * id too — `/retry` and `/restore-original` address the failed response by id.
+ * `PastReplyCard` renders the recovery badge from the server-derived `recover`
+ * state (`PastReplyCard.tsx:314`) but still gates the recovery ACTIONS on
+ * `row.failed_response_id` — `:388` in `AnsweredControls`, `:442` in
+ * `RecoveryControl` — so dropping it makes recovery silently unreachable.
+ * `response_id` carries the failed id too — `/retry` and `/restore-original`
+ * address the failed response by id.
  * The three response-level fields (`posted_at`, `approval_method`, `version`)
  * are null because an orphan has no live posted reply.
  */

@@ -14,9 +14,14 @@
 // past-replies/publish.
 //
 // Invariant #3: the enqueue pins originLane = ON_DEMAND_GENERATE and
-// suppressNotification = true. A Generate draft is version 1, so the lane is
-// the ONLY thing excluding it from isAutoApprovalCandidate. Do not add a
-// second guard here (ticket #678).
+// suppressNotification = true. The Origin lane is the PRIMARY STRUCTURAL
+// exclusion from isAutoApprovalCandidate — `live_ingest_new` is the only
+// candidate lane, so an On-demand generation draft can never auto-post at any
+// version. `suppressNotification: true` is belt-and-braces on top of it: the
+// #669 audit records that worker/jobs/response-generation/persist.ts ALSO
+// requires `!suppressNotification`, so this draft is excluded twice over.
+// Neither is redundant — do not delete one on the theory that the other
+// covers it (ticket #678).
 //
 // Invariant #2: the outbox row is written inside the same tx that takes the
 // review lock, via enqueueGenerateResponse.
@@ -26,7 +31,11 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { requireDashboardReviewOwner } from '@/lib/approval/http-routes';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import {
+  assertWritableSubscriptionForAccount,
+  assertWritableSubscriptionForBusiness,
+} from '@/lib/shared/writable-subscription';
+import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
@@ -109,6 +118,21 @@ async function generateFirstDraft(
         return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
       }
 
+      // Re-assert the writable/offboarding gate INSIDE the locked tx (TOCTOU):
+      // the pre-tx check above can go stale if an offboarding is confirmed
+      // between it and this commit, and what commits here is a CHARGEABLE LLM
+      // enqueue. Same shape and same reasoning as the approve/edit actions
+      // (src/lib/approval/http-routes.ts) — they re-check after their locks for
+      // exactly this window. Business-scoped, not account-scoped, because the
+      // locked review already resolved its location.
+      const writableInTx = await assertWritableSubscriptionForBusiness(businessId, tx);
+      if (!writableInTx.ok) {
+        return NextResponse.json(
+          { error: writableInTx.error },
+          { status: writableInTx.status, headers: NO_STORE_HEADERS },
+        );
+      }
+
       // Generate is for NEVER-REPLIED reviews only. A posted sibling means the
       // owner wants Regenerate (which replaces a live Google reply, §6.4).
       const posted = await tx<{ id: string }[]>`
@@ -132,6 +156,31 @@ async function generateFirstDraft(
           { error: 'draft_already_exists', existing: { response_id: existing[0].id, status: existing[0].status } },
           { status: 409 },
         );
+      }
+
+      // An ORPHAN review — a `status='failed'` sibling whose posting_error
+      // carries the post_after_delete_failed_ prefix, with no `posted` sibling
+      // (already proven by the guard above) — is the Reviews list `recover` row
+      // state, not a Generate candidate. The list never offers Generate on it,
+      // but a hand-crafted same-origin POST reaches here, and the draft it
+      // creates would then make past-replies/[responseId]/retry 409
+      // `newer_draft_exists` — silently blocking the owner's /retry and
+      // /restore-original recovery path. Offering Generate would race that path,
+      // so refuse it here rather than let recovery lose the race.
+      // Carries its own business_id scope (invariant #8) rather than an
+      // allowlist entry: the three sibling reads key on review_id alone and are
+      // allowlisted as tenant-root lookups, but this one can be scoped natively
+      // at zero cost — businessId is already resolved and locked.
+      const orphan = await tx<{ id: string }[]>`
+        SELECT id FROM responses
+        WHERE review_id = ${reviewId}::uuid
+          AND business_id = ${businessId}::uuid
+          AND status = 'failed'
+          AND posting_error LIKE ${`${POST_AFTER_DELETE_FAILED_PREFIX}%`}
+        LIMIT 1
+      `;
+      if (orphan.length > 0) {
+        return NextResponse.json({ error: 'orphan_recovery_pending' }, { status: 409 });
       }
 
       const pendingGen = await tx<{ exists: number }[]>`
@@ -176,7 +225,10 @@ async function generateFirstDraft(
     });
   } catch (err) {
     reportCaughtError('reviews/generate', err, { accountId: owner.accountId, businessId, reviewId });
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'internal_error' },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
   }
 }
 

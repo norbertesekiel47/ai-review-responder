@@ -35,7 +35,9 @@ const {
   const readQueue: unknown[][] = [];
   const readCalls: { text: string; values: unknown[] }[] = [];
 
-  // sql (write pool): the tenant-ownership proof only.
+  // sql (write pool): only the `statusArraySql` fragment binding survives here.
+  // This handler writes nothing and is polled every ~1.5s, so every QUERY —
+  // including the tenant-ownership proof — runs on the read bulkhead below.
   const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     ownerCalls.push({ text: strings.join('?'), values });
     return Promise.resolve(ownerQueue.shift() ?? []);
@@ -44,7 +46,7 @@ const {
     apply: (target, thisArg, args) => Reflect.apply(target as never, thisArg, args),
   });
 
-  // sqlRead (read bulkhead): the draft lookup, then the outbox lookup.
+  // sqlRead (read bulkhead): the tenant proof, the draft lookup, the outbox lookup.
   const sqlReadMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     readCalls.push({ text: strings.join('?'), values });
     return Promise.resolve(readQueue.shift() ?? []);
@@ -116,8 +118,9 @@ async function importGET(): Promise<RouteHandler> {
   return mod.GET as unknown as RouteHandler;
 }
 
+/** The tenant-ownership proof is the FIRST read-bulkhead query of the handler. */
 function seedOwned(rows: unknown[] = [{ business_id: LOCATION_ID }]): void {
-  ownerQueue.push(rows);
+  readQueue.push(rows);
 }
 
 function seedRead(...rowsets: unknown[][]): void {
@@ -157,10 +160,13 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe('review_not_found');
     // Tenant proof runs FIRST: a caller can never observe another account's
-    // generation status or draft text, not even as a timing difference.
-    expect(readCalls).toHaveLength(0);
-    expect(ownerCalls[0]!.text).toMatch(/b\.account_id\s*=/i);
-    expect(ownerCalls[0]!.text).toMatch(/archived_at\s+IS\s+NULL/i);
+    // generation status or draft text, not even as a timing difference. It is
+    // the ONLY query issued — nothing reached `responses` or `job_outbox`.
+    expect(readCalls).toHaveLength(1);
+    expect(readCalls[0]!.text).toMatch(/b\.account_id\s*=/i);
+    expect(readCalls[0]!.text).toMatch(/archived_at\s+IS\s+NULL/i);
+    expect(readCalls.some((call) => /FROM\s+responses/i.test(call.text))).toBe(false);
+    expect(readCalls.some((call) => /job_outbox/i.test(call.text))).toBe(false);
   });
 
   it('GET draft-status returns generating, ready, failed, and idle from the authoritative review state', async () => {
@@ -236,7 +242,8 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     expect(body.status).not.toBe('ready');
     expect(body).not.toHaveProperty('response_text');
     expect(JSON.stringify(body)).not.toContain('Held text');
-    // The hold must be read from flagged_responses, not inferred.
-    expect(readCalls[0]!.text).toContain('flagged_responses');
+    // The hold must be read from flagged_responses, not inferred. Read call 0
+    // is the tenant proof; call 1 is the draft lookup that carries the predicate.
+    expect(readCalls[1]!.text).toContain('flagged_responses');
   });
 });

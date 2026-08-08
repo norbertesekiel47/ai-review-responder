@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
 
 // ── Hoisted shared state ─────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ const {
   mockEnforceRegenLimit,
   mockEnforceRegenBudget,
   mockAssertWritable,
+  mockAssertWritableTx,
   topQueue,
   topCalls,
   txQueue,
@@ -40,6 +42,7 @@ const {
   const mockEnforceRegenLimit = vi.fn();
   const mockEnforceRegenBudget = vi.fn();
   const mockAssertWritable = vi.fn();
+  const mockAssertWritableTx = vi.fn();
 
   const topQueue: unknown[][] = [];
   const topCalls: { text: string; values: unknown[] }[] = [];
@@ -68,6 +71,7 @@ const {
     mockEnforceRegenLimit,
     mockEnforceRegenBudget,
     mockAssertWritable,
+    mockAssertWritableTx,
     topQueue,
     topCalls,
     txQueue,
@@ -101,6 +105,9 @@ vi.mock('@/lib/shared/writable-subscription', async () => {
   return {
     ...actual,
     assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritable(...args),
+    // The in-tx TOCTOU re-assert. Mocked so it issues no query of its own and
+    // the txQueue seeding below stays a straight list of the route's guards.
+    assertWritableSubscriptionForBusiness: (...args: unknown[]) => mockAssertWritableTx(...args),
   };
 });
 
@@ -151,9 +158,13 @@ function seedTxRows(...rowsets: unknown[][]): void {
   txQueue.push(...rowsets);
 }
 
-/** lock → posted → existing draft → in-flight outbox → MAX(version) → enqueue. */
+/**
+ * lock → posted → existing draft → orphan → in-flight outbox → MAX(version) →
+ * enqueue. The in-tx writable/offboarding re-assert sits between the lock and
+ * the posted check but is mocked, so it consumes no rowset.
+ */
 function seedHappyPath(nextVersion = 1): void {
-  seedTxRows([{ id: REVIEW_ID }], [], [], [], [{ next_version: nextVersion }], []);
+  seedTxRows([{ id: REVIEW_ID }], [], [], [], [], [{ next_version: nextVersion }], []);
 }
 
 function txCallTexts(): string[] {
@@ -193,6 +204,7 @@ beforeEach(() => {
   mockEnforceRegenLimit.mockResolvedValue(null);
   mockEnforceRegenBudget.mockResolvedValue(null);
   mockAssertWritable.mockResolvedValue({ ok: true });
+  mockAssertWritableTx.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -312,7 +324,8 @@ describe('POST /api/dashboard/reviews/[reviewId]/generate', () => {
 
   it('POST generate returns 409 regenerate_in_progress when an in-flight outbox row exists', async () => {
     seedOwned();
-    seedTxRows([{ id: REVIEW_ID }], [], [], [{ exists: 1 }]);
+    // lock → posted → existing draft → orphan → in-flight outbox found
+    seedTxRows([{ id: REVIEW_ID }], [], [], [], [{ exists: 1 }]);
 
     const POST = await importPOST();
     const res = await POST(makeRequest(), routeParams);
@@ -408,6 +421,56 @@ describe('POST /api/dashboard/reviews/[reviewId]/generate', () => {
     expect(beginMock).not.toHaveBeenCalled();
   });
 
+  it('POST generate re-asserts the writable-subscription gate inside the locked transaction', async () => {
+    // TOCTOU: the pre-tx check can go stale if an offboarding is confirmed
+    // between it and the commit, and what commits is a CHARGEABLE LLM enqueue.
+    // Same shape as the approve/edit actions in approval/http-routes.ts.
+    seedOwned();
+    seedHappyPath(1);
+    mockAssertWritableTx.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      error: 'account_offboarding_blocked',
+    });
+
+    const POST = await importPOST();
+    const res = await POST(makeRequest(), routeParams);
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('account_offboarding_blocked');
+    // The pre-tx gate said OK, so only the in-tx re-assert can have refused it.
+    expect(mockAssertWritable).toHaveReturned();
+    expect(mockAssertWritableTx).toHaveBeenCalledWith(LOCATION_ID, expect.anything());
+    expect(beginMock).toHaveBeenCalledTimes(1);
+    expect(outboxInsertCalls()).toHaveLength(0);
+  });
+
+  it('POST generate returns 409 orphan_recovery_pending for an orphan review', async () => {
+    // An orphan (post_after_delete_failed_* sibling, no posted sibling) is the
+    // Reviews list `recover` row state. The list never offers Generate on it,
+    // but a hand-crafted same-origin POST reaches here — and the draft it would
+    // create makes past-replies/[responseId]/retry 409 `newer_draft_exists`,
+    // blocking the owner's /retry + /restore-original recovery path.
+    seedOwned();
+    // lock → posted → existing draft → orphan sibling found
+    seedTxRows([{ id: REVIEW_ID }], [], [], [{ id: 'fail-orphan' }]);
+
+    const POST = await importPOST();
+    const res = await POST(makeRequest(), routeParams);
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('orphan_recovery_pending');
+    expect(outboxInsertCalls()).toHaveLength(0);
+    // The marker prefix comes from orphan-markers.ts, never a re-typed literal.
+    expect(
+      txCallTexts().some((text) => text.includes('posting_error LIKE')),
+    ).toBe(true);
+    const orphanCall = txMock.mock.calls.find((call) =>
+      call[0].join('?').includes('posting_error LIKE'),
+    );
+    expect(orphanCall!.slice(1)).toContain(`${POST_AFTER_DELETE_FAILED_PREFIX}%`);
+  });
+
   it('POST generate serializes two simultaneous clicks for one review and commits exactly one generate_response job', async () => {
     // The reviews-row FOR UPDATE is what serializes them: the second click
     // blocks until the first commits, then sees its in-flight outbox row.
@@ -425,7 +488,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/generate', () => {
 
     // Second click, post-commit: the in-flight guard refuses it.
     seedOwned();
-    seedTxRows([{ id: REVIEW_ID }], [], [], [{ exists: 1 }]);
+    seedTxRows([{ id: REVIEW_ID }], [], [], [], [{ exists: 1 }]);
     const second = await POST(makeRequest(), routeParams);
 
     expect(second.status).toBe(409);
@@ -440,7 +503,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/generate', () => {
     // door owns is closed: a Generate arriving while a live-ingest
     // generate_response row is in flight adds no second version.
     seedOwned();
-    seedTxRows([{ id: REVIEW_ID }], [], [], [{ exists: 1 }]);
+    seedTxRows([{ id: REVIEW_ID }], [], [], [], [{ exists: 1 }]);
 
     const POST = await importPOST();
     const res = await POST(makeRequest(), routeParams);

@@ -10,7 +10,6 @@ import {
   peekRegenBudgetBatch,
   type RegenBudgetStatus,
 } from '@/lib/costs/tracker';
-import { createWorkerLogger } from '@/lib/shared/logger';
 import {
   PAGE_SIZE,
   groupReplies,
@@ -349,27 +348,16 @@ export async function loadPastRepliesPageView(
   // never-replied review is free by construction (the door charges only
   // version > 1), so an unanswered review has no counter to read.
   //
-  // Fail-open twice over. peekRegenBudgetBatch swallows its own MGET rejection
-  // and resolves to an empty map (D10); this catch covers the case that never
-  // reaches that try — a synchronous getCacheRedis() throw before the MGET is
-  // even issued. Either path leaves the record empty, so no counter renders and
-  // every Regenerate stays enabled. The authoritative gate is unaffected: it is
-  // the worker's Lua INCR (checkRegenBudget), which still refuses over-budget
-  // work before any spend.
-  let regenBudgetMap = new Map<string, RegenBudgetStatus>();
-  try {
-    regenBudgetMap = await peekRegenBudgetBatch(
-      answeredRows.map((r: ReviewsListRow) => r.review_id),
-    );
-  } catch (err) {
-    // Same event name as the route-side peek (dashboard-regen-rate-limit.ts) so
-    // both peek sites are one observable stream.
-    createWorkerLogger('[ReviewsList]').warn({
-      event: 'regen_budget_peek_failed',
-      route: 'reviews_list',
-      reason: err instanceof Error ? err.message : 'unknown',
-    });
-  }
+  // NO catch here, deliberately. peekRegenBudgetBatch has no rejection path: it
+  // calls getCacheRedis() inside its own try, so a transport failure AND a
+  // synchronous client-construction throw both resolve to an EMPTY map and are
+  // logged there on the shared `regen_budget_peek_failed` stream. An empty map
+  // means no counter renders and every Regenerate stays enabled. The
+  // authoritative gate is unaffected: it is the worker's Lua INCR
+  // (checkRegenBudget), which still refuses over-budget work before any spend.
+  const regenBudgetMap: Map<string, RegenBudgetStatus> = await peekRegenBudgetBatch(
+    answeredRows.map((r: ReviewsListRow) => r.review_id),
+  );
 
   return {
     locationDisplayName,

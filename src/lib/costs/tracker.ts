@@ -394,10 +394,11 @@ export async function peekRegenBudget(reviewId: string): Promise<RegenBudgetStat
  * itself retryable on transport failure, so over-budget work is still refused
  * before any spend even when this advisory peek is bypassed.
  *
- * Deliberately swallowed HERE rather than at the caller (D10): the failure is
- * logged on the shared `regen_budget_peek_failed` stream, so the catch is
- * observable, not silent. Callers may keep their own catch for a synchronous
- * getCacheRedis() throw, which never reaches this try.
+ * Swallowed HERE rather than at the caller (D10): the failure is logged on the
+ * shared `regen_budget_peek_failed` stream, so the catch is observable, not
+ * silent. `getCacheRedis()` is called INSIDE the try, so a synchronous throw
+ * from it is caught here too — this function has NO rejection path, and callers
+ * need no catch of their own.
  */
 export async function peekRegenBudgetBatch(
   reviewIds: readonly string[],
@@ -405,9 +406,11 @@ export async function peekRegenBudgetBatch(
   const out = new Map<string, RegenBudgetStatus>();
   if (reviewIds.length === 0) return out;
 
-  const keys = reviewIds.map(regenBudgetKey);
   let raw: (string | null)[];
   try {
+    // Key building is inside the try as well, so "never rejects" holds for the
+    // whole body rather than only for the MGET.
+    const keys = reviewIds.map(regenBudgetKey);
     raw = await getCacheRedis().mget(...keys);
   } catch (err) {
     createWorkerLogger('[RegenBudgetPeek]').warn({

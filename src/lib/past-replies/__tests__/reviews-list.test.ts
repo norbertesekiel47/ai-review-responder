@@ -171,6 +171,29 @@ function mainQuery(calls: SqlCall[]): SqlCall {
   return found[0]!;
 }
 
+/**
+ * The four shapes `fakeSql` actually resolves rows for, i.e. the discrimination
+ * `mainQuery` does, widened to its three siblings.
+ *
+ * Query-count assertions must run through this rather than counting raw tagged
+ * template calls (Q3). A tagged call can also be a FRAGMENT — a bound
+ * `text[]` status array, for instance — which produces no rows; counting those
+ * makes the assertion measure helper calls instead of queries, and that is what
+ * dictates the production SQL's shape rather than its behaviour.
+ */
+const ROW_PRODUCING_QUERY_SHAPES = [
+  /AS\s+review_id/i,
+  /AVG\(/i,
+  /COUNT\(\*\)/i,
+  /FROM\s+businesses\s+b/i,
+] as const;
+
+function rowProducingQueries(calls: SqlCall[]): SqlCall[] {
+  return calls.filter((call) =>
+    ROW_PRODUCING_QUERY_SHAPES.some((shape) => shape.test(call.text)),
+  );
+}
+
 function allRows(view: ReviewsListView): ListCardRow[] {
   return [...view.unansweredRows, ...view.answeredRows];
 }
@@ -235,13 +258,17 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
       main: [listRow()],
       unansweredTotal: 120,
       answeredTotal: 30,
-    }, 2);
+    }, 3);
 
     expect(view!.totalPages).toBe(Math.ceil(150 / PAGE_SIZE));
     expect(view!.unansweredTotal).toBe(120);
     expect(view!.answeredTotal).toBe(30);
-    // Page 2 must be offset by exactly one page.
-    expect(mainQuery(calls).values).toContain(PAGE_SIZE);
+    // Page 3 → OFFSET 2 * PAGE_SIZE. Asserted on page THREE, not page two: the
+    // `LIMIT ${PAGE_SIZE}` bind alone satisfies `toContain(PAGE_SIZE)`, so the
+    // page-2 form passed even with the OFFSET dropped entirely. 2 * PAGE_SIZE
+    // is a value the LIMIT cannot supply, so this pins the OFFSET distinctly.
+    expect(mainQuery(calls).values).toContain(2 * PAGE_SIZE);
+    expect(view!.page).toBe(3);
   });
 
   it('loadPastRepliesPageView marks a review with a non-terminal response as draft-ready and never generatable', async () => {
@@ -302,11 +329,15 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 
     // Invariant #8: every query in the page load is tenant-scoped. The biz
     // lookup additionally asserts account ownership.
-    const dataQueries = calls.filter((call) => !/FROM\s+businesses\s+b/i.test(call.text));
-    // Exactly FOUR: the single row source, the two group COUNTs, and the
-    // average. Pre-#678 there were five (the separate orphan query, deleted by
-    // F3) and the counts were the activation-split gap/historical pair, which
-    // S3 replaces with per-row provenance badges.
+    const dataQueries = rowProducingQueries(calls).filter(
+      (call) => !/FROM\s+businesses\s+b/i.test(call.text),
+    );
+    // Exactly FOUR ROW-PRODUCING queries: the single row source, the two group
+    // COUNTs, and the average. Pre-#678 there were five (the separate orphan
+    // query, deleted by F3) and the counts were the activation-split
+    // gap/historical pair, which S3 replaces with per-row provenance badges.
+    // Counted through rowProducingQueries so a bound fragment (e.g. a status
+    // `text[]`) never inflates the number and dictates the production SQL (Q3).
     expect(dataQueries).toHaveLength(4);
     for (const call of dataQueries) {
       expect(call.text).toMatch(/business_id\s*=/i);
@@ -387,9 +418,17 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     expect(firstIds.filter((id) => secondIds.includes(id))).toEqual([]);
 
     // Orphans are now INSIDE the LIMIT/OFFSET window rather than merged
-    // un-offset into every page (F3 / Task 4 Step 2a).
-    expect(mainQuery(first.calls).values).toContain(0);
-    expect(mainQuery(second.calls).values).toContain(PAGE_SIZE);
+    // un-offset into every page (F3 / Task 4 Step 2a). The OFFSET is pinned
+    // POSITIONALLY — it is the last of the trailing `LIMIT ${PAGE_SIZE} OFFSET
+    // ${offset}` binds — rather than by membership: on page 2 the OFFSET equals
+    // PAGE_SIZE, so `toContain(PAGE_SIZE)` is satisfied by the LIMIT bind alone
+    // and passes even with the OFFSET dropped entirely.
+    const firstBinds = mainQuery(first.calls).values;
+    const secondBinds = mainQuery(second.calls).values;
+    expect(firstBinds.at(-2)).toBe(PAGE_SIZE);
+    expect(firstBinds.at(-1)).toBe(0);
+    expect(secondBinds.at(-2)).toBe(PAGE_SIZE);
+    expect(secondBinds.at(-1)).toBe(PAGE_SIZE);
   });
 
   it('Reviews-list pagination uses review_id as a deterministic tie-breaker when review dates are equal', async () => {
@@ -410,10 +449,10 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
   });
 
   it('an orphan row keeps its failed_response_id and superseded text after the single-query merge', async () => {
-    // Round-2 Defect A. `PastReplyCard` decides a row is recoverable via
-    // `!!row.failed_response_id && row.posted_at === null` (PastReplyCard.tsx:157)
-    // and gates the recovery actions on `row.failed_response_id` (:201). The
-    // deleted `toOrphanCardRow` fed both from the orphan query's columns; post-F3
+    // Round-2 Defect A. `PastReplyCard` renders the recovery badge from the
+    // server-derived `recover` state (PastReplyCard.tsx:314) and gates the
+    // recovery ACTIONS on `row.failed_response_id` (:388, :442). The deleted
+    // `toOrphanCardRow` fed both from the orphan query's columns; post-F3
     // they must come from the orphan_sidecar / orphan_superseded LATERALs.
     const { view } = await loadView({
       main: [listRow({
@@ -434,7 +473,7 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     expect(row.response_id).toBe('fail-42');
     expect(row.failed_posting_error).toBe('post_after_delete_failed_retry_exhausted');
     expect(row.approved_text).toBe('The reply the owner approved before the failed edit');
-    // posted_at === null is half of the card's own orphan predicate.
+    // An orphan has no live posted reply, so posted_at must be null on the wire.
     expect(row.posted_at).toBeNull();
     expect(row.version).toBeNull();
   });
@@ -445,7 +484,6 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 describe('deriveRowState precedence', () => {
   const base = {
     response_id: null,
-    failed_response_id: null,
     draft_response_id: null,
     draft_held: false,
     generation_in_flight: false,

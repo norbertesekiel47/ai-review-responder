@@ -306,7 +306,12 @@ function ReplyBody({ row, query }: { row: PastReplyRow; query?: string }) {
 }
 
 function Provenance({ row, isImported }: { row: PastReplyRow; isImported: boolean }) {
-  const isOrphanRecovery = !!row.failed_response_id && row.posted_at === null;
+  // D-D: read the SERVER-derived state, never re-derive it. `recover` IS the
+  // orphan state (`deriveRowState`, replies-view.ts). The old local predicate
+  // (`failed_response_id` set + `posted_at` null) agreed with it only by
+  // coincidence of two independent invariants, and `responses.posted_at` is
+  // nullable in general.
+  const isOrphanRecovery = row.row_state === 'recover';
 
   if (isOrphanRecovery) {
     return (
