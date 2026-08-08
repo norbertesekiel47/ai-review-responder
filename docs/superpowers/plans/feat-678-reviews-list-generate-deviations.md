@@ -398,4 +398,69 @@ blessed. The remedy is 3 more allowlist entries folded into D13's patch, all
 `past-replies/draft` reason string — making D13's `ALLOWLIST_BASELINE` land at
 **412**, not 409.
 
-**Verdict:**
+**ORCHESTRATOR (2026-08-08): APPLIED, folded into the D13 patch.** Refusing to
+rewrite blessed contract SQL to satisfy a static audit was the right call — the
+scope proof genuinely runs first, and the audit genuinely cannot see it. Holding
+the patch until T3 reported is what kept these 3 entries out of a second pass,
+where they would have been stranded exactly the way the original 8 were.
+
+Final state: `tenant-scope-audit: passed — entries: 412 (baseline: 412)`.
+Snippets were generated from the audit's OWN `extractSqlTemplates` +
+`normalizeSql` rather than hand-transcribed: a one-space transcription
+difference yields an entry that silently never matches, which is
+indistinguishable from the stale-entry failure this deviation is about.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D15 — Task 5 must emit `row_state` on the card row, which forces a 3-token type widening in `load-replies.ts` (T6's file)
+
+**Trigger:** T5 execution. Task 5 Step 2b describes `groupReplies` only as a
+re-predicated merge-and-sort and never says what the emitted row carries. The
+locked evals say it for it: `reviews-list.test.ts:192,258,269,292,357` reads
+`view.unansweredRows[n].row_state`, and `past-reply-card-states.test.tsx:30-33`
+pins the surface prop shape as `interface ListRow extends PastReplyRow {
+row_state: string; provenance_badge?: string | null }`. So the derivation is
+emitted ON the row, not recomputed by the card (D-D), and the badge field is
+named `provenance_badge` — not `provenance`.
+
+**The type consequence the plan does not mention.** `PastReplyRow.response_id`
+is `string` (`PastReplyCard.tsx:17`) because pre-#678 every listed row had a
+posted reply. Post-Task-4 the row source LEFT JOINs `responses`, so
+`response_id` IS NULL is the unanswered predicate and is exactly what
+`deriveRowState` branches on. Typing it `string` would be a lie a future
+"simplify the always-true comparison" pass could act on, silently making every
+review read Answered. T5 therefore exports
+
+```ts
+export interface ReviewsListRow extends Omit<PastReplyRow, 'response_id'> {
+  response_id: string | null;
+  row_state: ReviewRowState;
+  provenance_badge: ProvenanceBadge | null;
+}
+```
+
+and `groupReplies` returns it. `PastRepliesPageView` still declares
+`PastReplyRow[]`, so `load-replies.ts` now has **3 typecheck errors** (`:356`,
+`:370`, `:371`).
+
+**Decision:** T5 does not fix them — `load-replies.ts` is T6's file for the
+duration. The fix is mechanical and belongs to whoever holds the file next
+(T6 or T7): import `type ReviewsListRow` from `replies-view` and use it in place
+of `PastReplyRow` at those three sites. T7 additionally owns the matching
+`PastReplyRow` change in `PastReplyCard.tsx` (add `row_state`, widen
+`response_id`), which is already in its Step 3.
+
+**ORCHESTRATOR (2026-08-08): the 3-site fix is APPLIED** (`PastRepliesPageView`
+now declares `ReviewsListRow[]`), so T7 starts from a `load-replies.ts` that
+typechecks.
+
+The type-honesty argument is the load-bearing part and should survive into
+review: `response_id: string` would have been a **false** type once Task 4's
+LEFT JOIN made NULL the unanswered predicate. `deriveRowState` branches on
+exactly that NULL, so the lie is one "simplify the always-truthy comparison"
+pass away from making every review render as Answered. Widening the type is not
+defensive noise — it is the type telling the truth about the query.
+
+**Verdict:** ACCEPT.

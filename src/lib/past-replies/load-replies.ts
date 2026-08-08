@@ -3,7 +3,6 @@ import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '@/lib/publishing/orphan-markers';
-import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
@@ -16,6 +15,7 @@ import {
   PAGE_SIZE,
   groupReplies,
   type ReviewRow,
+  type ReviewsListRow,
 } from '@/lib/past-replies/replies-view';
 
 /**
@@ -31,8 +31,14 @@ import {
  */
 export interface PastRepliesPageView {
   locationDisplayName: string;
-  unansweredRows: PastReplyRow[];
-  answeredRows: PastReplyRow[];
+  /**
+   * `ReviewsListRow`, not `PastReplyRow`: post-#678 a row carries `row_state`
+   * and `provenance_badge`, and its `response_id` is nullable because the
+   * LEFT JOIN's `resp.id IS NULL` IS the unanswered predicate. `replies-view.ts`
+   * owns the type so the card renders a state rather than deriving one (D-D).
+   */
+  unansweredRows: ReviewsListRow[];
+  answeredRows: ReviewsListRow[];
   /**
    * Group denominators over ALL reviews for the location — an unanswered review
    * has no posted sibling, an answered one does. Deliberately NOT posted-only:
@@ -353,7 +359,7 @@ export async function loadPastRepliesPageView(
   let regenBudgetMap = new Map<string, RegenBudgetStatus>();
   try {
     regenBudgetMap = await peekRegenBudgetBatch(
-      answeredRows.map((r: PastReplyRow) => r.review_id),
+      answeredRows.map((r: ReviewsListRow) => r.review_id),
     );
   } catch (err) {
     // Same event name as the route-side peek (dashboard-regen-rate-limit.ts) so
