@@ -1,6 +1,8 @@
 # #680 — DROP the four legacy `zernio_backfill_runs` counters (migration 103)
 
-**Branch:** `feat-680-drop-legacy-backfill-counters` · **Base:** `origin/main` @ `e447ee5b`
+**Branch:** `feat-680-drop-legacy-backfill-counters` · **Base:** `origin/main` @ `431126e9`
+(rebased 2026-08-08 off `e447ee5b`; #695 landed in between and touched two of this feature's own
+target files — `ZernioBackfillWorker.test.ts` and the consented-import spec)
 **Intake:** `docs/superpowers/plans/feat-680-drop-legacy-backfill-counters-intake.json`
 **Classification:** RISK = high · SURFACE = backend · db_touching = true
 **Ticket:** #680 (closing ticket of epic #667) · **Design of record:** ADR 0015 §4, spec
@@ -65,12 +67,23 @@ New suite — seven tests, titles VERBATIM from the intake.
 `const executableSql = sql.replace(/--.*$/gm, '')` so header prose is never mistaken for a statement):
 
 1. `migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs`
-   — **the plan-review BLOCKER (F1).** Split `executableSql` on `;`, trim, drop empties, and assert
-   the resulting statement list is exactly: one `SET lock_timeout`, one `DO $$ … $$` guard, one
-   `ALTER TABLE zernio_backfill_runs` naming all four `DROP COLUMN IF EXISTS` and nothing else.
-   Assert NO `UPDATE`, `DELETE`, `TRUNCATE`, or `CASCADE` anywhere. Final-state introspection alone
-   cannot catch a migration that drops the columns *and* erases surviving counter values, nor
-   distinguish 103 from a hand-dropped database.
+   — **the plan-review BLOCKER (F1).** Assert the statement list is exactly: one `SET lock_timeout`,
+   one `DO $$ … $$` guard, one `ALTER TABLE zernio_backfill_runs` naming all four
+   `DROP COLUMN IF EXISTS` and nothing else. Assert NO `UPDATE`, `DELETE`, `TRUNCATE`, or `CASCADE`
+   anywhere in `executableSql` (the guard's `SELECT count(*)` is fine — `SELECT` is not forbidden).
+   Final-state introspection alone cannot catch a migration that drops the columns *and* erases
+   surviving counter values, nor distinguish 103 from a hand-dropped database.
+
+   **The split must be dollar-quote aware — a naive `split(';')` is a defect** (introduced by this
+   very F1 fix, caught before submission). The `DO $$ … $$` body contains semicolons, so splitting
+   on `;` shatters one statement into six. Correct procedure:
+
+   1. excise the guard with `/DO \$\$[\s\S]*?\$\$\s*;/` and assert **exactly one** such block exists
+      (`match(…)` length 1 — zero means the guard vanished, two means an unreviewed second block);
+   2. split the REMAINDER on `;`, trim, drop empties → assert **exactly two** statements, in order:
+      `SET lock_timeout` then the four-column `ALTER TABLE`;
+   3. run the destructive-keyword assertions over the WHOLE `executableSql`, guard body included —
+      the excision is only for counting statements, never for narrowing what gets scanned.
 2. `migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop`
    — the bound exists AND precedes the `ALTER` in statement order (intake E8).
 
@@ -102,8 +115,9 @@ transaction that always rolls back:
    — inside `sql().begin` + deliberate rollback, INSERT naming none of the counters,
    `RETURNING imported_count, skipped_count` → both 0. Proves the DROP left the defaults intact.
 
-In `ZernioBackfillWorker.test.ts` — **KEEP** `LEGACY_COUNTER_COLUMNS` (`:218-223`) and both assertion
-loops (`:701`, `:1075`), retitled to name 103 as the reason the columns cannot exist. **This reverses
+In `ZernioBackfillWorker.test.ts` — **KEEP** `LEGACY_COUNTER_COLUMNS` (`:226-231`) and both assertion
+loops (`:716`, `:1090`), retitled to name 103 as the reason the columns cannot exist. (Line numbers
+re-verified after the rebase onto `431126e9`; #695 shifted them from `:218`/`:701`/`:1075`.) **This reverses
 the grilling decision to delete them** (owner-approved 2026-08-08 after plan-review F3/F4). The
 suite is mock-`sql` based, so a reintroduced legacy column name is invisible to every other check
 and would surface only as a production 42703 — "it would be a hard 42703" is the argument *for* the
@@ -145,9 +159,14 @@ Body — exactly three statements, in this order (test 1 pins the list):
    DO $$
    DECLARE unreconciled BIGINT;
    BEGIN
-     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = 'zernio_backfill_runs'
-                      AND column_name = 'gap_processed_count')
+     -- Existence check resolves through search_path (NOT a hardcoded 'public'
+     -- literal) so the guard follows a pg_temp shadow. See "Why search_path-
+     -- relative" below — this is what makes T1 tests 3-4 possible at all.
+     IF to_regclass('zernio_backfill_runs') IS NULL
+        OR NOT EXISTS (SELECT 1 FROM pg_attribute
+                       WHERE attrelid = to_regclass('zernio_backfill_runs')
+                         AND attname  = 'gap_processed_count'
+                         AND NOT attisdropped)
      THEN RETURN;                       -- already dropped: nothing to reconcile
      END IF;
      SELECT count(*) INTO unreconciled FROM zernio_backfill_runs
@@ -165,6 +184,20 @@ Body — exactly three statements, in this order (test 1 pins the list):
    working guard on clean data — both report zero abort rows, and both environments are clean today.
    Making it a migration statement removes the operator-must-remember failure mode *and* makes the
    failing branch testable (T1 tests 3–4). The migration cannot apply against unreconciled data.
+
+   **Why search_path-relative rather than `table_schema = 'public'`** (owner-approved 2026-08-08;
+   fixes a BLOCKER the F2 fix introduced, caught before round-2 submission). The originally-drafted
+   guard hardcoded `information_schema.columns … WHERE table_schema = 'public'`. That literal cannot
+   follow the `pg_temp` shadow T1 tests 3–4 depend on — temp tables report their own `pg_temp_N`
+   schema, never `public` — which made the suite **self-contradictory on one database**: test 5
+   requires `public` to be post-103 (the four columns absent), while test 3 requires the guard's
+   existence check to find `gap_processed_count` present or it early-`RETURN`s and never raises.
+   Same suite, same DB, irreconcilable — and test 3 is the *only* test that can prove the guard
+   fires at all. Resolving through `to_regclass` + `pg_attribute` makes the check resolve to
+   `public.zernio_backfill_runs` in a real apply and to the replica under
+   `SET LOCAL search_path = pg_temp, public`, so tests 3–4 execute the migration's **own verbatim
+   text** — preserving exactly the property the F2 reversal was bought for. `NOT attisdropped` is
+   required: `pg_attribute` retains dropped columns as tombstone rows.
 3. One `ALTER TABLE zernio_backfill_runs` with four `DROP COLUMN IF EXISTS`.
 
 Header must carry, each as a stated decision rather than a bare comment:
@@ -198,10 +231,12 @@ test 4 goes green on the header text.
 `docs/superpowers/specs/2026-08-05-consented-review-import-design.md`,
 `docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md` (surface amendment A1).
 
-- The completed runbook's operator query at `:355-377` selects all four dropped columns and its
-  `:361`/`:377` notes explain them; reused after 103 it raises 42703 (plan-review F10). It is a
-  *completed* runbook, so do not rewrite its history — annotate the query as superseded by 103 and
-  point at `imported_count`/`skipped_count`. This is the repo's own cross-reference rule: ticking a
+- The completed runbook's §5.1 operator query selects all four dropped columns at `:355-357` (its
+  interpretive comments at `:359-362` read them back), and §5.2's bullets at `:376-377` name
+  `historical_processed_count`/`historical_skipped_count` again. Reused after 103, the query raises
+  42703 (plan-review F10; citation tightened from the round-1 approximation `:355-377`/`:361`/`:377`
+  after re-verifying on disk post-rebase). It is a *completed* runbook, so do not rewrite its
+  history — annotate **both sites** as superseded by 103 and point at `imported_count`/`skipped_count`. This is the repo's own cross-reference rule: ticking a
   checklist item means grepping the filename and fixing every reference in the same change.
 
 - migrations-log: head `102` → `103`, plus the entry in the house shape (what/why, the two-branch
