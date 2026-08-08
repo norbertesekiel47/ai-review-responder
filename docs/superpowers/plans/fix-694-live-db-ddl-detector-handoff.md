@@ -16,8 +16,20 @@
 
 ## State
 
-- Phase: `plan_approved` at `07ef0c7d`. No plan-review rounds (RISK = normal).
-- Next: step 4, T0 first and ALONE (it doubles as the subagent enforcement spot check).
+- Phase: `reviewed`, gate GREEN at `05f8a93f` (`--review`: 30 rows incl. `diff-coverage`).
+- All 7 plan tasks complete. Branch review **rounds 2 of 3 used**; surface amendments **0 of 2**.
+- Round 1: 13 findings, 12 accepted + fixed (`415c7d1c`, `1301455f`), 1 rejected (S5, upheld by the round-2 reviewer). Round 2: all round-1 findings VERIFIED with mutation-proofs; 3 fix-introduced defects, all false comments, fixed in `05f8a93f`.
+- Triage record: `docs/reviews/fix-694-live-db-ddl-detector/round-1-triage.md`; round-2 detail in deviations **D7**.
+- Next: step 8 normal lane — PR to `main`, merge on green CI. No staging ride (no worker/schema/billing/auth change; nothing deploys).
+
+## Known bound, deliberately not closed here
+
+`listTestFiles()` globs `*.test.ts`/`*.test.tsx`, so the ten `__tests__/helpers/*.ts`
+modules are never scanned: a helper exporting `` sql`ALTER TABLE …` `` that a suite
+interpolates as `` sql`${frag}` `` audits clean. Found in round 2 (R1). Widening the
+glob is a behaviour change — helper files do not match `*.integration.test.ts` and
+would trip R1's naming rule — so it is a follow-up ticket, not a round-2 patch.
+The detector's own header names this bound.
 
 ## The three things a resumed session must not re-derive
 
