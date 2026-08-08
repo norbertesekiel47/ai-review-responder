@@ -6,23 +6,35 @@ import { PastReplyCard } from '@/components/dashboard/reviews/PastReplyCard';
 import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import type { RegenBudgetStatus } from '@/lib/costs/tracker';
 
+/**
+ * The **Reviews list** surface: every review for the location, grouped
+ * `Unanswered` then `Answered` (#678). The pre-#678 gap/historical split is
+ * gone — the activation boundary survives only as the per-row provenance badge
+ * the server derives, so this component has no bucketing arithmetic left.
+ */
 interface Props {
-  gapRows: PastReplyRow[];
-  histRows: PastReplyRow[];
-  gapTotal: number;
-  histTotal: number;
+  unansweredRows: PastReplyRow[];
+  answeredRows: PastReplyRow[];
+  /** Denominators over ALL reviews for the location, not just this page. */
+  unansweredTotal: number;
+  answeredTotal: number;
   avgStarRating: number | null;
-  hasHistoricalSection: boolean;
-  // True when orphan gap rows were merged into gapRows (gapTotal may be 0).
-  // Used so the gap section header denominator includes orphan rows even when
-  // no posted gap replies exist (avoids "N of 0" with N > 0).
-  hasGapOrphans?: boolean;
+  /**
+   * Advisory per-review regeneration counters keyed by `review_id`, for
+   * ANSWERED rows only. A plain RECORD, not a `Map` (D12): this prop crosses
+   * the server→client boundary and a `Map` does not serialize.
+   *
+   * A MISSING key means UNKNOWN, never "0 remaining" — the card then renders no
+   * counter and leaves Regenerate enabled (F6).
+   */
+  regenBudgets: Record<string, RegenBudgetStatus>;
   page: number;
   totalPages: number;
-  // Passed from the server page — true only when PAST_REPLIES_VIEW_ENABLED &&
-  // EDIT_REPLIES_ENABLED are both 'true'. When false the page is read-only
-  // (Phase A inertness).
+  // Passed from the server page — true only when EDIT_REPLIES_ENABLED is on.
+  // When false the answered rows are read-only (the live-Google mutation is the
+  // only thing this flag gates; Generate is deliberately ungated).
   editRepliesEnabled?: boolean;
 }
 
@@ -39,61 +51,61 @@ function matchesReplyFilter(row: PastReplyRow, rating: RatingFilter, normalizedQ
 }
 
 function useReplyFilters({
-  gapRows,
-  histRows,
-  gapTotal,
-  histTotal,
-  hasGapOrphans,
-}: Pick<Props, 'gapRows' | 'histRows' | 'gapTotal' | 'histTotal'> & { hasGapOrphans: boolean }) {
+  unansweredRows,
+  answeredRows,
+  unansweredTotal,
+  answeredTotal,
+}: Pick<Props, 'unansweredRows' | 'answeredRows' | 'unansweredTotal' | 'answeredTotal'>) {
   const [query, setQuery] = useState('');
   const [rating, setRating] = useState<RatingFilter>('all');
   const normalizedQuery = query.trim().toLowerCase();
   const hasActiveFilter = rating !== 'all' || normalizedQuery.length > 0;
-  const visibleGap = useMemo(
-    () => gapRows.filter((row) => matchesReplyFilter(row, rating, normalizedQuery)),
-    [gapRows, normalizedQuery, rating],
+  const visibleUnanswered = useMemo(
+    () => unansweredRows.filter((row) => matchesReplyFilter(row, rating, normalizedQuery)),
+    [unansweredRows, normalizedQuery, rating],
   );
-  const visibleHist = useMemo(
-    () => histRows.filter((row) => matchesReplyFilter(row, rating, normalizedQuery)),
-    [histRows, normalizedQuery, rating],
+  const visibleAnswered = useMemo(
+    () => answeredRows.filter((row) => matchesReplyFilter(row, rating, normalizedQuery)),
+    [answeredRows, normalizedQuery, rating],
   );
 
-  // Posted-only totals drive stats and pagination. Section totals also include
-  // orphan rows, so their headers never show "N of M" with N > M.
-  const gapOrphanCount = hasGapOrphans ? gapRows.length - gapTotal : 0;
-  const histOrphanCount = histRows.length - histTotal;
-  const gapSectionTotal = hasActiveFilter ? gapRows.length : gapTotal + Math.max(0, gapOrphanCount);
-  const histSectionTotal = hasActiveFilter ? histRows.length : histTotal + Math.max(0, histOrphanCount);
-
+  // Both group totals now span every review for the location, and orphan rows
+  // are inside the unanswered denominator by construction (no posted sibling),
+  // so the pre-#678 orphan reconciliation arithmetic is gone. While a filter is
+  // active the header denominator is the filtered page, as before.
   return {
-    gapSectionTotal,
     hasActiveFilter,
-    histSectionTotal,
     query,
     rating,
     setQuery,
     setRating,
-    visibleGap,
-    visibleHist,
+    visibleUnanswered,
+    visibleAnswered,
+    unansweredSectionTotal: hasActiveFilter ? unansweredRows.length : unansweredTotal,
+    answeredSectionTotal: hasActiveFilter ? answeredRows.length : answeredTotal,
   };
 }
 
 export function PastRepliesClient({
-  gapRows,
-  histRows,
-  gapTotal,
-  histTotal,
+  unansweredRows,
+  answeredRows,
+  unansweredTotal,
+  answeredTotal,
   avgStarRating,
-  hasHistoricalSection,
-  hasGapOrphans = false,
+  regenBudgets,
   page,
   totalPages,
   editRepliesEnabled = false,
 }: Props) {
   const [drawerRow, setDrawerRow] = useState<PastReplyRow | null>(null);
   const [drawerMode, setDrawerMode] = useState<'edit' | 'recovery'>('edit');
-  const totalReplies = gapTotal + histTotal;
-  const filters = useReplyFilters({ gapRows, histRows, gapTotal, histTotal, hasGapOrphans });
+  const totalReviews = unansweredTotal + answeredTotal;
+  const filters = useReplyFilters({
+    unansweredRows,
+    answeredRows,
+    unansweredTotal,
+    answeredTotal,
+  });
   const openDrawer = (row: PastReplyRow, mode: 'edit' | 'recovery') => {
     setDrawerRow(row);
     setDrawerMode(mode);
@@ -101,7 +113,7 @@ export function PastRepliesClient({
 
   return (
     <div className="pr-content">
-      <ReplyStats {...{ totalReplies, gapTotal, histTotal, avgStarRating }} />
+      <ReplyStats {...{ totalReviews, unansweredTotal, answeredTotal, avgStarRating }} />
       <ReplyToolbar
         query={filters.query}
         rating={filters.rating}
@@ -109,26 +121,26 @@ export function PastRepliesClient({
         onRatingChange={filters.setRating}
       />
       <ReplySection
-        title="From your active period"
-        rows={filters.visibleGap}
-        total={filters.gapSectionTotal}
-        firstRun={!filters.hasActiveFilter && totalReplies === 0}
+        title="Unanswered"
+        rows={filters.visibleUnanswered}
+        total={filters.unansweredSectionTotal}
+        empty={emptyCopy('unanswered', filters.hasActiveFilter, totalReviews === 0)}
         query={filters.query}
         editRepliesEnabled={editRepliesEnabled}
+        regenBudgets={regenBudgets}
         onOpenDrawer={openDrawer}
       />
-      {hasHistoricalSection && (
-        <ReplySection
-          title="From before you joined"
-          rows={filters.visibleHist}
-          total={filters.histSectionTotal}
-          firstRun={false}
-          query={filters.query}
-          editRepliesEnabled={editRepliesEnabled}
-          onOpenDrawer={openDrawer}
-        />
-      )}
-      <ReplyPagination {...{ totalReplies, page, totalPages }} />
+      <ReplySection
+        title="Answered"
+        rows={filters.visibleAnswered}
+        total={filters.answeredSectionTotal}
+        empty={emptyCopy('answered', filters.hasActiveFilter, totalReviews === 0)}
+        query={filters.query}
+        editRepliesEnabled={editRepliesEnabled}
+        regenBudgets={regenBudgets}
+        onOpenDrawer={openDrawer}
+      />
+      <ReplyPagination {...{ totalReviews, page, totalPages }} />
       <ReplyDrawer
         enabled={editRepliesEnabled}
         row={drawerRow}
@@ -140,16 +152,16 @@ export function PastRepliesClient({
 }
 
 function ReplyStats({
-  totalReplies,
-  gapTotal,
-  histTotal,
+  totalReviews,
+  unansweredTotal,
+  answeredTotal,
   avgStarRating,
-}: Pick<Props, 'gapTotal' | 'histTotal' | 'avgStarRating'> & { totalReplies: number }) {
+}: Pick<Props, 'unansweredTotal' | 'answeredTotal' | 'avgStarRating'> & { totalReviews: number }) {
   return (
     <div className="pr-stats">
-      <Stat label="Total replies" icon="check" value={totalReplies} />
-      <Stat label="Active period" icon="sparkle" value={gapTotal} />
-      <Stat label="Historical" icon="history" value={histTotal} />
+      <Stat label="Total reviews" icon="google" value={totalReviews} />
+      <Stat label="Unanswered" icon="inbox" value={unansweredTotal} />
+      <Stat label="Answered" icon="check" value={answeredTotal} />
       <Stat
         label="Avg rating"
         icon="trend"
@@ -219,21 +231,65 @@ function ReplyToolbar({
   );
 }
 
+interface EmptyCopy {
+  title: string;
+  sub: string;
+}
+
+/**
+ * Per-section empty copy. The two sections need DIFFERENT wording for the same
+ * situation — an empty `Unanswered` on a working account is good news, an empty
+ * `Answered` is just "nothing yet" — and the filtered strings name their
+ * section so the page never shows the same sentence twice.
+ */
+function emptyCopy(
+  section: 'unanswered' | 'answered',
+  hasActiveFilter: boolean,
+  noReviewsAtAll: boolean,
+): EmptyCopy {
+  if (hasActiveFilter) {
+    return {
+      title:
+        section === 'unanswered'
+          ? 'No unanswered reviews match this filter'
+          : 'No replied reviews match this filter',
+      sub: 'Try clearing your search, or pick a different rating chip.',
+    };
+  }
+  if (noReviewsAtAll) {
+    return {
+      title: 'No reviews yet',
+      sub: 'Your Google reviews will appear here as they come in.',
+    };
+  }
+  return section === 'unanswered'
+    ? {
+        title: "You're all caught up",
+        sub: 'Every review for this location already has a reply.',
+      }
+    : {
+        title: 'No replies yet',
+        sub: 'Approved replies will appear here as you respond to your reviews.',
+      };
+}
+
 function ReplySection({
   title,
   rows,
   total,
-  firstRun,
+  empty,
   query,
   editRepliesEnabled,
+  regenBudgets,
   onOpenDrawer,
 }: {
   title: string;
   rows: PastReplyRow[];
   total: number;
-  firstRun: boolean;
+  empty: EmptyCopy;
   query: string;
   editRepliesEnabled: boolean;
+  regenBudgets: Record<string, RegenBudgetStatus>;
   onOpenDrawer: (row: PastReplyRow, mode: 'edit' | 'recovery') => void;
 }) {
   return (
@@ -245,16 +301,18 @@ function ReplySection({
         </div>
       </div>
       {rows.length === 0 ? (
-        <Empty firstRun={firstRun} />
+        <Empty {...empty} />
       ) : (
         <div className="pr-list">
           {rows.map((row) => (
             <PastReplyCard
-              key={row.response_id}
+              // review_id, not response_id: an unanswered row has no response.
+              key={row.review_id}
               row={row}
               isImported={row.external_reply_ingested_at !== null}
               query={query}
               editRepliesEnabled={editRepliesEnabled}
+              regenBudget={regenBudgets[row.review_id]}
               onEditClick={(selectedRow) => onOpenDrawer(selectedRow, 'edit')}
               onRecoveryClick={(selectedRow) => onOpenDrawer(selectedRow, 'recovery')}
             />
@@ -266,11 +324,11 @@ function ReplySection({
 }
 
 function ReplyPagination({
-  totalReplies,
+  totalReviews,
   page,
   totalPages,
-}: Pick<Props, 'page' | 'totalPages'> & { totalReplies: number }) {
-  if (totalReplies <= 0) return null;
+}: Pick<Props, 'page' | 'totalPages'> & { totalReviews: number }) {
+  if (totalReviews <= 0) return null;
 
   return (
     <nav className="pr-pager">
@@ -337,7 +395,7 @@ function ReplyDrawer({
   );
 }
 
-function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | 'sparkle' | 'history' | 'trend'; value: number | string; suffix?: string | null }) {
+function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | 'google' | 'inbox' | 'trend'; value: number | string; suffix?: string | null }) {
   return (
     <div className="pr-stat">
       <div className="pr-stat-label">
@@ -351,20 +409,14 @@ function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | '
   );
 }
 
-function Empty({ firstRun }: { firstRun: boolean }) {
+function Empty({ title, sub }: EmptyCopy) {
   return (
     <div className="pr-empty">
       <div className="pr-empty-icon">
         <Icon name="history" size={28} />
       </div>
-      <div className="pr-empty-title">
-        {firstRun ? 'No replies yet' : 'No replies match this filter'}
-      </div>
-      <div className="pr-empty-sub">
-        {firstRun
-          ? 'Approved replies will appear here as you respond to your reviews.'
-          : 'Try clearing your search, or pick a different rating chip.'}
-      </div>
+      <div className="pr-empty-title">{title}</div>
+      <div className="pr-empty-sub">{sub}</div>
     </div>
   );
 }

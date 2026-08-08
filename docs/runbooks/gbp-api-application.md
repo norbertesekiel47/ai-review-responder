@@ -63,8 +63,10 @@ connected business's own replies.
 ## What approval unblocks
 
 - Flipping **`EDIT_REPLIES_ENABLED=true`** (set on **both** Vercel and the
-  Railway worker — it is read by both; env-vars.md). This also requires
-  `PAST_REPLIES_VIEW_ENABLED=true` (every edit route checks both flags).
+  Railway worker — it is read by both; env-vars.md). Since #678 retired
+  `PAST_REPLIES_VIEW_ENABLED`, this is the **only** flag involved — the edit
+  routes check one predicate, not two, and the **Reviews list** renders
+  unconditionally.
 - The **edit-existing-replies path**: the 7 `/api/dashboard/past-replies/*` edit
   routes, the Edit UI in `PastRepliesClient`, and the publisher's
   DELETE-then-POST edit branch + orphan-conversion failed-hook

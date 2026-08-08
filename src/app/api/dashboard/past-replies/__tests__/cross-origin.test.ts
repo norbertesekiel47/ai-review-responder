@@ -62,7 +62,6 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 beforeEach(() => {
-  process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
   requireRoleMock.mockClear();

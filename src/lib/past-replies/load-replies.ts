@@ -3,37 +3,83 @@ import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '@/lib/publishing/orphan-markers';
-import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
+import {
+  peekRegenBudgetBatch,
+  type RegenBudgetStatus,
+} from '@/lib/costs/tracker';
 import {
   PAGE_SIZE,
-  bucketReplies,
-  type OrphanRow,
+  groupReplies,
   type ReviewRow,
+  type ReviewsListRow,
 } from '@/lib/past-replies/replies-view';
 
+/**
+ * One page of the **Reviews list** — the owner's single inventory of every
+ * review for a location, grouped `Unanswered` then `Answered` (#678).
+ *
+ * The pre-#678 gap/historical split (`gapRows` / `histRows` /
+ * `hasHistoricalSection` / `hasGapOrphans`) is GONE, not deprecated: the
+ * activation boundary survives only as an input to the per-row provenance badge
+ * (`provenanceBadge`, `replies-view.ts`), never as a bucketing predicate. No
+ * compatibility shims — pre-launch codebase, and the history page is the only
+ * consumer.
+ */
 export interface PastRepliesPageView {
   locationDisplayName: string;
-  gapRows: PastReplyRow[];
-  histRows: PastReplyRow[];
-  /** Posted-only counts (orphan rows are excluded; they are failures, not posts). */
-  gapTotal: number;
-  histTotal: number;
+  /**
+   * `ReviewsListRow`, not `PastReplyRow`: post-#678 a row carries `row_state`
+   * and `provenance_badge`, and its `response_id` is nullable because the
+   * LEFT JOIN's `resp.id IS NULL` IS the unanswered predicate. `replies-view.ts`
+   * owns the type so the card renders a state rather than deriving one (D-D).
+   */
+  unansweredRows: ReviewsListRow[];
+  answeredRows: ReviewsListRow[];
+  /**
+   * Group denominators over ALL reviews for the location — an unanswered review
+   * has no posted sibling, an answered one does. Deliberately NOT posted-only:
+   * `totalPages` is derived from their sum, so a posted-only denominator made
+   * the tail pages of a freshly imported, mostly-unanswered location
+   * unreachable.
+   */
+  unansweredTotal: number;
+  answeredTotal: number;
+  /** Mean star rating across every review for the location, replied or not. */
   avgStarRating: number | null;
-  hasHistoricalSection: boolean;
-  hasGapOrphans: boolean;
+  /**
+   * Advisory per-review regeneration counters keyed by `review_id`, for
+   * ANSWERED rows only — a first Generate is free by construction, so an
+   * unanswered review has no counter to read.
+   *
+   * A plain RECORD, not the `Map` `peekRegenBudgetBatch` returns (D12): this
+   * view crosses the server→client boundary and a `Map` does not serialize.
+   * The conversion belongs at this seam.
+   *
+   * A MISSING key means UNKNOWN, never "0 remaining" — no counter renders and
+   * the Regenerate button stays enabled (D-F). Inverting that would disable
+   * every Regenerate during an Upstash outage.
+   */
+  regenBudgets: Record<string, RegenBudgetStatus>;
   page: number;
   totalPages: number;
 }
 
 /**
- * Loads one page of the Past Replies archive for a single location, scoped to
+ * Loads one page of the Reviews list for a single location, scoped to
  * (accountId, locationId). Returns `null` when the location is not found / not
  * owned — the caller renders `notFound()`.
  *
- * Tenant scope: every query filters on the owner-resolved business_id; the biz
- * lookup additionally asserts account_id ownership. The aggregating queries are
- * allowlisted in the tenant-scope audit (scripts/ci/tenant-scope-allowlist.ts).
+ * Tenant scope (invariant #8): every query filters on the owner-resolved
+ * business_id; the biz lookup additionally asserts account_id ownership. The
+ * aggregating queries are allowlisted in the tenant-scope audit
+ * (scripts/ci/tenant-scope-allowlist.ts).
+ *
+ * Invariant #15: the DB client arrives as an explicit `sql: Sql` parameter —
+ * this module never imports `@/lib/db/server`; the page component is the
+ * composition root that passes the singleton down.
  */
 export async function loadPastRepliesPageView(
   sql: Sql,
@@ -54,6 +100,11 @@ export async function loadPastRepliesPageView(
   // Post-migration-034 subscription_tier / subscription_activated_at live on
   // accounts (the billing parent), mirroring assertCanEditReply (edit-existing.ts)
   // which JOINs businesses → accounts to read tier + activation.
+  //
+  // subscription_activated_at is still read, but it no longer partitions the
+  // page: it is now only the activation anchor `provenanceBadge` compares an
+  // externally-ingested reply against ("Posted by you before joining" vs
+  // "Replied on Google").
   const [biz] = await sql<{
     name: string;
     display_label: string | null;
@@ -85,36 +136,64 @@ export async function loadPastRepliesPageView(
   //
   // Using the imported constants from orphan-markers.ts (NOT re-typed literals)
   // so a prefix change in the source-of-truth propagates here automatically.
+  // Both are still needed post-F3: delete_failed_* feeds the sidecar badge on a
+  // healthy posted reply, post_after_delete_failed_* feeds the orphan LATERAL.
   const deletePfx = `${DELETE_FAILED_PREFIX}%`;
   const postAfterPfx = `${POST_AFTER_DELETE_FAILED_PREFIX}%`;
 
   // ── Main data load ─────────────────────────────────────────────────────────
-  const [rows, orphanRows, gapCountRows, histCountRows, avgRows] = await Promise.all([
-    // Page of posted rows with:
+  //
+  // FOUR queries, not five. The separate orphan query this file used to run was
+  // deleted at #678 (F3): it de-duplicated against the main query purely because
+  // the main query INNER JOINed `posted`. Under the LEFT JOIN below the main
+  // query returns EVERY review, so an orphan review would have matched both — it
+  // would render twice (once `generate`, once `recover`) and its un-offset
+  // `LIMIT 50` would merge into every page. Its two LATERALs moved in here
+  // instead (orphan_sidecar, orphan_superseded), which also turns `is_orphan`
+  // into a column on the single row source rather than caller discipline.
+  //
+  // Consequence, and it is the correct one: orphan cards are now inside the
+  // LIMIT/OFFSET window and inside unansweredTotal (they have no posted sibling,
+  // so the NOT EXISTS count already includes them), i.e. paginated like every
+  // other row instead of repeating on every page.
+  const [rows, unansweredCountRows, answeredCountRows, avgRows] = await Promise.all([
+    // The SINGLE row source for the page:
     //   - review_content_hash + version for the optimistic-concurrency snapshot
-    //   - LATERAL sidecar of the most-recent recoverable failed sibling per review
-    //     (de-duped by review: a delete_failed_* row coexists with a live posted
-    //     row → attach to the posted card, don't render twice; an orphan-only
-    //     post_after_delete_failed_* row has no posted sibling and is excluded from
-    //     this query — it surfaces via the orphanRows query below instead).
+    //   - the `resp` LEFT JOIN: the live posted reply, or NULL — this is what
+    //     makes a row Answered vs Unanswered, and what the ORDER BY sorts on
+    //     first
+    //   - four LATERAL sidecars, each de-duped to at most one row per review
     sql<ReviewRow[]>`
       SELECT
-        r.id                           AS review_id,
+        r.id                            AS review_id,
         r.review_text,
         r.review_date,
         r.review_content_hash,
         r.external_reply_ingested_at,
         r.star_rating,
         r.reviewer_name,
-        resp.id                        AS response_id,
+        resp.id                         AS response_id,
         resp.approved_text,
         resp.approval_method,
         resp.posted_at,
         resp.version,
-        fail_sidecar.id                AS failed_response_id,
-        fail_sidecar.posting_error     AS failed_posting_error
+        fail_sidecar.id                 AS failed_response_id,
+        fail_sidecar.posting_error      AS failed_posting_error,
+        draft.id                        AS draft_response_id,
+        COALESCE(draft.held, false)     AS draft_held,
+        (pending_gen.exists IS NOT NULL) AS generation_in_flight,
+        -- F3: orphan-ness is DATA, not caller discipline. An orphan is a
+        -- post_after_delete_failed_* sibling with NO live posted sibling; the
+        -- resp.id IS NULL conjunct is exactly what the deleted query's
+        -- NOT EXISTS clause used to guarantee.
+        (orphan_sidecar.id IS NOT NULL AND resp.id IS NULL) AS is_orphan,
+        orphan_sidecar.id               AS orphan_failed_response_id,
+        orphan_sidecar.posting_error    AS orphan_posting_error,
+        orphan_superseded.approved_text AS superseded_text
       FROM reviews r
-      JOIN responses resp
+      -- LEFT, not INNER: the Reviews list is every review for the location, not
+      -- only the replied ones. resp.id IS NULL IS the unanswered predicate.
+      LEFT JOIN responses resp
         ON resp.review_id = r.id
        AND resp.status = 'posted'
       -- LATERAL sidecar: most-recent delete_failed_* failed sibling for this review.
@@ -124,7 +203,7 @@ export async function loadPastRepliesPageView(
       -- RESOLVED/stale orphan marker (e.g. /restore-original already republished),
       -- so attaching it here would badge a healthy reply while /retry + /restore
       -- reject with live_reply_exists. Genuine orphans (post_after_delete_failed_*
-      -- with NO posted sibling) surface via the orphanRows query below instead.
+      -- with NO posted sibling) arrive via orphan_sidecar below instead.
       -- ORDER BY created_at DESC + LIMIT 1 attaches only the newest failure.
       LEFT JOIN LATERAL (
         SELECT id, posting_error
@@ -135,44 +214,61 @@ export async function loadPastRepliesPageView(
         ORDER BY created_at DESC
         LIMIT 1
       ) fail_sidecar ON true
-      WHERE r.business_id = ${locationId}
-      ORDER BY r.review_date DESC
-      LIMIT ${PAGE_SIZE} OFFSET ${offset}
-    `,
-
-    // Orphan-only recovery rows: reviews where DELETE succeeded but POST failed
-    // (post_after_delete_failed_* prefix) and NO posted sibling exists. These
-    // have no live Google reply, so they cannot appear via the posted JOIN above;
-    // they need their own card so the owner can reach /retry or /restore-original.
-    //
-    // De-dup guarantee: a review with a posted sibling is excluded by the
-    // NOT EXISTS clause, so there is zero overlap with the posted-rows query.
-    //
-    // Count policy: the stats counters (gapTotal, histTotal, avgStarRating) count
-    // posted replies only. Orphan cards appear in the visual list but do not
-    // inflate the stat tiles or pagination denominator — they are failures, not
-    // successfully posted replies. This is consistent and avoids confusion.
-    //
-    // Pagination: orphan rows are not offset-paginated separately — they are a
-    // small, bounded set (one per review that has ever orphaned without recovery).
-    // They are merged into whichever bucket their review_date falls into alongside
-    // the current page of posted rows, capped at the newest 50 so a pathological
-    // account can't blow up the payload (orphans are rare, and recovery
-    // resolves them; anything past the cap surfaces once earlier ones recover).
-    sql<OrphanRow[]>`
-      SELECT
-        r.id                           AS review_id,
-        r.review_text,
-        r.review_date,
-        r.review_content_hash,
-        r.star_rating,
-        r.reviewer_name,
-        fail_resp.id                   AS failed_response_id,
-        fail_resp.posting_error        AS failed_posting_error,
-        superseded.approved_text       AS superseded_text
-      FROM reviews r
-      -- Most-recent post_after_delete_failed_* failed response for this review.
-      JOIN LATERAL (
+      -- NEW (#678): the live NON-TERMINAL response, which makes the row read
+      -- Draft ready and never offer Generate (S2). The partial unique index
+      -- (migrations 023+026+029) permits at most ONE non-terminal response per
+      -- review, so the ORDER BY/LIMIT is belt-and-braces, not a real tie-break.
+      --
+      -- Invariant #4: the held flag is CARRIED, not filtered. Excluding a held
+      -- draft here would leave draft_response_id NULL and deriveRowState would
+      -- fall through to the generate state — offering an LLM spend that the
+      -- partial unique index would then reject. Selected, it resolves to the
+      -- held state instead (D9).
+      --
+      -- src/lib/moderation/held-draft.ts is the SEMANTIC owner of "a draft is
+      -- held while an open flagged_responses row exists". Its hasOpenFlag is an
+      -- in-tx, post-lock release gate taking a TransactionSql — it cannot be
+      -- composed into a LATERAL — so the predicate is spelled inline here (D6);
+      -- consolidating the spellings into one exported fragment is a #680 item.
+      LEFT JOIN LATERAL (
+        SELECT
+          resp2.id,
+          EXISTS (
+            SELECT 1
+            FROM flagged_responses f
+            WHERE f.response_id = resp2.id
+              AND f.status = 'open'
+          ) AS held
+        FROM responses resp2
+        WHERE resp2.review_id = r.id
+          AND resp2.status = ANY(${[...NON_TERMINAL_STATUSES] as string[]}::text[])
+        ORDER BY resp2.version DESC
+        LIMIT 1
+      ) draft ON true
+      -- NEW (#678): an in-flight generate_response outbox row, which makes the
+      -- row read Generating. Server-rendered, so the state survives a page
+      -- refresh (D-C); without it a refresh would re-offer Generate and burn a
+      -- rate-limit token to learn it 409s.
+      --
+      -- The in-flight set is the byte-for-byte contract owned by
+      -- src/lib/shared/job-outbox-status.ts (invariant #2) — re-spelled by hand
+      -- exactly as every other site does, because a bind parameter inside an
+      -- ON CONFLICT ... WHERE predicate defeats partial-index inference.
+      -- ci:outbox-status checks members AND order.
+      LEFT JOIN LATERAL (
+        SELECT 1 AS exists
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
+          AND aggregate_id = r.id
+          AND status IN ('pending', 'dispatching', 'dispatched')
+        LIMIT 1
+      ) pending_gen ON true
+      -- NEW (#678, F3): the deleted orphan query's inner JOIN LATERAL, folded in
+      -- as a LEFT join so this query still returns non-orphan reviews.
+      -- Most-recent post_after_delete_failed_* failed response for the review —
+      -- the DELETE succeeded but the re-POST did not, so there is no live Google
+      -- reply and the owner needs /retry or /restore-original.
+      LEFT JOIN LATERAL (
         SELECT id, posting_error
         FROM responses
         WHERE review_id = r.id
@@ -180,78 +276,101 @@ export async function loadPastRepliesPageView(
           AND posting_error LIKE ${postAfterPfx}
         ORDER BY created_at DESC
         LIMIT 1
-      ) fail_resp ON true
-      -- Most-recent superseded sibling for drawer context (the text the owner
-      -- approved before the failed edit; shown as "original" in the recovery UI).
+      ) orphan_sidecar ON true
+      -- NEW (#678, F3): most-recent superseded sibling for the recovery drawer's
+      -- "original" pane (the text the owner approved before the failed edit). No
+      -- other LATERAL carries it, and the recovery UI is unreachable without it.
       LEFT JOIN LATERAL (
         SELECT COALESCE(approved_text, response_text) AS approved_text
         FROM responses
         WHERE review_id = r.id
-          AND status = 'superseded' -- review-status-ignore: responses.status, not reviews.status (unqualified; the guard's lazy cross-line scan also attributes this line to the later posted_check.status = 'posted' match a few lines down, which is likewise responses.status)
+          AND status = 'superseded' -- review-status-ignore: responses.status, not reviews.status (unqualified inside this nested FROM-responses subquery; 'superseded' is not itself in the REVIEW_STATUS vocabulary today, and the pragma stays so a future vocabulary change cannot silently turn this line into a finding)
         ORDER BY created_at DESC
         LIMIT 1
-      ) superseded ON true
+      ) orphan_superseded ON true
       WHERE r.business_id = ${locationId}
-        -- Exclude reviews that already have a live posted sibling — those are
-        -- handled by the delete_failed_* LATERAL sidecar on the posted-rows query.
-        AND NOT EXISTS (
-          SELECT 1
-          FROM responses posted_check
-          WHERE posted_check.review_id = r.id
-            AND posted_check.status = 'posted'
-        )
-      ORDER BY r.review_date DESC
-      LIMIT 50
+      -- Unanswered first (S6): false sorts before true in Postgres, so
+      -- (resp.id IS NOT NULL) puts the never-replied group at the top, then
+      -- newest-first inside each group. The r.id DESC tie-breaker is NOT
+      -- optional: without a total order two reviews sharing a review_date can
+      -- swap across an OFFSET boundary, so one row is shown twice and another
+      -- never at all (F7).
+      ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC
+      LIMIT ${PAGE_SIZE} OFFSET ${offset}
     `,
 
+    // Group denominators. These replace the activation-split gap/historical
+    // COUNTs: the split is no longer a section boundary (S3 → per-row provenance
+    // badges), and both counts now span every review for the location rather
+    // than only posted ones. Orphan rows need no separate term — they have no
+    // posted sibling, so the unanswered count already includes them.
     sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM reviews r
-      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
       WHERE r.business_id = ${locationId}
-        AND ${activatedAtIso}::timestamptz IS NOT NULL
-        AND r.review_date >= ${activatedAtIso}::timestamptz
+        AND NOT EXISTS (
+          SELECT 1
+          FROM responses p
+          WHERE p.review_id = r.id
+            AND p.status = 'posted'
+        )
     `,
     sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM reviews r
-      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
       WHERE r.business_id = ${locationId}
-        AND ( ${activatedAtIso}::timestamptz IS NULL
-              OR r.review_date < ${activatedAtIso}::timestamptz )
+        AND EXISTS (
+          SELECT 1
+          FROM responses p
+          WHERE p.review_id = r.id
+            AND p.status = 'posted'
+        )
     `,
+    // Mean star rating over ALL reviews for the location. The pre-#678 query
+    // JOINed posted responses, which answered a different question ("how do the
+    // reviews you replied to rate?") than the tile asks.
     sql<{ avg: number | null }[]>`
       SELECT AVG(r.star_rating)::float AS avg
       FROM reviews r
-      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
       WHERE r.business_id = ${locationId}
     `,
   ]);
 
-  const gapTotal = gapCountRows[0]?.count ?? 0;
-  const histTotal = histCountRows[0]?.count ?? 0;
+  const unansweredTotal = unansweredCountRows[0]?.count ?? 0;
+  const answeredTotal = answeredCountRows[0]?.count ?? 0;
   const avgStarRating = avgRows[0]?.avg ?? null;
 
-  const { gapRows, histRows, orphanGapCount, orphanHistCount } = bucketReplies(
-    rows,
-    orphanRows,
-    activatedAtIso,
-    hasPaidTier,
+  const { unansweredRows, answeredRows } = groupReplies(rows, activatedAtIso, hasPaidTier);
+
+  // ── Advisory regen-budget counters (D-F) ──────────────────────────────────
+  //
+  // ONE batched MGET, and only over the ANSWERED rows: a first Generate on a
+  // never-replied review is free by construction (the door charges only
+  // version > 1), so an unanswered review has no counter to read.
+  //
+  // NO catch here, deliberately. peekRegenBudgetBatch has no rejection path: it
+  // calls getCacheRedis() inside its own try, so a transport failure AND a
+  // synchronous client-construction throw both resolve to an EMPTY map and are
+  // logged there on the shared `regen_budget_peek_failed` stream. An empty map
+  // means no counter renders and every Regenerate stays enabled. The
+  // authoritative gate is unaffected: it is the worker's Lua INCR
+  // (checkRegenBudget), which still refuses over-budget work before any spend.
+  const regenBudgetMap: Map<string, RegenBudgetStatus> = await peekRegenBudgetBatch(
+    answeredRows.map((r: ReviewsListRow) => r.review_id),
   );
 
   return {
     locationDisplayName,
-    gapRows,
-    histRows,
-    gapTotal,
-    histTotal,
+    unansweredRows,
+    answeredRows,
+    unansweredTotal,
+    answeredTotal,
     avgStarRating,
-    // Orphan rows have no posted sibling (the *Total counts won't include them),
-    // but the owner still needs to see the recovery card — gate section
-    // visibility on posted count OR orphan presence.
-    hasHistoricalSection: histTotal > 0 || orphanHistCount > 0,
-    hasGapOrphans: orphanGapCount > 0,
+    // Map → Record at the seam (D12): the client prop is a plain record.
+    regenBudgets: Object.fromEntries(regenBudgetMap),
     page,
-    totalPages: Math.max(1, Math.ceil((gapTotal + histTotal) / PAGE_SIZE)),
+    // A TRUE denominator over all reviews, so the tail pages of a fresh Review
+    // import are reachable (#671 landmine 3).
+    totalPages: Math.max(1, Math.ceil((unansweredTotal + answeredTotal) / PAGE_SIZE)),
   };
 }

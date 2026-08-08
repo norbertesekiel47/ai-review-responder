@@ -108,7 +108,7 @@ Next.js App Router pages, grouped by access level.
 | `dashboard/connect/page.tsx` | Zernio Google Business Profile connect entry point. 6-state UI: none / starting / oauth_in_progress / finalizing / active / finalize_unknown / disconnected. Shows Cancel button during oauth_in_progress; spinner-only during finalizing. |
 | `dashboard/connect/select-location/page.tsx` | Server component that loads candidate GBP locations from Zernio after OAuth returns. |
 | `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
-| `dashboard/reviews/history/page.tsx` | "Past Replies" history tab — account/location-scoped paginated list of every posted Google reply, including pre-RepWorth replies. Gated by `PAST_REPLIES_VIEW_ENABLED`; edit actions are separately gated by `EDIT_REPLIES_ENABLED`. Both Copilot and Autopilot receive the former paid-tier history/edit feature set. |
+| `dashboard/reviews/history/page.tsx` | **(#678)** The **Reviews list** (`All Reviews` tab) — account/location-scoped paginated list of **every** review for the location, unanswered first then answered, newest-first within each group. **Not flag-gated**: `PAST_REPLIES_VIEW_ENABLED` was retired at #678. Each row carries a server-derived `ReviewRowState` + `ProvenanceBadge` from `src/lib/past-replies/replies-view.ts`; the mutation affordances (`Regenerate`, recovery) remain gated by `EDIT_REPLIES_ENABLED` via `editRepliesEnabled()`. Both Copilot and Autopilot receive the former paid-tier history/edit feature set. |
 | `dashboard/add-location/` | 4-step "add location" wizard (gated by `MULTI_LOCATION_ENABLED`). `AddLocationWizard.tsx` is a composing shell; `wizard/reducer.ts` is the pure state machine; `wizard/useAddLocationWizard.ts` owns the two fetch effects + submit/navigation; `wizard/steps/Step{1..4}*.tsx` are presentational; `wizard/billing.ts` + `wizard/payload.ts` hold the pure proration/payload helpers. |
 | `dashboard/requests/page.tsx` | **(#544)** "Requests" — the owner-facing Solicitation surface. Server component so the `SOLICITATION_WATCH_ENABLED` gate stays server-authoritative (invariant #13): `notFound()` when off, then renders `RequestsClient`. |
 | `dashboard/requests/RequestsClient.tsx` | **(#544)** Client island: fetches `GET /api/dashboard/solicitation/batch` for the selected location, polls every 2s while a batch is `building` (5-minute ceiling → `stalled`), POSTs `batch/reviewed` once a built report renders, and renders one screen per phase (loading / ready / stalled / error / `gone` on a mid-session 404). Phase is keyed by the location scope it was fetched for, so a superseded response never renders against the switched-to location. |
@@ -266,11 +266,13 @@ The approval API. All routes read the token from the URL path and verify a devic
 | `reviews/[reviewId]/edit/route.ts` | Edit from dashboard. |
 | `reviews/[reviewId]/regenerate/route.ts` | Regenerate from dashboard. |
 | `reviews/[reviewId]/timeline/route.ts` | **(WS5)** GET: owner/account-scoped read of one review's run timeline. Returns 404 for unknown or out-of-scope reviews and delegates all spine reads to `src/lib/agents/read.ts`. |
+| `reviews/[reviewId]/generate/route.ts` | **(#678)** POST: the **On-demand generation** `Generate` door for a never-replied review on the **Reviews list**. `withSameOrigin`; enforces the per-owner-account rate limit *before* any DB work, then the per-review regen-budget peek, then persists + enqueues `generate_response` in ONE transaction on the `on_demand_generate` **Origin lane** — which `persistResponseAndNotify` structurally excludes from auto-approval, so the draft is always owner-only (invariant #3). Error strings are closed: `review_not_found`, `already_answered`, `draft_already_exists`, `regenerate_in_progress`, `rate_limited`, `regen_limit_reached`. |
+| `reviews/[reviewId]/draft-status/route.ts` | **(#678)** GET: `reviewId`-keyed poller the inline Generate panel drives while a draft is in flight. Same-account sibling-location access is intentional; cross-account is a 404. A **moderation-held** response (open `flagged_responses` row) returns `{ status: 'idle' }` and never `response_text` — invariant #4 means the owner's only path is admin re-notification. |
 | `agent-team/route.ts` | **(WS5)** GET: windowed Reply/Guardian/Insights outcome counts for the current account or selected location. Foreign or archived location scopes return 404. |
 | `escalations/route.ts` | **(WS5)** GET: bounded Needs-attention queue of the account's open Guardian escalations, with a separate `totalOpen` count. Delegates to `src/lib/escalations/list.ts`. |
 | `escalations/[escalationId]/acknowledge/route.ts` | **(WS3)** POST: owner acknowledges an open Guardian escalation. Same-origin + owner auth + writable-subscription guard; delegates to `src/lib/escalations/transitions.ts` (404 not-found in scope, 409 already-resolved). |
 | `escalations/[escalationId]/resolve/route.ts` | **(WS3)** POST: owner resolves an escalation (direct escalated → resolved stamps both timestamps). Same guards; records `escalation_resolved` on a completed run. |
-_(No `past-replies/*` API routes on `feat/past-replies-view` — the tab is read-only, all data fetched server-side from the page component. The full edit/publish/retry/restore-original route set is parked on tag `wip/edit-existing-replies-zernio-v1`.)_
+_(The `past-replies/*` route set — `draft`, `draft/[responseId]`, `draft-status`, `publish`, `[responseId]/retry`, `[responseId]/restore-original` — is the `Regenerate` lane on the **Reviews list** (it replaces a LIVE Google reply, so it stays separate from the `reviews/[reviewId]/generate` door above). All of them gate on `editRepliesEnabled()` and return 503 `feature_disabled` when `EDIT_REPLIES_ENABLED` is off; the retired `PAST_REPLIES_VIEW_ENABLED` half of the old two-flag check is gone as of #678. Shared request parsing/guards live in `past-replies/_shared/edit-reply-request.ts`.)_
 | `channels/route.ts` | GET: returns owner-scoped enrollment status for all channels (`{ enrollments, available, reasons }`). Auth: `businessId` from session only. |
 | `channels/telegram/start/route.ts` | POST: starts a Telegram enrollment for the owner (generates QR token). |
 | `channels/telegram/cancel/route.ts` | POST: cancels a pending Telegram enrollment. |
@@ -409,7 +411,9 @@ Reusable React components imported by multiple pages.
 | `dashboard/ConnectGoogleBanner.tsx` | Banner surfacing the owner's Zernio GBP connection state. States: active (hidden), none (blue CTA), disconnected (orange CTA), finalize_unknown (yellow ops-alert). |
 | `dashboard/account-state/ImportOfferBanner.tsx` | **(#677)** The **Import offer** prompt, a new adapter at the existing banner seam beside `ConnectGoogleBanner` (same `banner` / `b-title` / `banner-cta` anatomy; self-nulls on `{ state: 'none' }`). Sources state from `GET /api/dashboard/import-offer`, **not** the Redis-cached dashboard payload, so a declined offer stops rendering immediately. Carries `offer → importing → outcome → gone`, polls only while `importing`, advances only on a successful POST (never optimistically), and shows no retry on `failed` — retry is the worker's via the `completed_at IS NULL` sentinel. Query key includes the scoped `locationId` so one location's offer can never render against another. Copy is locked verbatim, incl. the 7-day disclosure and the reassurance line. |
 | `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (WhatsApp only). |
-| `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |
+| `dashboard/reviews/PastReplyCard.tsx` | Card for one row of the **Reviews list**. Renders the server-derived `ReviewRowState` — it never computes one — so every "never offer Generate on X" rule lives in `replies-view.ts`. Shows the review on the left, the reply (when any) on the right, and a `ProvenanceBadge`. Mutation affordances (`Regenerate` → `EditReplyDrawer`, recovery) appear only when `editRepliesEnabled` is passed true. A missing regen-budget map entry means **unknown**, not zero: `Regenerate` stays enabled and the counter hides (fail-open, per the cost-guard matrix). |
+| `dashboard/reviews/InlineGeneratePanel.tsx` | **(#678)** The `Generate` door's inline expansion on a never-replied row — the low-risk counterpart to `EditReplyDrawer` (which replaces a LIVE Google reply and therefore stays a two-pane drawer). Presentational; all fetch/poll/state lives in `useInlineGenerate.ts`. |
+| `dashboard/reviews/useInlineGenerate.ts` | **(#678)** Hook owning the inline Generate lifecycle: POST `reviews/[reviewId]/generate`, then poll `reviews/[reviewId]/draft-status` until `ready` or terminal, mapping the route's closed error strings to owner-facing copy. |
 | `dashboard/AgentTeamStrip.tsx` | **(WS5)** Three-card Reply/Guardian/Insights summary strip. Follows the dashboard's account/location scope and time window; zero-count agents remain visible as "Standing by". |
 | `dashboard/NeedsAttentionList.tsx` | **(WS5)** Owner exception queue backed by `/api/dashboard/escalations`; hidden when empty, otherwise links each open escalation to its review timeline. |
 | `dashboard/timeline/` | **(WS5)** Timeline presentation package: `TimelineContent`, `RunTimeline`, `TimelineStepRow`, `RunStateBadge`, and `TimelineEscalationActions`. Renders stored persona attribution and structured facts; acknowledge/resolve actions reuse the existing Guardian transition routes. |
@@ -580,6 +584,25 @@ Everything about fetching and normalising Google reviews.
 | `mock-source.ts` / `mock-monitor.ts` | Canned data used when `MOCK_EXTERNAL_APIS=true`. |
 
 **Connection:** `ReviewSyncWorker` instantiates `SerpApiMonitor` → calls `process-review.ts` for each result → writes to DB → enqueues `GenerateResponsePayload` via outbox.
+
+### `past-replies/`
+
+The read + derivation side of the **Reviews list** (the page itself is
+`src/app/(authenticated)/dashboard/reviews/history/`).
+
+| File | What it does |
+|------|--------------|
+| `load-replies.ts` | `loadPastRepliesPageView` — the ONE account/location-scoped query behind the list. `LEFT JOIN` (not `JOIN`) so never-replied reviews appear, plus LATERALs for the live draft (carrying a `held` flag from `flagged_responses`) and the orphan sidecar, so `is_orphan` is a column on the single row source rather than a caller-set field. Orders unanswered-first, then `review_date DESC, r.id DESC`; `PAGE_SIZE` 50. |
+| `replies-view.ts` | Pure derivation: `deriveRowState` (six-state `ReviewRowState`, precedence `recover → regenerate → held → draft_ready → generating → generate`) and `provenanceBadge` (four-value `ProvenanceBadge`; `isHistorical` survives only as a badge input, never as a bucketing predicate). The card renders a state — it never computes one. |
+| `flags.ts` | `editRepliesEnabled()` — the sole `EDIT_REPLIES_ENABLED` accessor over `readFlag`, and the module's only export since #678 retired `PAST_REPLIES_VIEW_ENABLED`. |
+| `__tests__/load-replies.integration.test.ts` | **(#678)** Live-Postgres suite for the list query: unanswered-first ordering and the count denominators, asserted against the real schema rather than a mocked row shape. |
+
+The **On-demand generation** doors' own live-Postgres suite is
+`src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/generate-version.integration.test.ts`
+(#678) — it proves the `MAX(version)`-derived versioning through the real chain:
+discarding a v1 `Generate` draft retains it and the next POST enqueues v2.
+Both suites follow the live-DB convention (`*.integration.test.ts`, no migration
+SQL, `assertSchemaReady`); provision with `pnpm test:db:setup`.
 
 ### `escalations/`
 
@@ -1117,15 +1140,19 @@ Zernio fires review.new / review.updated → POST /ingress/zernio
   → ResponseGeneratorWorker → NotificationWorker → owner email
 ```
 
-### Past replies — read-only history of every posted Google reply
+### Reviews list — every review for the location, unanswered first (#678)
 
 ```
-Owner navigates to /dashboard/reviews/history (PAST_REPLIES_VIEW_ENABLED=true)
-  → server component reads reviews JOIN responses ON status='posted'
-  → bucketed into "From your active period" (review_date >= activated_at)
-                + "From before you joined" (review_date < activated_at)
-  → renders PastReplyCard rows (review + reply + provenance label)
-  → optional edit actions appear when EDIT_REPLIES_ENABLED=true
+Owner navigates to /dashboard/reviews → "All Reviews" tab (no flag; renders always)
+  → server component reads reviews LEFT JOIN responses (+ draft / orphan LATERALs)
+  → grouped "Unanswered" then "Answered", newest-first within each, PAGE_SIZE 50
+  → deriveRowState() per row: recover → regenerate → held → draft_ready
+                              → generating → generate   (precedence, not preference)
+  → provenanceBadge() per answered row (replaces the dead gap/historical split)
+  → renders PastReplyCard rows
+  → Generate  → InlineGeneratePanel → POST reviews/:id/generate (on_demand_generate)
+                                    → GET  reviews/:id/draft-status (poll)
+  → Regenerate → EditReplyDrawer → the past-replies edit routes  [EDIT_REPLIES_ENABLED]
   → Copilot and Autopilot receive the same paid history/edit entitlement
 ```
 

@@ -26,6 +26,14 @@ export const GENERATE_RESPONSE_ORIGIN_LANE = {
   LIVE_INGEST_UPDATE: 'live_ingest_update',
   BACKFILL: 'backfill',
   REGENERATE: 'regenerate',
+  /**
+   * Owner-initiated `Generate` from the Reviews list on a never-replied review
+   * (On-demand generation, spec §6.3b). Deliberately distinct from
+   * LIVE_INGEST_NEW: a Generate draft is version 1, so this lane value is the
+   * ONLY thing excluding it from `isAutoApprovalCandidate`
+   * (worker/jobs/response-generation/persist.ts:86-90) — invariant #3.
+   */
+  ON_DEMAND_GENERATE: 'on_demand_generate',
 } as const;
 
 export const GENERATE_RESPONSE_ORIGIN_LANES = Object.values(GENERATE_RESPONSE_ORIGIN_LANE);

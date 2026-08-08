@@ -46,6 +46,17 @@ No `*_ENABLED` var is introduced for this epic, and no entry is added to
 `EDIT_REPLIES_ENABLED` are untouched — they gate the pre-existing Past Replies
 surface the epic reuses (map #667), not the import.
 
+> **Update, 2026-08-08 (#678).** `PAST_REPLIES_VIEW_ENABLED` was **retired** by
+> the epic's last implementation ticket. The claim above held for every ticket
+> that shipped under it and is left as written; what changed is that the surface
+> the epic reuses became the **Reviews list**, the import's only destination — at
+> which point a flag that can `notFound()` the destination could coexist with
+> `import_decision='accepted'`, i.e. an owner consents and the reviews land
+> nowhere. That is this ADR's own reasoning applied one ticket later: the flag's
+> only job was hiding an incomplete surface, and the surface is complete.
+> `EDIT_REPLIES_ENABLED` remains and is now the **sole** gate on the edit path —
+> it governs the live-Google mutation, a materially larger risk.
+
 ### 2. The ordering constraint replaces the flag, and is binding
 
 **#677 (import offer: decision API + prompt UI) lands before or with #676

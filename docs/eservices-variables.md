@@ -117,8 +117,9 @@ WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO
 `SENTRY_DSN` ✅ · `NEXT_PUBLIC_SENTRY_DSN` ✅ · `SENTRY_ORG` ✅ · `SENTRY_PROJECT` ✅ · `SENTRY_AUTH_TOKEN` ✅ · `POSTHOG_API_KEY` ✅ · `POSTHOG_HOST` ✅ · `LOG_SERVICE` 🟢 (log-label, cosmetic)
 
 ### Feature flags
-`SELF_SERVE_SIGNUP_ENABLED` ✅ · `RANKING_TRACKING_ENABLED` ✅ · `EDIT_REPLIES_ENABLED` ✅ · `MULTI_LOCATION_ENABLED` 🟢 · `ONBOARDING_DEMO_ENABLED` 🟢 · `EXTERNAL_REPLY_IMPORT_ENABLED` 🟢 · `PAST_REPLIES_VIEW_ENABLED` 🟢 · `MFA_ENFORCEMENT_ENABLED` 🟢 · `AUTO_APPROVAL_ENABLED` 🟢 · `AUTOPILOT_PURCHASABLE` ✅ · `AUTO_APPROVAL_PROVIDER_MODERATION_READY` 🟢 · `ACCOUNT_OFFBOARDING_ENABLED` 🟢 · `OPENAI_MODERATION_ENABLED` 🟢 (listed under LLM)
+`SELF_SERVE_SIGNUP_ENABLED` ✅ · `RANKING_TRACKING_ENABLED` ✅ · `EDIT_REPLIES_ENABLED` ✅ · `MULTI_LOCATION_ENABLED` 🟢 · `ONBOARDING_DEMO_ENABLED` 🟢 · `EXTERNAL_REPLY_IMPORT_ENABLED` 🟢 · `MFA_ENFORCEMENT_ENABLED` 🟢 · `AUTO_APPROVAL_ENABLED` 🟢 · `AUTOPILOT_PURCHASABLE` ✅ · `AUTO_APPROVAL_PROVIDER_MODERATION_READY` 🟢 · `ACCOUNT_OFFBOARDING_ENABLED` 🟢 · `OPENAI_MODERATION_ENABLED` 🟢 (listed under LLM)
 > Behavior of each flag: `.claude/reference/env-vars.md`. All are server-authoritative — never add a `NEXT_PUBLIC_*` companion.
+> **Retired:** `PAST_REPLIES_VIEW_ENABLED` (#678) — the **Reviews list** at `dashboard/reviews/history` renders unconditionally, so the flag would have let `import_decision='accepted'` coexist with imported reviews landing on a `notFound()`. `EDIT_REPLIES_ENABLED` is kept: it gates the live-Google mutation, a different and larger risk. The var may still be set in deployed environments; it is simply unread.
 
 ### Costs
 `GLOBAL_DAILY_COST_LIMIT_CENTS` ✅ · `DAILY_COST_LIMIT_CENTS_COPILOT` ✅

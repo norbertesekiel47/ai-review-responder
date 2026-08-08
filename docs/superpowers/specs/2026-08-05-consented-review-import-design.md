@@ -305,7 +305,11 @@ write, or offering to replace it. This retires the last consumer of the
 gap/historical vocabulary that CONTEXT.md already marks dead for the Import
 window.
 
-**S4 — `PAST_REPLIES_VIEW_ENABLED` is retired at #678.** Once this surface is
+**S4 — `PAST_REPLIES_VIEW_ENABLED` is retired at #678.** ✅ **AS BUILT (#678).**
+`src/lib/past-replies/flags.ts` is collapsed to the single `editRepliesEnabled()`
+— `replyEditingFlagEnabled` and `pastRepliesViewEnabled` are both deleted, and
+the registry rows in `.claude/reference/env-vars.md` + `.env.example` moved in
+the same change. Once this surface is
 the import's only destination, the flag would let `import_decision='accepted'`
 coexist with the imported reviews landing on a `notFound()`. Deleting the gate
 matches §8a's "the old path is deleted, not gated" posture and is safe on the
@@ -427,10 +431,12 @@ action reads `Replace reply on Google`, never a bare "Publish"; the decline
 action reads `Keep my reply`. Both panes are always rendered, so the owner
 cannot approve a replacement without having seen what it destroys.
 
-Related existing surfaces (already built, behind flags): the Past Replies
-archive at `src/app/(authenticated)/dashboard/reviews/history/`,
-`src/lib/past-replies/load-replies.ts`, gated by `PAST_REPLIES_VIEW_ENABLED` +
-`EDIT_REPLIES_ENABLED` — the first of which S4 retires.
+Related surfaces: the **Reviews list** at
+`src/app/(authenticated)/dashboard/reviews/history/` +
+`src/lib/past-replies/{load-replies,replies-view}.ts`. ✅ **AS BUILT (#678)** it
+renders **unflagged** — S4's retirement of `PAST_REPLIES_VIEW_ENABLED` has
+landed — while `EDIT_REPLIES_ENABLED` still gates this `Regenerate` mutation
+lane.
 
 ---
 

@@ -10,7 +10,7 @@ import type { PublishResponsePayload } from '../../../src/lib/shared/worker-type
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
-import { replyEditingFlagEnabled } from '../../../src/lib/past-replies/flags';
+import { editRepliesEnabled } from '../../../src/lib/past-replies/flags';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
@@ -195,7 +195,7 @@ export async function handlePublishResponse(
   // is byte-for-byte today's POST-only path. The module owns all DB mutations
   // + the locked DELETE+POST tx; the worker translates its outcome into the
   // existing outbox lifecycle.
-  if (replyEditingFlagEnabled()) {
+  if (editRepliesEnabled()) {
     const [postedSibling] = await sql<{ id: string }[]>`
       SELECT id FROM responses
       WHERE review_id = ${response.review_id}

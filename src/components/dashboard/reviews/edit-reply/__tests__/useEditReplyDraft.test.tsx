@@ -21,6 +21,8 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     approval_method: null,
     posted_at: '2026-05-02T00:00:00Z',
     external_reply_ingested_at: null,
+    // An answered row: the drawer lane only ever opens on one (#678 row states).
+    row_state: 'regenerate',
     review_content_hash: 'hash-abc',
     version: 3,
     canEdit: true,
