@@ -32,6 +32,7 @@ const {
   resetMockSql,
   mkTaggedResult,
   mockMarkOutboxCompleted,
+  mockMarkOutboxCompletedWithReason,
   completionCalls,
   mockLogger,
 } = await vi.hoisted(async () => {
@@ -40,11 +41,19 @@ const {
   const harness = createMockSql();
 
   /**
-   * Every `markOutboxCompleted` invocation WITH the transaction context it was
-   * made in. `sqlCalls` carries `inTransaction` per query, but the completion
-   * is a mocked collaborator and issues no query of its own — so the flag has
-   * to be sampled at call time, which is exactly the mock-sql helper's
-   * documented `isInTransaction()` use.
+   * Every `markOutboxCompletedWithReason` invocation WITH the transaction
+   * context it was made in. `sqlCalls` carries `inTransaction` per query, but
+   * the completion is a mocked collaborator and issues no query of its own — so
+   * the flag has to be sampled at call time, which is exactly the mock-sql
+   * helper's documented `isInTransaction()` use.
+   *
+   * `reason` is REQUIRED, not optional, and that is load-bearing. When this
+   * array also recorded the plain writer, `reason` had to be optional, and
+   * `expect(completionCalls[0]!.reason).toBe(OUTBOX_COMPLETION_REASON.X)`
+   * therefore compared `undefined` to `undefined` and passed while the feature
+   * was still unbuilt (deviations D5). Only the reason writer records here, so
+   * a regression to the plain writer leaves the array EMPTY and the assertions
+   * throw rather than silently pass.
    *
    * The EXECUTOR the completion was handed is deliberately not recorded.
    * `mock-sql.ts:99-103` invokes the `sql.begin` callback with the same mock
@@ -58,6 +67,7 @@ const {
   const completionCalls: {
     outboxId: string;
     attempt: number | undefined;
+    reason: string;
     inTransaction: boolean;
   }[] = [];
 
@@ -65,11 +75,20 @@ const {
     ...harness,
     mkTaggedResult,
     completionCalls,
-    mockMarkOutboxCompleted: vi.fn(
-      (_exec: unknown, outboxId: string, attempt: number | undefined) => {
+    // A bare stub, deliberately NOT a recorder. `guardImportConsent` — the only
+    // export this suite exercises — never calls the plain writer: it completes a
+    // refusal through `markOutboxCompletedWithReason` and completes nothing at
+    // all on the accepted path. The stub exists solely so the module mock keeps
+    // the `markOutboxCompleted` export defined for `guardZernioJobEligibility`,
+    // whose three reasonless skips are covered in `ZernioBackfillWorker.test.ts`.
+    // Recording it here bought nothing and cost the D5 optionality above.
+    mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxCompletedWithReason: vi.fn(
+      (_exec: unknown, outboxId: string, reason: string, attempt: number | undefined) => {
         completionCalls.push({
           outboxId,
           attempt,
+          reason,
           inTransaction: harness.isInTransaction(),
         });
       },
@@ -81,6 +100,7 @@ const {
 // ── Module mocks ─────────────────────────────────────────────────────────
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
 }));
 vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => mockLogger,
@@ -88,6 +108,7 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
 
 import { guardImportConsent, type ImportConsentGate } from '../job-eligibility';
 import { importConsentStateSql } from '../../../../src/lib/reviews/import-consent';
+import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
 
 // A real named import, deliberately. Through the eval commit this was a widened
 // namespace cast so the file could typecheck before `guardImportConsent` existed
@@ -172,7 +193,7 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
 
     // Proceeding is the ONLY path that must not touch the outbox row: the
     // worker completes it itself after the import.
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompletedWithReason).not.toHaveBeenCalled();
     expect(mockLogger.log).not.toHaveBeenCalled();
   });
 
@@ -184,7 +205,7 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     // Skip-as-success (job-eligibility's existing convention): the row is
     // COMPLETED, never failed, thrown or retried — a declined import must not
     // churn the queue forever.
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
     expect(completionCalls[0]!.outboxId).toBe(OUTBOX_ID);
     expect(completionCalls[0]!.attempt).toBe(3);
   });
@@ -196,7 +217,7 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     pushConsentState('pending');
 
     expect(await runGuard()).toEqual({ kind: 'skipped' });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
   });
 
   it('guardImportConsent blocks a pending business whose offer deadline has passed', async () => {
@@ -206,7 +227,7 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     pushConsentState('expired');
 
     expect(await runGuard()).toEqual({ kind: 'skipped' });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
   });
 
   it('guardImportConsent blocks a pending business whose offer deadline is NULL', async () => {
@@ -237,14 +258,14 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
 
     expect(await runGuard()).toEqual({ kind: 'skipped' });
     expect(consentRead().text).toContain(fragment);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
   });
 
   it('guardImportConsent blocks a business row that does not exist', async () => {
     pushConsentState(null);
 
     expect(await runGuard()).toEqual({ kind: 'skipped' });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
     expect(mockLogger.log).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ reason: 'missing', business_id: BUSINESS_ID }),
@@ -306,7 +327,7 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     // derived state alone. A guard that also selected import_offer_expires_at
     // and compared it in JS would pass every state test above and fail here.
     expect(sqlCalls).toHaveLength(1);
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompletedWithReason).not.toHaveBeenCalled();
   });
 
   it('guardImportConsent scopes the derived-state SELECT to b.id = businessId', async () => {
@@ -346,5 +367,76 @@ describe('guardImportConsent (#679 spec §5.3 fail-closed gate)', () => {
     // the callback the same object either way, so `exec === mockSql` cannot
     // fail. See the `completionCalls` note above — executor identity is pinned
     // against real Postgres in the integration suite, by lock contention.
+  });
+
+  // ── #695: the durable block reason on the refused row ──────────────────
+
+  it('guardImportConsent completes a refused backfill row with completion_reason import_consent_blocked', async () => {
+    pushConsentState('declined');
+
+    expect(await runGuard({ attempt: 3 })).toEqual({ kind: 'skipped' });
+
+    // BOTH recorders push into `completionCalls` (deviations D5), so a length
+    // assertion alone is satisfied by the plain-completion path — and at eval
+    // time `IMPORT_CONSENT_BLOCKED` is `undefined`, which `toBe` matches against
+    // the plain recorder's absent `reason`. Naming the reason WRITER is what
+    // makes this test able to fail.
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
+    expect(completionCalls).toHaveLength(1);
+    expect(completionCalls[0]!.reason).toBe(
+      OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED,
+    );
+    expect(completionCalls[0]!.attempt).toBe(3);
+  });
+
+  it('guardImportConsent stamps import_consent_blocked for a businesses row that does not exist', async () => {
+    // A hand-inserted row for a deleted location is a refusal, not a separate
+    // class — the single marker deliberately does not distinguish `missing`
+    // from `declined`. The per-state detail lives in the log line below it.
+    pushConsentState(null);
+
+    expect(await runGuard()).toEqual({ kind: 'skipped' });
+
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1); // D5
+    expect(completionCalls[0]!.reason).toBe(
+      OUTBOX_COMPLETION_REASON.IMPORT_CONSENT_BLOCKED,
+    );
+    expect(mockLogger.log).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'missing' }),
+    );
+  });
+
+  it('guardImportConsent writes the block reason inside its own consent transaction', async () => {
+    // TITLE RETITLED at round-1 review (deviations D2). The original claimed "on the
+    // transaction handle, never the outer sql client" — a property this harness
+    // CANNOT observe: mock-sql.ts:99-103 invokes the `sql.begin` callback with the
+    // same mock object, so `exec === mockSql` holds under a correct AND a broken
+    // implementation. The title now claims only the `inTransaction` evidence below.
+    //
+    // The stronger property — that the completion rides the guard's OWN transaction
+    // and therefore its `businesses` row lock — is pinned against real Postgres by
+    // the forced-race test in job-eligibility.integration.test.ts, which is where a
+    // regression would actually show up as lost consent.
+    pushConsentState('expired');
+
+    await runGuard();
+
+    // The subject is the BLOCK REASON's transaction, so the reason writer has to
+    // be the one that ran — `completionCalls[0]` alone is written by either
+    // recorder (deviations D5).
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledTimes(1);
+    expect(completionCalls[0]!.inTransaction).toBe(true);
+  });
+
+  it('guardImportConsent stamps no completion_reason when consent is accepted', async () => {
+    // Proceeding must leave the row untouched: the worker completes it itself
+    // after the import, and a marker here would label a real import a refusal.
+    pushConsentState('accepted');
+
+    expect(await runGuard()).toEqual({ kind: 'proceed' });
+
+    expect(completionCalls).toHaveLength(0);
+    expect(mockMarkOutboxCompletedWithReason).not.toHaveBeenCalled();
   });
 });

@@ -188,9 +188,11 @@ API on the same predicate; there is no lazy write-back of an `expired` value.
 
 **The block lives in the worker, fail-closed.** The admin re-enqueue path is
 manual SQL — a runbook instruction (`src/app/admin/runbook/page.tsx`), not a
-route; `/admin/jobs` is read-only — so no enqueue-time gate can ever cover it.
-The one chokepoint every path shares (product enqueues, admin hand-inserts,
-future code) is `ZernioBackfillWorker` itself. A consent gate joins the
+route; `/admin/jobs` is read-only — so no gate at the four PRODUCT enqueue paths
+can cover it. A database-level gate at the `job_outbox` insertion boundary
+could; that alternative was weighed at #695 and declined (ADR 0016). Among
+application-level loci, the one chokepoint every path shares (product enqueues,
+admin hand-inserts, future code) is `ZernioBackfillWorker` itself. A consent gate joins the
 existing pre-flight guards (`guardZernioJobEligibility`,
 `worker/jobs/zernio/job-eligibility.ts`): the run proceeds **only** on
 `import_decision = 'accepted'`; declined, derived-expired, and pending all
@@ -212,6 +214,19 @@ The runbook instruction ("re-enqueue zernio_initial_backfill outbox row")
 becomes conditional and is updated by #679: re-enqueue only when consent is
 `accepted` and no completed run exists; declined or derived-expired is
 permanent (D8), admin path included.
+
+**Challenged and re-affirmed (2026-08-08, #695).** The adversarial review of #679
+proposed the `job_outbox` insertion boundary as an alternative enforcement locus.
+Weighed and declined: a trigger needs a second, unenforceable spelling of
+`importConsentStateSql` in PL/pgSQL, which this section's single-owner rule exists
+to prevent, and it would not remove the worker guard anyway. Full reasoning, the
+"For" case, and the operator query for refused rows:
+`docs/adr/0016-import-consent-enforcement-locus.md`. A refusal is now separable by
+SQL (`job_outbox.completion_reason = 'import_consent_blocked'`), which answers the
+observability half of the same review finding — for the **7-day archival window**
+only, since `ArchivalPoller` deletes completed `job_outbox` rows past that age. The
+marker is an operational signal, not an audit record; the durable consent record
+remains `businesses.import_decision`. See the ADR's "Operator query, and its limits".
 
 ---
 
