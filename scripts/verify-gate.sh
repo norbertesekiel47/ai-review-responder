@@ -51,6 +51,45 @@ REVIEW_MODE=false
 INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
 
+# Fatal abort taken before the results table exists. Records a RED
+# gate-status.json on the way out: leaving the previous run's green file on
+# disk would let the Stop hook read a stale success as this run's result.
+#
+# Defined BEFORE anything that can fail, including the sourced row library, so
+# every later failure exits THROUGH here rather than around it.
+gate_abort() {
+  local row="$1" message="$2"
+  # Best effort: TERM the launched subshells so an abort does not leave a pile
+  # of visibly running rows. Their own children (pnpm → node) share this
+  # shell's process group and are NOT reaped — building per-row process groups
+  # would mean enabling job control, which changes the `jobs -rp` throttle the
+  # fan-out depends on. A duplicate row name is a gate bug that should never
+  # reach a user; this is tidiness, not a guarantee.
+  kill $(jobs -p) 2>/dev/null || true
+  printf '{"passed":false,"mode":"full","timestamp":%s,"checks":[{"name":"%s","result":"FAIL"}]}\n' \
+    "$(date +%s)" "$row" > .feature/gate-status.json
+  echo "VERIFY GATE:"
+  printf '  %-24s %s\n' "$row" "FAIL"
+  echo "GATE: RED — $message"
+  exit 1
+}
+
+# Row identity. A row's name is also its log file and its coverage directory,
+# so name uniqueness is a correctness property rather than cosmetics (#696).
+# Sourced rather than inlined: sourcing THIS script would run the gate, which
+# left the derivation with no unit-test seam.
+# `CDPATH=` because an exported CDPATH makes `cd` resolve somewhere else and
+# print the directory it chose, silently pointing this at the wrong tree.
+GATE_SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/gate-rows.sh
+. "$GATE_SCRIPT_DIR/gate-rows.sh"
+# A library that did not load must not surface as a bogus collision: with
+# assert_unique_row_name undefined, `launch` reads the resulting exit 127 as a
+# duplicate and aborts naming a row that is perfectly fine.
+command -v row_slug >/dev/null 2>&1 && [ -n "${GATE_ROW_HASH_CMD:-}" ] \
+  || gate_abort "row-identity" \
+       "scripts/gate-rows.sh did not load (see above) — row names cannot be made collision-free."
+
 SURFACE=$(jq -r '.surface // "backend"' "$INTAKE" 2>/dev/null || echo "backend")
 DB_TOUCHING=$(jq -r '.db_touching // false' "$INTAKE" 2>/dev/null || echo "false")
 
@@ -85,12 +124,8 @@ if [ "$DOCS_ONLY" = false ] && [ "$DB_TOUCHING" = "true" ] && [ -n "${TEST_DATAB
   if pnpm test:db:setup > .feature/logs/db-provision.log 2>&1; then
     DB_PROVISION_RESULT="PASS"
   else
-    printf '{"passed":false,"mode":"full","timestamp":%s,"checks":[{"name":"db-provision","result":"FAIL"}]}\n' \
-      "$(date +%s)" > .feature/gate-status.json
-    echo "VERIFY GATE:"
-    printf '  %-24s %s\n' "db-provision" "FAIL"
-    echo "GATE: RED — test-DB provisioning failed (tail .feature/logs/db-provision.log); parallel checks not started."
-    exit 1
+    gate_abort "db-provision" \
+      "test-DB provisioning failed (tail .feature/logs/db-provision.log); parallel checks not started."
   fi
 fi
 
@@ -110,6 +145,12 @@ VITEST_WORKERS=${VITEST_WORKERS:-4}
 
 launch() {
   local name="$1"; shift
+  # One name = one status slot = one .feature/logs/<name>.log. A second row
+  # under the same name can only be reported as the first one's result, so it
+  # aborts the gate instead of resolving silently (#696). `${NAMES[@]+…}` is
+  # the bash 3.2 spelling for expanding a possibly-empty array under `set -u`.
+  assert_unique_row_name "$name" ${NAMES[@]+"${NAMES[@]}"} \
+    || gate_abort "row-name-collision" "duplicate gate row name '$name' (see above)."
   # Throttle by POLLING `jobs -rp`, never `wait -n`: the result loop below
   # recovers each row's exit code with `wait "${PIDS[$i]}"`, and `wait -n` does
   # not exist in bash 3.2 (what /usr/bin/env bash resolves to on macOS) — it
@@ -161,15 +202,21 @@ fi
 # Destructive DB commands are REJECTED, not run: the gate owns provisioning
 # (serial, above) — a schema-dropping command can never be a safe parallel
 # peer of the suites reading that schema (#643 step-5 gate incident).
-REJECTED_EXTRAS=""
+#
+# A rejected extra never reaches `launch`, so it asserts its own name: row_slug
+# separates two DIFFERENT commands, but two IDENTICAL intake entries derive the
+# same slug and would share one row and one log (#696).
+REJECTED_EXTRAS=()
 while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
-  SAFE=$(echo "$CMD" | tr -c 'a-zA-Z0-9' '-' | cut -c1-40)
+  SAFE=$(row_slug "$CMD")
   if echo "$CMD" | grep -qiE 'test:db:setup|db:setup|drop schema'; then
+    assert_unique_row_name "extra-${SAFE}" \
+      ${NAMES[@]+"${NAMES[@]}"} ${REJECTED_EXTRAS[@]+"${REJECTED_EXTRAS[@]}"} \
+      || gate_abort "row-name-collision" "duplicate gate row name 'extra-${SAFE}' (see above)."
     echo "rejected destructive verification_command: $CMD" > ".feature/logs/extra-${SAFE}.log"
     echo "The gate provisions the test DB serially when db_touching — remove this from the intake." >> ".feature/logs/extra-${SAFE}.log"
-    REJECTED_EXTRAS="${REJECTED_EXTRAS}extra-${SAFE}
-"
+    REJECTED_EXTRAS+=("extra-${SAFE}")
     continue
   fi
   launch "extra-${SAFE}" bash -c "$CMD"
@@ -183,14 +230,17 @@ INTEGRATION_SKIPPED=0
 # Per-row coverage output. Each integration row is its own vitest process
 # writing a COMPLETE coverage-final.json, so a shared directory would let the
 # last row overwrite every other one (#563 item 2). One directory per row, then
-# merged into the base report before diff-coverage reads it.
+# merged into the base report before diff-coverage reads it. "Per row" is only
+# true because the row name is collision-free: while it was a 40-character
+# truncation, two import-consent-*.integration.test.ts suites resolved to ONE
+# directory and raced it to an ENOENT (#696) — and, worse, to one status slot.
 INTEGRATION_COV_DIR=".feature/coverage"
 rm -rf "$INTEGRATION_COV_DIR"
 if [ -n "$CHANGED_INTEGRATION" ]; then
   if [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
     while IFS= read -r FILE; do
       [ -f "$FILE" ] || continue
-      SAFE=$(echo "$FILE" | tr -c 'a-zA-Z0-9' '-' | cut -c1-40)
+      SAFE=$(row_slug "$FILE")
       if [ "$REVIEW_MODE" = true ]; then
         launch "integration-${SAFE}" pnpm vitest run "$FILE" \
           --coverage --coverage.reportOnFailure \
@@ -218,10 +268,9 @@ done
 if [ -n "$DB_PROVISION_RESULT" ]; then
   NAMES+=("db-provision"); RESULTS+=("$DB_PROVISION_RESULT")
 fi
-while IFS= read -r REJECTED; do
-  [ -n "$REJECTED" ] || continue
+for REJECTED in ${REJECTED_EXTRAS[@]+"${REJECTED_EXTRAS[@]}"}; do
   NAMES+=("$REJECTED"); RESULTS+=("FAIL")
-done <<< "$REJECTED_EXTRAS"
+done
 
 # Synchronous post-check, appended after the parallel rows.
 run_sync() {
