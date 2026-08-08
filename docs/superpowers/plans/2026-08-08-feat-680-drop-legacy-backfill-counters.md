@@ -57,9 +57,17 @@ Serial: T1 → T2 → T3. No mutually independent pair (T3 needs T2's final migr
 **Files:** `src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts`
 (new), `src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts`,
 `worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts`.
-**Precedent to follow:** `migration-102-import-consent-analytics-events.integration.test.ts` for the
-suite skeleton (`acquireLiveDbLock` + `assertSchemaReady` + text assertions over the migration file);
-`migration-100-import-consent.integration.test.ts` for the `information_schema.columns` idiom.
+**Precedent to follow** (corrected per plan-review F14 — round 1's F5 fix corrected the Design
+analysis section above but left the false claim standing here). The precedent is **split**, and this
+suite is the first to need both halves:
+- `migration-100-import-consent.integration.test.ts` — the live half: `acquireLiveDbLock`,
+  `assertSchemaReady`, and the `information_schema.columns` introspection idiom this ticket inverts
+  from presence to absence.
+- `migration-102-import-consent-analytics-events.integration.test.ts` — the **text-only** half: the
+  `executableSql` helper (`:40`) reading the migration file. It imports **neither**
+  `acquireLiveDbLock` nor `assertSchemaReady` (verified: its imports are `node:fs`, `node:path`,
+  `vitest`, `postgres`, `describe-with-db`, `analytics/events`), so it is not a skeleton for the
+  live half.
 
 New suite — seven tests, titles VERBATIM from the intake.
 
@@ -67,31 +75,49 @@ New suite — seven tests, titles VERBATIM from the intake.
 `const executableSql = sql.replace(/--.*$/gm, '')` so header prose is never mistaken for a statement):
 
 1. `migration 103 executable SQL is exactly a bounded lock, the preflight guard, and the four legacy-column DROPs`
-   — **the plan-review BLOCKER (F1).** Assert the statement list is exactly: one `SET lock_timeout`,
-   one `DO $$ … $$` guard, one `ALTER TABLE zernio_backfill_runs` naming all four
-   `DROP COLUMN IF EXISTS` and nothing else. Assert NO `UPDATE`, `DELETE`, `TRUNCATE`, or `CASCADE`
-   anywhere in `executableSql` (the guard's `SELECT count(*)` is fine — `SELECT` is not forbidden).
-   Final-state introspection alone cannot catch a migration that drops the columns *and* erases
-   surviving counter values, nor distinguish 103 from a hand-dropped database.
+   — **the plan-review BLOCKER (F1), restructured after F11.** Final-state introspection alone
+   cannot catch a migration that drops the columns *and* erases surviving counter values, nor
+   distinguish 103 from a hand-dropped database — so the migration's executable text must be
+   constrained directly.
 
-   **The split must be dollar-quote aware — a naive `split(';')` is a defect** (introduced by this
-   very F1 fix, caught before submission). The `DO $$ … $$` body contains semicolons, so splitting
-   on `;` shatters one statement into six. Correct procedure:
+   **Pin the whole thing; do not excise and count.** Assert that `executableSql`, with runs of
+   whitespace collapsed and trimmed, **equals a pinned canonical string** held in the test. A landed
+   migration is immutable by repo rule, so exact pinning is the correct instrument: any future edit
+   to 103 — anywhere, including inside the guard body — forces a deliberate test update rather than
+   sliding through.
 
-   1. excise the guard with `/DO \$\$[\s\S]*?\$\$\s*;/` and assert **exactly one** such block exists
-      (`match(…)` length 1 — zero means the guard vanished, two means an unreviewed second block);
-   2. split the REMAINDER on `;`, trim, drop empties → assert **exactly two** statements, in order:
-      `SET lock_timeout` then the four-column `ALTER TABLE`;
-   3. run the destructive-keyword assertions over the WHOLE `executableSql`, guard body included —
-      the excision is only for counting statements, never for narrowing what gets scanned.
+   This replaces the excise-and-count procedure, which was defective three ways (F11), all retired
+   by deletion rather than repair:
+   - a denylist of `UPDATE`/`DELETE`/`TRUNCATE`/`CASCADE` never constrained the **guard body**, so a
+     `DROP TABLE IF EXISTS unrelated_table;` smuggled inside the `DO` block passed while still
+     yielding the expected remainder statement count;
+   - `executableSql.match(/DO \$\$[\s\S]*?\$\$\s*;/)` **cannot count** — without the `/g` flag
+     `.match()` returns a single-match array whose `.length` is 1 no matter how many blocks exist,
+     so the "exactly one block" assertion was inert;
+   - the regex fails closed on a tagged dollar-quote (`$body$`), turning a legal rewrite into a
+     confusing red.
+
+   Keep the destructive-keyword scan over the whole `executableSql` as a **redundant, readable
+   tripwire** — it names the risk in the failure message where a pinned-string diff would not. The
+   guard's `SELECT count(*)` is fine; `SELECT` is not forbidden.
 2. `migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop`
    — the bound exists AND precedes the `ALTER` in statement order (intake E8).
 
-**B. Preflight guard behaviour — BOTH branches** (live DB; `acquireLiveDbLock`;
-`-- live-db-ddl-ignore` for the `pg_temp` fixture). Extract the `DO` block from the migration file
-and execute **the migration's own text**, against a `pg_temp.zernio_backfill_runs` replica of the
-pre-103 shape shadowing the real table via `SET LOCAL search_path = pg_temp, public`, all inside a
-transaction that always rolls back:
+**B. Preflight guard behaviour — BOTH branches** (live DB; `acquireLiveDbLock`). Extract the `DO`
+block from the migration file and execute **the migration's own text**, against a
+`pg_temp.zernio_backfill_runs` replica of the pre-103 shape shadowing the real table via
+`SET LOCAL search_path = pg_temp, public`, all inside a transaction that always rolls back.
+
+**TWO `-- live-db-ddl-ignore` pragmas are required, not one** (plan-review F15):
+- one on the `CREATE TABLE pg_temp.…` fixture — a `CREATE TABLE` on `pg_temp` reads exactly like one
+  on the shared table;
+- one on the `tx.unsafe(guardSql)` line that executes the extracted block. `guardSql` is necessarily
+  a runtime variable, and `scripts/ci/live-db-suites-audit.ts:264-276` classifies an `.unsafe()`
+  call whose argument it cannot statically read as DDL — stated in its own header at `:285-286`:
+  *"An unreadable `.unsafe()` argument counts as DDL: unresolvable SQL must never pass as safe."*
+  Without this second pragma the suite fails `ci:live-db-suites`. Each pragma carries its own
+  reason: the pg_temp/rolled-back rationale for the execution line, the shadow-fixture rationale for
+  the `CREATE TABLE`.
 
 3. `migration 103 preflight raises when a legacy-work row disagrees with its collapsed counters`
    — seed one row with nonzero legacy counters whose sums differ from the collapsed values; the
@@ -147,27 +173,52 @@ the task.
 **Precedent:** `100_import_consent_and_backfill_counters.sql` (header structure, `SET lock_timeout`,
 explicit Rollback paragraph); `101_import_decision_three_valued_check.sql` (preflight-in-header).
 
-Body — exactly three statements, in this order (test 1 pins the list):
+Body — exactly **four** statements, in this order (test 1 pins the whole text):
 
 1. `SET lock_timeout = '5s';`
-2. An **executable fail-closed preflight guard** (`DO $$ … $$`) — owner-approved 2026-08-08 after
+2. `SET LOCAL search_path = public, pg_temp;` — added after plan-review F13. Postgres searches the
+   session's temporary schema **first** for relations unless `pg_temp` is placed explicitly, so
+   without this a same-name temp table would make `to_regclass`, the guard's unqualified `FROM`, and
+   the unqualified `ALTER` all target the temp table: 103 would report success while leaving
+   `public.zernio_backfill_runs` untouched and unreconciled. Practically unreachable — a migration
+   applies in a fresh session — but the plan previously asserted "resolves to `public` in a real
+   apply" *unconditionally*, and this statement is what makes that claim true **by construction
+   rather than by assumption**. It does not disturb T1 tests 3–4, which extract and execute only the
+   `DO` block and set their own `search_path`.
+3. An **executable fail-closed preflight guard** (`DO $$ … $$`) — owner-approved 2026-08-08 after
    plan-review F2, replacing the originally-locked "manual query documented in the header". It is
    existence-guarded on `gap_processed_count` so the migration stays re-runnable after the DROP, and
    RAISEs with the offending row count when the two-branch predicate finds anything:
 
    ```sql
    DO $$
-   DECLARE unreconciled BIGINT;
+   DECLARE
+     legacy_present INT;
+     unreconciled   BIGINT;
    BEGIN
-     -- Existence check resolves through search_path (NOT a hardcoded 'public'
-     -- literal) so the guard follows a pg_temp shadow. See "Why search_path-
-     -- relative" below — this is what makes T1 tests 3-4 possible at all.
-     IF to_regclass('zernio_backfill_runs') IS NULL
-        OR NOT EXISTS (SELECT 1 FROM pg_attribute
-                       WHERE attrelid = to_regclass('zernio_backfill_runs')
-                         AND attname  = 'gap_processed_count'
-                         AND NOT attisdropped)
-     THEN RETURN;                       -- already dropped: nothing to reconcile
+     -- Resolves through search_path (NOT a hardcoded 'public' literal) so the
+     -- guard follows a pg_temp shadow — this is what makes T1 tests 3-4
+     -- possible at all. Statement 2 pins search_path so a real apply cannot be
+     -- hijacked by a same-name temp table. See the two "Why" notes below.
+     SELECT count(*) INTO legacy_present
+       FROM pg_attribute
+      WHERE attrelid = to_regclass('zernio_backfill_runs')
+        AND NOT attisdropped
+        AND attname IN ('gap_processed_count', 'historical_processed_count',
+                        'gap_skipped_count',   'historical_skipped_count');
+
+     IF legacy_present = 0 THEN RETURN;  -- already dropped, or table absent:
+     END IF;                             -- nothing to reconcile (a missing
+                                         -- table then fails loudly at the ALTER)
+
+     -- Fail closed on a PARTIAL schema. 103's own four-column ALTER is atomic
+     -- so it cannot produce this state, but the guard must be sound against any
+     -- input state, not merely the ones 103 creates. Returning here would drop
+     -- the remaining columns' values unreconciled and unrecoverably.
+     IF legacy_present <> 4 THEN
+       RAISE EXCEPTION
+         'migration 103 preflight: partial legacy-counter schema (% of 4 present)',
+         legacy_present;
      END IF;
      SELECT count(*) INTO unreconciled FROM zernio_backfill_runs
      WHERE NOT (gap_processed_count = 0 AND historical_processed_count = 0
@@ -198,7 +249,7 @@ Body — exactly three statements, in this order (test 1 pins the list):
    `SET LOCAL search_path = pg_temp, public`, so tests 3–4 execute the migration's **own verbatim
    text** — preserving exactly the property the F2 reversal was bought for. `NOT attisdropped` is
    required: `pg_attribute` retains dropped columns as tombstone rows.
-3. One `ALTER TABLE zernio_backfill_runs` with four `DROP COLUMN IF EXISTS`.
+4. One `ALTER TABLE zernio_backfill_runs` with four `DROP COLUMN IF EXISTS`.
 
 Header must carry, each as a stated decision rather than a bare comment:
 
@@ -219,8 +270,10 @@ Header must carry, each as a stated decision rather than a bare comment:
 - `lock_timeout` rationale: DROP COLUMN takes ACCESS EXCLUSIVE and can collide with an in-flight
   backfill; 5s makes that a fast failure rather than a queue behind a long transaction (intake E8).
 
-Then `pnpm test:db:setup` to provision the local container to head, turning tests 1–3 and 5 green;
-test 4 goes green on the header text.
+Then `pnpm test:db:setup` to provision the local container to head, turning tests 1, 2, 3 and 5
+green. **Test 4 goes green on the guard's executed passing branch, not on header text** (corrected
+per plan-review F17 — that sentence was left behind by the F2 reversal, which turned test 4 from a
+comment text-match into an execution of the migration's own guard).
 
 ---
 
