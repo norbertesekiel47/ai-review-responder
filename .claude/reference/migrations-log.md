@@ -982,7 +982,7 @@ Revisit triggers:
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
 
-- **102** — `import_consent_analytics_events`: **LOCAL-ONLY** — extends the
+- **102** — `import_consent_analytics_events`: extends the
   `analytics_events.event_name` DB CHECK allowlist with `import_offer_created`
   + `import_decision_recorded` (#679 T1, epic #667; spec
   `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §5.1,
@@ -1020,9 +1020,14 @@ Revisit triggers:
   superset-plus-subset permits a CHECK carrying extra DB-only names. It is also
   the new owner of the live CHECK ⟺ `ANALYTICS_EVENT_NAMES` drift guard, handed
   off from 097's suite, which now pins its own historical 23-name list (the
-  089 → 094 → 097 precedent). **NOT YET APPLIED to staging or production** —
-  local test container only (`pnpm test:db:setup`); replace this LOCAL-ONLY
-  marker with the Applied to STAGING … / PRODUCTION … sentence at promotion.
+  089 → 094 → 097 precedent). **Applied to STAGING (`kubdiqdhqbhwmqfditeg`)
+  2026-08-08** — verified the way this log's header demands, by schema
+  introspection and never the migration ledger: `pg_get_constraintdef` carries
+  both new names and `convalidated` is true, plus a live probe inside a
+  deliberately-aborted `DO` block (a bogus `event_name` raised
+  `check_violation`, both new names inserted, zero residue after the rollback).
+  **NOT YET APPLIED to PRODUCTION** — applies at promotion, in the same change
+  window and BEFORE the emitting code goes live.
 
 - **101** — `import_decision_three_valued_check`: **corrective tighten of 100's
   CHECK** (#673 fallout; #670 amendment). `businesses.import_decision` drops
