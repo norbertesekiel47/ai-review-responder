@@ -811,6 +811,42 @@ uses it only as a tagged template. Matches the entry-point invariant
 so only the 3 top-level-`sql` callers (webhook worker, backfill worker,
 recent-review poller) needed wrapping.
 
+### Postgres.js does NOT parameterise every tagged-template substitution — a nested `Query` is spliced as raw SQL
+Widely assumed the opposite, and #694 shipped a code comment asserting it before
+review round 2 disproved it live:
+
+```ts
+await sql`${sql.unsafe('select 42 as n')}`   // → [{ n: 42 }]
+```
+
+A bind parameter can never be a statement, so that result is proof. Postgres.js
+inspects each substitution: a plain value becomes `$n`, but a nested `Query`
+(anything built by `sql`…`` or `sql.unsafe(...)`) is spliced into the SQL TEXT via
+`fragment()`. That is what makes composable fragment builders work
+(`primaryTrackedKeywordSql`, `publisherSubscriptionEligibleSql`), and it is the
+same mechanism an injection would ride.
+
+**Two consequences.** (1) "It's a tagged template, so it's parameterised" is not a
+safety argument — check whether the substitution is a value or a `Query`. (2) Any
+static analysis over SQL text must treat a fragment as SQL that executes
+SOMEWHERE ELSE than where it is written; `ci:live-db-suites` gets this right only
+because its AST walk visits the *producing* node, and it is blind to a fragment
+built in a file outside its glob (#706).
+
+### An exact count written into a comment is a maintenance trap
+#694's audit header cited "770 of 1201 templates" to justify not using a
+tag-name allowlist. The figure went stale THREE times inside a single feature:
+wrong when written, corrected to 1469 by review round 1, invalidated again by the
+*other* round-1 fix commit (which added one `sql()` template), and a fourth
+recount split 80-vs-78 on whether `NOT_LIVE_DB` exclusions count. Each correction
+was itself reviewed and still landed wrong.
+**Correct approach:** state the load-bearing CLAIM, which drift cannot falsify
+("`sql()` is the plurality of tagged templates, ~770 of ~1470"), mark it a
+point-in-time census, and record the method so a reader can recount instead of
+trusting the number. Reserve exact figures for things a test asserts — if no test
+pins it, it will rot, and a precise wrong number is worse than an honest
+approximate one.
+
 ### PHI scanning must gate EVERY ingest path — `processReview` is the real chokepoint, not just `insertImportedReview`
 The spec anchored "scan before `insertImportedReview`," but new (unanswered)
 reviews persist through `processReview`, and the recent-review poller's
