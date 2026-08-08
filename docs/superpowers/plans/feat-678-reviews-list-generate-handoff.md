@@ -7,16 +7,13 @@ Branch: `feat-678-reviews-list-generate` (base `main` @ `13212b55`)
 
 ## Where we are
 
-Step 3 (PLAN) — rounds 1 and 2 both returned `REVISE`; **all findings from both are
-now applied to the executable task steps** and committed (`69b55982`).
-**Round 3 (verification-only, the LAST) is the next action.**
+Step 3 (PLAN) is **COMPLETE**. Round 3 returned `VERDICT: APPROVED` (0 findings) —
+all three rounds are spent and the plan is locked. Phase: `plan_approved`.
 
-Reports: `docs/reviews/feat-678-reviews-list-generate/plan-round1.md` +
-`plan-round2.md` (both have full findings tables + triage verdicts).
+**Next action: step 4 (EXECUTE).** Run `bash scripts/feature-state.sh set-phase executing`,
+then dispatch per `subagent-driven-development` in the order under "Next steps" below.
 
-**On the round-3 verdict:**
-- `APPROVED` → write `plan-round3.md`, commit, `bash scripts/feature-state.sh set-phase plan_approved`, go to step 4.
-- `REVISE` → **do NOT dispatch a round 4.** The cap is 3. Surface the remaining disagreement to the owner with both positions; their call substitutes for APPROVED (feature.md step 3.4).
+Reports: `docs/reviews/feat-678-reviews-list-generate/plan-round{1,2,3}.md`.
 
 ### THE recurring defect on this branch — check this first, always
 
@@ -106,14 +103,14 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 
 ## Next steps
 
-1. ~~Rounds 1-2~~ — DONE, both REVISE, all findings applied + reports committed. Next: `incr-round plan`, dispatch round 3 (verification-only over `plan-round2.md`'s table, applying the D7 test).
+1. ~~Plan review~~ — CLOSED, `APPROVED` at round 3. Next: `set-phase executing`, then dispatch T1.
 2. On `APPROVED`: `bash scripts/feature-state.sh set-phase plan_approved`, then step 4. Hard stop after round 3 — surface the remaining disagreement to the owner; their call substitutes for APPROVED.
 3. Step 4 dispatch order: **T1 alone** (mandatory first-task enforcement spot check — diff `git status --porcelain` against `allowed_edit_surface`; any out-of-surface file means STOP), then **T2 / T4 / T6 in parallel** (disjoint files, no edges), then T3 and T5, then T7, then T8.
 4. Step 5 gate: `scripts/verify-gate.sh`, and `--review` for the last run before step 7. **`TEST_DATABASE_POOL_URL` must be set** — a SKIP row on the integration suite makes the gate non-review-ready for this DB-touching branch.
 
 ## Budgets
 
-- Plan review rounds: **2 of 3 used**; round 3 is the LAST. Increment BEFORE dispatch (`incr-round plan`).
+- Plan review rounds: **3 of 3 used — CLOSED** (REVISE, REVISE, APPROVED). No further plan review.
 - `allowed_edit_surface` amendments: **1 of 2 USED** (deviations D1 — the flags.ts collapse needed 6 out-of-surface files). **A second amendment trips the abort criteria** — there is no slack left. Test-title changes and `verification_commands` fixes are deviations-file entries, NOT amendments.
 - Gate-fail rounds: 0 of 3.
 - `tests_to_add`: **37 → 50 (D3) → 52 (D8)**. Both intake copies verified byte-identical at each step (`989ef287…`).
