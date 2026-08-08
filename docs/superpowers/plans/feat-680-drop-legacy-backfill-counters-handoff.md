@@ -26,12 +26,35 @@ and `diff-coverage` were all SKIPPED because the diff is docs-only. It unblocks 
 mid-feature checkpoint and proves nothing about implementation. Step 5 requires a full gate with
 `TEST_DATABASE_POOL_URL` set.
 
-## Codex plan review round 1
+## Codex plan review
 
-Brief: `<scratchpad>/codex-plan-brief-680.md` · raw output: `<scratchpad>/codex-plan-review-680.jsonl`
-(scratchpad = `/private/tmp/claude-501/-Users-norbertesekiel-Developer-startups-RepWorth/5b028bd8-6c58-4513-86fd-88aee023ee5e/scratchpad`)
-Run as `codex exec --sandbox read-only --json`. **Verdict pending at time of writing** — if this file
-still says pending, re-read the jsonl tail for `VERDICT: APPROVED` / `VERDICT: REVISE` before acting.
+scratchpad = `/private/tmp/claude-501/-Users-norbertesekiel-Developer-startups-RepWorth/5b028bd8-6c58-4513-86fd-88aee023ee5e/scratchpad`
+
+**Round 1: `VERDICT: REVISE`** — 1 BLOCKER, 4 MAJOR, 5 MINOR. **All ten ACCEPTED, none rejected**,
+each verified against disk. Full triage: `docs/reviews/feat-680-drop-legacy-backfill-counters/plan-review-round-1.md`.
+Brief `<scratchpad>/codex-plan-brief-680.md` · transcript `<scratchpad>/codex-plan-review-680.jsonl`.
+
+Two findings reversed locked intake decisions, both owner-approved 2026-08-08 and recorded in the
+intake's `_decision_changes_after_plan_review_round_1`:
+- the preflight is now an **executable fail-closed `DO`/`RAISE` guard inside migration 103**, not a
+  manual query pinned by a comment text-match;
+- the **ZernioBackfillWorker legacy-counter guards are KEPT and retargeted**, not deleted.
+
+**Round 2 (verification-only): IN FLIGHT.** Brief `<scratchpad>/codex-plan-brief-680-r2.md` ·
+transcript `<scratchpad>/codex-plan-review-680-r2.jsonl`. If this still says in flight, read that
+jsonl's last `agent_message` for the verdict before acting. Round 3 is the last permitted round;
+after it, surface remaining disagreement to the owner rather than looping.
+
+### Known defect in my own F1 fix — fold this in regardless of the round-2 verdict
+
+Test 1 as written in the plan says "split `executableSql` on `;`". **That breaks**, because the new
+`DO $$ … $$` guard body contains semicolons. Correct approach:
+
+1. strip the guard with `/DO \$\$[\s\S]*?\$\$;/` and assert exactly one such block exists;
+2. split the REMAINDER on `;` → assert exactly two statements, `SET lock_timeout` then the
+   four-column `ALTER TABLE`;
+3. assert `UPDATE`/`DELETE`/`TRUNCATE`/`CASCADE` appear nowhere in `executableSql` (the guard's
+   `SELECT count(*)` is fine — SELECT is not forbidden).
 
 ## Facts already established — do not re-derive
 
