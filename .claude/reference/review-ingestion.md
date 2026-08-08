@@ -173,9 +173,9 @@ nothing, import unbounded above.
   NULL so ops can bump the cap and re-enqueue (consent permitting, spec §5.3).
 - **Idempotency**: one-shot per business for `run_reason='initial'`
   (`completed_at` sentinel); reactivation runs key on `correlation_id`.
-- **Release constraint**: #679's fail-closed `import_decision='accepted'`
-  pre-flight must land before real customers. The enqueue gates shipped at
-  **#677** (below), which absorbed #676.
+- **Consent**: the enqueue gates shipped at **#677** (below, which absorbed
+  #676) and the fail-closed worker pre-flight at **#679**. The release
+  constraint both carried is **discharged**.
 
 ### Who may enqueue an import (#677, PR #691)
 
@@ -202,10 +202,35 @@ Reactivation is deliberately **not** routed through it: it enqueues with
 run_reason = 'initial'` does not dedup it, because the archived-period catch-up
 must recur.
 
-**This is enforcement at the producers, not at the chokepoint.** A hand-inserted
-`zernio_initial_backfill` row still imports without consent until #679's
-worker-side pre-flight lands — ADR 0015 R2 accepts that while production holds
-zero customers, and it is why merge order is #677 → #679.
+### The chokepoint (#679, PR #698)
+
+The four gates above are producer-side, so they only bind code that goes through
+a producer. `guardImportConsent` (`worker/jobs/zernio/job-eligibility.ts`) closes
+the rest: `ZernioBackfillWorker` runs it **before** `guardZernioJobEligibility`
+and before the run-row INSERT, and proceeds only on `accepted`.
+
+| Derived state | Outcome |
+|---|---|
+| `accepted` | proceed |
+| `pending` / `declined` / derived `expired` / no `businesses` row | log `import consent blocked — skipping backfill` with a structured `reason`, complete the outbox row, mint no run row |
+
+Three properties to preserve if you touch it:
+
+- **It is a separate function from `guardZernioJobEligibility`, not a `jobKind`
+  branch.** A merged guard would have two callers, one of which (the live-ingest
+  worker) must never reach consent code.
+- **Its body must stay inside `sql.begin` with `SELECT … FOR UPDATE` and
+  `markOutboxCompleted(tx, …)`.** Without both, the guard can read `pending`
+  while the owner accepts; the acceptance's in-flight dedup then inserts no
+  replacement and the guard completes the row, leaving `accepted` with no
+  completed run and no runnable outbox row. `FOR UPDATE` is a no-op outside
+  `sql.begin()` under transaction pooling. Lock order is business-before-outbox,
+  matching all four producers.
+- **Every skip is skip-as-success** — completed, never failed or retried, so a
+  declined or expired import cannot churn the queue forever.
+
+Because every producer converges here, the admin / hand-inserted path is covered
+too: spec D8's "admin path included" holds structurally, not by convention.
 
 ## ReviewSource Contract
 

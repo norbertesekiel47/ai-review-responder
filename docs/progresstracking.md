@@ -1787,3 +1787,147 @@ Staging was re-ridden so it carried exactly what merged. Final: **15/15 green**.
   outside surface, handed to #679.
 - `ImportOfferBanner` shares stagger index `section-enter-2` with the hero band;
   `console.css` defines only `-1…6` and all six are claimed. Cosmetic.
+
+## Consented Review Import — the worker guard (#679, PR #698, migration 102, 2026-08-08)
+
+Closes the last consent hole in map #667 — the gap ADR 0015 §3 accepted
+explicitly while production holds zero customers, and the release constraint
+both #675 and #677 carried forward. Enforcement was at the four **product**
+enqueue producers; now the worker itself refuses to run without consent, so the
+admin / hand-inserted / future-forgotten-producer path is covered at the one
+chokepoint they all converge on.
+
+### What shipped
+
+- `worker/jobs/zernio/job-eligibility.ts` — new `guardImportConsent`, run by
+  `ZernioBackfillWorker` **before** `guardZernioJobEligibility` and before the
+  run-row INSERT. Proceeds only on `accepted`; `pending`, `declined`, derived
+  `expired`, and a missing `businesses` row each log
+  `import consent blocked — skipping backfill` with a structured `reason` and
+  complete the outbox row.
+- `src/lib/reviews/import-consent.ts` — the two analytics emissions, in the
+  writers rather than at the call sites (`createImportOffer` has three
+  producers; emitting at each would repeat the key, the properties and the
+  only-when-written condition three times).
+- `supabase/migrations/102_import_consent_analytics_events.sql` — extends the
+  `analytics_events.event_name` CHECK with `import_offer_created` +
+  `import_decision_recorded`. Applied **staging then production, 2026-08-08**,
+  both before the emitting code went live.
+- `src/app/admin/runbook/page.tsx` — A5 re-enqueue now conditioned on
+  `import_decision = 'accepted'` AND no completed initial run, and states that
+  declined/expired is permanent. Without that edit the runbook told ops to do
+  something that now silently no-ops.
+- `src/lib/shared/worker-types.ts` — `ZernioInitialBackfillPayload` JSDoc had
+  named two producers since #677; corrected to all four (D13, handed over from
+  #677's "deliberately left").
+
+### Decisions
+
+- **Separate function, not a `jobKind === 'backfill'` branch.** A merged guard
+  would have two callers, one of which must never reach consent code. Splitting
+  makes live-ingest independence structural, not a runtime branch.
+- **The guard's body is one transaction, and that is correctness.** Without
+  `sql.begin` + `SELECT … FOR UPDATE` + `markOutboxCompleted(tx, …)`, the guard
+  can read `pending` from an in-flight row while the owner accepts; the
+  acceptance's in-flight dedup then inserts no replacement and the guard
+  completes the row. Result: `accepted`, no completed run, no runnable outbox
+  row — silent permanent data loss for a customer who said yes, violating spec
+  §5.1 retryability. `FOR UPDATE` is a no-op outside `sql.begin()` under
+  transaction pooling, so both halves are load-bearing. Lock order stays
+  business-before-outbox, matching all four other writers; `OutboxPoller` takes
+  only `job_outbox` with `SKIP LOCKED` and cannot deadlock against it.
+- **Expiry stays derived in Postgres** via the imported `importConsentStateSql`
+  fragment — hence the mandatory `b` alias. A JS-side branch would be a second
+  spelling of the predicate and would truncate microseconds.
+- **Skip-as-success everywhere.** Completed, never failed or retried, so a
+  declined import cannot churn the queue forever.
+- **Emissions are savepoint-wrapped.** Corrected at review round 2: an unapplied
+  102 was originally assumed to cost "the metric", but `createImportOffer` runs
+  inside `finalizeConnectionTx` and `select-location/route.ts` rethrows
+  non-`23505` — so it broke GBP connect entirely. The savepoint contains that
+  blast radius without making the deploy ordering optional.
+
+### The through-line: false coverage, three rounds running
+
+Three review rounds, 20 findings, all triaged (r1 REVISE×3 → 13 findings;
+r2 REVISE×3 → 4; r3 spec APPROVED / adversarial APPROVED / standards REVISE → 5).
+The dominant defect mode was **tests that pass whether or not the bug exists**,
+and it recurred *inside its own fixes* twice:
+
+- Round 1 found five instances. Every one was caught by mutation, none by reading.
+- Round 2's decisive finding: the savepoint — the fix for the branch's worst
+  defect — shipped unpinned. Deleting it left all 37 live-DB and 42 unit tests green.
+- Round 3's decisive finding: the catch narrowing — round 2's own fix — shipped
+  unpinned too. Both failure tests injected `23514`, which carries a string
+  `code` and is swallowed either way, so deleting the guard left every suite green.
+
+### Two things not to re-derive
+
+- **The narrowing is correct and verified against driver source.** Every
+  reachable error class carries a string `code` — `PostgresError`, `57014`,
+  postgres.js `CONNECTION_*`, Node `ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`. Do NOT
+  "improve" it to `instanceof postgres.PostgresError`: the standards axis
+  recommended exactly that, and the driver taxonomy shows it would rethrow a
+  transient blip straight into `finalizeConnectionTx` and reintroduce a connect
+  outage. A lost connection independently rejects the enclosing `begin`, so
+  swallowing it locally cannot manufacture a quiet success.
+- **A JS throw does not poison a Postgres transaction** — abort injections must
+  be Postgres-side. One deliberate exception: the code-less test injects a JS
+  `TypeError` on purpose, because it asserts the rethrow *propagates* rather
+  than that the caller survives.
+
+### Staging proof (2026-08-08)
+
+`staging` at `0dad901f`; Railway worker `1afb4e96` SUCCESS, Vercel
+`dpl_Gz27sWSAyE6emC9LvJXMLhQwQjRN` READY. Migration 102 applied to
+`kubdiqdhqbhwmqfditeg` **before** the push and verified by schema introspection,
+never the ledger — plus a live probe inside a deliberately-aborted `DO` block
+(bogus `event_name` → `check_violation`, both new names accepted, zero residue
+after rollback).
+
+- Four block reasons each proven against a real hand-inserted row: `pending`,
+  `missing`, derived `expired`, `declined`. Every one completed its outbox row
+  (1 attempt, `last_error` NULL) and minted **zero** `zernio_backfill_runs` rows
+  and **zero** reviews.
+- `accepted` still imports: `Import complete … imported=29 skipped=0 pages=4
+  window=[2025-08-08…, 2026-08-06…)`, outbox completed, still exactly one run
+  row — re-entered idempotently after clearing `completed_at`.
+- Both analytics events landed through their real writers:
+  `import_offer_created` (`{"window_days":7}`) from the dashboard GET self-heal,
+  `import_decision_recorded` (`{"decision":"accepted"}`) from the owner
+  answering the banner. Business-scoped keys, correct `account_id`/`business_id`.
+- Accepting enqueued **nothing** — a completed `initial` run already existed, so
+  `enqueueInitialImport`'s `run_reason='initial'` guard (F101/A4) correctly
+  declined. Consent still committed: `import_decision_at` is byte-identical to
+  the event's `created_at`, proving both landed in one transaction.
+
+Assertion F had to be driven through a browser: `staging.repworth.net` sits
+behind Vercel team-SSO **and** app auth, and both emission writers are Next.js
+routes, so an anonymous request 302s to `vercel.com/sso-api`. There is no
+headless path today.
+
+### CI
+
+15/15 green at `0dad901f`, re-run 14/14 green at `88279b68` after the handoff
+commit. `fallow` passed first time — the first branch in four not to trip the
+fallow-outside-the-local-gate class.
+
+### Filed, not fixed here
+
+- **#694** — `ci:live-db-suites` R2 DDL detector keys on an incidental marker and
+  misses 2 pre-existing sites. `scripts/**` was out of surface.
+- **#695** — enforce consent at the `job_outbox` insertion boundary instead of
+  per-worker, and give the guard a durable policy-block reason. Both challenge
+  decisions locked at #670.
+- **#696** — `verify-gate.sh:193` truncates row slugs to 40 chars; colliding rows
+  share a status file and can report PASS for a failed suite. Worked around here
+  by renaming the extracted suite (D30).
+- **#697** — a swallowed analytics emission reaches no durable or paged sink. The
+  savepoint traded a loud failure for a quiet one; this is the missing half.
+
+### Deliberately left
+
+- Spec §5/§5.3 still say three enqueue producers; source has four (D8) —
+  out of surface.
+- `.claude/CLAUDE.md` cited a nonexistent "ADR 0015 R2" (the ADR has §§1–4; R2 is
+  spec §8a) — corrected in this sweep.
