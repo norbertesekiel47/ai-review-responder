@@ -245,11 +245,17 @@ describe('live-db-suites-audit', () => {
 
   // The end state, asserted directly rather than inferred from the fixtures
   // above: with the tightened detector, every live-DB suite in the repository
-  // is clean. Marked `.fails` until Tasks 1-4 land (the detector rewrite, the
-  // two allowlist entries, and the offender fixes) — Task 5 drops `.fails`.
+  // is clean.
+  //
+  // This is what makes a REACH regression loud. The fixtures above prove the
+  // detector's rules in isolation; only a scan of the real tree catches a change
+  // that narrows what the detector can SEE — the #694 failure mode itself, where
+  // an audit reported `passed` on a tree that was executing DDL. `pnpm
+  // ci:live-db-suites` checks the same property in CI, but this puts it inside
+  // `pnpm test`, where it fails next to the rules it depends on.
   //
   // Precedent for a unit test that reads the repository: src/__tests__/ci-audit-wiring.test.ts
-  it.fails('every live-DB suite in the repository passes the tightened detector', async () => {
+  it('every live-DB suite in the repository passes the tightened detector', async () => {
     const { readFile } = await import('node:fs/promises');
     const offenders: string[] = [];
     for (const file of listTestFiles()) {
