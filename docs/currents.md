@@ -44,6 +44,56 @@ gate could overwrite a stale-green `gate-status.json`); and `"${ARR[@]}"` on an
 empty array is fatal under `set -u` on bash 3.2, which is what
 `/usr/bin/env bash` is on macOS.
 
+## Quick summary — Reviews list surface + on-demand cost policy decided (2026-08-08, PRs #700/#702)
+
+Both remaining **decision** tickets on map #667 are resolved, so **#678 — the
+Reviews list — is fully unblocked** and is the last implementation ticket before
+the closing cleanup (#680). Neither decision invented machinery; both resolved
+into things the codebase already had.
+
+**#671 — the Past Replies archive BECOMES the Reviews list** (PR #700, docs
+only). `dashboard/reviews/history` is widened in place — it neither stays as a
+distinct surface nor retires, which also closes the map's long-standing "fate of
+the Past Replies archive" fog. Two asymmetries in shipped code decided it rather
+than taste: imported **answered** reviews already land in History today
+(`ZernioBackfillWorker.ts:364` → `reconcileExternallyAnsweredReview({
+consentedImport: true })` writes the `posted` row `load-replies.ts:117` selects)
+while imported **unanswered** reviews land on **no surface at all**; and
+`dashboard/reviews` is an action *queue*, not a list — `ReviewFeedCard.tsx:59-66`
+filters to `pending_approval` off a `LIMIT 10` cached payload, so an imported
+review can never appear there. The core change is consequently `JOIN` →
+`LEFT JOIN`. Seven decisions in spec §6.3a: `Needs Action` survives distinct (a
+pending-draft row appears in **both**, as a `Draft ready` cross-link with no
+`Generate`); the gap/historical split is deleted for a per-row provenance badge;
+`PAST_REPLIES_VIEW_ENABLED` is **retired at #678** (else `accepted` consent could
+coexist with a `notFound()`) while `EDIT_REPLIES_ENABLED` is kept; `PAGE_SIZE`
+stays 50; unanswered first then newest-first within; `Generate` inline,
+`Regenerate` in a two-pane drawer whose primary action reads *Replace reply on
+Google*.
+
+**#672 — on-demand generation cost policy** (PR #702, **no migration**). The
+mechanism already existed in full: the per-owner rate limiter, the per-review
+regen budget and the per-business/global cost reservation are **already
+composed** in `reviews/[reviewId]/regenerate/route.ts` — the same route #669
+named as the Generate door's target — so #678 inherits the stack by wiring. "Per-
+review cap or per-account cap?" resolves to **both, already built**, with the
+per-account axis denominated in **cents, not clicks**. Four decisions in spec
+§6.3b: **C1** the first `Generate` is free by construction — `generate-draft.ts:106`
+charges only `version > 1`, so the axis self-arms into *one free draft then three
+charged regenerations per review per day*, and the guard stays because it is what
+stops the live lane's own auto-draft from eating the owner's budget; **C2**
+`BURST_MAX` **5 → 10** with `HOUR_MAX` held at 30 — the hourly layer is the spend
+bound (30 × the 15¢ reserve ≈ $4.50/hr) and the burst layer only stops a
+click-storm, so worst-case hourly spend does **not** move; **C3** all three doors
+share ONE counter, so alternating `Generate`/`Regenerate` cannot double
+throughput; **C4** live-lane starvation is **real** — on-demand and live ingest
+share `cost:daily:{businessId}:{date}` and exhausting it *terminally drops* a
+draft (`alertCostCapExhausted` pages Sentry, gate B3) — but is resolved as a
+**ceiling-sizing constraint** recorded on `DAILY_COST_LIMIT_CENTS_COPILOT` /
+`_AUTOPILOT`, not a reserved floor nobody can tune without production data.
+**Still open operationally: both ceilings are required-with-no-default and
+remain unset — they must be chosen before GA.**
+
 ## Quick summary — Import consent worker guard (2026-08-08, PR #698)
 
 #677 made every **product** path ask for consent. #679 makes the *worker* refuse
