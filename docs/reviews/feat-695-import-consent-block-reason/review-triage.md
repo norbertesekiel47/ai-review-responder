@@ -55,7 +55,20 @@ PostHog event — a refusal is the guard working, not an incident"*, and exempti
 reasoned rows from archival couples the shared archival arm to one domain — the very
 coupling ADR 0016 rejects for topic-agnostic infrastructure.
 
-**Status: awaiting owner decision.** Resolution recorded below once made.
+**RESOLVED — owner decision, 2026-08-08: correct the language, do not expand scope.**
+
+The word *durable* is removed from the ticket's claim in five places and replaced
+with an explicit operational-window statement — ADR 0016 (three sites, including a
+new third bullet under "Operator query, and its limits" spelling out that the query
+can only ever see the last 7 days), `CONTEXT.md` **Import consent**, spec §5.3, and
+**both** intake copies (`goal` + `observability[0]`, verified byte-identical and
+valid JSON afterwards). No implementation change: the code was right, the claim was
+not. Recorded as deviations **D8**; an intake-field correction, so the surface
+amendment budget stays at **1 of 2**.
+
+The ADR now names what actually outlives the window — `businesses.import_decision` /
+`import_decision_at` plus the structured log line — so an operator reading it during
+an investigation is pointed at a record that still exists.
 
 ---
 

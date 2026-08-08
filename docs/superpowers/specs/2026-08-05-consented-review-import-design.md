@@ -221,9 +221,12 @@ Weighed and declined: a trigger needs a second, unenforceable spelling of
 `importConsentStateSql` in PL/pgSQL, which this section's single-owner rule exists
 to prevent, and it would not remove the worker guard anyway. Full reasoning, the
 "For" case, and the operator query for refused rows:
-`docs/adr/0016-import-consent-enforcement-locus.md`. The refusal is now durable
-(`job_outbox.completion_reason = 'import_consent_blocked'`), which answers the
-observability half of the same review finding.
+`docs/adr/0016-import-consent-enforcement-locus.md`. A refusal is now separable by
+SQL (`job_outbox.completion_reason = 'import_consent_blocked'`), which answers the
+observability half of the same review finding — for the **7-day archival window**
+only, since `ArchivalPoller` deletes completed `job_outbox` rows past that age. The
+marker is an operational signal, not an audit record; the durable consent record
+remains `businesses.import_decision`. See the ADR's "Operator query, and its limits".
 
 ---
 

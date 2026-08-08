@@ -182,6 +182,43 @@ Those are different searches and only the second one was run at round 1.
 
 ---
 
+## D8 — "durably queryable" was an overclaim; corrected to the 7-day archival window (intake-field correction, owner-decided 2026-08-08)
+
+**What.** The word *durable* is removed from the ticket's claim in five places and
+replaced with an explicit operational-window statement: `docs/adr/0016-*.md` (three
+sites, incl. a new third bullet under "Operator query, and its limits"), `CONTEXT.md`
+**Import consent**, spec §5.3, and **both** intake copies (`goal` +
+`observability[0]`). An intake-field correction, not an `allowed_edit_surface`
+amendment — the budget stays at 1 of 2.
+
+**Why.** The step-7 adversarial axis found that `ArchivalPoller.ts:60` deletes
+completed `job_outbox` rows 7 days after `completed_at`. A refusal is completed
+(skip-as-success), never failed, so it takes the **7-day** arm rather than the 90-day
+dead-letter one. Independently verified against the poller. The implementation was
+right; the language promised a permanence the sink does not provide.
+
+**The correction to the reviewer's framing, which decided the remedy.** Codex read
+this as "do not ship". It is not a defect this branch introduced: `owner_unreachable`
+(ADR 0010) — the precedent this generalizes — writes to the same column on the same
+table and has always had the identical 7-day life. The whole `OUTBOX_COMPLETION_REASON`
+vocabulary is an operational-window signal. So the fix is the claim, not the code.
+
+**Owner decision (2026-08-08).** Correct the language; do not expand scope. The two
+alternatives were both re-plans, not patches: a longer-lived audit/analytics sink
+contradicts the locked non-goal *"no HealthAlertPoller check, no Sentry capture, no
+PostHog event — a refusal is the guard working, not an incident"*, and exempting
+reasoned rows from archival would couple the shared archival arm to one domain — the
+exact coupling ADR 0016 rejects when it declines a topic-specific trigger on
+topic-agnostic infrastructure.
+
+**What now carries the durable claim instead:** `businesses.import_decision` /
+`import_decision_at` (the consent record that answers "did we import without
+consent?"), plus the structured log line under the log sink's own retention. The ADR
+now states the query is trustworthy in exactly one band — created after deploy AND
+completed within 7 days — and says so where an operator will read it.
+
+---
+
 ## D7 — CONTEXT.md cites the ADR by filename, not by number alone (not an amendment)
 
 **What.** The plan's drafted `CONTEXT.md` text ended `(ADR 0016)` by number. T4

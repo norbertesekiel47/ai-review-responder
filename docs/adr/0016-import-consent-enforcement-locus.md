@@ -85,8 +85,8 @@ line (see Consequences).
    difference is "the row is never created" versus "the row no-op-completes
    without importing anything" — in both cases nothing is stored and nothing
    reaches Google. The gap the reviewer actually named is that a refusal was
-   indistinguishable from success in `job_outbox`; the durable marker above
-   closes it.
+   indistinguishable from success in `job_outbox`; the refusal marker above
+   closes it, for as long as the row survives archival (see Consequences).
 
 4. **It would not remove the worker guard.** An insert-time gate cannot see
    consent that changes between enqueue and dispatch, so `guardImportConsent`
@@ -101,8 +101,17 @@ line (see Consequences).
   `guardImportConsent` then no-op-completes it. Nothing is stored, and no
   `zernio_backfill_runs` row is minted. D8's "admin path included" holds at the
   worker, one step later than a trigger would have caught it.
-- **Refusals are durably queryable** via `completion_reason` (this same ticket),
-  answering the observability half of #695 without a trigger.
+- **Refusals are queryable by SQL for the archival window** via `completion_reason`
+  (this same ticket), answering the observability half of #695 without a trigger.
+  **Not permanently** — `ArchivalPoller` deletes completed `job_outbox` rows seven
+  days after `completed_at` (`ArchivalPoller.ts:60`), and a refusal is completed,
+  never failed, so it takes the 7-day arm and not the 90-day dead-letter one. This
+  is a property of the sink, not of this ticket: `owner_unreachable` (ADR 0010) has
+  always had the same life, and the whole `OUTBOX_COMPLETION_REASON` vocabulary is
+  an **operational-window signal, not an audit log**. What outlives the window is
+  `businesses.import_decision` / `import_decision_at` — the consent record that
+  answers "did we import without consent?" — plus the structured log line under the
+  log sink's own retention.
 - **The `sql.begin` + `SELECT … FOR UPDATE` cost #679 added stays, and is
   accepted.** It is what closes the accept-races-guard data-loss window (the
   guard reading `pending` while the owner accepts), which an insert-time gate
@@ -130,8 +139,15 @@ also carry NULL: **NULL does not universally mean "genuine import."** Outside th
 post-deployment window it means "genuine import OR pre-deployment refusal," and
 the date bound is what makes the query trustworthy.
 
-Two further limits on what the marker records:
+Three further limits on what the marker records:
 
+- **It expires.** The query can only ever see refusals from the last **seven days**
+  — `ArchivalPoller` deletes completed `job_outbox` rows past that age. Combined
+  with the NULL limit above, the query is trustworthy in exactly one band: rows
+  created after the deploy timestamp and completed within the last seven days. An
+  investigation opened later than that must use `businesses.import_decision` and
+  the worker logs instead. Do not add a date bound wider than the archival window
+  and expect completeness.
 - It records **that** a refusal happened, not current state. A row refused as
   `pending` whose location is later `accepted` keeps
   `completion_reason = 'import_consent_blocked'`, and the state at refusal time is

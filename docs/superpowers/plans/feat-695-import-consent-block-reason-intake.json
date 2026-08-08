@@ -2,7 +2,7 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": true,
-  "goal": "Record the rejection of job_outbox-boundary enforcement for Import consent as ADR 0016, and make guardImportConsent's refusals durably queryable by completing the refused outbox row with completion_reason = 'import_consent_blocked'.",
+  "goal": "Record the rejection of job_outbox-boundary enforcement for Import consent as ADR 0016, and make guardImportConsent's refusals separable by SQL — for the 7-day job_outbox archival window — by completing the refused outbox row with completion_reason = 'import_consent_blocked'.",
   "non_goals": [
     "No job_outbox trigger, CHECK constraint, or migration — the Import consent enforcement locus stays ZernioBackfillWorker per spec §5.3, re-affirmed by ADR 0016.",
     "No change to guardImportConsent's proceed/skip decision, its sql.begin serialization, its businesses FOR UPDATE lock, or the importConsentStateSql derived-expiry predicate.",
@@ -84,7 +84,7 @@
   "dependencies_added": [],
   "rollback_plan": "Revert the commit. No migration to reverse — job_outbox.completion_reason has existed since migration 083 and is nullable with no CHECK constraint, so historical rows carrying 'import_consent_blocked' are inert after a revert and no reader interprets them. No feature flag, no env var, no data backfill. The helper generalization reverts with the same commit, restoring markOutboxOwnerUnreachable at its two call sites (NotificationWorker.ts and the failover poller's integration suite).",
   "observability": [
-    "Durable signal (new): SELECT completion_reason, count(*) FROM job_outbox WHERE topic = 'zernio_initial_backfill' AND status = 'completed' GROUP BY 1 — an 'import_consent_blocked' bucket counts refusals. Reliable for post-deployment rows only: refusals from before this change are also NULL, so NULL means 'genuine import OR pre-deployment refusal'.",
+    "Operational-window signal (new), NOT an audit record: SELECT completion_reason, count(*) FROM job_outbox WHERE topic = 'zernio_initial_backfill' AND status = 'completed' GROUP BY 1 — an 'import_consent_blocked' bucket counts refusals. Trustworthy in exactly one band: rows created after deploy AND completed within the last 7 days. Two independent limits — (a) refusals from before this change are also NULL, so NULL means 'genuine import OR pre-deployment refusal'; (b) ArchivalPoller deletes completed job_outbox rows 7 days after completed_at, and a refusal completes rather than fails, so it takes the 7-day arm. Same life owner_unreachable has always had (ADR 0010) — a property of the sink, not of this ticket. The record that outlives the window is businesses.import_decision / import_decision_at.",
     "Existing signal (unchanged): the structured worker log line 'import consent blocked — skipping backfill' carrying { reason, business_id } — the per-state detail the single marker deliberately does not duplicate, and the ONLY record of it when the businesses row is gone.",
     "How I would know it broke — marker regression: a refusal that leaves completion_reason NULL (the pre-change behaviour) means the guard stopped stamping.",
     "How I would know it broke — generalization regression: HealthAlertPoller.checkOwnerUnreachable and NotificationFailoverPoller going quiet, or send_notification rows completing with completion_reason NULL where the owner had zero verified enrollments, means owner_unreachable marking was lost in the refactor."
