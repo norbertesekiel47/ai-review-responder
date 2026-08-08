@@ -3,6 +3,28 @@
 Entries the plan did not anticipate. Each gets an ACCEPT / RE-PLAN verdict at
 step 6 before review agents see this file.
 
+## Step-6 triage (completed 2026-08-08, gate GREEN at `1b527b08`)
+
+| # | Entry | Verdict |
+|---|---|---|
+| D1 | `allowed_edit_surface` amendment 1 of 2 (failover poller integration suite) | **ACCEPT** |
+| D2 | `tests_to_add` retitle — executor-identity claim was unfalsifiable | **ACCEPT** |
+| D3 | three `tests_to_add` additions from round-1 eval holes | **ACCEPT** |
+| D4 | estimates deliberately NOT raised | **ACCEPT** |
+| D5 | three T1 assertions added — the planned eval could not fail | **ACCEPT** |
+| D6 | a sixth reference site the plan did not enumerate | **ACCEPT** |
+| D7 | CONTEXT.md cites the ADR by filename, not number alone | **ACCEPT** |
+
+No RE-PLAN verdicts: no entry invalidates a locked intake decision. Surface
+amendments stand at **1 of 2** (D1 only) — D5, D6 and D7 all landed inside the
+already-declared surface, and D2/D3 are `tests_to_add` changes, which step 5
+classifies as deviations rather than amendments. The abort criteria are not met.
+
+**The two entries most worth a reviewer's attention are D5 and D6**, because both
+are cases where a green signal was misleading: D5's eval passed while the feature
+was still unbuilt, and D6's three per-suite green runs each missed a file none of
+them ran. Neither was found by reading the plan.
+
 ---
 
 ## D1 — `allowed_edit_surface` amendment 1 of 2 (owner-approved 2026-08-08)
@@ -24,6 +46,11 @@ assertions cannot.
 **Budget.** This is amendment **1 of 2**. A second one triggers the step-5 abort
 criteria.
 
+**VERDICT: ACCEPT.** The amendment bought the only assertion on this branch that can
+catch the generalization writing a wrong column value, and it earned its keep — the
+gate ran that suite 9 passed / 0 skipped against live Postgres, so the persisted
+`owner_unreachable` wire value is pinned by execution, not by compilation.
+
 ---
 
 ## D2 — `tests_to_add` retitle (not an amendment)
@@ -41,6 +68,11 @@ to pass distinct sentinels; rejected, because that helper is shared by many suit
 by the integration suite's forced-race test. The honest fix is the title, so the test
 claims only the `inTransaction` evidence it actually has.
 
+**VERDICT: ACCEPT.** Renaming the claim to match the evidence is right; the
+alternative (editing a mock helper shared by many suites, outside the surface, to
+manufacture falsifiability) would have been a worse trade. The property itself is
+not unpinned — the live-DB forced-race test covers it.
+
 ## D3 — three `tests_to_add` additions (not amendments)
 
 From round-1 eval holes, all verified as genuine gaps:
@@ -55,6 +87,11 @@ From round-1 eval holes, all verified as genuine gaps:
    row for a live pending import` — declined, derived-expired and accepted were pinned
    against live Postgres; `pending` (the migration-100 default population the gate
    exists for) was not.
+
+**VERDICT: ACCEPT.** All three are genuine gaps, all three now execute against live
+Postgres, and #1 in particular guards a failure mode nothing else could see — a
+vocabulary whose every reader resolves the same constant cannot otherwise detect a
+renamed value stranding historical rows.
 
 ## D5 — three T1 assertions added: the plan's `guardImportConsent` reason tests could not fail (not an amendment)
 
@@ -90,6 +127,14 @@ green at T3.
 is accepted`) is a negative pin — `completionCalls` empty, reason writer never
 called — which holds before AND after the change by design. It is a regression
 guard, not an eval, and forcing it red would mean asserting something false.
+
+**VERDICT: ACCEPT.** This is the most valuable entry on the branch. An eval that
+passes while the feature is unbuilt is worse than no eval, because it converts a
+missing implementation into a green signal — and three rounds of plan review did not
+catch it. The fix asserts the reason *writer*, which is what the titles claim, using
+the file's own existing convention rather than a new one. Declining to force title
+#10 red is also correct: a negative pin that holds before and after is a regression
+guard by design, and making it red would have meant asserting something false.
 
 ---
 
@@ -129,6 +174,27 @@ writer owns the row alone) — matching `job-eligibility.test.ts`'s length-1
 `completion_reason` NULL, which is an explicit intake non-goal. Retargeting one of
 those would have masked a regression.
 
+**VERDICT: ACCEPT.** In-surface, no production change, and the gate is the control
+that caught it — which is the system working as designed rather than a process
+failure. The durable lesson for step 8 promotion: when a call site swaps writers,
+grep for suites that MOCK the module, not just for importers of the removed symbol.
+Those are different searches and only the second one was run at round 1.
+
+---
+
+## D7 — CONTEXT.md cites the ADR by filename, not by number alone (not an amendment)
+
+**What.** The plan's drafted `CONTEXT.md` text ended `(ADR 0016)` by number. T4
+appended the path — `(ADR 0016, `docs/adr/0016-import-consent-enforcement-locus.md`)`.
+
+**Why.** The plan's own Step 5 greps `CONTEXT.md` for the ADR *filename*; the drafted
+text would have failed that check. Reported by T4 rather than written by it, because
+T2 owned this file during the parallel T2 ∥ T4 window.
+
+**VERDICT: ACCEPT.** It makes the plan's own verification step pass and satisfies the
+repo rule that a cross-reference be greppable by filename. Cosmetic in blast radius,
+correct in intent.
+
 ---
 
 ## D4 — estimates deliberately NOT raised
@@ -137,6 +203,13 @@ D3 adds ~60 test lines beyond the locked `estimated_test_lines` of ±225. The es
 is left unchanged: raising it to match would defeat the step-5 `reclassify` detector,
 which exists to measure the lock against reality. Expected actual is ~285, still under
 the 2× trigger.
+
+**VERDICT: ACCEPT — and the decision is now vindicated by measurement.** The gate's
+`reclassify` row emits only on WARN and stayed silent. Measured against the fork
+point: production bucket **243** lines (estimate 180, 2× trigger 360), test bucket
+**391** (estimate 225, 2× trigger 450). Both under trigger, so the lane holds and no
+re-classification is required. Had the estimate been inflated to match reality as the
+work grew, this row would have measured nothing.
 
 ---
 
