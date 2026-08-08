@@ -86,6 +86,7 @@
     "worker/jobs/publisher/failed-hook.ts",
     "src/app/api/dashboard/past-replies/**",
     "scripts/ci/process-env-baseline.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     ".claude/reference/review-ingestion.md",
     ".claude/reference/lab-notes.md"
   ],

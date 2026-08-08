@@ -329,4 +329,36 @@ itself demands whenever a scoped query changes, not production code or docs, and
 the same edit will be required again by any future task that touches these
 queries (T6 does not — it appends a field, not a query).
 
-**Verdict:**
+**OWNER RULING (2026-08-08): CI bookkeeping, NOT a surface amendment.**
+`scripts/ci/tenant-scope-allowlist.ts` is added to `allowed_edit_surface` in both
+intake copies (verified byte-identical at `78a883ec…`), and the amendment budget
+stays at **1 of 2 used**.
+
+The reasoning that decided it — worth keeping, because the same question will
+recur on every branch that touches a tenant-scoped query:
+
+1. **A restart cannot avoid the edit.** The abort criteria exist to catch a
+   mis-chosen lane, on the theory that restarting at step 1 produces a better
+   branch. Here the allowlist edit is a precondition for *any* implementation of
+   #678 to pass CI — `scripts/verify-gate.sh` runs every `ci:*`, and so does CI's
+   `lint` job. A torn-down-and-restarted branch hits the identical wall at the
+   identical step. Treating it as an abort trigger is a pure loss with no
+   corrective value.
+2. **It is the audit asking, not the implementation creeping.** The allowlist is
+   an exact-SQL-text index with an exact-match count gate; its own header demands
+   "an explicit, reviewable baseline bump in the same PR". Changing a scoped query
+   without touching it is not an option the tool offers. The amendment budget
+   exists to stop scope creep — implementation quietly outgrowing the reviewed
+   contract — and this is the opposite: a mechanical consequence the contract
+   failed to anticipate.
+3. **The change is a net shrink of exempted surface** (414 → 409). The new `AVG`
+   query no longer joins `responses`, so `r.business_id = ${locationId}` scopes it
+   outright and it needs no entry at all. Fewer tenant-scope suppressions in the
+   tree after this branch than before it.
+
+**Precedent for future runs:** an out-of-surface edit that a CI audit
+*mechanically requires* as the direct consequence of an in-surface change is
+bookkeeping, not an amendment. It still gets a deviations entry and still needs
+the owner's sign-off — it just does not burn amendment budget.
+
+**Verdict:** ACCEPT.
