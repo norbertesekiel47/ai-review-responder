@@ -454,8 +454,8 @@ tier mappings and no invented defaults.
 | Var | Default | Notes |
 |---|---|---|
 | `GLOBAL_DAILY_COST_LIMIT_CENTS` | `10000` ($100/day) | Platform-wide shared daily ceiling, checked against the 15¢ pessimistic reserve. A single fairness-free counter — size it well above plausible concurrent fleet reserves (re-dimensioning / non-terminal redesign tracked in the worker-scaling backlog). |
-| `DAILY_COST_LIMIT_CENTS_COPILOT` | **Required; no default** | Positive-integer per-account Copilot ceiling. `price_variant` does not change it. Missing/malformed configuration fails the owning worker/server config gate. |
-| `DAILY_COST_LIMIT_CENTS_AUTOPILOT` | **Required; no default** | Positive-integer per-account Autopilot ceiling. Operator supplies the amount; do not derive it from an old tier. |
+| `DAILY_COST_LIMIT_CENTS_COPILOT` | **Required; no default** | Positive-integer per-account Copilot ceiling. `price_variant` does not change it. Missing/malformed configuration fails the owning worker/server config gate. **Sizing constraint (#672, C4):** this ceiling is shared by the live-ingest lane and on-demand `Generate`/`Regenerate` from the Reviews list, and exhausting it **terminally drops** a draft (`alertCostCapExhausted` pages Sentry; it does not retry). Size it as *expected live-lane daily spend + a plausible on-demand triage session* — the on-demand lane is capped at 30 drafts/hr × the 15¢ pessimistic reserve ≈ **$4.50/hr**, so a two-hour session needs ≈ **$9** of headroom. Set too tight, an owner working through a freshly imported Reviews list starves the draft for a genuinely new 1★ review. |
+| `DAILY_COST_LIMIT_CENTS_AUTOPILOT` | **Required; no default** | Positive-integer per-account Autopilot ceiling. Operator supplies the amount; do not derive it from an old tier. Same #672 C4 sizing constraint as the Copilot ceiling above — Autopilot's live-lane baseline is higher (auto-posting drafts every ingested review), so its on-demand headroom must be added on top of a larger base, not carved out of it. |
 
 (The onboarding-demo lane has its own separate ceiling — see `ONBOARDING_DEMO_DAILY_CENTS` below.)
 

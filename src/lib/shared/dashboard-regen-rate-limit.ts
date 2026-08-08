@@ -9,7 +9,12 @@ import { createWorkerLogger } from '@/lib/shared/logger';
 // draft" entrypoints. Two fixed-window layers keyed by the authenticated owner
 // account, on DISTINCT Redis keys: checkRateLimit is one counter per key, so a
 // single shared key would double-increment and corrupt the window.
-const BURST_MAX = 5;
+// The HOUR layer is the spend bound (30 × the 15¢ pessimistic reserve ≈ $4.50/hr
+// worst case); the BURST layer only exists to stop a click-storm. Raised 5 → 10
+// at #672 so an owner deliberately working through a freshly imported Reviews
+// list is not 429'd every few clicks — the hourly bound is deliberately
+// unchanged, so worst-case on-demand spend per hour does not move.
+const BURST_MAX = 10;
 const BURST_WINDOW_SECONDS = 60;
 const HOUR_MAX = 30;
 const HOUR_WINDOW_SECONDS = 3600;
