@@ -123,6 +123,36 @@ All eight are written up as D-A…D-H in the plan. The ones most likely to be se
 - The new live-DB suite must be `*.integration.test.ts`, must NOT apply migration SQL, and must call `assertSchemaReady` (`ci:live-db-suites`).
 - C4 (`DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` still unset) is a non-goal here but must be carried into the PR body so the ticket does not close believing the ceiling question is settled operationally.
 
+## Step 7 review — round 1 dispatch record (2026-08-08)
+
+Branch review round **1 of 3** counted in `.feature/state.json` before dispatch.
+Gate green at `b0fed111` (only the owner-ruled `reclassify` WARN). Fork point
+`13212b5588b96de2a5c8fcd0430cc95d70271e50`.
+
+| Axis | Report | Notes |
+|---|---|---|
+| Spec & correctness | `docs/reviews/<branch>/branch-round1-spec.md` | in-session subagent |
+| Standards & maintainability | `docs/reviews/<branch>/branch-round1-standards.md` | in-session subagent |
+| Adversarial approach | `docs/reviews/<branch>/branch-round1-adversarial.md` | **codex background task** |
+
+**Codex task identifiers — recorded because the companion wrapper has lost task
+ids across session resumes** (that is why the workflow asks for them in writing):
+
+- task id: `task-mskqg6zk-w7gm8q`
+- thread id: `019fe2b9-f8fc-7f52-ad32-1e828d018b37`
+- job state: `~/.claude/plugins/data/codex-openai-codex/state/feat-678-reviews-list-generate-6d13de13047c5472/jobs/task-mskqg6zk-w7gm8q.{json,log}`
+- poll with `jq -r .status <that>.json` — `running` → `completed`
+
+**⚠️ The wrapper granted this task `write: true`** despite a read-only brief. Tree
+snapshot taken at dispatch so an unsanctioned edit is detectable rather than
+silent: `HEAD=b0fed111`, `tree=4d58034fb469952f86ee7669e0a559fcb5ec2977`, working
+tree clean except the untracked `blast-radius.md`. Re-check `git status
+--porcelain` and the tree hash when it reports; anything else it touched must be
+reverted, not reviewed-and-kept — a review agent's edits have not been through
+the gate.
+
+---
+
 ## `PAST_REPLIES_VIEW_ENABLED` — captured values (Task 8 Step 1, 2026-08-08)
 
 Captured **before** the deletion landed, per the intake's `rollback_plan`. Copy
