@@ -28,7 +28,13 @@ Read those files. This handoff deliberately does not restate them.
   returned `REVISE`; every accepted finding is fixed in the plan and every rejected
   one is reasoned in the deviations file.
 - **No implementation has started.** No production file has been touched. The only
-  commits on this branch are the intake installs.
+  commits on this branch are the intake installs and the plan artifacts.
+- **`lastGreenGateSha` in `.feature/state.json` is NOT step-5 evidence.** It records
+  a `docs_only` gate run at the step 3→4 checkpoint (`.feature/gate-status.json`
+  carries `"mode":"docs_only"`), where `test`, `build`, `promised-tests`,
+  `reclassify`, and `diff-coverage` are all structurally skipped. The real gate runs
+  after T3 and T4, and `--review` before step 7. Phase was reset to `plan_approved`
+  after that run so a resumed session enters at step 4, not step 7.
 - **`allowed_edit_surface` amended once** (D1, owner-approved): added
   `worker/background/pollers/__tests__/NotificationFailoverPoller.integration.test.ts`.
   **A second amendment triggers the step-5 abort criteria.**
