@@ -21,12 +21,7 @@ import { isAggregate, perLocationActive } from '@/lib/dashboard/scope';
  * (PLAN.md 2026-06-19). Per-location -> ReviewsCard; aggregate -> the combined
  * AggregateReviewsCard. Shares the cached /api/dashboard payload.
  */
-interface ReviewsContentProps {
-  /** Server-authoritative (PAST_REPLIES_VIEW_ENABLED) — gates the History tab. */
-  historyEnabled: boolean;
-}
-
-export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
+export function ReviewsContent() {
   const { currentScope } = useLocationScope();
   const { data, error, loading, refresh } = useDashboardData(currentScope);
   useSyncPendingCount(data, loading);
@@ -46,7 +41,7 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
           refresh={refresh}
         />
         <div className="reviews-subnav">
-          <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
+          <ReviewsTabs active="needs" />
         </div>
         <div className="content content--reviews">
           <div className="section-enter section-enter-1">
@@ -86,7 +81,7 @@ export function ReviewsContent({ historyEnabled }: ReviewsContentProps) {
         refresh={refresh}
       />
       <div className="reviews-subnav">
-        <ReviewsTabs active="needs" historyEnabled={historyEnabled} />
+        <ReviewsTabs active="needs" />
       </div>
       <div className="content content--reviews">
         <div className="section-enter section-enter-1">

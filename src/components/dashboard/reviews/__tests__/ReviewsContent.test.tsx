@@ -40,7 +40,7 @@ const baseActive = {
 describe('ReviewsContent', () => {
   it('renders the per-location ReviewsCard for active per-location data', () => {
     useDashboardDataMock.mockReturnValue({ data: baseActive, error: null, loading: false, refresh: vi.fn() });
-    render(<ReviewsContent historyEnabled />);
+    render(<ReviewsContent />);
     expect(screen.getByTestId('reviews-card')).toBeInTheDocument();
     expect(screen.queryByTestId('aggregate-reviews-card')).not.toBeInTheDocument();
   });
@@ -52,7 +52,7 @@ describe('ReviewsContent', () => {
       loading: false,
       refresh: vi.fn(),
     });
-    render(<ReviewsContent historyEnabled />);
+    render(<ReviewsContent />);
     expect(screen.getByTestId('aggregate-reviews-card')).toBeInTheDocument();
     expect(screen.queryByTestId('reviews-card')).not.toBeInTheDocument();
   });
@@ -74,23 +74,19 @@ describe('ReviewsContent', () => {
       loading: false,
       refresh: vi.fn(),
     });
-    render(<ReviewsContent historyEnabled />);
+    render(<ReviewsContent />);
     expect(screen.queryByTestId('reviews-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('aggregate-reviews-card')).not.toBeInTheDocument();
     expect(screen.getByText(/reviews aren't available right now/i)).toBeInTheDocument();
   });
 
-  it('renders the routed History tab under its TopBar when historyEnabled', () => {
+  // #678: the second tab is `All Reviews` and renders unconditionally — the
+  // flag that used to hide it (PAST_REPLIES_VIEW_ENABLED) is retired, so the
+  // hidden-tab case no longer exists.
+  it('renders the routed All Reviews tab under its TopBar', () => {
     useDashboardDataMock.mockReturnValue({ data: baseActive, error: null, loading: false, refresh: vi.fn() });
-    render(<ReviewsContent historyEnabled />);
+    render(<ReviewsContent />);
     expect(screen.getByRole('link', { name: /needs action/i })).toHaveAttribute('href', '/dashboard/reviews');
-    expect(screen.getByRole('link', { name: /history/i })).toHaveAttribute('href', '/dashboard/reviews/history');
-  });
-
-  it('hides the History tab when historyEnabled is false', () => {
-    useDashboardDataMock.mockReturnValue({ data: baseActive, error: null, loading: false, refresh: vi.fn() });
-    render(<ReviewsContent historyEnabled={false} />);
-    expect(screen.getByRole('link', { name: /needs action/i })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /history/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /all reviews/i })).toHaveAttribute('href', '/dashboard/reviews/history');
   });
 });

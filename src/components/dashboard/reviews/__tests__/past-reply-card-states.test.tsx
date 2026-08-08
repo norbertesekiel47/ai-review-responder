@@ -173,9 +173,16 @@ describe('Reviews list surface', () => {
       />,
     );
 
-    expect(screen.getByText(/unanswered/i)).toBeInTheDocument();
-    expect(screen.getByText(/answered/i)).toBeInTheDocument();
-    expect(screen.getByText('Great food!')).toBeInTheDocument();
+    // getAllByText, not getByText: `Unanswered` and `Answered` each appear
+    // TWICE by design — once as a stat tile, once as its section heading — and
+    // both fixtures carry the same review body, so the single-match form threw
+    // "multiple elements" for every assertion rather than failing on behaviour.
+    // Anchored patterns keep `/^answered$/` from matching `Unanswered`.
+    // (Repaired, not relaxed: the counts below are stricter than the originals.
+    // See deviations D16.)
+    expect(screen.getAllByText(/^unanswered$/i)).toHaveLength(2);
+    expect(screen.getAllByText(/^answered$/i)).toHaveLength(2);
+    expect(screen.getAllByText('Great food!')).toHaveLength(2);
   });
 
   it('the Reviews list renders a moderation-held draft as held with no Generate, no draft text, and no cross-link', () => {

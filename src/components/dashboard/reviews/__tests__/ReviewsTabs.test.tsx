@@ -11,31 +11,28 @@ vi.mock('next/link', () => ({
 
 const linkByName = (name: RegExp) => screen.getByRole('link', { name });
 
+// #678 retired PAST_REPLIES_VIEW_ENABLED, so there is no `historyEnabled` prop
+// and no hidden-tab case left to test — the second tab is now `All Reviews` and
+// always renders.
 describe('ReviewsTabs', () => {
-  it('renders both tabs with correct hrefs when historyEnabled', () => {
-    render(<ReviewsTabs active="needs" historyEnabled />);
+  it('renders both tabs with correct hrefs', () => {
+    render(<ReviewsTabs active="needs" />);
     expect(linkByName(/needs action/i)).toHaveAttribute('href', '/dashboard/reviews');
-    expect(linkByName(/history/i)).toHaveAttribute('href', '/dashboard/reviews/history');
-  });
-
-  it('hides the History tab when historyEnabled is false', () => {
-    render(<ReviewsTabs active="needs" historyEnabled={false} />);
-    expect(linkByName(/needs action/i)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /history/i })).not.toBeInTheDocument();
+    expect(linkByName(/all reviews/i)).toHaveAttribute('href', '/dashboard/reviews/history');
   });
 
   it('highlights the active tab and marks it aria-current=page (needs)', () => {
-    render(<ReviewsTabs active="needs" historyEnabled />);
+    render(<ReviewsTabs active="needs" />);
     expect(linkByName(/needs action/i)).toHaveClass('active');
     expect(linkByName(/needs action/i)).toHaveAttribute('aria-current', 'page');
-    expect(linkByName(/history/i)).not.toHaveClass('active');
-    expect(linkByName(/history/i)).not.toHaveAttribute('aria-current');
+    expect(linkByName(/all reviews/i)).not.toHaveClass('active');
+    expect(linkByName(/all reviews/i)).not.toHaveAttribute('aria-current');
   });
 
   it('highlights the active tab and marks it aria-current=page (history)', () => {
-    render(<ReviewsTabs active="history" historyEnabled />);
-    expect(linkByName(/history/i)).toHaveClass('active');
-    expect(linkByName(/history/i)).toHaveAttribute('aria-current', 'page');
+    render(<ReviewsTabs active="history" />);
+    expect(linkByName(/all reviews/i)).toHaveClass('active');
+    expect(linkByName(/all reviews/i)).toHaveAttribute('aria-current', 'page');
     expect(linkByName(/needs action/i)).not.toHaveClass('active');
   });
 });

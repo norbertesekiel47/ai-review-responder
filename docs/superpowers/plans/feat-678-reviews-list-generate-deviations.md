@@ -464,3 +464,68 @@ pass away from making every review render as Answered. Widening the type is not
 defensive noise — it is the type telling the truth about the query.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D16 — T7: three eval assertions were unsatisfiable, and the tab rename had to move from T8 into T7
+
+**Trigger:** T7 execution. Three separate things in the locked material could not
+all be true at once. None changes behaviour; all three are recorded because a
+reviewer diffing T7 will see test edits outside the "write the surface" brief.
+
+**(a) `past-reply-card-states.test.tsx` — the list smoke test could never pass.**
+The title `the Reviews list renders without PAST_REPLIES_VIEW_ENABLED set` used
+`getByText` three times against a render that necessarily contains **two** of
+each match:
+
+- `getByText(/answered/i)` — the substring is inside `Unanswered`, so the tile
+  label and the section heading for *both* groups match it. Even rendering only
+  the intake's four tile labels (`Total reviews / Unanswered / Answered / Avg
+  rating`) is already two matches.
+- `getByText('Great food!')` — `makeRow()` and `answeredRow()` share the default
+  `review_text`, so the unanswered and answered fixtures both render it.
+
+`getByText` throws `getMultipleElementsFoundError` on >1 match, so the test
+failed on element counting, never on behaviour, and no copy choice fixes the
+second one. **Repaired, not relaxed:** the three assertions became
+`getAllByText(/^unanswered$/i)`, `getAllByText(/^answered$/i)` and
+`getAllByText('Great food!')`, each pinned to `toHaveLength(2)` — strictly more
+than the originals asserted, with anchors so `/^answered$/` cannot match
+`Unanswered`. The **title is unchanged**, and the intake's tile copy and the
+glossary's `Unanswered`/`Answered` group headings both ship verbatim.
+
+**(b) `row_state` is typed `string` at the card boundary, not `ReviewRowState`.**
+The same eval pins `interface ListRow extends PastReplyRow { row_state: string;
+provenance_badge?: string | null }`. An interface may not widen an inherited
+member, so declaring `row_state: ReviewRowState` on `PastReplyRow` makes the
+eval itself a typecheck error (TS2430). The brief's instruction — "the eval pins
+your prop shapes" — wins over the stronger type, so `PastReplyRow.row_state` is
+`string` and `ReplySide` narrows **once**, at the wire boundary, with
+`row.row_state as ReviewRowState`. The exhaustiveness goal is fully preserved:
+the `switch` still ends in `const unreachable: never = state`, so a seventh
+`ReviewRowState` member fails typecheck rather than rendering a blank half-card.
+`ReviewsListRow` (server side) keeps the strong `ReviewRowState` and is
+assignable to the widened wire type, so nothing downstream weakens.
+
+**(c) `ReviewsTabs` / `ReviewsContent` / `reviews/page.tsx` moved from T8 to T7.**
+The plan assigns the `historyEnabled` drop + `History` → `All Reviews` rename to
+Task 8 Step 3, but the eval's `ReviewsTabs renders the All Reviews tab
+unconditionally` renders `<ReviewsTabs active="history" />` with no
+`historyEnabled`, which is one of T7's 11 starting typecheck errors and cannot
+be cleared from any other file. T7 therefore drops the prop, renames the tab,
+and updates the two call sites (`ReviewsContent`, `reviews/page.tsx`) plus their
+suites. **`flags.ts` is untouched** — `pastRepliesViewEnabled()` still exists and
+is still exported; only its two page-level callers are gone. Task 8 still owns
+the collapse, the env-registry retirement, and the docs sweep, and its two
+`flags.test.ts` titles are still red exactly as intended.
+
+**Also folded in (mechanical, no behaviour change):** `Edit reply` on an answered
+row is renamed `Regenerate` — one CTA into the same `EditReplyDrawer`, not a
+second button beside it — and the three suites that queried it by name
+(`PastReplyCard.test.tsx`, `PastRepliesClient.test.tsx`,
+`useEditReplyDraft.test.tsx`) were updated with their fixtures. The three
+`PastRepliesClient` tests that pinned the deleted gap/historical bucketing
+(`hasHistoricalSection` for orphan-only hist rows, and the two orphan-count
+reconciliations) are deleted with the behaviour they guarded.
+
+**Verdict:**
