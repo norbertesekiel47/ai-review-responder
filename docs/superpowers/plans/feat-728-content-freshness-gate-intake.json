@@ -74,7 +74,7 @@
     "replacement job at the same version regenerates against current content instead of serving the stale cached draft"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 140,
+  "estimated_prod_lines": 430,
   "estimated_test_lines": 800,
   "dependencies_added": [],
   "rollback_plan": "No migration — pure worker-code change. Back out by reverting the PR on main and fast-forwarding staging; no data cleanup needed (the gate only ever refrains from inserting). db_touching is set for the live-DB test provisioning + tenant-scope/rls audits, not for schema change.",

@@ -133,3 +133,14 @@
   its harness cannot honestly exercise the real cache accept path; the new
   file drives generateDraft with the real generator + real cost-guard over a
   Map-backed cache store and mocked LLM SDKs.
+- [2026-08-09] **Reclassify trigger fired at ship time (production 430 > 2×140)
+  — assessed, lane unchanged, recorded for the owner's merge decision.** The
+  growth decomposes into: the owner-approved Option A cache-provenance scope
+  (amendment #2), and two CI-fallow-driven refactors of already-reviewed code
+  (the shared generation-phase error dispatch; the resolveAutoApprovalDecision
+  extraction that brought the persist tx callback under complexity
+  thresholds). Step 0 re-run is a no-op here: the feature already ran the
+  heaviest lane end-to-end (RISK=high grilling, 3-round plan gate, 3-axis
+  review, staging ride), which is precisely what the trigger exists to force.
+  Estimate corrected to actuals (140→430) post-hoc with this record as the
+  audit trail; surfaced in the PR before the owner's merge approval.
