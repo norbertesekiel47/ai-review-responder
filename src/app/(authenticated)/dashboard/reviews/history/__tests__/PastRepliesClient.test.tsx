@@ -33,7 +33,8 @@ function row(overrides: Partial<ListRow> = {}): ListRow {
     approval_method: null,
     posted_at: '2026-05-02T10:00:00Z',
     external_reply_ingested_at: null,
-    row_state: 'regenerate',
+    reply_state: 'posted',
+    row_action: 'regenerate',
     canEdit: true,
     review_content_hash: 'hash-abc',
     version: 1,
@@ -51,7 +52,8 @@ function orphanRow(overrides: Partial<ListRow> = {}): ListRow {
     approved_text: null,
     posted_at: null,
     version: null,
-    row_state: 'recover',
+    reply_state: 'orphan',
+    row_action: 'recover',
     canEdit: true,
     failed_response_id: 'fail-resp-orphan-1',
     failed_posting_error: 'post_after_delete_failed_http_400',
@@ -133,7 +135,7 @@ describe('PastRepliesClient', () => {
       <PastRepliesClient
         {...baseProps}
         unansweredRows={[
-          row({ review_id: 'u-1', row_state: 'generate', response_id: null, approved_text: null, posted_at: null }),
+          row({ review_id: 'u-1', reply_state: 'none', row_action: 'generate', response_id: null, approved_text: null, posted_at: null }),
         ]}
         answeredRows={[row({ review_id: 'a-1' })]}
         unansweredTotal={1}

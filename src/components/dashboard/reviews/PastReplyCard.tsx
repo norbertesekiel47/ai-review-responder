@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { InlineGeneratePanel } from '@/components/dashboard/reviews/InlineGeneratePanel';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
-import type { ProvenanceBadge, ReviewRowState } from '@/lib/past-replies/replies-view';
+import type { ProvenanceBadge, ReplyState, RowAction } from '@/lib/past-replies/replies-view';
 import type { RegenBudgetStatus } from '@/lib/costs/tracker';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
@@ -21,7 +22,7 @@ export interface PastReplyRow {
   /**
    * NULL for a never-replied review (#678, D15). The Reviews list LEFT JOINs
    * `responses`, and `resp.id IS NULL` IS the unanswered predicate — the same
-   * NULL `deriveRowState` branches on. Do not "simplify" it back to `string`:
+   * NULL `deriveAxes` branches on. Do not "simplify" it back to `string`:
    * that type was true only while the list contained posted replies alone.
    */
   response_id: string | null;
@@ -30,13 +31,19 @@ export interface PastReplyRow {
   posted_at: string | null;
   external_reply_ingested_at: string | null;
   /**
-   * What the row offers, DERIVED SERVER-SIDE by `deriveRowState`
-   * (`src/lib/past-replies/replies-view.ts`) — the card renders it, it never
-   * computes one (D-D). Typed `string` at this wire boundary and narrowed once,
-   * in `ReplySide`, so every "never offer Generate on X" rule stays in the one
-   * module that owns it.
+   * The Posted-reply axis (#727): what exists on Google. Owns the
+   * Unanswered/Answered grouping and which reply panel renders. Typed as the
+   * exported union end-to-end — the wire boundary carries the contract.
    */
-  row_state: string;
+  reply_state: ReplyState;
+  /**
+   * The Action slot (#727): the single affordance this card renders, derived
+   * server-side from the full (reply_state × draft_state) cross-product. The
+   * Replacement-draft axis itself NEVER crosses the wire (invariant #4): a
+   * held replacement projects to 'none' here, so this component cannot leak
+   * what it never receives.
+   */
+  row_action: RowAction;
   /** Server-derived `ProvenanceBadge` (D-E); null when no provenance applies. */
   provenance_badge?: string | null;
   // Optimistic-concurrency snapshot (required by EditReplyDrawer).
@@ -170,13 +177,15 @@ function ReviewSide({ row, query }: { row: PastReplyRow; query?: string }) {
 }
 
 /**
- * The reply half of the card, dispatched on the SERVER-derived row state.
+ * The reply half of the card, dispatched on the SERVER-derived Action slot.
  *
- * The `switch` is the whole rendering contract: six states, no derivation, and
- * a `never`-typed default so a seventh member of `ReviewRowState` fails
- * typecheck instead of rendering a blank half-card. The single cast is the wire
- * boundary — `row_state` arrives as a string over the server→client seam and
- * `deriveRowState` is its only writer.
+ * The `switch` is the whole affordance contract: `row_action` is the single
+ * affordance this card renders, derived server-side from the full
+ * (reply_state × draft_state) cross-product — no derivation here, and a
+ * `never`-typed default so a new member of `RowAction` fails typecheck instead
+ * of rendering a blank half-card. Where the slot is withdrawn (`'none'`), the
+ * Posted-reply axis picks WHICH panel renders; the card never computes an
+ * affordance of its own (D-D).
  */
 function ReplySide({
   row,
@@ -187,15 +196,10 @@ function ReplySide({
   onEditClick,
   onRecoveryClick,
 }: Props) {
-  const state = row.row_state as ReviewRowState;
-
-  switch (state) {
+  switch (row.row_action) {
     case 'regenerate':
       return (
-        <div className="pr-side pr-side-reply">
-          <ReplyEyebrow />
-          <ReplyBody row={row} query={query} />
-          <Provenance row={row} isImported={isImported} />
+        <ReplyPanel row={row} isImported={isImported} query={query}>
           <AnsweredControls
             row={row}
             editRepliesEnabled={editRepliesEnabled}
@@ -203,15 +207,12 @@ function ReplySide({
             onEditClick={onEditClick}
             onRecoveryClick={onRecoveryClick}
           />
-        </div>
+        </ReplyPanel>
       );
 
     case 'recover':
       return (
-        <div className="pr-side pr-side-reply">
-          <ReplyEyebrow />
-          <ReplyBody row={row} query={query} />
-          <Provenance row={row} isImported={isImported} />
+        <ReplyPanel row={row} isImported={isImported} query={query}>
           {/* D-G: an orphan reaches /retry or /restore-original and is never
               offered Generate — a first draft here would race recovery. */}
           <RecoveryControl
@@ -219,7 +220,7 @@ function ReplySide({
             editRepliesEnabled={editRepliesEnabled}
             onRecoveryClick={onRecoveryClick}
           />
-        </div>
+        </ReplyPanel>
       );
 
     case 'draft_ready':
@@ -243,12 +244,28 @@ function ReplySide({
         </div>
       );
 
-    case 'held':
-      // Invariant #4 / D9: a high-severity moderation flag holds the draft.
-      // No text, no button, no cross-link — Needs Action does not surface held
-      // drafts either, so a cross-link would lead nowhere. The owner's only
-      // path back is an admin disposition at /admin/flagged.
-      return (
+    case 'none':
+      // The withdrawn Action slot — only held cells project it (#727). WHICH
+      // panel renders is owned by the Posted-reply axis.
+      return row.reply_state === 'posted' ? (
+        // posted×held: the live reply the owner is entitled to see stays
+        // visible; the withdrawal is SILENT — no button, no counter, no lock,
+        // no held indication (explaining it would be the notification
+        // invariant #4 forbids: held, not notified). RecoveryControl
+        // self-gates on a delete_failed sidecar and stays: recovery addresses
+        // the failed response, not the held draft.
+        <ReplyPanel row={row} isImported={isImported} query={query}>
+          <RecoveryControl
+            row={row}
+            editRepliesEnabled={editRepliesEnabled}
+            onRecoveryClick={onRecoveryClick}
+          />
+        </ReplyPanel>
+      ) : (
+        // none×held: today's held posture, reconstructed from the two wire
+        // fields — the held value itself never crosses the wire (#723; owner
+        // call 2026-08-09). No draft text, no affordance, no cross-link; the
+        // owner's only path back is an admin disposition at /admin/flagged.
         <div className="pr-side pr-side-reply">
           <div className="pr-side-eyebrow reply">
             <Icon name="shield" size={12} /> Reply on hold
@@ -276,17 +293,45 @@ function ReplySide({
               that can be generating (D-C: `generating` resumes after a refresh). */}
           <InlineGeneratePanel
             reviewId={row.review_id}
-            resumeGenerating={state === 'generating'}
+            resumeGenerating={row.row_action === 'generating'}
           />
         </div>
       );
 
     default: {
-      // A seventh ReviewRowState must be rendered above, not fall through here.
-      const unreachable: never = state;
+      // A new RowAction member must be rendered above, not fall through here.
+      const unreachable: never = row.row_action;
       return unreachable;
     }
   }
+}
+
+/**
+ * The panel every row with something on Google renders (posted AND orphan):
+ * eyebrow + reply body + provenance, with the action slot's controls as
+ * children. Extracted so a panel change lands once, not per switch arm (#727
+ * review F1) — the ARM chooses the controls; the panel is shared. The
+ * none×held "Reply on hold" panel is NOT this shape and stays inline.
+ */
+function ReplyPanel({
+  row,
+  isImported,
+  query,
+  children,
+}: {
+  row: PastReplyRow;
+  isImported: boolean;
+  query?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="pr-side pr-side-reply">
+      <ReplyEyebrow />
+      <ReplyBody row={row} query={query} />
+      <Provenance row={row} isImported={isImported} />
+      {children}
+    </div>
+  );
 }
 
 function ReplyEyebrow() {
@@ -306,12 +351,12 @@ function ReplyBody({ row, query }: { row: PastReplyRow; query?: string }) {
 }
 
 function Provenance({ row, isImported }: { row: PastReplyRow; isImported: boolean }) {
-  // D-D: read the SERVER-derived state, never re-derive it. `recover` IS the
-  // orphan state (`deriveRowState`, replies-view.ts). The old local predicate
-  // (`failed_response_id` set + `posted_at` null) agreed with it only by
-  // coincidence of two independent invariants, and `responses.posted_at` is
-  // nullable in general.
-  const isOrphanRecovery = row.row_state === 'recover';
+  // D-D: read the SERVER-derived axis, never re-derive it. The Posted-reply
+  // axis IS orphan-ness (`deriveAxes`, replies-view.ts) — server-derived. The
+  // old local predicate (`failed_response_id` set + `posted_at` null) agreed
+  // with it only by coincidence of two independent invariants, and
+  // `responses.posted_at` is nullable in general.
+  const isOrphanRecovery = row.reply_state === 'orphan';
 
   if (isOrphanRecovery) {
     return (

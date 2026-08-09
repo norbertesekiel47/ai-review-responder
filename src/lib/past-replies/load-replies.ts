@@ -31,10 +31,12 @@ import {
 export interface PastRepliesPageView {
   locationDisplayName: string;
   /**
-   * `ReviewsListRow`, not `PastReplyRow`: post-#678 a row carries `row_state`
-   * and `provenance_badge`, and its `response_id` is nullable because the
+   * `ReviewsListRow`, not `PastReplyRow`: post-#727 a row carries the
+   * Posted-reply axis (`reply_state`), the Action slot (`row_action`) and
+   * `provenance_badge`, and its `response_id` is nullable because the
    * LEFT JOIN's `resp.id IS NULL` IS the unanswered predicate. `replies-view.ts`
-   * owns the type so the card renders a state rather than deriving one (D-D).
+   * owns the type so the card renders what the server derived rather than
+   * deriving anything itself (D-D).
    */
   unansweredRows: ReviewsListRow[];
   answeredRows: ReviewsListRow[];
@@ -220,10 +222,11 @@ export async function loadPastRepliesPageView(
       -- review, so the ORDER BY/LIMIT is belt-and-braces, not a real tie-break.
       --
       -- Invariant #4: the held flag is CARRIED, not filtered. Excluding a held
-      -- draft here would leave draft_response_id NULL and deriveRowState would
-      -- fall through to the generate state — offering an LLM spend that the
-      -- partial unique index would then reject. Selected, it resolves to the
-      -- held state instead (D9).
+      -- draft here would leave draft_response_id NULL, deriveAxes would read
+      -- the Replacement-draft axis as absent, and deriveRowAction would project
+      -- a Generate affordance — offering an LLM spend that the partial unique
+      -- index would then reject. Selected, the axis resolves to held and the
+      -- Action slot projects 'none' — the withdrawn slot — instead (D9).
       --
       -- src/lib/moderation/held-draft.ts is the SEMANTIC owner of "a draft is
       -- held while an open flagged_responses row exists". Its hasOpenFlag is an

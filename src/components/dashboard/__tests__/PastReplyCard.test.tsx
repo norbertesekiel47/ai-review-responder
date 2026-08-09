@@ -18,9 +18,10 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     approval_method: null,
     posted_at: '2026-04-02T10:00:00Z',
     external_reply_ingested_at: null,
-    // #678: the card renders a SERVER-derived row state. The default fixture is
-    // an answered row; the orphan fixtures below override it to 'recover'.
-    row_state: 'regenerate',
+    // #678/#727: the card renders the SERVER-derived axes. The default fixture
+    // is an answered row; the orphan fixtures below override to orphan/recover.
+    reply_state: 'posted',
+    row_action: 'regenerate',
     review_content_hash: 'hash-abc',
     version: 1,
     canEdit: true,
@@ -210,7 +211,8 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-999',
       approved_text: null,       // no superseded sibling text
       posted_at: null,           // no posted reply
-      row_state: 'recover',
+      reply_state: 'orphan',
+      row_action: 'recover',
       external_reply_ingested_at: null,
       version: null,
       canEdit: true,             // orphanCardRow always sets this
@@ -240,7 +242,8 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-000',
       approved_text: null,
       posted_at: null,
-      row_state: 'recover',
+      reply_state: 'orphan',
+      row_action: 'recover',
       canEdit: true,
       failed_response_id: 'fail-resp-000',
       failed_posting_error: 'post_after_delete_failed_timeout',
@@ -264,7 +267,8 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-111',
       posted_at: null,
-      row_state: 'recover',
+      reply_state: 'orphan',
+      row_action: 'recover',
       approved_text: 'Original reply text',
       canEdit: true,
       failed_response_id: 'fail-resp-111',
@@ -293,7 +297,8 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-1',
       posted_at: null,
-      row_state: 'recover',
+      reply_state: 'orphan',
+      row_action: 'recover',
       external_reply_ingested_at: null,
       canEdit: true,
       failed_response_id: 'fail-resp-badge-1',
@@ -320,7 +325,8 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-2',
       posted_at: null,
-      row_state: 'recover',
+      reply_state: 'orphan',
+      row_action: 'recover',
       // external_reply_ingested_at being set is unusual for an orphan, but we
       // guard the badge by posted_at===null + failed_response_id, not isImported.
       external_reply_ingested_at: '2026-03-01T00:00:00Z',
