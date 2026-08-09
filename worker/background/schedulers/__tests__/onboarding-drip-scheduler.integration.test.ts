@@ -58,6 +58,10 @@ import {
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { OnboardingDripPayload } from '@/lib/shared/worker-types';
+import {
+  runOnboardingDripCycle,
+  type DripCycleResult,
+} from '../OnboardingDripScheduler';
 
 // Title 20 asks whether a skip was a SKIP or a swallowed crash, so the module's
 // logger has to be observable. Only `createWorkerLogger` is replaced; every other
@@ -112,18 +116,6 @@ const ONBOARDING_DRIP_SCHEDULER_SCHEMA: SchemaRequirement = {
   ],
 };
 
-/** Task 4's shape — it does not exist yet, so titles 12-20 must be RED. */
-interface DripCycleResult {
-  queued: number;
-  tooLate: number;
-  churnCapped: number;
-}
-
-interface SchedulerModule {
-  runOnboardingDripCycle?: (exec: Sql, asOf: Date) => Promise<DripCycleResult>;
-}
-
-let runOnboardingDripCycleFn: SchedulerModule['runOnboardingDripCycle'];
 let featureDatabaseLock: LiveDbLock | undefined;
 let suiteSql: Sql | undefined;
 let suiteStartedAt: Date | undefined;
@@ -134,12 +126,7 @@ function db(): Sql {
 }
 
 function runCycle(): Promise<DripCycleResult> {
-  if (!runOnboardingDripCycleFn) {
-    throw new Error(
-      'runOnboardingDripCycle is not exported from worker/background/schedulers/OnboardingDripScheduler.ts yet (#719 Task 4)',
-    );
-  }
-  return runOnboardingDripCycleFn(db(), ASOF);
+  return runOnboardingDripCycle(db(), ASOF);
 }
 
 // ── Fixture bookkeeping ──────────────────────────────────────────────
@@ -245,11 +232,6 @@ describeWithDb(
         ONBOARDING_DRIP_SCHEDULER_SCHEMA,
         MIGRATION_100_IMPORT_CONSENT,
       ]);
-
-      const schedulerModule = (await import(
-        '../OnboardingDripScheduler'
-      )) as unknown as SchedulerModule;
-      runOnboardingDripCycleFn = schedulerModule.runOnboardingDripCycle;
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     beforeEach(() => {
