@@ -62,7 +62,7 @@ import { execFileSync } from 'node:child_process';
 import ts from 'typescript';
 import { lineHasPragma } from './lib/sql-tag-scan';
 
-export interface LiveDbSuiteFinding {
+export interface LiveDbFileFinding {
   file: string;
   rule: 'naming' | 'runtime-ddl' | 'unlocked-ddl';
   reason: string;
@@ -307,13 +307,31 @@ function unpragmaedDdlLines(source: ts.SourceFile): number[] {
     .filter((line) => !lineHasPragma(lines, line, DDL_PRAGMA));
 }
 
-export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding[] {
+/**
+ * A SUITE is a runner entry point — `vitest.config.ts` includes
+ * `**\/__tests__\/**\/*.test.{ts,tsx}`, and `INTEGRATION_GLOB` narrows the
+ * serialized project to `*.integration.test.ts` within it. Everything else this
+ * audit scans is a HELPER: imported BY a suite, never run as one.
+ *
+ * The distinction is what makes R1 sound. Naming is a claim about which vitest
+ * project a file lands in, so it can only be asked of a file vitest runs; a
+ * helper renamed to `*.integration.test.ts` would be executed as an empty suite.
+ * R2 and the lock check ask instead whether the file takes ACCESS EXCLUSIVE on a
+ * shared relation, which is true of the statement wherever it was written.
+ */
+function isSuite(file: string): boolean {
+  return file.endsWith('.test.ts') || file.endsWith('.test.tsx');
+}
+
+export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[] {
   if (NOT_LIVE_DB.has(file)) return [];
   if (!LIVE_DB_MARKERS.some((marker) => text.includes(marker))) return [];
 
-  const findings: LiveDbSuiteFinding[] = [];
+  const findings: LiveDbFileFinding[] = [];
 
-  if (!file.endsWith('.integration.test.ts')) {
+  const suite = isSuite(file);
+
+  if (suite && !file.endsWith('.integration.test.ts')) {
     findings.push({
       file,
       rule: 'naming',
@@ -363,16 +381,41 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
   return findings;
 }
 
-export function listTestFiles(): string[] {
-  return execFileSync('git', ['ls-files', '*.test.ts', '*.test.tsx'], { encoding: 'utf8' })
+/**
+ * Every file the conventions apply to: the SUITES vitest runs, plus the
+ * non-suite modules under `__tests__/` that suites import.
+ *
+ * The second pathspec is what #706 added. A helper is not a runner entry point,
+ * so it never matched `*.test.ts` — yet Postgres.js splices a nested `Query`
+ * substitution in as raw SQL text (`fragment()`), so a helper can BUILD a DDL
+ * statement that a scanned suite executes with no DDL text of its own. Scanning
+ * the producing file is what keeps the AST walk's "visits the producing node"
+ * guarantee true across files rather than only within one.
+ *
+ * `git ls-files` dedupes across pathspecs, so a `__tests__/x.test.ts` matched by
+ * both appears once (asserted by this audit's own test — a double-listed file
+ * would double-report every finding it carries).
+ *
+ * BOUND: the `e2e/` Playwright lane is deliberately absent. Those specs run in
+ * their own `pnpm test:e2e` process and own their database lifecycle, so R1's
+ * serialization premise — vitest's `integration` project against ~738 parallel
+ * siblings — does not hold there. `e2e/**\/__tests__\/**\/*.test.ts` carries
+ * vitest unit tests and IS matched, by the first pathspec, as it always was.
+ */
+export function listAuditedFiles(): string[] {
+  return execFileSync(
+    'git',
+    ['ls-files', '*.test.ts', '*.test.tsx', '*__tests__/*.ts', '*__tests__/*.tsx'],
+    { encoding: 'utf8' },
+  )
     .split('\n')
     .filter(Boolean);
 }
 
 async function main(): Promise<void> {
-  const findings: LiveDbSuiteFinding[] = [];
-  for (const file of listTestFiles()) {
-    findings.push(...auditLiveDbSuite(file, await readFile(file, 'utf8')));
+  const findings: LiveDbFileFinding[] = [];
+  for (const file of listAuditedFiles()) {
+    findings.push(...auditLiveDbFile(file, await readFile(file, 'utf8')));
   }
 
   if (findings.length > 0) {
