@@ -245,7 +245,8 @@ assertions-as-commented are locked. Import `fc` from `fast-check`,
 Also add `.todo` stubs where they belong:
 in `src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts`:
 `it.todo('each draft-status awaited query projects held from its correctly correlated response alias')`;
-in `src/lib/dashboard/__tests__/service.test.ts`:
+in `src/lib/dashboard/__tests__/service.feed-projection.test.ts` (NOT
+`service.test.ts` — that file does not exist):
 `it.todo('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned')`.
 
 - [ ] **Step 4: run — all green (4 todos)**
@@ -520,29 +521,50 @@ query's in-scope client variable.)
 - [ ] **Step 2: pending-count.ts — BOTH spellings** →
 `AND NOT ${openFlagExistsSql(sql, sql`resp.id`)}`. Import in all three files.
 
-- [ ] **Step 3: fill title #10** (in `service.test.ts`, moved from `.todo`;
-upgrade the suite's double to fragment-aware if queue-based):
+- [ ] **Step 3: fragment-aware harness + fill title #10** — grounded in the
+REAL suites (round-2 fix; v2 cited a nonexistent `service.test.ts`):
+
+The dashboard suites share a queue-based mock harness
+(`harness.sqlReturnQueue` / `harness.sqlCalls`, text via `strings.join`) —
+find its defining module under `src/lib/dashboard/__tests__/` and apply the
+fragment-aware guard from the plan header THERE, once, so every dashboard
+suite inherits it.
+
+Title #10 goes in `service.feed-projection.test.ts` (moved from `.todo`),
+using that suite's OWN `lateralBody(queryText, 'resp')` slicer (defined at
+~line 41) instead of invented plumbing:
 
 ```ts
-  it('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned', () => {
-    // capture the dashboard feed query text; slice the responses-LATERAL
-    // substring (between 'LEFT JOIN LATERAL' and ') resp ON true'):
-    const lateral = feedQueryText.slice(feedQueryText.indexOf('LEFT JOIN LATERAL'), feedQueryText.indexOf(') resp ON true'));
-    const notIdx = lateral.indexOf('AND NOT ?');       // fragment placeholder, NEGATED polarity
-    const orderIdx = lateral.indexOf('ORDER BY version DESC');
+  it('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned', async () => {
+    // (drive the feed query exactly like the suite's neighbouring cases, then:)
+    const body = lateralBody(recentReviewsQuery()!.text, 'resp');
+    const notIdx = body.indexOf('AND NOT ?');            // fragment placeholder, NEGATED polarity
+    const orderIdx = body.indexOf('ORDER BY version DESC');
     expect(notIdx).toBeGreaterThan(-1);
-    expect(orderIdx).toBeGreaterThan(notIdx);          // filter BEFORE order/limit — held newest falls back to unheld sibling
-    // and the fragment itself was built with the right correlation:
-    expect(fragmentCalls.some((c) => c.text.trim() === 'responses.id')).toBe(true);
+    expect(orderIdx).toBeGreaterThan(notIdx);            // filter BEFORE order/limit — held newest falls back to unheld sibling
+    // the fragment was built with the right correlation, as its own captured calls:
+    expect(harness.sqlCalls.some((c) => c.text.trim() === 'responses.id')).toBe(true);
+    expect(harness.sqlCalls.some((c) => c.text.includes('FROM flagged_responses fr'))).toBe(true);
   });
 ```
 
-(Repeat the same assertion shape for aggregate-service in its suite if its
-query text is separately capturable. Round-1 triage note: a live
-dashboard-service suite was weighed and rejected as disproportionate — this
-placement/polarity pin plus the live property on the IDENTICAL filtered
-composition (pending-count, title #5) covers inverted-polarity and
-filter-after-LIMIT regressions.)
+MANDATORY mirror for the aggregate feed query: place the same
+polarity+placement+correlation assertions in the aggregate suite that
+captures its query text (`aggregate-queries.test.ts` /
+`aggregate-service.test.ts` — read them and put the pin beside the existing
+text assertions). Also RELOCATE, never delete, the existing
+`aggregate-queries.test.ts` ~line 261 `expect(call.text).toContain('flagged_responses')`
+pin on the grouped pending count — post-migration that text lives in the
+fragment's own captured call.
+
+**Accepted residual (recorded for review):** the migrated service/aggregate
+LATERALs have no live execution path in any suite. Accepted because the
+fragment's splice validity is live-proven in all three composition contexts
+(projected-in-LATERAL via load-replies, filtered via pending-count titles
+#5/#8, parameter-correlated via title #6), the edits are surgical
+in-place block swaps, and the unit pins above catch polarity/placement/
+correlation regressions. A live dashboard-service suite remains
+disproportionate for this refactor.
 
 - [ ] **Step 4: regen entries, run — INCLUDING the cross-module property — commit**
 
@@ -611,24 +633,51 @@ allowlist work here.)
 house precedent: source-scanning suites like
 `src/__tests__/eslint-boundaries.test.ts` / `design-token-single-source.test.ts`:
 
+Round-2 hardening (finding 7): the scan counts INVOCATIONS (`openFlagExistsSql(`
+never matches the import specifier), requires BOTH pending-count call sites,
+and mechanically forbids any of the eleven promised titles surviving as
+`.todo` — closing the gate's `.todo` acceptance without touching
+`verify-gate.sh` (out of surface).
+
 ```ts
   it('all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains', () => {
-    const OWNER_FACING = [
-      'src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts',
-      'src/app/api/dashboard/past-replies/draft-status/route.ts',
-      'src/lib/past-replies/load-replies.ts',
-      'src/lib/dashboard/service.ts',
-      'src/lib/dashboard/aggregate-service.ts',
-      'src/lib/dashboard/pending-count.ts',
-      'src/lib/agents/read.ts',
+    // file → minimum openFlagExistsSql(...) INVOCATIONS (import lines never
+    // match `openFlagExistsSql(`): pending-count has TWO spellings.
+    const OWNER_FACING: Array<[string, number]> = [
+      ['src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts', 1],
+      ['src/app/api/dashboard/past-replies/draft-status/route.ts', 1],
+      ['src/lib/past-replies/load-replies.ts', 1],
+      ['src/lib/dashboard/service.ts', 1],
+      ['src/lib/dashboard/aggregate-service.ts', 1],
+      ['src/lib/dashboard/pending-count.ts', 2],
+      ['src/lib/agents/read.ts', 1],
     ];
-    for (const file of OWNER_FACING) {
+    for (const [file, minCalls] of OWNER_FACING) {
       const src = readFileSync(resolve(process.cwd(), file), 'utf-8');
-      expect(src, `${file} must compose openFlagExistsSql`).toContain('openFlagExistsSql');
+      const calls = src.match(/openFlagExistsSql\(/g)?.length ?? 0;
+      expect(calls, `${file} must invoke openFlagExistsSql at least ${minCalls}×`).toBeGreaterThanOrEqual(minCalls);
       expect(src, `${file} re-spells the open-flag predicate inline`).not.toMatch(/FROM\s+flagged_responses/i);
     }
   });
+
+  it('no promised #730 test title survives as .todo', () => {
+    // The verify gate's promised-tests row accepts `.todo`; this closes that
+    // escape mechanically. Scans the four suites that carried stubs.
+    const SUITES = [
+      'src/lib/moderation/__tests__/held-draft.test.ts',
+      'src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts',
+      'src/lib/dashboard/__tests__/service.feed-projection.test.ts',
+    ];
+    for (const suite of SUITES) {
+      const src = readFileSync(resolve(process.cwd(), suite), 'utf-8');
+      expect(src, `${suite} still carries a .todo stub`).not.toMatch(/it\.todo\(/);
+    }
+  });
 ```
+
+(The second test's title is a T7 implementation detail, not a promised intake
+title — it needs no intake entry; it exists to make the ".todo left behind"
+failure mode mechanical rather than prose.)
 
 Run the suite; commit:
 
