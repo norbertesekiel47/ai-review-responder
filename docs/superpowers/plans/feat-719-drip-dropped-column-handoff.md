@@ -53,8 +53,31 @@ only added a Sentry *breadcrumb* on job failure, so a hard deterministic crash r
 - [x] 3-gate round 1 — Codex `VERDICT: REVISE` (11 HIGH / 4 MEDIUM). Triaged: 16 ACCEPT, 1 REJECT.
       Report + verdicts: `docs/reviews/feat-719-drip-dropped-column/plan-round-1.md`
 - [x] Plan **v2** written; intake updated (25 titles, surface narrowed); deviations D3–D5 recorded
-- [ ] 3-gate round 2 (verification-only) — **in flight**
-- [ ] 4 Execute · [ ] 5 Verify gate · [ ] 6 Deviations read-back · [ ] 7 Review · [ ] 8 Ship
+- [x] 3-gate round 2 (verification-only) — **APPROVED**, but **self-performed** after two Codex
+      dispatches were killed by the 10-minute Bash ceiling. Report + the honesty note about that
+      weakening: `docs/reviews/feat-719-drip-dropped-column/plan-round-2.md`. It found two NEW
+      defects (N1: the execution sentinel sat inside `describeWithDb` and so would skip under the
+      exact condition it detects — a fix for round-1 finding 7 that reintroduced finding 7;
+      N2: scheduler assertions were contaminable because the cycle scans every business).
+      Plan is at **v2.1**. `phase=plan_approved`.
+- [ ] 4 Execute — **NEXT: dispatch Task 1 ALONE** (first-task enforcement spot check)
+- [ ] 5 Verify gate · [ ] 6 Deviations read-back · [ ] 7 Review · [ ] 8 Ship
+
+## Step 4 entry checklist (do these in order)
+
+1. `bash scripts/feature-state.sh set-phase executing`
+2. Dispatch **Task 1 alone** via `subagent-driven-development`. Its prompt must carry: the
+   CONTEXT.md glossary excerpt (**Outbox job**, **Watchdog**, **Full access**, **Account**/
+   **Business**), plan v2.1's "What round 1 changed, and why" section verbatim, and the precedent
+   file paths — not prose descriptions of them.
+3. **Enforcement spot check:** when Task 1 returns, diff `git status --porcelain` against
+   `allowed_edit_surface`. An out-of-surface path means the guard did not bind for subagent tool
+   calls in this harness — STOP and report, do not dispatch further tasks.
+4. Then fan out **T2, T4, T5 concurrently** (no blocking edges, disjoint files). T3 after T2.
+   T6 after T3+T4+T5.
+
+Any subagent hitting something the plan did not anticipate writes to the deviations file rather
+than reporting it up — the orchestrator's context is the scarce resource.
 
 **Plan review rounds used: 2 of 3** (`.feature/state.json` `planReviewRounds`). Cap is hard; after
 round 3, surface the remaining disagreement to the owner rather than looping.
