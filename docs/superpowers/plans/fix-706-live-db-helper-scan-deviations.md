@@ -2,6 +2,18 @@
 
 Deviations from `2026-08-08-706-live-db-helper-scan.md`, recorded as they were hit.
 
+## Triage (orchestrator, step 6 — before review dispatch)
+
+| # | Entry | Verdict |
+|---|---|---|
+| D1 | Three plan-literal JSDoc numbers false against the tree | **ACCEPT** — all three re-verified independently by the orchestrator (4 of 13 glob-alone, 5 of 6 `import type`, 074 shape suite + 3 others). Shipping a corrected count over a plan-literal false one is the only reading consistent with this module's stated review criterion. The intake's own "two files newly enter the scanned set" was likewise an undercount — true but incomplete; the invariant it guards (no `naming` finding on a helper) is unaffected. |
+| D2 | Stale `_SUITES` symbol names left for Task 4 | **ACCEPT** — correct task-boundary call. Task 4's brief was widened to the two sites outside its declared file list; both are inside `allowed_edit_surface`, so this is a task-scope correction, **not** a surface amendment, and does not count toward the abort budget. |
+| D3 | Three prose sites stale by MEANING, not by symbol | **ACCEPT** — the module's opening definition read exhaustively over two reachability routes when there are now three; leaving it would have been the #694 R1 defect exactly. The deliberate non-change to the R2 census recount method is right: that census is a claim about marker-passing suites, not about the audited file set, and widening it would silently change what the figure means. |
+| D4 | Lab-notes entry shipped as a dated section; bound closed in place | **ACCEPT** — matches the file's real convention over the plan's approximation of it, and the "one authoritative owner per fact" rule: #694's record owns this story, so a second ship section would split one fact across two owners. |
+| D5 | The two "no occurrence today" claims verified before shipping | **ACCEPT** — this is the convention working. A `BOUND:` paragraph asserting "neither has an occurrence today" is a checkable claim, and it was checked rather than assumed. |
+
+No RE-PLAN. No locked intake decision invalidated; abort criteria not triggered (0 gate-fail rounds, 0 surface amendments).
+
 ## 2026-08-08 — Task 3: three plan-literal JSDoc numbers were false against the tree
 
 The plan's literal code blocks for Task 3 Steps 1 and 3 carry four numeric claims
