@@ -1,15 +1,17 @@
 // Guards the two live-DB test conventions that #573 was caused by breaking.
 //
-// A "live-DB suite" is any test file that reaches the shared local Postgres —
-// whether it names TEST_DATABASE_POOL_URL itself or, far more commonly now,
-// gets there through the shared helpers (`resolveTestDatabaseUrl`,
-// `describeWithDb`, `acquireLiveDbLock`).
+// A "live-DB file" is any file this audit scans that reaches the shared local
+// Postgres — whether it names TEST_DATABASE_POOL_URL itself, gets there through
+// the shared helpers (`resolveTestDatabaseUrl`, `describeWithDb`,
+// `acquireLiveDbLock`), or — being a HELPER, handed its handle rather than
+// resolving one — merely types that handle with an import of `postgres`
+// (`HELPER_DB_MARKER` below, and why that third route is offered to helpers only).
 //
 // The first cut recognised ONLY the literal `TEST_DATABASE_POOL_URL`, and bailed
 // on anything else before running a single rule. Five suites read the DB purely
 // through the helpers and were therefore invisible — including
 // `batch-builder.integration.test.ts`, the suite whose deadlock IS #573, and
-// `migration-088-…`, which sits in MIGRATION_SHAPE_SUITES below expressly so its
+// `migration-088-…`, which sits in MIGRATION_SHAPE_FILES below expressly so its
 // lock enrolment gets checked. That check could never run.
 //
 // Detection is therefore keyed on the helper IMPORT SPECIFIERS as well as the
@@ -18,12 +20,17 @@
 // can do. (Same defect shape as #592, where the SQL vocabulary audits keyed on
 // a tag-name list that the codebase's own `exec` convention had outgrown.)
 //
-// R1 — NAMING. A live-DB suite must be named `*.integration.test.ts`. That glob
-//      is what puts it in vitest's serialized `integration` project; a suite
-//      that misses it runs in the fully parallel project alongside ~740 other
-//      files, unsynchronized against every other live-DB writer.
+// R1 — NAMING. A live-DB **suite** must be named `*.integration.test.ts`. That
+//      glob is what puts it in vitest's serialized `integration` project; a
+//      suite that misses it runs in the fully parallel project alongside every
+//      other non-integration file, unsynchronized against every other live-DB
+//      writer. (No count here, deliberately: it moves with every test file added
+//      or renamed, and the copy that used to sit in this sentence had drifted
+//      well away from the tree by the time anyone checked it — the same way the
+//      figure removed from `listAuditedFiles`' BOUND had. Recount by subtracting
+//      the `integration` project's files from vitest's matched set.)
 //
-// R2 — NO RUN-TIME DDL. A live-DB suite must not execute DDL — not merely "apply
+// R2 — NO RUN-TIME DDL. A live-DB **file** must not execute DDL — not merely "apply
 //      migration SQL", but any statement taking ACCESS EXCLUSIVE on a shared
 //      relation, whatever its provenance. A sibling suite holding ordinary row
 //      locks on the same relations in the opposite order deadlocks against it
@@ -47,13 +54,20 @@
 //      #694's own review. Recount with: walk every git-tracked `*.test.ts` that
 //      contains a LIVE_DB_MARKERS string, counting TaggedTemplateExpressions.
 //
-//      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_SUITES
-//      (applying the migration IS the subject) and DDL_PROBE_SUITES (session-
+//      Two escapes. A file allowlist for sanctioned DDL — MIGRATION_SHAPE_FILES
+//      (applying the migration IS the subject) and DDL_PROBE_FILES (session-
 //      scoped `auth.uid()` redefinition inside a rolled-back tx); both are
 //      enforced to hold the cross-process lock. And a per-line
 //      `-- live-db-ddl-ignore: <reason>` pragma for DDL whose safety is invisible
 //      statically — a CREATE INDEX on a pg_temp table reads exactly like one on
 //      the shared table.
+//
+// The two rules do not share a unit, and #706 made that explicit. A SUITE is a
+// file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, which is not the same
+// question as whether vitest runs the file; a HELPER is any other `.ts`/`.tsx`
+// under `__tests__/`. R1 applies to suites only; R2 and the lock check apply to
+// every live-DB file, helpers included. `isSuite`'s JSDoc owns the argument for
+// why, and names where the suffix test and vitest's include globs diverge.
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -62,7 +76,7 @@ import { execFileSync } from 'node:child_process';
 import ts from 'typescript';
 import { lineHasPragma } from './lib/sql-tag-scan';
 
-export interface LiveDbSuiteFinding {
+export interface LiveDbFileFinding {
   file: string;
   rule: 'naming' | 'runtime-ddl' | 'unlocked-ddl';
   reason: string;
@@ -79,15 +93,21 @@ const NOT_LIVE_DB = new Set([
 ]);
 
 /**
- * Migration-shape suites: applying the migration is the thing under test.
- * Every entry must hold the cross-process live-DB lock (enforced below).
+ * Migration-shape files: applying the migration IS the subject. Five suites test
+ * a migration's shape; `apply-migration-074.ts` is the shared guarded apply that
+ * the 074 shape suite and three further integration suites delegate to, and it
+ * executes the real file via `db.unsafe(readMigration074Sql())` — an argument
+ * this walk cannot read, which counts as DDL by design (#706 made it visible; it
+ * was never audited before). Every entry must hold a cross-process lock
+ * (enforced below).
  */
-const MIGRATION_SHAPE_SUITES = new Set([
+const MIGRATION_SHAPE_FILES = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
   'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts',
   'src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-078-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts',
+  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 
 /**
@@ -98,7 +118,7 @@ const MIGRATION_SHAPE_SUITES = new Set([
  * below. `migration-091` executes this DDL today and was on NO allowlist, so its
  * lock enrolment had never been checked (#694).
  */
-const DDL_PROBE_SUITES = new Set([
+const DDL_PROBE_FILES = new Set([
   'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
   'src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts',
 ]);
@@ -106,10 +126,31 @@ const DDL_PROBE_SUITES = new Set([
 /**
  * 074 predates the shared lock and serializes on its own dedicated apply lock
  * (`withMigration074ApplyLock`), which is equally cross-process. Accepted as an
- * alternative to `acquireLiveDbLock` for that file only.
+ * alternative to `acquireLiveDbLock` for the 074 shape suite and for the helper
+ * that DEFINES that lock — which is also the answer to "a helper cannot hold a
+ * lock on its own behalf": this one does, and the check is on the file's OWN
+ * text. Inheriting a caller's lock would need an import graph, so an allowlisted
+ * file that reaches the lock check without naming its lock marker is reported
+ * `unlocked-ddl`.
+ *
+ * BOUND: the check is `text.includes(OWN_LOCK_MARKER)`, so what it reads is the
+ * PRESENCE of the identifier in the file, never the position of the DDL relative
+ * to the wrapper. For the 074 shape SUITE that presence is a genuine call site.
+ * For `apply-migration-074.ts` it is the declaration (its own `:23`), so the
+ * check reads the same whether `db.unsafe(readMigration074Sql())` runs inside
+ * `withMigration074ApplyLock` or outside it: hoisting that call — an inverted
+ * early return, or a "fast path when the column already exists" — leaves the
+ * identifier in the file and ships unserialized DDL with this audit green.
+ * What the check does still see is the identifier going away: rename or delete
+ * `withMigration074ApplyLock` and this file's DDL reports `unlocked-ddl`, which
+ * is the mutation the PR's docs cite as proof of enforcement. Proving the DDL
+ * sits INSIDE the wrapper needs call-graph analysis, more machinery than a CI
+ * guard against accidental DDL warrants. What the two members of this set get
+ * from the check differs; saying so is cheaper than a claim that it does not.
  */
 const OWN_APPLY_LOCK = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
+  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 
 /**
@@ -133,9 +174,53 @@ const SHARED_LOCK_MARKER = 'acquireLiveDbLock';
 const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
 
 /**
+ * How a HELPER reaches the database. `LIVE_DB_MARKERS` above is suite-shaped —
+ * the env var by name, or an import of the module that resolves it — and a
+ * helper matches none of it, because it is HANDED its handle (`db: postgres.Sql`,
+ * `tx: TransactionSql`). Widening the file glob alone would therefore have
+ * reached 4 of the 13 new files — none of them the one that executes DDL — and
+ * left the ticket's own hazard open.
+ *
+ * What a helper cannot avoid is TYPING that handle, and `postgres` is the only
+ * module that supplies the type. Value and type-only imports both count: five of
+ * the six DB-reaching helpers use `import type` (the exception is
+ * `helpers/live-db-lock.ts`, which CONSTRUCTS a connection rather than being
+ * handed one), and a distinction there would re-open the hole on the first one
+ * written. Two SPELLINGS also both count: the `from 'postgres'` import clause,
+ * and the inline `import('postgres').Sql` type, which carries no `from` clause
+ * at all and is already the idiom this tree uses to hand a fake handle to
+ * something (`escalations/__tests__/raise.test.ts`, `shared/__tests__/pool-wait.test.ts`
+ * — both suites today, so nothing is invisible, but a helper written that way
+ * would have been the #694 blindness mode reopened).
+ *
+ * Offered to HELPERS only, and that asymmetry is the consequential call here.
+ * R1 is a claim about which vitest project a file lands in, so it is only
+ * askable of a file vitest runs; a mock-shaping type import is not evidence that
+ * a suite reaches a database. Admitting the marker to suites would fire the
+ * naming rule across the tree on files that touch no DB: 186 of the 904 suites
+ * match this marker today, and 112 of those are neither already visible through
+ * `LIVE_DB_MARKERS` nor named `*.integration.test.ts`. Suites keep their own
+ * reachability routes — they resolve a handle rather than being handed one, so
+ * `LIVE_DB_MARKERS` can see them. (A census, not a constant; recount with the
+ * marker against `listAuditedFiles()`.)
+ *
+ * BOUND: the marker is a text match on those two spellings, so what escapes it
+ * is a helper whose handle is typed WITHOUT the module being named in this
+ * file — a bare generic parameter (`db: T`), a `Sql` imported from a module that
+ * re-exports it, or a cast to a structural type declared locally. Casting
+ * through `unknown` is not itself an escape: `as unknown as
+ * import('postgres').Sql` names the module and is matched, which is the form
+ * both in-tree sites use and what the inline-spelling test pins. The no-`any`
+ * invariant plus the visible `Sql`/`TransactionSql` typings on all six make
+ * reaching for one of the escaping shapes a deliberate act rather than an
+ * accident — same blast-radius honesty LIVE_DB_MARKERS carries.
+ */
+const HELPER_DB_MARKER = /\bfrom ['"]postgres['"]|\bimport\(['"]postgres['"]\)/;
+
+/**
  * DDL that takes ACCESS EXCLUSIVE on its target. DCL (GRANT/REVOKE) is
  * deliberately absent: every executed GRANT in the repo is inside a
- * DDL_PROBE_SUITES file that already holds the lock, so including it would
+ * DDL_PROBE_FILES file that already holds the lock, so including it would
  * change no finding today (#694).
  *
  * `g` is required by `matchAll`, which clones the regex rather than advancing
@@ -185,13 +270,18 @@ function blankSqlComments(sql: string): string {
  * visitor sees on its own, so DDL smuggled through a fragment is caught at the
  * point it is built rather than the point it is spliced.
  *
- * BOUND, and it follows directly: a fragment built OUTSIDE the scanned set is
- * invisible. `listTestFiles()` globs `*.test.ts`/`*.test.tsx` only, so the ten
- * `__tests__/helpers/*.ts` modules are never scanned — a helper exporting
- * `` sql`ALTER TABLE job_outbox …` `` that a suite interpolates as `` sql`${addCheck}` ``
- * audits clean. Widening the glob is a behaviour change (helper files do not
- * match `*.integration.test.ts` and would trip R1's naming rule), so it is
- * tracked separately rather than smuggled in here.
+ * That guarantee held only WITHIN a file until #706: `listAuditedFiles()` globbed
+ * `*.test.ts`/`*.test.tsx` only, so a helper exporting `` sql`ALTER TABLE …` ``
+ * that a suite spliced as `` sql`${addCheck}` `` audited clean at both ends. The
+ * file set now covers every `.ts`/`.tsx` under `__tests__/`, so the producing
+ * node is scanned wherever it was written.
+ *
+ * BOUND: a fragment built OUTSIDE `__tests__/` entirely — a `src/` module a suite
+ * imports — is still invisible, as is the `e2e/` Playwright lane
+ * (`listAuditedFiles`' own BOUND says why). Neither has an occurrence today, and
+ * closing them means either scanning the production tree for test-only hazards or
+ * resolving imports with a type checker, both of which cost more than a CI guard
+ * against accidental DDL is worth.
  */
 function hidesStatementStart(node: ts.TemplateExpression): boolean {
   let priorStatic = node.head.text;
@@ -307,13 +397,47 @@ function unpragmaedDdlLines(source: ts.SourceFile): number[] {
     .filter((line) => !lineHasPragma(lines, line, DDL_PRAGMA));
 }
 
-export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding[] {
+/**
+ * A SUITE, to this audit, is a file whose NAME ends `.test.ts`/`.test.tsx`. That
+ * is a suffix test, not a check that vitest would run the file: every one of
+ * `vitest.config.ts`' include globs additionally requires `__tests__/` in the
+ * path, and `INTEGRATION_GLOB` narrows the serialized project to
+ * `*.integration.test.ts` within that. Everything else this audit scans is a
+ * HELPER: imported BY a suite, never run as one.
+ *
+ * The two disagree on exactly one tracked file today —
+ * `src/lib/shared/index.test.ts`, an intentionally empty placeholder outside
+ * `__tests__/`, which this predicate calls a suite and no vitest include
+ * matches. The suffix test is deliberate all the same: that file has been in the
+ * audited set since #573 and narrowing to `__tests__/` would shrink the scan for
+ * no gain. The bound is that if such a file ever reached the DB, R1 would tell
+ * its author to rename it for a serialization that never applies, and the real
+ * hazard — a live-DB test nothing executes — would go unreported.
+ *
+ * The distinction is what makes R1 sound, and it is why the two rules do not
+ * share a unit. Naming is a claim about which vitest project a file lands in, so
+ * it can only be asked of a file vitest runs; a helper renamed to
+ * `*.integration.test.ts` would be executed as an empty suite. R2 and the lock
+ * check ask instead whether the file takes ACCESS EXCLUSIVE on a shared
+ * relation, which is true of that statement wherever it was written — including
+ * in a helper whose fragment a suite splices in as raw SQL.
+ */
+function isSuite(file: string): boolean {
+  return file.endsWith('.test.ts') || file.endsWith('.test.tsx');
+}
+
+export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[] {
   if (NOT_LIVE_DB.has(file)) return [];
-  if (!LIVE_DB_MARKERS.some((marker) => text.includes(marker))) return [];
 
-  const findings: LiveDbSuiteFinding[] = [];
+  const suite = isSuite(file);
+  const reachesDb =
+    LIVE_DB_MARKERS.some((marker) => text.includes(marker)) ||
+    (!suite && HELPER_DB_MARKER.test(text));
+  if (!reachesDb) return [];
 
-  if (!file.endsWith('.integration.test.ts')) {
+  const findings: LiveDbFileFinding[] = [];
+
+  if (suite && !file.endsWith('.integration.test.ts')) {
     findings.push({
       file,
       rule: 'naming',
@@ -335,12 +459,12 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
 
   const firstAt = `first at line ${(ddlLines[0] ?? 0) + 1}`;
 
-  if (!MIGRATION_SHAPE_SUITES.has(file) && !DDL_PROBE_SUITES.has(file)) {
+  if (!MIGRATION_SHAPE_FILES.has(file) && !DDL_PROBE_FILES.has(file)) {
     findings.push({
       file,
       rule: 'runtime-ddl',
       reason:
-        `live-DB suite executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
+        `live-DB file executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
         'deadlock sibling suites (#573). Provision with `pnpm test:db:setup` and assert ' +
         'with assertSchemaReady() instead, or add a `-- live-db-ddl-ignore: <reason>` ' +
         'pragma if the target provably cannot be a shared relation',
@@ -356,23 +480,48 @@ export function auditLiveDbSuite(file: string, text: string): LiveDbSuiteFinding
       file,
       rule: 'unlocked-ddl',
       reason:
-        `allowlisted suite executes DDL (${firstAt}) without the cross-process live-DB ` +
+        `allowlisted file executes DDL (${firstAt}) without the cross-process live-DB ` +
         'lock — call acquireLiveDbLock() in beforeAll and release it in afterAll',
     });
   }
   return findings;
 }
 
-export function listTestFiles(): string[] {
-  return execFileSync('git', ['ls-files', '*.test.ts', '*.test.tsx'], { encoding: 'utf8' })
+/**
+ * Every file the conventions apply to: the SUITES vitest runs, plus the
+ * non-suite modules under `__tests__/` that suites import.
+ *
+ * The second pathspec is what #706 added. A helper is not a runner entry point,
+ * so it never matched `*.test.ts` — yet Postgres.js splices a nested `Query`
+ * substitution in as raw SQL text (`fragment()`), so a helper can BUILD a DDL
+ * statement that a scanned suite executes with no DDL text of its own. Scanning
+ * the producing file is what keeps the AST walk's "visits the producing node"
+ * guarantee true across files rather than only within one.
+ *
+ * `git ls-files` dedupes across pathspecs, so a `__tests__/x.test.ts` matched by
+ * both appears once (asserted by this audit's own test — a double-listed file
+ * would double-report every finding it carries).
+ *
+ * BOUND: the `e2e/` Playwright lane is deliberately absent. Those specs run in
+ * their own `pnpm test:e2e` process and own their database lifecycle, so R1's
+ * serialization premise — vitest's `integration` project against the parallel
+ * project — does not hold there. `e2e/**\/__tests__\/**\/*.test.ts` carries
+ * vitest unit tests and IS matched, by the first pathspec, as it always was.
+ */
+export function listAuditedFiles(): string[] {
+  return execFileSync(
+    'git',
+    ['ls-files', '*.test.ts', '*.test.tsx', '*__tests__/*.ts', '*__tests__/*.tsx'],
+    { encoding: 'utf8' },
+  )
     .split('\n')
     .filter(Boolean);
 }
 
 async function main(): Promise<void> {
-  const findings: LiveDbSuiteFinding[] = [];
-  for (const file of listTestFiles()) {
-    findings.push(...auditLiveDbSuite(file, await readFile(file, 'utf8')));
+  const findings: LiveDbFileFinding[] = [];
+  for (const file of listAuditedFiles()) {
+    findings.push(...auditLiveDbFile(file, await readFile(file, 'utf8')));
   }
 
   if (findings.length > 0) {

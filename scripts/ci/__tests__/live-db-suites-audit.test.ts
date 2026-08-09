@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditLiveDbSuite, listTestFiles } from '../live-db-suites-audit';
+import { auditLiveDbFile, listAuditedFiles } from '../live-db-suites-audit';
 
 const LIVE_DB = 'const url = process.env.TEST_DATABASE_POOL_URL;';
 const APPLIES_DDL = `
@@ -23,21 +23,29 @@ describe('live-db-suites-audit', () => {
   /** `.unsafe()` whose argument cannot be read statically. */
   const OPAQUE_UNSAFE = 'await db.unsafe(readMigrationSql());\n';
 
+  /** A helper is handed its handle, so a `postgres` import is how it reaches the DB. */
+  const HELPER_PG_IMPORT = "import type { Sql } from 'postgres';\n";
+  /** The #706 shape: the helper BUILDS the statement, the suite only splices it. */
+  const HELPER_FRAGMENT_DDL =
+    'export const addCheck = sql`ALTER TABLE job_outbox ADD CONSTRAINT tmp_x CHECK (true) NOT VALID`;\n';
+  const HELPER_PATH = 'src/lib/x/__tests__/helpers/frag.ts';
+  const APPLY_074 = 'src/lib/shared/__tests__/helpers/apply-migration-074.ts';
+
   it('passes a live-DB suite that is named correctly and applies no DDL', () => {
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', LIVE_DB)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', LIVE_DB)).toEqual([]);
   });
 
   it('still ignores a file that never reaches the live test DB', () => {
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.test.ts', 'const a = 1;')).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.test.ts', 'const a = 1;')).toEqual([]);
   });
 
   it('flags a live-DB suite outside the serialized *.integration.test.ts glob', () => {
-    const findings = auditLiveDbSuite('worker/jobs/y/__tests__/integration-y.test.ts', LIVE_DB);
+    const findings = auditLiveDbFile('worker/jobs/y/__tests__/integration-y.test.ts', LIVE_DB);
     expect(findings.map((finding) => finding.rule)).toEqual(['naming']);
   });
 
   it('still flags run-time migration DDL in a suite that is on no allowlist', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/x/__tests__/x.integration.test.ts',
       LIVE_DB + APPLIES_DDL,
     );
@@ -45,7 +53,7 @@ describe('live-db-suites-audit', () => {
   });
 
   it('reports naming and runtime-ddl together for the #573 offender shape', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'worker/jobs/account-offboarding/__tests__/integration-lifecycle.test.ts',
       LIVE_DB + APPLIES_DDL,
     );
@@ -53,7 +61,7 @@ describe('live-db-suites-audit', () => {
   });
 
   it('allows an allowlisted migration-shape suite that holds the cross-process lock', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts',
       LIVE_DB + APPLIES_DDL + 'await acquireLiveDbLock(url);',
     );
@@ -61,7 +69,7 @@ describe('live-db-suites-audit', () => {
   });
 
   it('flags an allowlisted migration-shape suite that applies DDL unlocked', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts',
       LIVE_DB + APPLIES_DDL,
     );
@@ -70,16 +78,16 @@ describe('live-db-suites-audit', () => {
 
   it('still accepts 074 on its own dedicated apply lock rather than the shared one', () => {
     const file = 'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts';
-    expect(auditLiveDbSuite(file, LIVE_DB + APPLIES_DDL + 'withMigration074ApplyLock(db, fn);')).toEqual(
+    expect(auditLiveDbFile(file, LIVE_DB + APPLIES_DDL + 'withMigration074ApplyLock(db, fn);')).toEqual(
       [],
     );
     expect(
-      auditLiveDbSuite(file, LIVE_DB + APPLIES_DDL).map((finding) => finding.rule),
+      auditLiveDbFile(file, LIVE_DB + APPLIES_DDL).map((finding) => finding.rule),
     ).toEqual(['unlocked-ddl']);
   });
 
   it('does not treat the describe-with-db helper test as a live-DB suite', () => {
-    expect(auditLiveDbSuite('src/__tests__/helpers/describe-with-db.test.ts', LIVE_DB)).toEqual([]);
+    expect(auditLiveDbFile('src/__tests__/helpers/describe-with-db.test.ts', LIVE_DB)).toEqual([]);
   });
 
   // REACH. The three executed-DDL shapes the `supabase/migrations` + `.unsafe(`
@@ -88,12 +96,12 @@ describe('live-db-suites-audit', () => {
     const source = LIVE_DB + PLAIN_TEMPLATE_DDL;
     expect(source).not.toContain('.unsafe(');
     expect(source).not.toContain('supabase/migrations');
-    const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source);
+    const findings = auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source);
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
   });
 
   it('flags DDL executed through .unsafe() on a call-form receiver such as sql()', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/x/__tests__/x.integration.test.ts',
       LIVE_DB + CALL_FORM_UNSAFE_DDL,
     );
@@ -101,7 +109,7 @@ describe('live-db-suites-audit', () => {
   });
 
   it('flags DDL executed through a tagged template whose tag is a non-null assertion such as db!', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/x/__tests__/x.integration.test.ts',
       LIVE_DB + NON_NULL_TAG_DDL,
     );
@@ -111,7 +119,7 @@ describe('live-db-suites-audit', () => {
   // The property-access receiver was the only shape recognised, so the audit's
   // claim to see every `.unsafe()` call overreached by one cheap form.
   it('flags DDL executed through the bracket-indexed sql["unsafe"]() form', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/x/__tests__/x.integration.test.ts',
       LIVE_DB + "await sql['unsafe']('DROP TABLE job_outbox');\n",
     );
@@ -128,19 +136,19 @@ describe('live-db-suites-audit', () => {
     const source =
       LIVE_DB +
       'expect(sql).toMatch(/ALTER TABLE analytics_events\\s+DROP CONSTRAINT x/i);\n';
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   // migration-096-solicitation-suppressions.integration.test.ts:610
   it('ignores a DDL verb that appears only inside an expect().toContain() assertion', () => {
     const source = LIVE_DB + "expect(globalIndex).toContain('CREATE UNIQUE INDEX');\n";
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   // migration-079-agent-run-spine-archival.integration.test.ts:6
   it('ignores a DDL verb that appears only inside a comment', () => {
     const source = LIVE_DB + '// Migration 079 adds two CREATE INDEX CONCURRENTLY scan indexes.\n';
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   // A comment INSIDE an executed template — the same promise as the TS-comment
@@ -153,10 +161,10 @@ describe('live-db-suites-audit', () => {
       '  -- migration 083 replaced this ALTER TABLE reviews with an assertion\n' +
       '  SELECT count(*) FROM reviews\n' +
       '`;\n';
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', dashDash)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', dashDash)).toEqual([]);
 
     const block = LIVE_DB + 'await tx`SELECT 1 /* not a CREATE INDEX, just a note */`;\n';
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', block)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', block)).toEqual([]);
   });
 
   // migration-076-judge-verdicts-governor.integration.test.ts:115-142
@@ -164,7 +172,7 @@ describe('live-db-suites-audit', () => {
     const source =
       LIVE_DB +
       "const EXPECTED = ['CREATE TABLE IF NOT EXISTS judge_verdicts (', 'ALTER TABLE judge_verdicts ENABLE ROW LEVEL SECURITY;'];\n";
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   // FAIL CLOSED. When the argument to `.unsafe()` cannot be read statically the
@@ -173,7 +181,7 @@ describe('live-db-suites-audit', () => {
   it('treats .unsafe() with a non-literal argument as applied DDL rather than as safe', () => {
     const source = LIVE_DB + OPAQUE_UNSAFE;
     expect(source).not.toContain('supabase/migrations');
-    const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source);
+    const findings = auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source);
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
   });
 
@@ -187,12 +195,12 @@ describe('live-db-suites-audit', () => {
   it('fails closed on a substitution standing where a statement begins, not on one mid-statement', () => {
     const atStart = LIVE_DB + 'await db.unsafe(`${migrationSql}`);\n';
     expect(atStart).not.toContain('ALTER');
-    const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', atStart);
+    const findings = auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', atStart);
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
 
     const midStatement =
       LIVE_DB + "await sql().unsafe(`UPDATE businesses SET import_decision = '${decision}'`);\n";
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', midStatement)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', midStatement)).toEqual([]);
   });
 
   // PRAGMA. `live-db-ddl-ignore` follows `outbox-seam-ignore` (#568) and must
@@ -201,7 +209,7 @@ describe('live-db-suites-audit', () => {
     const source =
       LIVE_DB +
       "await tx`CREATE UNIQUE INDEX i ON job_outbox (topic)`; // live-db-ddl-ignore: temp table\n";
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   it('exempts a DDL line whose immediately preceding comment-only line carries the pragma', () => {
@@ -211,7 +219,7 @@ describe('live-db-suites-audit', () => {
       '  -- live-db-ddl-ignore: ON COMMIT DROP temp job_outbox, pg_temp shadows public\n' +
       '  CREATE UNIQUE INDEX i ON job_outbox (topic)\n' +
       '`;\n';
-    expect(auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
+    expect(auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source)).toEqual([]);
   });
 
   // The fail-OPEN guard: a trailing pragma on a CODE line must not blanket the
@@ -222,18 +230,18 @@ describe('live-db-suites-audit', () => {
       LIVE_DB +
       'await tx`SELECT 1`; // live-db-ddl-ignore: unrelated\n' +
       'await tx`ALTER TABLE job_outbox ADD COLUMN y TEXT`;\n';
-    const findings = auditLiveDbSuite('src/lib/x/__tests__/x.integration.test.ts', source);
+    const findings = auditLiveDbFile('src/lib/x/__tests__/x.integration.test.ts', source);
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
   });
 
-  // DDL-PROBE SUITES. A second allowlist, distinct from MIGRATION_SHAPE_SUITES:
+  // DDL-PROBE SUITES. A second allowlist, distinct from MIGRATION_SHAPE_FILES:
   // DDL that redefines a session-scoped object (`auth.uid()`) inside a
   // transaction that always rolls back. Allowlisted does NOT mean unlocked —
   // the probe still redefines a shared-catalog object for the duration of the
   // transaction, so the cross-process lock is required exactly as it is for a
   // migration-shape suite.
   it('flags an allowlisted DDL-probe suite that applies probe DDL without the cross-process lock', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
       LIVE_DB + "await tx.unsafe('CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$ $$');\n",
     );
@@ -241,7 +249,7 @@ describe('live-db-suites-audit', () => {
   });
 
   it('allows an allowlisted DDL-probe suite that holds the cross-process lock', () => {
-    const findings = auditLiveDbSuite(
+    const findings = auditLiveDbFile(
       'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
       LIVE_DB +
         "await tx.unsafe('CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$ $$');\n" +
@@ -263,12 +271,12 @@ describe('live-db-suites-audit', () => {
     ] as const;
 
     it.each(VIA_HELPERS)('flags a misnamed suite that reaches the DB via %s', (_label, source) => {
-      const findings = auditLiveDbSuite('src/lib/x/__tests__/x.test.ts', source);
+      const findings = auditLiveDbFile('src/lib/x/__tests__/x.test.ts', source);
       expect(findings.map((finding) => finding.rule)).toEqual(['naming']);
     });
 
     it.each(VIA_HELPERS)('flags run-time DDL in a suite that reaches the DB via %s', (_label, source) => {
-      const findings = auditLiveDbSuite(
+      const findings = auditLiveDbFile(
         'src/lib/x/__tests__/x.integration.test.ts',
         source + APPLIES_DDL,
       );
@@ -279,11 +287,113 @@ describe('live-db-suites-audit', () => {
       // This is the check that was unreachable: migration-088 is allowlisted as a
       // migration-shape suite precisely so its lock enrolment gets verified, and
       // it names no env var, so the audit returned early every time.
-      const findings = auditLiveDbSuite(
+      const findings = auditLiveDbFile(
         'src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts',
         "import { describeWithDb } from '@/__tests__/helpers/describe-with-db';" + APPLIES_DDL,
       );
       expect(findings.map((finding) => finding.rule)).toEqual(['unlocked-ddl']);
+    });
+  });
+
+  // #706. The audit's file set came from `git ls-files '*.test.ts' '*.test.tsx'`,
+  // which never reaches `__tests__/` modules that are not themselves suites. A
+  // helper can therefore BUILD a DDL fragment that a scanned suite splices in as
+  // raw SQL text (Postgres.js `fragment()`), and the audit sees neither half.
+  //
+  // The unit of enforcement is now explicit: a SUITE matches vitest's runner
+  // entry glob and gets R1 (naming) + R2 (DDL) + the lock check; a HELPER is any
+  // other `.ts`/`.tsx` under `__tests__/` and gets R2 + the lock check only —
+  // it is not a runner entry point and cannot be renamed to *.integration.test.ts.
+  describe('audits helpers as well as suites (#706)', () => {
+    it('includes non-suite files under __tests__ in the audited file list', () => {
+      const files = listAuditedFiles();
+      expect(files).toContain(APPLY_074);
+      // NOT under a helpers/ directory — why the unit is "non-suite file under
+      // __tests__", not the `__tests__/helpers/**` glob the ticket proposed.
+      expect(files).toContain('src/lib/shared/__tests__/live-db-tenant.ts');
+      expect(files).toContain('scripts/ci/__tests__/live-db-suites-audit.test.ts');
+      // git dedupes across pathspecs; assert it rather than trusting it, since a
+      // double-listed file would double-report every finding it carries.
+      expect(new Set(files).size).toBe(files.length);
+    });
+
+    it('flags DDL built in a helper module that a suite splices in as a fragment', () => {
+      const helper = auditLiveDbFile(HELPER_PATH, HELPER_PG_IMPORT + HELPER_FRAGMENT_DDL);
+      expect(helper.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+      // The finding belongs to the file that BUILDS the statement. The suite
+      // carries no DDL text and stays clean — correct, because the walk visits
+      // the producing node, and cross-file provenance needs an import graph.
+      const suite = auditLiveDbFile(
+        'src/lib/x/__tests__/x.integration.test.ts',
+        LIVE_DB + 'await sql`${addCheck}`;\n',
+      );
+      expect(suite).toEqual([]);
+    });
+
+    it('never reports the naming rule for a non-suite helper file', () => {
+      // `describe-with-db.ts` names the env var and enters the scanned set with
+      // this widening. It is a helper: no naming finding, and no DDL either.
+      expect(auditLiveDbFile('src/__tests__/helpers/describe-with-db.ts', LIVE_DB)).toEqual([]);
+      // A helper that DOES execute DDL reports runtime-ddl ALONE — never the
+      // naming rule alongside it, however un-suite-like its filename.
+      expect(
+        auditLiveDbFile(HELPER_PATH, HELPER_PG_IMPORT + HELPER_FRAGMENT_DDL).map(
+          (finding) => finding.rule,
+        ),
+      ).toEqual(['runtime-ddl']);
+    });
+
+    it('counts a type-only postgres import as a helper reaching the database', () => {
+      // Five of the six DB-reaching helpers import the module type-only (the
+      // exception, live-db-lock.ts, CONSTRUCTS a connection). A value/type
+      // distinction here would re-open the hole immediately.
+      const findings = auditLiveDbFile(
+        HELPER_PATH,
+        "import type postgres from 'postgres';\n" + OPAQUE_UNSAFE,
+      );
+      expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+    });
+
+    // The second SPELLING. `import('postgres').Sql` types the handle with the
+    // postgres module while carrying no `from 'postgres'` clause, so the first
+    // cut of HELPER_DB_MARKER missed it — a helper typed that way would have
+    // been an invisible R2 blind spot, the #694 mode this ticket exists to
+    // close. The form is already established in this tree for exactly the
+    // "hand a fake handle to something" shape (raise.test.ts:40,
+    // pool-wait.test.ts:6 — both suites, so nothing was invisible today).
+    it('counts an inline import("postgres") type annotation as a helper reaching the database', () => {
+      const source =
+        "const db = handle as unknown as import('postgres').Sql;\n" + OPAQUE_UNSAFE;
+      expect(source).not.toContain("from 'postgres'");
+      const findings = auditLiveDbFile(HELPER_PATH, source);
+      expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+    });
+
+    it('ignores a non-suite helper that imports no DB handle at all', () => {
+      // mock-sql.ts mocks the `sql` tag with vitest and touches no database. If
+      // the gate did not hold, every mocked template would become a candidate
+      // statement and the audit would flag pure unit-test scaffolding.
+      expect(
+        auditLiveDbFile(
+          'worker/__tests__/helpers/mock-sql.ts',
+          "import { vi } from 'vitest';\n" + HELPER_FRAGMENT_DDL,
+        ),
+      ).toEqual([]);
+    });
+
+    it('flags an allowlisted helper that executes DDL without its own apply lock', () => {
+      const findings = auditLiveDbFile(APPLY_074, HELPER_PG_IMPORT + OPAQUE_UNSAFE);
+      expect(findings.map((finding) => finding.rule)).toEqual(['unlocked-ddl']);
+    });
+
+    it('accepts the 074 apply helper on its own dedicated apply lock', () => {
+      const findings = auditLiveDbFile(
+        APPLY_074,
+        HELPER_PG_IMPORT +
+          'export async function withMigration074ApplyLock() {}\n' +
+          OPAQUE_UNSAFE,
+      );
+      expect(findings).toEqual([]);
     });
   });
 
@@ -304,11 +414,11 @@ describe('live-db-suites-audit', () => {
   // inside `pnpm test`, where it fails next to the rules it depends on.
   //
   // Precedent for a unit test that reads the repository: src/__tests__/ci-audit-wiring.test.ts
-  it('every live-DB suite in the repository passes the tightened detector', async () => {
+  it('every live-DB file in the repository passes the widened detector', async () => {
     const { readFile } = await import('node:fs/promises');
     const offenders: string[] = [];
-    for (const file of listTestFiles()) {
-      const findings = auditLiveDbSuite(file, await readFile(file, 'utf8'));
+    for (const file of listAuditedFiles()) {
+      const findings = auditLiveDbFile(file, await readFile(file, 'utf8'));
       offenders.push(...findings.map((finding) => `${finding.file} [${finding.rule}]`));
     }
     expect(offenders).toEqual([]);
