@@ -303,7 +303,7 @@ describe('useInlineGenerate — polling', () => {
 
 describe('useInlineGenerate — resumeGenerating', () => {
   it('useInlineGenerate mounted with resumeGenerating polls immediately without a second generate POST', async () => {
-    // D-C. The server row arrives already carrying row_state 'generating', so a
+    // D-C. The server row arrives already carrying row_action 'generating', so a
     // refresh must resume the poll rather than re-offer `Generate` and burn a
     // rate-limit token to learn it 409s.
     vi.useFakeTimers();

@@ -24,7 +24,7 @@
 //
 //  1. **Polling is keyed on `reviewId`, not on an `outbox_id` the client is
 //     holding** (D-C). That is what lets `Generating…` survive a page refresh:
-//     the row arrives from the server already carrying `row_state:'generating'`,
+//     the row arrives from the server already carrying `row_action:'generating'`,
 //     this hook starts in the polling state, and no client-side id is needed.
 //
 //  2. **No `useRouter`.** Settling a single row must not `router.refresh()` the

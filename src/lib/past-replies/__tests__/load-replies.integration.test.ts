@@ -52,8 +52,8 @@ function sql(): postgresType.Sql {
 }
 
 interface ReviewsListView {
-  unansweredRows: { review_id: string; row_state: string }[];
-  answeredRows: { review_id: string; row_state: string }[];
+  unansweredRows: { review_id: string; reply_state: string; row_action: string }[];
+  answeredRows: { review_id: string; reply_state: string; row_action: string }[];
   unansweredTotal: number;
   answeredTotal: number;
   avgStarRating: number | null;
@@ -67,6 +67,16 @@ const REVIEW_UNANSWERED_NEW = randomUUID();
 const REVIEW_UNANSWERED_OLD = randomUUID();
 const RESPONSE_NEW = randomUUID();
 const RESPONSE_OLD = randomUUID();
+const REVIEW_HELD_REPLACEMENT = randomUUID();
+const RESPONSE_HELD_POSTED = randomUUID();
+const RESPONSE_HELD_DRAFT = randomUUID();
+const REVIEW_READY_CONTROL = randomUUID();
+const RESPONSE_READY_POSTED = randomUUID();
+const RESPONSE_READY_DRAFT = randomUUID();
+const REVIEW_CLOSED_CONTROL = randomUUID();
+const RESPONSE_CLOSED_POSTED = randomUUID();
+const RESPONSE_CLOSED_DRAFT = randomUUID();
+const HELD_DRAFT_TEXT = 'held replacement draft SECRET sentinel';
 
 async function seedReview(
   reviewId: string,
@@ -97,6 +107,41 @@ async function seedPostedResponse(responseId: string, reviewId: string): Promise
     ) VALUES (
       ${responseId}::uuid, ${reviewId}::uuid, ${businessId}::uuid,
       'Thank you!', 'Thank you!', 'Thank you!', 'en', 1, 'posted', 'owner', NOW()
+    )
+  `;
+}
+
+// A non-terminal replacement draft (version 2) beside a live posted reply.
+// `posted` is outside the responses_one_non_terminal_per_review predicate, so
+// the pair coexists — exactly the Regenerate-in-flight shape.
+async function seedReplacementDraft(
+  reviewId: string,
+  draftId: string,
+  responseText: string,
+): Promise<void> {
+  await sql()`
+    INSERT INTO responses (
+      id, review_id, business_id, response_text, original_draft_text,
+      response_language, version, status
+    ) VALUES (
+      ${draftId}::uuid, ${reviewId}::uuid, ${businessId}::uuid,
+      ${responseText}, ${responseText}, 'en', 2, 'pending_approval'
+    )
+  `;
+}
+
+// Status literals are spelled inline the same way the loader's LATERAL spells
+// `f.status = 'open'` (D6; src/lib/moderation/held-draft.ts is the semantic
+// owner). `api_cost_id` is nullable — deliberately omitted.
+async function seedFlag(reviewId: string, draftId: string, status: string): Promise<void> {
+  await sql()`
+    INSERT INTO flagged_responses (
+      id, response_id, account_id, business_id, review_id,
+      source, reason, severity, status
+    ) VALUES (
+      ${randomUUID()}::uuid, ${draftId}::uuid, ${tenant!.accountId}::uuid,
+      ${businessId}::uuid, ${reviewId}::uuid,
+      'local_regex', 'reviews-list integration fixture hold', 'high', ${status}
     )
   `;
 }
@@ -132,11 +177,35 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
     await seedReview(REVIEW_UNANSWERED_OLD, 1, '2026-04-01T00:00:00Z', REVIEW_STATUS.NEW);
     await seedPostedResponse(RESPONSE_NEW, REVIEW_ANSWERED_NEW);
     await seedPostedResponse(RESPONSE_OLD, REVIEW_ANSWERED_OLD);
+
+    // #727: three answered rows with a replacement draft — held, ready, and
+    // closed-flag. All rate 3 so the avg assertion stays 3 = (5+4+2+1+3+3+3)/7;
+    // the dates sort them after the existing answered rows.
+    await seedReview(REVIEW_HELD_REPLACEMENT, 3, '2026-02-01T00:00:00Z', REVIEW_STATUS.POSTED);
+    await seedPostedResponse(RESPONSE_HELD_POSTED, REVIEW_HELD_REPLACEMENT);
+    await seedReplacementDraft(REVIEW_HELD_REPLACEMENT, RESPONSE_HELD_DRAFT, HELD_DRAFT_TEXT);
+    await seedFlag(REVIEW_HELD_REPLACEMENT, RESPONSE_HELD_DRAFT, 'open');
+
+    // Negative control 1: identical shape, NO flag → the draft is ready, not held.
+    await seedReview(REVIEW_READY_CONTROL, 3, '2026-01-15T00:00:00Z', REVIEW_STATUS.POSTED);
+    await seedPostedResponse(RESPONSE_READY_POSTED, REVIEW_READY_CONTROL);
+    await seedReplacementDraft(REVIEW_READY_CONTROL, RESPONSE_READY_DRAFT, 'ready replacement draft');
+
+    // Negative control 2: identical shape, flag exists but is NOT open.
+    // 'dismissed_false_positive' verified against the migration 051 status
+    // CHECK ('open' | 'approved_for_owner_review' | 'dismissed_false_positive'
+    // | 'requires_regeneration').
+    await seedReview(REVIEW_CLOSED_CONTROL, 3, '2026-01-10T00:00:00Z', REVIEW_STATUS.POSTED);
+    await seedPostedResponse(RESPONSE_CLOSED_POSTED, REVIEW_CLOSED_CONTROL);
+    await seedReplacementDraft(REVIEW_CLOSED_CONTROL, RESPONSE_CLOSED_DRAFT, 'closed-flag replacement draft');
+    await seedFlag(REVIEW_CLOSED_CONTROL, RESPONSE_CLOSED_DRAFT, 'dismissed_false_positive');
   });
 
   afterAll(async () => {
     if (!db) return;
     if (tenant) {
+      // FK order: flagged_responses references responses.
+      await sql()`DELETE FROM flagged_responses WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM reviews WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
@@ -163,19 +232,64 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
     expect(view!.answeredRows.map((row) => row.review_id)).toEqual([
       REVIEW_ANSWERED_NEW,
       REVIEW_ANSWERED_OLD,
+      REVIEW_HELD_REPLACEMENT,
+      REVIEW_READY_CONTROL,
+      REVIEW_CLOSED_CONTROL,
     ]);
 
     // Count denominators span ALL reviews, not only replied ones (#671 landmine 3).
     expect(view!.unansweredTotal).toBe(2);
-    expect(view!.answeredTotal).toBe(2);
-    expect(view!.totalPages).toBe(Math.max(1, Math.ceil(4 / PAGE_SIZE)));
+    expect(view!.answeredTotal).toBe(5);
+    expect(view!.totalPages).toBe(Math.max(1, Math.ceil(7 / PAGE_SIZE)));
 
-    // Avg rating over all four reviews (5 + 4 + 2 + 1) / 4 = 3, NOT the
-    // posted-only (5 + 4) / 2 = 4.5 the pre-#678 query returned.
+    // Avg rating over all seven reviews (5 + 4 + 2 + 1 + 3 + 3 + 3) / 7 = 3,
+    // NOT the posted-only average the pre-#678 query returned.
     expect(view!.avgStarRating).toBeCloseTo(3, 5);
 
-    // The row states the live query derives, end to end.
-    expect(view!.unansweredRows.every((row) => row.row_state === 'generate')).toBe(true);
-    expect(view!.answeredRows.every((row) => row.row_state === 'regenerate')).toBe(true);
+    // The action slots the live query derives, end to end (#727): every
+    // unanswered row offers Generate; the held-replacement row alone withdraws
+    // its affordance while its posted siblings keep Regenerate.
+    expect(view!.unansweredRows.every((row) => row.row_action === 'generate')).toBe(true);
+    expect(view!.answeredRows.map((row) => row.row_action)).toEqual([
+      'regenerate', 'regenerate', 'none', 'regenerate', 'regenerate',
+    ]);
+  });
+
+  it('returns row_action none while keeping reply_state posted for a review whose replacement draft is moderation-held', async () => {
+    const view = (await loadPastRepliesPageView(sql(), {
+      accountId: tenant!.accountId,
+      locationId: businessId,
+      page: 1,
+    })) as unknown as ReviewsListView | null;
+
+    const heldRow = view!.answeredRows.find((row) => row.review_id === REVIEW_HELD_REPLACEMENT);
+    // The posted-reply axis owns grouping: the row stays Answered.
+    expect(heldRow).toBeDefined();
+    expect(heldRow!.reply_state).toBe('posted');
+    // The action slot withdraws Regenerate (invariant #4, the #710-item-1 bug cell).
+    expect(heldRow!.row_action).toBe('none');
+    // The draft axis never crosses the wire — by key OR by value: the held
+    // draft's text must not appear anywhere in the serialized page view.
+    const keys = Object.keys(heldRow!);
+    expect(keys).not.toContain('draft_held');
+    expect(keys).not.toContain('draft_response_id');
+    expect(JSON.stringify(view)).not.toContain(HELD_DRAFT_TEXT);
+  });
+
+  it('distinguishes an open-held replacement from unflagged and closed replacements', async () => {
+    const view = (await loadPastRepliesPageView(sql(), {
+      accountId: tenant!.accountId,
+      locationId: businessId,
+      page: 1,
+    })) as unknown as ReviewsListView | null;
+
+    const actionFor = (id: string) =>
+      view!.answeredRows.find((row) => row.review_id === id)?.row_action;
+    // Only the OPEN flag holds; an unflagged or closed-flag replacement keeps
+    // Regenerate — the withdrawal tracks flagged_responses.status = 'open'
+    // exactly (src/lib/moderation/held-draft.ts semantics).
+    expect(actionFor(REVIEW_HELD_REPLACEMENT)).toBe('none');
+    expect(actionFor(REVIEW_READY_CONTROL)).toBe('regenerate');
+    expect(actionFor(REVIEW_CLOSED_CONTROL)).toBe('regenerate');
   });
 });

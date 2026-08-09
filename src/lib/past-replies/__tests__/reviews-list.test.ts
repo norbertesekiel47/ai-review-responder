@@ -9,8 +9,9 @@
 // `Answered`, newest-first inside each group, `PAGE_SIZE` 50. Distinct from the
 // **Needs Action** queue at `dashboard/reviews`.
 //
-// RED until Task 4 (the query) and Task 5 (`deriveRowState` / `provenanceBadge`
-// / `groupReplies`) land. Every symbol Task 5 owns is reached through the module
+// RED until Task 4 (the query) and Task 5 (the row derivation — since #727 the
+// two-axis `deriveAxes`/`deriveRowAction` — plus `provenanceBadge` /
+// `groupReplies`) land. Every symbol Task 5 owns is reached through the module
 // NAMESPACE rather than a named import: a named import of a missing export is an
 // ESM link error that kills the whole file, which would un-register all 17
 // titles. A namespace property is `undefined` today, so each title fails on its
@@ -31,9 +32,8 @@ vi.mock('@/lib/costs/tracker', () => ({
 
 const { PAGE_SIZE } = repliesView;
 
-// Task 5 additions. Read off the namespace so a missing export is `undefined`
+// Task 5 addition. Read off the namespace so a missing export is `undefined`
 // (per-title failure) rather than a module-level link error.
-const deriveRowState = repliesView.deriveRowState;
 const provenanceBadge = repliesView.provenanceBadge;
 
 const ACCOUNT_ID = '01234567-0000-7000-8000-0000000000a0';
@@ -49,7 +49,8 @@ const ACTIVATED = '2026-03-01T00:00:00.000Z';
 
 interface ListCardRow {
   review_id: string;
-  row_state: string;
+  reply_state: string;
+  row_action: string;
   response_id: string;
   approved_text: string | null;
   posted_at: string | null;
@@ -212,7 +213,8 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     expect(view!.unansweredRows.map((row) => row.review_id)).toEqual(['rev-never']);
     expect(view!.answeredRows).toHaveLength(0);
     // A never-replied review is exactly what the Generate door exists for.
-    expect(view!.unansweredRows[0]!.row_state).toBe('generate');
+    expect(view!.unansweredRows[0]!.reply_state).toBe('none');
+    expect(view!.unansweredRows[0]!.row_action).toBe('generate');
   });
 
   it('loadPastRepliesPageView orders unanswered rows before answered rows', async () => {
@@ -282,8 +284,9 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     // the partial unique index (023+026+029) permits at most ONE non-terminal
     // response per review, so a second draft could not persist anyway (S2).
     expect(view!.unansweredRows.map((row) => row.review_id)).toEqual(['rev-draft']);
-    expect(view!.unansweredRows[0]!.row_state).toBe('draft_ready');
-    expect(view!.unansweredRows[0]!.row_state).not.toBe('generate');
+    expect(view!.unansweredRows[0]!.reply_state).toBe('none');
+    expect(view!.unansweredRows[0]!.row_action).toBe('draft_ready');
+    expect(view!.unansweredRows[0]!.row_action).not.toBe('generate');
   });
 
   it('loadPastRepliesPageView marks a review with an in-flight generate_response outbox row as generating', async () => {
@@ -293,7 +296,7 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
       answeredTotal: 0,
     });
 
-    expect(view!.unansweredRows[0]!.row_state).toBe('generating');
+    expect(view!.unansweredRows[0]!.row_action).toBe('generating');
     // The in-flight set is the byte-for-byte contract from job-outbox-status.ts
     // (invariant #2) — members AND order.
     expect(mainQuery(calls).text).toContain("'pending', 'dispatching', 'dispatched'");
@@ -316,7 +319,8 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     // DOES have a superseded draft — offering Generate would race /retry and
     // /restore-original.
     expect(view!.unansweredRows.map((row) => row.review_id)).toEqual(['rev-orphan']);
-    expect(view!.unansweredRows[0]!.row_state).toBe('recover');
+    expect(view!.unansweredRows[0]!.reply_state).toBe('orphan');
+    expect(view!.unansweredRows[0]!.row_action).toBe('recover');
     expect(view!.answeredRows).toHaveLength(0);
   });
 
@@ -385,8 +389,8 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 
     const orphanOccurrences = allRows(view!).filter((row) => row.review_id === 'rev-orphan');
     expect(orphanOccurrences).toHaveLength(1);
-    expect(orphanOccurrences[0]!.row_state).toBe('recover');
-    expect(orphanOccurrences[0]!.row_state).not.toBe('generate');
+    expect(orphanOccurrences[0]!.row_action).toBe('recover');
+    expect(orphanOccurrences[0]!.row_action).not.toBe('generate');
     // …and the separate orphan query is gone (mainQuery asserts exactly one).
     mainQuery(calls);
   });
@@ -476,35 +480,6 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     // An orphan has no live posted reply, so posted_at must be null on the wire.
     expect(row.posted_at).toBeNull();
     expect(row.version).toBeNull();
-  });
-});
-
-// ── deriveRowState (D-D) ──────────────────────────────────────────────────────
-
-describe('deriveRowState precedence', () => {
-  const base = {
-    response_id: null,
-    draft_response_id: null,
-    draft_held: false,
-    generation_in_flight: false,
-    is_orphan: false,
-  };
-
-  it('resolves the six row states in precedence order', () => {
-    expect(deriveRowState({ ...base, is_orphan: true, response_id: null })).toBe('recover');
-    expect(deriveRowState({ ...base, response_id: 'resp-1' })).toBe('regenerate');
-    expect(deriveRowState({ ...base, draft_response_id: 'd-1', draft_held: true })).toBe('held');
-    expect(deriveRowState({ ...base, draft_response_id: 'd-1' })).toBe('draft_ready');
-    expect(deriveRowState({ ...base, generation_in_flight: true })).toBe('generating');
-    expect(deriveRowState(base)).toBe('generate');
-  });
-
-  it('never falls through to generate for a moderation-held draft (invariant #4)', () => {
-    // D9: `held` is branched on the SAME test as `draft_ready`. Filtering the
-    // held draft out of the query would yield `generate` — offering an LLM spend
-    // the partial unique index would then reject.
-    expect(deriveRowState({ ...base, draft_response_id: 'd-1', draft_held: true })).not.toBe('generate');
-    expect(deriveRowState({ ...base, draft_response_id: 'd-1', draft_held: true })).not.toBe('draft_ready');
   });
 });
 
