@@ -1,0 +1,69 @@
+{
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Extract the Generate transaction (the On-demand generation door, #729 / map #710 item 3) out of the HTTP entry point into a named domain module that receives tx explicitly; the route stays the composition root. Behaviour-preserving.",
+  "non_goals": [
+    "No Generate-specific auto-approval guard — D-H stands: invariant #3 protection is the whole typed chain; a duplicate guard would duplicate policy and could drift (map #710 forbids it)",
+    "No fix for the Generate/live-ingest stale-content race — #724/#728 own it",
+    "No changes to the regenerate lane or the legacy past-replies lanes",
+    "No schema change, no migration, no feature flag",
+    "No HTTP contract change: status codes, error strings, response bodies, and the existing NO_STORE_HEADERS asymmetry between pre-tx and in-tx refusals are preserved byte-for-byte"
+  ],
+  "user_visible_behavior": [
+    "None — behaviour-preserving refactor. POST /api/dashboard/reviews/[reviewId]/generate keeps its exact HTTP contract."
+  ],
+  "invariants": [
+    "#2: enqueueGenerateResponse stays inside the same transaction as the review FOR UPDATE lock",
+    "#3: the enqueue pins originLane = ON_DEMAND_GENERATE and suppressNotification = true — both preserved, neither deleted (ticket #678 note in the route header)",
+    "#12: the route orchestrates only (auth, rate limits, ownership proof, sql.begin, result-to-HTTP mapping); the module owns the transaction's failure behaviour with focused tests",
+    "#15: the module receives tx: TransactionSql as an explicit parameter and never imports @/lib/db/server; the route remains the composition root",
+    "#8: the three sibling reads that today key on review_id alone become natively business-scoped (AND business_id = ...), so their three tenant-root-lookup allowlist entries are deleted (ALLOWLIST_BASELINE 412 -> 409)",
+    "TOCTOU: assertWritableSubscriptionForBusiness is re-asserted INSIDE the locked transaction, exactly as today"
+  ],
+  "edge_cases": [
+    "review vanishes between the ownership proof and the FOR UPDATE lock -> 404 review_not_found",
+    "posted sibling exists -> 409 already_answered",
+    "non-terminal sibling exists -> 409 draft_already_exists with { response_id, status }",
+    "failed sibling with the post_after_delete_failed_ prefix (orphan) -> 409 orphan_recovery_pending",
+    "in-flight generate_response outbox row -> 409 regenerate_in_progress",
+    "offboarding confirmed between the pre-tx check and the tx -> in-tx writable gate refuses with its own status/error",
+    "version allocation is COALESCE(MAX(version),0)+1 over ALL sibling rows including superseded (D-B: never hardcoded 1)"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/shared/writable-subscription.ts — typed result union { ok: true } | { ok: false; status; error }",
+    "src/lib/reviews/process-review.ts — nearest tx-receiving review-domain module (the live-ingest cousin of this door)",
+    "src/lib/reviews/import-consent.ts — module owning a guarded enqueue with an explicit tx parameter",
+    "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts + generate-version.integration.test.ts — the characterization eval; they must stay green, ideally unchanged"
+  ],
+  "allowed_edit_surface": [
+    "src/app/api/dashboard/reviews/[reviewId]/generate/**",
+    "src/lib/reviews/on-demand-generate.ts",
+    "src/lib/reviews/__tests__/on-demand-generate*",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "CONTEXT.md"
+  ],
+  "tests_to_add": [
+    "locks the review row before any sibling read and returns review_not_found when the lock finds no row",
+    "re-asserts the business-scoped writable gate inside the locked transaction and passes its refusal through unchanged",
+    "returns already_answered when a posted sibling exists",
+    "returns draft_already_exists with the newest non-terminal sibling id and status",
+    "returns orphan_recovery_pending when a failed sibling carries the post_after_delete_failed_ prefix",
+    "returns regenerate_in_progress when an in-flight generate_response outbox row exists",
+    "allocates version as COALESCE(MAX(version),0)+1 and never hardcodes 1",
+    "enqueues via enqueueGenerateResponse with originLane ON_DEMAND_GENERATE and suppressNotification true in the same transaction",
+    "every sibling read is scoped by business_id as well as review_id"
+  ],
+  "verification_commands": [
+    "pnpm vitest run generate-version.integration"
+  ],
+  "estimated_prod_lines": "200 (route -~120, module +~150, allowlist -24 + baseline bump; net roughly flat-to-negative)",
+  "estimated_test_lines": "350 (one new module-focused unit suite; the two existing characterization suites stay untouched)",
+  "dependencies_added": [],
+  "rollback_plan": "git revert of the squash-merge — no migration, no flag, no data-shape change.",
+  "observability": [
+    "on_demand_generate_enqueued structured log line (createWorkerLogger('[OnDemandGenerate]')) preserved with the same fields; it moves to the route AFTER sql.begin resolves, so it now fires post-commit instead of pre-commit inside the tx — a deliberate truthfulness improvement, recorded here",
+    "reportCaughtError('reviews/generate', ...) Sentry path preserved for the 500 mapping"
+  ],
+  "open_questions": []
+}
