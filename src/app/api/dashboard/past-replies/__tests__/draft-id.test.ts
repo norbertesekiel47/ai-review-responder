@@ -319,8 +319,9 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
   it('happy path → 204; UPDATEs approved_text + edited_text; status stays pending_approval', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    // tx queue: lock-review, lock-response (pending_approval), UPDATE
-    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], []);
+    // tx queue: lock-review, lock-response (pending_approval),
+    // hasOpenFlag → [] (not held), UPDATE
+    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], [], []);
     const { PATCH } = await importHandlers();
     const res = await PATCH(
       makeRequest({ body: validPatchBody({ new_text: 'Brand new reply' }) }),
@@ -347,16 +348,17 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
 
   it('idempotent: PATCHing twice produces same end-state', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // First call.
+    // First call. tx queue: lock-review, lock-response,
+    // hasOpenFlag → [] (not held), UPDATE
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], []);
+    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], [], []);
     const { PATCH } = await importHandlers();
     const res1 = await PATCH(makeRequest({ body: validPatchBody({ new_text: 'Same text' }) }), ctx());
     expect(res1.status).toBe(204);
 
     // Second call with same body — same tx flow, same end-state.
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], []);
+    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], [], []);
     const res2 = await PATCH(makeRequest({ body: validPatchBody({ new_text: 'Same text' }) }), ctx());
     expect(res2.status).toBe(204);
   });
@@ -380,8 +382,9 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     });
     // Top-level SELECT response → review_id (scoped to ALT_LOCATION_ID via business_id).
     seedTopLevel([{ review_id: REVIEW_ID }]);
-    // tx queue: lock-review, lock-response (pending_approval), UPDATE
-    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], []);
+    // tx queue: lock-review, lock-response (pending_approval),
+    // hasOpenFlag → [] (not held), UPDATE
+    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], [], []);
     const { PATCH } = await importHandlers();
     const res = await PATCH(
       makeRequest({
@@ -442,8 +445,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
 
   it('happy path: pending_approval → superseded; returns 204', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // tx queue: lock-response (pending_approval), offboarding lookup, UPDATE
-    seedTxRows([{ status: 'pending_approval' }], [], []);
+    // tx queue: lock-response (pending_approval), hasOpenFlag → [] (not held),
+    // offboarding lookup, UPDATE
+    seedTxRows([{ status: 'pending_approval' }], [], [], []);
     const { DELETE } = await importHandlers();
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
     expect(res.status).toBe(204);
@@ -458,13 +462,16 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
 
   it('returns 403 account_offboarding_blocked before superseding a pending draft', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    seedTxRows([{ status: 'pending_approval' }], [directOffboardingRow()]);
+    // tx queue: lock-response (pending_approval), hasOpenFlag → [] (not held),
+    // offboarding lookup
+    seedTxRows([{ status: 'pending_approval' }], [], [directOffboardingRow()]);
     const { DELETE } = await importHandlers();
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
-    expect(txMock.mock.calls.length).toBe(2);
+    // lock-response, hasOpenFlag, offboarding lookup — no UPDATE.
+    expect(txMock.mock.calls.length).toBe(3);
     const lastCall = txMock.mock.calls.at(-1) as unknown as unknown[];
     const sqlText = (lastCall[0] as TemplateStringsArray).join('|');
     expect(sqlText).toContain('FROM account_offboardings');
@@ -505,8 +512,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
       accountId: ACCOUNT_ID,
       currentLocationId: ALT_LOCATION_ID,
     });
-    // tx queue: lock-response scoped to ALT_LOCATION_ID → pending_approval, offboarding lookup, UPDATE
-    seedTxRows([{ status: 'pending_approval' }], [], []);
+    // tx queue: lock-response scoped to ALT_LOCATION_ID → pending_approval,
+    // hasOpenFlag → [] (not held), offboarding lookup, UPDATE
+    seedTxRows([{ status: 'pending_approval' }], [], [], []);
     const { DELETE } = await importHandlers();
     const res = await DELETE(
       makeRequest({ method: 'DELETE', locationScopeCookie: ALT_LOCATION_ID }),
