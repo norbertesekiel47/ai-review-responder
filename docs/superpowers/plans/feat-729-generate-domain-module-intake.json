@@ -37,10 +37,11 @@
     "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts + generate-version.integration.test.ts — the characterization eval; they must stay green, ideally unchanged"
   ],
   "allowed_edit_surface": [
-    "src/app/api/dashboard/reviews/[reviewId]/generate/**",
+    "src/app/api/dashboard/reviews/\\[reviewId\\]/generate/**",
     "src/lib/reviews/on-demand-generate.ts",
     "src/lib/reviews/__tests__/on-demand-generate*",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/shared/response-status-sql.ts",
     "CONTEXT.md"
   ],
   "tests_to_add": [
