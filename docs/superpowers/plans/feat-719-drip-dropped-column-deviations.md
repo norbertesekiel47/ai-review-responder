@@ -419,9 +419,10 @@ written down is indistinguishable at review time from a rule nobody noticed.
 **When:** step 5, first verify-gate run — `RECLASSIFY: production 366 > 2x estimated_prod_lines (120)`.
 
 **What:** the intake estimated "±120 production lines changed, net NEGATIVE outside the one new
-module". Actual: **366**. Breakdown — `OnboardingDripScheduler.ts` 204, `job-failure-sink.ts` 58,
-`summary-report-helpers.ts` 40, `OnboardingDripWorker.ts` 38, `worker/index.ts` 10,
-`WeeklySummaryWorker.ts` 8, `MonthlyImpactWorker.ts` 8.
+module". Actual: **366** at first measurement — `OnboardingDripScheduler.ts` 204,
+`job-failure-sink.ts` 58, `summary-report-helpers.ts` 40, `OnboardingDripWorker.ts` 38,
+`worker/index.ts` 10, `WeeklySummaryWorker.ts` 8, `MonthlyImpactWorker.ts` 8 — rising to **412**
+on the green run, the D11/D12 repairs accounting for the difference.
 
 **Why the estimate missed:** it was written as a *net* figure ("net NEGATIVE outside the one new
 module") while the gate measures **changed** lines. Extracting `runOnboardingDripCycle` rewrites
