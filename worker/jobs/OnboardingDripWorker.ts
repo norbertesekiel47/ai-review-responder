@@ -40,8 +40,15 @@ import { resolveDashboardUrl } from './summary-report-helpers';
  */
 export const DRIP_STALENESS_GRACE_DAYS = 3;
 
-/** Days after `subscription_activated_at` at which each drip becomes due. */
-export const DRIP_DAY_OFFSETS: Record<OnboardingDripPayload['drip_type'], number> = {
+/**
+ * Days after `subscription_activated_at` at which each drip becomes due.
+ *
+ * Module-private: only `isDripTooStale` reads it, and the scheduler expresses the
+ * same offsets in SQL (`CROSS JOIN (VALUES ('day_1', 1), …)`) because it needs
+ * them inside the candidate query. Exporting it would add a second apparent owner
+ * of a fact neither side can read from the other.
+ */
+const DRIP_DAY_OFFSETS: Record<OnboardingDripPayload['drip_type'], number> = {
   day_1: 1,
   day_7: 7,
   day_30: 30,
@@ -64,7 +71,7 @@ const MS_PER_DAY = 86_400_000;
  * produce. Deliberately NOT fail-closed there, because closing it would rewrite
  * a contract path this ticket promised to leave alone.
  */
-export function isDripTooStale(
+function isDripTooStale(
   dripType: OnboardingDripPayload['drip_type'],
   activatedAt: Date | null,
   asOf: Date,
