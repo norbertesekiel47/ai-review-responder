@@ -246,6 +246,42 @@ Repo-wide `pnpm typecheck` is RED on this one error until the fix above is autho
 also transiently red on `worker/__tests__/job-failure-sink.test.ts`, which is Task 5's in-flight
 work, not this.)
 
+---
+
+### Orchestrator resolution — RESOLVED, and **this was never a surface amendment**
+
+The escalation was correct behaviour but rested on a wrong premise, so the premise is corrected
+here rather than in a commit message nobody re-reads.
+
+`allowed_edit_surface` contains the glob **`worker/jobs/__tests__/**`**. The orphaned file is
+`worker/jobs/__tests__/summary-report-helpers.test.ts`, which matches it. Editing it was
+therefore **always inside the locked contract** — no amendment, and the step-5 abort criteria
+were never in play. **Amendment count remains 1** (D1), unchanged.
+
+What Task 2 actually collided with was the **task-scoped file list in its own dispatch brief**,
+which the orchestrator wrote NARROWER than the surface (four named files rather than the glob).
+That narrowing was deliberate — it is what keeps three concurrent agents off each other's files —
+but it made an in-surface, in-scope repair look like a contract breach. **The lesson is the
+orchestrator's, not the agent's:** a per-task allowlist tighter than `allowed_edit_surface` must
+say so explicitly, or a correctly-obedient agent escalates routine work as an abort trigger.
+
+Precedent confirming the repair was always in scope: plan Task 3 Step 3 instructs the repair of
+`worker/jobs/__tests__/OnboardingDripWorker.test.ts` — the same class of orphaned-unit-suite fix,
+covered by the same glob, and likewise absent from the File Structure table.
+
+**Applied by the orchestrator** (not re-dispatched — a ~7-line edit against lines already read):
+`buildDashboardUrl` dropped from the import block; the `it` block replaced by a comment recording
+where its coverage went and why the live tests are strictly stronger. `asLocationId` was checked
+and retained (still used at `:87/:104/:126`). Suite re-run: **6/6 green**. Orphan sweep clean —
+the only surviving matches are that comment and `src/hooks/useDashboardData.ts`, the unrelated
+same-named local function the plan predicted.
+
+**One correction to the superseding-titles citation above:** the third case (no app URL → null)
+is title **7** (`resolveDashboardUrl returns null without querying when no app URL is
+configured`), not title 6. Title 6 is the cross-account isolation case. Titles 2 and 3 are cited
+correctly. Recorded because a step-7 reviewer checking the claim against title 6 would find a
+mismatch and reasonably doubt the whole justification.
+
 **Verdict:** _(pending step 6)_
 
 ---
