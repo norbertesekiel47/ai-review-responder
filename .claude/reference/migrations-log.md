@@ -1036,13 +1036,24 @@ Revisit triggers:
   migration's own `DO` block against a `pg_temp` replica of the pre-103 shape.
   Mutation-verified: replacing the two-branch predicate with the naive form turns
   the passing-branch test red, and any edit to the migration turns the pin red.
-  **APPLIED TO STAGING (`kubdiqdhqbhwmqfditeg`) — PENDING** ·
-  **PRODUCTION (`udeyaqnvpojbwgoaxwdg`) — PENDING**, to be filled at apply time
-  and verified the way this log's header demands, by `information_schema.columns`
-  introspection showing exactly three surviving counter columns — never the
-  migration ledger. Prod holds 0 rows / 0 businesses so its preflight is
-  trivially satisfied; it is still run and its zero-row result still recorded, because
-  a skipped preflight is not a passed preflight.
+  **APPLIED TO STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-08** — verified the way
+  this log's header demands, by `information_schema.columns` introspection and
+  never the migration ledger. Preflight in the apply window returned
+  `total_rows=2, unreconciled_two_branch=0` — and, recorded because it is the
+  live proof of the header's central claim, `unreconciled_naive=2`: **the naive
+  predicate would have aborted this migration on both healthy rows.** Post-apply
+  introspection named all seven counter columns and returned exactly three:
+  `imported_count` (integer NOT NULL DEFAULT 0), `skipped_count` (integer NOT
+  NULL DEFAULT 0), `oldest_skipped_create_time` (timestamptz, nullable). Row
+  count and totals unchanged at 2 runs / 58 imported / 0 skipped — DROP COLUMN
+  removes columns, never rows. Re-runnability confirmed by executing the guard a
+  second time against the post-drop schema: it took the `legacy_present = 0`
+  RETURN branch and raised nothing.
+  **PRODUCTION (`udeyaqnvpojbwgoaxwdg`) — PENDING**, to be applied in lockstep at
+  promotion and recorded the same way. Prod holds 0 rows / 0 businesses so its
+  preflight is trivially satisfied; it is still run in the apply window and its
+  zero-row result still recorded, because a skipped preflight is not a passed
+  preflight.
 
 - **102** — `import_consent_analytics_events`: extends the
   `analytics_events.event_name` DB CHECK allowlist with `import_offer_created`
