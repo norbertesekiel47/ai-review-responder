@@ -50,7 +50,7 @@
     "docs/adr/0018-*.md"
   ],
   "tests_to_add": [
-    "projects a held draft to a none action in every reply state (invariant #4)",
+    "never offers a draft affordance for a held draft in any reply state (invariant #4)",
     "derives a defined action for every cell of the 3x4 cross-product",
     "withdraws Regenerate from an answered row whose replacement draft is moderation-held (posted x held)",
     "keeps Regenerate for an answered row with a pending or in-flight replacement (posted x ready, posted x generating)",
