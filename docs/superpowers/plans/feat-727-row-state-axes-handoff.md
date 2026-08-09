@@ -23,12 +23,16 @@ none/posted×held → `none`; orphan×held keeps `recover`.
 
 ## Plan review (step 3 gate, RISK = high)
 
-- Round 1: codex exec, read-only. Log: `.feature/logs/plan-review-r1.log`.
-  Session id + verdict: recorded below after the run.
-- VERDICT: (pending)
+- Round 1: codex session 019fe619-0605-7cd1-bff7-f1a1dda1a2d4, VERDICT:
+  REVISE (2 BLOCKER / 8 MAJOR / 1 MINOR). Log:
+  `.feature/logs/plan-review-r1.log`. Triage: plan's "Review appendix — round
+  1" (2 rejections with reasoning, rest folded in; 5 test titles added to the
+  intake, now 17).
+- Round 2 (verification-only): log `.feature/logs/plan-review-r2.log`.
+  VERDICT: (pending)
 
 ## Current step
 
-Step 3 (plan gate) — awaiting codex round-1 verdict. On APPROVED: set phase
-`plan_approved`, proceed to step 4 dispatch per the plan's task order (T1 alone
-first — enforcement spot check on its diff).
+Step 3 (plan gate) — awaiting codex round-2 verdict on the revised plan. On
+APPROVED: set phase `plan_approved`, proceed to step 4 dispatch per the plan's
+task order (T1 alone first — enforcement spot check on its diff).
