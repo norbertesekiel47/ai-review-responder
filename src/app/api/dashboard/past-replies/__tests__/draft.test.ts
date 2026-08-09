@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fc from 'fast-check';
 import { NextRequest, NextResponse } from 'next/server';
+import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
@@ -255,10 +257,12 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with the existing draft including status so the client can branch correctly', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // tx queue: lock-row, existing-check returns the in-progress draft → 409.
+    // tx queue: lock-row, existing-check returns the in-progress draft,
+    // hasOpenFlag → [] (not held) → 409 draft_already_exists.
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-1', text: 'Half-written reply', is_edited: true, status: 'pending_approval' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -276,9 +280,11 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with status=approved when publish is already queued', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-row, existing-check, hasOpenFlag → [] (not held).
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-2', text: 'Approved reply', is_edited: false, status: 'approved' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -290,9 +296,11 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with status=awaiting_owner_connect when Google is disconnected', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-row, existing-check, hasOpenFlag → [] (not held).
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-3', text: 'Parked reply', is_edited: false, status: 'awaiting_owner_connect' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -488,5 +496,83 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     const res = await POST(makeRequest({ body: validBody({ mode: 'manual', new_text: 'New reply' }) }));
     expect(res.status).toBe(200);
     expect(mockEnforceRegenLimit).not.toHaveBeenCalled();
+  });
+});
+
+// ── #726 moderation-held draft gate ─────────────────────────────────
+//
+// A moderation-held draft (invariant #4) "surfaces neither its text nor any
+// button". When the existing-draft branch resolves a held draft, the route
+// must refuse with the owner-visible vocabulary `held_for_review` and never
+// echo the draft payload. src/lib/moderation/held-draft.ts is the semantic
+// owner of "is this draft held" — the REAL hasOpenFlag executes its
+// flagged_responses query against the tx queue mock (consuming one entry,
+// binding the response id), so it is deliberately NOT mocked here.
+
+// Unique sentinels: heldness refusals assert these appear NOWHERE in the
+// serialized body — a leak of either is an invariant #4 violation.
+const SENTINEL_HELD_ID = 'SENTINEL_HELD_ID_5f2c8d4ab1e04973';
+const SENTINEL_HELD_TEXT = 'SENTINEL_HELD_TEXT_e07b61c92a3f4d58';
+
+describe('POST /api/dashboard/past-replies/draft — moderation-held draft gate (#726)', () => {
+  const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
+
+  it('returns 409 held_for_review without the existing draft payload when the existing draft has an open moderation flag', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-review, existing-draft (held sentinels),
+    // hasOpenFlag → [{ one: 1 }] (open flag exists).
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [{ response_id: SENTINEL_HELD_ID, text: SENTINEL_HELD_TEXT, is_edited: false, status: 'pending_approval' }],
+      [{ one: 1 }],
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody() }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(SENTINEL_HELD_ID);
+    expect(serialized).not.toContain(SENTINEL_HELD_TEXT);
+    // Exactly the safe shape — no `existing` payload.
+    expect(body).toEqual({ error: 'held_for_review' });
+
+    const txCalls: unknown[][] = txMock.mock.calls;
+    // The existing-draft SELECT must take the response row lock the
+    // held-draft.ts contract requires (hasOpenFlag is in-tx, post-lock).
+    const existingSelect = txCalls.find((call) => {
+      const text = joinTemplate(call);
+      return text.includes('FROM responses') && text.includes('status = ANY');
+    });
+    expect(existingSelect).toBeDefined();
+    expect(joinTemplate(existingSelect as unknown[])).toContain('FOR UPDATE');
+    // hasOpenFlag executed against flagged_responses, binding the held draft's id.
+    const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
+    expect(flagCall).toBeDefined();
+    expect((flagCall as unknown[]).slice(1)).toContain(SENTINEL_HELD_ID);
+  });
+
+  it('invariants: no non-terminal status ever leaks existing draft text or response id while an open flag exists', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    const POST = await importPOST();
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(...NON_TERMINAL_STATUSES), async (status) => {
+        // Fresh queues per run: lock-review, existing draft at this
+        // non-terminal status (held sentinels), hasOpenFlag → open.
+        txQueue.length = 0;
+        seedTxRows(
+          [{ id: REVIEW_ID }],
+          [{ response_id: SENTINEL_HELD_ID, text: SENTINEL_HELD_TEXT, is_edited: false, status }],
+          [{ one: 1 }],
+        );
+        const res = await POST(makeRequest({ body: validBody() }));
+        expect(res.status).toBe(409);
+        const body = await res.json();
+        const serialized = JSON.stringify(body);
+        expect(serialized).not.toContain(SENTINEL_HELD_ID);
+        expect(serialized).not.toContain(SENTINEL_HELD_TEXT);
+        // Exact refusal body per run — nothing but the vocabulary.
+        expect(body).toEqual({ error: 'held_for_review' });
+      }),
+    );
   });
 });

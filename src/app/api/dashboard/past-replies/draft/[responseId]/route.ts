@@ -12,8 +12,10 @@
 //
 // DELETE /api/dashboard/past-replies/draft/:responseId
 //   "Cancel" a draft. UPDATE responses SET status='superseded' inside a tx
-//   with FOR UPDATE. Idempotent — safe to call when the row is missing or
-//   already past pending_approval.
+//   with FOR UPDATE. Idempotent 204 for missing/terminal rows — safe to call
+//   when the row is missing or already past pending_approval. A moderation-held
+//   row (open flagged_responses flag, invariant #4) refuses explicitly with
+//   409 held_for_review instead of superseding.
 //
 // Both perform same-origin (CSRF) check inline — assertSameOrigin(request) is
 // called directly at the top of each handler for symmetry; withSameOrigin would
@@ -40,6 +42,7 @@ import {
 } from '@/lib/responses/edit-existing';
 import { authorizeEditReplyResponse } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
+import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
 
@@ -152,6 +155,16 @@ export async function PATCH(
         return NextResponse.json({ error: 'response_changed' }, { status: 409 });
       }
 
+      // 3b. Invariant #4 — an owner may not rewrite a held draft while the
+      //     admin reviews the flagged original. Post-lock placement serializes
+      //     against the requires_regeneration disposition (the only one that
+      //     locks the response row — see plan §Serialization note);
+      //     approve/dismiss only close the flag, and that residual race is
+      //     fail-safe (worst case: refuse a just-released draft).
+      if (await hasOpenFlag(tx, responseId)) {
+        return NextResponse.json({ error: 'held_for_review' }, { status: 409 });
+      }
+
       // 4. UPDATE — status STAYS 'pending_approval' (spec §4.4 atomicity rule).
       //    business_id guard mirrors the FOR UPDATE lock scope (defense-in-depth).
       await tx`
@@ -221,6 +234,18 @@ export async function DELETE(
       //    no-ops (already past the editable window — idempotent).
       //    business_id guard mirrors the FOR UPDATE lock scope (defense-in-depth).
       if (locked.status === 'pending_approval') {
+        // 2a. Invariant #4 — an owner may not cancel a held draft while the
+        //     admin reviews the flagged original (publish precedent: the
+        //     moderation refusal comes directly after the locks). Post-lock
+        //     placement serializes against the requires_regeneration
+        //     disposition (the only one that locks the response row — see
+        //     plan §Serialization note); approve/dismiss only close the flag,
+        //     and that residual race is fail-safe (worst case: refuse a
+        //     just-released draft).
+        if (await hasOpenFlag(tx, responseId)) {
+          return NextResponse.json({ error: 'held_for_review' }, { status: 409 });
+        }
+
         const offboardingState = await getOffboardingState(accountId, tx);
         if (isOperationalUIBlocked(offboardingState)) {
           return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });

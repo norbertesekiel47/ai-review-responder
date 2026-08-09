@@ -422,3 +422,133 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 });
+
+// ── #726 moderation-held draft gate ─────────────────────────────────
+//
+// A moderation-held draft (invariant #4) "surfaces neither its text nor any
+// button" — the poller must answer with the owner-visible refusal vocabulary
+// `held_for_review` and never the draft text. src/lib/moderation/held-draft.ts
+// is the semantic owner of "is this draft held"; the read-only poller holds no
+// tx, so it spells the same predicate as a correlated EXISTS on
+// flagged_responses inside the tenant-scoped response lookup.
+
+// Unique sentinels: heldness refusals assert these appear NOWHERE in the
+// serialized body — a leak of either is an invariant #4 violation.
+const SENTINEL_HELD_ID = 'SENTINEL_HELD_ID_84c1f0d2e6b34c5f';
+const SENTINEL_HELD_TEXT = 'SENTINEL_HELD_TEXT_9b3e5a710d2c4e8a';
+
+function seedCompletedOutbox() {
+  seedTopLevel([
+    {
+      status: 'completed',
+      payload: { business_id: LOCATION_ID, review_id: REVIEW_ID, version: 2 },
+      last_error: null,
+      aggregate_id: REVIEW_ID,
+    },
+  ]);
+}
+
+describe('GET /api/dashboard/past-replies/draft-status — moderation-held draft gate (#726)', () => {
+  it('returns status failed with error held_for_review and no draft sentinel anywhere in the serialized body when the resolved response has an open moderation flag', async () => {
+    seedCompletedOutbox();
+    // Response row resolves for the caller's location but carries an OPEN flag.
+    seedTopLevel([
+      {
+        id: SENTINEL_HELD_ID,
+        status: 'pending_approval',
+        response_text: SENTINEL_HELD_TEXT,
+        business_id: LOCATION_ID,
+        held: true,
+      },
+    ]);
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(SENTINEL_HELD_ID);
+    expect(serialized).not.toContain(SENTINEL_HELD_TEXT);
+    // Exactly the safe shape — nothing but the refusal vocabulary.
+    expect(body).toEqual({ status: 'failed', error: 'held_for_review' });
+  });
+
+  it("returns the draft text when the resolved response's moderation flag is closed", async () => {
+    // Deliberate GREEN characterization: a closed flag (held: false) is the
+    // release path — the draft text surfaces exactly as today.
+    seedCompletedOutbox();
+    seedTopLevel([
+      {
+        id: SENTINEL_HELD_ID,
+        status: 'pending_approval',
+        response_text: SENTINEL_HELD_TEXT,
+        business_id: LOCATION_ID,
+        held: false,
+      },
+    ]);
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      response_id: SENTINEL_HELD_ID,
+      status: 'pending_approval',
+      response_text: SENTINEL_HELD_TEXT,
+    });
+  });
+
+  it('spells the correlated open-flag EXISTS with status open inside the tenant-scoped response lookup', async () => {
+    // SQL-text assertion (held-draft.test.ts technique): the heldness
+    // predicate must live IN the response lookup itself — the poller's
+    // spelling of the held-draft.ts semantics.
+    seedCompletedOutbox();
+    seedTopLevel([
+      {
+        id: SENTINEL_HELD_ID,
+        status: 'pending_approval',
+        response_text: SENTINEL_HELD_TEXT,
+        business_id: LOCATION_ID,
+        held: false,
+      },
+    ]);
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(200);
+
+    const readCalls: unknown[][] = sqlReadProxy.mock.calls;
+    const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
+    const responseLookup = readCalls.find((call) => joinTemplate(call).includes('FROM responses'));
+    expect(responseLookup).toBeDefined();
+    const text = joinTemplate(responseLookup as unknown[]);
+    expect(text).toMatch(/EXISTS/);
+    expect(text).toMatch(/flagged_responses/);
+    // Correlation predicate: an uncorrelated EXISTS (any open flag anywhere
+    // holds every poll) would over-refuse fail-safe but still betray the
+    // query's contract — assert the join back to the outer responses row.
+    expect(text).toMatch(/f\.response_id\s*=\s*responses\.id/);
+    expect(text).toMatch(/f\.status\s*=\s*'open'/);
+  });
+
+  it('returns 403 with no heldness signal when the held response belongs to another tenant', async () => {
+    // Deliberate GREEN characterization locking tenant-before-held ordering:
+    // the tenant re-check must win over any held branching, and the refusal
+    // must carry no heldness signal (neither sentinel nor 'held' vocabulary).
+    seedCompletedOutbox();
+    seedTopLevel([
+      {
+        id: SENTINEL_HELD_ID,
+        status: 'pending_approval',
+        response_text: SENTINEL_HELD_TEXT,
+        business_id: OTHER_LOCATION_ID,
+        held: true,
+      },
+    ]);
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(SENTINEL_HELD_ID);
+    expect(serialized).not.toContain(SENTINEL_HELD_TEXT);
+    expect(serialized).not.toContain('held');
+    expect(body).toEqual({ error: 'forbidden' });
+  });
+});

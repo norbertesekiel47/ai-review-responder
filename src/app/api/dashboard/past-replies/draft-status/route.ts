@@ -3,10 +3,13 @@
 // GET /api/dashboard/past-replies/draft-status?outbox_id=<uuid>
 //
 // Polls a regenerate generation's job_outbox row. The client polls this
-// after POST /draft (mode='regenerate') returns { outbox_id }. Three states:
+// after POST /draft (mode='regenerate') returns { outbox_id }. Four states:
 //
 //   - { status: 'generating' }                — outbox pending/dispatching/dispatched
 //   - { status: 'failed', error }             — outbox failed (last_error surfaced)
+//   - { status: 'failed', error: 'held_for_review' } — outbox completed but the
+//     resolved response carries an OPEN moderation flag (invariant #4): terminal
+//     for the poller; neither response_id nor response_text is returned
 //   - { response_id, status, response_text }  — outbox completed; response row found
 //
 // SECURITY: tenant-ownership guard runs on BOTH the outbox payload's
@@ -102,13 +105,26 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     if (outbox.status === 'completed') {
       // Worker INSERTed the response row. aggregate_id is the review_id.
+      //
+      // Invariant #4: a high-severity moderation flag leaves the draft at
+      // `pending_approval` with an OPEN `flagged_responses` row — a
+      // moderation-held draft "surfaces neither its text nor any button".
+      // `src/lib/moderation/held-draft.ts` is the SEMANTIC OWNER of "is this
+      // draft held"; its `hasOpenFlag` is an in-tx, post-FOR-UPDATE release
+      // gate, so this read-only poller spells the predicate inline as a
+      // correlated EXISTS instead (D6).
       const responseRows = await sqlRead<{
         id: string;
         status: string;
         response_text: string | null;
         business_id: string;
+        held: boolean;
       }[]>`
-        SELECT id, status, response_text, business_id
+        SELECT id, status, response_text, business_id,
+          EXISTS (
+            SELECT 1 FROM flagged_responses f
+            WHERE f.response_id = responses.id AND f.status = 'open'
+          ) AS held
         FROM responses
         WHERE review_id = ${outbox.aggregate_id}
           AND status IN ('pending_approval', 'approved', 'edited') -- status-audit-ignore: 3-value poll subset (excludes awaiting_owner_connect); no exact group match, not a reusable grouping
@@ -124,6 +140,17 @@ export async function GET(request: NextRequest): Promise<Response> {
       // before returning the draft text.
       if (response.business_id !== locationId) {
         return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      }
+      // Moderation-held draft (invariant #4, semantic owner
+      // src/lib/moderation/held-draft.ts): terminal `failed` with the
+      // owner-visible refusal vocabulary `held_for_review` — never
+      // response_id or response_text. Checked AFTER the tenant re-check so a
+      // cross-tenant poll gets a heldness-free 403 (tenant refusal wins).
+      if (response.held) {
+        return NextResponse.json(
+          { status: 'failed', error: 'held_for_review' },
+          { status: 200 },
+        );
       }
       return NextResponse.json(
         {

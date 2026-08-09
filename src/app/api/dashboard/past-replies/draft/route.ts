@@ -43,6 +43,7 @@ import {
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../_shared/edit-reply-errors';
+import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import { snapshotSchema } from '../_shared/schemas';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
@@ -122,6 +123,11 @@ async function handler(request: NextRequest): Promise<Response> {
       //     re-opening Edit can publish the existing draft or discard it
       //     (DELETE /draft/:id is idempotent). Scoped by locationId already
       //     via the review lock above.
+      //     FOR UPDATE: the held gate below must run post-lock on the response
+      //     row per the held-draft.ts contract (serializes against the admin
+      //     disposition that closes the flag); lock order review→response
+      //     matches publish/PATCH — no deadlock. Valid with ORDER BY/LIMIT:
+      //     locks the one returned row.
       const existing = await tx<{
         response_id: string;
         text: string | null;
@@ -137,9 +143,16 @@ async function handler(request: NextRequest): Promise<Response> {
           AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)})
         ORDER BY version DESC
         LIMIT 1
+        FOR UPDATE
       `;
       const existingDraft = existing[0];
       if (existingDraft) {
+        // Invariant #4: a moderation-held draft surfaces neither its text nor
+        // a Resume/Discard affordance — refuse with the owner-visible
+        // vocabulary before building the resume payload.
+        if (await hasOpenFlag(tx, existingDraft.response_id)) {
+          return NextResponse.json({ error: 'held_for_review' }, { status: 409 });
+        }
         return NextResponse.json(
           {
             error: 'draft_already_exists',
