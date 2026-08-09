@@ -68,7 +68,8 @@
     "CONTEXT.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
-    ".claude/reference/lab-notes.md"
+    ".claude/reference/lab-notes.md",
+    "scripts/ci/tenant-scope-allowlist.ts"
   ],
   "tests_to_add": [
     "the live-DB eval executes against migration-head Postgres",

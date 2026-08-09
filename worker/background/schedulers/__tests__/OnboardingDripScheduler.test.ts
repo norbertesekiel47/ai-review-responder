@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SubscriptionStatus } from '../../../../src/lib/shared/subscription-status';
 
 // ── Hoisted mock state ───────────────────────────────────────────────
 const { sqlReturnQueue, mockSql, mockIsMockMode } = vi.hoisted(() => {
@@ -102,8 +103,15 @@ describe('OnboardingDripScheduler', () => {
 
     const dueQueryCall = mockSql.mock.calls[0]!;
     const dueQueryText = Array.from(dueQueryCall[0] as TemplateStringsArray).join('');
-    // Trialing accounts are in scope alongside active.
-    expect(dueQueryText).toMatch(/subscription_status\s+IN\s*\(\s*'active',\s*'trialing'\s*\)/i);
+    // Trialing accounts are in scope alongside active (invariant #11). Since #719
+    // these are BOUND from the SubscriptionStatus enum rather than spelled as SQL
+    // literals, so the check reads the bound values: the template text alone now
+    // renders as `IN (, )` and a text-only regex would either fail spuriously or,
+    // if loosened to match the bare `IN (`, pass against an empty status set.
+    expect(dueQueryText).toMatch(/subscription_status\s+IN\s*\(/i);
+    expect(dueQueryCall.slice(1)).toEqual(
+      expect.arrayContaining([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]),
+    );
     // The businesses-mirror anchor (FIX 1) is the gate — null anchor is excluded.
     expect(dueQueryText).toMatch(/b\.subscription_activated_at\s+IS\s+NOT\s+NULL/i);
 

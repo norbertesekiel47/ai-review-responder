@@ -335,3 +335,109 @@ it sets `DATABASE_POOL_URL`. Recorded so the next runner of this sweep exports b
 rather than re-diagnosing a red that is not theirs.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D11 — the refactor made the scheduler's global scan INVISIBLE to `ci:tenant-scope`
+
+**When:** step 5, first verify-gate run (`tenant-scope` FAIL).
+
+**What:** `ci:tenant-scope` reported three **unused** allowlist entries for
+`OnboardingDripScheduler.ts` (`accounts`, `businesses`, `onboarding_drip_log`) and — the part
+that matters — **no findings at all** for the file.
+
+**Why that combination is the alarming one, not the reassuring one:** the audit recognizes
+postgres.js tagged templates only under the tag names it knows —
+`tagNames = new Set(['sql', 'tx', 'db'])` plus db/server import aliases
+(`scripts/ci/tenant-scope-audit.ts:712`). Task 4 named the injected client **`exec`** (the
+plan's own signature said `exec`, while the plan's test step said `db` — the plan was
+internally inconsistent and nobody noticed). Under that name the query is not a recognized SQL
+tag, so the audit stopped seeing the scan entirely. The entries did not go stale because the
+SQL changed; they went stale because **the query vanished from the audit's view**.
+
+The obvious reading of "unused allowlist entry" is "this exemption is no longer needed — delete
+it." Doing that would have removed the audit's only record of a deliberate cross-tenant sweep
+and left the file permanently unmonitored, with a green gate certifying it. That is a worse
+outcome than the red that surfaced it, and it is a **latent trap for any future refactor**:
+renaming a `sql`/`db`/`tx` parameter to anything else silently drops that file's queries out of
+tenant-scope coverage.
+
+**Fix:** the parameter is renamed `exec` → `db`, with a comment at the signature stating why the
+name is load-bearing. Coverage restored: the audit sees the scan again, matches it to the three
+entries, and reports `passed — entries: 412 (baseline: 412)` — the same count as before, so
+nothing was exempted that was not already exempted.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D12 — surface amendment #2 (`scripts/ci/tenant-scope-allowlist.ts`), owner-waived
+
+**When:** step 5, first verify-gate run.
+
+**What:** `scripts/ci/tenant-scope-allowlist.ts` added to `allowed_edit_surface` in both intake
+copies, to refresh `ONBOARDING_DRIP_CANDIDATES_SQL` (`:126`). **This is amendment #2**, and
+`feature.md`'s step-5 abort criteria name a 2nd amendment as a teardown trigger.
+
+**Why it is unavoidable:** that constant stores the scheduler's candidate query **verbatim**, and
+the audit matches on `normalizeSql(stripSqlComments(...))` equality. Rewriting that query IS the
+feature (staleness cap, churn cap, `asOf` seam), so the snippet cannot survive it. There is no
+code-side workaround: the exemption is keyed on the SQL text itself.
+
+**What was avoided:** the same gate run also failed `static-policy` on a bare
+`subscription_status IN ('active','trialing')` literal. That one did **not** need an amendment —
+the literal was pre-existing (originally `:40`, allowlisted by file:line in
+`static-policy-audit.ts:208`) and merely moved to `:93` when `runOnboardingDripCycle` was
+extracted. Rather than relocate the exemption in a second out-of-surface file, the literal was
+**deleted**: the status set is now bound from the enum
+(`IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.TRIALING})`), which is the repo's
+existing pattern (`CancellationGracePoller.ts:48`, `apply-subscription-state.ts:362`) and leaves
+one fewer standing exemption than before #719. `static-policy` has no unused-entry check, so the
+stale `:40` line is inert. **The amendment is therefore one file, not two.**
+
+That change broke one pre-existing regression guard —
+`OnboardingDripScheduler.test.ts`'s `FIX 1: selects trialing accounts …`, which asserted the raw
+SQL text matched `/subscription_status\s+IN\s*\(\s*'active',\s*'trialing'\s*\)/i`. Bound values
+are invisible to a text regex. The assertion now reads the **bound values** off the mock
+(`arrayContaining([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING])`), which is strictly
+stronger: loosening the regex to the bare `IN (` alone would have passed against an empty status
+set. The guard's intent — trialing is entitled, invariant #11 — is unchanged and better pinned.
+
+**Owner decision (2026-08-09):** presented with three options (minimal amendment + waiver /
+re-run step 0 first / abort per the rule) and chose **minimal amendment + waiver**. The teardown
+trigger is explicitly waived for this one file. Recorded here because a waived rule that is not
+written down is indistinguishable at review time from a rule nobody noticed.
+
+**Amendment count: 2** (D1, D12). A third would need a fresh decision.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D13 — `estimated_prod_lines` was ~3× under (reclassify WARN), owner-waived
+
+**When:** step 5, first verify-gate run — `RECLASSIFY: production 366 > 2x estimated_prod_lines (120)`.
+
+**What:** the intake estimated "±120 production lines changed, net NEGATIVE outside the one new
+module". Actual: **366**. Breakdown — `OnboardingDripScheduler.ts` 204, `job-failure-sink.ts` 58,
+`summary-report-helpers.ts` 40, `OnboardingDripWorker.ts` 38, `worker/index.ts` 10,
+`WeeklySummaryWorker.ts` 8, `MonthlyImpactWorker.ts` 8.
+
+**Why the estimate missed:** it was written as a *net* figure ("net NEGATIVE outside the one new
+module") while the gate measures **changed** lines. Extracting `runOnboardingDripCycle` rewrites
+the whole function body, which git counts as a delete plus an add — 204 changed lines for what
+is, in net terms, a modest addition. The estimate and the metric were never measuring the same
+thing. The lesson is about the estimate's UNITS, not about scope creep: no unplanned work
+entered the feature.
+
+**Why it was waived rather than escalated:** `feature.md` sends a >2× bucket to "re-run step 0
+with the real numbers — the lane was wrong, and the heavier lane's controls exist for exactly
+this feature." This feature is already in the **heaviest** lane (RISK = high: dual review,
+staging ride, PR + explicit merge approval). Re-running step 0 with 366/1600 re-derives
+RISK = high, SURFACE = backend, db_touching = false — the same lane and the same controls. The
+rule's purpose is satisfied by the lane already in force. Owner waived on 2026-08-09.
+
+**Carry-forward:** state `estimated_prod_lines` as CHANGED lines, and count a whole-body
+extraction at its full size rather than its net delta.
+
+**Verdict:** _(pending step 6)_

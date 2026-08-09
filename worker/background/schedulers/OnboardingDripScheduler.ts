@@ -2,6 +2,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
+import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
@@ -53,18 +54,26 @@ export interface DripCycleResult {
  * observable: zero rows queued, no alert, for three months.
  *
  * `asOf` is injected because every bound this function enforces is a time
- * boundary, and separate `NOW()` evaluations cannot pin an equality. `exec` is
+ * boundary, and separate `NOW()` evaluations cannot pin an equality. `db` is
  * explicit per invariant #15 — the scheduler is the composition root that hands
  * the singleton in.
+ *
+ * The parameter is named `db` and NOT `exec` on purpose: `ci:tenant-scope`
+ * recognizes postgres.js tagged templates only under the tag names it knows
+ * (`sql` / `tx` / `db`, plus db/server import aliases —
+ * `tenant-scope-audit.ts:712`). Named `exec`, this file's global scan became
+ * INVISIBLE to that audit — it stopped reporting the query and instead reported
+ * its three allowlist entries as dead, which would have quietly deleted the
+ * audit's only record of a deliberate cross-tenant sweep.
  */
 export async function runOnboardingDripCycle(
-  exec: Sql,
+  db: Sql,
   asOf: Date,
 ): Promise<DripCycleResult> {
   // Single query: find all (business, drip_type) pairs that are due, not yet
   // sent (no drip_log row), and not yet queued (no non-failed outbox row).
   // Uses VALUES to cross-join drip offsets, avoiding N+1 per-business loops.
-  const dueDrips = await exec<{
+  const dueDrips = await db<{
     business_id: string;
     drip_type: string;
     too_late: boolean;
@@ -90,7 +99,12 @@ export async function runOnboardingDripCycle(
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days)
-    WHERE a.subscription_status IN ('active', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .TRIALING
+    -- Bound from the enum rather than spelled as literals (invariant #11 /
+    -- ci:static-policy). The pre-#719 query carried raw 'active'/'trialing'
+    -- under a file:line exemption; extracting runOnboardingDripCycle moved the
+    -- line out from under it, and binding is both the repo's existing pattern
+    -- (CancellationGracePoller.ts:48) and one fewer standing exemption.
+    WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.TRIALING})
       AND b.subscription_activated_at IS NOT NULL
       AND b.subscription_activated_at <= ${asOf}::timestamptz - (d.days || ' days')::interval
       -- Abandoned tail: a pair past the grace window is reported for exactly one
@@ -127,7 +141,7 @@ export async function runOnboardingDripCycle(
 
     try {
       // ON CONFLICT uses uniq_outbox_onboarding_drip partial unique index
-      const inserted = await exec`
+      const inserted = await db`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()},
