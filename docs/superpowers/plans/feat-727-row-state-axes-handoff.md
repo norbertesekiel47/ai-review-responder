@@ -29,10 +29,10 @@ none/posted×held → `none`; orphan×held keeps `recover`.
   1" (2 rejections with reasoning, rest folded in; 5 test titles added to the
   intake, now 17).
 - Round 2 (verification-only): log `.feature/logs/plan-review-r2.log`.
-  VERDICT: (pending)
+  VERDICT: APPROVED (9 FIXED-VERIFIED, 2 REJECTION-SOUND).
 
 ## Current step
 
-Step 3 (plan gate) — awaiting codex round-2 verdict on the revised plan. On
-APPROVED: set phase `plan_approved`, proceed to step 4 dispatch per the plan's
-task order (T1 alone first — enforcement spot check on its diff).
+Step 4 (execution) — plan APPROVED at round 2. Dispatch order: T1 (eval) alone
+first + enforcement spot check on its diff, then T2, then T3 ∥ T4. Subagent
+briefs come from the plan's task sections + the glossary anchors above.
