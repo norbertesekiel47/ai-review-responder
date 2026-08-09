@@ -2473,3 +2473,153 @@ post-apply introspection identical to staging.
 - **Staging `onboarding_drip` failures** (~24 `job_outbox` rows in `failed` on
   Terry Business) remain open. Pre-existing, unrelated to the import path,
   outside this ticket's surface. Still needs its own ticket.
+
+## Live-DB helper scan (2026-08-08, #706 → PR #720)
+
+CI/test tooling. **No migration, no env var, no feature flag, no new file, no
+new dependency, and zero runtime surface** — the whole change is one CI script
+and its test file. #694 filed this bound against itself at its round-2 review
+and shipped without it; #706 closes it the same day.
+
+### The hole
+
+`ci:live-db-suites` enforces two rules on files that reach the shared local
+Postgres: **R1** a live-DB suite must be named `*.integration.test.ts` (that
+glob is what puts it in vitest's serialized `integration` project), and **R2**
+no run-time DDL, because DDL's ACCESS EXCLUSIVE locks deadlock sibling suites in
+concurrent vitest processes (40P01, #573).
+
+#694 replaced R2's text-marker heuristic with an AST walk over *executed* SQL,
+and argued its own soundness this way: the walk visits the **producing** node,
+so a fragment smuggled into a suite is caught in the file where it is built.
+That argument is correct, and it is not sufficient — it is silently conditional
+on the producing file being *read*, and `listTestFiles()` globbed
+`*.test.ts`/`*.test.tsx` only.
+
+The mechanism that turns the gap into a real hole is Postgres.js: a nested
+`Query` substitution is routed through `fragment()` and spliced into the outer
+statement as raw SQL **text**, not as a bind value. So a `__tests__/` helper can
+export `` sql`ALTER TABLE …` ``, a suite can execute it as `` sql`${addCheck}` ``,
+and *both* files audit clean — the helper because it was never opened, the suite
+because it carries no DDL text of its own — while the tree takes ACCESS
+EXCLUSIVE on `job_outbox`. `live-db-suites-audit: passed` would print over it.
+
+### What shipped
+
+- **The file set widened**, from two `git ls-files` pathspecs to four:
+  `*.test.ts`, `*.test.tsx`, `*__tests__/*.ts`, `*__tests__/*.tsx`. That adds
+  the 13 non-suite `.ts`/`.tsx` files under `__tests__/` the audit had never
+  once opened. `git ls-files` dedupes across pathspecs, so a file matched by two
+  of them is listed once — asserted by the audit's own test, since a
+  double-listed file would double-report every finding it carries.
+- **The enforcement unit split.** R1 **naming** applies to *suites* only: it is
+  a claim about which vitest project a file lands in, and a helper renamed
+  `*.integration.test.ts` would simply be executed as an empty suite. R2
+  **run-time DDL** and the lock check apply to every live-DB *file*, suite or
+  helper, because "does this statement take ACCESS EXCLUSIVE on a shared
+  relation" is true of the statement wherever it was written. `isSuite()` is the
+  predicate, and its JSDoc is the single owner of that argument.
+- **Helpers got their own reachability marker.** `LIVE_DB_MARKERS` is
+  suite-shaped — the env var by name, or an import of the module that
+  resolves/gates/locks the handle — and a helper matches none of it, because it
+  is *handed* its handle. What it cannot avoid is *typing* that handle, so
+  `HELPER_DB_MARKER` is an import of `postgres`, in either spelling: the
+  `from 'postgres'` clause, and the inline `import('postgres').Sql` type, which
+  carries no `from` clause at all.
+- **The marker is deliberately not offered to suites**, and the reason is what
+  R1 *means* rather than noise volume: a mock-shaping type import is not
+  evidence that a suite reaches a database. The volume is real too — many suites
+  match the marker while touching no DB — so admitting it would fire the naming
+  rule across the tree on files that reach nothing. The census and its recount
+  method live in the module's `HELPER_DB_MARKER` JSDoc, which is their single
+  owner; the docs carry the rationale and no figures.
+- **`src/lib/shared/__tests__/helpers/apply-migration-074.ts` was the one real
+  occurrence.** It runs `db.unsafe(readMigration074Sql())` and had never been
+  audited. The file itself is unchanged; it is now on `MIGRATION_SHAPE_FILES`
+  **and** lock-enforced against its own `withMigration074ApplyLock`.
+- **Names corrected to match the widened scope.** Exported shape is unchanged —
+  1 interface + 2 functions, same arity, same return shapes, same three-member
+  `rule` union (`naming` | `runtime-ddl` | `unlocked-ddl`) — but
+  `auditLiveDbSuite`→`auditLiveDbFile`, `listTestFiles`→`listAuditedFiles`,
+  `LiveDbSuiteFinding`→`LiveDbFileFinding`, and the two internal allowlists
+  `MIGRATION_SHAPE_SUITES`→`MIGRATION_SHAPE_FILES`,
+  `DDL_PROBE_SUITES`→`DDL_PROBE_FILES`. A set named for *suites* that now holds
+  a *helper* is exactly the false-claim class #694's review filed as its only
+  Medium finding.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/ci/live-db-suites-audit.ts` | widened file set, the `isSuite` enforcement-unit split, `HELPER_DB_MARKER`, the 074 helper allowlisted + lock-enforced, five identifier renames, and the JSDoc/`BOUND:` prose that is this module's spec |
+| `scripts/ci/__tests__/live-db-suites-audit.test.ts` | 43 tests — the helper fixtures authored red against the new interface, the dedupe assertion, and the pin on the inline `import('postgres')` spelling |
+| `src/lib/shared/__tests__/helpers/apply-migration-074.ts` | **untouched** — listed only because it is the one file whose *audit status* changed |
+
+No other file in the repo changed. Everything else in the merge commit is the
+workflow record: the plan, deviations, handoff, intake and the two review
+reports.
+
+### Decisions
+
+- **Split the enforcement unit rather than widen both rules.** The tempting
+  alternative — scan helpers and apply both rules to them — is wrong in a way
+  that would have looked right in CI: R1 would advise renaming a helper to
+  `*.integration.test.ts`, which serializes nothing and produces an empty suite.
+- **Reachability is a marker, not an import graph.** Inheriting a caller's lock,
+  or proving a helper's DDL sits *inside* its wrapper, both need call-graph
+  analysis — more machinery than a CI guard against accidental DDL warrants. The
+  module states that in a `BOUND:` paragraph rather than implying the guarantee
+  is total.
+- **Renames over compatibility shims.** `rg` over the whole tree found zero live
+  importers of the old names outside historical review and plan documents, so
+  the rename is complete rather than aliased.
+
+### Review
+
+Two rounds, every finding accepted, one behaviour change in total.
+
+- **Round 1** — findings across both axes resolved into **nine fixes**; eight
+  prose, one behavioural. The behavioural one: `HELPER_DB_MARKER` did not match
+  the inline `import('postgres').Sql` form, a spelling this tree already uses
+  twice for exactly the "hand a fake handle to something" shape. A helper typed
+  that way would have been invisible — the #694 blindness mode, reopened one
+  ticket later. Both existing sites are suites, so no finding on the real tree
+  moved; a new test pins the shape.
+- **Round 2** — **five findings, every one of them a defect introduced by a
+  round-1 fix**, and all five prose. The comment-stripped audit script is
+  byte-identical across the round-2 commit, so no rule behaviour moved.
+- **Round 3** — verification only, zero findings.
+
+Four false or stale counts were corrected during round 1: a "~740 parallel unit
+tests" figure that was false in three durable docs, a "four of the six" that was
+five, a "~738 parallel siblings" **deleted** rather than restated because its
+owner is another file and equally stale, and `currents.md`'s "same exported
+signature" when all three exports had in fact been renamed.
+
+### Gotchas
+
+- **An exact count in a comment is a maintenance trap, demonstrated live.** The
+  module's census (`186 of the 904 suites`) was exact when it shipped and had
+  already moved by the time this sweep ran: PR #716 added
+  `migration-103-drop-legacy-backfill-counters.integration.test.ts`, so `main`
+  now measures 187 of 905, with the audited set at 918. The JSDoc calls it a
+  census rather than a constant and carries the recount method — that is the
+  mitigation, and it is doing its job. Recorded here rather than patched,
+  because this sweep is documentation-only and the figure lives in a `.ts` file.
+- **`reclassify` fired at 2.15×** — 280 production changed lines against
+  `estimated_prod_lines: 130`. Step 0 was re-run per the workflow and the lane
+  was **CONFIRMED, not changed**. The breakdown is the whole story: 32 lines of
+  executable code, 144 comment lines in the audit, 52 lines across four repo
+  docs. `estimated_prod_lines` was deliberately **not** amended after the fact —
+  the intake is the record of what was predicted, and editing it would defeat
+  the trigger. Durable lesson in `lab-notes.md` under **2026-08-08 — #706**.
+
+### Verification
+
+`pnpm ci:live-db-suites` → `passed`; 43/43 on the audit's own suite; typecheck
+and lint clean. The behavioural fix was proved against all four marker shapes
+plus three negative controls, and the 074 lock enforcement by mutation in both
+directions — rename the lock marker in the real file text and `unlocked-ddl`
+appears; hoist the DDL out of the wrapper with the declaration left in place and
+it does not, which is the bound the module now states plainly instead of
+claiming the check is total.
