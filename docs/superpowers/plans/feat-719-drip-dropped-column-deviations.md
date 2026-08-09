@@ -102,7 +102,11 @@ follow-up against `OutboxPoller.ts`.
 rather than removing signed-off scope, which is the check that mattered — had it invalidated a
 locked decision, the abort criteria applied. The stated cost stands and is now documented in
 CONTEXT.md's **Watchdog** entry and the lab notes: a terminal row still reads the reclaim text,
-and the diagnosis lives in Sentry. The `OutboxPoller.ts` follow-up is filed.
+and the diagnosis lives in Sentry. The `OutboxPoller.ts` follow-up is **issue #736**, filed
+2026-08-09 — this sentence previously read "is filed" and was FALSE for the whole life of the
+branch. The step-7 adversarial reviewer checked the throwaway clause against `gh search issues`
+instead of reading past it, which is the only reason it was caught: a deferral recorded as done
+is indistinguishable from a deferral actually done, right up until nobody does it.
 
 ---
 
@@ -634,6 +638,9 @@ Accepted and fixed in this round:
   Worth re-opening as its own ticket on real numbers.
 - **D3's claim that the `OutboxPoller.ts` follow-up "is filed" is untrue** — `gh
   search issues` finds no matching issue. Must be filed before ship, or the claim
-  corrected.
+  corrected. **RESOLVED 2026-08-09: filed as issue #736**, and D3's sentence
+  corrected to name it. A3 and A5 above remain unfiled — flagged to the owner
+  rather than filed unasked, since a deviations file archived with the worktree
+  is not a tracker.
 
 **Verdict: ACCEPT.** Round 1 of a maximum 3; `branchReviewRounds` = 1.
