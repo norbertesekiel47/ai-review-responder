@@ -2795,3 +2795,108 @@ dependency, no ingest change.**
   deliberately SKIPPED**: #719 is still riding staging, so staging =
   main-before-#727 (`ae110dfd`) + the #719 ride + the #727 ride-merge;
   staging re-anchors to main when #719 lands.
+
+## 2026-08-09 — #728 Persist-boundary content-freshness gate + generation-cache provenance (PR #743, squash 8ee889ff)
+
+Ticket-seeded `/feature` run implementing ADR 0017 (decision ticket #724, map
+#710 item 2 — the deferral #678 recorded in its deviations D2, reversed on
+the recorded false premise "a wasted LLM call, not corruption"). RISK=high →
+full apparatus: 3-round codex plan gate, three-axis branch review, staging
+ride, owner merge pause. **No migration, no env var, no flag, no new
+dependency, no schema change.**
+
+- **What shipped**: the lane-independent **content-freshness gate** at the
+  persist boundary — `persistResponseAndNotify`
+  (`worker/jobs/response-generation/persist.ts`) re-reads
+  `review_content_hash` under the review `FOR UPDATE` lock its transaction
+  already takes as its FIRST statement; both hashes non-null and different →
+  **skip-the-INSERT**, job completes (never fails) with
+  `OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT` (`stale_review_content`)
+  plus a structured log line, writing NOTHING so the `(review_id, version)`
+  slot stays free for the colliding fresh job. Null on either side passes
+  (freshness check, not provenance proof). Gate runs before the lane split —
+  `on_demand_generate`, `regenerate`, `backfill`, both live-ingest lanes;
+  `evaluateAutoApprovalCandidate` byte-identical (D-H, defense in depth).
+  `ResponseGeneratorWorker` maps the typed persist outcome to
+  `markOutboxCompletedWithReason(sql, outboxId, STALE_REVIEW_CONTENT,
+  attempt)`.
+- **Plan gate (3 rounds)**: round-1 codex BLOCKER relocated the token owner —
+  the ADR cited the `SKIP_REASON_ARCHIVED_LOCATION` precedent in
+  `worker-types.ts`, but that precedent is log-only; `completion_reason`'s
+  typed owner is `OUTBOX_COMPLETION_REASON`
+  (`src/lib/shared/outbox-completion-reason.ts`), where the token shipped
+  (locus correction, not a decision reversal; spelling unchanged per owner
+  sign-off). Surface amendment #1 (owner-approved, budget 1 of 2): added
+  `outbox-completion-reason.ts` + the autopilot-entitlement-concurrency
+  integration suite (mechanical unwrap of persist's new discriminated-union
+  return); removed `worker-types.ts` and a miscited test path. Three
+  tests_to_add from codex round 1 (#643 rule, not amendments): two-client
+  FOR-UPDATE lock-serialization, all-lanes unit test (a gate conditional on
+  `on_demand_generate` would have passed the eval), structured-log-line
+  assertion. One codex finding REJECTED and conceded in round 2: the gate
+  script, not the plan, owns verification enumeration.
+- **Execution deviations (all ACCEPT at step-6 read-back)**: block-local
+  `gateInput` wrapper instead of shadowing persist.test.ts's module-scope
+  `baseInput`; `toHaveLength(1)` + `toMatchObject` over whole-array `toEqual`
+  (postgres.js RowList enumerable non-index properties); lock-serialization
+  test wraps the blocked-race assertion in `try/finally` releasing the gate +
+  per-test 10s timeout so a failed assertion cannot wedge afterAll; the new
+  integration suite's spine assertions corrected `run_id` → `agent_run_id`
+  (4 sites, test-only).
+- **verify-gate env gap (workaround; follow-up #744)**: the gate resolves
+  `TEST_DATABASE_POOL_URL` but not `DATABASE_POOL_URL`, so the
+  now-changed autopilot-entitlement suite — which transitively imports the
+  `src/lib/db/server` singleton via stripe `subscription-updated` ingress →
+  `resolveAccountReference` — dialed vitest.setup's dummy `localhost:5432`
+  (30s timeout + unhandled ECONNREFUSED). `fallow.yml` CI already exports
+  both. Worked around by invoking the gate with both vars exported to the
+  test DB; `scripts/verify-gate.sh` was outside this feature's surface —
+  promoted to lab-notes, permanent fix filed as #744.
+- **Branch review round 1**: codex adversarial **CRITICAL, NO-SHIP** — the
+  `(reviewId, version)` idempotent-generation cache carries no content
+  provenance, and live-ingest's same-version replacement job legitimately
+  shares the key, so a stale H1-cached draft was served to the H2-loaded
+  replacement, whose gate saw H2==H2 and persisted the stale text:
+  the gate deterministically defeated (pre-existing vector, but it falsifies
+  ADR 0017's convergence claim). Owner explicitly chose **Option A — fix
+  now**, overriding the 2nd-amendment abort trigger via AskUserQuestion;
+  surface amendment #2 (budget 2 of 2): `generate-draft.ts`,
+  `src/lib/responses/generator.ts`, `types.ts`, generator tests. Fix:
+  `CachedGeneration.reviewContentHash`; cache-read accepts ONLY strict
+  equality with the current attempt's loaded hash (`null===null` for
+  legacy); provenance-less/mismatched entries rejected + cleared best-effort
+  (corrupt-payload precedent); `tracker.ts` needed NO edit (payload opaque).
+  Spec MEDIUM (retry-window warm cache) resolved via the provenance fix, NOT
+  clear-on-skip — the provenance check is the one owner of cache validity, a
+  redundant second guard is the two-owner drift CLAUDE.md warns about.
+  Standards LOW ×2: typed outcome from the `sql.begin` callback (canonical
+  `auto-policy-publish.ts` `InitialPhaseOutcome` precedent) replacing the
+  `staleContentSkip` outer flag; handler gate-skip test pins
+  `mockSql, 'outbox-gen-1'`. Round 2 verification green; plus a compile-time
+  link for the guardrail cache-overwrite payload.
+- **Cache-fix mechanical adaptations**: the avoid-facts guardrail overwrites
+  the cache DIRECTLY via `setCachedGeneration` — left provenance-less that
+  entry would be rejected by every later read at the same key, turning the
+  documented "retry hits the idempotent cache" economy (owner decision
+  2026-07-16) into a fresh re-spend; stamped `reviewContentHash:
+  ids.loadedReviewContentHash` on the overwrite and extended
+  `applyAvoidFactsGuardrail`'s ids param. Pre-existing 'cached result with
+  costUsd 0' test fixture became `reviewContentHash: null` (valid legacy
+  entry — same test subject). Worker-level replacement test lives in NEW
+  `generate-draft-cache-provenance.test.ts` because `generate-draft.test.ts`
+  mocks `generateResponse` at module scope and cannot honestly exercise the
+  real cache accept path — the new file drives the real generator + real
+  cost-guard over a Map-backed cache with mocked LLM SDKs.
+- **Fallow refactors (already-reviewed code)**: one owner for the
+  generation-phase error dispatch (clone f7be4fc3);
+  `resolveAutoApprovalDecision` extracted, bringing the persist tx callback
+  under complexity thresholds.
+- **Reclassify trigger fired at ship** (production 430 > 2×140): decomposed
+  into the owner-approved Option A scope + the two fallow refactors; step-0
+  re-run a no-op — the feature already ran the heaviest lane end-to-end.
+  Estimate corrected to actuals post-hoc with the deviations record as audit
+  trail; surfaced in the PR before the owner's merge approval.
+- **Docs in the feature branch**: CONTEXT.md gained the locked
+  **Content-freshness gate** glossary term (survived the squash — verified
+  in this sweep, not duplicated).
+- **Ship**: PR #743, owner-approved squash-merge to `8ee889ff`.
