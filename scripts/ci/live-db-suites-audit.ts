@@ -24,10 +24,11 @@
 //      glob is what puts it in vitest's serialized `integration` project; a
 //      suite that misses it runs in the fully parallel project alongside every
 //      other non-integration file, unsynchronized against every other live-DB
-//      writer. (The count is deliberately not restated here: it is owned by
-//      `vitest.config.ts`, and the copy that used to sit in this sentence had
-//      gone stale by ~80 files — the same way the figure removed from
-//      `listAuditedFiles`' BOUND had.)
+//      writer. (No count here, deliberately: it moves with every test file added
+//      or renamed, and the copy that used to sit in this sentence had drifted
+//      well away from the tree by the time anyone checked it — the same way the
+//      figure removed from `listAuditedFiles`' BOUND had. Recount by subtracting
+//      the `integration` project's files from vitest's matched set.)
 //
 // R2 — NO RUN-TIME DDL. A live-DB **file** must not execute DDL — not merely "apply
 //      migration SQL", but any statement taking ACCESS EXCLUSIVE on a shared
@@ -62,9 +63,11 @@
 //      the shared table.
 //
 // The two rules do not share a unit, and #706 made that explicit. A SUITE is a
-// file vitest runs (`*.test.{ts,tsx}`); a HELPER is any other `.ts`/`.tsx` under
-// `__tests__/`. R1 applies to suites only; R2 and the lock check apply to every
-// live-DB file, helpers included. `isSuite`'s JSDoc owns the argument for why.
+// file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, which is not the same
+// question as whether vitest runs the file; a HELPER is any other `.ts`/`.tsx`
+// under `__tests__/`. R1 applies to suites only; R2 and the lock check apply to
+// every live-DB file, helpers included. `isSuite`'s JSDoc owns the argument for
+// why, and names where the suffix test and vitest's include globs diverge.
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -127,19 +130,23 @@ const DDL_PROBE_FILES = new Set([
  * that DEFINES that lock — which is also the answer to "a helper cannot hold a
  * lock on its own behalf": this one does, and the check is on the file's OWN
  * text. Inheriting a caller's lock would need an import graph, so an allowlisted
- * file that does not name its lock marker is `unlocked-ddl`, never a pass.
+ * file that reaches the lock check without naming its lock marker is reported
+ * `unlocked-ddl`.
  *
- * BOUND: that last sentence is a live guarantee for the 074 shape SUITE, whose
- * marker is a genuine call site — and a vacuous one for `apply-migration-074.ts`,
- * which DEFINES `withMigration074ApplyLock` (its own `:23`), so the own-text
- * check is satisfied by the declaration and `unlocked-ddl` can never fire for
- * that file. It therefore detects DELETING the helper, not a refactor that moves
- * `db.unsafe(readMigration074Sql())` outside the wrapper — an inverted early
- * return, or a "fast path when the column already exists", would ship
- * unserialized DDL with this audit green. Proving the DDL sits INSIDE the
- * wrapper needs call-graph analysis, more machinery than a CI guard against
- * accidental DDL warrants. The guarantee genuinely differs between the two
- * members of this set; saying so is cheaper than a claim that it does not.
+ * BOUND: the check is `text.includes(OWN_LOCK_MARKER)`, so what it reads is the
+ * PRESENCE of the identifier in the file, never the position of the DDL relative
+ * to the wrapper. For the 074 shape SUITE that presence is a genuine call site.
+ * For `apply-migration-074.ts` it is the declaration (its own `:23`), so the
+ * check reads the same whether `db.unsafe(readMigration074Sql())` runs inside
+ * `withMigration074ApplyLock` or outside it: hoisting that call — an inverted
+ * early return, or a "fast path when the column already exists" — leaves the
+ * identifier in the file and ships unserialized DDL with this audit green.
+ * What the check does still see is the identifier going away: rename or delete
+ * `withMigration074ApplyLock` and this file's DDL reports `unlocked-ddl`, which
+ * is the mutation the PR's docs cite as proof of enforcement. Proving the DDL
+ * sits INSIDE the wrapper needs call-graph analysis, more machinery than a CI
+ * guard against accidental DDL warrants. What the two members of this set get
+ * from the check differs; saying so is cheaper than a claim that it does not.
  */
 const OWN_APPLY_LOCK = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
@@ -197,12 +204,16 @@ const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
  * `LIVE_DB_MARKERS` can see them. (A census, not a constant; recount with the
  * marker against `listAuditedFiles()`.)
  *
- * BOUND: a helper that types its handle as `unknown` and casts, or takes it
- * through a generic parameter, is invisible. The inline import-type form is NOT
- * one of those escapes — it is matched. The no-`any` invariant plus the visible
- * `Sql`/`TransactionSql` typings on all six make the two remaining shapes a
- * deliberate act rather than an accident — same blast-radius honesty
- * LIVE_DB_MARKERS carries.
+ * BOUND: the marker is a text match on those two spellings, so what escapes it
+ * is a helper whose handle is typed WITHOUT the module being named in this
+ * file — a bare generic parameter (`db: T`), a `Sql` imported from a module that
+ * re-exports it, or a cast to a structural type declared locally. Casting
+ * through `unknown` is not itself an escape: `as unknown as
+ * import('postgres').Sql` names the module and is matched, which is the form
+ * both in-tree sites use and what the inline-spelling test pins. The no-`any`
+ * invariant plus the visible `Sql`/`TransactionSql` typings on all six make
+ * reaching for one of the escaping shapes a deliberate act rather than an
+ * accident — same blast-radius honesty LIVE_DB_MARKERS carries.
  */
 const HELPER_DB_MARKER = /\bfrom ['"]postgres['"]|\bimport\(['"]postgres['"]\)/;
 

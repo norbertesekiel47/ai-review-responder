@@ -263,3 +263,200 @@ Fix numbering (FIX 1–9) is shared with `review-spec-correctness.md`.
 ### Out of scope for this round (recorded, not applied)
 
 The module header's R1 bullet still reads "the fully parallel project alongside **~740** other files" — the same stale figure as spec finding 3, one paragraph up from FIX 9's edit. It is unchanged from `main`, outside this diff, and was raised only in the spec axis' below-the-bar appendix (A6), so it was not in the accepted set. It is a false checkable number in this module and should be folded into the next touch of this file.
+
+---
+
+## Round 2 verification
+
+Scope: verification-only. Diff re-reviewed: `git diff ab54a187..HEAD` (`c827429f`, `7fe7bd87`).
+No new fronts opened against unchanged code; unrelated observations are in the appendix, untriaged.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `npx tsx scripts/ci/live-db-suites-audit.ts` | `live-db-suites-audit: passed` |
+| `npx vitest run scripts/ci/__tests__/live-db-suites-audit.test.ts` | 43 passed (was 42 — one new test for the inline spelling) |
+| Suites matching the WIDENED `HELPER_DB_MARKER` | **186** of 904 (184 under the old `from 'postgres'`-only form) — the branch's figure is correct |
+| Of those 186, neither visible via `LIVE_DB_MARKERS` nor `*.integration.test.ts` | **112** — correct |
+| Audited set / suites / helpers | 917 / 904 / 13 — unchanged, correct |
+| Tracked `*.test.{ts,tsx}` matched by NO `vitest.config.ts` include | **1** — `src/lib/shared/index.test.ts`. `isSuite`'s "the two disagree on exactly one tracked file today" is exact |
+| `vitest` parallel-project file count today | **821** (integration project 82). The removed `~740` was stale by ~80 — the R1 bullet's arithmetic is right |
+| Helpers importing `postgres` / of those `import type` | 6 / **5** (`live-db-lock.ts` the value import) — "Five of the six" is correct |
+| `apply-migration-074.ts` own-lock geometry | declaration at `:23`, `db.unsafe(readMigration074Sql())` at `:55` inside `withMigration074ApplyLock(db, …)` opened at `:44` — the new BOUND describes the file accurately |
+| Executable change in the diff | one line: `HELPER_DB_MARKER` regex widened. Everything else is comments/docs |
+| Exported surface | still `LiveDbFileFinding` + `auditLiveDbFile(file, text)` + `listAuditedFiles()`; `isSuite` (`:414`) and `HELPER_DB_MARKER` (`:207`) still private. Deep-module claim holds unchanged |
+| Glossary (**suite**, **helper**, **fragment**, **R1/naming**, **R2/runtime-ddl**, **unlocked-ddl**) | no drift introduced. One new term, **SPELLING** (the `from 'postgres'` clause vs the inline `import('postgres')` type), used consistently in module, test and lab-notes |
+
+### Per-finding verdicts
+
+| # | Verdict | Evidence |
+|---|---|---|
+| 1 | **VERIFIED** | `~740` gone from all three docs; replaced by 186/112 at `.claude/reference/lab-notes.md:1874`, `docs/currents.md:10`, `docs/progresstracking.md:2124`. Both figures re-measured against the tree and correct. The rationale is now the *semantics* argument ("R1 is a claim about which vitest project a file lands in; a mock-shaping type import is not evidence a suite reaches a database") with the volume figure behind it, which is the correct ordering. |
+| 2 | **VERIFIED** | `scripts/ci/__tests__/live-db-suites-audit.test.ts:347-349` now reads "Five of the six … (the exception, live-db-lock.ts, CONSTRUCTS a connection)", matching `live-db-suites-audit.ts:179-181` and the tree. |
+| 3 | **VERIFIED** | `scripts/ci/live-db-suites-audit.ts:132-142` adds the BOUND: names the declaration at `:23` as what satisfies the own-text check, states `unlocked-ddl` can never fire for that file, names the exact refactor it fails to catch (DDL moved outside the wrapper), and says the guarantee differs between the two members of the set. Behaviour deliberately unchanged. Accurate against the file. |
+| 4 | **VERIFIED** | `scripts/ci/live-db-suites-audit.ts:189-198` now answers the question the header at `:8` sends the reader there for. The module is self-contained on this point. |
+| 5 | **VERIFIED** | `scripts/ci/live-db-suites-audit.ts:389-404` now states the predicate is a filename **suffix** test, not a vitest-include check, names `src/lib/shared/index.test.ts` as the sole divergence, says why the suffix test is kept, and states the bound (R1 would advise a rename for a serialization that never applies). The "exactly one tracked file" claim measured exact. |
+| 6 | **VERIFIED** | Header `:64-67` is now a four-line pointer sitting **below** both the `R1 —` and `R2 —` bullets; the enumeration is contiguous and R2 is no longer forward-referenced. `isSuite`'s JSDoc `:406-412` carries the full argument. Nothing load-bearing was dropped in the dedupe — the two clauses the header shed ("R1 asks which vitest project a file lands in"; "true of that statement wherever it was written — including in a helper whose fragment a suite splices in as raw SQL") both survive verbatim in the surviving owner, which additionally gained the "a helper renamed to `*.integration.test.ts` would be executed as an empty suite" clause that previously lived only in lab-notes. |
+
+### Defects introduced by the fixes (≥80% confidence)
+
+| # | Severity | file:line | Finding |
+|---|---|---|---|
+| R2-1 | **Medium-Low** | `scripts/ci/live-db-suites-audit.ts:64-65` | The header pointer paragraph FIX 9 rewrote still opens "A SUITE is a file vitest runs (`*.test.{ts,tsx}`)" — the exact equivalence FIX 6 removed from `isSuite`'s JSDoc 325 lines below, which now reads "That is a suffix test, **not** a check that vitest would run the file" (`:390-392`). |
+| R2-2 | **Medium-Low** | `scripts/ci/live-db-suites-audit.ts:200-202` | The rewritten `HELPER_DB_MARKER` BOUND keeps "a helper that types its handle as `unknown` and casts … is invisible" while the same commit widened the regex to match exactly that form, and the same commit's new test asserts it is matched. |
+| R2-3 | **Low** | `scripts/ci/live-db-suites-audit.ts:27-30` | `7fe7bd87` delegates the parallel-project count to `vitest.config.ts` in the same sentence that says the removed copy had gone stale by ~80 — but `vitest.config.ts:9` carries that same stale figure (`~738`; measured 821). The pointer lands on the number it just disowned. |
+| R2-4 | **Low** | `.claude/reference/lab-notes.md:1874` vs `scripts/ci/live-db-suites-audit.ts:193-198` | FIX 8 gave the module the census figure without demoting lab-notes to a pointer, so 186/112 now has **four** durable homes instead of three — module, lab-notes, `docs/currents.md:10`, `docs/progresstracking.md:2124` — the module and lab-notes near-verbatim, parenthetical included. |
+
+---
+
+#### R2-1 — the header re-asserts the definition `isSuite` was corrected to deny
+
+`scripts/ci/live-db-suites-audit.ts:64-67`:
+
+```
+// The two rules do not share a unit, and #706 made that explicit. A SUITE is a
+// file vitest runs (`*.test.{ts,tsx}`); a HELPER is any other `.ts`/`.tsx` under
+// `__tests__/`. R1 applies to suites only; R2 and the lock check apply to every
+// live-DB file, helpers included. `isSuite`'s JSDoc owns the argument for why.
+```
+
+`scripts/ci/live-db-suites-audit.ts:389-404` (FIX 6):
+
+> A SUITE, to this audit, is a file whose NAME ends `.test.ts`/`.test.tsx`. That is a suffix test, **not a check that vitest would run the file** … The two disagree on exactly one tracked file today — `src/lib/shared/index.test.ts` …
+
+The wording at `:64-65` is carried over from `main` unchanged, but its status changed under this fix: FIX 9 *designated* `isSuite` the single owner of this argument and reduced the header to a pointer at it, and FIX 6 made that owner explicitly contradict the pointer's own opening sentence. Before this round both places asserted the same (wrong) thing; after it, the module states two incompatible definitions of its central term, and the one a reader meets first — in the header, in the paragraph that defines the enforcement unit — is the falsified one. Measured: `src/lib/shared/index.test.ts` is the one tracked `*.test.ts` that no `vitest.config.ts` include matches, so it is a SUITE to `isSuite`, is not a file vitest runs, and is not under `__tests__/` either — under the header's definitions it is neither a suite nor a helper.
+
+**Concrete failure scenario.** A maintainer adding a rule that depends on the unit (say, "R1 should also check the file is in the `integration` project") reads `:64-65`, takes `isSuite` to already mean "vitest runs it", and builds on a premise the predicate does not supply. The narrower, likelier one is the finding-5 hazard restated: someone reading only the header will not know that R1's rename advice is inert for a file vitest never executes.
+
+**Fix:** one word each way — "A SUITE is a file NAMED `*.test.{ts,tsx}` (a suffix test — see `isSuite` for the one file where that diverges from what vitest runs)".
+
+---
+
+#### R2-2 — the BOUND lists an escape the same commit closed, and its own test proves it closed
+
+`scripts/ci/live-db-suites-audit.ts:200-205`:
+
+> BOUND: a helper that types its handle as `unknown` and casts, or takes it through a generic parameter, is invisible. The inline import-type form is NOT one of those escapes — it is matched. … make **the two remaining shapes** a deliberate act rather than an accident …
+
+`scripts/ci/__tests__/live-db-suites-audit.test.ts:364-370`, added by the same commit:
+
+```ts
+it('counts an inline import("postgres") type annotation as a helper reaching the database', () => {
+  const source =
+    "const db = handle as unknown as import('postgres').Sql;\n" + OPAQUE_UNSAFE;
+  expect(source).not.toContain("from 'postgres'");
+  const findings = auditLiveDbFile(HELPER_PATH, source);
+  expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+});
+```
+
+The fixture *is* "types its handle as `unknown` and casts", and the assertion is that it is caught. The two live sites of the inline spelling in the tree are also casts of exactly this shape — `src/lib/shared/__tests__/pool-wait.test.ts:6` (`… as unknown as import('postgres').Sql`) and `src/lib/escalations/__tests__/raise.test.ts:40` (`… as never as import('postgres').TransactionSql`) — so in this codebase the `as unknown as` cast and the inline import-type form are the *same* shape, not two. The paragraph's next sentence ("The inline import-type form is NOT one of those escapes") therefore contradicts the sentence before it rather than qualifying it, and "the two remaining shapes" is a miscount: only the generic-parameter form, and a cast whose target names no `postgres` type at all, are genuinely invisible.
+
+This is the finding-1 defect class re-entering through the fix: a checkable claim about the module's blast radius, falsified by the module's own test file. It matters more here than a stale count, because a BOUND is the thing a future author reads when deciding whether a hazard is already closed — R2-2 would have them re-open a ticket for a case the widened regex handles, or skip review of a helper they believe the audit cannot see.
+
+**Fix:** "a helper that takes its handle through a generic parameter, or casts it to a type that names no `postgres` symbol, is invisible. Casting through `unknown` is NOT an escape when the cast target is `postgres.Sql` or the inline `import('postgres').Sql` — both spellings are matched."
+
+---
+
+#### R2-3 — the count was handed to an owner carrying the same stale figure
+
+`scripts/ci/live-db-suites-audit.ts:26-30`:
+
+> … runs in the fully parallel project alongside every other non-integration file, unsynchronized against every other live-DB writer. (The count is deliberately not restated here: it is owned by `vitest.config.ts`, and the copy that used to sit in this sentence had gone stale by ~80 files …)
+
+The arithmetic is right — measured today the `parallel` project holds **821** files (903 vitest-matched, minus the 82 the `integration` glob claims), so the removed "~740 other files" was ~80 light. But `vitest.config.ts:9`, the owner this sentence names, reads *"the other ~738 files stay fully parallel"* — the same figure, equally stale. The sentence disowns a number and then points at it.
+
+This is not a request to edit `vitest.config.ts` (outside this branch's edit surface, as the round-1 triage recorded). It is that the delegation, as phrased, is a claim about where the true number lives, and it is not true today. Either name the recount instead of the owner — the module already does this twice, for the template census (`:50-54`) and for the marker census (`:197-198`) — or say the owner's copy is a point-in-time census too.
+
+---
+
+#### R2-4 — the census figure gained a fourth home rather than a single owner
+
+Round 1's finding #1 closed on the maintenance cost: *"one correction is three edits, in three files, none of which cross-reference the others."* After the fixes it is four:
+
+- `scripts/ci/live-db-suites-audit.ts:193-198` — "186 of the 904 suites match this marker today, and 112 of those are neither already visible through `LIVE_DB_MARKERS` nor named `*.integration.test.ts`. … (A census, not a constant; recount with the marker against `listAuditedFiles()`.)"
+- `.claude/reference/lab-notes.md:1874` — "186 of the 904 suites match the marker today, 112 of them neither already visible through `LIVE_DB_MARKERS` nor named `*.integration.test.ts` … (A census, not a constant; recount the marker against `listAuditedFiles()`.)"
+- `docs/currents.md:10` and `docs/progresstracking.md:2124` — the same two figures again.
+
+FIX 8 was correct to put the rationale in the module (finding 4 required it). What did not happen is the other half: lab-notes still states the figures rather than deferring, and the two copies are near-verbatim down to the recount parenthetical. CLAUDE.md's convention — and the module's own discipline, where `hidesStatementStart` defers to `listAuditedFiles`' BOUND instead of restating it — is one authoritative owner per fact, summary/detail elsewhere. The doc/narrative pair (`currents`, `progresstracking`) is defensible as dated record; the module/lab-notes pair is not, because both are live reference and both will be read as current.
+
+The figures drift on every added or moved test file, and the recount instruction is only in two of the four places. `.claude/CLAUDE.md:192` is clean — it carries the one-line gotcha with no figures and defers to lab-notes, which is the shape the other three should take relative to the module.
+
+**Fix:** lab-notes keeps the mechanics and the *reason*, and replaces the two numbers with "the module's `HELPER_DB_MARKER` JSDoc carries the current census and the recount method".
+
+---
+
+### Appendix — below the confidence bar, untriaged
+
+- **"the six DB-reaching helpers"** (`live-db-suites-audit.ts:179`, mirrored into the test at `:347`). There are **seven** helpers the audit treats as reaching the DB; `src/__tests__/helpers/describe-with-db.ts` is the seventh and imports no `postgres` (it matches `LIVE_DB_MARKERS`). "The six" means "the six that reach it through *this* marker", which the surrounding paragraph makes clear. Pre-existing wording, unchanged by the fixes.
+- **`raise.test.ts` uses `.TransactionSql`, not `.Sql`.** The JSDoc at `:183-187` names the idiom as "the inline `import('postgres').Sql` type" and then cites `raise.test.ts` (`:40`, `TransactionSql`) as an instance. The regex keys on `import('postgres')` so behaviour is unaffected.
+- **A third and fourth inline-form site exist.** `src/__tests__/eslint-boundaries.test.ts:60` (a string-literal fixture, `"await import('postgres');"`) and this audit's own test file also match the widened marker. Both are suites, and the audit's own test is in `NOT_LIVE_DB`, so the JSDoc's "so nothing is invisible" conclusion still holds; the enumeration at `:185-187` is illustrative rather than exhaustive but does not claim otherwise.
+- **`docs/currents.md:180`** ("not just the suites vitest runs") carries the same suite⇄vitest-runs conflation as R2-1. Unchanged by these commits; noted only so a correction sweep catches it.
+- **The R1 bullet's parenthetical is now four lines of meta-commentary inside a rule statement** (`:27-30`), explaining the history of a figure that is no longer there and forward-referencing `listAuditedFiles`' BOUND. Correct, but it is the longest thing in the bullet.
+- Appendix items from round 1 (real paths with synthetic content; two mechanisms for one job; regex breadth; pathspec edge; R2 census recount method; `e2e/` bound wording) are unchanged by these commits and remain as filed.
+
+### Round 2 verdict
+
+All six round-1 findings are **fixed, and fixed well** — each correction was re-measured against the tree rather than taken on its word, and every figure the fixes introduced (186, 112, 904/917, five-of-six, `~80`, `:23`) checks out. The dedupe lost nothing and improved the header's reading order. The executable surface is one widened regex; the deep-module claim is unchanged.
+
+Four defects came out of the fixes, all in the prose layer, none behavioural. **R2-2** is the one worth gating on: it is a false blast-radius claim contradicted by the same commit's own test, in the paragraph whose entire job is to be true about what the audit cannot see. **R2-1** is next — the module now defines its central term two incompatible ways, and the pointer FIX 9 created opens with the wrong one.
+
+---
+
+## Round 2 triage (orchestrator)
+
+All five round-2 findings **ACCEPT**. Applied on this branch in the round-2 fix
+commit. Every fix is prose: the comment-stripped `scripts/ci/live-db-suites-audit.ts`
+is byte-identical to the round-1 HEAD (`7fe7bd87`), so no rule behaviour moved.
+Fix lettering (FIX A–E) is shared between `review-spec-correctness.md` and
+`review-standards.md`.
+
+| # | Axis | Verdict | Disposition |
+|---|---|---|---|
+| 6 | spec | **ACCEPT** | FIX A — the `OWN_APPLY_LOCK` BOUND is rewritten around what the check literally is (`text.includes(OWN_LOCK_MARKER)`): it reads the identifier's PRESENCE, so it cannot distinguish DDL inside `withMigration074ApplyLock` from DDL hoisted out of it, and it does still report `unlocked-ddl` when the identifier goes away. "Can never fire" is gone. The preceding sentence's "never a pass" absolute went with it — it is true only of an allowlisted file that reaches the lock check, i.e. one that executes DDL — so it now reads "an allowlisted file that reaches the lock check without naming its lock marker is reported `unlocked-ddl`". |
+| R2-1 | standards | **ACCEPT** | FIX B — the header pointer no longer opens with the equivalence `isSuite`'s JSDoc was corrected to deny. It now says a SUITE is a file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, not the same question as whether vitest runs the file — and points at `isSuite` for the argument and for the one tracked file where the two disagree. The header points; it no longer re-defines. |
+| R2-2 | standards | **ACCEPT** | FIX C — the `HELPER_DB_MARKER` BOUND now names only what the shipped regex genuinely misses, determined by probing it rather than by taking the finding's word: a bare generic parameter (`db: T`), a `Sql` imported from a module that re-exports it, and a cast to a locally declared structural type all return `[]`; `as unknown as import('postgres').Sql` and `as unknown as postgres.Sql` both return `['runtime-ddl']`. So casting through `unknown` is not itself an escape, and the "two remaining shapes" count is gone. |
+| R2-3 | standards | **ACCEPT** | FIX D — the R1 bullet no longer names `vitest.config.ts` as the count's owner (that file carries the same stale figure and is outside this branch's edit surface). It now says there is deliberately no count here because it moves with every test file added or renamed, and gives the recount instead. |
+| R2-4 | standards | **ACCEPT** | FIX E — one owner for the census: the module's `HELPER_DB_MARKER` JSDoc, because that is where the mechanism's blast radius is argued and it is the file that changes when the mechanism changes. `.claude/reference/lab-notes.md`, `docs/currents.md:10` and `docs/progresstracking.md` keep the *rationale* (admitting the marker to suites would fire R1 broadly on files that reach no database) and carry no figures. |
+
+### `OWN_APPLY_LOCK` — the two axes are two halves of one truth
+
+The standards axis (round-1 finding 3, re-verified at its round-2 verdict 3) and
+the spec axis (round-2 finding 6) are not in conflict; each holds one half, and
+the round-1 BOUND stated only the first half, as an absolute.
+
+- **Standards is right about what the check cannot see.** `text.includes('withMigration074ApplyLock')` reads presence, not position. `apply-migration-074.ts` DECLARES that function at its own `:23`, so hoisting `db.unsafe(readMigration074Sql())` out of the wrapper leaves the identifier in the file and the audit green.
+- **Spec is right that the rule still fires.** Delete or rename the helper and the identifier is gone with it, which is exactly the mutation three shipped docs cite as proof of enforcement.
+
+Both halves re-run against the real file text before the rewrite was written:
+
+```
+baseline (real file text)                  → []
+mutation: rename the lock helper           → ["unlocked-ddl"]
+  hoist keeps the declaration?              true
+  hoist keeps the DDL call?                 true
+  hoist still wraps the DDL?                false
+mutation: DDL hoisted out of the wrapper   → []
+```
+
+The round-1 BOUND's error was not picking the wrong half — it was writing
+"`unlocked-ddl` can never fire for that file" where the code supports only "the
+check cannot distinguish in-wrapper from out-of-wrapper DDL". That is the same
+defect class both rounds have now found in this module: a sweeping claim about a
+mechanism that is a narrow text-presence check.
+
+### Verification (round 2)
+
+```
+<scratchpad: 074 real-text rename mutation>                       → ['unlocked-ddl']
+<scratchpad: 074 real-text DDL-hoist mutation>                    → []
+<scratchpad: HELPER_DB_MARKER shape probe>                        → generic param / re-exported alias / local type invisible; both `unknown` casts matched
+<scratchpad: comment-stripped HEAD vs working tree>               → IDENTICAL
+REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm vitest run scripts/ci/__tests__/live-db-suites-audit.test.ts → 43/43
+pnpm ci:live-db-suites                                            → live-db-suites-audit: passed
+pnpm typecheck && pnpm lint                                       → clean
+```
+
+No test title was added, removed or reworded this round; the 9 titles (8 promised
++ the inline-form test) are unchanged.

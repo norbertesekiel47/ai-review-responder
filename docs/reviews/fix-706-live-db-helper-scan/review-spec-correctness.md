@@ -222,3 +222,205 @@ Fix numbering (FIX 1–9) is shared with `review-standards.md`.
 - **Finding 2 / standards F1 (`~740`).** The standards reviewer's stated basis — "**zero** `*.test.ts`/`*.test.tsx` files reference the `postgres` module" — is **wrong**: 184 do under the old marker, 186 under the widened one. Its `rg -l "['\"]postgres['\"]"` measurement did not do what it claimed. The *finding* stands (the number as written was false and triplicated); the *rationale* for the asymmetry stands too, and is now stated in terms of what R1 means, with a true volume figure behind it.
 - **Finding 3 (`~738`).** Accepted, but fixed by removing the figure rather than by restating it — see the table row above.
 - **The figures themselves.** This axis measured 184 suites / 110 newly-R1 against `/\bfrom ['"]postgres['"]/`. FIX 1 widens the marker, so the honest post-fix numbers are **186 / 112** (the +2 are exactly `raise.test.ts` and `pool-wait.test.ts`, the two inline-form sites this axis identified). The docs carry 186 / 112, because 184 / 110 would have been a false checkable number the moment FIX 1 landed.
+
+---
+
+## Round 2 verification
+
+Verification-only pass over the two fix commits `c827429f` + `7fe7bd87`
+(`git diff ab54a187..HEAD`). Read-only; no repo edits. Scope is the five round-1
+findings plus defects a fix may have introduced — no new fronts against unchanged
+code.
+
+### Per-finding verdicts
+
+| # | Verdict | Evidence |
+|---|---|---|
+| 1 | **VERIFIED** | `live-db-suites-audit.test.ts:347-349` now reads "Five of the six DB-reaching helpers import the module type-only (the exception, live-db-lock.ts, CONSTRUCTS a connection)". Re-counted against the tree: the marker matches exactly 6 helpers; `helpers/live-db-lock.ts:21` is the only `import postgres from 'postgres'` (and it does construct — `postgres(url, …)`); the other five are `import type`. Matches the source JSDoc at `:179-181`. |
+| 2 | **VERIFIED** | `~740` is gone from all three docs. `docs/currents.md:10`, `docs/progresstracking.md:2124` and `.claude/reference/lab-notes.md:1874` now carry **186 / 112**, and each states the *reason* for the asymmetry (what R1 means) ahead of the volume. Independently recomputed — see "Counts" below. |
+| 3 | **VERIFIED** | `~738` no longer appears in `scripts/ci/live-db-suites-audit.ts`. `listAuditedFiles`' BOUND (`:496-497`) now reads "vitest's `integration` project against the parallel project"; the header (`:25-30`) likewise drops the figure and says why. `rg '740|738'` over the audit script → zero hits. The only surviving copy is `vitest.config.ts:9`, its declared owner and outside this branch's edit surface. |
+| 4 | **VERIFIED — closed, not documented** | `HELPER_DB_MARKER` is now `/\bfrom ['"]postgres['"]\|\bimport\(['"]postgres['"]\)/` (`:207`), the BOUND explicitly says the inline form is **not** an escape (`:200-202`), and a ninth `it()` pins it. Mutation-proved discriminating (below). Both cited sites still exact: `pool-wait.test.ts:6`, `raise.test.ts:40`. |
+| 5 | **VERIFIED** | `docs/currents.md:166` now says "Same exported **SHAPE** … still 1 interface + 2 functions, same arity, same return shapes, same three-member `rule` union" and names all three renames. Checked against `main`: `LiveDbSuiteFinding`→`LiveDbFileFinding` (interface), `auditLiveDbSuite(file, text)`→`auditLiveDbFile(file, text)`, `listTestFiles()`→`listAuditedFiles()`; `rule` union identical in both. Every claim in the replacement sentence is true. |
+
+### Counts — recomputed independently against the tree
+
+Script: `git ls-files` with the audit's own four pathspecs, the widened regex, the
+real `LIVE_DB_MARKERS` array, per-file reads.
+
+| Figure as shipped | Recomputed | |
+|---|---|---|
+| 917 audited files, 917 unique | 917 / 917 | ✔ |
+| 904 suites | 904 | ✔ |
+| **186** of the 904 suites match the marker | **186** | ✔ |
+| **112** neither marker-visible nor `*.integration.test.ts` | **112** | ✔ |
+| the +2 vs the old marker are `raise.test.ts`, `pool-wait.test.ts` | exactly those two | ✔ |
+| "4 of the 13 new files" reached by the glob alone | 4 | ✔ (unchanged) |
+| header: the removed count "had gone stale by ~80 files" | 903 under `__tests__/` − 82 integration = 821 vs the old ~740 → **81** | ✔ |
+
+Helpers matching the marker: **6 under the narrow regex, 6 under the widened one**
+— the widening pulls in **zero** new helpers, so the audited-and-reaching set is
+byte-identical on the real tree. `pnpm ci:live-db-suites` → `passed`.
+
+### Did the widened regex over-match?
+
+No, and it cannot change a verdict on today's tree. `HELPER_DB_MARKER` is gated
+behind `!suite` (`:424`), so the two suites the widening newly matches are
+unreachable by it. On the helper side the set is unchanged (6 → 6). The only
+direction the new alternation can err is fail-closed (a comment or fixture string
+containing `import('postgres')` in a helper would widen R2), and no such
+occurrence exists. Repo-wide audit and the in-suite repo-wide test both green.
+
+### Is the new test vacuous?
+
+No. Mutant harness in the scratchpad (module copied out, imports absolutised, no
+repo edits): reverting only `HELPER_DB_MARKER` to `/\bfrom ['"]postgres['"]/`
+turns the new case **RED** and leaves all seven controls green —
+
+```
+mutant-narrow: RED   'counts an inline import("postgres") type annotation …'
+               GREEN  type-only from-import → runtime-ddl
+               GREEN  helper fragment DDL → runtime-ddl
+               GREEN  mock-sql helper → []
+               GREEN  describe-with-db helper → []
+               GREEN  074 helper unlocked → unlocked-ddl
+               GREEN  074 helper with own lock → []
+               GREEN  suite carrying the inline form stays clean
+```
+
+The test also asserts `expect(source).not.toContain("from 'postgres'")`, so it
+cannot pass by accidentally satisfying the old marker. `npx vitest run
+scripts/ci/__tests__/live-db-suites-audit.test.ts` → **43 passed** (was 42).
+
+### Test-title contract
+
+All **8** intake `tests_to_add` titles present character-for-character
+(`it('<title>'` string match against `.feature/intake.json`). Title diff old→new:
+**one added, zero removed, zero altered** — the added one is
+`counts an inline import("postgres") type annotation as a helper reaching the database`.
+
+### Did any fix change rule behaviour beyond FIX 1's regex?
+
+No. Stripping every comment line from `scripts/ci/live-db-suites-audit.ts` at
+`ab54a187` and at `HEAD` and diffing the remainder yields exactly one changed
+line:
+
+```
+-const HELPER_DB_MARKER = /\bfrom ['"]postgres['"]/;
++const HELPER_DB_MARKER = /\bfrom ['"]postgres['"]|\bimport\(['"]postgres['"]\)/;
+```
+
+`LIVE_DB_MARKERS`, `NOT_LIVE_DB`, `MIGRATION_SHAPE_FILES`, `DDL_PROBE_FILES`,
+`OWN_APPLY_LOCK`, `SHARED_LOCK_MARKER`, `OWN_LOCK_MARKER`, `isSuite`, `DDL_VERB`,
+`blankSqlComments`, `isUnsafeCall`, `hidesStatementStart`, `extractExecutedSql`,
+`unpragmaedDdlLines`, `auditLiveDbFile`, `listAuditedFiles` — all byte-identical.
+`pnpm typecheck` clean; `npx eslint` on both changed files clean.
+
+### New prose introduced by the fixes — claim-by-claim
+
+| New claim | Verified how | Verdict |
+|---|---|---|
+| `isSuite` JSDoc: "every one of `vitest.config.ts`' include globs additionally requires `__tests__/`" | read all five `sharedTestOptions.include` entries + `INTEGRATION_GLOB` | **TRUE** |
+| `isSuite` JSDoc: "the two disagree on exactly one tracked file today — `src/lib/shared/index.test.ts`" | `git ls-files '*.test.ts' '*.test.tsx' \| grep -v __tests__/` → exactly that one file | **TRUE** |
+| `isSuite` JSDoc: "an intentionally empty placeholder" | file is two comment lines, no code | **TRUE** |
+| `isSuite` JSDoc: "in the audited set since #573" | audit added in `970a7980` (#573/#585); `index.test.ts` added in `24353cf1` (Sprint 1), i.e. already present | **TRUE** |
+| header: removed count "had gone stale by ~80 files" | 821 actual vs ~740 stated → 81 | **TRUE** |
+| header: the count "is owned by `vitest.config.ts`" | `vitest.config.ts:9` carries it | **TRUE** (see A9) |
+| `HELPER_DB_MARKER` JSDoc: the inline form is "already the idiom this tree uses", citing `raise.test.ts`, `pool-wait.test.ts`, "both suites today" | both files still carry it at the cited lines; both end `.test.ts` | **TRUE** |
+| `HELPER_DB_MARKER` JSDoc: 186 / 904 / 112 | recomputed | **TRUE** |
+| `OWN_APPLY_LOCK` BOUND: "`apply-migration-074.ts` … DEFINES `withMigration074ApplyLock` (its own `:23`)" | `export async function withMigration074ApplyLock` is at line 23 | **TRUE** |
+| `OWN_APPLY_LOCK` BOUND: the check "detects … not a refactor that moves `db.unsafe(readMigration074Sql())` outside the wrapper" | mutation: unwrapped the call while keeping the declaration → audit returns `[]` | **TRUE** |
+| `OWN_APPLY_LOCK` BOUND: "**`unlocked-ddl` can never fire for that file**" | mutation on the REAL file text | **FALSE** → finding 6 |
+| `currents.md:166`: 1 interface + 2 functions, same arity/returns/rule union, three renames | diffed the exported surface against `main` | **TRUE** |
+
+---
+
+### Findings introduced by a fix (≥80% confidence)
+
+| # | Severity | file:line | Finding |
+|---|---|---|---|
+| 6 | **Medium** | `scripts/ci/live-db-suites-audit.ts:132-136` | The `OWN_APPLY_LOCK` BOUND added by `c827429f` asserts "the own-text check is satisfied by the declaration and **`unlocked-ddl` can never fire for that file**". It can. Mutation against the real file text: `readFileSync('src/lib/shared/__tests__/helpers/apply-migration-074.ts').replaceAll('withMigration074ApplyLock', 'withSomeOtherThing')` → `auditLiveDbFile(...)` returns exactly `['unlocked-ddl']`. The sentence contradicts (a) its own next clause — "It therefore detects DELETING the helper" — which is only true if the rule *can* fire, and (b) three durable docs shipped in this same PR that record the opposite as proof of enforcement (`progresstracking.md:2130`, `currents.md:10`, `lab-notes.md:1874`: "mutation-proved: strip the lock marker, `unlocked-ddl` appears"). Failure scenario: a maintainer takes "can never fire" at face value, concludes the `apply-migration-074.ts` entry in `OWN_APPLY_LOCK` is inert and removes it; the file then falls to the `SHARED_LOCK_MARKER` branch (`:466`), does not contain `acquireLiveDbLock`, and `pnpm ci:live-db-suites` goes red with the finding the comment promised was impossible. Same false-comment class as round-1 finding 1 and #694's only Medium. Correct wording is the one the BOUND's own next sentence implies: the check fires only if the declaration is deleted or renamed, never on a refactor that moves the DDL out of the wrapper. |
+
+Nothing else was introduced. Findings 1–5 are all fixed, and no fix changed rule
+behaviour beyond the one intended regex line.
+
+### Verification commands run (round 2)
+
+```
+git diff ab54a187..HEAD                                          → 7 files
+pnpm ci:live-db-suites                                           → passed
+REPWORTH_DISABLE_LIVE_DB_SUITES=1 npx vitest run scripts/ci/__tests__/live-db-suites-audit.test.ts → 43/43
+pnpm typecheck                                                   → clean
+npx eslint <both changed files>                                  → clean
+<scratchpad: comment-stripped diff of the audit script>          → 1 changed line
+<scratchpad: narrow-regex mutant × 8 cases>                      → 1 RED (the new test), 7 GREEN
+<scratchpad: 074 real-text lock-marker rename>                   → ['unlocked-ddl']
+<scratchpad: 074 real-text DDL-outside-wrapper>                  → []
+<scratchpad: marker/marker-set recount over git ls-files>        → 186 / 112 / 6 helpers
+```
+
+### Appendix — round 2, below the confidence bar (untriaged, out of scope)
+
+- **A7.** The `HELPER_DB_MARKER` BOUND still says "a helper that types its handle as `unknown` and casts … is invisible", while the new test's own fixture is `handle as unknown as import('postgres').Sql` — an `unknown` cast that IS detected. The next sentence carves the inline form out explicitly, so the paragraph is not false, but "types its handle as `unknown` and casts" now means only "casts to a type whose module is not named here".
+- **A8.** `\bimport\(['"]postgres['"]\)` also matches a genuine dynamic value import (`await import('postgres')`) and an `import('postgres')` inside a comment or fixture string. Both are fail-closed and neither occurs in a helper today.
+- **A9.** The header now points readers at `vitest.config.ts` as the owner of the parallel-file count without noting that the owning copy (`vitest.config.ts:9`, "~738"; also "45 integration suites" at `:4`) is itself stale by ~83 files. Triage accepted this deliberately — the owner is outside the edit surface — but the pointer sends a reader to a wrong number.
+- **A10.** `npx prettier --check` flags both changed files, but it flags them identically at `ab54a187` and there is no prettier config or `format` script in the repo (`lint` is `eslint .`), so this is a tool-default artifact, not a regression.
+- **A11.** Appendix items A2–A6 from round 1 are unchanged by this round and remain open/out-of-scope as filed.
+
+---
+
+## Round 2 triage (orchestrator)
+
+All five round-2 findings **ACCEPT**. Applied on this branch in the round-2 fix
+commit. Every fix is prose: the comment-stripped `scripts/ci/live-db-suites-audit.ts`
+is byte-identical to the round-1 HEAD (`7fe7bd87`), so no rule behaviour moved.
+Fix lettering (FIX A–E) is shared between `review-spec-correctness.md` and
+`review-standards.md`.
+
+| # | Axis | Verdict | Disposition |
+|---|---|---|---|
+| 6 | spec | **ACCEPT** | FIX A — the `OWN_APPLY_LOCK` BOUND is rewritten around what the check literally is (`text.includes(OWN_LOCK_MARKER)`): it reads the identifier's PRESENCE, so it cannot distinguish DDL inside `withMigration074ApplyLock` from DDL hoisted out of it, and it does still report `unlocked-ddl` when the identifier goes away. "Can never fire" is gone. The preceding sentence's "never a pass" absolute went with it — it is true only of an allowlisted file that reaches the lock check, i.e. one that executes DDL — so it now reads "an allowlisted file that reaches the lock check without naming its lock marker is reported `unlocked-ddl`". |
+| R2-1 | standards | **ACCEPT** | FIX B — the header pointer no longer opens with the equivalence `isSuite`'s JSDoc was corrected to deny. It now says a SUITE is a file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, not the same question as whether vitest runs the file — and points at `isSuite` for the argument and for the one tracked file where the two disagree. The header points; it no longer re-defines. |
+| R2-2 | standards | **ACCEPT** | FIX C — the `HELPER_DB_MARKER` BOUND now names only what the shipped regex genuinely misses, determined by probing it rather than by taking the finding's word: a bare generic parameter (`db: T`), a `Sql` imported from a module that re-exports it, and a cast to a locally declared structural type all return `[]`; `as unknown as import('postgres').Sql` and `as unknown as postgres.Sql` both return `['runtime-ddl']`. So casting through `unknown` is not itself an escape, and the "two remaining shapes" count is gone. |
+| R2-3 | standards | **ACCEPT** | FIX D — the R1 bullet no longer names `vitest.config.ts` as the count's owner (that file carries the same stale figure and is outside this branch's edit surface). It now says there is deliberately no count here because it moves with every test file added or renamed, and gives the recount instead. |
+| R2-4 | standards | **ACCEPT** | FIX E — one owner for the census: the module's `HELPER_DB_MARKER` JSDoc, because that is where the mechanism's blast radius is argued and it is the file that changes when the mechanism changes. `.claude/reference/lab-notes.md`, `docs/currents.md:10` and `docs/progresstracking.md` keep the *rationale* (admitting the marker to suites would fire R1 broadly on files that reach no database) and carry no figures. |
+
+### `OWN_APPLY_LOCK` — the two axes are two halves of one truth
+
+The standards axis (round-1 finding 3, re-verified at its round-2 verdict 3) and
+the spec axis (round-2 finding 6) are not in conflict; each holds one half, and
+the round-1 BOUND stated only the first half, as an absolute.
+
+- **Standards is right about what the check cannot see.** `text.includes('withMigration074ApplyLock')` reads presence, not position. `apply-migration-074.ts` DECLARES that function at its own `:23`, so hoisting `db.unsafe(readMigration074Sql())` out of the wrapper leaves the identifier in the file and the audit green.
+- **Spec is right that the rule still fires.** Delete or rename the helper and the identifier is gone with it, which is exactly the mutation three shipped docs cite as proof of enforcement.
+
+Both halves re-run against the real file text before the rewrite was written:
+
+```
+baseline (real file text)                  → []
+mutation: rename the lock helper           → ["unlocked-ddl"]
+  hoist keeps the declaration?              true
+  hoist keeps the DDL call?                 true
+  hoist still wraps the DDL?                false
+mutation: DDL hoisted out of the wrapper   → []
+```
+
+The round-1 BOUND's error was not picking the wrong half — it was writing
+"`unlocked-ddl` can never fire for that file" where the code supports only "the
+check cannot distinguish in-wrapper from out-of-wrapper DDL". That is the same
+defect class both rounds have now found in this module: a sweeping claim about a
+mechanism that is a narrow text-presence check.
+
+### Verification (round 2)
+
+```
+<scratchpad: 074 real-text rename mutation>                       → ['unlocked-ddl']
+<scratchpad: 074 real-text DDL-hoist mutation>                    → []
+<scratchpad: HELPER_DB_MARKER shape probe>                        → generic param / re-exported alias / local type invisible; both `unknown` casts matched
+<scratchpad: comment-stripped HEAD vs working tree>               → IDENTICAL
+REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm vitest run scripts/ci/__tests__/live-db-suites-audit.test.ts → 43/43
+pnpm ci:live-db-suites                                            → live-db-suites-audit: passed
+pnpm typecheck && pnpm lint                                       → clean
+```
+
+No test title was added, removed or reworded this round; the 9 titles (8 promised
++ the inline-form test) are unchanged.
