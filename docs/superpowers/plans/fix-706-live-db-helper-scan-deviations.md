@@ -2,6 +2,50 @@
 
 Deviations from `2026-08-08-706-live-db-helper-scan.md`, recorded as they were hit.
 
+## 2026-08-08 — Step 5 `reclassify` WARN fired: step 0 re-run, lane CONFIRMED
+
+The gate's `reclassify` row fired after the round-1 review fixes: production
+**280** changed lines against `estimated_prod_lines: 130` (2.15×). Per the
+workflow this is a STOP-and-re-run-step-0 trigger, so step 0 was re-run against
+the real numbers rather than the estimate.
+
+**Breakdown of the 280:**
+
+| Bucket | Lines |
+|---|---|
+| `scripts/ci/live-db-suites-audit.ts` — executable code | **32** |
+| `scripts/ci/live-db-suites-audit.ts` — comments | 144 |
+| `.claude/CLAUDE.md` + `lab-notes.md` + `currents.md` + `progresstracking.md` | 52 (all prose) |
+
+**Outcome: lane CONFIRMED, estimate WRONG.** `RISK = normal` stands — the change
+touches no worker, webhook ingress, migration, billing, approval or auth surface,
+cannot execute in production, and fails as a red CI rather than an incident.
+`SURFACE = backend` stands. On SIZE, 32 lines of executable code is *below* the
+`small` threshold, so the overrun points lighter rather than heavier — but the
+`small` lane skips grilling and planning, and this ticket turned on a genuine
+design fork (the enforcement unit: does a helper violate R2, and how does one
+reach the DB at all) plus an allowlist consequence nobody had noticed, and the
+review round found a real reach gap (`import('postgres').Sql`). The normal lane
+earned its keep in both directions.
+
+The trigger's stated premise — "the heavier lane's controls exist for exactly
+this feature" — does not hold when the overrun is prose: no heavier control
+(staging ride, merge pause) addresses documentation volume.
+
+**Root cause of the bad estimate**, for the next feature of this shape: a
+`/feature` run against a *guard module whose prose IS its spec* carries a
+documentation multiplier that ordinary code does not. This module's convention
+requires every mechanism to declare its blast radius in a `BOUND:` paragraph;
+four repo docs asserted the hole was open and had to be retired; and the review
+round turned up six false or stale claims, each needing a corrected, checkable
+paragraph. 32 code lines pulled ~250 lines of prose behind them — roughly 8:1.
+Estimating that at 130 was not a small miss in arithmetic, it was omitting a
+whole cost centre.
+
+`estimated_prod_lines` is deliberately NOT amended: the intake is the record of
+what was predicted, and editing it after the fact would defeat the trigger. The
+WARN stays on the gate, which is the honest state.
+
 ## Triage (orchestrator, step 6 — before review dispatch)
 
 | # | Entry | Verdict |
