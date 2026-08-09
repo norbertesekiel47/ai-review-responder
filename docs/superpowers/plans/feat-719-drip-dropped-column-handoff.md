@@ -49,17 +49,42 @@ only added a Sentry *breadcrumb* on job failure, so a hard deterministic crash r
 ## Progress
 
 - [x] 0 Classify · [x] 1 Grill + intake locked (owner sign-off) · [x] 2 Worktree + hooks ARMED
-- [x] 3 Plan written, self-reviewed (16/16 promised titles present verbatim)
-- [ ] 3-gate Codex adversarial plan review — **round 1 in flight**
+- [x] 3 Plan v1 written and self-reviewed
+- [x] 3-gate round 1 — Codex `VERDICT: REVISE` (11 HIGH / 4 MEDIUM). Triaged: 16 ACCEPT, 1 REJECT.
+      Report + verdicts: `docs/reviews/feat-719-drip-dropped-column/plan-round-1.md`
+- [x] Plan **v2** written; intake updated (25 titles, surface narrowed); deviations D3–D5 recorded
+- [ ] 3-gate round 2 (verification-only) — **in flight**
 - [ ] 4 Execute · [ ] 5 Verify gate · [ ] 6 Deviations read-back · [ ] 7 Review · [ ] 8 Ship
 
-**Plan review rounds used: 1 of 3** (`.feature/state.json` `planReviewRounds`). Cap is hard; after
-round 3, surface the disagreement to the owner rather than looping.
+**Plan review rounds used: 2 of 3** (`.feature/state.json` `planReviewRounds`). Cap is hard; after
+round 3, surface the remaining disagreement to the owner rather than looping.
 
-**Codex round 1:** dispatched via direct `codex exec --sandbox read-only` (not the companion
-wrapper, which has lost task ids across resumes). Raw output:
-`<scratchpad>/codex-plan-review-719-out.txt`; brief: `<scratchpad>/codex-plan-review-719.md`.
-Session id: _(fill from the run header on completion)_
+**Codex dispatch:** direct `codex exec --sandbox read-only --cd <worktree>` (not the companion
+wrapper, which has lost task ids across resumes). codex-cli 0.145.0.
+Round 1: brief `<scratchpad>/codex-plan-review-719.md`, raw `…-out.txt` (9,241 lines).
+Round 2: brief `<scratchpad>/codex-plan-review-719-r2.md`, raw `…-r2-out.txt`.
+Raw transcripts are scratchpad-only and die with the session — the committed round report is the
+durable copy.
+
+## What round 1 changed (do not re-introduce)
+
+Four findings reshaped the design; plan v2's opening section is the authoritative account.
+
+1. **The sink writes nothing to `job_outbox` — Sentry only.** `OutboxPoller.ts:140-143` overwrites
+   `last_error` unconditionally when the watchdog terminalizes, so the sink's text was destroyed by
+   the exact generic message it existed to replace. Preserving it needed an `OutboxPoller.ts` edit
+   (out of surface → 2nd amendment → abort). Two more reasons independently condemn it: csv-ingest's
+   PII contract (`failed-hook.ts:34`, bounded error CLASS only) and generate-asks deliberately
+   leaving rows `dispatched` with its own message. **This write was my scope creep, never signed
+   off** — see D3.
+2. **`recordOutboxTransientError` and `isTerminalAttempt` already exist** (`outbox.ts:183`, `:210`).
+   Both were about to be reinvented. `src/lib/shared/outbox.ts` is now read-only for this feature.
+3. **The scheduler gets `runOnboardingDripCycle(exec, asOf)`** — it throws where `checkAndSchedule`
+   swallowed, and returns skip counts. Without it every negative scheduler test was vacuous: a
+   swallowed `42703` looks exactly like a correct skip.
+4. **The eval is 25 tests, not 16.** Four of the original 16 passed *before* any fix, day_7 had no
+   live coverage at all, and `describeWithDb` silently SKIPS without `TEST_DATABASE_POOL_URL` — so
+   vitest could exit green with zero live coverage. Title 1 is now an execution sentinel.
 
 ## Execution shape (step 4)
 
