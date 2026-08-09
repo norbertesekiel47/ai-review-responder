@@ -1,0 +1,68 @@
+{
+  "classification": "high",
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "Make invariant #4 binding on the legacy Past Replies draft lane: all four handlers across the three legacy draft routes (draft-status GET, draft POST, draft/[responseId] PATCH + DELETE) refuse to surface or act on a moderation-held draft, mirroring the publish gate — closing the item-1 hole of map #710 and unblocking the EDIT_REPLIES_ENABLED production flip.",
+  "non_goals": [
+    "The Reviews list row-state remodel and the answered-row held-draft affordance (#727 — blocked by #723)",
+    "Open-flag predicate inventory or consolidation (#725/#730 — these four call sites migrate with the rest later, by design)",
+    "The Generate/live-ingest stale-content race (#728)",
+    "Any change to src/lib/moderation/held-draft.ts (imported, not modified)",
+    "Any client/UI change — useEditReplyDraft.ts and DraftConflictPanel.tsx stay untouched; today's client handles every new server shape via existing terminal-closable paths",
+    "The dedicated hold-gate observability signal (map-level 'Not yet specified' item — graduates into its own ticket)",
+    "Retiring or changing EDIT_REPLIES_ENABLED"
+  ],
+  "user_visible_behavior": [
+    "GET /api/dashboard/past-replies/draft-status: a completed generation that resolves to a moderation-held draft returns { status: 'failed', error: 'held_for_review' } (HTTP 200) and never response_id or response_text (client shows its terminal-closable failure state)",
+    "POST /api/dashboard/past-replies/draft: when the existing non-terminal draft is held, returns 409 { error: 'held_for_review' } with NO existing payload (no text, no response_id, no status) instead of 409 draft_already_exists",
+    "DELETE /api/dashboard/past-replies/draft/[responseId]: a held pending_approval draft returns 409 { error: 'held_for_review' } and is NOT superseded; DELETE stays idempotent-204 for every non-held case (ticket delta approved 2026-08-09: explicit refusal over silent no-op)",
+    "PATCH /api/dashboard/past-replies/draft/[responseId]: a held draft returns 409 { error: 'held_for_review' } and is NOT updated (ticket delta approved 2026-08-09: PATCH gated beyond the ticket's three named sites — same file, same rationale: a server gate cannot depend on a client affordance)"
+  ],
+  "invariants": [
+    "Invariant #4: a moderation-held draft surfaces neither its text nor any affordance through any owner-facing door — after this change, true for every handler in src/app/api/dashboard/past-replies/",
+    "A held draft's text appears in no response body from these four handlers while a flagged_responses row with status='open' exists for it",
+    "hasOpenFlag call sites are in-tx and post-FOR-UPDATE (POST/PATCH/DELETE); the read-only poller spells the EXISTS predicate inline per #678 D6 — held-draft.ts stays the semantic owner",
+    "Tenant scoping is unchanged: every added query keeps the existing business_id/account_id guards",
+    "Closed flags (status != 'open') release the draft: all four handlers behave exactly as today"
+  ],
+  "edge_cases": [
+    "Existing draft held at a non-terminal status other than pending_approval (approved/edited/awaiting_owner_connect): POST gate applies to ALL non-terminal statuses, not just pending_approval (property test)",
+    "draft-status: outbox completed, response row resolved, held → failed/held_for_review; response row missing → existing 404 response_not_found unchanged",
+    "draft-status: tenant guards (payload business_id + response business_id) still run BEFORE any held branching — a cross-tenant caller learns nothing, not even heldness",
+    "DELETE on a held row: refusal must come before the superseding UPDATE and leave the row byte-identical",
+    "PATCH on a held row: refusal comes after the response FOR UPDATE lock (serialized against admin disposition), before the UPDATE",
+    "Flag closed between poll ticks: next tick returns the draft normally — no sticky held state server-side"
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/api/dashboard/past-replies/publish/route.ts:159 — in-tx hasOpenFlag → 409 held_for_review (the gate shape for POST/PATCH/DELETE)",
+    "src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts:67-88 — D6 inline EXISTS on the read path; held → text-free terminal state (the gate shape for the legacy poller)",
+    "src/app/api/dashboard/past-replies/__tests__/publish.test.ts:301 — mock-tx-queue held test shape",
+    "src/lib/reviews/__tests__/sentiment.test.ts 'invariants' describe block — fast-check house style"
+  ],
+  "allowed_edit_surface": [
+    "src/app/api/dashboard/past-replies/draft-status/route.ts",
+    "src/app/api/dashboard/past-replies/draft/route.ts",
+    "src/app/api/dashboard/past-replies/draft/[responseId]/route.ts",
+    "src/app/api/dashboard/past-replies/__tests__/draft-status.test.ts",
+    "src/app/api/dashboard/past-replies/__tests__/draft.test.ts",
+    "src/app/api/dashboard/past-replies/__tests__/draft-id.test.ts"
+  ],
+  "tests_to_add": [
+    "returns status failed with error held_for_review and never the draft text when the resolved response has an open moderation flag",
+    "returns the draft text when the resolved response's moderation flag is closed",
+    "returns 409 held_for_review without the existing draft payload when the existing draft has an open moderation flag",
+    "invariants: no non-terminal status ever returns existing draft text while an open flag exists",
+    "DELETE returns 409 held_for_review and does not supersede a held draft",
+    "PATCH returns 409 held_for_review and does not update a held draft"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "60",
+  "estimated_test_lines": "280",
+  "dependencies_added": [],
+  "rollback_plan": "git revert of the single PR — no migration, no flag change, no client change. EDIT_REPLIES_ENABLED remains absent in production (0 accounts/businesses/reviews), so nothing user-facing changes in prod until the flag flips; the flag flip itself is blocked on this landing.",
+  "observability": [
+    "Hold-gate refusals are observable as HTTP 409 { error: 'held_for_review' } (POST/PATCH/DELETE) and { status: 'failed', error: 'held_for_review' } (poller) in Vercel request logs on the four handlers — same posture as the existing publish gate, which adds no log line",
+    "The dedicated fired/should-not-have-fired signal is deliberately deferred to the map-level observability item (#710 'Not yet specified') and will graduate into its own ticket once #726/#727 settle where the gates live"
+  ],
+  "open_questions": []
+}
