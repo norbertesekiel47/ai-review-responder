@@ -86,6 +86,13 @@ Change the signature `Promise<string>` → `Promise<PersistResponseOutcome>` and
 
 ```ts
 describe('content-freshness gate (ADR 0017)', () => {
+  beforeEach(() => {
+    // Round-2 finding #4: without these resets the zero-writes count
+    // assertion inherits calls from earlier tests in the file.
+    vi.clearAllMocks();
+    txQueue.length = 0;
+  });
+
   it('skips persist and returns skipped_stale_content when loaded and current hashes are both non-null and differ', async () => {
     txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
     const outcome = await persistResponseAndNotify(mockSql, baseInput({ loadedReviewContentHash: 'hash-loaded' }));
@@ -107,17 +114,33 @@ describe('content-freshness gate (ADR 0017)', () => {
 
   it('content-freshness gate skips every generate-response origin lane before lane-specific work', async () => {
     // A gate conditional on one lane would pass every other test in this file.
+    // Round-2 finding #3: run with AUTO_APPROVAL_ENABLED ON (reuse the file's
+    // existing flag-enabling mechanism for its auto-approval candidate tests)
+    // so live_ingest_new v1 is a TRUE candidate and its 3-statement lock
+    // preamble executes (reviews FOR UPDATE → businesses FOR UPDATE →
+    // entitlement advisory lock). "Lane-specific work" the gate must precede
+    // is the runtime-state read / responses INSERT / notification enqueue —
+    // NOT the deadlock-avoidance lock preamble, which by the WS8 lock-order
+    // law must stay first and is write-free (harmless on skip).
     for (const lane of GENERATE_RESPONSE_ORIGIN_LANES) {
       vi.clearAllMocks();
       txQueue.length = 0;
+      const isCandidateLane = lane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW;
       txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
+      if (isCandidateLane) {
+        txQueue.push([{ id: 'biz-1' }]); // businesses FOR UPDATE
+        txQueue.push([]);                // acquireTierEntitlementLock advisory-lock statement
+      }
       const outcome = await persistResponseAndNotify(mockSql, baseInput({
         loadedReviewContentHash: 'hash-loaded',
         originLane: lane,
-        version: lane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW ? 1 : 2,
+        version: isCandidateLane ? 1 : 2,
       }));
       expect(outcome, `lane ${lane}`).toEqual({ kind: 'skipped_stale_content' });
-      expect(mockTx, `lane ${lane}`).toHaveBeenCalledTimes(1);
+      // Preamble statements only — nothing after the gate ran on any lane.
+      expect(mockTx, `lane ${lane}`).toHaveBeenCalledTimes(isCandidateLane ? 3 : 1);
+      expect(txQueue, `lane ${lane}`).toHaveLength(0);
+      expect(findActiveReviewRun, `lane ${lane}`).not.toHaveBeenCalled();
     }
   });
 
@@ -209,10 +232,19 @@ it('persist gate re-reads review_content_hash under the review FOR UPDATE lock (
   // hash BEFORE taking the lock sees the still-committed 'hash-loaded',
   // matches, blocks on B's row lock, then persists stale after B commits.
   // Client B: open a tx holding the review row lock with the content change uncommitted.
+  // Round-2 finding #2: await proof B's UPDATE holds the row lock BEFORE
+  // starting A — otherwise A can win the lock first, legitimately persist
+  // (hash still matches), and the test fails intermittently.
+  let signalLockAcquired!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { signalLockAcquired = resolve; });
+  let resolveReleaseGate!: () => void;
+  const releaseGate = new Promise<void>((resolve) => { resolveReleaseGate = resolve; });
   const bDone = dbB.begin(async (txB) => {
     await txB`UPDATE reviews SET review_content_hash = 'hash-current' WHERE id = ${reviewId3}`;
-    await releaseGate; // a Promise the test resolves after asserting A blocks
+    signalLockAcquired(); // UPDATE returned → B holds the row lock
+    await releaseGate; // resolved after the test asserts A blocks
   });
+  await lockAcquired;
   // Client A: persist with the stale loaded hash — must BLOCK on the FOR UPDATE.
   const aPending = persistResponseAndNotify(dbA, input3({ loadedReviewContentHash: 'hash-loaded' }));
   const raced = await Promise.race([aPending.then(() => 'resolved'), delay(250).then(() => 'blocked')]);
