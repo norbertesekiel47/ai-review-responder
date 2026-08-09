@@ -1,0 +1,75 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Add the lane-independent content-freshness gate at the persist boundary (ADR 0017): under the review FOR UPDATE lock persistResponseAndNotify already takes first, re-read review_content_hash and skip the responses INSERT when it and loadedReviewContentHash are both non-null and differ, completing the job with a queryable skip reason.",
+  "non_goals": [
+    "No change to evaluateAutoApprovalCandidate — it stays byte-identical (D-H, invariant #3); its hash gate remains defense in depth",
+    "No schema change, no migration (map #710 rules them out; none needed at the persist boundary)",
+    "No lane branch — the gate runs before the lane split, unconditionally",
+    "No persisting the stale draft in any status (failed/superseded) — starves the colliding fresh job via the (review_id, version) idempotency check",
+    "No fix for the residual legacy edit-draft lane (REGENERATE over a posted sibling, EDIT_REPLIES_ENABLED off in prod) — accepted in ADR 0017, revisit with #726/#727 territory",
+    "No spine step, audit row, or any other DB write on the skip path"
+  ],
+  "user_visible_behavior": [
+    "A draft generated against review text the customer changed mid-generation is never persisted: no pending_approval row, no owner notification for the stale text — the colliding fresh job's draft (current content) is what the owner sees",
+    "The skipped job completes (not fails) with skip reason stale_review_content queryable on the job_outbox row",
+    "A structured log line records every gate fire with review_id, business_id, version, and origin_lane"
+  ],
+  "invariants": [
+    "evaluateAutoApprovalCandidate byte-identical; auto-approval chain neither duplicated nor touched (D-H, invariant #3)",
+    "Gate skip performs ZERO DB writes in the persist tx — the (review_id, version) slot stays free for the colliding fresh job",
+    "A null hash on EITHER side passes the gate (freshness check, not provenance proof; legacy pre-hash reviews keep generating)",
+    "The review FOR UPDATE remains the persist transaction's FIRST statement; the hash re-read rides that same statement, so no statement precedes the lock",
+    "Gate runs before the lane split and covers on_demand_generate, regenerate, backfill, and both live-ingest lanes",
+    "Invariant #4 moderation-hold path unchanged for persisted drafts",
+    "Orphan-review lock no-op keeps its existing Sentry-warn-and-proceed posture; unknown current hash passes the gate"
+  ],
+  "edge_cases": [
+    "Fresh worker persisted first at the shared version: stale worker's gate fires on the hash mismatch and skips cleanly instead of surfacing a unique violation",
+    "Stale worker persists BEFORE the content change commits: no mismatch at persist time; live-ingest's committed-draft repair (review_content_changed + version+1 enqueue) covers it — out of gate scope",
+    "Legacy edit-draft residual: gate skip with no replacement job; review_edited_after_post exception + admin notification already cover it (accepted)",
+    "loadedReviewContentHash null (legacy pre-hash review) → pass; current hash null → pass; both null → pass; equal → pass",
+    "Crash between the gate-skip tx and outbox completion: BullMQ retry re-runs the gate idempotently"
+  ],
+  "existing_patterns_to_follow": [
+    "SKIP_REASON_ARCHIVED_LOCATION one-owner token precedent (src/lib/shared/worker-types.ts:22)",
+    "loadGenerationContext 'skipped' outcome -> handler logs structured reason + completes outbox (worker/jobs/ResponseGeneratorWorker.ts:46-52)",
+    "markOutboxCompletedWithReason (src/lib/shared/outbox.ts:134)",
+    "persist.test.ts txQueue mock harness (worker/jobs/response-generation/__tests__/persist.test.ts)",
+    "auto-approval-daily-cap.integration.test.ts live-DB suite shape: describeWithDb, seedTenantAccount, two postgres clients for genuine concurrency, production statement order mirrored",
+    "on-demand-lane.property.test.ts fast-check house style"
+  ],
+  "allowed_edit_surface": [
+    "worker/jobs/response-generation/persist.ts",
+    "worker/jobs/response-generation/__tests__/**",
+    "worker/jobs/ResponseGeneratorWorker.ts",
+    "worker/jobs/__tests__/ResponseGeneratorWorker.test.ts",
+    "worker/jobs/__tests__/correlation-chain.test.ts",
+    "src/lib/shared/worker-types.ts",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "persist gate skips the INSERT when review content changed after load (stale-content direction)",
+    "persist gate leaves the (review_id, version) slot free for the colliding fresh job",
+    "skips persist and returns skipped_stale_content when loaded and current hashes are both non-null and differ",
+    "gate skip performs no writes: no responses INSERT, no api_costs link, no spine steps, no notification enqueue",
+    "persists when loaded hash is null (legacy pre-hash review passes the gate)",
+    "persists when current hash is null",
+    "persists when hashes match",
+    "completes the outbox with stale_review_content and skips first_response_drafted on a gate skip",
+    "content-freshness gate skips iff both hashes are non-null and differ"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 90,
+  "estimated_test_lines": 500,
+  "dependencies_added": [],
+  "rollback_plan": "No migration — pure worker-code change. Back out by reverting the PR on main and fast-forwarding staging; no data cleanup needed (the gate only ever refrains from inserting). db_touching is set for the live-DB test provisioning + tenant-scope/rls audits, not for schema change.",
+  "observability": [
+    "Structured log line on every gate fire (queryable reason field stale_review_content, plus review_id, business_id, version, origin_lane) — ADR 0017's designated signal",
+    "job_outbox completion reason stale_review_content via markOutboxCompletedWithReason — ops can count gate fires with a single-token query"
+  ],
+  "open_questions": []
+}
