@@ -2730,3 +2730,68 @@ reclassify).
   302 as documented — deployment-guide.md:1329); all 12 CI checks green;
   owner-approved squash-merge; staging reset to main per the documented
   post-squash procedure.
+
+## 2026-08-09 — #727 Row-state axes + action projection (PR #741, squash 47748acd)
+
+Ticket-seeded `/feature` run off wayfinder map #710 (item 1, UI/affordance
+half; decision ticket #723, HITL-locked cross-product table). RISK=high
+(invariant #4) → full apparatus: codex plan review, three-axis branch review,
+staging ride, owner merge pause. **No migration, no env var, no flag, no new
+dependency, no ingest change.**
+
+- **What shipped**: #678's six-valued `ReviewRowState` enum and its
+  `deriveRowState` precedence chain are DELETED, replaced by the #723-locked
+  axes + action projection in `src/lib/past-replies/replies-view.ts` —
+  `deriveAxes` (Posted-reply axis `reply_state` none/posted/orphan +
+  server-internal Replacement-draft axis `draft_state`
+  none/generating/ready/held, precedence held > ready > generating > none)
+  and `deriveRowAction` ((reply, draft) → Action slot `row_action`, total
+  over all 12 cells). The wire carries `reply_state` + `row_action` only;
+  `draft_state` never crosses it (invariant #4 as structure). One behavioural
+  delta: **posted×held silently withdraws Regenerate** while keeping the live
+  Google reply visible — the old chain tested `response_id` before
+  `draft_held`, so that cell rendered the `EditReplyDrawer` affordance.
+  Grouping predicate becomes `reply_state === 'posted'`; the row set is
+  pinned identical to the old `regenerate` grouping. `PastReplyCard.tsx`
+  gained a shared `ReplyPanel` extraction and renders the slot with a
+  `never`-typed exhaustive switch; the none×held "Reply on hold" panel is
+  reconstructed client-side from `(none, none)`. CONTEXT.md **Reviews list**
+  glossary rewritten; ADR 0018 (`docs/adr/0018-row-state-axes-projection.md`)
+  records the decision, both rejected alternatives (raw axes on the wire; a
+  7th enum value — the shape #678's own adversarial review had already
+  REJECT/REMODEL'ed), and the accepted #672 polling-window transient.
+- **Locked-decision refinements (deviations, all ACCEPT)**: ADR number is
+  0018, not #723's promised 0017 (0017 was taken by #724 after the comment);
+  #723's prose self-contradiction on orphan×held resolved in favor of the
+  reacted-to table — the invariant is *a held draft never projects an
+  affordance of its own*, so none/posted×held → `none` while orphan×held
+  keeps `recover`; none×held rendering + proper union wire types locked by
+  owner Q&A; one intake `tests_to_add` retitle (owner-approved).
+- **Plan review**: codex round 1 REVISE (2 BLOCKER / 8 MAJOR / 1 MINOR) — 5
+  test titles ADDED to the intake (now 17); 2 findings REJECTED with recorded
+  reasons (held-settles-to-`idle` polling window = locked #672 design,
+  documented as an ADR 0018 consequence instead of "fixed"; drawer-state sync
+  across an RSC refresh = new scope, #726's server gates are the defense).
+  Round 2: APPROVED (9 FIXED-VERIFIED, 2 REJECTION-SOUND).
+- **Branch review round 1**: spec & correctness PASS, no findings; standards
+  (thermo-nuclear) APPROVE with 3 accepted findings; codex adversarial 1 HIGH
+  → triaged ACCEPT-AS-DOCS-FIX, and **the orphan×held
+  recovery-vs-non-terminal-sibling question filed on map #710 (comment
+  5231312267)** — ADR 0018 carries the affordance-vs-execution wording
+  (recovery *renders*; executing it against any non-terminal sibling,
+  a held one included, 409s `newer_draft_exists`, admin-controlled for a held
+  sibling). Fix batch `480d5601` (shared ReplyPanel, exhaustive totality
+  test, stale `useEditReplyDraft` comment, ADR recovery wording — the #726
+  round-1 deferral discharged here as promised). Round 2 verification-only:
+  APPROVED (4/4 VERIFIED).
+- **Eval**: 17 pinned tests, incl. the 12-cell render oracle (raw facts →
+  `toCardRow` → render → the sole affordance, every cell of the 3×4), the
+  posted×held + delete-failed sidecar combo, a wire-shape test proving
+  neither `draft_state` nor `held` ever crosses, and live-DB negative
+  controls distinguishing an open-held replacement from unflagged and closed
+  ones (`load-replies.integration.test.ts`).
+- **Ship**: staging rode the branch (ride merge `5c13bdcb`); PR #741 all
+  checks green; owner-approved squash-merge to `47748acd`. **Staging resync
+  deliberately SKIPPED**: #719 is still riding staging, so staging =
+  main-before-#727 (`ae110dfd`) + the #719 ride + the #727 ride-merge;
+  staging re-anchors to main when #719 lands.
