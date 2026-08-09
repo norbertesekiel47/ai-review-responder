@@ -38,10 +38,13 @@ import { cleanupTenantAccount, seedTenantAccount } from '@/lib/shared/__tests__/
 //     cross-column constraint tying them to the decision — the #677 decision
 //     API and #679 expiry sweep own those semantics (locked decision 2).
 //
-//  3. The collapse ships its ADD half only: `imported_count`/`skipped_count`
-//     are NOT NULL DEFAULT 0 while the four legacy gap_*/historical_*
-//     counters remain PRESENT — their DROP is #680 (§8a R4), so `git revert`
-//     of any epic PR never leaves the worker writing to a dropped column.
+//  3. The ADD half of the collapse: `imported_count`/`skipped_count` are NOT
+//     NULL DEFAULT 0. 100 deliberately LEFT the four legacy gap_*/historical_*
+//     counters in place so `git revert` of any epic PR never left the worker
+//     writing to a dropped column. **Migration 103 (#680, §8a R4) has since
+//     DROPPED them**, so this suite now asserts only that the ADD half survived
+//     that drop intact; their ABSENCE is owned by
+//     migration-103-drop-legacy-backfill-counters.integration.test.ts.
 //
 // No migration SQL is applied here (#573): `pnpm test:db:setup` provisions to
 // head and this suite ASSERTS with assertSchemaReady, then introspects shape.
@@ -230,7 +233,7 @@ describeWithDb(
       }).catch((err) => { if (err.message !== 'rollback') throw err; });
     });
 
-    it('zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 alongside the four legacy counters', async () => {
+    it('zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 after the #680 drop of the legacy four', async () => {
       const cols = await sql()<
         {
           column_name: string;
@@ -249,9 +252,13 @@ describeWithDb(
             'oldest_skipped_create_time'
           )
       `;
-      // 2 new + 4 legacy + the untouched oldest_skipped_create_time = 7. The
-      // legacy four being PRESENT is the §8a R4 assertion — their DROP is #680.
-      expect(cols).toHaveLength(7);
+      // 2 new + the untouched oldest_skipped_create_time = 3. Migration 103
+      // (#680, §8a R4) DROPPED the four legacy gap_*/historical_* counters, so
+      // this query names seven columns and must find only three. 103 owns their
+      // ABSENCE — asserted directly in
+      // migration-103-drop-legacy-backfill-counters.integration.test.ts; this
+      // suite's job is only to prove the ADD half survived the DROP intact.
+      expect(cols).toHaveLength(3);
       for (const name of ['imported_count', 'skipped_count']) {
         const col = cols.find((c) => c.column_name === name);
         expect(col?.data_type).toBe('integer');

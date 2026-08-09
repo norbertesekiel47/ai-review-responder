@@ -1,0 +1,87 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Migration 103 DROPs the four legacy gap_*/historical_* counters from zernio_backfill_runs — the DROP half of the locked counter collapse and the closing cleanup ticket of the Consented Review Import epic — gated on a two-branch reconciliation preflight run against both Supabase projects.",
+  "non_goals": [
+    "Re-opening the locked counter collapse (map #667) — this ships only the DROP half of the two-migration split ADR 0015 §4 recorded.",
+    "Editing migration 028 or any other landed migration file — the legacy counters stay in 028's historical record.",
+    "Changing ZernioBackfillWorker runtime behaviour — it already writes only imported_count / skipped_count / oldest_skipped_create_time; there is no residual read to remove.",
+    "Narrowing scripts/ci/tenant-scope-allowlist.ts — the ticket's third bullet is already satisfied; #675/#677 left the UPDATE entry in the collapsed two-column form (0 diff, recorded as a deviation).",
+    "Shipping a down migration (099/100 precedent) — 103 is the epic's point of no return and says so in its header.",
+    "Authoring a consented-import staging runbook — the epic shipped without one; that gap is real but is separate work, not #680.",
+    "Adding any env var, feature flag, dependency, or new top-level directory."
+  ],
+  "user_visible_behavior": [
+    "No owner-visible change: no route, UI, notification, or persona behaviour is touched.",
+    "Operator-visible: zernio_backfill_runs loses gap_processed_count, historical_processed_count, gap_skipped_count and historical_skipped_count; imported_count, skipped_count and oldest_skipped_create_time remain with values intact."
+  ],
+  "invariants": [
+    "imported_count, skipped_count and oldest_skipped_create_time survive with their 100-era shape (INTEGER NOT NULL DEFAULT 0 for the two counters) and their existing row values.",
+    "No zernio_backfill_runs row is deleted or rewritten — ALTER TABLE ... DROP COLUMN removes columns, never rows.",
+    "Tenant isolation is unchanged: no new query, no allowlist entry added or widened.",
+    "ZernioBackfillWorker completes a backfill run after the DROP without a 42703 undefined_column.",
+    "The DROP is preceded by the two-branch reconciliation preflight returning zero rows on the project being applied to; a non-zero result aborts the apply.",
+    "Applied to the staging Supabase project first, then production in lockstep at promotion — never prod-first, never prod-only."
+  ],
+  "edge_cases": [
+    "E1 (CONFIRMED LIVE) — post-#675 runs carry all four legacy counters at 0 while imported_count is non-zero, so the NAIVE predicate 'collapsed = legacy sums on every row' false-positives on a healthy row. Staging's single run (imported_count 29, all four legacy 0) flags under the naive form and passes under the two-branch form. The header must carry the two-branch disjunction the ticket comment specified: abort only on a row that did legacy work AND whose collapsed values disagree.",
+    "E2 — a pre-#675 run that processed nothing has all four legacy counters at 0 and both collapsed counters at 0, so it satisfies both branches. Harmless: it is indistinguishable from a post-#675 row and needs no reconciliation.",
+    "E3 — a pre-#675 row that did real work but recorded zero legacy counters would be misclassified into the post-#675 branch and pass unchecked. NARROWED after plan-review F9/F16: the guaranteed claim is only that a NONZERO COLLAPSED value implies nonzero legacy counters, because the pre-#675 worker dual-wrote both column sets in the same UPDATE. The broader 'such a row cannot exist' is FALSE — a run interrupted after its review writes but before the final counter UPDATE leaves all six counters at 0. Such a row is harmless: imported_count = 0 means there is nothing to reconcile, and it satisfies both branches. State the narrow claim in the header, never the broad one.",
+    "E4 — a local test DB behind head still has the four columns, so the migration-103 suite sees them present and fails. That is the correct loud failure (assertSchemaReady's contract); the assertion message names migration 103 so the fix — pnpm test:db:setup — is obvious from the failure alone.",
+    "E5 — production zernio_backfill_runs is empty (0 rows, 0 businesses), so its preflight is trivially satisfied. It is still run and its zero-row result still recorded; a skipped preflight is not a passed preflight.",
+    "E6 — migration-100-import-consent.integration.test.ts currently asserts the legacy four are PRESENT (expect(cols).toHaveLength(7)). It goes red the moment the local DB is provisioned past 103, so it must move in the SAME PR as the migration.",
+    "E7 — git revert of THIS PR removes the migration file but does not un-drop applied columns. After 103 applies, reverting a pre-#675 epic PR puts the old dual-writing worker against a schema without those columns (42703). The header states 103 as the point where the epic's revert-only backout stops being sufficient.",
+    "E8 — ALTER TABLE ... DROP COLUMN takes ACCESS EXCLUSIVE and can collide with an in-flight backfill. SET lock_timeout = '5s' (099/100/101 precedent) makes that a fast failure rather than a queue behind a long transaction."
+  ],
+  "existing_patterns_to_follow": [
+    "supabase/migrations/100_import_consent_and_backfill_counters.sql — header structure (design-of-record refs, per-decision notes, explicit Rollback paragraph), SET lock_timeout = '5s', no down migration.",
+    "supabase/migrations/101_import_decision_three_valued_check.sql — a corrective migration carrying its preflight gate in the header and its per-environment preflight result in the migrations-log entry.",
+    "src/lib/shared/__tests__/migration-102-import-consent-analytics-events.integration.test.ts — CORRECTED after plan-review F5/F14: the TEXT-ONLY half of the precedent. It supplies the executableSql helper (:40) that reads the migration file, and imports NEITHER acquireLiveDbLock NOR assertSchemaReady — it is not a skeleton for the live half.",
+    "src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts — the LIVE half of the precedent: acquireLiveDbLock + assertSchemaReady, and the information_schema.columns introspection idiom this ticket inverts from presence to absence.",
+    ".claude/reference/migrations-log.md entries 100/101/102 — entry shape, and the 'verified by schema introspection, never the migration ledger' wording the log's header demands."
+  ],
+  "allowed_edit_surface": [
+    "supabase/migrations/103_*.sql",
+    "src/lib/shared/__tests__/migration-103-*.integration.test.ts",
+    "src/lib/shared/__tests__/migration-100-import-consent.integration.test.ts",
+    "worker/jobs/zernio/__tests__/ZernioBackfillWorker.test.ts",
+    ".claude/reference/migrations-log.md",
+    "docs/adr/0015-consented-import-unflagged-replacement.md",
+    "docs/superpowers/specs/2026-08-05-consented-review-import-design.md",
+    "docs/runbooks/evidence/**",
+    "docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "_amendments": [
+    "A1 (auto-approved, narrow): +1 file docs/runbooks/completed_runbooks/zernio-ingestion-test-runbook.md — its operator query at :355-377 selects all four dropped columns and would raise 42703 if reused after 103. Cleaning it is the repo's own cross-reference rule, found by codex plan review round 1 (MINOR)."
+  ],
+  "_decision_changes_after_plan_review_round_1": [
+    "The reconciliation preflight is now an EXECUTABLE fail-closed DO/RAISE guard inside migration 103, not a manual query documented in the header. Owner-approved 2026-08-08, reversing the grilling decision. Rationale: a guard that never fires is indistinguishable from a working guard on clean data (both report zero abort rows), so only an executable guard whose FAILING branch is tested can be trusted — and it removes the operator-must-remember failure mode. The header still documents it and the per-environment results are still logged.",
+    "The ZernioBackfillWorker LEGACY_COUNTER_COLUMNS guards are KEPT and retargeted, not deleted. Owner-approved 2026-08-08, reversing the grilling decision. Rationale: the worker suite is mock-sql based, so a reintroduced legacy column name is invisible to it; the original 'it would be a hard 42703' argument is the reason to keep the guard, since failing in CI beats failing in production."
+  ],
+  "tests_to_add": [
+    "migration 103 executable SQL is exactly a bounded lock, a pinned search_path, the preflight guard, and the four legacy-column DROPs",
+    "migration 103 sets a lock_timeout before the ACCESS EXCLUSIVE drop",
+    "migration 103 preflight raises when a legacy-work row disagrees with its collapsed counters",
+    "migration 103 preflight passes matching pre-#675 rows and post-#675 zero-legacy rows",
+    "the four legacy gap_*/historical_* counters are absent from zernio_backfill_runs",
+    "imported_count, skipped_count and oldest_skipped_create_time survive the drop with their 100-era shape",
+    "a backfill run INSERT naming only the surviving columns succeeds and defaults both counters to 0",
+    "zernio_backfill_runs.imported_count and skipped_count are NOT NULL DEFAULT 0 after the #680 drop of the legacy four",
+    "ZernioBackfillWorker counters UPDATE never names a migration-103-dropped legacy counter",
+    "ZernioBackfillWorker reactivation INSERT never names a migration-103-dropped legacy counter"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "200 (migration 103 ~80 incl. the executable preflight guard, migrations-log entry + head bump ~40, staging evidence doc ~70, ADR 0015 + spec §8a R4 ticks + stale-runbook note ~15)",
+  "estimated_test_lines": "260 (new migration-103 suite ~200 — statement-list + lock assertions plus a pg_temp-shadowed execution of the migration's OWN preflight guard proving BOTH branches, migration-100 suite retarget ~20, ZernioBackfillWorker.test.ts guard retarget + retitles ~25)",
+  "dependencies_added": [],
+  "rollback_plan": "No down migration (099/100 precedent). Reverting this PR removes the migration FILE but does NOT un-drop already-applied columns — the header states 103 as the epic's point of no return. If the DROP must be undone: re-ADD the four columns as INTEGER NOT NULL DEFAULT 0; their historical values are unrecoverable, which is precisely why the two-branch preflight proving collapsed = legacy sums is the gate (and why the exposure is 1 staging row / 0 prod rows). Apply order is staging first, prod at promotion; if the staging apply or its preflight fails, do not promote and do not merge.",
+  "observability": [
+    "Post-apply information_schema.columns introspection on BOTH Supabase projects showing exactly three surviving counter columns, recorded verbatim in the migrations-log entry — the verification method that log's header mandates over reading the migration ledger.",
+    "The next ZernioBackfillWorker run completes without SQLSTATE 42703 (undefined_column); a 42703 surfaces as a worker Sentry issue and leaves its zernio_initial_backfill job_outbox row short of 'completed'.",
+    "job_outbox rows for topic zernio_initial_backfill continue reaching 'completed' after the apply — the operational proof the drop touched nothing the worker still needs."
+  ],
+  "open_questions": []
+}

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **102** — next migration is **103**
+Current head: **103** — next migration is **104**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,91 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **103** — `drop_legacy_backfill_counters`: **the DROP half of the locked
+  backfill-counter collapse and the closing migration of the Consented Review
+  Import epic** (#680, epic map #667; ADR 0015 §4 + spec
+  `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §8a R4).
+  Removes `gap_processed_count`, `historical_processed_count`,
+  `gap_skipped_count` and `historical_skipped_count` from
+  `zernio_backfill_runs`; `imported_count`, `skipped_count` and
+  `oldest_skipped_create_time` survive with their 100-era shape and their
+  existing row values. **Zero production TypeScript changes** — the worker
+  stopped writing the legacy four at #675, and no poller, offboarding/purge,
+  admin, RLS, analytics or KPI path reads them. **No new relation → no RLS
+  change and no retention-policy row.** No down migration (099/100 precedent):
+  one cannot restore dropped values.
+  **The gate is an EXECUTABLE preflight inside the migration, not a query an
+  operator must remember to run.** A guard that never fires is
+  indistinguishable from a working one on clean data — both report zero abort
+  rows, and both environments are clean — so a documented query would have
+  proven nothing. It counts the four legacy columns (`to_regclass` +
+  `pg_attribute`, so it follows `search_path` rather than a hardcoded `public`
+  literal): **0 → return** (already dropped, keeps 103 re-runnable), **4 →
+  reconcile**, **any partial state → RAISE** (returning there would drop the
+  survivors' values unreconciled).
+  **The naive predicate is WRONG and this is the reason the header says so at
+  length:** `collapsed = legacy sums on every row` false-positives on a healthy
+  post-#675 row, which carries `imported_count` non-zero with all four legacy
+  counters at 0. Observed live — **both staging rows flag under the naive form
+  and zero under the two-branch form**, which aborts only on a row that did
+  legacy work AND whose collapsed values disagree. Soundness is stated NARROWLY
+  in the header: nonzero-collapsed ⇒ nonzero-legacy (the pre-#675 worker
+  dual-wrote in one UPDATE). The broader "such a row cannot exist" is false —
+  an interrupted run leaves all six at 0 — but is harmless, since
+  `imported_count = 0` has nothing to reconcile.
+  `SET search_path = public, pg_temp` is **session-level, deliberately not `SET
+  LOCAL`**: `SET LOCAL` outside a transaction block is a warning-only no-op, and
+  migrations here are applied by plain `psql -f` with no `--single-transaction`
+  and no `BEGIN`/`COMMIT` in the file, so `SET LOCAL` would not have governed the
+  `DO` and `ALTER` at all. Pinning it closes a real hole (Postgres searches the
+  session temp schema FIRST unless `pg_temp` is listed, so a same-name temp table
+  would otherwise capture the whole migration while `public` went untouched).
+  `SET lock_timeout = '5s'` because DROP COLUMN takes ACCESS EXCLUSIVE and can
+  collide with an in-flight backfill.
+  **POINT OF NO RETURN:** reverting this PR removes the file but does not un-drop
+  applied columns — after 103, reverting a pre-#675 epic PR puts the old
+  dual-writing worker against a schema without these columns (42703). This is
+  where ADR 0015 §4's revert-only backout stops being sufficient, and the whole
+  reason the collapse shipped as two migrations.
+  Shape suite:
+  `src/lib/shared/__tests__/migration-103-drop-legacy-backfill-counters.integration.test.ts`
+  — the executable text pinned EXACTLY (final-state introspection cannot
+  distinguish 103 from a hand-dropped database, nor catch a 103 that also erased
+  surviving values), plus **both preflight branches executed** by running the
+  migration's own `DO` block against a `pg_temp` replica of the pre-103 shape.
+  Mutation-verified: replacing the two-branch predicate with the naive form turns
+  the passing-branch test red, and any edit to the migration turns the pin red.
+  **APPLIED TO STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-08** — verified the way
+  this log's header demands, by `information_schema.columns` introspection and
+  never the migration ledger. Preflight in the apply window returned
+  `total_rows=2, unreconciled_two_branch=0` — and, recorded because it is the
+  live proof of the header's central claim, `unreconciled_naive=2`: **the naive
+  predicate would have aborted this migration on both healthy rows.** Post-apply
+  introspection named all seven counter columns and returned exactly three:
+  `imported_count` (integer NOT NULL DEFAULT 0), `skipped_count` (integer NOT
+  NULL DEFAULT 0), `oldest_skipped_create_time` (timestamptz, nullable). Row
+  count and totals unchanged at 2 runs / 58 imported / 0 skipped — DROP COLUMN
+  removes columns, never rows. Re-runnability confirmed by executing the guard a
+  second time against the post-drop schema: it took the `legacy_present = 0`
+  RETURN branch and raised nothing.
+  **Worker write path proven post-drop, non-destructively.** Boot readiness alone
+  proves only that the worker connects, so the worker's OWN two statement shapes
+  were executed against the post-103 schema inside a `DO` block ending in a
+  `RAISE`: the reactivation INSERT (naming none of the counters) and the counters
+  UPDATE (the three survivors only). Result `PROBE OK … imported=0 skipped=0` —
+  both shapes resolve, the DEFAULTs survived the DROP, and the RAISE aborted
+  everything (0 probe rows; totals still 2 / 58). En route it produced a useful
+  negative: the `initial`-lane variant failed `23505` on
+  `zernio_backfill_runs_one_initial_per_business`, **not** `42703` — a statement
+  only reaches a uniqueness check after column resolution, so even that failure
+  evidenced the column set. No natural import run has happened since the drop;
+  this probe is what stands in for one.
+  **PRODUCTION (`udeyaqnvpojbwgoaxwdg`) — PENDING**, to be applied in lockstep at
+  promotion and recorded the same way. Prod holds 0 rows / 0 businesses so its
+  preflight is trivially satisfied; it is still run in the apply window and its
+  zero-row result still recorded, because a skipped preflight is not a passed
+  preflight.
 
 - **102** — `import_consent_analytics_events`: extends the
   `analytics_events.event_name` DB CHECK allowlist with `import_offer_created`
