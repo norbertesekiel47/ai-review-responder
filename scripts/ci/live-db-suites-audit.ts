@@ -79,15 +79,21 @@ const NOT_LIVE_DB = new Set([
 ]);
 
 /**
- * Migration-shape suites: applying the migration is the thing under test.
- * Every entry must hold the cross-process live-DB lock (enforced below).
+ * Migration-shape files: applying the migration IS the subject. Five suites test
+ * a migration's shape; `apply-migration-074.ts` is the shared guarded apply that
+ * the 074 shape suite and three further integration suites delegate to, and it
+ * executes the real file via `db.unsafe(readMigration074Sql())` — an argument
+ * this walk cannot read, which counts as DDL by design (#706 made it visible; it
+ * was never audited before). Every entry must hold a cross-process lock
+ * (enforced below).
  */
-const MIGRATION_SHAPE_SUITES = new Set([
+const MIGRATION_SHAPE_FILES = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
   'src/lib/shared/__tests__/migration-076-judge-verdicts-governor.integration.test.ts',
   'src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-078-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts',
+  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 
 /**
@@ -98,7 +104,7 @@ const MIGRATION_SHAPE_SUITES = new Set([
  * below. `migration-091` executes this DDL today and was on NO allowlist, so its
  * lock enrolment had never been checked (#694).
  */
-const DDL_PROBE_SUITES = new Set([
+const DDL_PROBE_FILES = new Set([
   'src/lib/solicitation/__tests__/outreach-render.integration.test.ts',
   'src/lib/shared/__tests__/migration-091-send-mode-spine.integration.test.ts',
 ]);
@@ -106,10 +112,15 @@ const DDL_PROBE_SUITES = new Set([
 /**
  * 074 predates the shared lock and serializes on its own dedicated apply lock
  * (`withMigration074ApplyLock`), which is equally cross-process. Accepted as an
- * alternative to `acquireLiveDbLock` for that file only.
+ * alternative to `acquireLiveDbLock` for the 074 shape suite and for the helper
+ * that DEFINES that lock — which is also the answer to "a helper cannot hold a
+ * lock on its own behalf": this one does, and the check is on the file's OWN
+ * text. Inheriting a caller's lock would need an import graph, so an allowlisted
+ * file that does not name its lock marker is `unlocked-ddl`, never a pass.
  */
 const OWN_APPLY_LOCK = new Set([
   'src/lib/shared/__tests__/migration-074-trust-dial-veto-window.integration.test.ts',
+  'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 
 /**
@@ -131,6 +142,28 @@ const LIVE_DB_MARKERS = [
 ] as const;
 const SHARED_LOCK_MARKER = 'acquireLiveDbLock';
 const OWN_LOCK_MARKER = 'withMigration074ApplyLock';
+
+/**
+ * How a HELPER reaches the database. `LIVE_DB_MARKERS` above is suite-shaped —
+ * the env var by name, or an import of the module that resolves it — and a
+ * helper matches none of it, because it is HANDED its handle (`db: postgres.Sql`,
+ * `tx: TransactionSql`). Widening the file glob alone would therefore have
+ * reached 4 of the 13 new files — none of them the one that executes DDL — and
+ * left the ticket's own hazard open.
+ *
+ * What a helper cannot avoid is TYPING that handle, and `postgres` is the only
+ * module that supplies the type. Value and type-only imports both count: five of
+ * the six DB-reaching helpers use `import type` (the exception is
+ * `helpers/live-db-lock.ts`, which CONSTRUCTS a connection rather than being
+ * handed one), and a distinction there would re-open the hole on the first one
+ * written.
+ *
+ * BOUND: a helper that types its handle as `unknown` and casts, or takes it
+ * through a generic parameter, is invisible. The no-`any` invariant plus the
+ * visible `Sql`/`TransactionSql` typings on all six make that a deliberate act
+ * rather than an accident — same blast-radius honesty LIVE_DB_MARKERS carries.
+ */
+const HELPER_DB_MARKER = /\bfrom ['"]postgres['"]/;
 
 /**
  * DDL that takes ACCESS EXCLUSIVE on its target. DCL (GRANT/REVOKE) is
@@ -325,11 +358,14 @@ function isSuite(file: string): boolean {
 
 export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[] {
   if (NOT_LIVE_DB.has(file)) return [];
-  if (!LIVE_DB_MARKERS.some((marker) => text.includes(marker))) return [];
-
-  const findings: LiveDbFileFinding[] = [];
 
   const suite = isSuite(file);
+  const reachesDb =
+    LIVE_DB_MARKERS.some((marker) => text.includes(marker)) ||
+    (!suite && HELPER_DB_MARKER.test(text));
+  if (!reachesDb) return [];
+
+  const findings: LiveDbFileFinding[] = [];
 
   if (suite && !file.endsWith('.integration.test.ts')) {
     findings.push({
@@ -353,12 +389,12 @@ export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[]
 
   const firstAt = `first at line ${(ddlLines[0] ?? 0) + 1}`;
 
-  if (!MIGRATION_SHAPE_SUITES.has(file) && !DDL_PROBE_SUITES.has(file)) {
+  if (!MIGRATION_SHAPE_FILES.has(file) && !DDL_PROBE_FILES.has(file)) {
     findings.push({
       file,
       rule: 'runtime-ddl',
       reason:
-        `live-DB suite executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
+        `live-DB file executes DDL at run time (${firstAt}) — ACCESS EXCLUSIVE locks ` +
         'deadlock sibling suites (#573). Provision with `pnpm test:db:setup` and assert ' +
         'with assertSchemaReady() instead, or add a `-- live-db-ddl-ignore: <reason>` ' +
         'pragma if the target provably cannot be a shared relation',
@@ -374,7 +410,7 @@ export function auditLiveDbFile(file: string, text: string): LiveDbFileFinding[]
       file,
       rule: 'unlocked-ddl',
       reason:
-        `allowlisted suite executes DDL (${firstAt}) without the cross-process live-DB ` +
+        `allowlisted file executes DDL (${firstAt}) without the cross-process live-DB ` +
         'lock — call acquireLiveDbLock() in beforeAll and release it in afterAll',
     });
   }
