@@ -31,8 +31,17 @@ none/posted×held → `none`; orphan×held keeps `recover`.
 - Round 2 (verification-only): log `.feature/logs/plan-review-r2.log`.
   VERDICT: APPROVED (9 FIXED-VERIFIED, 2 REJECTION-SOUND).
 
+## Branch review (step 7)
+
+Round 1 (three parallel axes): spec & correctness — PASS, no findings ·
+standards (thermo-nuclear) — APPROVE with 3 accepted findings · adversarial
+(codex thread 019fe644-2ef5-75b0-8396-10bae71fe851) — 1 HIGH, triaged
+ACCEPT-AS-DOCS-FIX + map question filed on #710 (comment 5231312267). Fix
+batch: commit 480d5601. Round 2 verification-only: APPROVED (4/4 VERIFIED).
+Reports + triage committed under docs/reviews/feat-727-row-state-axes/.
+
 ## Current step
 
-Step 4 (execution) — plan APPROVED at round 2. Dispatch order: T1 (eval) alone
-first + enforcement spot check on its diff, then T2, then T3 ∥ T4. Subagent
-briefs come from the plan's task sections + the glossary anchors above.
+Step 8, RISK = high lane: push branch → land on staging (ff push HEAD:staging)
+→ staging smoke of the Reviews list → PR to main → CI green → PAUSE for owner
+merge approval. Review-mode gate green at 480d5601 (24/24 rows).
