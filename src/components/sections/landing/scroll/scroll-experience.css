@@ -32,10 +32,18 @@
                           snap points sit 2.6 screens apart and can only ever
                           arrive as a surprise. Snapping belongs to the
                           full-viewport desktop composition, not to a stacked
-                          mobile page. (It also matches where the rail hides.) */
+                          mobile page. (It also matches where the rail hides.)
+
+   `:not(.lenis)` — this rule is now the FALLBACK. SmoothScroll.tsx runs Lenis
+   under exactly these bounds and owns snapping while it is alive (its Snap
+   module reads the same SCROLL_CHAPTERS), stamping `lenis` on <html> for its
+   lifetime. Native CSS snap correcting a position Lenis is still animating is
+   a tug of war, so the two are mutually exclusive by construction: reduced
+   motion, a gated-off viewport, JS off, or a destroyed instance all drop the
+   class and native snap stands back in. */
 
 @media (min-height: 700px) and (min-width: 901px) {
-  :root:has(.rw-lp) {
+  :root:has(.rw-lp):not(.lenis) {
     scroll-snap-type: y proximity;
   }
 
@@ -53,6 +61,89 @@
 .rw-lp-chapter {
   position: relative;
   display: block;
+}
+
+/* ---------- chapter markers ----------
+
+   A vertical chapter stamp on the LEFT edge of each narrative section (2–5),
+   mirroring the rail on the right: the rail says "where in the page", the
+   marker says "which chapter is this one". The four sections share a ground,
+   a column and an intro anatomy by design — the stamp is what keeps them from
+   reading as one long band of the same thing while scrolling past.
+
+   Rendered by SectionTransition from SCROLL_CHAPTERS (single owner), INSIDE
+   the animated wrapper, so each marker dissolves and recedes with its own
+   section — crossing a boundary reads as one stamp handing off to the next.
+
+   ── Geometry ──────────────────────────────────────────────────────────────
+   `writing-mode: vertical-rl` sets the text top-to-bottom; the extra
+   `rotate(180deg)` flips it to read bottom-up, the book-spine direction. With
+   vertical writing the flex ROW axis runs along the text, so index → rule →
+   label stack vertically with plain `gap`, and `width: 1px; height: 2.25rem`
+   on the rule still means "hairline, 2.25rem long".
+
+   `left: clamp(0.75rem, 1.4vw, 1.75rem)` keeps the column inside the free
+   edge gutter: at 901px the content column starts 36px in and the marker's
+   ~14px of glyph box ends around 26px; at 1920px content starts at 144px and
+   the marker sits at 27px. Measured, not styled — the marker must never touch
+   the intro's eyebrow.
+
+   Gated to the same ≥901px/≥700px window as the rail and the snap: below the
+   stacking breakpoint there is no free gutter to put chrome in. */
+
+.rw-lp-chapter-marker {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: clamp(0.75rem, 1.4vw, 1.75rem);
+  display: none;
+  align-items: center;
+  gap: 0.875rem;
+  transform: translateY(-50%) rotate(180deg);
+  writing-mode: vertical-rl;
+  pointer-events: none;
+  font-family: var(--rw-font-display);
+  text-transform: uppercase;
+}
+
+@media (min-height: 700px) and (min-width: 901px) {
+  .rw-lp-chapter-marker {
+    display: flex;
+  }
+}
+
+/* Gold by default — the acting layer. Alphas measured COMPOSITED over every
+   ground a marker sits on (flat ink, the watchdogs' #17251f, the personas
+   wash at the marker's x): index at 0.85 = 7.44:1 on ink, 7.08:1 under the
+   wash; label at 0.55 = 5.40 / 5.26 / 5.25. All clear of the 4.5 AA floor —
+   re-measure if any section ground changes. */
+.rw-lp-chapter-marker-index {
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  color: rgb(var(--rw-lp-accent-rgb) / 0.85);
+}
+
+/* The one teal marker (the watchdogs). Restated as the same lifted teal
+   `--rw-lp-watch-accent` holds, because that custom property is scoped to
+   `.rw-lp-watch` — a CHILD of this wrapper — and cannot be read out here. If
+   the watchdog accent is ever retuned, retune this with it. */
+.rw-lp-chapter-marker[data-tone='teal'] .rw-lp-chapter-marker-index {
+  color: #a9c6c0;
+}
+
+.rw-lp-chapter-marker-rule {
+  width: 1px;
+  height: 2.25rem;
+  background: rgb(var(--rw-lp-text-rgb) / 0.22);
+}
+
+.rw-lp-chapter-marker-label {
+  font-weight: 500;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+  color: rgb(var(--rw-lp-text-rgb) / 0.55);
 }
 
 /* ---------- chapter rail ---------- */

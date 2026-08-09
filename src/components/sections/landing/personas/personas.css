@@ -21,7 +21,22 @@
   flex-direction: column;
   justify-content: center;
   padding: clamp(1.5rem, 3.7vh, 3rem) 0;
-  background: var(--rw-lp-ink, #14201c);
+  /* A warm gold wash off the TOP-LEFT — where this section's intro sits and
+     where its temperature is declared. This was the only narrative section on
+     bare ink (fleet has its contour rings, watchdogs its teal wash + lighter
+     ground, future its bottom ember), which is a big part of why 2–5 scrolled
+     past as one band. The wash answers the watchdogs' top-centre teal the way
+     the copy answers it: gold acts, teal watches. 0.055, not the teal's 0.07 —
+     gold is the brighter pigment, and this weight matches optically.
+
+     Contrast, computed COMPOSITED (the channel reading lies — see the note on
+     the column-note below): the wash's peak lifts the ground to rgb(31,41,34);
+     over that the 0.55 column-note measures 5.10:1 (5.40 on flat ink) and the
+     gold eyebrow 8.79:1 — both clear of the 4.5 AA floor. Re-measure both
+     before raising the alpha. */
+  background:
+    radial-gradient(ellipse 65% 50% at 12% 0%, rgb(var(--rw-lp-accent-rgb) / 0.055), transparent 70%),
+    var(--rw-lp-ink, #14201c);
 }
 
 .rw-lp-personas-inner {

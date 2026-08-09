@@ -3,15 +3,20 @@
 import { m, useScroll, useTransform } from 'motion/react';
 import { type ReactNode, useRef } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { SCROLL_CHAPTERS } from './section-map';
 
 /**
  * Scroll-linked handoff between sections.
  *
- * Wraps a section (never modifies it) and ties its opacity and vertical drift
- * to its own progress through the viewport, so leaving one section and
- * arriving at the next reads as a single dissolve rather than two unrelated
- * events. `Reveal` already animates a section's ARRIVAL once; this is the part
- * that was missing — the departure, and the overlap between the two.
+ * Wraps a section (never modifies it) and ties its opacity, vertical drift and
+ * a hair of scale to its own progress through the viewport, so leaving one
+ * section and arriving at the next reads as a single dissolve-with-depth
+ * rather than two unrelated events. `Reveal` already animates a section's
+ * ARRIVAL once; this is the part that was missing — the departure, and the
+ * overlap between the two. It also renders the vertical chapter marker for the
+ * sections that carry one (see `SCROLL_CHAPTERS`) — inside the wrapper, so the
+ * marker dissolves with its own section and the boundary reads as one chapter
+ * stamp handing off to the next.
  *
  * The wrapper also carries the `id` and the snap point, which is why sections
  * did not need to change: the scroll behaviour lives entirely out here.
@@ -46,6 +51,14 @@ const DRIFT = 34;
  *  flash rather than a dissolve. */
 const DIM = 0.35;
 
+/** Floor of the recede. The third channel of the handoff: a section leaving
+ *  settles back a breath as it dims, so the incoming one reads as arriving in
+ *  FRONT of it — depth, where drift alone is only travel. 0.982 is the whole
+ *  budget: at the seam (progress ≈ 0.73 for both neighbours) it interpolates
+ *  to ≈ 0.994, under 6px of edge reveal per side at 1920px, felt rather than
+ *  seen. Push it lower and the ink behind the section reads as a border. */
+const RECEDE = 0.982;
+
 export function SectionTransition({ id, children, transform = true }: SectionTransitionProps) {
   const ref = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -68,6 +81,7 @@ export function SectionTransition({ id, children, transform = true }: SectionTra
   // instead of two independent fades.
   const opacity = useTransform(scrollYProgress, [0, 0.42, 0.58, 1], [DIM, 1, 1, DIM]);
   const y = useTransform(scrollYProgress, [0, 0.42, 0.58, 1], [DRIFT, 0, 0, -DRIFT]);
+  const scale = useTransform(scrollYProgress, [0, 0.42, 0.58, 1], [RECEDE, 1, 1, RECEDE]);
 
   // ALWAYS an m.div, even under reduced motion where it animates nothing, and
   // ALWAYS the same element type across every branch.
@@ -87,10 +101,24 @@ export function SectionTransition({ id, children, transform = true }: SectionTra
   //
   // Keeping one element type keeps node identity stable. What the preference
   // changes is the style, not the tree.
-  const style = prefersReducedMotion ? undefined : transform ? { opacity, y } : { opacity };
+  const style = prefersReducedMotion ? undefined : transform ? { opacity, y, scale } : { opacity };
+
+  // The chapter marker rides in the WRAPPER, not the section: it belongs to
+  // the scroll experience (it fades and recedes with the handoff for free,
+  // which IS the boundary cue), and the sections stay untouched — the same
+  // additive contract as the id and the snap point. `aria-hidden` because it
+  // duplicates wayfinding the rail already provides accessibly.
+  const chapter = SCROLL_CHAPTERS.find((entry) => entry.id === id);
 
   return (
     <m.div ref={ref} id={id} className="rw-lp-chapter" style={style}>
+      {chapter?.marker ? (
+        <div className="rw-lp-chapter-marker" data-tone={chapter.marker.tone} aria-hidden="true">
+          <span className="rw-lp-chapter-marker-index">{chapter.marker.index}</span>
+          <span className="rw-lp-chapter-marker-rule" />
+          <span className="rw-lp-chapter-marker-label">{chapter.label}</span>
+        </div>
+      ) : null}
       {children}
     </m.div>
   );
