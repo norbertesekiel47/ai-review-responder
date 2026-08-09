@@ -2,8 +2,8 @@
 // never-replied row of the Reviews list (#678, spec §6.3a S7).
 //
 // It owns the `Generate` button AND the in-row expansion the button opens, so
-// `useInlineGenerate` is mounted only for the two row states that can reach it
-// (`generate` / `generating`). A card that renders the hook unconditionally
+// `useInlineGenerate` is mounted only for the two Action slots that can reach
+// it (`generate` / `generating`). A card that renders the hook unconditionally
 // would start a poller on every answered row.
 //
 // Deliberately NOT the two-pane `EditReplyDrawer`: that surface exists to make
@@ -29,7 +29,7 @@ export function InlineGeneratePanel({
   resumeGenerating,
 }: {
   reviewId: string;
-  /** Server-rendered `row_state === 'generating'` — resume the poll on mount. */
+  /** Server-rendered `row_action === 'generating'` — resume the poll on mount. */
   resumeGenerating: boolean;
 }) {
   const { state, actions } = useInlineGenerate({ reviewId, resumeGenerating });

@@ -18,9 +18,8 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     approval_method: null,
     posted_at: '2026-04-02T10:00:00Z',
     external_reply_ingested_at: null,
-    // #678: the card renders a SERVER-derived row state. The default fixture is
-    // an answered row; the orphan fixtures below override it to 'recover'.
-    row_state: 'regenerate',
+    // #678/#727: the card renders the SERVER-derived axes. The default fixture
+    // is an answered row; the orphan fixtures below override to orphan/recover.
     reply_state: 'posted',
     row_action: 'regenerate',
     review_content_hash: 'hash-abc',
@@ -212,7 +211,6 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-999',
       approved_text: null,       // no superseded sibling text
       posted_at: null,           // no posted reply
-      row_state: 'recover',
       reply_state: 'orphan',
       row_action: 'recover',
       external_reply_ingested_at: null,
@@ -244,7 +242,6 @@ describe('PastReplyCard', () => {
       response_id: 'fail-resp-000',
       approved_text: null,
       posted_at: null,
-      row_state: 'recover',
       reply_state: 'orphan',
       row_action: 'recover',
       canEdit: true,
@@ -270,7 +267,6 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-111',
       posted_at: null,
-      row_state: 'recover',
       reply_state: 'orphan',
       row_action: 'recover',
       approved_text: 'Original reply text',
@@ -301,7 +297,6 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-1',
       posted_at: null,
-      row_state: 'recover',
       reply_state: 'orphan',
       row_action: 'recover',
       external_reply_ingested_at: null,
@@ -330,7 +325,6 @@ describe('PastReplyCard', () => {
     const orphanRow = makeRow({
       response_id: 'fail-resp-badge-2',
       posted_at: null,
-      row_state: 'recover',
       reply_state: 'orphan',
       row_action: 'recover',
       // external_reply_ingested_at being set is unusual for an orphan, but we

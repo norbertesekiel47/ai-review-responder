@@ -165,11 +165,13 @@ describe('toCardRow', () => {
       ACTIVATED,
       true,
     );
-    expect(answered.row_state).toBe('regenerate');
+    expect(answered.reply_state).toBe('posted');
+    expect(answered.row_action).toBe('regenerate');
     expect(answered.provenance_badge).toBe('auto_approved');
 
     const unanswered = toCardRow(reviewRow(), ACTIVATED, true);
-    expect(unanswered.row_state).toBe('generate');
+    expect(unanswered.reply_state).toBe('none');
+    expect(unanswered.row_action).toBe('generate');
     expect(unanswered.provenance_badge).toBeNull();
   });
 
@@ -177,7 +179,8 @@ describe('toCardRow', () => {
     // Round-2 Defect A: PastReplyCard offers recovery only when
     // `!!row.failed_response_id && row.posted_at === null` (PastReplyCard.tsx:157).
     const row = toCardRow(orphanRow(), ACTIVATED, true);
-    expect(row.row_state).toBe('recover');
+    expect(row.reply_state).toBe('orphan');
+    expect(row.row_action).toBe('recover');
     expect(row.failed_response_id).toBe('fail-1');
     expect(row.response_id).toBe('fail-1'); // failed id, not a posted response
     expect(row.failed_posting_error).toBe('post_after_delete_failed_x');
@@ -226,9 +229,11 @@ describe('groupReplies', () => {
     );
 
     expect(grouped.answeredRows).toHaveLength(0);
-    expect(grouped.unansweredRows.map((r) => r.row_state)).toEqual([
+    // The held row projects the withdrawn Action slot ('none') — a held draft
+    // never projects an affordance of its own (invariant #4).
+    expect(grouped.unansweredRows.map((r) => r.row_action)).toEqual([
       'recover',
-      'held',
+      'none',
       'draft_ready',
       'generating',
     ]);
@@ -341,8 +346,9 @@ it('never carries draft state or held onto the wire shape', () => {
   );
   // EXACT allowlist, not a blacklist: any new wire key — an alias like
   // `has_held_draft`, a nested draft object — fails until deliberately added
-  // here. RED until Task 3 (row_state is still emitted today, and the old
-  // enum put the literal 'held' on the wire for none×held).
+  // here. The old six-valued enum is deleted (#727 Task 3): the wire carries
+  // only the Posted-reply axis and the Action slot, so held-ness is
+  // structurally unrepresentable on this shape.
   expect(Object.keys(card).sort()).toEqual(
     [
       'approval_method', 'approved_text', 'canEdit', 'external_reply_ingested_at',

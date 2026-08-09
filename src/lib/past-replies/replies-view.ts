@@ -10,7 +10,7 @@ export const PAGE_SIZE = 50;
  * `reviews` LEFT JOINed to the live posted reply plus four LATERAL sidecars, so
  * every review for the location appears exactly once — replied or not, orphan or
  * not. `response_id` is nullable precisely because the join is LEFT: `null` IS
- * the unanswered predicate, and `deriveRowState` depends on that fact. Do not
+ * the unanswered predicate, and `deriveAxes` depends on that fact. Do not
  * "simplify" it back to `string`.
  */
 export interface ReviewRow {
@@ -55,7 +55,7 @@ export function parsePageParam(raw: string | undefined): number {
  *
  * Survives ONLY as an input to `provenanceBadge` (D-E). It is no longer a
  * bucketing predicate — #678 replaced the gap/historical sections with
- * Unanswered/Answered, which `deriveRowState` decides.
+ * Unanswered/Answered, which the Posted-reply axis (`deriveAxes`) decides.
  */
 export function isHistorical(reviewDate: Date, activatedAtIso: string | null): boolean {
   return (
@@ -70,43 +70,6 @@ export function canEdit(
   hasPaidTier: boolean,
 ): boolean {
   return hasPaidTier;
-}
-
-/**
- * What the row offers. Derived ONCE here so every "never offer Generate on X"
- * rule lives in one place — the card renders a state, it never computes one.
- * Order is precedence, not preference.
- */
-export type ReviewRowState =
-  | 'recover'      // orphan: repost failed, no live reply — /retry or /restore-original
-  | 'regenerate'   // posted sibling exists — EditReplyDrawer, replaces a LIVE Google reply
-  | 'held'         // draft held by moderation — no text, no affordance (invariant #4)
-  | 'draft_ready'  // live non-posted response — cross-link to Needs Action (S2)
-  | 'generating'   // generate_response outbox row in flight
-  | 'generate';    // never replied, nothing in flight
-
-/**
- * Precedence, in order: an orphan has a superseded draft and must reach
- * recovery, never Generate (D-G); a posted sibling always means Regenerate; a
- * held draft outranks `draft_ready` because invariant #4 makes the hold
- * absolute — and it is tested on the SAME branch as `draft_ready` so a held
- * draft can never fall through to `generate` (D9), which would offer an LLM
- * spend the partial unique index (migrations 023+026+029) then rejects; a live
- * draft outranks an in-flight outbox row because the response row is the
- * settled fact.
- */
-export function deriveRowState(r: {
-  response_id: string | null;
-  draft_response_id: string | null;
-  draft_held: boolean;
-  generation_in_flight: boolean;
-  is_orphan: boolean;
-}): ReviewRowState {
-  if (r.is_orphan) return 'recover';
-  if (r.response_id !== null) return 'regenerate';
-  if (r.draft_response_id !== null) return r.draft_held ? 'held' : 'draft_ready';
-  if (r.generation_in_flight) return 'generating';
-  return 'generate';
 }
 
 /**
@@ -138,7 +101,16 @@ export type RowAction =
   | 'recover'
   | 'none';
 
-/** Same facts as deriveRowState → the two axes. */
+/**
+ * The single row source's facts → the two axes.
+ *
+ * Still-true precedence carried from the deleted pre-#727 single enum: `held`
+ * is tested on the SAME branch as `ready` (invariant #4 / D9), so a held draft
+ * can never read as an absent one and project a Generate affordance — an LLM
+ * spend the partial unique index (migrations 023+026+029) would then reject;
+ * and a live draft outranks an in-flight outbox row because the response row
+ * is the settled fact.
+ */
 export function deriveAxes(r: {
   response_id: string | null;
   draft_response_id: string | null;
@@ -220,15 +192,16 @@ export function provenanceBadge(
 }
 
 /**
- * The wire shape flowing to the Reviews list surface: the card row plus the two
- * server-derived facts the card renders but must never compute (D-D, D-E).
+ * The wire shape flowing to the Reviews list surface: the card row plus the
+ * server-derived provenance badge the card renders but must never compute
+ * (D-D, D-E). The two axes' wire projection (`reply_state`, `row_action`)
+ * lives on `PastReplyRow` itself.
  *
  * `response_id` widens to nullable here for the same reason it is nullable on
  * `ReviewRow` — the list now contains never-replied reviews.
  */
 export interface ReviewsListRow extends Omit<PastReplyRow, 'response_id'> {
   response_id: string | null;
-  row_state: ReviewRowState;
   provenance_badge: ProvenanceBadge | null;
 }
 
@@ -241,10 +214,10 @@ const toIso = (d: Date | null): string | null =>
  *
  * **Orphan rows are mapped from the `orphan_*` LATERALs, not from `resp.*`.**
  * This carries the deleted `toOrphanCardRow`'s field mapping (round-2 Defect A):
- * `PastReplyCard` renders the recovery badge from the server-derived `recover`
- * state (`PastReplyCard.tsx:314`) but still gates the recovery ACTIONS on
- * `row.failed_response_id` — `:388` in `AnsweredControls`, `:442` in
- * `RecoveryControl` — so dropping it makes recovery silently unreachable.
+ * `PastReplyCard` renders the recovery badge from the server-derived orphan
+ * axis (`Provenance`) but still gates the recovery ACTIONS on
+ * `row.failed_response_id` — in `AnsweredControls` and `RecoveryControl` — so
+ * dropping it makes recovery silently unreachable.
  * `response_id` carries the failed id too — `/retry` and `/restore-original`
  * address the failed response by id.
  * The three response-level fields (`posted_at`, `approval_method`, `version`)
@@ -256,7 +229,6 @@ export function toCardRow(
   hasPaidTier: boolean,
 ): ReviewsListRow {
   const { reply, draft } = deriveAxes(r);
-  const rowState = deriveRowState(r); // transitional — deleted in #727 Task 3
   const isOrphan = reply === 'orphan';
 
   const reviewDateIso =
@@ -281,7 +253,6 @@ export function toCardRow(
     canEdit: canEdit(hasPaidTier),
     failed_response_id: isOrphan ? r.orphan_failed_response_id : r.failed_response_id ?? null,
     failed_posting_error: isOrphan ? r.orphan_posting_error : r.failed_posting_error ?? null,
-    row_state: rowState,
     reply_state: reply,
     row_action: deriveRowAction(reply, draft),
     provenance_badge: provenanceBadge(
