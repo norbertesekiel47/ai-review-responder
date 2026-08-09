@@ -146,3 +146,35 @@ the colliding-job paths.
 - `CONTEXT.md` gains the **content-freshness gate** term when the behavior
   ships (glossary describes shipped behavior; this ADR is the decision
   record).
+
+## Addendum (2026-08-09, #728 implementation)
+
+Two corrections recorded at implementation time. The body above is the
+decision record and is left as written; this addendum is what actually
+shipped where the letter of the body drifted.
+
+- **The convergence claim implicitly assumed the replacement job
+  regenerates.** "Why skip-the-INSERT is load-bearing" traces every ordering
+  to a fresh draft on the premise that the colliding job, finding its
+  `(review_id, version)` slot free, generates against current content. The
+  `(reviewId, version)` idempotent-generation cache violated that premise
+  until #728: the replacement job legitimately shares the in-flight job's
+  cache key, so the cache served it the stale worker's draft, and its own
+  gate then compared the current hash against itself — the gate passed and
+  the stale text persisted as fresh. Found by #728's adversarial branch
+  review (NO-SHIP verdict); fixed in the same PR by binding cache identity
+  to `review_content_hash` provenance — `CachedGeneration.reviewContentHash`
+  (`src/lib/responses/generator.ts`), strict-equality accept against the
+  current attempt's loaded hash, `null===null` for legacy entries,
+  provenance-less or mismatched entries rejected + cleared. The convergence
+  argument holds as written only with that binding in place.
+- **Skip-reason token locus.** Decision step 2 cites the
+  `SKIP_REASON_ARCHIVED_LOCATION` precedent in
+  `src/lib/shared/worker-types.ts`; that precedent is for log-only skip
+  reasons. This value is written to `job_outbox.completion_reason`, whose
+  one owner is `OUTBOX_COMPLETION_REASON`
+  (`src/lib/shared/outbox-completion-reason.ts` — `markOutboxCompletedWithReason`
+  is typed against it, so the cited shape could not typecheck). The token
+  shipped there as `STALE_REVIEW_CONTENT` (spelling `stale_review_content`
+  unchanged). Locus correction, not a decision reversal; recorded in
+  `docs/superpowers/plans/feat-728-content-freshness-gate-deviations.md`.
