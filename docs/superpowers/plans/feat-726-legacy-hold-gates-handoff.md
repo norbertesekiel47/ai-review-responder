@@ -28,6 +28,23 @@ vocabulary (publish 409 + `HeldForReviewError`). `held-draft.ts` is the
 semantic owner of "is this draft held": `hasOpenFlag` in-tx post-FOR-UPDATE
 on tx paths; D6 inline-EXISTS spelling on read paths.
 
+## Post-step-7 state (2026-08-09)
+
+- Phase `reviewed`; branch rebased onto origin/main 7d81f63f (absorbed #729's
+  allowlist baseline 412→409 cleanly). Gate GREEN (`--review`) at rebased head.
+- Review round 1: three axes. Spec: 2 LOW (one FIXED — correlation-predicate
+  assertion; one DEFER→#727). Standards: NO FINDINGS. Codex adversarial:
+  needs-attention, 3 findings ALL REJECTED (locked-decision re-litigation /
+  #730 scope / thrice-rejected live-DB ask) — full verdicts in
+  `docs/reviews/feat-726-legacy-hold-gates/triage-verdicts.md`. Round 2
+  verification: AXIS VERDICT CLEAN. branchReviewRounds=2.
+- Surface amendment #1 (owner-approved): scripts/ci/tenant-scope-allowlist.ts
+  (two sqlSnippet fingerprints). A 2nd amendment trips abort criteria.
+- Remaining: staging ride → PR to main → CI green → OWNER MERGE APPROVAL
+  (pause) → post-merge chores (deviations promotion incl. D4 hook footgun →
+  lab-notes, document-feature, domain sweep, entropy counter, ff staging,
+  worktree cleanup).
+
 ## Step-4 entry checklist
 
 1. `bash scripts/feature-state.sh set-phase executing`
