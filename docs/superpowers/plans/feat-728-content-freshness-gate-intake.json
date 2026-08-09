@@ -23,7 +23,8 @@
     "The review FOR UPDATE remains the persist transaction's FIRST statement; the hash re-read rides that same statement, so no statement precedes the lock",
     "Gate runs before the lane split and covers on_demand_generate, regenerate, backfill, and both live-ingest lanes",
     "Invariant #4 moderation-hold path unchanged for persisted drafts",
-    "Orphan-review lock no-op keeps its existing Sentry-warn-and-proceed posture; unknown current hash passes the gate"
+    "Orphan-review lock no-op keeps its existing Sentry-warn-and-proceed posture; unknown current hash passes the gate",
+    "The idempotent-generation cache is served only on exact review_content_hash provenance match (strict equality; null matches null for legacy pre-hash reviews); provenance-less or mismatched entries are rejected, cleared best-effort, and regenerated"
   ],
   "edge_cases": [
     "Fresh worker persisted first at the shared version: stale worker's gate fires on the hash mismatch and skips cleanly instead of surfacing a unique violation",
@@ -46,7 +47,11 @@
     "worker/jobs/ResponseGeneratorWorker.ts",
     "worker/jobs/__tests__/ResponseGeneratorWorker.test.ts",
     "worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts",
+    "worker/jobs/response-generation/generate-draft.ts",
     "src/lib/shared/outbox-completion-reason.ts",
+    "src/lib/responses/generator.ts",
+    "src/lib/responses/types.ts",
+    "src/lib/responses/__tests__/**",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
@@ -63,11 +68,14 @@
     "content-freshness gate skips iff both hashes are non-null and differ",
     "persist gate re-reads review_content_hash under the review FOR UPDATE lock (blocks on a concurrent content-change tx, then skips)",
     "content-freshness gate skips every generate-response origin lane before lane-specific work",
-    "gate skip logs stale_review_content with review_id, business_id, version, and origin_lane without raw hashes"
+    "gate skip logs stale_review_content with review_id, business_id, version, and origin_lane without raw hashes",
+    "generation cache is accepted only when the cached review_content_hash strictly equals the loaded hash (null matches null for legacy pre-hash reviews)",
+    "generation cache rejects a stale-tagged or provenance-less cached draft, clears it, and regenerates",
+    "replacement job at the same version regenerates against current content instead of serving the stale cached draft"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 90,
-  "estimated_test_lines": 650,
+  "estimated_prod_lines": 140,
+  "estimated_test_lines": 800,
   "dependencies_added": [],
   "rollback_plan": "No migration — pure worker-code change. Back out by reverting the PR on main and fast-forwarding staging; no data cleanup needed (the gate only ever refrains from inserting). db_touching is set for the live-DB test provisioning + tenant-scope/rls audits, not for schema change.",
   "observability": [

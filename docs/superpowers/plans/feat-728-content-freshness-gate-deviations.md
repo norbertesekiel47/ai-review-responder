@@ -73,3 +73,42 @@
 - Task 1 adaptations (a)(b)(c) — **ACCEPT** (fixture-collision rename delegates rather than shadows; RowList quirk is a documented postgres.js behavior; the finally-release guard prevents a wedged afterAll — none touches gate semantics).
 - Task 4 harness fix — **ACCEPT** (column-name correction in test-only code).
 - verify-gate env gap — **ACCEPT** as workaround; carries a step-8 promotion obligation (lab-notes + gate-script ticket). Nothing invalidates a locked intake decision; no RE-PLAN entries.
+
+## Step 7 round-1 triage (orchestrator, 2026-08-09)
+
+- [2026-08-09] **Adversarial CRITICAL (codex): same-version generation cache
+  defeats the gate — ACCEPT; owner chose Option A (fix now).** The
+  `(reviewId, version)` cache key carries no content provenance; live-ingest's
+  replacement job shares the version, so a stale H1-cached draft is served to
+  the H2-loaded replacement, whose gate sees H2==H2 and persists the stale
+  text. Pre-existing vector (predates this branch) but it falsifies ADR 0017's
+  convergence claim. **Owner explicitly overrode the 2nd-amendment abort
+  trigger via AskUserQuestion ("A: amend surface, fix now")** — surface
+  amendment #2 recorded below; abort criteria satisfied by owner decision, not
+  ignored. Fix: bind cache provenance — `CachedGeneration` gains
+  `reviewContentHash`; cache-read accepts ONLY strict equality with the
+  current attempt's loaded hash (null===null for legacy); provenance-less/
+  mismatched entries rejected + cleared best-effort (corrupt-payload
+  precedent); `generate-draft.ts` threads `ctx.loadedReviewContentHash` into
+  `GenerationOptions`. `tracker.ts` needs NO edit (payload is opaque to it) —
+  amendment narrower than the owner-approved description.
+- [2026-08-09] **Surface amendment #2 (owner-approved, Option A):** added
+  `worker/jobs/response-generation/generate-draft.ts`,
+  `src/lib/responses/generator.ts`, `src/lib/responses/types.ts`,
+  `src/lib/responses/__tests__/**`. Amendment budget: 2 of 2 — any further
+  amendment is a hard abort.
+- [2026-08-09] **Spec MEDIUM (retry-window warm cache) — ACCEPT, resolved via
+  the provenance fix**, not via clear-on-skip: a handler re-run that reloads
+  H2 now rejects the H1-tagged cache and regenerates fresh, so the persisted
+  text is current. clearCachedGeneration on the skip branch was deliberately
+  NOT added — the provenance check is the one owner of cache validity, and a
+  redundant second guard is exactly the two-owner drift CLAUDE.md warns about.
+- [2026-08-09] **Standards LOW ×2 — ACCEPT both.** (1) persist.ts returns a
+  typed outcome from the `sql.begin` callback (canonical precedent
+  `auto-policy-publish.ts` InitialPhaseOutcome) instead of the
+  `staleContentSkip` outer flag. (2) Handler gate-skip test pins
+  `mockSql, 'outbox-gen-1'` per house style.
+- [2026-08-09] **tests_to_add additions (owner-implied by Option A):** three
+  cache-provenance titles added to the intake; `estimated_prod_lines` 90→140,
+  `estimated_test_lines` 650→800 (both under the 2× reclassify bar against
+  actuals).
