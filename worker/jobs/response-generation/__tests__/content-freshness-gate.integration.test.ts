@@ -167,8 +167,8 @@ describeWithDb('content-freshness gate at the persist boundary (live Postgres)',
     if (dbB) await dbB.end({ timeout: 5 });
     if (!dbA) return;
     if (tenant) {
-      await sqlA()`DELETE FROM agent_run_steps WHERE run_id = ${runId}::uuid`;
-      await sqlA()`DELETE FROM agent_outcomes WHERE run_id = ${runId}::uuid`;
+      await sqlA()`DELETE FROM agent_run_steps WHERE agent_run_id = ${runId}::uuid`;
+      await sqlA()`DELETE FROM agent_outcomes WHERE agent_run_id = ${runId}::uuid`;
       await sqlA()`DELETE FROM agent_runs WHERE id = ${runId}::uuid`;
       await sqlA()`DELETE FROM job_outbox WHERE payload->>'business_id' = ${businessId}`;
       await sqlA()`DELETE FROM api_costs WHERE id = ${costId}::uuid`;
@@ -200,8 +200,8 @@ describeWithDb('content-freshness gate at the persist boundary (live Postgres)',
     `;
     expect(cost!.response_id).toBeNull(); // no cost link, no moderation metadata write
     expect(cost!.flagged).toBe(false);
-    expect(await sqlA()`SELECT id FROM agent_run_steps WHERE run_id = ${runId}::uuid`).toHaveLength(0);
-    expect(await sqlA()`SELECT id FROM agent_outcomes WHERE run_id = ${runId}::uuid`).toHaveLength(0);
+    expect(await sqlA()`SELECT id FROM agent_run_steps WHERE agent_run_id = ${runId}::uuid`).toHaveLength(0);
+    expect(await sqlA()`SELECT id FROM agent_outcomes WHERE agent_run_id = ${runId}::uuid`).toHaveLength(0);
     // The run must STILL be running after the skip — a gate that
     // completes/fails the run would strand the colliding fresh job's spine.
     const [run] = await sqlA()<{ status: string }[]>`SELECT status FROM agent_runs WHERE id = ${runId}::uuid`;
