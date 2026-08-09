@@ -48,10 +48,12 @@
     "src/app/api/dashboard/past-replies/__tests__/draft-id.test.ts"
   ],
   "tests_to_add": [
-    "returns status failed with error held_for_review and never the draft text when the resolved response has an open moderation flag",
+    "returns status failed with error held_for_review and no draft sentinel anywhere in the serialized body when the resolved response has an open moderation flag",
     "returns the draft text when the resolved response's moderation flag is closed",
+    "spells the correlated open-flag EXISTS with status open inside the tenant-scoped response lookup",
+    "returns 403 with no heldness signal when the held response belongs to another tenant",
     "returns 409 held_for_review without the existing draft payload when the existing draft has an open moderation flag",
-    "invariants: no non-terminal status ever returns existing draft text while an open flag exists",
+    "invariants: no non-terminal status ever leaks existing draft text or response id while an open flag exists",
     "DELETE returns 409 held_for_review and does not supersede a held draft",
     "PATCH returns 409 held_for_review and does not update a held draft"
   ],
@@ -61,7 +63,7 @@
   "dependencies_added": [],
   "rollback_plan": "git revert of the single PR — no migration, no flag change, no client change. EDIT_REPLIES_ENABLED remains absent in production (0 accounts/businesses/reviews), so nothing user-facing changes in prod until the flag flips; the flag flip itself is blocked on this landing.",
   "observability": [
-    "Hold-gate refusals are observable as HTTP 409 { error: 'held_for_review' } (POST/PATCH/DELETE) and { status: 'failed', error: 'held_for_review' } (poller) in Vercel request logs on the four handlers — same posture as the existing publish gate, which adds no log line",
+    "Hold-gate refusals are observable as HTTP 409 responses on the three mutation handlers in Vercel request logs (status-code level; body error codes are visible to the client, not asserted to appear in logs) — same posture as the existing publish gate, which adds no log line",
     "The dedicated fired/should-not-have-fired signal is deliberately deferred to the map-level observability item (#710 'Not yet specified') and will graduate into its own ticket once #726/#727 settle where the gates live"
   ],
   "open_questions": []
