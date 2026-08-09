@@ -12,6 +12,15 @@
 - Characterization eval (must stay green, unchanged):
   `src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts`
   `.../generate-version.integration.test.ts`
-- State: `.feature/state.json` — phase set to plan_approved at this commit.
-  Next step: 4 (execute) — T1 (eval suite) alone first, enforcement spot
-  check, then T2, T3 serial per the plan.
+- State: `.feature/state.json` — phase **reviewed** (post step 7).
+- Executed: T1 (eval suite, 9 RED → committed), T2 (module + route rewire,
+  commit 1aa987ef), T3 (allowlist −3, baseline 412→409, commit 7557336b).
+  Deviations D1–D3 + counted amendment A1 all ACCEPTed (see deviations file).
+- Step 7: two-axis review round 1 → one shared finding (stale baseline
+  narrative), fixed in b1887161; round 2 verification APPROVED. Reports +
+  triage committed under `docs/reviews/feat-729-generate-domain-module/`.
+- Gate GREEN twice (run 2 standard, run 3 `--review` with diff-coverage).
+- Current step: 8 (ship, normal lane) — PR #733 open, watching CI, then
+  merge + post-merge chores (ff main, ff staging, worktree cleanup,
+  deviations promotion to lab-notes, document-feature, domain sweep,
+  entropy counter).
