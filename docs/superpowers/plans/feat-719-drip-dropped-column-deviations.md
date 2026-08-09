@@ -639,8 +639,28 @@ Accepted and fixed in this round:
 - **D3's claim that the `OutboxPoller.ts` follow-up "is filed" is untrue** — `gh
   search issues` finds no matching issue. Must be filed before ship, or the claim
   corrected. **RESOLVED 2026-08-09: filed as issue #736**, and D3's sentence
-  corrected to name it. A3 and A5 above remain unfiled — flagged to the owner
-  rather than filed unasked, since a deviations file archived with the worktree
-  is not a tracker.
+  corrected to name it.
+
+**All three deferrals are now tracked (owner decision, 2026-08-09):**
+
+| Finding | Issue | Disposition |
+|---|---|---|
+| D3 — watchdog overwrites per-job `last_error` | **#736** | filed |
+| A3 — scheduler-side skips leave no durable record | **#738** | filed; **accepted and documented** in CONTEXT.md rather than built |
+| A5 — repo-wide dropped-column CI audit | **#739** | filed on the reviewer's real numbers |
+
+A5 was explicitly NOT built inside #719. Two independent reasons: it reverses
+`non_goals[1]` of this locked intake (a teardown trigger under the step-5 abort
+criteria, on a branch that was green and reviewed), and all five files it needs —
+`scripts/ci/*`, `package.json`, `.github/workflows/ci.yml`, `lefthook.yml`, and
+`src/__tests__/ci-audit-wiring.test.ts` — sit outside `allowed_edit_surface` on a
+budget already extended past its stated limit. The owner chose to ship #719 and
+file instead. **Amendment count stays at 3.**
+
+Worth carrying forward: A5's ticket exists because the reviewer MEASURED the work
+(~40 lines; 7 `DROP COLUMN`s across 103 migrations; only `users.business_id` ever
+had a live reader) instead of accepting the "epic-sized" framing this intake used
+to decline it. The decision to decline was right for this branch; the *reason*
+given for it was never checked and turned out to be wrong.
 
 **Verdict: ACCEPT.** Round 1 of a maximum 3; `branchReviewRounds` = 1.
