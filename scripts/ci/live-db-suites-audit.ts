@@ -22,8 +22,12 @@
 //
 // R1 — NAMING. A live-DB **suite** must be named `*.integration.test.ts`. That
 //      glob is what puts it in vitest's serialized `integration` project; a
-//      suite that misses it runs in the fully parallel project alongside ~740
-//      other files, unsynchronized against every other live-DB writer.
+//      suite that misses it runs in the fully parallel project alongside every
+//      other non-integration file, unsynchronized against every other live-DB
+//      writer. (The count is deliberately not restated here: it is owned by
+//      `vitest.config.ts`, and the copy that used to sit in this sentence had
+//      gone stale by ~80 files — the same way the figure removed from
+//      `listAuditedFiles`' BOUND had.)
 //
 // R2 — NO RUN-TIME DDL. A live-DB **file** must not execute DDL — not merely "apply
 //      migration SQL", but any statement taking ACCESS EXCLUSIVE on a shared
