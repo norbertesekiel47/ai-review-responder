@@ -1,7 +1,23 @@
 # feat-728-content-freshness-gate — handoff
 
-**Current step:** 4 (EXECUTE). Plan approved 2026-08-09 after 3 codex review
-rounds (round cap; final nit resolved in-plan — see round-3 report tail).
+**Current step:** 8 (SHIP, high lane) — implementation + review complete at
+`451f85cf`, phase `reviewed`, gate GREEN (--review mode). Remaining: staging
+ride → PR to main → CI green → **owner merge approval (mandatory pause)** →
+post-merge chores (incl. the promotion obligations below).
+
+**Step 7 outcome (2 rounds, counter-enforced):** spec CLEAN; standards
+resolved (final LOW closed by compiler-verified `satisfies` link); adversarial
+**APPROVED** after its round-1 CRITICAL — the same-version generation cache
+served stale drafts past the gate — was fixed via cache provenance
+(`CachedGeneration.reviewContentHash`, strict-equality accept, owner-approved
+surface amendment #2 = Option A, explicit abort-trigger override). All verdicts
++ evidence: `docs/reviews/feat-728-content-freshness-gate/`.
+
+**Step 8 promotion obligations (from deviations):** lab-notes entries for
+(a) the verify-gate `DATABASE_POOL_URL` env gap + follow-up ticket for
+`scripts/verify-gate.sh`, (b) the cache-provenance lesson (cache identity must
+bind to content when a replacement job shares the key); ADR 0017 addendum
+noting the cache vector; post-merge docs sweep via `document-feature`.
 
 ## Read in this order (never the prior transcript)
 
