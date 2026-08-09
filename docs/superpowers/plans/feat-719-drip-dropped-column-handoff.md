@@ -5,7 +5,11 @@ A fresh session bootstraps from this file → plan → deviations → review tab
 prior transcript.
 
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-719-drip-dropped-column`
-**Branch:** `feat-719-drip-dropped-column`, based on `39c94ed1` (#720)
+**Branch:** `feat-719-drip-dropped-column`, rebased onto `bea12e68` (#722) at step-4 entry —
+originally cut from `39c94ed1` (#720), which is still an ancestor, so D2's reasoning holds.
+Rebased while the branch was docs-only because #721 edited `.claude/reference/lab-notes.md`, the
+file Task 6 appends to; #722 (landing-scroll, frontend-only) came along and does not intersect
+this surface.
 **Ticket:** https://github.com/RepWorth/ai-review-responder/issues/719
 **Lane:** RISK = high · SURFACE = backend · db_touching = false · SIZE = normal
 
@@ -14,8 +18,8 @@ prior transcript.
 | What | Path |
 |---|---|
 | Intake contract (locked) | `docs/superpowers/plans/feat-719-drip-dropped-column-intake.json` (+ arming copy `.feature/intake.json`) |
-| Plan (tracer bullets, 7 tasks) | `docs/superpowers/plans/2026-08-08-719-drip-dropped-column.md` |
-| Deviations (2 entries, untriaged) | `docs/superpowers/plans/feat-719-drip-dropped-column-deviations.md` |
+| Plan (tracer bullets, **6** tasks — v2.1) | `docs/superpowers/plans/2026-08-08-719-drip-dropped-column.md` |
+| Deviations (**6** entries, untriaged) | `docs/superpowers/plans/feat-719-drip-dropped-column-deviations.md` |
 | Glossary | `CONTEXT.md` — **Outbox job**, **Watchdog**, **Full access**, **Account**/**Business**. Two terms coined by this work land in Task 7: **Drip staleness cap**, **Job-failure sink**. |
 | Machine state | `.feature/state.json` |
 
@@ -128,9 +132,25 @@ Four findings reshaped the design; plan v2's opening section is the authoritativ
 
 Task 1 runs **alone** — its completion is the first-task enforcement spot check
 (`git status --porcelain` paths vs `allowed_edit_surface`; an out-of-surface file means the guard
-did not bind for subagent tool calls, so STOP and report). After it passes, **T2, T5 and T6 are
+did not bind for subagent tool calls, so STOP and report). After it passes, **T2, T4 and T5 are
 mutually independent** (no blocking edges, disjoint file sets) and may fan out concurrently.
-T3 blocks on T2; T4 blocks on T3 and is droppable; T7 blocks on T2+T5+T6.
+T3 blocks on T2. T6 blocks on T3+T4+T5.
+
+This mirrors the plan's task graph verbatim (`2026-08-08-719-drip-dropped-column.md:87-93`):
+
+```
+T1 (eval, alone — enforcement spot check)
+ ├─→ T2 ─→ T3        (resolveDashboardUrl → drip worker)
+ ├─→ T4              (scheduler)   ┐ mutually independent,
+ └─→ T5              (sink)        ┘ disjoint files, parallel
+              T3,T4,T5 ─→ T6 (docs)
+```
+
+> **Corrected at resume.** This section previously described plan **v1**'s 7-task graph — it named
+> a T7, called T4 droppable, and paired T2 with T5+T6. v2.1 has **six** tasks: v1's Task 4 (the
+> `resolveDashboardUrl` collapse) was folded into Task 2, which renumbered everything after it.
+> The step-4 entry checklist below was already correct; this section was the stale copy. Two
+> statements of the same order is one too many — the plan's graph is the single owner.
 
 ## Pre-verified facts (don't re-derive)
 

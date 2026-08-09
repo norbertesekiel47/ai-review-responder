@@ -26,6 +26,13 @@ a tree the surface already covers. Recorded, not escalated.
 **Containment:** the collapse is isolated as Task 4, blocked on Task 3, and turns no promised
 test green. It can be dropped without touching the correctness fix.
 
+> **STALE as of plan v2.1 — do not act on the containment paragraph above.** It describes v1's
+> 7-task graph. In v2.1 the collapse **is** Task 2 (blocked on T1, not T3), it turns titles 2–7
+> green, and Task 3 depends on it. The collapse is therefore **no longer droppable** — it is now
+> inseparable from the correctness fix. Recorded rather than rewritten so the read-back at step 6
+> sees what was claimed at amendment time and what it became. The amendment itself (the 2 files)
+> is unaffected; **amendment count remains 1**.
+
 **Verdict:** _(pending step 6)_
 
 ---
@@ -42,6 +49,12 @@ which landed after this session started, not on the `main` the parent checkout h
 `src/lib/shared/__tests__/live-db-tenant.ts` — a helper file now inside that audit's scope.
 The helpers contain INSERTs only and no DDL, so they should pass, but Task 1 Step 7 runs
 `pnpm ci:live-db-suites` explicitly rather than assuming it.
+
+**Follow-on at step-4 entry:** `origin/main` moved twice more (#721 docs sweep, #722 landing-scroll)
+and the branch was rebased onto `bea12e68` while still docs-only. #720 remains an ancestor, so the
+`ci:live-db-suites` reasoning above is unchanged. The rebase was taken now specifically because
+#721 edited `.claude/reference/lab-notes.md` — the file Task 6 appends to — and rebasing before
+any code lands is cheaper than resolving that append twice.
 
 **Verdict:** _(pending step 6)_
 
@@ -113,5 +126,33 @@ silently skip entirely, and every negative scheduler assertion was satisfiable b
 retitles and `verification_commands` corrections do not count against the amendment budget.
 Amendment count remains **1** (D1). Both intake copies updated; all 25 titles verified present
 verbatim in plan v2.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D6 — the intake `goal` still promised the `last_error` write D3 cut
+
+**When:** step 4 entry, at `/feature-resume` reconciliation.
+
+**What:** the intake `goal` field read "durably visible in Sentry **and on the job_outbox row**
+instead of being masked by the Watchdog's generic reclaim message." Rewritten in both copies to
+say Sentry only, naming D3 and pointing at the `observability` bullets that already said so.
+
+**Why it was missed:** D3 rewrote the one `observability` bullet that asserted the write and
+recorded the reasoning at length, but left the `goal` sentence — the same claim, one field higher.
+So the locked contract disagreed with itself: its headline promised a `job_outbox` write the code
+will deliberately never make, while its evidence list explained why that write is wrong. Left
+alone, the step-7 review diffs the implementation against the contract's headline and reports a
+promise unmet, with the refutation two fields below.
+
+**Classification:** a **deviations entry, not an amendment.** `feature.md:235-236` is explicit —
+"only `allowed_edit_surface` changes count, other intake-field corrections are deviations-file
+entries." No surface change; **amendment count remains 1** (D1). `intakeSha256` in
+`.feature/state.json` refreshed by `set-phase`; both copies re-diffed byte-identical after the edit.
+
+**The lesson, which is the durable part:** a design reversal has to sweep **every** field of the
+contract that asserts the reversed fact, not just the one the review finding cited. D3 corrected
+the bullet the reviewer pointed at and stopped there.
 
 **Verdict:** _(pending step 6)_

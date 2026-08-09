@@ -2,7 +2,7 @@
   "classification": "high",
   "surface": "backend",
   "db_touching": false,
-  "goal": "Repair the three live worker queries still reading the users.business_id column dropped by migration 034, bound the OnboardingDripScheduler's unbounded re-queue of failed Outbox jobs, cap drips that are overdue past a grace window, and make a BullMQ handler's terminal error durably visible in Sentry and on the job_outbox row instead of being masked by the Watchdog's generic reclaim message.",
+  "goal": "Repair the three live worker queries still reading the users.business_id column dropped by migration 034, bound the OnboardingDripScheduler's unbounded re-queue of failed Outbox jobs, cap drips that are overdue past a grace window, and make a BullMQ handler's terminal error durably visible as a real Sentry issue instead of the breadcrumb nobody reads. Sentry ONLY — the sink deliberately writes no job_outbox.last_error, because the Watchdog's terminalizer overwrites it unconditionally with the very generic reclaim text the write existed to replace (deviations D3; the observability bullets below state the same).",
   "non_goals": [
     "No migration and no schema change — the schema is already correct; the code is wrong",
     "No CI static audit that diffs SQL column references against the migration-head schema — weighed and declined as its own epic-sized ticket; a live-DB suite covers this feature's queries",
