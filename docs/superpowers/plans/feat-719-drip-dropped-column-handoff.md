@@ -59,6 +59,21 @@ only added a Sentry *breadcrumb* on job failure, so a hard deterministic crash r
 **Plan review rounds used: 2 of 3** (`.feature/state.json` `planReviewRounds`). Cap is hard; after
 round 3, surface the remaining disagreement to the owner rather than looping.
 
+**Counter honesty note — one round-2 attempt was killed and produced nothing.** The first round-2
+dispatch hit the harness's 10-minute Bash ceiling (`timeout` maxes at 600000ms; the 900000 I passed
+was clamped) while still crawling the codebase via the codebase-memory MCP. It emitted no findings
+and no verdict. `incr-round` had already run, so the counter reads 2. The re-dispatch was **not**
+counted again, on the grounds that a run producing zero review output is not a review round in
+substance — recorded here rather than left implicit, because silently re-running under the same
+number is exactly how a "max 3" cap becomes a round 5 (the #628 failure). At most one further
+substantive round (3) remains.
+
+The re-dispatch (`<scratchpad>/codex-plan-review-719-r2b.md`) is budget-fenced: citations were
+verified by the orchestrator and declared off-limits, MCP graph crawling is forbidden, and the
+brief instructs it to emit a partial verdict rather than nothing if it runs short. It asks three
+questions only — red-before-fix for all 25 titles, the boundary arithmetic, and whether any round-1
+fix introduced a new defect.
+
 **Codex dispatch:** direct `codex exec --sandbox read-only --cd <worktree>` (not the companion
 wrapper, which has lost task ids across resumes). codex-cli 0.145.0.
 Round 1: brief `<scratchpad>/codex-plan-review-719.md`, raw `…-out.txt` (9,241 lines).
