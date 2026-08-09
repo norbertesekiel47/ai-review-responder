@@ -520,7 +520,11 @@ describe('GET /api/dashboard/past-replies/draft-status — moderation-held draft
     const text = joinTemplate(responseLookup as unknown[]);
     expect(text).toMatch(/EXISTS/);
     expect(text).toMatch(/flagged_responses/);
-    expect(text).toMatch(/status\s*=\s*'open'/);
+    // Correlation predicate: an uncorrelated EXISTS (any open flag anywhere
+    // holds every poll) would over-refuse fail-safe but still betray the
+    // query's contract — assert the join back to the outer responses row.
+    expect(text).toMatch(/f\.response_id\s*=\s*responses\.id/);
+    expect(text).toMatch(/f\.status\s*=\s*'open'/);
   });
 
   it('returns 403 with no heldness signal when the held response belongs to another tenant', async () => {
