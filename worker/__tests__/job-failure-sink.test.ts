@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import { QUEUE_NAMES } from '../../src/lib/shared/queue-names';
+import { reportJobFailure } from '../job-failure-sink';
 
 const sentryStub = vi.hoisted(() => ({
   captureException: vi.fn(),
@@ -37,33 +38,6 @@ vi.mock('../../src/lib/shared/logger', async (orig) => {
   const actual = await orig<typeof import('../../src/lib/shared/logger')>();
   return { ...actual, createWorkerLogger: () => loggerStub };
 });
-
-/**
- * Task 5's module. It does not exist yet, so the specifier is held in a variable
- * — the import then fails at RUN time with a missing-module error (which is what
- * these cases must report today) instead of breaking `pnpm typecheck` for every
- * task running in parallel with this one.
- */
-const JOB_FAILURE_SINK_MODULE = '../job-failure-sink';
-
-interface WorkerLike {
-  on: (event: 'failed', listener: (job: Job | undefined, err: Error) => void) => unknown;
-}
-
-interface JobFailureSinkModule {
-  reportJobFailure?: (queueName: string, job: Job | undefined, err: Error) => void;
-  attachJobFailureSink?: (worker: WorkerLike, queueName: string) => void;
-}
-
-async function loadReportJobFailure(): Promise<
-  (queueName: string, job: Job | undefined, err: Error) => void
-> {
-  const sink = (await import(JOB_FAILURE_SINK_MODULE)) as JobFailureSinkModule;
-  if (!sink.reportJobFailure) {
-    throw new Error('worker/job-failure-sink.ts does not export reportJobFailure yet (#719 Task 5)');
-  }
-  return sink.reportJobFailure;
-}
 
 interface JobShape {
   attemptsMade: number;
@@ -92,9 +66,7 @@ describe('job-failure sink', () => {
     loggerStub.error.mockClear();
   });
 
-  it('the job-failure sink captures to Sentry only on the terminal BullMQ attempt', async () => {
-    const reportJobFailure = await loadReportJobFailure();
-
+  it('the job-failure sink captures to Sentry only on the terminal BullMQ attempt', () => {
     reportJobFailure(
       QUEUE_NAMES.ONBOARDING_DRIP,
       makeJob({ attemptsMade: 5, attempts: 5 }),
@@ -109,9 +81,7 @@ describe('job-failure sink', () => {
     });
   });
 
-  it('the job-failure sink does not capture when an intermediate attempt fails and a retry remains', async () => {
-    const reportJobFailure = await loadReportJobFailure();
-
+  it('the job-failure sink does not capture when an intermediate attempt fails and a retry remains', () => {
     reportJobFailure(
       QUEUE_NAMES.ONBOARDING_DRIP,
       makeJob({ attemptsMade: 1, attempts: 5 }),
@@ -122,12 +92,11 @@ describe('job-failure sink', () => {
     expect(sentryStub.captureException).not.toHaveBeenCalled();
   });
 
-  it('the job-failure sink logs a bounded error class and never the raw message', async () => {
+  it('the job-failure sink logs a bounded error class and never the raw message', () => {
     // csv-ingest's failed hook states the contract: only the bounded error CLASS
     // may be persisted or logged, because a driver message can embed contact
     // handles — and STRING logger arguments bypass the object sanitizer. The
     // full error still reaches Sentry, which has its own scrubber.
-    const reportJobFailure = await loadReportJobFailure();
     const secret = 'secret-handle@example.com';
 
     reportJobFailure(
@@ -154,11 +123,9 @@ describe('job-failure sink', () => {
     expect(classified, 'no logger.error call carried an error_class field').toBeDefined();
   });
 
-  it('the job-failure sink ignores a failed event with an undefined job', async () => {
+  it('the job-failure sink ignores a failed event with an undefined job', () => {
     // BullMQ emits `'failed'` with `job === undefined` when the job could not be
     // rehydrated; the sink must not become a second failure on top of the first.
-    const reportJobFailure = await loadReportJobFailure();
-
     expect(() =>
       reportJobFailure(QUEUE_NAMES.PUBLISH_RESPONSE, undefined, new Error('lost job')),
     ).not.toThrow();
