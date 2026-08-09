@@ -157,10 +157,12 @@ nothing, import unbounded above.
   reviews go through `reconcileExternallyAnsweredReview({ consentedImport:
   true })` regardless of `EXTERNAL_REPLY_IMPORT_ENABLED`.
 - **Counters**: runs write collapsed `imported_count`/`skipped_count` (+
-  `oldest_skipped_create_time`) on `zernio_backfill_runs`; the four legacy
-  `gap_*`/`historical_*` columns freeze at DEFAULT 0 (#680 drops them).
-  `skipped_count` counts cap overflow + PHI/malformed only — out-of-window
-  reviews are unselected, not "skipped".
+  `oldest_skipped_create_time`) on `zernio_backfill_runs`. The four legacy
+  `gap_*`/`historical_*` columns are **GONE** — migration 103 (#680) dropped
+  them from both Supabase projects 2026-08-08, after they had frozen at DEFAULT
+  0 since #675. There are exactly three counter columns now; naming a legacy one
+  raises 42703. `skipped_count` counts cap overflow + PHI/malformed only —
+  out-of-window reviews are unselected, not "skipped".
 - **Pagination**: `ZERNIO_IMPORT_MAX_PAGES` (default 6) caps `listReviews`
   paging (pageSize 50, page-boundary dedup by review id). Early stops
   (target met / floor passed) are trusted only while ordering is clean; a
