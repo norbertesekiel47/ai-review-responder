@@ -1,0 +1,81 @@
+{
+  "classification": "normal",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Widen ci:live-db-suites to scan non-suite files under __tests__/, applying the no-run-time-DDL rule (R2) and the lock check to helpers as well as suites while restricting the *.integration.test.ts naming rule (R1) to suites only, so DDL built inside a helper and spliced into a suite as a Postgres.js fragment is no longer invisible.",
+  "non_goals": [
+    "The e2e/ Playwright lane (e2e/helpers/*.ts, e2e/seed.ts, e2e/harness.ts, e2e/fixtures/*.ts) — a separate runner outside vitest's `integration` project, so R1's serialization premise does not hold there. e2e/**/__tests__/**/*.test.ts is already scanned and stays scanned.",
+    "Changing DDL_VERB, blankSqlComments, hidesStatementStart, isUnsafeCall, or any other #694 precision heuristic.",
+    "Changing LIVE_DB_MARKERS as it applies to suites — the new postgres-import marker is helper-only.",
+    "Resolving cross-file fragment provenance (which suite interpolates which helper's fragment) — that needs a type checker or import graph; the finding lands on the file that BUILDS the DDL.",
+    "Accepting a calling suite's acquireLiveDbLock as satisfying an allowlisted helper's lock check — same reason.",
+    "An ADR or a CONTEXT.md glossary entry: CI-audit mechanics are owned by the audit header + .claude/reference/lab-notes.md + the CLAUDE.md gotcha bullet, one authoritative owner per fact."
+  ],
+  "user_visible_behavior": [
+    "`pnpm ci:live-db-suites` audits 13 additional git-tracked files — every .ts/.tsx under a __tests__/ directory that does not match *.test.{ts,tsx}.",
+    "A non-suite file under __tests__/ that imports the `postgres` module (value OR type-only) and executes DDL is reported with rule `runtime-ddl`.",
+    "The `naming` rule is never reported for a non-suite file — helpers are not runner entry points and cannot be renamed to *.integration.test.ts.",
+    "src/lib/shared/__tests__/helpers/apply-migration-074.ts is newly allowlisted as a migration-shape file and newly ENFORCED to hold withMigration074ApplyLock; stripping that lock turns CI red.",
+    "`pnpm ci:live-db-suites` still reports `passed` on the tree as shipped — the widening adds coverage, not findings."
+  ],
+  "invariants": [
+    "#694's four precision fixtures stay green: a DDL verb inside a regex literal, inside an expect().toContain(), inside a comment, or in an unexecuted string constant produces no finding.",
+    "The repo-wide test still reports zero offenders across the widened file set.",
+    "No new false positive: the 12 non-suite files other than apply-migration-074.ts stay clean (empirically verified before implementation).",
+    "src/lib/shared/__tests__/helpers/live-db-lock.ts and src/__tests__/helpers/describe-with-db.ts newly enter the scanned set and must NOT produce a naming finding.",
+    "scripts/ci/lib/sql-tag-scan.ts stays byte-identical so the four SQL-vocabulary audits keep their scope.",
+    "An allowlisted file — suite or helper — must carry its lock marker in its OWN text; absence is `unlocked-ddl`, never a pass.",
+    "Reach can only be asserted by fixtures that assert a finding IS produced; the repo-wide zero-offenders test pins precision and cannot detect the detector going blind."
+  ],
+  "edge_cases": [
+    "E1 src/lib/shared/__tests__/live-db-tenant.ts is a live-DB helper NOT under a helpers/ directory — the __tests__/-wide glob reaches it; the ticket's proposed __tests__/helpers/** glob would not.",
+    "E2 apply-migration-074.ts:55 runs `db.unsafe(readMigration074Sql())` — an opaque argument, which the detector counts as DDL. It is the only non-suite file that fires today.",
+    "E3 A helper receives its handle as a parameter (`db: postgres.Sql`) and therefore names none of the four LIVE_DB_MARKERS — the postgres-import marker is the only thing that reaches it.",
+    "E4 Type-only imports must count: abort-injection.ts, schema-ready.ts, apply-migration-074.ts and outreach-fixture.ts all use `import type … from 'postgres'`. A value/type distinction here would re-open the hole.",
+    "E5 worker/__tests__/helpers/mock-sql.ts imports vitest only and mocks the sql tag — it must stay outside the gate, or every mocked template becomes a candidate SQL statement.",
+    "E6 src/__tests__/helpers/describe-with-db.test.ts sits inside a helpers/ directory but matches *.test.ts — it is a SUITE, and stays in NOT_LIVE_DB.",
+    "E7 scripts/ci/__tests__/live-db-suites-audit.test.ts carries violating source as fixtures and stays in NOT_LIVE_DB; scripts/ci/__tests__/ holds no non-suite .ts today, so the widened glob pulls nothing unexpected from it.",
+    "E8 A helper cannot inherit the calling suite's lock. apply-migration-074.ts holds its own (withMigration074ApplyLock), so OWN_APPLY_LOCK covers it; a future helper that genuinely needs the caller's lock is an allowlist decision at that time, not a rule relaxation now.",
+    "E9 In the fragment shape — helper exports `sql`ALTER TABLE job_outbox …``, suite writes `sql`${addCheck}`` — the finding lands on the HELPER file, at the line that builds the DDL. The suite stays clean and that is correct: the walk visits the producing node.",
+    "E10 A file can be both scanned-as-helper and named *.test.ts nowhere: the two sets are disjoint by construction (isSuite is a pure filename predicate), so no file is double-reported."
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/ci/live-db-suites-audit.ts — its header convention of stating each mechanism's blast radius honestly (LIVE_DB_MARKERS, isUnsafeCall, blankSqlComments all carry an explicit BOUND paragraph). The hidesStatementStart JSDoc already names THIS ticket's bound and must be rewritten, not appended to.",
+    "scripts/ci/live-db-suites-audit.ts — the allowlist shape: a `new Set([...])` of repo-relative paths with a JSDoc naming why each category is sanctioned and what is enforced in exchange.",
+    "scripts/ci/__tests__/live-db-suites-audit.test.ts — fixture style: a source-string constant, `auditLiveDbSuite(path, source)`, `expect(findings.map((finding) => finding.rule)).toEqual([...])`.",
+    "scripts/ci/__tests__/live-db-suites-audit.test.ts:307 — the repo-wide zero-offenders test, whose comment already explains that it pins precision and NOT reach. Precedent named there: src/__tests__/ci-audit-wiring.test.ts.",
+    "scripts/ci/__tests__/live-db-suites-audit.test.ts:257 — the `describe('detects a live-DB suite however it reaches the database')` it.each block, the precedent for table-driven reachability fixtures."
+  ],
+  "allowed_edit_surface": [
+    "scripts/ci/live-db-suites-audit.ts",
+    "scripts/ci/__tests__/live-db-suites-audit.test.ts",
+    ".claude/reference/lab-notes.md",
+    ".claude/CLAUDE.md",
+    "docs/currents.md",
+    "docs/progresstracking.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "includes non-suite files under __tests__ in the audited file list",
+    "flags DDL built in a helper module that a suite splices in as a fragment",
+    "never reports the naming rule for a non-suite helper file",
+    "counts a type-only postgres import as a helper reaching the database",
+    "ignores a non-suite helper that imports no DB handle at all",
+    "flags an allowlisted helper that executes DDL without its own apply lock",
+    "accepts the 074 apply helper on its own dedicated apply lock",
+    "every live-DB file in the repository passes the widened detector"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "130",
+  "estimated_test_lines": "130",
+  "dependencies_added": [],
+  "rollback_plan": "Not db_touching and not runtime-reachable: the audit gates CI only. Revert the PR; no migration, no flag, no env var. A mid-flight red CI on an unrelated branch would mean a false positive — the escape is the existing per-line `-- live-db-ddl-ignore: <reason>` pragma, which needs no code change.",
+  "observability": [
+    "`pnpm ci:live-db-suites` runs in CI's `lint` job and in the lefthook pre-push gate — a helper that starts executing DDL fails the push, not a later run.",
+    "The repo-wide `every live-DB file in the repository passes the widened detector` case puts the same property inside `pnpm test`, so it fails next to the rules it depends on.",
+    "The reach fixtures each assert a finding IS produced — the only signal that survives the detector going blind, which is the #694 failure mode (an audit reporting `passed` on a tree that was executing DDL).",
+    "src/__tests__/ci-audit-wiring.test.ts keeps package.json, ci.yml and lefthook.yml from drifting apart, so the widened audit cannot silently stop running."
+  ],
+  "open_questions": []
+}
