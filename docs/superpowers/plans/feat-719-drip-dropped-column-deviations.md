@@ -247,3 +247,30 @@ also transiently red on `worker/__tests__/job-failure-sink.test.ts`, which is Ta
 work, not this.)
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D9 — the seam conversion imports one export, not two (`no-unused-vars` is error-level in tests)
+
+**When:** Task 5, step 3 (dynamic-import seam → static import).
+
+**What:** The step 3 instruction spelled the replacement literally as
+`import { reportJobFailure, attachJobFailureSink } from '../job-failure-sink';`. Only
+`reportJobFailure` is actually imported. `attachJobFailureSink` is never *called* by
+`worker/__tests__/job-failure-sink.test.ts` — title 25 verifies the wiring by reading
+`worker/index.ts` as source text, not by invoking the attach helper — and
+`@typescript-eslint/no-unused-vars` is registered at `error` for `**/*.ts` with no test
+exemption (`eslint.config.mjs:120-127`; the test-file `ignores` at `:169/:184/:222/:242` apply to
+the structural `no-restricted-imports` zones, not to this rule). Importing the second name would
+therefore have turned `pnpm lint` red.
+
+**Why this does not weaken step 3:** the two things step 3 was closing are both gone —
+the variable specifier (`JOB_FAILURE_SINK_MODULE`) that resolved oddly under vitest, and the
+`as JobFailureSinkModule` cast whose optional-property view hid signature drift (including the
+`WorkerLike` stand-in for the real `Pick<Worker, 'on'>`). `JobFailureSinkModule`,
+`loadReportJobFailure` and `WorkerLike` are all deleted and nothing replaced the cast. The
+static import now type-checks `reportJobFailure`'s real signature at the call sites, which is
+the property the seam was hiding. `attachJobFailureSink` is still statically checked — by
+`worker/index.ts`, its only production caller.
+
+**Verdict:** _(pending step 6)_
