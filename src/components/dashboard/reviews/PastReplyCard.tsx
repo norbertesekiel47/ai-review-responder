@@ -6,7 +6,7 @@ import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBa
 import { InlineGeneratePanel } from '@/components/dashboard/reviews/InlineGeneratePanel';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
-import type { ProvenanceBadge, ReviewRowState } from '@/lib/past-replies/replies-view';
+import type { ProvenanceBadge, ReplyState, ReviewRowState, RowAction } from '@/lib/past-replies/replies-view';
 import type { RegenBudgetStatus } from '@/lib/costs/tracker';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
@@ -37,6 +37,20 @@ export interface PastReplyRow {
    * module that owns it.
    */
   row_state: string;
+  /**
+   * The Posted-reply axis (#727): what exists on Google. Owns the
+   * Unanswered/Answered grouping and which reply panel renders. Typed as the
+   * exported union end-to-end — the wire boundary carries the contract.
+   */
+  reply_state: ReplyState;
+  /**
+   * The Action slot (#727): the single affordance this card renders, derived
+   * server-side from the full (reply_state × draft_state) cross-product. The
+   * Replacement-draft axis itself NEVER crosses the wire (invariant #4): a
+   * held replacement projects to 'none' here, so this component cannot leak
+   * what it never receives.
+   */
+  row_action: RowAction;
   /** Server-derived `ProvenanceBadge` (D-E); null when no provenance applies. */
   provenance_badge?: string | null;
   // Optimistic-concurrency snapshot (required by EditReplyDrawer).

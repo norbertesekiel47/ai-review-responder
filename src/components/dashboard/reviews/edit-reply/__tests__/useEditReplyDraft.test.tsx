@@ -23,6 +23,8 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     external_reply_ingested_at: null,
     // An answered row: the drawer lane only ever opens on one (#678 row states).
     row_state: 'regenerate',
+    reply_state: 'posted',
+    row_action: 'regenerate',
     review_content_hash: 'hash-abc',
     version: 3,
     canEdit: true,

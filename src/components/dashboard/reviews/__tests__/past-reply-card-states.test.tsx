@@ -50,6 +50,8 @@ function makeRow(overrides: Partial<ListRow> = {}): ListRow {
     failed_response_id: null,
     failed_posting_error: null,
     row_state: 'generate',
+    reply_state: 'none',
+    row_action: 'generate',
     provenance_badge: null,
     ...overrides,
   };
@@ -58,6 +60,8 @@ function makeRow(overrides: Partial<ListRow> = {}): ListRow {
 function answeredRow(overrides: Partial<ListRow> = {}): ListRow {
   return makeRow({
     row_state: 'regenerate',
+    reply_state: 'posted',
+    row_action: 'regenerate',
     approved_text: 'Thank you for visiting!',
     approval_method: APPROVAL_METHOD.OWNER,
     posted_at: '2026-04-02T10:00:00Z',
@@ -129,7 +133,7 @@ describe('PastReplyCard row states', () => {
     // (023+026+029) would reject.
     render(
       <PastReplyCard
-        row={makeRow({ row_state: 'draft_ready', response_id: 'draft-1' })}
+        row={makeRow({ row_state: 'draft_ready', reply_state: 'none', row_action: 'draft_ready', response_id: 'draft-1' })}
         isImported={false}
       />,
     );
@@ -203,6 +207,8 @@ describe('Reviews list surface', () => {
           makeRow({
             review_id: 'rev-held',
             row_state: 'held',
+            reply_state: 'none',
+            row_action: 'none',
             review_text: 'Held-draft review body',
             approved_text: 'SECRET held draft text',
           }),

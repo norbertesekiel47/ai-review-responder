@@ -138,7 +138,7 @@ export type RowAction =
   | 'recover'
   | 'none';
 
-/** Same facts as deriveRowState → the two axes. Implemented in #727 Task 2. */
+/** Same facts as deriveRowState → the two axes. */
 export function deriveAxes(r: {
   response_id: string | null;
   draft_response_id: string | null;
@@ -146,12 +146,47 @@ export function deriveAxes(r: {
   generation_in_flight: boolean;
   is_orphan: boolean;
 }): { reply: ReplyState; draft: DraftState } {
-  throw new Error(`unimplemented (#727 Task 2): ${JSON.stringify(r)}`);
+  // is_orphan already encodes resp.id IS NULL (load-replies, F3), so
+  // orphan/posted exclusivity holds by construction of the row source.
+  const reply: ReplyState = r.is_orphan ? 'orphan' : r.response_id !== null ? 'posted' : 'none';
+  const draft: DraftState =
+    r.draft_response_id !== null
+      ? r.draft_held
+        ? 'held'
+        : 'ready'
+      : r.generation_in_flight
+        ? 'generating'
+        : 'none';
+  return { reply, draft };
 }
 
-/** (reply, draft) → the Action slot. Total over all 12 cells. #727 Task 2. */
+/** (reply, draft) → the Action slot. Total over all 12 cells. */
 export function deriveRowAction(reply: ReplyState, draft: DraftState): RowAction {
-  throw new Error(`unimplemented (#727 Task 2): ${reply}×${draft}`);
+  switch (reply) {
+    case 'orphan':
+      // Recovery dominates EVERY draft state (#723 locked call): the
+      // affordance addresses the orphan incident, never the draft — a held
+      // draft stays invisible, and #726 owns the server-side hold checks the
+      // recovery drawer could reach.
+      return 'recover';
+    case 'posted':
+      // held withdraws the drawer (invariant #4); a pending or in-flight
+      // replacement keeps Regenerate — the drawer itself resumes it.
+      return draft === 'held' ? 'none' : 'regenerate';
+    case 'none':
+      switch (draft) {
+        case 'none':
+          return 'generate';
+        case 'generating':
+          return 'generating';
+        case 'ready':
+          return 'draft_ready';
+        case 'held':
+          // Invariant #4: no text, no affordance. The card reconstructs the
+          // "Reply on hold" panel from (none, none) — held never crosses the wire.
+          return 'none';
+      }
+  }
 }
 
 export type ProvenanceBadge =
@@ -220,8 +255,9 @@ export function toCardRow(
   activatedAtIso: string | null,
   hasPaidTier: boolean,
 ): ReviewsListRow {
-  const rowState = deriveRowState(r);
-  const isOrphan = rowState === 'recover';
+  const { reply, draft } = deriveAxes(r);
+  const rowState = deriveRowState(r); // transitional — deleted in #727 Task 3
+  const isOrphan = reply === 'orphan';
 
   const reviewDateIso =
     r.review_date instanceof Date ? r.review_date.toISOString() : String(r.review_date);
@@ -246,6 +282,8 @@ export function toCardRow(
     failed_response_id: isOrphan ? r.orphan_failed_response_id : r.failed_response_id ?? null,
     failed_posting_error: isOrphan ? r.orphan_posting_error : r.failed_posting_error ?? null,
     row_state: rowState,
+    reply_state: reply,
+    row_action: deriveRowAction(reply, draft),
     provenance_badge: provenanceBadge(
       {
         external_reply_ingested_at: externalReplyIngestedAt,
@@ -270,10 +308,11 @@ export interface GroupedReplies {
  * Split one page of the row source into the `Unanswered` and `Answered` groups
  * and sort each newest-first.
  *
- * The predicate is the row state, not the activation boundary: `regenerate` is
- * the only state with a live reply on Google, so everything else — including
- * orphan `recover` rows (D-G) and moderation-`held` rows (D9) — groups under
- * Unanswered. Orphans need no separate count: they have no posted sibling, so
+ * The predicate is the Posted-reply axis: `posted` is the only state with a
+ * live reply on Google, so everything else — including orphan `recover` rows
+ * (D-G) and held rows — groups under Unanswered. The row set is identical to
+ * the pre-#727 `regenerate` grouping (pinned by test).
+ * Orphans need no separate count: they have no posted sibling, so
  * `load-replies`' `NOT EXISTS` unanswered denominator already includes them.
  *
  * One row array, not two: post-F3 there is no separate orphan query to merge,
@@ -288,7 +327,7 @@ export function groupReplies(
   const cards = rows.map((r) => toCardRow(r, activatedAtIso, hasPaidTier));
 
   return {
-    unansweredRows: cards.filter((c) => c.row_state !== 'regenerate').sort(sortByDateDesc),
-    answeredRows: cards.filter((c) => c.row_state === 'regenerate').sort(sortByDateDesc),
+    unansweredRows: cards.filter((c) => c.reply_state !== 'posted').sort(sortByDateDesc),
+    answeredRows: cards.filter((c) => c.reply_state === 'posted').sort(sortByDateDesc),
   };
 }
