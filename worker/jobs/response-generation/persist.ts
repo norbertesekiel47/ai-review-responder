@@ -176,65 +176,21 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       held,
     });
 
-    // Structural non-candidates get their decision without touching the DB:
-    // no runtime-state read (074 columns stay unread on flag-off deploys,
-    // finding 5) and no fallback log — logAutoApprovalFallbackIfNeeded's
-    // isAutoCandidate narrowing requires the live_ingest_new lane AND a
-    // configured policy, and structural blocks either fail the lane check or
-    // (flag off / regen / suppressed) are not the runtime-prerequisite story
-    // that log exists for (spec §15).
-    let runtimeState: AutoApprovalRuntimeState | null = null;
-    let autoDecision: AutoApprovalDecision;
-    if (isAutoApprovalCandidate) {
-      // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-      runtimeState = await loadAutoApprovalRuntimeState(tx, {
-        reviewId,
-        businessId,
-        accountId,
-      });
-      if (preLlmSubscriptionTier !== runtimeState.subscriptionTier) {
-        logger.log('Subscription tier changed during response generation', {
-          account_id: accountId,
-          pre_llm_subscription_tier: preLlmSubscriptionTier,
-          current_subscription_tier: runtimeState.subscriptionTier,
-        });
-      }
-      autoDecision = evaluateAutoApprovalCandidate({
-        originLane,
-        version,
-        suppressNotification,
-        loadedReviewContentHash,
-        currentReviewContentHash: runtimeState.currentReviewContentHash,
-        currentStarRating: runtimeState.currentStarRating,
-        effectivePolicy: runtimeState.effectivePolicy,
-        moderation,
-        held,
-        subscriptionStatus: runtimeState.subscriptionStatus,
-        subscriptionTier: runtimeState.subscriptionTier,
-        accountPastDueAt: runtimeState.accountPastDueAt,
-        accountFlags: runtimeState.accountFlags,
-        activeLocationNow: runtimeState.activeLocationNow,
-        activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
-        triageSeverity: runtimeState.triageSeverity,
-        triageSource: runtimeState.triageSource,
-        autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
-      });
-
-      logAutoApprovalFallbackIfNeeded({
-        logger,
-        autoDecision,
-        runtimeState,
-        responseId,
-        reviewId,
-        businessId,
-        version,
-        originLane,
-        moderation,
-      });
-    } else {
-      autoDecision = structurallyBlockedDecision({ originLane, version, suppressNotification });
-    }
+    const { runtimeState, autoDecision } = await resolveAutoApprovalDecision(tx, {
+      isAutoApprovalCandidate,
+      reviewId,
+      businessId,
+      accountId,
+      responseId,
+      version,
+      originLane,
+      suppressNotification,
+      loadedReviewContentHash,
+      moderation,
+      held,
+      preLlmSubscriptionTier,
+      logger,
+    });
 
     // The moderation veto precedes the policy gate: a held draft never reaches
     // the gate, so no policy_gate step is recorded for it. On every other path
@@ -280,6 +236,97 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     });
     return { kind: 'persisted', responseId };
   });
+}
+
+/**
+ * Resolves the auto-approval decision for a freshly persisted draft, on the
+ * OPEN transaction `tx` after the moderation/hold write. Structural
+ * non-candidates get their decision without touching the DB: no runtime-state
+ * read (074 columns stay unread on flag-off deploys, finding 5) and no
+ * fallback log — logAutoApprovalFallbackIfNeeded's isAutoCandidate narrowing
+ * requires the live_ingest_new lane AND a configured policy, and structural
+ * blocks either fail the lane check or (flag off / regen / suppressed) are
+ * not the runtime-prerequisite story that log exists for (spec §15).
+ */
+async function resolveAutoApprovalDecision(
+  tx: postgres.TransactionSql,
+  args: {
+    isAutoApprovalCandidate: boolean;
+    reviewId: string;
+    businessId: string;
+    accountId: string;
+    responseId: string;
+    version: number;
+    originLane: GenerateResponseOriginLane | null;
+    suppressNotification: boolean;
+    loadedReviewContentHash: string | null;
+    moderation: ModerationDecision;
+    held: boolean;
+    preLlmSubscriptionTier: SubscriptionTierValue;
+    logger: Pick<WorkerLogger, 'log'>;
+  },
+): Promise<{ runtimeState: AutoApprovalRuntimeState | null; autoDecision: AutoApprovalDecision }> {
+  const {
+    isAutoApprovalCandidate, reviewId, businessId, accountId, responseId,
+    version, originLane, suppressNotification, loadedReviewContentHash,
+    moderation, held, preLlmSubscriptionTier, logger,
+  } = args;
+
+  if (!isAutoApprovalCandidate) {
+    return {
+      runtimeState: null,
+      autoDecision: structurallyBlockedDecision({ originLane, version, suppressNotification }),
+    };
+  }
+
+  // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const runtimeState = await loadAutoApprovalRuntimeState(tx, {
+    reviewId,
+    businessId,
+    accountId,
+  });
+  if (preLlmSubscriptionTier !== runtimeState.subscriptionTier) {
+    logger.log('Subscription tier changed during response generation', {
+      account_id: accountId,
+      pre_llm_subscription_tier: preLlmSubscriptionTier,
+      current_subscription_tier: runtimeState.subscriptionTier,
+    });
+  }
+  const autoDecision = evaluateAutoApprovalCandidate({
+    originLane,
+    version,
+    suppressNotification,
+    loadedReviewContentHash,
+    currentReviewContentHash: runtimeState.currentReviewContentHash,
+    currentStarRating: runtimeState.currentStarRating,
+    effectivePolicy: runtimeState.effectivePolicy,
+    moderation,
+    held,
+    subscriptionStatus: runtimeState.subscriptionStatus,
+    subscriptionTier: runtimeState.subscriptionTier,
+    accountPastDueAt: runtimeState.accountPastDueAt,
+    accountFlags: runtimeState.accountFlags,
+    activeLocationNow: runtimeState.activeLocationNow,
+    activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
+    triageSeverity: runtimeState.triageSeverity,
+    triageSource: runtimeState.triageSource,
+    autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
+  });
+
+  logAutoApprovalFallbackIfNeeded({
+    logger,
+    autoDecision,
+    runtimeState,
+    responseId,
+    reviewId,
+    businessId,
+    version,
+    originLane,
+    moderation,
+  });
+
+  return { runtimeState, autoDecision };
 }
 
 /**
