@@ -77,9 +77,21 @@ to the reacted-to table (deviations log, 2026-08-09). The invariant is:
 `none`×held and `posted`×held project `row_action 'none'` because the only
 affordances on offer there (Generate / the drawer) act on the draft. `recover`
 is not a draft affordance — it addresses the orphan incident (a failed repost
-with no live reply), which exists independently of any draft and must remain
-reachable. The held draft stays invisible either way; #726 owns the
+with no live reply). The held draft stays invisible either way; #726 owns the
 server-side hold checks the recovery drawer's discard path could reach.
+
+Dominance is a claim about the **affordance**, not about execution. `/retry`
+and `/restore-original` reject with `409 newer_draft_exists` while ANY
+non-terminal sibling exists — and a held draft (`pending_approval`) is
+non-terminal — so on an orphan×held row the recovery control renders but
+executing it waits on the admin disposition of the hold. That 409 is the
+migration-029 unique-index protection working as designed, not a defect of
+this projection. The cell is also all but unreachable: the only charted
+producer of orphan×held (#723's "Generate API on an orphan" leak) was closed
+post-#723 by `on-demand-generate`'s orphan refusal
+(`orphan_recovery_pending`). Remodelling recovery availability as a
+capability-projected axis was reviewed and deferred as a map #710 question
+(recorded in `docs/reviews/feat-727-row-state-axes/adversarial-approach.md`).
 
 ## Alternatives considered
 

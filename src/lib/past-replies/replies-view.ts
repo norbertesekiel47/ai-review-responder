@@ -139,7 +139,12 @@ export function deriveRowAction(reply: ReplyState, draft: DraftState): RowAction
       // Recovery dominates EVERY draft state (#723 locked call): the
       // affordance addresses the orphan incident, never the draft — a held
       // draft stays invisible, and #726 owns the server-side hold checks the
-      // recovery drawer could reach.
+      // recovery drawer could reach. Dominance is about the AFFORDANCE:
+      // executing /retry or /restore-original while any non-terminal sibling
+      // exists — a held draft included — 409s `newer_draft_exists`
+      // (migration-029 index protection); for a held sibling that wait is
+      // admin-controlled. Charted producers of orphan×held are closed
+      // (`on-demand-generate` refuses orphans).
       return 'recover';
     case 'posted':
       // held withdraws the drawer (invariant #4); a pending or in-flight

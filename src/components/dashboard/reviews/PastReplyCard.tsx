@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
 import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { InlineGeneratePanel } from '@/components/dashboard/reviews/InlineGeneratePanel';
@@ -198,10 +199,7 @@ function ReplySide({
   switch (row.row_action) {
     case 'regenerate':
       return (
-        <div className="pr-side pr-side-reply">
-          <ReplyEyebrow />
-          <ReplyBody row={row} query={query} />
-          <Provenance row={row} isImported={isImported} />
+        <ReplyPanel row={row} isImported={isImported} query={query}>
           <AnsweredControls
             row={row}
             editRepliesEnabled={editRepliesEnabled}
@@ -209,15 +207,12 @@ function ReplySide({
             onEditClick={onEditClick}
             onRecoveryClick={onRecoveryClick}
           />
-        </div>
+        </ReplyPanel>
       );
 
     case 'recover':
       return (
-        <div className="pr-side pr-side-reply">
-          <ReplyEyebrow />
-          <ReplyBody row={row} query={query} />
-          <Provenance row={row} isImported={isImported} />
+        <ReplyPanel row={row} isImported={isImported} query={query}>
           {/* D-G: an orphan reaches /retry or /restore-original and is never
               offered Generate — a first draft here would race recovery. */}
           <RecoveryControl
@@ -225,7 +220,7 @@ function ReplySide({
             editRepliesEnabled={editRepliesEnabled}
             onRecoveryClick={onRecoveryClick}
           />
-        </div>
+        </ReplyPanel>
       );
 
     case 'draft_ready':
@@ -259,16 +254,13 @@ function ReplySide({
         // invariant #4 forbids: held, not notified). RecoveryControl
         // self-gates on a delete_failed sidecar and stays: recovery addresses
         // the failed response, not the held draft.
-        <div className="pr-side pr-side-reply">
-          <ReplyEyebrow />
-          <ReplyBody row={row} query={query} />
-          <Provenance row={row} isImported={isImported} />
+        <ReplyPanel row={row} isImported={isImported} query={query}>
           <RecoveryControl
             row={row}
             editRepliesEnabled={editRepliesEnabled}
             onRecoveryClick={onRecoveryClick}
           />
-        </div>
+        </ReplyPanel>
       ) : (
         // none×held: today's held posture, reconstructed from the two wire
         // fields — the held value itself never crosses the wire (#723; owner
@@ -312,6 +304,34 @@ function ReplySide({
       return unreachable;
     }
   }
+}
+
+/**
+ * The panel every row with something on Google renders (posted AND orphan):
+ * eyebrow + reply body + provenance, with the action slot's controls as
+ * children. Extracted so a panel change lands once, not per switch arm (#727
+ * review F1) — the ARM chooses the controls; the panel is shared. The
+ * none×held "Reply on hold" panel is NOT this shape and stays inline.
+ */
+function ReplyPanel({
+  row,
+  isImported,
+  query,
+  children,
+}: {
+  row: PastReplyRow;
+  isImported: boolean;
+  query?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="pr-side pr-side-reply">
+      <ReplyEyebrow />
+      <ReplyBody row={row} query={query} />
+      <Provenance row={row} isImported={isImported} />
+      {children}
+    </div>
+  );
 }
 
 function ReplyEyebrow() {

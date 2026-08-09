@@ -11,10 +11,6 @@
 // derived once in `replies-view.ts`, which is where the invariant-adjacent
 // risk sits. These titles pin what each cell looks like.
 //
-// RED until Task 7: `PastReplyCard` has no Generate/Regenerate affordance
-// today, `ReviewsTabs` still gates the tab on `historyEnabled` and labels it
-// `History`, and `PastRepliesClient` still takes gapRows/histRows.
-//
 // Prop shapes pinned here (Task 7 must match): the card takes the typed
 // `reply_state` + `row_action` on the row plus an OPTIONAL `regenBudget` —
 // optional because "no entry in the budget map" must mean UNKNOWN, never

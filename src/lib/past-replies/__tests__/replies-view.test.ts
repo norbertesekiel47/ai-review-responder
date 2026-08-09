@@ -254,7 +254,6 @@ describe('groupReplies', () => {
 
 describe('the two-axis model invariants (#727)', () => {
   const anyReply = fc.constantFrom(...REPLY_STATES);
-  const anyDraft = fc.constantFrom(...DRAFT_STATES);
 
   it('never offers a draft affordance for a held draft in any reply state (invariant #4)', () => {
     fc.assert(
@@ -267,11 +266,11 @@ describe('the two-axis model invariants (#727)', () => {
   });
 
   it('derives a defined action for every cell of the 3x4 cross-product', () => {
-    fc.assert(
-      fc.property(anyReply, anyDraft, (reply, draft) => {
+    for (const reply of REPLY_STATES) {
+      for (const draft of DRAFT_STATES) {
         expect(ROW_ACTIONS).toContain(deriveRowAction(reply, draft));
-      }),
-    );
+      }
+    }
   });
 });
 
