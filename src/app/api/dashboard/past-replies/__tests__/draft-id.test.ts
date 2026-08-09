@@ -526,3 +526,63 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     expect(selectArgs[1]).not.toBe(LOCATION_ID);
   });
 });
+
+// ── #726 moderation-held draft gate ─────────────────────────────────
+//
+// A moderation-held draft (invariant #4) "surfaces neither its text nor any
+// button" — neither mutation may act on a held row: DELETE must not supersede
+// it and PATCH must not update it; both refuse with the owner-visible
+// vocabulary `held_for_review`. src/lib/moderation/held-draft.ts is the
+// semantic owner of "is this draft held" — the REAL hasOpenFlag executes its
+// flagged_responses query against the tx queue mock (consuming one entry,
+// binding the response id), so it is deliberately NOT mocked here.
+
+describe('draft/:responseId — moderation-held draft gate (#726)', () => {
+  const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
+
+  it('DELETE returns 409 held_for_review and does not supersede a held draft', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-response (pending_approval), hasOpenFlag → [{ one: 1 }]
+    // (open flag exists — the gate runs directly after the lock).
+    seedTxRows([{ status: 'pending_approval' }], [{ one: 1 }]);
+    const { DELETE } = await importHandlers();
+    const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
+    expect(res.status).toBe(409);
+    // Exactly the safe shape — the refusal vocabulary and nothing else.
+    expect(await res.json()).toEqual({ error: 'held_for_review' });
+
+    const txCalls: unknown[][] = txMock.mock.calls;
+    // The held row is never superseded — no UPDATE executed in the tx.
+    for (const call of txCalls) {
+      expect(joinTemplate(call)).not.toContain('UPDATE responses');
+    }
+    // hasOpenFlag ran against flagged_responses, binding the target response id.
+    const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
+    expect(flagCall).toBeDefined();
+    expect((flagCall as unknown[]).slice(1)).toContain(RESPONSE_ID);
+  });
+
+  it('PATCH returns 409 held_for_review and does not update a held draft', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    // Top-level: location-scoped response → review lookup.
+    seedTopLevel([{ review_id: REVIEW_ID }]);
+    // tx queue: lock-review, (optimistic mock resolves OK — no queue entry),
+    // lock-response (pending_approval), hasOpenFlag → [{ one: 1 }].
+    seedTxRows([{ id: REVIEW_ID }], [{ status: 'pending_approval' }], [{ one: 1 }]);
+    const { PATCH } = await importHandlers();
+    const res = await PATCH(makeRequest({ body: validPatchBody() }), ctx());
+    expect(res.status).toBe(409);
+    // Exactly the safe shape — the refusal vocabulary and nothing else.
+    expect(await res.json()).toEqual({ error: 'held_for_review' });
+
+    const txCalls: unknown[][] = txMock.mock.calls;
+    // The held row is never updated — no UPDATE executed in the tx.
+    for (const call of txCalls) {
+      expect(joinTemplate(call)).not.toContain('UPDATE responses');
+    }
+    // hasOpenFlag ran against flagged_responses, binding the target response id.
+    const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
+    expect(flagCall).toBeDefined();
+    expect((flagCall as unknown[]).slice(1)).toContain(RESPONSE_ID);
+  });
+});
