@@ -314,7 +314,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ responded: 12 }]);               // 5. responded
     sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // 6. latest ranking
     sqlReturnQueue.push([{ rank_position: 8 }]);            // 7. earliest ranking
-    sqlReturnQueue.push([{ name: 'Admin Pat' }]);           // 8. scoped admin sign-off
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);           // 8. onboarded_by admin sign-off
     sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
@@ -354,7 +354,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ total: 15 }]);            // 4. total reviews
     sqlReturnQueue.push([{ responded: 12 }]);        // 5. responded
     sqlReturnQueue.push([]);                         // 6. no latest ranking
-    sqlReturnQueue.push([{ name: 'Admin Pat' }]);    // 7. admin sign-off
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);    // 7. onboarded_by admin sign-off
     sqlReturnQueue.push([]);                         // 8. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
@@ -362,7 +362,10 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     const statements = mockSql.mock.calls
       .map(([strings]: [TemplateStringsArray]) => strings.join(' ? '))
       .join('\n');
-    expect(statements).toContain("WHERE role = 'admin'");
+    // The sign-off is resolved from businesses.onboarded_by and still admits
+    // only `admin`. The former `WHERE role = 'admin' AND business_id = …`
+    // branch read a column migration 034 dropped and is gone (#719).
+    expect(statements).toContain("u.role = 'admin'");
     expect(statements).not.toContain('sales_partner');
     expect(mockBuildOnboardingDay30Html).toHaveBeenCalledWith(
       expect.objectContaining({ supportContactName: 'Admin Pat' }),
@@ -380,9 +383,8 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ total: 3 }]);     // 4. total reviews
     sqlReturnQueue.push([{ responded: 3 }]); // 5. responded
     sqlReturnQueue.push([]);                  // 6. no latest ranking (skips earliest)
-    sqlReturnQueue.push([]);                  // 7. no scoped admin sign-off
-    sqlReturnQueue.push([]);                  // 8. no onboarder fallback
-    sqlReturnQueue.push([]);                  // 9. UPDATE sent_at
+    sqlReturnQueue.push([]);                  // 7. no onboarded_by admin sign-off
+    sqlReturnQueue.push([]);                  // 8. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 

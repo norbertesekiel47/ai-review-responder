@@ -21,6 +21,7 @@ import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { subscriptionGrantsFullAccess } from '../../src/lib/shared/subscription-status';
+import { resolveDashboardUrl } from './summary-report-helpers';
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
@@ -140,13 +141,8 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL;
 
-  // ── 5. Check owner has auth (for dashboard URL) ───────────────────
-  const [ownerWithAuth] = await sql<{ id: string }[]>`
-    SELECT id FROM users
-    WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL
-    LIMIT 1
-  `;
-  const dashboardUrl = ownerWithAuth && appUrl ? `${appUrl}/dashboard` : null;
+  // ── 5. Dashboard URL (null when the owner has no auth) ────────────
+  const dashboardUrl = await resolveDashboardUrl(sql, businessId, appUrl);
 
   // ── 6. Branch on drip type and build email ────────────────────────
   let html: string;
@@ -409,27 +405,17 @@ async function buildDay30(
     }
   }
 
-  // Staff sign-off name — same scoped chain as ResponsePublisherWorker:
-  // 1. Business-scoped admin
-  // 2. Onboarding staff via businesses.onboarded_by with role check
-  // 3. null (no sign-off)
-  let supportContactName: string | null = null;
-  const [scopedAdmin] = await sql<{ name: string }[]>`
-    SELECT name FROM users
-    WHERE role = 'admin' AND business_id = ${business.id}
+  // Staff sign-off name — resolved only from the onboarding staff member on
+  // businesses.onboarded_by. The former business-scoped-admin branch read
+  // users.business_id (dropped in migration 034) and is deleted rather than
+  // ported: admins carry account_id IS NULL, so no rewrite of it could match.
+  const [onboarder] = await sql<{ name: string }[]>`
+    SELECT u.name FROM users u
+    JOIN businesses b ON b.onboarded_by = u.id
+    WHERE b.id = ${business.id} AND u.role = 'admin'
     LIMIT 1
   `;
-  if (scopedAdmin) {
-    supportContactName = scopedAdmin.name;
-  } else {
-    const [onboarder] = await sql<{ name: string }[]>`
-      SELECT u.name FROM users u
-      JOIN businesses b ON b.onboarded_by = u.id
-      WHERE b.id = ${business.id} AND u.role = 'admin'
-      LIMIT 1
-    `;
-    supportContactName = onboarder?.name ?? null;
-  }
+  const supportContactName: string | null = onboarder?.name ?? null;
 
   const timeSavedMinutes = responded * 7;
 
