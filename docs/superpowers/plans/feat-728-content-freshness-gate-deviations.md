@@ -48,3 +48,28 @@
   `{ timeout: 10_000 }` (dispatch instruction: fail fast, never hang) — a
   failed assertion must not leave B's open tx holding the review row lock and
   wedge afterAll cleanup.
+- [2026-08-09] **Task 4 harness fix.** The new integration suite queried
+  `agent_run_steps`/`agent_outcomes` by `run_id`; the schema column is
+  `agent_run_id`. Fixed in the suite's spine assertions + afterAll cleanup
+  (4 sites). Gate semantics untouched.
+- [2026-08-09] **verify-gate env gap (workaround applied; out-of-surface
+  follow-up).** The gate resolves `TEST_DATABASE_POOL_URL` but not
+  `DATABASE_POOL_URL`, so a changed integration suite that transitively
+  imports the `src/lib/db/server` singleton (the autopilot-entitlement suite
+  via stripe `subscription-updated` ingress → `resolveAccountReference`) gets
+  vitest.setup's dummy `localhost:5432` and times out (30s + unhandled
+  ECONNREFUSED). Pre-existing suite requirement surfaced because Task 1's
+  mechanical unwrap made the suite "changed". Worked around by invoking the
+  gate with both vars exported to the test DB. `scripts/verify-gate.sh` is
+  outside this feature's surface — promote at step 8 (lab-notes + follow-up
+  ticket for the gate script).
+
+## Step 6 read-back verdicts (orchestrator, 2026-08-09)
+
+- Token owner relocation — **ACCEPT** (typed vocabulary made the original shape untypecheckable; one-owner preserved; owner signed the spelling).
+- Surface amendment #1 — **ACCEPT** (owner-approved; budget 1 of 2).
+- tests_to_add additions — **ACCEPT** (all three shipped verbatim and are green).
+- Rejected build/audit finding — **ACCEPT** (codex round 2 conceded with the gate-contract citation).
+- Task 1 adaptations (a)(b)(c) — **ACCEPT** (fixture-collision rename delegates rather than shadows; RowList quirk is a documented postgres.js behavior; the finally-release guard prevents a wedged afterAll — none touches gate semantics).
+- Task 4 harness fix — **ACCEPT** (column-name correction in test-only code).
+- verify-gate env gap — **ACCEPT** as workaround; carries a step-8 promotion obligation (lab-notes + gate-script ticket). Nothing invalidates a locked intake decision; no RE-PLAN entries.
