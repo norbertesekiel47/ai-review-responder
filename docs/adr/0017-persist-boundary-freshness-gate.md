@@ -138,7 +138,9 @@ the colliding-job paths.
 - Eval must cover the **stale-content direction** — a worker that already
   loaded old content persisting after the review changed. #678's existing
   race test covers only the reverse interleaving
-  (`src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts:436`).
+  (`'Generate racing live-ingest regeneration …'`,
+  `src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts:507`
+  as of #729's extraction — cite the title, the line drifts).
 - The skip-reason token + structured log line are the intake's observability
   answer.
 - `CONTEXT.md` gains the **content-freshness gate** term when the behavior
