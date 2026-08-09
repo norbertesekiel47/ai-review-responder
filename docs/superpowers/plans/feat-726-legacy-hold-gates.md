@@ -59,9 +59,13 @@ exists.
 technique — the house answer to mock-fidelity risk);
 `src/lib/reviews/__tests__/sentiment.test.ts` invariants block (fast-check).
 
-Author these eight tests, titles VERBATIM. Tests 1, 3–8 must be RED against
-current routes; test 2 is a deliberate GREEN characterization test locking
-the release path. Commit before any implementation.
+Author these eight tests, titles VERBATIM. Tests 1, 3, 5–8 must be RED
+against current routes; tests 2 AND 4 are deliberate GREEN characterization
+tests — test 2 locks the release path, test 4 locks tenant-before-held
+ordering (the current route already 403s cross-tenant before any held
+branching and ignores a mocked `held` field; the test exists so an
+implementation that branches on held BEFORE the tenant re-check turns it
+red). Commit before any implementation.
 
 **Assertion discipline (applies throughout, from round-1 findings):**
 - Seed draft text and response ids as UNIQUE SENTINELS; assert heldness
@@ -110,7 +114,8 @@ they stay green). Only add.
 ## Task 2 — Gate the poller (blocked by Task 1; runs ALONE first — enforcement spot check)
 
 **Files**: `draft-status/route.ts` + `__tests__/draft-status.test.ts`.
-**Turns green**: tests 1, 3, 4 (test 2 stays green).
+**Turns green**: tests 1 and 3 (tests 2 and 4 are characterizations and must
+STAY green through the change).
 
 In the `completed` branch, add the `held` column to the response lookup
 (D6 precedent, copy the comment discipline from
