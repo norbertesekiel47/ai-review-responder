@@ -49,6 +49,11 @@ export interface GenerationOptions {
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a
    *  cached violating response doesn't short-circuit the regeneration. */
   skipCache?: boolean;
+  /** The reviews.review_content_hash this worker attempt LOADED (ADR 0017
+   *  cache provenance). Production mode treats absence as null (legacy
+   *  pre-hash reviews); a cached draft is served only when its stored hash
+   *  strictly equals this value. */
+  loadedReviewContentHash?: string | null;
   /** WS2 triage severity for tone guidance; null/undefined = not triaged. */
   triageSeverity?: TriageSeverity | null;
 }

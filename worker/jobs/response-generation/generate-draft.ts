@@ -125,6 +125,11 @@ export async function generateDraft(
     subscriptionTier: businessContext.subscriptionTier,
     accountId,
     triageSeverity: ids.triageSeverity,
+    // ADR 0017 cache provenance: bind the idempotent-generation cache to the
+    // content hash this attempt loaded — the replacement job shares
+    // (reviewId, version), so the hash is what keeps a stale draft from
+    // being served across a content change.
+    loadedReviewContentHash: ctx.loadedReviewContentHash,
   };
 
   let result: GenerationResult;
@@ -171,7 +176,14 @@ export async function generateDraft(
       businessContext,
       normalizedReview,
       voiceExamples,
-      { reviewId, version, businessId, accountId, triageSeverity: ids.triageSeverity },
+      {
+        reviewId,
+        version,
+        businessId,
+        accountId,
+        triageSeverity: ids.triageSeverity,
+        loadedReviewContentHash: ctx.loadedReviewContentHash,
+      },
       logger,
     );
     return { kind: 'ok', result: guarded.result, retryCostId: guarded.retryCostId };
@@ -206,7 +218,14 @@ async function applyAvoidFactsGuardrail(
   businessContext: BusinessContext,
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
-  ids: { reviewId: string; version: number; businessId: string; accountId: string; triageSeverity: TriageSeverity | null },
+  ids: {
+    reviewId: string;
+    version: number;
+    businessId: string;
+    accountId: string;
+    triageSeverity: TriageSeverity | null;
+    loadedReviewContentHash: string | null;
+  },
   logger: WorkerLogger,
 ): Promise<{ result: GenerationResult; retryCostId?: string }> {
   const { avoidFacts } = businessContext;
@@ -227,6 +246,10 @@ async function applyAvoidFactsGuardrail(
       accountId: ids.accountId,
       triageSeverity: ids.triageSeverity,
       skipCache: true,
+      // Inert while skipCache is true (no cache read/write inside
+      // generateResponse), but threaded so both call sites carry the same
+      // provenance fact if skipCache semantics ever change.
+      loadedReviewContentHash: ids.loadedReviewContentHash,
     };
     const retryResult = isMockMode()
       ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, retryOpts)
@@ -238,7 +261,11 @@ async function applyAvoidFactsGuardrail(
       apiCostId: result.apiCostId, // Restore original (retryResult spread overwrote it)
     };
 
-    // Overwrite the cache so the polluted first-attempt entry doesn't persist
+    // Overwrite the cache so the polluted first-attempt entry doesn't persist.
+    // Must carry the same ADR 0017 provenance stamp as the generator's own
+    // cache write: a provenance-less overwrite would be rejected by every
+    // later cache read at this (reviewId, version), turning the documented
+    // "retry hits the idempotent cache" economy into a fresh re-spend.
     try {
       await setCachedGeneration(ids.reviewId, ids.version, JSON.stringify({
         responseText: merged.responseText,
@@ -247,6 +274,7 @@ async function applyAvoidFactsGuardrail(
         model: merged.model,
         promptTokens: merged.usage.promptTokens,
         completionTokens: merged.usage.completionTokens,
+        reviewContentHash: ids.loadedReviewContentHash,
       }));
     } catch {
       // Best-effort — cache TTL will expire the polluted entry eventually

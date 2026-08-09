@@ -112,3 +112,24 @@
   cache-provenance titles added to the intake; `estimated_prod_lines` 90→140,
   `estimated_test_lines` 650→800 (both under the 2× reclassify bar against
   actuals).
+- [2026-08-09] **Cache-provenance fix — mechanical adaptations (no semantic
+  drift, all inside the amendment-#2 surface).** (a) The avoid-facts guardrail
+  in `generate-draft.ts` overwrites the cache DIRECTLY via
+  `setCachedGeneration` (not through `tryWriteCache`); left provenance-less,
+  that entry would be rejected by every later cache read at the same
+  (reviewId, version), turning the documented "on retry the primary hits the
+  idempotent cache" economy (owner decision 2026-07-16) into a fresh re-spend.
+  Stamped `reviewContentHash: ids.loadedReviewContentHash` on the overwrite
+  payload and extended `applyAvoidFactsGuardrail`'s ids param accordingly; the
+  guardrail's `retryOpts` also threads the hash (inert under `skipCache:
+  true`, kept so both `generateResponse` call sites carry the same fact).
+  (b) The pre-existing generator test 'returns cached result with costUsd 0 on
+  cache hit' used a provenance-less fixture the new accept rule correctly
+  rejects; its fixture now carries `reviewContentHash: null` (a valid legacy
+  entry), preserving the test's original subject. (c) The worker-level
+  replacement test lives in a NEW file
+  `worker/jobs/response-generation/__tests__/generate-draft-cache-provenance.test.ts`
+  because `generate-draft.test.ts` mocks `generateResponse` at module scope —
+  its harness cannot honestly exercise the real cache accept path; the new
+  file drives generateDraft with the real generator + real cost-guard over a
+  Map-backed cache store and mocked LLM SDKs.
