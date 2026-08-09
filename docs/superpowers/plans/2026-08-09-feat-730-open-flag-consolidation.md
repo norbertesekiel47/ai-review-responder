@@ -542,9 +542,18 @@ using that suite's OWN `lateralBody(queryText, 'resp')` slicer (defined at
     const orderIdx = body.indexOf('ORDER BY version DESC');
     expect(notIdx).toBeGreaterThan(-1);
     expect(orderIdx).toBeGreaterThan(notIdx);            // filter BEFORE order/limit — held newest falls back to unheld sibling
-    // the fragment was built with the right correlation, as its own captured calls:
-    expect(harness.sqlCalls.some((c) => c.text.trim() === 'responses.id')).toBe(true);
-    expect(harness.sqlCalls.some((c) => c.text.includes('FROM flagged_responses fr'))).toBe(true);
+    // Correlation pin — LOCKED INTENT, harness-adaptive FORM (round-3 note:
+    // the harness may record only awaited statements, or may flatten fragment
+    // text into the outer statement). After applying the header's
+    // fragment-aware upgrade — which records EVERY tagged call, builds
+    // included — assert whichever observable the upgraded harness actually
+    // produces:
+    //   captured-build form:  a captured call whose text.trim() === 'responses.id'
+    //                         AND one containing 'FROM flagged_responses fr'
+    //   flattened form:       body contains "fr.response_id = responses.id"
+    //                         AND "FROM flagged_responses fr"
+    // One of the two MUST be asserted; if neither is observable the harness
+    // upgrade is wrong — fix the harness, do not weaken the pin.
   });
 ```
 
@@ -653,7 +662,10 @@ and mechanically forbids any of the eleven promised titles surviving as
       ['src/lib/agents/read.ts', 1],
     ];
     for (const [file, minCalls] of OWNER_FACING) {
-      const src = readFileSync(resolve(process.cwd(), file), 'utf-8');
+      const raw = readFileSync(resolve(process.cwd(), file), 'utf-8');
+      // strip line comments so a mention in prose can neither satisfy the
+      // invocation count nor trip the inline-spelling scan (round-3 hardening)
+      const src = raw.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
       const calls = src.match(/openFlagExistsSql\(/g)?.length ?? 0;
       expect(calls, `${file} must invoke openFlagExistsSql at least ${minCalls}×`).toBeGreaterThanOrEqual(minCalls);
       expect(src, `${file} re-spells the open-flag predicate inline`).not.toMatch(/FROM\s+flagged_responses/i);
@@ -670,7 +682,11 @@ and mechanically forbids any of the eleven promised titles surviving as
     ];
     for (const suite of SUITES) {
       const src = readFileSync(resolve(process.cwd(), suite), 'utf-8');
-      expect(src, `${suite} still carries a .todo stub`).not.toMatch(/it\.todo\(/);
+      // it.todo / test.todo, dot or bracket access, whitespace-tolerant
+      // (round-3 hardening: `it['todo'](...)` and `it.todo (...)` count too)
+      expect(src, `${suite} still carries a .todo stub`).not.toMatch(
+        /\b(?:it|test)\s*(?:\.\s*todo\b|\[\s*['"]todo['"]\s*\])/,
+      );
     }
   });
 ```
