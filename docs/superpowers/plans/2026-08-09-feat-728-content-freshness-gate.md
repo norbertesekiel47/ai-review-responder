@@ -114,8 +114,10 @@ describe('content-freshness gate (ADR 0017)', () => {
 
   it('content-freshness gate skips every generate-response origin lane before lane-specific work', async () => {
     // A gate conditional on one lane would pass every other test in this file.
-    // Round-2 finding #3: run with AUTO_APPROVAL_ENABLED ON (reuse the file's
-    // existing flag-enabling mechanism for its auto-approval candidate tests)
+    // Round-2 finding #3 / round-3 nit: enable the flag CONCRETELY, the way
+    // this file's candidate tests do (e.g. :281/:286):
+    //   process.env.AUTO_APPROVAL_ENABLED = 'true';
+    //   try { ...loop below... } finally { delete process.env.AUTO_APPROVAL_ENABLED; }
     // so live_ingest_new v1 is a TRUE candidate and its 3-statement lock
     // preamble executes (reviews FOR UPDATE → businesses FOR UPDATE →
     // entitlement advisory lock). "Lane-specific work" the gate must precede
