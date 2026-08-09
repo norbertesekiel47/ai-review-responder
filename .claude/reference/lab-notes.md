@@ -1901,3 +1901,31 @@ FAIL → two independent review rounds found the same defect class in one module
 
 ### [2026-08-08] #706 — a guard module whose prose is its spec carries a documentation multiplier; budget it as its own cost centre
 FAIL → the `/feature` step-5 `reclassify` trigger fired at **2.15×** — 280 production changed lines against `estimated_prod_lines: 130`. Step 0 was re-run as the workflow requires, and the lane came back **CONFIRMED, not changed**: the executable change was **32 lines**. The whole overrun was prose — 144 comment lines inside the audit module plus 52 across four repo docs (`CLAUDE.md`, `lab-notes.md`, `currents.md`, `progresstracking.md`), and the deviations record puts the full prose cost near 250 lines once the review rounds' own corrections are counted, roughly **8:1** against the code. WHY → this module's convention requires every mechanism to declare its blast radius in a `BOUND:` paragraph, and the change retired claims that four durable documents asserted as still open. Neither cost tracks lines of code, so estimating from the code was not a small arithmetic miss — it omitted a whole cost centre. The trigger's stated premise fails here too: "the heavier lane's controls exist for exactly this feature" does not hold when the overrun is documentation, because no heavier control (a staging ride, a merge pause) addresses prose volume. Second-order effect this ticket demonstrated: **each review round's corrections are themselves fresh claims**, so prose grows superlinearly with review depth — round 2 produced five findings and **every one was a defect introduced by a round-1 fix** (four on the standards axis, one on spec), all of them prose. CORRECT → when estimating a ticket against a module of this shape — every mechanism owes a `BOUND:`, and the change retires claims in `currents.md`/`progresstracking.md`/`lab-notes.md`/`CLAUDE.md` — budget the documentation separately from the code, the same way `estimated_diff_size` already has to budget production and test lines separately (#643). Do **not** amend `estimated_prod_lines` afterwards to clear the WARN: the intake is the record of what was predicted, and editing it defeats the trigger for the next feature. Leave the WARN standing and record why.
+
+## 2026-08-09 — #729 generate-tx extraction ship
+
+### [2026-08-09] #729 — the /feature edit-surface hook and feature-surface-audit DISAGREE on Next.js dynamic-segment paths; declare BOTH spellings
+
+An `allowed_edit_surface` entry containing `[reviewId]` can never satisfy both
+enforcement layers with one spelling. The bash hook (`edit-surface-guard.sh`)
+matches with `[[ == ]]` globs, so `[reviewId]` is a character class — the
+entry silently matches nothing and every in-scope edit is blocked; it needs
+`\[reviewId\]`. `scripts/ci/feature-surface-audit.ts` `globToRegExp` escapes
+every literal char (only `*`/`?` are wild), so it needs the UNESCAPED form and
+reads `\[` as a literal backslash — its header's claim that its semantics
+match the hook's is false for character-class characters. CORRECT APPROACH:
+declare both spellings side by side (each matcher is satisfied by one entry;
+the other is inert under `.some()`), and treat the dual entry as one surface
+item. Root fix (aligning the two matchers) is unowned as of #729.
+
+### [2026-08-09] #729 — postgres.js `TransactionSql` is NOT assignable to `Sql`; fragment helpers must take the union
+
+`statusArraySql(tx, …)` failed TS2345: postgres.js types `Sql` and
+`TransactionSql` as SIBLING interfaces (both extend `ISql`; `TransactionSql`
+lacks `CLOSE`/`END`/`PostgresError`/`options` + more), so a helper typed
+`(sql: Sql, …)` rejects a transaction handle even though the runtime tag call
+is identical. Passing the singleton from inside a domain module instead would
+violate invariant #15. CORRECT APPROACH: shared SQL-fragment helpers accept
+the caller's client as a union — `SubscriptionSql` in
+`src/lib/shared/writable-subscription.ts` is the named precedent;
+`statusArraySql` (`src/lib/shared/response-status-sql.ts`) joined it at #729.

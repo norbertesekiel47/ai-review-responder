@@ -2623,3 +2623,59 @@ directions — rename the lock marker in the real file text and `unlocked-ddl`
 appears; hoist the DDL out of the wrapper with the declaration left in place and
 it does not, which is the bound the module now states plainly instead of
 claiming the check is total.
+
+## Generate transaction extraction (2026-08-09, #729 → PR #733)
+
+Wayfinder map #710, item 3 — the design correction #678's review filed against
+itself. Behaviour-preserving: no migration, no env var, no flag, no new
+dependency; net +163-line module against a 184-line route shrink to
+composition root.
+
+### What shipped
+
+- `src/lib/reviews/on-demand-generate.ts` (new): `onDemandGenerateTx(tx,
+  { reviewId, businessId })` → `OnDemandGenerateResult` discriminated union
+  (`ok` | `review_not_found` | `not_writable` | `already_answered` |
+  `draft_already_exists` | `orphan_recovery_pending` |
+  `regenerate_in_progress`). Owns the review `FOR UPDATE` lock, the in-tx
+  TOCTOU `assertWritableSubscriptionForBusiness` re-check, the three sibling
+  exclusions + orphan guard, `COALESCE(MAX(version),0)+1` (D-B), and the
+  atomic `enqueueGenerateResponse` with `originLane = ON_DEMAND_GENERATE` +
+  `suppressNotification: true` (invariants #2/#3 comment block moved with the
+  code). Receives `tx` explicitly; never imports `@/lib/db/server` (#15).
+- Route slimmed to orchestration (#12); mapping table preserves every status
+  code, error string, and the pre-existing NO_STORE_HEADERS asymmetry. The
+  `on_demand_generate_enqueued` log line moved after `sql.begin` resolves —
+  post-commit, where before it fired pre-commit inside the tx (deliberate
+  truthfulness improvement; the only intentional observable delta).
+- The three sibling reads gained `AND business_id = …` (zero cost — businessId
+  already resolved and locked), so their 3 tenant-root-lookup allowlist
+  entries were DELETED and `ALLOWLIST_BASELINE` moved 412→409 with a history
+  step explaining the shrink.
+- `statusArraySql` widened one line to take the caller's `sql`/`tx` client.
+
+### Process notes (/feature run)
+
+- Eval-first: the 9-title module suite was committed RED before any
+  implementation; both #678 suites (515-line unit + live-DB
+  `generate-version.integration.test.ts`) served as the characterization eval
+  and survived with zero assertion changes (route.test.ts took a
+  mock-plumbing-only txMock fragment pass-through, deviation D3).
+- One counted surface amendment (A1): `src/lib/shared/response-status-sql.ts`
+  — the plan's claim that `TransactionSql` is assignable to `Sql` was false.
+- Cross-worktree coordination: `scripts/ci/tenant-scope-allowlist.ts` overlaps
+  the parked feat-719 worktree; agreed merge order #729-first recorded in both
+  deviations files (feat-719 rebases + recomputes the baseline on resume).
+- Two-axis step-7 review: one shared finding (stale allowlist baseline
+  narrative), fixed, round-2 verified. Verify gate GREEN 4× (2× `--review`
+  with diff-coverage); all 12 GitHub checks green.
+
+### Gotchas promoted to lab-notes
+
+- The `/feature` edit-surface bash hook and `feature-surface-audit.ts`
+  DISAGREE on Next.js dynamic-segment paths (`[reviewId]`): bash needs `\[`
+  escaping, the TS matcher escapes literals and needs the unescaped form —
+  declare BOTH spellings in `allowed_edit_surface`.
+- postgres.js `TransactionSql` is NOT assignable to `Sql` (sibling
+  interfaces) — shared SQL-fragment helpers must accept the union
+  (`SubscriptionSql` precedent).
