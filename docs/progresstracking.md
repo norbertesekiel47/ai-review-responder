@@ -2679,3 +2679,54 @@ composition root.
 - postgres.js `TransactionSql` is NOT assignable to `Sql` (sibling
   interfaces) — shared SQL-fragment helpers must accept the union
   (`SubscriptionSql` precedent).
+
+## 2026-08-09 — #726 Legacy Past Replies hold gates (PR #735, squash 174c121d)
+
+Ticket-seeded `/feature` run off wayfinder map #710 (item 1, server half).
+RISK=high (invariant #4) → full apparatus: codex plan review, three-axis
+branch review, staging ride, owner merge pause. **No migration, no env var,
+no flag, no new dependency.** 77 prod / 308 test lines (est. 60/280 — no
+reclassify).
+
+- **What shipped**: hold gates on all four handlers of the three legacy
+  draft routes. Poller → text-free `failed`/`held_for_review` (200) via D6
+  inline correlated EXISTS; POST existing-draft branch → 409 without the
+  `existing` payload, SELECT upgraded to `FOR UPDATE` (post-lock gate per
+  the held-draft.ts contract); PATCH + DELETE → 409 post-lock, row
+  untouched. Tenant-before-held ordering locked by a green characterization
+  test. Discharges the `EDIT_REPLIES_ENABLED` production-flip launch blocker.
+- **Grilling forks locked** (owner, 2026-08-09): poller shape =
+  `failed`+`held_for_review` over a named `held` state (client's existing
+  terminal-closable path; #727 renders properly later); PATCH gated as a
+  ticket delta (same file, "a server gate cannot depend on a client
+  affordance"); DELETE refuses explicitly over silent no-op 204.
+- **Plan review**: codex rounds 1–3 → APPROVED. Round-1 HIGH catch: the
+  plan violated the intake's own post-FOR-UPDATE invariant in POST /draft
+  (existing-draft SELECT was lock-free). Round-1 also hardened the eval:
+  whole-body sentinel assertions, SQL-shape assertions
+  (held-draft.test.ts technique), tenant-precedence characterization.
+  Rejected with recorded reasons: live-DB matrix, `last_error` sentinel,
+  `it.each` replacing the mandated fast-check property.
+- **Execution**: eval task first (8 tests: 6 red / 2 green
+  characterizations), then Tasks 2/3/4 as parallel subagents (disjoint
+  files; Task 1 had already served as the enforcement spot check — D3).
+- **Amendment A1** (owner-approved): `scripts/ci/tenant-scope-allowlist.ts`
+  — the two changed queries moved out from under their `sqlSnippet`
+  fingerprints (recurrence of the known lab-notes class); snippets updated
+  in place, baseline unchanged.
+- **Deviations D1–D5** all ACCEPT; D4 = edit-surface-guard bracket-glob
+  footgun (existing lab-notes entry extended with the two-copies
+  refinement).
+- **Branch review round 1**: spec 2 LOW (correlation-predicate assertion —
+  fixed; stale `useEditReplyDraft.ts` comment — deferred to #727,
+  out-of-surface). Standards (thermo-nuclear): NO FINDINGS. Codex
+  adversarial: **no-ship** (named-held poller state; shared enforcement
+  seam; live-DB concurrency) — all three REJECTED as locked-decision /
+  #730-scope / thrice-rejected re-asks; both positions in
+  `docs/reviews/feat-726-legacy-hold-gates/triage-verdicts.md` and the PR.
+  Round 2 verification: CLEAN.
+- **Ship**: rebased onto #729 (allowlist baseline 412→409 absorbed clean);
+  staging rode the exact SHA (deploy success `f8bd5dd3`; SSO-gated routes
+  302 as documented — deployment-guide.md:1329); all 12 CI checks green;
+  owner-approved squash-merge; staging reset to main per the documented
+  post-squash procedure.

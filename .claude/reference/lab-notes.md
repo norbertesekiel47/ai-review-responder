@@ -1917,6 +1917,12 @@ match the hook's is false for character-class characters. CORRECT APPROACH:
 declare both spellings side by side (each matcher is satisfied by one entry;
 the other is inert under `.some()`), and treat the dual entry as one surface
 item. Root fix (aligning the two matchers) is unowned as of #729.
+#726 refinement: when the two intake copies stay separate, each can carry
+ONLY its consumer's spelling — the committed docs copy (read by
+`ci:feature-surface`) unescaped, the gitignored `.feature/intake.json`
+arming copy (read by the bash hook) escaped. Both-spellings-in-one-list is
+required only where a single copy feeds both matchers; #726 shipped green
+with the split spelling (deviations D4).
 
 ### [2026-08-09] #729 — postgres.js `TransactionSql` is NOT assignable to `Sql`; fragment helpers must take the union
 
