@@ -310,3 +310,28 @@ the property the seam was hiding. `attachJobFailureSink` is still statically che
 `worker/index.ts`, its only production caller.
 
 **Verdict:** _(pending step 6)_
+
+## D10 — the `worker/jobs/` sweep needs `DATABASE_POOL_URL`, not just `TEST_DATABASE_POOL_URL`
+
+**When:** Task 3, step 4 (full verification).
+
+**What:** Step 4 exports only `TEST_DATABASE_POOL_URL` before `pnpm vitest run worker/jobs/`.
+That is sufficient for the three eval suites but not for the directory sweep: one pre-existing
+sibling, `worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts`,
+exercises the billing status applier through the `@/lib/db/server` singleton and — unlike the
+drip integration suite, which points `process.env.DATABASE_POOL_URL` at the test DB in its own
+`beforeAll` — never redirects that variable itself. The singleton therefore bound the postgres.js
+default, and its tenth case (`subscription-updated holds entitlement first, projects Copilot,
+then publisher downgrades`) hung for 30s and died on `ECONNREFUSED …:5432`, reading as
+`1 failed | 1066 passed` on an otherwise clean sweep.
+
+**Why this is not Task 3's:** A/B'd against a clean tree — `git stash push` of the two Task 3
+files reproduced the identical `1 failed | 9 passed` in that suite, and the failure also
+reproduces with the file run in isolation, so it is neither a Task 3 regression nor a
+cross-suite interaction. Exporting `DATABASE_POOL_URL` to the same local test DB turns it
+10/10 green and the whole directory to **84 files / 1067 tests passed**. Nothing was edited to
+achieve that: the gap is in the step-4 command's environment, not in code. CI is unaffected —
+it sets `DATABASE_POOL_URL`. Recorded so the next runner of this sweep exports both variables
+rather than re-diagnosing a red that is not theirs.
+
+**Verdict:** _(pending step 6)_
