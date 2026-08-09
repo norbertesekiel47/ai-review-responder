@@ -221,3 +221,13 @@ next by agreement).
 
 ---
 ORCHESTRATOR TRIAGE (round 1): LOW scripts/ci/tenant-scope-allowlist.ts:59-64 stale baseline narrative — ACCEPTED, fixed by appending the `412 → 409 (#729)` history step explaining the deletion (comment-only). No other findings.
+
+---
+ROUND 2 (verification-only, combined axes): F1 fix verified in b1887161. The baseline
+history now ends `412 → 409 (#729)`, explaining the three Generate-door entries were
+deleted because the moved module's sibling reads are natively business-scoped — confirmed
+against `src/lib/reviews/on-demand-generate.ts` (five `AND business_id = ...` predicates).
+The ledger arithmetic is continuous (414−2=412, 412−3=409 = ALLOWLIST_BASELINE), so
+feat-719's owner can recompute it coherently. `git show b1887161` on the allowlist file is
+comment-only (5 added lines, no code/data), and `pnpm ci:tenant-scope` passes at 409/409.
+ROUND-2 VERDICT: APPROVED.
