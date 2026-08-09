@@ -152,20 +152,40 @@ export async function cleanupLocation(db: Sql, businessId: string): Promise<void
 
 - [ ] **Step 2: Add the execution sentinel — the test that proves the other live tests RAN**
 
-`describeWithDb`'s two-argument form registers *skipped* suites when `TEST_DATABASE_POOL_URL` is unset, so vitest can exit green with zero live coverage. Put this first in `worker/jobs/__tests__/onboarding-drip.integration.test.ts`:
+`describeWithDb`'s two-argument form registers *skipped* suites when `TEST_DATABASE_POOL_URL` is unset, so vitest can exit green with zero live coverage.
+
+**The sentinel must sit OUTSIDE `describeWithDb`.** Putting it inside would make it skip under
+exactly the condition it exists to detect — a guard that disappears whenever it is needed is not a
+guard. It therefore runs unconditionally, silenced only by the repo's sanctioned opt-out
+`REPWORTH_DISABLE_LIVE_DB_SUITES=1`, so an *accidentally* missing URL fails loudly while a
+*deliberate* local opt-out stays quiet. Put it at the top of
+`worker/jobs/__tests__/onboarding-drip.integration.test.ts`, before any `describeWithDb` block:
 
 ```typescript
+import { assertSchemaReady } from '@/lib/shared/__tests__/helpers/schema-ready';
+
+// Deliberately NOT inside describeWithDb: that helper SKIPS when the URL is
+// absent, which is the exact failure this test exists to catch. A silent skip
+// of the other 10 live cases is indistinguishable from a green run, and that
+// blindness is how #719 shipped in the first place.
+const liveDbDeliberatelyDisabled = process.env.REPWORTH_DISABLE_LIVE_DB_SUITES === '1';
+
+describe.skipIf(liveDbDeliberatelyDisabled)('#719 live-DB eval preconditions', () => {
   it('the live-DB eval executes against migration-head Postgres', async () => {
-    // Fails loudly rather than skipping: a green run with this test absent from
-    // the report means the whole live-DB guard silently did not execute.
     expect(process.env.TEST_DATABASE_POOL_URL ?? '').not.toBe('');
-    await assertSchemaReady(sql());
-    const [{ ok }] = await sql<{ ok: number }[]>`SELECT 1 AS ok`;
-    expect(ok).toBe(1);
+    const probe = postgres(process.env.TEST_DATABASE_POOL_URL!, { max: 1, onnotice: () => {} });
+    try {
+      await assertSchemaReady(probe);
+    } finally {
+      await probe.end();
+    }
   });
+});
 ```
 
-Import `assertSchemaReady` from wherever the existing live-DB suites import it (`rg -n "assertSchemaReady" src worker --type ts` — reuse, do not re-implement).
+This is the one test in the eval that is **green before any implementation task** — it asserts
+infrastructure, not behaviour, and is a discriminator for "did the guard run", not for "is the
+feature fixed". Every other title (2–25) must be red before its implementing task.
 
 - [ ] **Step 3: Write the drip live-DB suite (titles 2–11), failing**
 
