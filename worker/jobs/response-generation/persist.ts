@@ -18,6 +18,7 @@ import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
 import {
   enqueuePendingPostNotice,
   enqueuePublishResponse,
@@ -79,7 +80,9 @@ export function hasStaleReviewContent(
   loadedReviewContentHash: string | null,
   currentReviewContentHash: string | null,
 ): boolean {
-  return false; // Task 2 implements; eval stays red until then
+  return loadedReviewContentHash !== null
+    && currentReviewContentHash !== null
+    && loadedReviewContentHash !== currentReviewContentHash;
 }
 
 export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<PersistResponseOutcome> {
@@ -105,8 +108,9 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     && version === 1
     && !suppressNotification;
 
+  let staleContentSkip = false;
   await sql.begin(async (tx) => {
-    await acquirePersistLocks(tx, {
+    const { currentReviewContentHash } = await acquirePersistLocks(tx, {
       reviewId,
       businessId,
       responseId,
@@ -114,6 +118,22 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       isAutoApprovalCandidate,
       logger,
     });
+
+    // Content-freshness gate (ADR 0017): runs before the lane split, covers all
+    // lanes. Skip-the-INSERT keeps the (review_id, version) slot free for the
+    // colliding fresh job — persisting in ANY status would starve it via the
+    // idempotency check. Zero writes on skip.
+    if (hasStaleReviewContent(loadedReviewContentHash, currentReviewContentHash)) {
+      logger.log('content-freshness gate skipped persist', {
+        reason: OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT,
+        review_id: reviewId,
+        business_id: businessId,
+        version,
+        origin_lane: originLane,
+      });
+      staleContentSkip = true;
+      return; // tx commits with zero writes
+    }
 
     await tx`
       INSERT INTO responses (
@@ -262,7 +282,9 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     });
   });
 
-  return { kind: 'persisted', responseId };
+  return staleContentSkip
+    ? { kind: 'skipped_stale_content' }
+    : { kind: 'persisted', responseId };
 }
 
 /**
@@ -280,7 +302,7 @@ async function acquirePersistLocks(
     isAutoApprovalCandidate: boolean;
     logger: Pick<WorkerLogger, 'warn'>;
   },
-): Promise<void> {
+): Promise<{ currentReviewContentHash: string | null }> {
   const {
     reviewId, businessId, responseId, accountId, isAutoApprovalCandidate, logger,
   } = args;
@@ -293,9 +315,13 @@ async function acquirePersistLocks(
   // ingest, edit-publish/failed-hook, or another persist for the same
   // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
   // the auto-approval content-hash re-read further down happens under this
-  // lock, so it cannot race a concurrent content-changed ingest.
-  const [reviewLock] = await tx<{ id: string }[]>`
-    SELECT id FROM reviews
+  // lock, so it cannot race a concurrent content-changed ingest. The
+  // content-freshness gate's freshness re-read (ADR 0017) rides this SAME
+  // statement: the current review_content_hash returned here is read under
+  // the lock, so the gate's comparison cannot race a concurrent
+  // content-changed ingest either.
+  const [reviewLock] = await tx<{ id: string; review_content_hash: string | null }[]>`
+    SELECT id, review_content_hash FROM reviews
     WHERE id = ${reviewId} AND business_id = ${businessId}
     FOR UPDATE
   `;
@@ -336,6 +362,8 @@ async function acquirePersistLocks(
     // before the responses INSERT (and every later account-FK child write).
     await acquireTierEntitlementLock(tx, accountId);
   }
+
+  return { currentReviewContentHash: reviewLock?.review_content_hash ?? null };
 }
 
 /**
