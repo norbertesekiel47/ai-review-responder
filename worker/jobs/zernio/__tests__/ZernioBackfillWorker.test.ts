@@ -696,7 +696,7 @@ describe('consented import selection (#675)', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
 
-  it('writes only imported_count and skipped_count; legacy counters stay at their defaults', async () => {
+  it('ZernioBackfillWorker counters UPDATE never names a migration-103-dropped legacy counter', async () => {
     pushImportSqlSetup();
     mockListReviews.mockResolvedValueOnce(page([
       makeReview('u-0', inWindowMs(0)),
@@ -711,7 +711,13 @@ describe('consented import selection (#675)', () => {
     expect(countsText).toContain('imported_count');
     expect(countsText).toContain('skipped_count');
     expect(countsCalls[0]!.slice(1)).toEqual([2, 0, null, 'run-1']);
-    // No statement in the whole run may touch a legacy counter column.
+    // No statement in the whole run may name a legacy counter column. Since
+    // migration 103 (#680) DROPPED all four, naming one is no longer a stale
+    // write — it is a hard 42703 undefined_column in production. This suite is
+    // mock-`sql` based, so a reintroduced legacy name is invisible to every
+    // other check here: the mock accepts SQL the database would reject. That
+    // asymmetry is the reason this guard was KEPT rather than deleted with the
+    // columns (plan review F3) — failing in CI beats failing in production.
     for (const text of sqlTexts()) {
       for (const legacy of LEGACY_COUNTER_COLUMNS) {
         expect(text).not.toContain(legacy);
@@ -1078,7 +1084,7 @@ describe('consented import selection (#675)', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(sqlArg, 'outbox-backfill-1', undefined);
   });
 
-  it('reactivation INSERT names no legacy counter column', async () => {
+  it('ZernioBackfillWorker reactivation INSERT never names a migration-103-dropped legacy counter', async () => {
     pushImportSqlSetup({ runId: 'run-r' });
     mockListReviews.mockResolvedValueOnce(page([]));
 

@@ -351,6 +351,17 @@ Set `ZERNIO_PUBLISHING_ENABLED=true`, `MOCK_EXTERNAL_APIS=false`, real `ZERNIO_A
    [ZernioBackfillWorker] Backfill complete biz=<id> tier=standard: gap=N/M historical=0/K
    ```
 4. Verify in Supabase:
+
+   > **SUPERSEDED by migration 103 (#680) — do not run this query as written.**
+   > The four `gap_*`/`historical_*` counters were DROPPED from
+   > `zernio_backfill_runs`; reusing this SELECT now raises SQLSTATE 42703
+   > (undefined_column). They collapsed into `imported_count` (= gap + historical
+   > processed) and `skipped_count` (= gap + historical skipped) at #675, so the
+   > per-lane split this step reads is no longer recorded anywhere. This runbook is
+   > *completed* and kept as history — the query below is preserved as it ran, not
+   > rewritten. For an equivalent check today, select `imported_count`,
+   > `skipped_count`, `oldest_skipped_create_time`, `completed_at`.
+
    ```sql
    SELECT business_id, subscription_tier, gap_processed_count,
           gap_skipped_count, historical_processed_count,
@@ -373,8 +384,8 @@ Set `ZERNIO_PUBLISHING_ENABLED=true`, `MOCK_EXTERNAL_APIS=false`, real `ZERNIO_A
 ### 5.2 First-connect backfill — premium tier
 
 Repeat 5.1 with a `subscription_tier='premium'` business. Confirm:
-- `historical_processed_count` ≤ 50 (cap)
-- `historical_skipped_count` = total older reviews − processed
+- `historical_processed_count` ≤ 50 (cap) — *column dropped by migration 103 (#680); folded into `imported_count`*
+- `historical_skipped_count` = total older reviews − processed — *column dropped by migration 103 (#680); folded into `skipped_count`*
 - All historical reviews get `pending_approval` responses
 
 ### 5.3 Steady-state webhook ingestion

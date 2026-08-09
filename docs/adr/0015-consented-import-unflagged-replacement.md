@@ -128,11 +128,21 @@ turns a one-command backout into an incident.
   this epic despite map #667 listing it as a candidate. Removing it from the
   per-session skill list is part of #673.
 
-- **The epic owes a cleanup migration.** Dropping the four legacy counters is
-  deferred work, not cancelled work; leaving them permanently is the failure mode
-  where the split becomes an excuse. It is tracked as the epic's closing ticket
-  and must not be folded into an unrelated migration slot (ADR 0011 collision
-  class).
+- **The epic owes a cleanup migration. — DISCHARGED by migration 103 (#680).**
+  Dropping the four legacy counters was deferred work, not cancelled work;
+  leaving them permanently is the failure mode where the split becomes an
+  excuse. It was tracked as the epic's closing ticket and kept out of any
+  unrelated migration slot (ADR 0011 collision class).
+  `supabase/migrations/103_drop_legacy_backfill_counters.sql` lands it, gated on
+  a two-branch reconciliation preflight that is **executable inside the
+  migration** rather than documented for an operator to remember, and applied
+  only after the epic proved end-to-end on staging
+  (`docs/runbooks/evidence/2026-08-08-consented-import-staging-proof.md`).
+  Note what 103 changes about *this* ADR's backout story: it is the **point of no
+  return**. Reverting a pre-#675 epic PR after 103 applies puts the old
+  dual-writing worker against a schema without those columns (42703), so the
+  revert-only backout stops being sufficient from 103 onward — which is
+  precisely why the collapse shipped as two migrations rather than one.
 
 - **Staging evidence starts from zero.** The Solicitation SEND-MODE epic (#617)
   lost its staging fixtures in the same reset — 212 `solicitation_asks`, 46
