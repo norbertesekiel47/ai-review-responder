@@ -154,13 +154,23 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
-  it('sends a drip sitting exactly on the staleness boundary', async () => {
-    // Equality is NOT stale — the comparison is strictly `<`, matching the
-    // scheduler. A `<=` here would silently drop every boundary drip, and the
-    // locked intake says send AT the boundary.
+  it('sends a drip still inside the staleness window', async () => {
+    // Deliberately 5 minutes INSIDE the boundary, not exactly on it.
+    //
+    // An exact-boundary fixture here is a time RACE, not a boundary check: the
+    // cap is `activated + 4 days`, so seeding `Date.now() - 4 days` makes the cap
+    // equal to the instant the fixture was built — and `handleOnboardingDrip`
+    // then constructs its OWN `new Date()` a few ms later, which is already past
+    // it. The guard correctly refuses, the test fails, and nothing is wrong with
+    // the code. It passed locally and lost the race on slower CI.
+    //
+    // Exact equality (`<` vs `<=`) IS pinned, by the scheduler suite's title 12,
+    // which can do it honestly because `runOnboardingDripCycle` takes an injected
+    // `asOf`. The handler has no such seam — it builds its own clock — so the
+    // strongest thing testable here is "comfortably inside still sends".
     sqlReturnQueue.push([
       mockBusinessRow({
-        subscription_activated_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+        subscription_activated_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000),
       }),
     ]);
     sqlReturnQueue.push([{ id: 'claim-1' }]); // drip-log claim
