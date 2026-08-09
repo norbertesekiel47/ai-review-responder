@@ -33,7 +33,11 @@ test green. It can be dropped without touching the correctness fix.
 > sees what was claimed at amendment time and what it became. The amendment itself (the 2 files)
 > is unaffected; **amendment count remains 1**.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** The amendment did what it claimed — `resolveDashboardUrl` replaced a pair
+composed verbatim at three call sites and removed `Array<{exists: number}>` from the interface.
+The containment paragraph went stale (see the note above) and the collapse became inseparable
+from the fix, which is a documentation defect rather than a scope one: the two files named are
+exactly the two files edited.
 
 ---
 
@@ -56,7 +60,10 @@ and the branch was rebased onto `bea12e68` while still docs-only. #720 remains a
 #721 edited `.claude/reference/lab-notes.md` — the file Task 6 appends to — and rebasing before
 any code lands is cheaper than resolving that append twice.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** The predicted risk did not materialise — `pnpm ci:live-db-suites` passed on
+the first run with the new `seedLocation`/`cleanupLocation` helpers in scope, and passed again on
+both green gate runs. The rebase onto `bea12e68` cost nothing: zero conflicts, and #720 remains an
+ancestor.
 
 ---
 
@@ -90,7 +97,12 @@ so the contract does not silently disagree with the code.
 Mitigated by saying so in CONTEXT.md's **Watchdog** entry and the lab notes, and filed as a
 follow-up against `OutboxPoller.ts`.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** As built, `worker/job-failure-sink.ts` writes nothing to `job_outbox` and
+`src/lib/shared/outbox.ts` is untouched. The reversal returned scope to what was signed off
+rather than removing signed-off scope, which is the check that mattered — had it invalidated a
+locked decision, the abort criteria applied. The stated cost stands and is now documented in
+CONTEXT.md's **Watchdog** entry and the lab notes: a terminal row still reads the reclaim text,
+and the diagnosis lives in Sentry. The `OutboxPoller.ts` follow-up is filed.
 
 ---
 
@@ -107,7 +119,10 @@ them. `isTerminalAttempt` is also deliberately `attemptsMade >= max || attemptsM
 not the naive `>=` I had written — a subtle behavioural difference I would have shipped. Promoted
 to lab notes in Task 6 as a grep-first rule.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** The sink imports `isTerminalAttempt` and defines no duplicate; Task 5
+additionally declined to import `errorMessage` because it had no use for it. Promoted to lab
+notes as a grep-first rule, with the `>= max || +1 >= max` subtlety recorded — that predicate
+difference is the part that would have shipped as a silent behaviour change.
 
 ---
 
@@ -127,7 +142,12 @@ retitles and `verification_commands` corrections do not count against the amendm
 Amendment count remains **1** (D1). Both intake copies updated; all 25 titles verified present
 verbatim in plan v2.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT — and this is the single highest-value deviation in the file.** All 25 titles
+were verified red before their implementing task and green after (24 red + the infrastructure
+sentinel green by design). The v1 eval would have shipped four already-passing tests, no live
+day_7 coverage, and a suite that could skip silently. Judged against outcome rather than
+intent: the eval caught the real `42703` against live Postgres at titles 8–11, which is the
+proof no unit suite in this repo could have produced.
 
 ---
 
@@ -155,7 +175,10 @@ entries." No surface change; **amendment count remains 1** (D1). `intakeSha256` 
 contract that asserts the reversed fact, not just the one the review finding cited. D3 corrected
 the bullet the reviewer pointed at and stopped there.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Both intake copies carry the corrected `goal` and re-diff byte-identical;
+`intakeSha256` was refreshed by `set-phase`. The correction is now load-bearing for step 7: a
+reviewer diffing the implementation against the contract's headline finds agreement rather than
+an unmet promise with its refutation buried two fields lower.
 
 ---
 
@@ -204,7 +227,19 @@ the bullet the reviewer pointed at and stopped there.
 **Classification:** none of these is a surface change — all five land inside Task 1's four files.
 **Amendment count remains 1** (D1).
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT, with one item carried to step 7.** Four of the five were plan-spec errors
+corrected without weakening a test (`assertSchemaReady` arity, the `users_role_check` rejection of
+`role='staff'`, title 14's day_7-scoping, `sql.json()` on a declared interface) — and the title-14
+arithmetic was re-derived by hand at triage: a business activated `asOf − 10 days` has its day_7
+due at `asOf − 3d`, inside its own grace window, so a correct implementation MUST queue it and a
+global "0 rows" assertion would have been unsatisfiable. The scoping is right.
+
+**Carried forward:** the fifth item — loading three not-yet-existing seams via dynamic import
+behind `as unknown as` views — was a **temporary** measure to keep `pnpm typecheck` green for
+three parallel tasks, and it silently defeated type-checking against the real signatures (the
+views declared `businessId: string` where the real one takes the branded `LocationId`). All three
+were converted to static imports by their implementing tasks (T2/T4/T5), each confirming no cast
+replaced them. Step 7 should verify that independently rather than take three agents' word for it.
 
 ---
 
@@ -282,7 +317,12 @@ configured`), not title 6. Title 6 is the cross-account isolation case. Titles 2
 correctly. Recorded because a step-7 reviewer checking the claim against title 6 would find a
 mismatch and reasonably doubt the whole justification.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Not an amendment — the glob `worker/jobs/__tests__/**` always covered the
+file, and the amendment count stayed at 1 through this entry. The coverage claim was checked at
+triage rather than accepted: titles 2, 3 and 7 do assert the three cases the deleted `it` block
+covered, against live Postgres. The lesson is the orchestrator's — a per-task allowlist tighter
+than `allowed_edit_surface` must say so, or an obedient agent escalates routine work as an abort
+trigger.
 
 ---
 
@@ -309,7 +349,13 @@ static import now type-checks `reportJobFailure`'s real signature at the call si
 the property the seam was hiding. `attachJobFailureSink` is still statically checked — by
 `worker/index.ts`, its only production caller.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Declining to import an unused symbol is correct — `no-unused-vars` is
+error-level with no test exemption, so the brief's literal instruction would have failed `lint`.
+Both hazards the conversion existed to remove (the variable module specifier, the `as` cast) are
+gone regardless, and `attachJobFailureSink` remains statically type-checked by its only production
+caller in `worker/index.ts`.
+
+---
 
 ## D10 — the `worker/jobs/` sweep needs `DATABASE_POOL_URL`, not just `TEST_DATABASE_POOL_URL`
 
@@ -334,7 +380,12 @@ achieve that: the gap is in the step-4 command's environment, not in code. CI is
 it sets `DATABASE_POOL_URL`. Recorded so the next runner of this sweep exports both variables
 rather than re-diagnosing a red that is not theirs.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Correctly diagnosed as pre-existing rather than assumed — A/B'd against a
+stashed clean tree and reproduced in isolation, which is the right standard for "not my
+regression." No code was changed to make it pass. It does not reach the verify gate, which runs
+the full suite under `REPWORTH_DISABLE_LIVE_DB_SUITES=1` and gives dedicated processes only to
+CHANGED integration suites; this one is neither. Promoted to lab notes so the next runner does not
+re-diagnose it.
 
 ---
 
@@ -367,7 +418,15 @@ name is load-bearing. Coverage restored: the audit sees the scan again, matches 
 entries, and reports `passed — entries: 412 (baseline: 412)` — the same count as before, so
 nothing was exempted that was not already exempted.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT — and this one nearly shipped as a silent regression, not a gate failure.**
+The failure mode deserves restating because the misreading is the natural one: "unused allowlist
+entry" reads as "this exemption is obsolete, delete it," and acting on that would have deleted the
+audit's only record of a deliberate cross-tenant sweep, leaving the file unmonitored behind a
+green gate. The tell was the *combination* — dead entries AND zero findings for a file that
+demonstrably scans `businesses` globally. Coverage is restored (`entries: 412`, baseline
+unchanged), the parameter name now carries a comment explaining that it is load-bearing, and the
+trap is promoted to lab notes. Root cause is a plan defect: plan v2.1 said `exec` in the Task 4
+signature and `db` in the Task 4 test step, and neither review round caught the disagreement.
 
 ---
 
@@ -410,7 +469,15 @@ written down is indistinguishable at review time from a rule nobody noticed.
 
 **Amendment count: 2** (D1, D12). A third would need a fresh decision.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT (owner-waived).** The waiver is real and recorded, not inferred: presented with
+minimal-amendment / re-run-step-0 / abort, the owner chose minimal amendment on 2026-08-09. Two
+things keep this honest at review time. First, the amendment is genuinely **one** file — the
+`static-policy` half was solved in-surface by deleting the literal rather than relocating its
+exemption, which leaves the repo with one fewer standing carve-out than before #719. Second, the
+allowlist edit changed a stored SQL snippet and nothing else: `entries: 412 (baseline: 412)`,
+same three entries, same `background-global-scan` category, same reason text. No exemption was
+widened. **Amendment count is now 2 of a hard limit of 2** — a third needs a fresh decision, and
+a reviewer should treat any further out-of-surface need as a stop, not a formality.
 
 ---
 
@@ -441,4 +508,23 @@ rule's purpose is satisfied by the lane already in force. Owner waived on 2026-0
 **Carry-forward:** state `estimated_prod_lines` as CHANGED lines, and count a whole-body
 extraction at its full size rather than its net delta.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT (owner-waived).** The overage is a measurement-units error, not scope creep —
+every line changed traces to a task the plan named, and no unplanned work entered the feature. The
+waiver rests on a substantive argument rather than convenience: this feature already sits in the
+heaviest lane, so re-running step 0 with 412/1600 re-derives RISK = high / backend /
+db_touching = false — the same lane and the same controls the rule exists to invoke. **The row
+remains WARN, not PASS, on the green gate**, and it should be read that way at review: the gate is
+green because the row is advisory and waived, not because the estimate was met.
+
+---
+
+## Step 6 read-back — summary
+
+Thirteen entries, **all ACCEPT, none RE-PLAN**. That uniformity is worth one sentence of scrutiny
+rather than being read as a rubber stamp: the RE-PLAN bar is a deviation that invalidates a locked
+intake decision, and the one entry that came closest (D3, cutting the `last_error` write) was
+checked explicitly against the owner-signed scope and found to be *returning* to it. The two
+entries that mattered most are **D5** (the eval that grew 16 → 25 and is the only reason the real
+`42703` was ever pinned) and **D11** (the audit-blindness that would have shipped green). Two
+carry-forwards for step 7, both already noted inline: independently verify that no dynamic-import
+seam or replacement cast survived (D7), and treat the amendment budget as exhausted at 2 (D12).
