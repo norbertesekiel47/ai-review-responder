@@ -342,10 +342,7 @@ describeWithDb(
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'zernio_backfill_runs'
-          AND column_name IN (
-            'gap_processed_count', 'historical_processed_count',
-            'gap_skipped_count', 'historical_skipped_count'
-          )
+          AND column_name = ANY(${[...LEGACY_COUNTER_COLUMNS]})
       `;
       expect(
         cols.map((c) => c.column_name),
