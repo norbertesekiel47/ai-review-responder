@@ -62,6 +62,11 @@ export interface TenantScopeAllowlistEntry {
 //         ownership via `businesses.account_id` BEFORE opening the tx, so the
 //         in-tx reads key on `review_id` alone.
 //     `draft-status/route.ts` needs none — it binds `resp.business_id`.
+//   412 → 409 (#729), a SHRINK. The Generate transaction moved to
+//     `src/lib/reviews/on-demand-generate.ts` and every sibling read there is
+//     natively business-scoped (`AND business_id = …`), so the three
+//     Generate-door entries above were deleted — the audit sees the scope and
+//     needs no suppression at all.
 export const ALLOWLIST_BASELINE = 409;
 
 interface CategoryPathRule {
