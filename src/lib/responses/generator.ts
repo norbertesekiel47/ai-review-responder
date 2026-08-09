@@ -22,7 +22,11 @@ import type { LLMCallResult } from '@/lib/llm/types';
 
 // ── Cached generation shape (stored in Redis) ────────────────────────
 
-interface CachedGeneration {
+// Exported type-only for the avoid-facts guardrail's cache overwrite in
+// worker/jobs/response-generation/generate-draft.ts — the second writer of
+// this payload shape must stay compile-time-linked to it (a provenance-less
+// or drifted overwrite would be rejected by every later cache read).
+export interface CachedGeneration {
   responseText: string;
   language: string;
   provider: 'openai' | 'anthropic';

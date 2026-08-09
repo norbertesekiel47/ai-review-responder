@@ -257,3 +257,14 @@ one new LOW finding (3) on the new cache-provenance code.
 | Severity | Location | Finding |
 |---|---|---|
 | LOW | `worker/jobs/response-generation/generate-draft.ts:270-278` | Guardrail cache-overwrite literal is an untyped second copy of the `CachedGeneration` shape; the new `reviewContentHash` stamp is hand-synchronized across two writers — add a type annotation/`satisfies` link so shape drift fails typecheck instead of silently re-spending |
+
+### Round-2 finding close-out (orchestrator)
+
+The LOW finding (untyped second copy of the CachedGeneration shape at the
+guardrail cache-overwrite) is fixed exactly as recommended: `CachedGeneration`
+exported type-only from generator.ts, `satisfies CachedGeneration` on the
+literal in generate-draft.ts. Verification is mechanical — the finding was
+precisely the absence of a compile-time link, so `pnpm typecheck` (green in
+the gate run recorded in .feature/gate-status.json) IS the verification; no
+round-3 agent dispatched. All three axes now: spec CLEAN, adversarial
+APPROVED, standards resolved-by-compiler.

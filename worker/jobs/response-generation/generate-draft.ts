@@ -10,7 +10,7 @@
 
 import * as Sentry from '@sentry/node';
 import type { Sql } from 'postgres';
-import { generateResponse } from '../../../src/lib/responses/generator';
+import { generateResponse, type CachedGeneration } from '../../../src/lib/responses/generator';
 import { TransientLLMError } from '../../../src/lib/llm/error-classifier';
 import { generateMockResponse } from '../../../src/lib/responses/mock-generator';
 import { getApprovedResponsePairs } from '../../../src/lib/responses/voice-learning';
@@ -275,7 +275,7 @@ async function applyAvoidFactsGuardrail(
         promptTokens: merged.usage.promptTokens,
         completionTokens: merged.usage.completionTokens,
         reviewContentHash: ids.loadedReviewContentHash,
-      }));
+      } satisfies CachedGeneration));
     } catch {
       // Best-effort — cache TTL will expire the polluted entry eventually
     }
