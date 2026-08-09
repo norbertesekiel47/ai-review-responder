@@ -66,7 +66,23 @@ export interface PersistResponseInput {
   logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 
-export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<string> {
+export type PersistResponseOutcome =
+  | { kind: 'persisted'; responseId: string }
+  | { kind: 'skipped_stale_content' };
+
+/**
+ * The content-freshness gate predicate (ADR 0017). A freshness check, not a
+ * provenance proof: a null hash on EITHER side passes — legacy pre-hash
+ * reviews must keep generating.
+ */
+export function hasStaleReviewContent(
+  loadedReviewContentHash: string | null,
+  currentReviewContentHash: string | null,
+): boolean {
+  return false; // Task 2 implements; eval stays red until then
+}
+
+export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<PersistResponseOutcome> {
   const {
     result, retryCostId, reviewId, businessId, version,
     correlationId, suppressNotification, originLane, loadedReviewContentHash,
@@ -246,7 +262,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     });
   });
 
-  return responseId;
+  return { kind: 'persisted', responseId };
 }
 
 /**

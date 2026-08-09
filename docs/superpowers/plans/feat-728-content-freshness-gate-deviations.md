@@ -31,3 +31,20 @@
   rls-audit observed PASS in this branch's docs-only run) and runs `pnpm build`
   only when the surface includes ui; this feature is backend-surface. The
   gate script, not the plan, owns verification enumeration.
+- [2026-08-09] **Task 1 mechanical adaptations (no semantic drift).**
+  (a) The plan's gate-block fixture `baseInput(overrides)` (default lane
+  `ON_DEMAND_GENERATE`) collides with persist.test.ts's existing module-scope
+  `baseInput` (default lane `live_ingest_new`); named the block-local wrapper
+  `gateInput` — it delegates to the file's `baseInput` — instead of shadowing.
+  It also defaults `reviewId: 'review-1'` so the log test's `review_id`
+  expectation matches the input the gate logs (the plan's queue rows and log
+  assertion both use 'review-1' while the file fixture uses 'rev-1').
+  (b) Integration slot-free test asserts the responses rows via
+  `toHaveLength(1)` + `toMatchObject({ version: 1 })` rather than
+  `toEqual([{ version: 1 }])` — postgres.js RowList arrays carry enumerable
+  non-index properties that can break whole-array `toEqual`.
+  (c) Lock-serialization test wraps the blocked-race assertion in
+  `try/finally { resolveReleaseGate(); await bDone; }` and carries a per-test
+  `{ timeout: 10_000 }` (dispatch instruction: fail fast, never hang) — a
+  failed assertion must not leave B's open tx holding the review row lock and
+  wedge afterAll cleanup.

@@ -106,7 +106,7 @@ export async function handleResponseGeneration(
   // ── Persist response + outbox + cost link + moderation hold in one tx ─
   // (invariant #4: a high-severity flag holds the draft + skips notification,
   // atomically with response persistence). DB failure throws → BullMQ retry.
-  const responseId = await persistResponseAndNotify(sql, {
+  const persisted = await persistResponseAndNotify(sql, {
     result: draft.result,
     retryCostId: draft.retryCostId,
     reviewId,
@@ -121,6 +121,7 @@ export async function handleResponseGeneration(
     preLlmSubscriptionTier: ctx.subscriptionTier,
     logger,
   });
+  const responseId = persisted.kind === 'persisted' ? persisted.responseId : ''; // Task 3 (#728) replaces this
 
   await maybeEnqueueFirstResponseDrafted(sql, {
     accountId: ctx.accountId,
