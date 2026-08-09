@@ -1,11 +1,16 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import {
   canEdit,
+  deriveAxes,
+  deriveRowAction,
   groupReplies,
   isHistorical,
   parsePageParam,
   toCardRow,
+  type DraftState,
+  type ReplyState,
   type ReviewRow,
 } from '../replies-view';
 
@@ -65,6 +70,26 @@ function orphanRow(overrides: Partial<ReviewRow> = {}): ReviewRow {
     superseded_text: 'old reply',
     ...overrides,
   });
+}
+
+const REPLY_STATES = ['none', 'posted', 'orphan'] as const;
+const DRAFT_STATES = ['none', 'generating', 'ready', 'held'] as const;
+const ROW_ACTIONS = [
+  'generate', 'generating', 'draft_ready', 'regenerate', 'recover', 'none',
+] as const;
+// Every action that would surface or spend a draft. 'recover' is deliberately
+// absent: it addresses the orphan incident, not the draft (#723 table).
+const DRAFT_AFFORDANCES = ['generate', 'generating', 'draft_ready', 'regenerate'] as const;
+
+/** Derivation facts that produce exactly the (reply, draft) cell. */
+function factsFor(reply: ReplyState, draft: DraftState) {
+  return {
+    response_id: reply === 'posted' ? 'resp-1' : null,
+    is_orphan: reply === 'orphan',
+    draft_response_id: draft === 'ready' || draft === 'held' ? 'draft-1' : null,
+    draft_held: draft === 'held',
+    generation_in_flight: draft === 'generating',
+  };
 }
 
 describe('parsePageParam', () => {
@@ -220,4 +245,115 @@ describe('groupReplies', () => {
     expect(grouped.answeredRows.map((r) => r.review_id)).toEqual(['pre-activation']);
     expect(grouped.unansweredRows).toHaveLength(0);
   });
+});
+
+describe('the two-axis model invariants (#727)', () => {
+  const anyReply = fc.constantFrom(...REPLY_STATES);
+  const anyDraft = fc.constantFrom(...DRAFT_STATES);
+
+  it('never offers a draft affordance for a held draft in any reply state (invariant #4)', () => {
+    fc.assert(
+      fc.property(anyReply, (reply) => {
+        const action = deriveRowAction(reply, 'held');
+        expect(DRAFT_AFFORDANCES).not.toContain(action);
+        expect(action).toBe(reply === 'orphan' ? 'recover' : 'none');
+      }),
+    );
+  });
+
+  it('derives a defined action for every cell of the 3x4 cross-product', () => {
+    fc.assert(
+      fc.property(anyReply, anyDraft, (reply, draft) => {
+        expect(ROW_ACTIONS).toContain(deriveRowAction(reply, draft));
+      }),
+    );
+  });
+});
+
+describe('deriveAxes (#727)', () => {
+  it('maps every cell of the 3x4 cross-product onto the two axes', () => {
+    for (const reply of REPLY_STATES) {
+      for (const draft of DRAFT_STATES) {
+        expect(deriveAxes(factsFor(reply, draft))).toEqual({ reply, draft });
+      }
+    }
+  });
+
+  it('a settled ready or held response outranks an in-flight generation', () => {
+    // draft_response_id + generation_in_flight can coexist (the outbox row has
+    // not been reaped yet) — the settled response row is the fact that wins.
+    expect(deriveAxes({ ...factsFor('none', 'ready'), generation_in_flight: true }).draft).toBe('ready');
+    expect(deriveAxes({ ...factsFor('none', 'held'), generation_in_flight: true }).draft).toBe('held');
+    expect(deriveAxes({ ...factsFor('posted', 'held'), generation_in_flight: true }).draft).toBe('held');
+    expect(deriveAxes({ ...factsFor('orphan', 'ready'), generation_in_flight: true }).draft).toBe('ready');
+  });
+});
+
+describe('deriveRowAction cells (#727)', () => {
+  it('withdraws Regenerate from an answered row whose replacement draft is moderation-held (posted x held)', () => {
+    expect(deriveRowAction('posted', 'held')).toBe('none');
+  });
+
+  it('keeps Regenerate for an answered row with a pending or in-flight replacement (posted x ready, posted x generating)', () => {
+    expect(deriveRowAction('posted', 'none')).toBe('regenerate');
+    expect(deriveRowAction('posted', 'ready')).toBe('regenerate');
+    expect(deriveRowAction('posted', 'generating')).toBe('regenerate');
+  });
+
+  it('dominates recovery over every draft state on an orphan row', () => {
+    for (const draft of DRAFT_STATES) {
+      expect(deriveRowAction('orphan', draft)).toBe('recover');
+    }
+  });
+});
+
+it('groups by the posted-reply axis — the Answered set is exactly the rows with a live posted reply', () => {
+  // ALL 12 cells, so a predicate that wrongly ejects posted×generating or
+  // posted×ready from Answered — or admits a none/orphan cell — fails here.
+  const rows = REPLY_STATES.flatMap((reply) =>
+    DRAFT_STATES.map((draft) =>
+      reviewRow({
+        review_id: `r-${reply}-${draft}`,
+        ...factsFor(reply, draft),
+        orphan_failed_response_id: reply === 'orphan' ? 'f-1' : null,
+      }),
+    ),
+  );
+  const { unansweredRows, answeredRows } = groupReplies(rows, null, true);
+  expect(answeredRows.map((r) => r.review_id).sort()).toEqual(
+    DRAFT_STATES.map((d) => `r-posted-${d}`).sort(),
+  );
+  expect(unansweredRows).toHaveLength(8);
+  expect(answeredRows.length + unansweredRows.length).toBe(12);
+});
+
+it('never carries draft state or held onto the wire shape', () => {
+  const LIVE_TEXT = 'live posted reply text';
+  const card = toCardRow(
+    reviewRow({
+      response_id: 'resp-1',
+      approved_text: LIVE_TEXT,
+      draft_response_id: 'd-1',
+      draft_held: true,
+    }),
+    null,
+    true,
+  );
+  // EXACT allowlist, not a blacklist: any new wire key — an alias like
+  // `has_held_draft`, a nested draft object — fails until deliberately added
+  // here. RED until Task 3 (row_state is still emitted today, and the old
+  // enum put the literal 'held' on the wire for none×held).
+  expect(Object.keys(card).sort()).toEqual(
+    [
+      'approval_method', 'approved_text', 'canEdit', 'external_reply_ingested_at',
+      'failed_posting_error', 'failed_response_id', 'posted_at',
+      'provenance_badge', 'reply_state', 'response_id', 'review_content_hash',
+      'review_date', 'review_id', 'review_text', 'reviewer_name', 'row_action',
+      'star_rating', 'version',
+    ],
+  );
+  // The value surface: the LIVE reply is what crosses. (The held draft's TEXT
+  // structurally cannot appear here — ReviewRow never selects it; the
+  // serialized-value pin lives in the integration suite where the text exists.)
+  expect(card.approved_text).toBe(LIVE_TEXT);
 });

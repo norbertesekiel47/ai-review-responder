@@ -138,6 +138,13 @@ describe('PastReplyCard row states', () => {
     expect(link).toHaveAttribute('href', expect.stringContaining('/dashboard/reviews'));
     expect(screen.queryByRole('button', { name: /^generate$/i })).not.toBeInTheDocument();
   });
+
+  it.todo('keeps the live posted reply and provenance badge visible for an answered row with a held replacement draft');
+  it.todo('renders no Regenerate button, no counter, and no held indication for an answered row with a held replacement draft');
+  it.todo('renders the live posted reply with Regenerate for an answered row without a held replacement draft');
+  it.todo('renders the held panel with no draft text and no affordance for an unanswered review with a held draft');
+  it.todo('renders the locked presentation for every cell of the 3x4 cross-product');
+  it.todo('keeps the delete-failed recovery control while withdrawing Regenerate for an answered row with a held replacement draft');
 });
 
 // ── Tab bar ──────────────────────────────────────────────────────────────────

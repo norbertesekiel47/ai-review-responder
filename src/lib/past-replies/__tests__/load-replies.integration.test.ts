@@ -178,4 +178,7 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
     expect(view!.unansweredRows.every((row) => row.row_state === 'generate')).toBe(true);
     expect(view!.answeredRows.every((row) => row.row_state === 'regenerate')).toBe(true);
   });
+
+  it.todo('returns row_action none while keeping reply_state posted for a review whose replacement draft is moderation-held');
+  it.todo('distinguishes an open-held replacement from unflagged and closed replacements');
 });

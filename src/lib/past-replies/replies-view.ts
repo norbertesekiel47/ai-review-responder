@@ -109,6 +109,51 @@ export function deriveRowState(r: {
   return 'generate';
 }
 
+/**
+ * Axis A — the Posted-reply axis (#723/#727): what exists on Google for this
+ * review. Owns the Unanswered/Answered grouping and the reply panel.
+ */
+export type ReplyState = 'none' | 'posted' | 'orphan';
+
+/**
+ * Axis B — the Replacement-draft axis: where the replacement workflow stands.
+ * SERVER-INTERNAL — it never crosses the wire (invariant #4 as structure: the
+ * client cannot leak what it never receives). Intra-axis precedence: a settled
+ * response row outranks an in-flight outbox row (held > ready > generating >
+ * none), same rationale as the pre-#727 single enum.
+ */
+export type DraftState = 'none' | 'generating' | 'ready' | 'held';
+
+/**
+ * The Action slot — the single affordance the card renders, derived from the
+ * full 3×4 cross-product. A held draft never projects an affordance of its
+ * own: none/posted×held → 'none'; orphan×held keeps 'recover' because the
+ * affordance addresses the orphan incident, not the draft (#723 table).
+ */
+export type RowAction =
+  | 'generate'
+  | 'generating'
+  | 'draft_ready'
+  | 'regenerate'
+  | 'recover'
+  | 'none';
+
+/** Same facts as deriveRowState → the two axes. Implemented in #727 Task 2. */
+export function deriveAxes(r: {
+  response_id: string | null;
+  draft_response_id: string | null;
+  draft_held: boolean;
+  generation_in_flight: boolean;
+  is_orphan: boolean;
+}): { reply: ReplyState; draft: DraftState } {
+  throw new Error(`unimplemented (#727 Task 2): ${JSON.stringify(r)}`);
+}
+
+/** (reply, draft) → the Action slot. Total over all 12 cells. #727 Task 2. */
+export function deriveRowAction(reply: ReplyState, draft: DraftState): RowAction {
+  throw new Error(`unimplemented (#727 Task 2): ${reply}×${draft}`);
+}
+
 export type ProvenanceBadge =
   | 'posted_before_joining'
   | 'replied_on_google'
