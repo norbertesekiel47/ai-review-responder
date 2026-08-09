@@ -41,10 +41,12 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { asLocationId, type LocationId } from '@/lib/shared/ids';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { OnboardingDripPayload } from '@/lib/shared/worker-types';
+import { resolveDashboardUrl } from '../summary-report-helpers';
 
 // Only the transport is faked. Every query, every claim and every outbox
 // transition runs against the real schema — that is the whole point of the file.
@@ -133,36 +135,6 @@ let handleOnboardingDrip:
   | ((job: Job<OnboardingDripPayload>) => Promise<void>)
   | undefined;
 
-/**
- * Task 2's shape. It does not exist yet, so the namespace is read through an
- * optional-property view and the accessor below fails loudly — titles 2-7 must
- * be RED until `resolveDashboardUrl` is exported. A copied SQL literal here
- * would pass before the fix and prove nothing about production, which is exactly
- * the trap plan review round 1 found.
- */
-interface DashboardUrlModule {
-  resolveDashboardUrl?: (
-    sql: Sql,
-    businessId: string,
-    appUrl: string | undefined,
-  ) => Promise<string | null>;
-}
-
-let resolveDashboardUrlFn: DashboardUrlModule['resolveDashboardUrl'];
-
-function resolveDashboardUrl(
-  db: Sql,
-  businessId: string,
-  appUrl: string | undefined,
-): Promise<string | null> {
-  if (!resolveDashboardUrlFn) {
-    throw new Error(
-      'resolveDashboardUrl is not exported from worker/jobs/summary-report-helpers.ts yet (#719 Task 2)',
-    );
-  }
-  return resolveDashboardUrlFn(db, businessId, appUrl);
-}
-
 function sql(): Sql {
   if (!appSql) throw new Error('onboarding drip integration database was not initialized');
   return appSql;
@@ -178,12 +150,12 @@ function runDrip(job: Job<OnboardingDripPayload>): Promise<void> {
 // ── Fixture bookkeeping ──────────────────────────────────────────────
 
 const seededTenants: TenantSeed[] = [];
-const seededBusinessIds: string[] = [];
+const seededBusinessIds: LocationId[] = [];
 const seededExtraUserIds: string[] = [];
 
 interface LocationFixture {
   tenant: TenantSeed;
-  businessId: string;
+  businessId: LocationId;
 }
 
 async function seedTenantWithLocation(options: {
@@ -198,12 +170,16 @@ async function seedTenantWithLocation(options: {
   seededTenants.push(tenant);
   await setOwnerAuthId(tenant.userId, options.ownerAuthId ?? null);
 
-  const { businessId } = await seedLocation(sql(), tenant.accountId, {
+  // `seedLocation` hands back a bare string; the production helper takes the
+  // branded `LocationId`, so the suite brands at the seam rather than casting
+  // at the assertion.
+  const seeded = await seedLocation(sql(), tenant.accountId, {
     ownerEmail: tenant.ownerEmail,
     subscriptionActivatedAt: options.subscriptionActivatedAt ?? null,
     onboardedBy: options.onboardedBy ?? null,
     isPrimary: options.isPrimary ?? true,
   });
+  const businessId = asLocationId(seeded.businessId);
   seededBusinessIds.push(businessId);
   return { tenant, businessId };
 }
@@ -363,9 +339,6 @@ describeWithDb(
       const workerModule = await import('../OnboardingDripWorker');
       handleOnboardingDrip = workerModule.handleOnboardingDrip;
 
-      const helpers = (await import('../summary-report-helpers')) as unknown as DashboardUrlModule;
-      resolveDashboardUrlFn = helpers.resolveDashboardUrl;
-
       await assertSchemaReady(sql(), [ONBOARDING_DRIP_SCHEMA, MIGRATION_100_IMPORT_CONSENT]);
     }, 120_000);
 
@@ -438,11 +411,12 @@ describeWithDb(
         isPrimary: false,
         name: 'Secondary Location',
       });
-      seededBusinessIds.push(secondary.businessId);
-      expect(businessId).not.toBe(secondary.businessId);
+      const secondaryId = asLocationId(secondary.businessId);
+      seededBusinessIds.push(secondaryId);
+      expect(businessId).not.toBe(secondaryId);
 
       await expect(
-        resolveDashboardUrl(sql(), secondary.businessId, APP_URL),
+        resolveDashboardUrl(sql(), secondaryId, APP_URL),
       ).resolves.toBe(`${APP_URL}/dashboard`);
     });
 

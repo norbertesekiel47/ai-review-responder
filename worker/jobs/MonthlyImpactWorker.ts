@@ -13,12 +13,11 @@ import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logg
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import type { LocationId } from '../../src/lib/shared/ids';
 import {
-  buildDashboardUrl,
   calculateBaselineResponseRate,
   loadLatestRankingSummary,
   mapSummaryReviews,
-  ownerHasDashboardAuth,
   prepareSummaryReport,
+  resolveDashboardUrl,
   sendSummaryReportEmail,
   type SummaryReportBusiness,
 } from './summary-report-helpers';
@@ -291,10 +290,7 @@ export async function handleMonthlyImpact(
     monthEndDate,
   });
   const ranking = await loadLatestRankingSummary(sql, businessId);
-  const dashboardUrl = buildDashboardUrl(
-    await ownerHasDashboardAuth(sql, businessId),
-    getWorkerConfig().NEXT_PUBLIC_APP_URL,
-  );
+  const dashboardUrl = await resolveDashboardUrl(sql, businessId, getWorkerConfig().NEXT_PUBLIC_APP_URL);
   const monthLabel = new Date(`${month_start_date}T00:00:00Z`).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',

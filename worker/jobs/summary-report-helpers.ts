@@ -215,19 +215,37 @@ export async function loadLatestRankingSummary(sql: postgres.Sql, businessId: Lo
   };
 }
 
-export async function ownerHasDashboardAuth(sql: postgres.Sql, businessId: LocationId): Promise<Array<{ exists: number }>> {
-  return sql<{ exists: number }[]>`
-    SELECT 1 AS exists FROM users
-    WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL
+/**
+ * Resolves the owner-facing dashboard URL for a location, or null when the
+ * owner cannot use one (no owner row, no auth_id, or no configured app URL).
+ *
+ * The join is the post-034 location→owner path: businesses.account_id →
+ * users.account_id. `users.business_id` was dropped by migration 034 on
+ * 2026-05-10 and the previous query still read it, throwing 42703 on every
+ * WeeklySummary, MonthlyImpact and onboarding-drip run until #719.
+ *
+ * `u.role = 'owner'` and the account join are both load-bearing: without the
+ * role an authenticated staff user satisfies it, and without the account scope
+ * it would resolve across tenants.
+ */
+export async function resolveDashboardUrl(
+  sql: postgres.Sql,
+  businessId: LocationId,
+  appUrl: string | undefined,
+): Promise<string | null> {
+  // Skip the query entirely — the pair this replaces always ran it, then
+  // discarded the row when no app URL was configured.
+  if (!appUrl) return null;
+  const rows = await sql<{ exists: number }[]>`
+    SELECT 1 AS exists
+    FROM users u
+    JOIN businesses b ON b.account_id = u.account_id
+    WHERE b.id = ${businessId}
+      AND u.role = 'owner'
+      AND u.auth_id IS NOT NULL
     LIMIT 1
   `;
-}
-
-export function buildDashboardUrl(
-  ownerWithAuth: Array<{ exists: number }>,
-  appUrl: string | undefined,
-): string | null {
-  return ownerWithAuth.length > 0 && appUrl ? `${appUrl}/dashboard` : null;
+  return rows.length > 0 ? `${appUrl}/dashboard` : null;
 }
 
 export function calculateBaselineResponseRate(business: BaselineFields): number | null {
