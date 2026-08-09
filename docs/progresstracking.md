@@ -2118,9 +2118,14 @@ at all**, so its `acquireLiveDbLock` enrolment had never once been verified.
   is split, so R1 naming applies to **suites** only (a helper cannot be renamed
   to `*.integration.test.ts`) while R2 and the lock check apply to every live-DB
   **file**; helpers reach the DB through their own marker, an import of
-  `postgres` (they are handed the handle and name no env var), deliberately not
-  offered to suites because ~740 parallel unit tests import `postgres` types to
-  shape a mock; and `apply-migration-074.ts` — the one real occurrence, running
+  `postgres` (they are handed the handle and name no env var, in either the
+  `from 'postgres'` or the inline `import('postgres').Sql` spelling), deliberately
+  not offered to suites because R1 is a claim about which vitest project a file
+  lands in and a mock-shaping type import is not evidence a suite reaches a DB —
+  186 of the 904 suites match the marker, 112 of them neither already visible
+  through `LIVE_DB_MARKERS` nor named `*.integration.test.ts`, so admitting it
+  would fire the naming rule across the tree on files that touch no database;
+  and `apply-migration-074.ts` — the one real occurrence, running
   `db.unsafe(readMigration074Sql())` and never audited before — is allowlisted
   **and** lock-enforced against its own `withMigration074ApplyLock`, proved by
   mutation. Both allowlists were renamed to `MIGRATION_SHAPE_FILES` /

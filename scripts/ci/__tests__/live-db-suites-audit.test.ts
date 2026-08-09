@@ -344,12 +344,28 @@ describe('live-db-suites-audit', () => {
     });
 
     it('counts a type-only postgres import as a helper reaching the database', () => {
-      // Four of the six DB-reaching helpers import the module type-only. A
-      // value/type distinction here would re-open the hole immediately.
+      // Five of the six DB-reaching helpers import the module type-only (the
+      // exception, live-db-lock.ts, CONSTRUCTS a connection). A value/type
+      // distinction here would re-open the hole immediately.
       const findings = auditLiveDbFile(
         HELPER_PATH,
         "import type postgres from 'postgres';\n" + OPAQUE_UNSAFE,
       );
+      expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
+    });
+
+    // The second SPELLING. `import('postgres').Sql` types the handle with the
+    // postgres module while carrying no `from 'postgres'` clause, so the first
+    // cut of HELPER_DB_MARKER missed it — a helper typed that way would have
+    // been an invisible R2 blind spot, the #694 mode this ticket exists to
+    // close. The form is already established in this tree for exactly the
+    // "hand a fake handle to something" shape (raise.test.ts:40,
+    // pool-wait.test.ts:6 — both suites, so nothing was invisible today).
+    it('counts an inline import("postgres") type annotation as a helper reaching the database', () => {
+      const source =
+        "const db = handle as unknown as import('postgres').Sql;\n" + OPAQUE_UNSAFE;
+      expect(source).not.toContain("from 'postgres'");
+      const findings = auditLiveDbFile(HELPER_PATH, source);
       expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
     });
 
