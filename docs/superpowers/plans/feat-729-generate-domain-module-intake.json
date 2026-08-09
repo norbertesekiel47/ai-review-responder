@@ -38,6 +38,7 @@
   ],
   "allowed_edit_surface": [
     "src/app/api/dashboard/reviews/\\[reviewId\\]/generate/**",
+    "src/app/api/dashboard/reviews/[reviewId]/generate/**",
     "src/lib/reviews/on-demand-generate.ts",
     "src/lib/reviews/__tests__/on-demand-generate*",
     "scripts/ci/tenant-scope-allowlist.ts",

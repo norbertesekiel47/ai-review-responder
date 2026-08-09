@@ -28,6 +28,17 @@ Classified as a **correction, not a counted amendment** — the surface's
 meaning is unchanged; only its encoding for the matcher was wrong (the #643
 lesson: don't burn the amendment budget on spelling).
 
+**Correction (gate run 1):** the two enforcement layers DISAGREE on
+`[...]` paths. The bash hook needs the escaped `\[reviewId\]` (else character
+class); `scripts/ci/feature-surface-audit.ts` `globToRegExp` escapes every
+literal char — so it needs the UNESCAPED spelling and reads `\[` as a literal
+backslash. Its header claims its semantics match the hook's; for
+character-class characters they do not. No single spelling satisfies both, so
+the surface now declares BOTH spellings (each matcher is satisfied by one;
+the other is inert under `.some()`). Tooling-defect lesson queued for
+lab-notes promotion at step 8; fixing either matcher is out of surface and
+out of scope here.
+
 VERDICT: ACCEPT
 
 ## A1 — counted surface amendment: + src/lib/shared/response-status-sql.ts (T2)
