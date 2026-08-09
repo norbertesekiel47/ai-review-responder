@@ -30,7 +30,7 @@ Four findings reshaped the design. Do not re-introduce what they removed.
    guard would happily overwrite. The `last_error` write was never in the signed-off scope.
 
 2. **Two helpers already exist. Do not write new ones.**
-   `recordOutboxTransientError` (`src/lib/shared/outbox.ts:183`) and `isTerminalAttempt` (`:210`)
+   `recordOutboxTransientError` (`src/lib/shared/outbox.ts:183`) and `isTerminalAttempt` (`:211`)
    already do what the v1 plan proposed to add. `src/lib/shared/outbox.ts` has been **removed from
    `allowed_edit_surface`** — the sink imports `isTerminalAttempt` and `errorMessage` from it and
    adds nothing. Note `isTerminalAttempt`'s predicate is `attemptsMade >= max || attemptsMade + 1
@@ -200,7 +200,23 @@ Titles 8–11 run the **real** `handleOnboardingDrip` against a seeded `dispatch
 
 - [ ] **Step 4: Write the scheduler live-DB suite (titles 12–20), failing**
 
-File: `worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts`. Call `runOnboardingDripCycle(db, asOf)` (Task 4's seam) **directly** with an explicit `asOf` and the suite's own client — no singleton redirection, no wall-clock. Assert on the returned counts, then on `job_outbox` rows.
+File: `worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts`. Call `runOnboardingDripCycle(db, asOf)` (Task 4's seam) **directly** with an explicit `asOf` and the suite's own client — no singleton redirection, no wall-clock.
+
+**Contamination hazard — read before writing an assertion.** `runOnboardingDripCycle` scans **every**
+business in the database, not just the one under test. Any leftover eligible business from another
+suite lands in the returned counts and in `job_outbox`. Two consequences, both mandatory:
+
+- **Never assert a global count.** Not `result.queued === 1`, not `SELECT count(*) FROM job_outbox
+  WHERE topic = 'onboarding_drip'`. Every assertion scopes to the seeded `business_id`:
+  `SELECT count(*) … WHERE aggregate_id = ${businessId} AND status = 'pending'`. For the skip
+  cases, assert the seeded pair produced **no** row of its own rather than that the cycle queued
+  nothing at all.
+- **Enrol in `acquireLiveDbLock`**, following `ArchivalPoller.integration.test.ts` — the precedent
+  for a suite whose subject sweeps shared tables. Release it in `afterAll`.
+
+For the `tooLate` / `churnCapped` counts, which are inherently global, seed the negative fixture and
+assert the count **increased by exactly one** relative to a baseline cycle run before the seed —
+never that it equals one.
 
 Grace = 3 days, so day_1's cap is `activated + 4 days` and the outer reporting window is `+ 5 days`.
 
