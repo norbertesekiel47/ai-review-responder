@@ -33,7 +33,7 @@
     "Crash between the gate-skip tx and outbox completion: BullMQ retry re-runs the gate idempotently"
   ],
   "existing_patterns_to_follow": [
-    "SKIP_REASON_ARCHIVED_LOCATION one-owner token precedent (src/lib/shared/worker-types.ts:22)",
+    "OUTBOX_COMPLETION_REASON vocabulary — the single owner of every job_outbox.completion_reason value (src/lib/shared/outbox-completion-reason.ts); the skip token joins it as STALE_REVIEW_CONTENT",
     "loadGenerationContext 'skipped' outcome -> handler logs structured reason + completes outbox (worker/jobs/ResponseGeneratorWorker.ts:46-52)",
     "markOutboxCompletedWithReason (src/lib/shared/outbox.ts:134)",
     "persist.test.ts txQueue mock harness (worker/jobs/response-generation/__tests__/persist.test.ts)",
@@ -45,8 +45,8 @@
     "worker/jobs/response-generation/__tests__/**",
     "worker/jobs/ResponseGeneratorWorker.ts",
     "worker/jobs/__tests__/ResponseGeneratorWorker.test.ts",
-    "worker/jobs/__tests__/correlation-chain.test.ts",
-    "src/lib/shared/worker-types.ts",
+    "worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts",
+    "src/lib/shared/outbox-completion-reason.ts",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
@@ -60,11 +60,14 @@
     "persists when current hash is null",
     "persists when hashes match",
     "completes the outbox with stale_review_content and skips first_response_drafted on a gate skip",
-    "content-freshness gate skips iff both hashes are non-null and differ"
+    "content-freshness gate skips iff both hashes are non-null and differ",
+    "persist gate re-reads review_content_hash under the review FOR UPDATE lock (blocks on a concurrent content-change tx, then skips)",
+    "content-freshness gate skips every generate-response origin lane before lane-specific work",
+    "gate skip logs stale_review_content with review_id, business_id, version, and origin_lane without raw hashes"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 90,
-  "estimated_test_lines": 500,
+  "estimated_test_lines": 650,
   "dependencies_added": [],
   "rollback_plan": "No migration — pure worker-code change. Back out by reverting the PR on main and fast-forwarding staging; no data cleanup needed (the gate only ever refrains from inserting). db_touching is set for the live-DB test provisioning + tenant-scope/rls audits, not for schema change.",
   "observability": [
