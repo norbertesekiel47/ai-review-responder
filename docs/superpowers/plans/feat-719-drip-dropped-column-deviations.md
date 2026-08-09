@@ -205,3 +205,45 @@ the bullet the reviewer pointed at and stopped there.
 **Amendment count remains 1** (D1).
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D8 — deleting `buildDashboardUrl` orphans a unit test outside Task 2's surface
+
+**When:** Task 2, step 3 (orphan sweep) — confirmed by `pnpm typecheck` at step 5.
+
+**What:** `worker/jobs/__tests__/summary-report-helpers.test.ts` imports `buildDashboardUrl`
+(`:15`) and asserts it in one `it` block (`:52-58`). Task 2 deletes that export, so the file
+no longer compiles:
+
+```
+worker/jobs/__tests__/summary-report-helpers.test.ts(15,3): error TS2305:
+  Module '"../summary-report-helpers"' has no exported member 'buildDashboardUrl'.
+```
+
+Task 2's file list does not include it, and the plan's File Structure table never names it —
+D1 amended the surface for the two sibling **call sites** (`WeeklySummaryWorker`,
+`MonthlyImpactWorker`) and stopped there, because the `codebase-design` pass read call sites,
+not test importers. The plan is therefore internally unsatisfiable as written: "delete
+`buildDashboardUrl`" and "leave every other file alone" cannot both hold.
+
+**Why it was NOT fixed in Task 2:** the task brief's closing rule is explicit — *"Do not widen
+the allowed edit surface. If a file outside your list must change, STOP and report instead."*
+A third surface amendment is also the trigger the step 5 abort criteria watch for (D1 set the
+count at 1), so this is an owner decision rather than an agent one. Task 2 stopped at the
+boundary and reported.
+
+**Shape of the fix, when authorized** (~7 lines, no behaviour change): drop `buildDashboardUrl`
+from the import block at `:15` and delete the `it('only builds dashboard URLs when the owner has
+auth and app URL is configured', …)` block at `:52-58`. The coverage it provided is not lost —
+it is strictly superseded by live-schema titles 2, 3 and 6 in
+`worker/jobs/__tests__/onboarding-drip.integration.test.ts`, which assert the same three cases
+(owner with auth → URL, no owner match → null, no app URL → null) against a real Postgres
+instead of a hand-built `Array<{exists: number}>` that could never have caught the 42703.
+
+**State left behind:** Task 2's four files are committed, lint-clean, and titles 1–7 are green.
+Repo-wide `pnpm typecheck` is RED on this one error until the fix above is authorized. (It is
+also transiently red on `worker/__tests__/job-failure-sink.test.ts`, which is Task 5's in-flight
+work, not this.)
+
+**Verdict:** _(pending step 6)_
