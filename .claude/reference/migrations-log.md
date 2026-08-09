@@ -1049,6 +1049,18 @@ Revisit triggers:
   removes columns, never rows. Re-runnability confirmed by executing the guard a
   second time against the post-drop schema: it took the `legacy_present = 0`
   RETURN branch and raised nothing.
+  **Worker write path proven post-drop, non-destructively.** Boot readiness alone
+  proves only that the worker connects, so the worker's OWN two statement shapes
+  were executed against the post-103 schema inside a `DO` block ending in a
+  `RAISE`: the reactivation INSERT (naming none of the counters) and the counters
+  UPDATE (the three survivors only). Result `PROBE OK … imported=0 skipped=0` —
+  both shapes resolve, the DEFAULTs survived the DROP, and the RAISE aborted
+  everything (0 probe rows; totals still 2 / 58). En route it produced a useful
+  negative: the `initial`-lane variant failed `23505` on
+  `zernio_backfill_runs_one_initial_per_business`, **not** `42703` — a statement
+  only reaches a uniqueness check after column resolution, so even that failure
+  evidenced the column set. No natural import run has happened since the drop;
+  this probe is what stands in for one.
   **PRODUCTION (`udeyaqnvpojbwgoaxwdg`) — PENDING**, to be applied in lockstep at
   promotion and recorded the same way. Prod holds 0 rows / 0 businesses so its
   preflight is trivially satisfied; it is still run in the apply window and its
