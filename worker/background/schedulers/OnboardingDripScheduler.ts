@@ -6,6 +6,7 @@ import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status'
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
+import { DRIP_STALENESS_GRACE_DAYS } from '../../jobs/OnboardingDripWorker';
 import type { OnboardingDripPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[OnboardingDripScheduler]';
@@ -16,7 +17,14 @@ const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 // grace window is never queued and never sent. Without it, any outage that
 // pauses drips clears into a burst of "Welcome to day 1!" emails to owners who
 // joined long ago. Send AT the boundary, skip past it.
-const STALENESS_GRACE_DAYS = 3;
+//
+// ONE owner, in OnboardingDripWorker — this producer and the worker's
+// fail-closed chokepoint (#719 review A1) must agree on the boundary or the two
+// halves of the cap disagree about which drips are still sendable. The local
+// alias keeps the identifier the SQL below interpolates unchanged; that text is
+// stored verbatim in scripts/ci/tenant-scope-allowlist.ts, so renaming it here
+// would silently invalidate that exemption.
+const STALENESS_GRACE_DAYS = DRIP_STALENESS_GRACE_DAYS;
 
 // Churn cap (#719): stop re-minting an Outbox job for a (location, drip_type)
 // that already failed this many times in the rolling window below. The

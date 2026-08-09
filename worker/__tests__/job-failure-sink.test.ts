@@ -92,6 +92,37 @@ describe('job-failure sink', () => {
     expect(sentryStub.captureException).not.toHaveBeenCalled();
   });
 
+  // Regression guard for step-7 finding A2. The case above does NOT discriminate:
+  // at attemptsMade=1/attempts=5 both the correct predicate and the buggy one stay
+  // silent, so it passed before AND after the fix and proved nothing.
+  //
+  // The separating case is the SECOND-TO-LAST attempt. The sink originally reused
+  // `isTerminalAttempt` (`attemptsMade >= max || attemptsMade + 1 >= max`), which
+  // is the CATCH-BLOCK predicate — there `attemptsMade` has not yet been
+  // incremented. In the `'failed'` EVENT it already has been, so that form matched
+  // at BOTH 2 and 3 of 3: a Sentry issue for a job BullMQ was about to retry
+  // successfully, a second when it really did exhaust, and a false "exhausted its
+  // retries" log in between. `worker/jobs/judge/failed-hook.ts:44-57` documents the
+  // split and ends "do not unify them".
+  it('the job-failure sink stays silent on the second-to-last attempt', () => {
+    reportJobFailure(
+      QUEUE_NAMES.ONBOARDING_DRIP,
+      makeJob({ attemptsMade: 2, attempts: 3 }),
+      new Error('transient connection reset'),
+    );
+
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+
+    // ...and still fires exactly once when the final attempt genuinely fails.
+    reportJobFailure(
+      QUEUE_NAMES.ONBOARDING_DRIP,
+      makeJob({ attemptsMade: 3, attempts: 3 }),
+      new Error('transient connection reset'),
+    );
+
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+  });
+
   it('the job-failure sink logs a bounded error class and never the raw message', () => {
     // csv-ingest's failed hook states the contract: only the bounded error CLASS
     // may be persisted or logged, because a driver message can embed contact

@@ -28,6 +28,25 @@ export const OUTBOX_COMPLETION_REASON = {
    * persist.ts carries the per-fire detail).
    */
   STALE_REVIEW_CONTENT: 'stale_review_content',
+  /**
+   * An `onboarding_drip` row refused by the **Drip staleness cap** in
+   * `OnboardingDripWorker` — the drip's due date passed more than the grace
+   * window ago, so it is never sent (#719).
+   *
+   * Exists because the cap's producer-side check in `OnboardingDripScheduler`
+   * is not enforcement on its own: a re-driven row, a future second producer,
+   * or a row minted just inside the boundary and stranded through a multi-day
+   * worker outage all arrive here with that check long expired. Without a
+   * durable marker, a refusal would be indistinguishable in SQL from a genuine
+   * send once the log line ages out.
+   *
+   * Like IMPORT_CONSENT_BLOCKED: an operational-window signal, not an audit
+   * record. Nothing reads it in code — no poller, no alert, no admin surface —
+   * and `ArchivalPoller` deletes the completed row 7 days after `completed_at`.
+   * What outlives that window is the absence of an `onboarding_drip_log.sent_at`
+   * for the pair.
+   */
+  DRIP_TOO_STALE: 'drip_too_stale',
 } as const;
 
 /** Every value `job_outbox.completion_reason` may be written with. */

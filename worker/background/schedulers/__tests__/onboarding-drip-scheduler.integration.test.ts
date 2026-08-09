@@ -2,9 +2,13 @@
 // task): the Drip staleness cap and the rolling churn cap.
 //
 // Both are TIME boundaries, and separate `NOW()` evaluations cannot pin an
-// equality — so the cycle is called through the `runOnboardingDripCycle(exec,
+// equality — so the cycle is called through the `runOnboardingDripCycle(db,
 // asOf)` seam with an explicit `asOf` and this suite's own client. No singleton
 // redirection and no wall-clock anywhere.
+//
+// The first parameter is `db`, not `exec`: `ci:tenant-scope` only recognises
+// postgres.js tagged templates under the tag names it knows, and under `exec`
+// this file's global scan became invisible to that audit (#719 review D11).
 //
 // The cycle it exercises also THROWS where the old `checkAndSchedule` swallowed.
 // That matters more than it looks: a swallowed `42703` produced "zero rows

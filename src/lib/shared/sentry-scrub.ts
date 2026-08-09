@@ -2,6 +2,10 @@ type ScrubbableSentryEvent = {
   extra?: unknown;
   transaction?: unknown;
   breadcrumbs?: unknown;
+  exception?: {
+    values?: unknown;
+  };
+  message?: unknown;
   request?: {
     url?: unknown;
     query_string?: unknown;
@@ -285,6 +289,37 @@ export function scrubSentryEvent<T extends ScrubbableSentryEvent>(
         scrubBreadcrumb(crumb as Record<string, unknown>);
       }
     }
+  }
+  // The exception message and the top-level `message` are the LOUDEST channel on
+  // the event and were the only unscrubbed one until #719.
+  //
+  // `captureException(err)` puts the raw `err.message` in
+  // `exception.values[].value`, so provider text — Stripe, Resend, Telegram,
+  // Twilio, Zernio, and Postgres driver errors that can embed contact handles —
+  // reached Sentry verbatim from every queue. This was invisible for as long as
+  // it was because the worker previously reported job failures as *breadcrumbs*,
+  // which ARE scrubbed above; #719 promoted them to real issues and moved the
+  // same text onto the one path with no redaction on it.
+  //
+  // Uses the URL+query redactor, matching `transaction` and breadcrumb messages
+  // rather than the prose-safe `redactSensitiveTokenPaths`. That is the
+  // deliberate trade this module already documents: on the Sentry surface a
+  // `?api_key=SECRET` must not survive, and the cost is that prose after a bare
+  // `?` is truncated.
+  if (event.exception && typeof event.exception === 'object') {
+    const { values } = event.exception;
+    if (Array.isArray(values)) {
+      for (const value of values) {
+        if (!value || typeof value !== 'object') continue;
+        const entry = value as { value?: unknown };
+        if (typeof entry.value === 'string') {
+          entry.value = redactSensitivePathsAndQueries(entry.value);
+        }
+      }
+    }
+  }
+  if (typeof event.message === 'string') {
+    event.message = redactSensitivePathsAndQueries(event.message);
   }
 
   return event;

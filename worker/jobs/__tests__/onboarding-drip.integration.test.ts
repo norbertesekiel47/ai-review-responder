@@ -98,8 +98,16 @@ const ONBOARDING_DRIP_SCHEMA: SchemaRequirement = {
 
 describe.skipIf(liveDbDeliberatelyDisabled)('#719 live-DB eval preconditions', () => {
   it('the live-DB eval executes against migration-head Postgres', async () => {
-    expect(process.env.TEST_DATABASE_POOL_URL ?? '').not.toBe('');
-    const probe = postgres(process.env.TEST_DATABASE_POOL_URL!, { max: 1, onnotice: () => {} });
+    // Resolve exactly the way describeWithDb does, via resolveTestDatabaseUrl —
+    // NOT via process.env directly. The resolver falls back to reading
+    // .env.local off disk, so a bare process.env read made this sentinel fail in
+    // the one setup where the other ten live cases DID run against migration-head
+    // Postgres. A guard that reports "the live tests did not run" while they are
+    // passing beside it is a false negative of exactly the kind this guard exists
+    // to prevent, and it trains readers to ignore it.
+    const url = resolveTestDatabaseUrl();
+    expect(url ?? '').not.toBe('');
+    const probe = postgres(url!, { max: 1, onnotice: () => {} });
     try {
       await assertSchemaReady(probe, [ONBOARDING_DRIP_SCHEMA, MIGRATION_100_IMPORT_CONSENT]);
     } finally {

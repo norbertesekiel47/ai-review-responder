@@ -528,3 +528,112 @@ entries that mattered most are **D5** (the eval that grew 16 → 25 and is the o
 `42703` was ever pinned) and **D11** (the audit-blindness that would have shipped green). Two
 carry-forwards for step 7, both already noted inline: independently verify that no dynamic-import
 seam or replacement cast survived (D7), and treat the amendment budget as exhausted at 2 (D12).
+
+## D14 — cross-worktree overlap with feat-729-generate-domain-module (2026-08-09)
+
+_(Renumbered from D13 by the #719 session: it collided with the reclassify entry
+above. Content untouched; feat-729's mirror entry references its own D1, not this
+number, so the cross-reference still resolves.)_
+
+`scripts/ci/tenant-scope-allowlist.ts` is in both surfaces and both branches
+change the entry count (this branch's OnboardingDripScheduler entries; #729
+removes the 3 generate-route tenant-root-lookup entries and moves
+`ALLOWLIST_BASELINE` 412 -> 409). **Agreed merge order: #729 lands first.**
+On resume, rebase onto main and recompute the baseline together with this
+branch's own allowlist resolution. Mirror entry: feat-729's deviations D1.
+
+**Verdict: ACCEPT (constraint, not a defect).** Carried into step 8: this branch
+must NOT open its PR ahead of #729. After #729 merges, rebase onto `main` and
+re-run `pnpm ci:tenant-scope` — this branch currently reports `412 (baseline: 412)`
+and will need to agree with the post-#729 baseline of 409 plus whatever this
+branch's own entries resolve to. The two edits do not conflict textually (#729
+removes generate-route entries; #719 rewrites the `ONBOARDING_DRIP_CANDIDATES_SQL`
+snippet), so the rebase should be mechanical — but the BASELINE NUMBER is a single
+shared integer and will conflict semantically even when git reports no conflict.
+That is the failure mode to watch: a clean auto-merge that leaves the count wrong.
+
+---
+
+## D15 — step-7 review round 1: three HIGH findings, two needing owner decisions
+
+**When:** step 7, branch review round 1 (spec · standards · adversarial, in parallel).
+
+**What:** 13 findings across three axes. Every substantive one was verified by the
+orchestrator against the code before triage rather than accepted from the agent.
+Accepted and fixed in this round:
+
+- **A2 (HIGH)** — the sink gated on `isTerminalAttempt`, which plan round 1 had
+  explicitly directed it to reuse (D4). That direction was wrong for this call
+  site: the helper is the CATCH-BLOCK predicate and the sink runs in the
+  `'failed'` EVENT, where `attemptsMade` is already incremented, so it fired one
+  attempt early AND again on the real last one. `worker/jobs/judge/failed-hook.ts`
+  keeps a separate copy and says "do not unify them" — the repo had already
+  written down the trap D4 walked into. Replaced with a local event-context
+  predicate. **The eval did not catch this**: title 22 uses
+  `attemptsMade: 1 / attempts: 5`, where both predicates stay silent, so it passed
+  before and after. A discriminating case was added and proved red against the old
+  predicate before restoring.
+- **A6 (HIGH)** — `scrubSentryEvent` never covered `event.exception.values`, which
+  is exactly where `captureException` puts the raw message. Promoting job failures
+  from breadcrumbs (scrubbed) to issues (not) was therefore a net PII regression on
+  the elevated channel, and the sink's JSDoc claiming "Sentry has its own scrubber"
+  was false. Fixed at the root — **owner granted amendment #3** for
+  `src/lib/shared/sentry-scrub.ts`, so every `captureException` in the repo
+  benefits, not just this sink.
+- **A1 (HIGH)** — producer-only enforcement of the **Drip staleness cap**. Owner
+  chose to add the handler-side guard now. `isDripTooStale` +
+  `DRIP_STALENESS_GRACE_DAYS` now live in `OnboardingDripWorker` as the single
+  owner (the scheduler imports and aliases them, keeping the SQL identifier —
+  and therefore the tenant-scope snippet — unchanged), with a fail-closed
+  chokepoint before the drip-log claim completing the row
+  `completion_reason='drip_too_stale'`. This needed a second amendment-#3 file,
+  `src/lib/shared/outbox-completion-reason.ts`, for the new vocabulary member.
+- **Spec MEDIUM** — the execution sentinel read `process.env.TEST_DATABASE_POOL_URL`
+  rather than `resolveTestDatabaseUrl()`, so it failed in the one setup where the
+  other ten live cases DID run (the documented `.env.local` fallback). Reproduced:
+  10 pass + sentinel fail. The guard built to prove live coverage was itself
+  producing a false negative.
+- **Spec LOW** — `topic` promoted from `extra` to a Sentry TAG (only tags are
+  filterable, and three legacy aliases share the `sendOwnerEmail` queue).
+- **Spec LOW** — three `edge_cases` still described the `last_error` write D3 cut;
+  swept, and three new cases added for the defects this round found. The same
+  class D6 named, recurring — a design reversal has to sweep every field, and
+  D6 itself did not finish the job.
+- **A4 (LOW)** — migration 034 §5d backfills `users.account_id` with **no role
+  filter**, so "admins carry `account_id IS NULL`" is false and pre-034
+  business-scoped admins do carry one. The day_30 deletion is still correct (it is
+  the signed-off behaviour change) but its stated justification was wrong and had
+  been enshrined in a code comment. Comment corrected to give the real reason.
+- **Standards HIGH/MEDIUM/LOW** — `boundedErrorClass` now actually bounds and
+  matches the sibling it claims to mirror; the scheduler JSDoc no longer implies
+  alerting it does not deliver; CONTEXT.md's "reported for exactly one day" now
+  says that a backlog already past the window at deploy is skipped silently and
+  never appears in that count; the stale `exec` header corrected.
+
+**Rejected, with reasons:**
+
+- **Standards MEDIUM — `live-db-tenant.ts` sits in `__tests__/` while sibling
+  helpers live in `__tests__/helpers/`.** The file PRE-EXISTS this branch (added
+  by #262, `2f3bf9fe`); only functions were added to it. Moving it would touch
+  every importer for a layout inconsistency this branch did not create.
+- **Standards MEDIUM — `resolveDashboardUrl` lives in the feature-named
+  `summary-report-helpers.ts` while gaining a third, non-summary consumer.** Real
+  smell, but the fix is a new module, and the repo's standing rule is "default is
+  no new file." Filed rather than done late in a branch that is otherwise green.
+
+**Deferred to follow-ups (not fixed here):**
+
+- **A3 (MEDIUM)** — a too-late drip is dropped with no durable record beyond a
+  scheduler `logger.warn`, and that warn only fires while the scheduler runs,
+  which is precisely what a multi-day outage stops. The new `drip_too_stale`
+  completion reason partially closes this on the handler path; the scheduler path
+  still has no durable marker.
+- **A5 (LOW)** — the reviewer MEASURED the declined repo-wide audit at ~40 lines
+  (7 `DROP COLUMN`s across 103 migrations, only `users.business_id` ever having a
+  live reader), which contradicts the "epic-sized" framing used to decline it.
+  Worth re-opening as its own ticket on real numbers.
+- **D3's claim that the `OutboxPoller.ts` follow-up "is filed" is untrue** — `gh
+  search issues` finds no matching issue. Must be filed before ship, or the claim
+  corrected.
+
+**Verdict: ACCEPT.** Round 1 of a maximum 3; `branchReviewRounds` = 1.

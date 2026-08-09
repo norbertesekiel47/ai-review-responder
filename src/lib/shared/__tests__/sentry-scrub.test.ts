@@ -6,6 +6,70 @@ import {
 } from '../sentry-scrub';
 
 describe('scrubSentryEvent', () => {
+  // #719 step-7 finding A6. Until then scrubSentryEvent covered extra, request,
+  // transaction and breadcrumbs — never exception.values, which is exactly where
+  // captureException puts the raw provider/driver message. The worker used to
+  // report job failures as breadcrumbs (scrubbed); #719 promoted them to real
+  // issues and so moved that text onto the one unredacted path.
+  it('redacts an approval token from the exception message', () => {
+    const event = {
+      exception: {
+        values: [
+          { type: 'Error', value: 'POST /api/approve/tok_live_abc123 failed with 500' },
+        ],
+      },
+    };
+
+    scrubSentryEvent(event);
+
+    const scrubbed = (event.exception.values[0] as { value: string }).value;
+    expect(scrubbed).not.toContain('tok_live_abc123');
+    expect(scrubbed).toContain('/api/approve/');
+  });
+
+  it('redacts a secret query parameter from the exception message', () => {
+    const event = {
+      exception: { values: [{ type: 'Error', value: 'GET /webhook?api_key=SECRETVALUE 401' }] },
+    };
+
+    scrubSentryEvent(event);
+
+    expect((event.exception.values[0] as { value: string }).value).not.toContain('SECRETVALUE');
+  });
+
+  it('redacts the top-level message the same way as the exception value', () => {
+    const event = { message: 'callback /api/approve/tok_live_zzz999 rejected' };
+
+    scrubSentryEvent(event);
+
+    expect(event.message).not.toContain('tok_live_zzz999');
+  });
+
+  it('leaves an exception message with no secrets byte-for-byte unchanged', () => {
+    // The URL+query redactor is deliberately aggressive on the Sentry surface;
+    // this pins that ordinary handler errors survive it intact, so the promotion
+    // from breadcrumb to issue does not cost diagnosability on the common path.
+    const message = 'column "business_id" does not exist';
+    const event = { exception: { values: [{ type: 'PostgresError', value: message }] } };
+
+    scrubSentryEvent(event);
+
+    expect((event.exception.values[0] as { value: string }).value).toBe(message);
+  });
+
+  it('tolerates malformed exception shapes without throwing', () => {
+    // beforeSend must never throw — a scrubber that crashes drops the event and
+    // re-creates the invisibility #719 exists to remove.
+    for (const event of [
+      { exception: {} },
+      { exception: { values: 'not-an-array' } },
+      { exception: { values: [null, undefined, 42, { value: 7 }] } },
+      { message: 12345 },
+    ] as unknown[]) {
+      expect(() => scrubSentryEvent(event as never)).not.toThrow();
+    }
+  });
+
   it('redacts sensitive keys recursively from extra and request headers', () => {
     const event = {
       extra: {

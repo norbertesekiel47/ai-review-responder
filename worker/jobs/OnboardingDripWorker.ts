@@ -5,7 +5,13 @@ import {
   checkSubscription,
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import {
+  markOutboxCompleted,
+  markOutboxCompletedWithReason,
+  markOutboxFailed,
+  extractOutboxHandle,
+} from '../../src/lib/shared/outbox';
+import { OUTBOX_COMPLETION_REASON } from '../../src/lib/shared/outbox-completion-reason';
 import { getWorkerConfig } from '../../src/lib/config/worker';
 import {
   sendInternalEmail,
@@ -22,6 +28,52 @@ import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { subscriptionGrantsFullAccess } from '../../src/lib/shared/subscription-status';
 import { resolveDashboardUrl } from './summary-report-helpers';
+
+/**
+ * **Drip staleness cap** — the single owner of the policy (#719).
+ *
+ * It lives here rather than in `OnboardingDripScheduler.ts`, which imports it,
+ * because that module registers a guarded poll at import time; importing it from
+ * this worker would start a poller as a side effect of loading a job handler.
+ * This module has no import-time side effects, so the edge is safe in this
+ * direction only.
+ */
+export const DRIP_STALENESS_GRACE_DAYS = 3;
+
+/** Days after `subscription_activated_at` at which each drip becomes due. */
+export const DRIP_DAY_OFFSETS: Record<OnboardingDripPayload['drip_type'], number> = {
+  day_1: 1,
+  day_7: 7,
+  day_30: 30,
+};
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * True when the drip's due date passed more than the grace window ago.
+ *
+ * Boundary matches the scheduler exactly: the cap is
+ * `activated + days + GRACE`, and a drip sitting precisely ON it still sends —
+ * the comparison is strictly `<`, so equality is NOT stale. Getting this
+ * backwards would silently drop every drip that lands on the boundary.
+ *
+ * Returns `false` when the anchor is null: staleness is not computable without
+ * it, and the null case is already owned upstream — day_7/day_30 take the
+ * pre-existing `markOutboxFailed` path (an intake edge case that must stay
+ * unchanged), and day_1 with a null anchor is not something the scheduler can
+ * produce. Deliberately NOT fail-closed there, because closing it would rewrite
+ * a contract path this ticket promised to leave alone.
+ */
+export function isDripTooStale(
+  dripType: OnboardingDripPayload['drip_type'],
+  activatedAt: Date | null,
+  asOf: Date,
+): boolean {
+  if (!activatedAt) return false;
+  const capMs =
+    activatedAt.getTime() + (DRIP_DAY_OFFSETS[dripType] + DRIP_STALENESS_GRACE_DAYS) * MS_PER_DAY;
+  return capMs < asOf.getTime();
+}
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
@@ -92,6 +144,43 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
     logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${businessId}`);
     await markOutboxFailed(sql, outboxId, 'subscription_activated_at is null', outboxAttempt);
+    return;
+  }
+
+  // ── 3b. Drip staleness cap — fail-closed chokepoint (#719 review A1) ──
+  // The scheduler already excludes stale pairs, so in the normal path this never
+  // fires. It exists because producer-only enforcement is not enforcement: an
+  // operator re-driving a failed row, a future second producer, or a row minted
+  // just inside the boundary and left undispatched through a multi-day worker
+  // outage all reach this handler with the producer's check long expired — and
+  // the result is a "Welcome to RepWorth!" arriving months late.
+  //
+  // This mirrors #679's `guardImportConsent`, which added exactly this shape for
+  // exactly this reason after producer-side gating was judged insufficient.
+  //
+  // Placed BEFORE the drip-log claim on purpose: a refused drip must not consume
+  // the (business_id, drip_type) claim, or a legitimate re-send could never take
+  // it. It completes rather than fails the row — a policy refusal is the guard
+  // working, not an incident — and carries a durable `completion_reason` so a
+  // refusal is separable in SQL from a genuine send (the #695 half of the
+  // pattern), which the log line alone could not provide once logs age out.
+  //
+  // No SELECT … FOR UPDATE here, unlike #679: that guard serialized against an
+  // owner concurrently accepting an offer. Staleness is a pure function of
+  // `subscription_activated_at` and the clock, and nothing mutates the anchor,
+  // so there is no race to serialize against.
+  if (isDripTooStale(drip_type, business.subscription_activated_at, new Date())) {
+    logger.warn(`${drip_type} refused by the staleness cap`, {
+      business_id: businessId,
+      drip_type,
+      grace_days: DRIP_STALENESS_GRACE_DAYS,
+    });
+    await markOutboxCompletedWithReason(
+      sql,
+      outboxId,
+      OUTBOX_COMPLETION_REASON.DRIP_TOO_STALE,
+      outboxAttempt,
+    );
     return;
   }
 
@@ -408,7 +497,15 @@ async function buildDay30(
   // Staff sign-off name — resolved only from the onboarding staff member on
   // businesses.onboarded_by. The former business-scoped-admin branch read
   // users.business_id (dropped in migration 034) and is deleted rather than
-  // ported: admins carry account_id IS NULL, so no rewrite of it could match.
+  // ported, because narrowing the sign-off to businesses.onboarded_by is the
+  // signed-off behaviour change (intake user_visible_behavior).
+  //
+  // It is NOT deleted because "a rewrite could not match" — that claim was made
+  // during planning and is false (#719 step-7 review A4). Migration 034 §5d
+  // backfills users.account_id from users.business_id with NO role filter, so
+  // pre-034 business-scoped admins DO carry a non-null account_id and an
+  // account-scoped rewrite would have matched some of them. The behaviour change
+  // is deliberate; the original justification for it was wrong.
   const [onboarder] = await sql<{ name: string }[]>`
     SELECT u.name FROM users u
     JOIN businesses b ON b.onboarded_by = u.id

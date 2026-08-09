@@ -7,6 +7,7 @@ const {
   sqlReturnQueue,
   mockSql,
   mockMarkOutboxCompleted,
+  mockMarkOutboxCompletedWithReason,
   mockMarkOutboxFailed,
   mockSendInternalEmail,
   mockRecordNotificationDelivery,
@@ -30,6 +31,7 @@ const {
     sqlReturnQueue,
     mockSql,
     mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxCompletedWithReason: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockSendInternalEmail: vi.fn().mockResolvedValue({ messageId: 'msg-drip-1' }),
     mockRecordNotificationDelivery: vi.fn(),
@@ -46,6 +48,7 @@ const {
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
   markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
@@ -87,7 +90,13 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     account_updated_at: new Date(),
     initial_review_count: 20,
     initial_responded_count: 5,
-    subscription_activated_at: new Date('2026-04-01T00:00:00Z'),
+    // Relative to now, not a hard-coded date. #719 added a fail-closed Drip
+    // staleness cap in the handler, so a fixture pinned to a fixed calendar day
+    // starts refusing every drip once wall-clock passes it — the suite would rot
+    // silently into "all sends skipped" and still read as a legitimate pass.
+    // 12h ago keeps every drip type inside its grace window; cases that WANT the
+    // refusal override this explicitly.
+    subscription_activated_at: new Date(Date.now() - 12 * 60 * 60 * 1000),
     ...overrides,
   };
 }
@@ -111,6 +120,57 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  // ── Drip staleness cap (#719 review A1) ────────────────────────────
+  // The scheduler already excludes stale pairs, so this only fires for a row
+  // that reached the handler another way: an operator re-drive, a future second
+  // producer, or a row minted just inside the boundary and stranded through a
+  // multi-day worker outage. Producer-only enforcement is not enforcement.
+
+  it('refuses a drip past the staleness cap and never sends', async () => {
+    // day_1 due at activated + 1d, cap at + 4d. 10 days ago is far past it.
+    sqlReturnQueue.push([
+      mockBusinessRow({
+        subscription_activated_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      }),
+    ]);
+
+    await handleOnboardingDrip(makeJob());
+
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      mockSql,
+      'outbox-drip-1',
+      'drip_too_stale',
+      undefined,
+    );
+    // Completed, never failed — a policy refusal is the guard working, so it
+    // must not burn watchdog retries the way a genuine error does.
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // And it must NOT consume the (business_id, drip_type) claim: the guard runs
+    // before the drip-log INSERT, so exactly one query — the business lookup —
+    // has run by the time it returns.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a drip sitting exactly on the staleness boundary', async () => {
+    // Equality is NOT stale — the comparison is strictly `<`, matching the
+    // scheduler. A `<=` here would silently drop every boundary drip, and the
+    // locked intake says send AT the boundary.
+    sqlReturnQueue.push([
+      mockBusinessRow({
+        subscription_activated_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+      }),
+    ]);
+    sqlReturnQueue.push([{ id: 'claim-1' }]); // drip-log claim
+    sqlReturnQueue.push([]); // dashboard-url probe
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // sent_at update
+
+    await handleOnboardingDrip(makeJob());
+
+    expect(mockMarkOutboxCompletedWithReason).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).toHaveBeenCalled();
   });
 
   it('skips when subscription is not active (completes outbox)', async () => {

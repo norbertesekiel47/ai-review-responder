@@ -40,9 +40,12 @@
     "A drip exactly at the staleness grace boundary — must still send at the boundary and be skipped past it",
     "day_7/day_30 for a location with subscription_activated_at NULL — existing markOutboxFailed path is unchanged and must stay unchanged",
     "A BullMQ job that fails on an intermediate attempt and succeeds on retry — the sink must capture nothing and write nothing",
-    "A queue that already owns a domain 'failed' hook (publisher, zernio ingest, judge, csv ingest, solicitation batch, generate asks) — the generic sink must not stomp the domain hook's last_error",
-    "A job whose payload carries no outbox_id (hand-enqueued / legacy) — the sink must no-op rather than write against a BullMQ job id",
-    "The sink's own write failing — must be log-and-swallow, never allowed to escalate out of the 'failed' listener"
+    "A queue that already owns a domain 'failed' hook (publisher, zernio ingest, judge, csv ingest, solicitation batch, generate asks) — the generic sink must not disturb the domain hook's last_error. Satisfied structurally since D3: the sink writes no job_outbox row at all, so there is nothing to stomp",
+    "A job whose payload carries no outbox_id (hand-enqueued / legacy) — the sink records the missing id as absent Sentry context and still raises the issue; it never writes against a BullMQ job id",
+    "The sink's own reporting failing (Sentry transport, logger) — must be log-and-swallow, never allowed to escalate out of the 'failed' listener",
+    "A job on its SECOND-TO-LAST attempt — the sink must stay silent. The 'failed' event has already incremented attemptsMade, so the catch-block predicate isTerminalAttempt fires an attempt early AND again on the real last one",
+    "A drip whose due date passed the staleness grace window but which reaches the handler anyway (operator re-drive, second producer, or a row stranded undispatched through a multi-day outage) — the handler-side chokepoint refuses it before the drip-log claim and completes the row with completion_reason='drip_too_stale'",
+    "An error message carrying a token path or secret query parameter — it must not reach Sentry verbatim; scrubSentryEvent redacts exception.values, which it did not cover before #719"
   ],
   "existing_patterns_to_follow": [
     "src/lib/auth/require-owner-access.ts:63 — the canonical post-034 users -> accounts -> businesses join replacing users.business_id",
@@ -69,7 +72,9 @@
     "docs/superpowers/plans/**",
     "docs/reviews/**",
     ".claude/reference/lab-notes.md",
-    "scripts/ci/tenant-scope-allowlist.ts"
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/shared/sentry-scrub.ts",
+    "src/lib/shared/outbox-completion-reason.ts"
   ],
   "tests_to_add": [
     "the live-DB eval executes against migration-head Postgres",
