@@ -257,10 +257,12 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with the existing draft including status so the client can branch correctly', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // tx queue: lock-row, existing-check returns the in-progress draft → 409.
+    // tx queue: lock-row, existing-check returns the in-progress draft,
+    // hasOpenFlag → [] (not held) → 409 draft_already_exists.
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-1', text: 'Half-written reply', is_edited: true, status: 'pending_approval' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -278,9 +280,11 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with status=approved when publish is already queued', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-row, existing-check, hasOpenFlag → [] (not held).
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-2', text: 'Approved reply', is_edited: false, status: 'approved' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -292,9 +296,11 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 
   it('returns 409 draft_already_exists with status=awaiting_owner_connect when Google is disconnected', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    // tx queue: lock-row, existing-check, hasOpenFlag → [] (not held).
     seedTxRows(
       [{ id: REVIEW_ID }],
       [{ response_id: 'existing-draft-3', text: 'Parked reply', is_edited: false, status: 'awaiting_owner_connect' }],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
