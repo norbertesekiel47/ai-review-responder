@@ -1616,7 +1616,8 @@ insertions across 21 files, ~4:1 test:prod.
    in-window → **terminal** `ZernioImportPaginationCapExhaustedError`
    (markOutboxFailed + Sentry; `completed_at` NULL keeps the run claimable
    after an ops cap bump). Collapsed counters only; the four legacy
-   `gap_*`/`historical_*` freeze at DEFAULT 0 (#680 drops them).
+   `gap_*`/`historical_*` freeze at DEFAULT 0 (#680 drops them — *since done:
+   migration 103, 2026-08-08, both projects*).
 6. **Docs truth-up** (T6): the importReview KNOWN HAZARD paragraph rewritten —
    the lost-draft hazard is resolved by disjoint lane ownership, not by a guard.
 
@@ -2339,3 +2340,115 @@ trigger. They are fixed in the same change as this entry.
   the superseded writer. A module mock missing the new export fails at CALL time, so
   typecheck cannot see it, and three targeted per-suite green runs missed it. Only
   the whole-repo gate found `ZernioBackfillWorker.test.ts`.
+
+---
+
+## 2026-08-08 — #680 Legacy backfill counters DROPPED (migration 103, PR #716)
+
+**The closing ticket of the Consented Review Import epic (#667).** Migration 103
+drops `gap_processed_count`, `historical_processed_count`, `gap_skipped_count`
+and `historical_skipped_count` from `zernio_backfill_runs`, completing the DROP
+half of the counter collapse ADR 0015 §4 split across two migrations. Applied to
+staging **and** production 2026-08-08 in lockstep. Migrations head 102 → 103.
+
+### What shipped
+
+1. **`supabase/migrations/103_drop_legacy_backfill_counters.sql`** — four
+   statements: `SET lock_timeout = '5s'`, `SET search_path = public, pg_temp`, a
+   `DO $$` preflight guard, one four-column `ALTER … DROP COLUMN IF EXISTS`.
+2. **`migration-103-drop-legacy-backfill-counters.integration.test.ts`** (new,
+   7 tests) — pins the migration's executable text exactly, executes its own
+   guard against a `pg_temp` replica to prove BOTH branches, and introspects the
+   final shape.
+3. **Retargets**: the migration-100 suite's counter assertion 7 → 3 columns
+   (intake E6 — it went red the moment the local DB passed 103), and the two
+   `ZernioBackfillWorker` legacy-counter guards retitled to name 103.
+4. **Docs**: migrations-log head + entry, ADR 0015's cleanup-migration
+   consequence marked DISCHARGED, spec §8a R4 ticked, the completed
+   zernio-ingestion runbook's two stale operator sites annotated as superseded.
+
+**Zero production TypeScript changes.** The worker stopped writing the legacy
+four at #675; no poller, offboarding/purge, admin, RLS, analytics or KPI path
+read them. Two of the ticket's four scope bullets were therefore already
+discharged by inspection at 0 diff (`scripts/ci/tenant-scope-allowlist.ts:2211`
+already carried the collapsed two-column UPDATE form; the worker sweep found no
+residual read), recorded as deviations D1/D2 rather than invented work.
+
+### Decisions
+
+- **The preflight is executable, not documented.** The first plan draft put the
+  reconciliation query in the migration header for an operator to run. That was
+  rejected on review: a guard that never fires is indistinguishable from a
+  working one on clean data — both report zero abort rows, and both environments
+  were clean — so the documented form could prove nothing and a forgotten one
+  would protect nothing. As a migration statement it cannot be skipped, and its
+  failing branch becomes testable.
+- **The guard counts all four columns, not one.** `0 → RETURN` (keeps 103
+  re-runnable after the drop), `4 → reconcile`, **any partial state → RAISE**.
+  103's own `ALTER` is atomic and cannot produce a partial schema, but the guard
+  is written to be sound against any input state, not merely the ones this file
+  creates — returning early there would drop the survivors' values unreconciled.
+- **The existence check is search_path-relative** (`to_regclass` +
+  `pg_attribute`, `AND NOT attisdropped`) rather than a `table_schema='public'`
+  literal, which cannot follow the `pg_temp` shadow the guard tests depend on.
+- **`SET search_path` is session-level, not `SET LOCAL`** — see the gotcha below.
+- **The worker guards were KEPT and retargeted, not deleted.** Reversal of an
+  earlier decision: that suite is mock-`sql` based, so a reintroduced legacy
+  column name is invisible to every other check and would surface only as a
+  production 42703. "It would be a hard 42703" is the argument *for* the guard.
+
+### Review
+
+Four adversarial plan-review rounds before a line of code was written:
+**10 → 7 → 2 → 0 findings**, blockers **1 → 2 → 0 → 0**. All 19 findings were
+accepted after verification against disk; **none was ever rejected**. Triage in
+`docs/reviews/feat-680-drop-legacy-backfill-counters/plan-review-round-{1,2,3,4}.md`.
+
+Rounds 2 and 3 both found their blocker-class defects in the **fixes**, not in
+the original plan — the standing lesson from this ticket.
+
+### Gotchas found (full detail in lab-notes 2026-08-08 #680)
+
+- **`SET LOCAL` in a migration is a no-op that only warns.** The fix for the
+  temp-table hijack was written as `SET LOCAL search_path`, which takes effect
+  only inside a transaction block; this repo applies migrations with plain
+  `psql -f` and no migration carries `BEGIN`/`COMMIT`, so it would have governed
+  nothing. The migration would have applied cleanly, tests would have stayed
+  green, and the hole would have stayed open behind its own apparent remedy.
+- **`.match()` without `/g` cannot count**, so an "exactly one `DO` block"
+  assertion written with `.length` was inert.
+- **`ci:live-db-suites` counts an unreadable `.unsafe()` argument as DDL**, so
+  dynamically executing the migration's guard needs its own second pragma.
+- **A column DROP cannot be proven by boot readiness** — probe the worker's own
+  statement shapes inside a `DO` block that RAISEs.
+
+### Verification
+
+Local: full gate GREEN, 23/23 rows, both integration suites RUNNING (not
+skipped). Mutation-tested in both directions — swapping the two-branch predicate
+for the naive form turns the passing-branch test red; any edit to the migration
+turns the text pin red.
+
+Staging apply window: `total_rows=2, unreconciled_two_branch=0` — and
+`unreconciled_naive=2`, i.e. **the naive predicate would have aborted the
+migration on both healthy rows**, which is the header's central claim
+demonstrated rather than argued. Post-apply introspection returned exactly three
+counter columns; rows and totals unchanged at 2 runs / 58 imported. Guard re-run
+took the `RETURN` branch. Worker write path proven by a rolled-back `DO` probe
+(`PROBE OK … imported=0 skipped=0`).
+
+Production: preflight `0 rows / 0 unreconciled / 0 businesses` (trivially
+satisfied, recorded anyway — a skipped preflight is not a passed preflight);
+post-apply introspection identical to staging.
+
+### Known follow-ups
+
+- **`RECLASSIFY` fired** (411 production lines vs 200 estimated) and was shipped
+  through by owner decision. It was documentation and test volume, not code
+  scope — zero TypeScript behaviour changed. Second instance of the lab-noted
+  pattern that `estimated_diff_size` must budget production and test lines
+  separately, or reclassify fires on exactly the DB-contract features whose
+  heavy test ratio is by design.
+- **Staging `onboarding_drip` failures** (~24 `job_outbox` rows in `failed` on
+  Terry Business) remain open. Pre-existing, unrelated to the import path,
+  outside this ticket's surface. Still needs its own ticket.
