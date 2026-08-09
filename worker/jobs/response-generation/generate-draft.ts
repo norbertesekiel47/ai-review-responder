@@ -138,28 +138,7 @@ export async function generateDraft(
       ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, genOpts)
       : await generateResponse(sql, normalizedReview, businessContext, voiceExamples, genOpts);
   } catch (err) {
-    if (isCostCapError(err)) {
-      logger.warn(`Cost limit exceeded for business ${businessId}: ${err.message}`);
-      alertCostCapExhausted(err, businessId, reviewId, version);
-      return { kind: 'failed', reason: err.message };
-    }
-    if (isTransientGenerationError(err)) {
-      // Re-throw so BullMQ retries (the queue's attempts budget + backoff) and, if those
-      // exhaust, the outbox watchdog re-dispatches after its stale window.
-      // For CostInfraUnavailableError the cost RESERVATION precedes the LLM
-      // call, so no spend has occurred (budget-exceeded errors stay terminal
-      // above); ConcurrencyLimitExceededError simply waits out other jobs, so
-      // it re-throws without a warning.
-      if (err instanceof CostInfraUnavailableError) {
-        logger.warn(`Cost-guard infra unavailable for review ${reviewId} (will retry): ${err.message}`);
-      } else if (err instanceof TransientLLMError) {
-        logger.warn(`Transient LLM error for review ${reviewId} (will retry): ${err.message}`);
-      }
-      throw err;
-    }
-    // Permanent LLM/config error (auth, bad request, validation)
-    logger.error(`Generation failed for review ${reviewId}: ${err instanceof Error ? err.message : err}`);
-    return { kind: 'failed', reason: `generation_failed: ${err instanceof Error ? err.message : err}` };
+    return dispatchGenerationPhaseError(err, 'generation', { reviewId, businessId, version }, logger);
   }
 
   // ── Avoid-facts guardrail ───────────────────────────────────────────
@@ -188,21 +167,55 @@ export async function generateDraft(
     );
     return { kind: 'ok', result: guarded.result, retryCostId: guarded.retryCostId };
   } catch (err) {
-    // A cost-cap (budget) exhaustion during the guardrail retry must alert and
-    // fail like the primary cost path — not be swallowed as guardrail_failed.
-    if (isCostCapError(err)) {
-      logger.warn(`Cost limit exceeded for business ${businessId} during avoid-facts guardrail retry: ${err.message}`);
-      alertCostCapExhausted(err, businessId, reviewId, version);
-      return { kind: 'failed', reason: err.message };
-    }
-    if (isTransientGenerationError(err)) {
+    return dispatchGenerationPhaseError(err, 'guardrail', { reviewId, businessId, version }, logger);
+  }
+}
+
+/**
+ * Terminal-vs-transient error dispatch shared by the primary generation call
+ * and the avoid-facts guardrail retry — one owner so the two phases cannot
+ * drift (a cost-cap exhaustion during the guardrail retry must alert and fail
+ * exactly like the primary cost path, never be swallowed as guardrail_failed).
+ *
+ * Cost-cap errors are terminal: warn + admin alert + failed outcome. Transient
+ * errors RE-THROW so BullMQ retries (attempts budget + backoff; the outbox
+ * watchdog re-dispatches after exhaustion) — for CostInfraUnavailableError the
+ * cost RESERVATION precedes the LLM call so no spend has occurred, and
+ * ConcurrencyLimitExceededError simply waits out other jobs so it re-throws
+ * without a warning; on retry the primary hits the idempotent cache, so only
+ * the failed phase re-spends. Everything else is a permanent LLM/config error
+ * (auth, bad request, validation) returned as a terminal DraftOutcome.
+ */
+function dispatchGenerationPhaseError(
+  err: unknown,
+  phase: 'generation' | 'guardrail',
+  ids: { reviewId: string; businessId: LocationId; version: number },
+  logger: Pick<WorkerLogger, 'warn' | 'error'>,
+): DraftOutcome {
+  const { reviewId, businessId, version } = ids;
+  if (isCostCapError(err)) {
+    const phaseSuffix = phase === 'guardrail' ? ' during avoid-facts guardrail retry' : '';
+    logger.warn(`Cost limit exceeded for business ${businessId}${phaseSuffix}: ${err.message}`);
+    alertCostCapExhausted(err, businessId, reviewId, version);
+    return { kind: 'failed', reason: err.message };
+  }
+  if (isTransientGenerationError(err)) {
+    if (phase === 'guardrail') {
       logger.warn(`Transient failure during avoid-facts guardrail for review ${reviewId} (will retry): ${err.message}`);
-      throw err;
+    } else if (err instanceof CostInfraUnavailableError) {
+      logger.warn(`Cost-guard infra unavailable for review ${reviewId} (will retry): ${err.message}`);
+    } else if (err instanceof TransientLLMError) {
+      logger.warn(`Transient LLM error for review ${reviewId} (will retry): ${err.message}`);
     }
-    const message = err instanceof Error ? err.message : String(err);
+    throw err;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (phase === 'guardrail') {
     logger.error(`Avoid-facts guardrail failed for review ${reviewId}: ${message}`);
     return { kind: 'failed', reason: `guardrail_failed: ${message}` };
   }
+  logger.error(`Generation failed for review ${reviewId}: ${message}`);
+  return { kind: 'failed', reason: `generation_failed: ${message}` };
 }
 
 // ── Avoid-facts guardrail ───────────────────────────────────────────────
