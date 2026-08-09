@@ -301,7 +301,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
-      expect.anything(), expect.any(String), OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT, undefined,
+      mockSql, 'outbox-gen-1', OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT, undefined,
     );
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled(); // first_response_drafted must not fire

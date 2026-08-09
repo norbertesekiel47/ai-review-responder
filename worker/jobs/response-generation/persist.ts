@@ -108,8 +108,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     && version === 1
     && !suppressNotification;
 
-  let staleContentSkip = false;
-  await sql.begin(async (tx) => {
+  return sql.begin(async (tx): Promise<PersistResponseOutcome> => {
     const { currentReviewContentHash } = await acquirePersistLocks(tx, {
       reviewId,
       businessId,
@@ -131,8 +130,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         version,
         origin_lane: originLane,
       });
-      staleContentSkip = true;
-      return; // tx commits with zero writes
+      return { kind: 'skipped_stale_content' }; // tx commits with zero writes
     }
 
     await tx`
@@ -266,13 +264,13 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         originLane,
         moderation,
       });
-      return;
+      return { kind: 'persisted', responseId };
     }
 
     // Backfill suppression (spec §4.6, §6.7) OR a high-severity flag both skip
     // the approval notification.
     if (suppressNotification || held) {
-      return;
+      return { kind: 'persisted', responseId };
     }
 
     await enqueueSendNotification(tx, {
@@ -280,11 +278,8 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       businessId,
       correlationId,
     });
+    return { kind: 'persisted', responseId };
   });
-
-  return staleContentSkip
-    ? { kind: 'skipped_stale_content' }
-    : { kind: 'persisted', responseId };
 }
 
 /**
