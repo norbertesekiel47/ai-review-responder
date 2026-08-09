@@ -62,7 +62,12 @@ export interface TenantScopeAllowlistEntry {
 //         ownership via `businesses.account_id` BEFORE opening the tx, so the
 //         in-tx reads key on `review_id` alone.
 //     `draft-status/route.ts` needs none — it binds `resp.business_id`.
-export const ALLOWLIST_BASELINE = 412;
+//   412 → 409 (#729), a SHRINK. The Generate transaction moved to
+//     `src/lib/reviews/on-demand-generate.ts` and every sibling read there is
+//     natively business-scoped (`AND business_id = …`), so the three
+//     Generate-door entries above were deleted — the audit sees the scope and
+//     needs no suppression at all.
+export const ALLOWLIST_BASELINE = 409;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1296,31 +1301,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r WHERE r.business_id = ${locationId} AND EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' )",
     category: 'tenant-root-lookup',
     reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
-  },
-  // #678 — the Generate door. Identical shape to the three entries
-  // `src/app/api/dashboard/past-replies/draft/route.ts` already carries: the
-  // route proves ownership via `businesses.account_id` BEFORE opening the tx,
-  // so these in-tx reads key on `review_id` alone.
-  {
-    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId}::uuid AND status = 'posted' LIMIT 1",
-    category: 'tenant-root-lookup',
-    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT id, status FROM responses WHERE review_id = ${reviewId}::uuid AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1",
-    category: 'tenant-root-lookup',
-    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/reviews/[reviewId]/generate/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM responses WHERE review_id = ${reviewId}::uuid",
-    category: 'tenant-root-lookup',
-    reason: "Owner dashboard Generate transaction has already proved review ownership via businesses.account_id before this row-level lock or mutation.",
   },
   {
     file: "src/app/api/approve/[token]/route.ts",

@@ -49,7 +49,15 @@ const {
   const txQueue: unknown[][] = [];
 
   const txMock = vi.fn(
-    async (_strings: TemplateStringsArray, ..._values: unknown[]) => txQueue.shift() ?? [],
+    async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      // statusArraySql(tx, …) composes a `${array}::text[]` FRAGMENT on the tx
+      // instance (#729 — the extracted module receives only tx, so the fragment
+      // is no longer built on the sql singleton). A fragment is embedded in its
+      // parent query, never executed on its own — it must not consume a rowset.
+      // Mock plumbing only (deviations D3); no behavioural assertion changes.
+      if (strings.join('?') === '?::text[]') return { fragment: '?::text[]', values };
+      return txQueue.shift() ?? [];
+    },
   );
   // Postgres.js identity JSONB constructor — enqueueGenerateResponse binds the
   // payload through `tx.json(...)`, so mirror it as a pass-through and the

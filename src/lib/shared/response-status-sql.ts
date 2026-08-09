@@ -15,6 +15,6 @@ import type postgres from 'postgres';
  * zero-dependency pure module — importers of the status groups pull them in
  * without a transitive `sql` / DB import.
  */
-export function statusArraySql(db: postgres.Sql, statuses: readonly string[]) {
+export function statusArraySql(db: postgres.Sql | postgres.TransactionSql, statuses: readonly string[]) {
   return db`${[...statuses] as string[]}::text[]`;
 }
