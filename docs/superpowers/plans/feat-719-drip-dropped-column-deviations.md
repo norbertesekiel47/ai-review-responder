@@ -156,3 +156,52 @@ contract that asserts the reversed fact, not just the one the review finding cit
 the bullet the reviewer pointed at and stopped there.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D7 — five things Task 1 met that the plan's eval spec did not model
+
+**When:** Task 1, writing the 25-test eval.
+
+**What / Why**, in the order they bite:
+
+1. **`assertSchemaReady` takes TWO arguments.** The plan's sentinel snippet calls
+   `assertSchemaReady(probe)`; the real signature is `(db, requirements: readonly SchemaRequirement[])`.
+   The objects this eval reads span the base schema and 034 rather than one migration, and
+   `schema-ready.ts` exports no requirement covering them. Rather than add an export to
+   `schema-ready.ts` (in surface, but outside Task 1's four-file list), the requirement is declared
+   **locally** in each live suite and paired with `MIGRATION_100_IMPORT_CONSENT` as the near-head
+   proof — so a stale container still fails with the actionable `pnpm test:db:setup` message.
+
+2. **Title 4's `role='staff'` is unrepresentable.** The live `users_role_check` admits `'owner'`
+   and `'admin'` only, so the prescribed staff row cannot be inserted. Seeded as an `admin` user
+   carrying the tenant's `account_id` and an `auth_id` instead. The discriminator is unchanged and
+   arguably sharper: a query that drops `u.role = 'owner'` still matches this row and hands back a
+   dashboard URL the email's recipient cannot use. Title text untouched.
+
+3. **Title 14's "0 rows" had to be scoped to `day_1`.** With grace = 3, the `asOf - 10 days`
+   fixture's **day_7** sits exactly on its own grace boundary, so title 12's locked "send AT the
+   boundary" rule REQUIRES it to be queued. A global "0 rows for this business" assertion would
+   have been unsatisfiable by a correct implementation. Both assertions therefore read
+   `pendingDripCount(businessId, 'day_1')`, which is also what the suite's contamination rule asks
+   for. The `tooLate` delta of 0 the title is actually about is unaffected and asserted as written.
+
+4. **The three missing seams are loaded dynamically so `pnpm typecheck` stays GREEN while every
+   test is RED.** `resolveDashboardUrl` (T2), `runOnboardingDripCycle` (T4) and
+   `worker/job-failure-sink.ts` (T5) do not exist yet. A static import of a missing NAME is a TS
+   error and of a missing MODULE is `TS2307`; either would have broken `pnpm typecheck` for Tasks
+   2-5, which run in parallel and each gate on it — a Task-1 artefact failing another task's gate.
+   Each seam is instead read through a dynamic import cast to an optional-property view, with an
+   accessor that throws a named "not exported yet (#719 Task N)" error. The sink's specifier is
+   held in a `const` so TS cannot resolve it statically; that resolution was **verified**, not
+   assumed, by temporarily pointing the variable at an existing sibling module and confirming the
+   import succeeds — otherwise the suite could have been one that never goes green.
+
+5. **`sql.json()` rejects a declared interface.** `OnboardingDripPayload` is an `interface`, which
+   gets no implicit index signature, so postgres.js' `JSONValue` parameter refuses it. Passed as
+   `{ ...payload }`, whose inferred type is accepted. Noted at the call site.
+
+**Classification:** none of these is a surface change — all five land inside Task 1's four files.
+**Amendment count remains 1** (D1).
+
+**Verdict:** _(pending step 6)_
