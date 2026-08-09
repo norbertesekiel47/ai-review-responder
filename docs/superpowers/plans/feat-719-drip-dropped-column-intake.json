@@ -56,6 +56,8 @@
   "allowed_edit_surface": [
     "worker/jobs/OnboardingDripWorker.ts",
     "worker/jobs/summary-report-helpers.ts",
+    "worker/jobs/MonthlyImpactWorker.ts",
+    "worker/jobs/WeeklySummaryWorker.ts",
     "worker/background/schedulers/OnboardingDripScheduler.ts",
     "worker/job-failure-sink.ts",
     "worker/index.ts",
