@@ -61,7 +61,12 @@
     "renders no Regenerate button, no counter, and no held indication for an answered row with a held replacement draft",
     "renders the live posted reply with Regenerate for an answered row without a held replacement draft",
     "renders the held panel with no draft text and no affordance for an unanswered review with a held draft",
-    "returns row_action none while keeping reply_state posted for a review whose replacement draft is moderation-held"
+    "returns row_action none while keeping reply_state posted for a review whose replacement draft is moderation-held",
+    "maps every cell of the 3x4 cross-product onto the two axes",
+    "a settled ready or held response outranks an in-flight generation",
+    "renders the locked presentation for every cell of the 3x4 cross-product",
+    "keeps the delete-failed recovery control while withdrawing Regenerate for an answered row with a held replacement draft",
+    "distinguishes an open-held replacement from unflagged and closed replacements"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "350 (replies-view ~140, PastReplyCard ~100, PastRepliesClient/load-replies/panel comments ~40, CONTEXT.md Reviews-list rewrite ~35, ADR 0018 ~90 — first two fast-check properties satisfy the RISK-high property-test requirement)",

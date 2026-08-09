@@ -27,3 +27,13 @@ Verdict column filled during the step 6 read-back (ACCEPT / RE-PLAN).
   intake): today's "Reply on hold" panel is preserved, reconstructed client-side
   from `reply_state 'none'` + `row_action 'none'`; new wire fields use proper
   union types end-to-end. — VERDICT: ACCEPT.
+- [2026-08-09] **Plan round-1 codex review (REVISE, session
+  019fe619-0605-7cd1-bff7-f1a1dda1a2d4) — five test titles ADDED to
+  `tests_to_add`** (additions, not retitles; both intake copies updated):
+  deriveAxes 12-cell mapping, settled-outranks-in-flight precedence, the
+  12-cell render oracle, the posted×held + delete-failed sidecar combo, and the
+  integration open/unflagged/closed control. Two findings REJECTED with
+  reasoning (see the plan's Review appendix): the held-settles-to-idle polling
+  window (locked #672 design — documenting as ADR 0018 consequence instead) and
+  drawer-state sync across an RSC refresh (new scope; #726's server gates are
+  the defense for that race by design). — VERDICT: ACCEPT.
