@@ -2110,10 +2110,27 @@ at all**, so its `acquireLiveDbLock` enrolment had never once been verified.
 - The audit header's exact template count went stale **three times inside the
   feature's own review**, each correction itself reviewed. Now stated as an
   approximate, explicitly point-in-time census with the recount method attached.
-- Known bound filed as **#706** rather than patched at round 2: `listTestFiles()`
-  globs `*.test.ts`, so DDL in a fragment built inside `__tests__/helpers/*.ts`
-  is invisible. Widening the glob trips the naming rule on helper files — a
-  behaviour change needing its own design.
+- Known bound filed as **#706** rather than patched at round 2 — DDL in a
+  fragment built inside a `__tests__/` helper was invisible, and widening the
+  glob trips the naming rule on helper files, a behaviour change needing its own
+  design. **CLOSED at #706 the same day.** What shipped: the audited set is now
+  every `.ts`/`.tsx` under `__tests__/` (904 → 917 files); the enforcement unit
+  is split, so R1 naming applies to **suites** only (a helper cannot be renamed
+  to `*.integration.test.ts`) while R2 and the lock check apply to every live-DB
+  **file**; helpers reach the DB through their own marker, an import of
+  `postgres` (they are handed the handle and name no env var), deliberately not
+  offered to suites because ~740 parallel unit tests import `postgres` types to
+  shape a mock; and `apply-migration-074.ts` — the one real occurrence, running
+  `db.unsafe(readMigration074Sql())` and never audited before — is allowlisted
+  **and** lock-enforced against its own `withMigration074ApplyLock`, proved by
+  mutation. Both allowlists were renamed to `MIGRATION_SHAPE_FILES` /
+  `DDL_PROBE_FILES`, because a set named for suites that holds a helper is the
+  same false-claim class this ticket's review filed as its only Medium finding;
+  the two exports are now `auditLiveDbFile` / `listAuditedFiles` for the same
+  reason. Two bounds remain, both
+  stated in the module: a fragment built outside `__tests__/` entirely (a `src/`
+  module a suite imports), and the `e2e/` Playwright lane, which owns its own
+  database lifecycle.
 
 ## Import consent analytics sink (2026-08-08, #697 → PR #708)
 

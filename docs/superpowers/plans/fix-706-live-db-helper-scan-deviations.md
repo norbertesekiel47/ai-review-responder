@@ -42,3 +42,68 @@ two are outside the steps that enumerate edits: the `DDL_VERB` JSDoc is in no
 Task 4 step, and the **test file is in neither Task 3's nor Task 4's "Files"
 list**. Task 4 must widen its own surface to that file or the Step 6 grep cannot
 reach zero.
+
+## 2026-08-08 — Task 4: three prose sites the plan's steps do not reach
+
+All three are claims #706 falsifies, none named by a Task 4 step, all fixed here.
+The grep in Step 6 catches none of them — they are stale by MEANING, not by
+symbol name.
+
+1. **`live-db-suites-audit.ts` lines 3–6** — the module's opening definition read
+   *"A 'live-DB suite' is any test file that reaches the shared local Postgres —
+   whether it names TEST_DATABASE_POOL_URL itself or … gets there through the
+   shared helpers."* Two problems after #706: the term is now `live-DB file` (the
+   header's own inserted paragraph defines *suite* narrowly, two blocks below),
+   and the `whether … or …` enumeration reads exhaustive while there are now
+   three routes. Rewritten to name the third (`HELPER_DB_MARKER`) and point at
+   its JSDoc rather than restate the mechanics.
+2. **`.claude/reference/lab-notes.md`, the Postgres.js-fragment entry** — closed
+   with *"`ci:live-db-suites` … is blind to a fragment built in a file outside
+   its glob (#706)"*. Narrowed to "outside `__tests__/` altogether", which is
+   what is still true.
+3. **`docs/currents.md:166`** — the #694 file table named
+   `DDL_PROBE_SUITES`/`MIGRATION_SHAPE_SUITES`. Renamed, with a parenthetical
+   saying why.
+
+Left alone deliberately: the R2 census recount method ("walk every git-tracked
+`*.test.ts` that contains a LIVE_DB_MARKERS string") still describes how the
+`~770 of ~1470` figure was produced, which is a claim about the marker-passing
+suites and not about the audited file set. Widening it would change what the
+census means.
+
+## 2026-08-08 — Task 4: lab-notes entry placement, and closing the bound in place
+
+**Lab notes.** Step 4 supplies the entry as a single `- [2026-08-08] X → Y → Z`
+bullet and says to use "the `## 2026-07-26 — #573 …` section's format". That
+section's actual format is a `### [DATE] title` heading followed by prose in
+`FAIL → … WHY → … CORRECT →` form, and every ship since is its own
+`## <date> — #NNN <topic> ship` section. Shipped that way: a new
+`## 2026-08-08 — #706 live-DB helper scan ship` section at the end of the file
+(directly following its #694 predecessor's siblings), carrying one
+`### [2026-08-08] #706 — …` entry with the plan's content restructured into
+FAIL/WHY/CORRECT. No content dropped.
+
+**currents.md / progresstracking.md.** Both stated #706 as an OPEN bound inside
+the **#694** ship record. Both now read as closed **in place** — the file's
+existing convention for retiring a previously-stated bound (`docs/currents.md:342`
+"**CLOSED at PR #701**", and the two "**Release constraint DISCHARGED at #679
+(PR #698)**" markers in the lead paragraph). Deliberately NOT done: a new
+`## Quick summary — Live-DB helper scan` section in currents.md or a new
+progresstracking section. Two reasons — this branch has no PR number, and every
+ship record in both files carries one or an explicit "PR pending"; and #694's
+record is the single owner of this story, so a second section would split one
+fact across two owners. The lead paragraph (currents.md:10) carries the full
+"what shipped" text at the point where it previously carried the open bound.
+
+## 2026-08-08 — Task 4: the plan's two "no occurrence today" claims, verified
+
+The `hidesStatementStart` BOUND paragraph shipped verbatim, including *"Neither
+has an occurrence today"* for the two remaining bounds. Both halves checked
+against the tree before the prose was written:
+
+- **Fragment built outside `__tests__/`** — a DDL-verb sweep of every `.ts`/`.tsx`
+  in `src/` and `worker/` outside `__tests__/` returns only comment text in
+  `scripts/ci/*-audit.ts`. No production module builds a DDL fragment.
+- **`e2e/` lane** — a DDL-verb sweep of `e2e/` returns zero hits of any kind. (One
+  `e2e/` file, `e2e/fixtures/__tests__/zernio-fixture-server.test.ts`, IS audited
+  and always was, via the `*.test.ts` pathspec.)

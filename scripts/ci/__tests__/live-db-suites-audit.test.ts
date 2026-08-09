@@ -234,7 +234,7 @@ describe('live-db-suites-audit', () => {
     expect(findings.map((finding) => finding.rule)).toEqual(['runtime-ddl']);
   });
 
-  // DDL-PROBE SUITES. A second allowlist, distinct from MIGRATION_SHAPE_SUITES:
+  // DDL-PROBE SUITES. A second allowlist, distinct from MIGRATION_SHAPE_FILES:
   // DDL that redefines a session-scoped object (`auth.uid()`) inside a
   // transaction that always rolls back. Allowlisted does NOT mean unlocked —
   // the probe still redefines a shared-catalog object for the duration of the
