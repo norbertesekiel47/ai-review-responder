@@ -460,3 +460,46 @@ pnpm typecheck && pnpm lint                                       → clean
 
 No test title was added, removed or reworded this round; the 9 titles (8 promised
 + the inline-form test) are unchanged.
+
+## Round 3 verification
+
+Scope: the five prose corrections in `9c826b3f` (`git diff 7fe7bd87..9c826b3f`),
+plus the round's own zero-behaviour-change constraint. Nothing else was reviewed.
+Every verdict below is re-derived from the shipped code — the round-2 fix notes
+were treated as claims to test, not as evidence.
+
+| Item | Verdict | Basis |
+|---|---|---|
+| **A** — `OWN_APPLY_LOCK` BOUND | **VERIFIED** | Both halves hold against the real file, mutated in memory. Presence-not-position: DDL hoisted OUTSIDE `withMigration074ApplyLock` with the declaration left in place → `[]`. Identifier gone: rename → `['unlocked-ddl']`; wrapper deleted → `['unlocked-ddl']`. The BOUND's literal claim matches `:476` (`text.includes(OWN_LOCK_MARKER)`); the declaration really is at `apply-migration-074.ts:23`; the 074 shape suite's marker really is a call site (`migration-074-…:304`), not a re-export. |
+| **A** — neighbouring "never a pass" sentence | **VERIFIED** | Now scoped to a file that *reaches* the lock check. Probed the excluded case: an `OWN_APPLY_LOCK` file with no DDL and no lock marker → `[]` (`:458` returns before the lock check). As rewritten the sentence is unconditionally true — reaching `:475` without the file's own marker always pushes `unlocked-ddl`. |
+| **B** — header pointer vs `isSuite` JSDoc | **VERIFIED** | Header `:65-70` ("a file NAMED `*.test.ts`/`*.test.tsx` — a suffix test, which is not the same question as whether vitest runs the file") and `isSuite`'s JSDoc `:400-424` now state the same predicate; the header defers rather than re-defining. `src/lib/shared/index.test.ts` is classifiable under the header's wording — it is a suite by name. The JSDoc's "the two disagree on exactly one tracked file today" is exact: replaying `vitest.config.ts`' five include globs over `listAuditedFiles()` gives 904 suites, 903 include-matched, and `index.test.ts` as the single divergence (0 in the other direction). Both supporting claims check out: every include glob does require `__tests__/`, and `INTEGRATION_GLOB` does narrow within it. |
+| **C** — `HELPER_DB_MARKER` BOUND | **VERIFIED** | Probed against the shipped regex, not against the prose. All three shapes the BOUND names are genuinely invisible — bare generic parameter (`db: T`), `Sql` imported from a re-exporting module, cast to a locally declared structural type → `[]` each. All three it says are matched fire `runtime-ddl`: `as unknown as import('postgres').Sql`, `as never as import('postgres').TransactionSql`, `as unknown as postgres.Sql`. Also swept nine further spellings for an omitted escape: value import, double quotes, multi-line named import, `export type … from 'postgres'`, aliased import and `await import('postgres')` are all matched. |
+| **D** — R1 bullet | **VERIFIED** | No count and no authority claim survive in `:27-31`. The `vitest.config.ts` ownership assertion was indeed false: that file still says "The 45 `*.integration.test.ts` suites" and "the other ~738 files", where the tree today has 82 and 821. The replacement recount recipe is executable and correct (903 include-matched − 82 integration = 821). |
+| **E** — census single home | **VERIFIED** | `186` / `904` / `112` appear in exactly one durable place, `scripts/ci/live-db-suites-audit.ts:200-202` (occurrences under `docs/reviews/fix-706-…/` are this ticket's own review record). All figures recomputed exact against the tree: 917 audited files, 904 suites, 186 marker-matching suites, 112 of those neither `LIVE_DB_MARKERS`-visible nor `*.integration.test.ts`, 6 DB-reaching helpers. `.claude/reference/lab-notes.md`, `docs/currents.md` and `docs/progresstracking.md` keep the rationale, carry no figures, and lab-notes points at the module as the owner. |
+
+**Findings: none.** Nothing in the five corrections would mislead a maintainer
+reading the code.
+
+### Zero-behaviour-change proof — independently reproduced
+
+```
+transpileModule(removeComments) 7fe7bd87 vs 9c826b3f      → byte-identical
+raw diff lines that are not comment lines                 → 0
+files changed under scripts/ in the range                 → live-db-suites-audit.ts only
+scripts/ci/__tests__/live-db-suites-audit.test.ts         → untouched in the range (∴ no test title moved)
+REPWORTH_DISABLE_LIVE_DB_SUITES=1 vitest run …audit.test.ts → 43/43 passed
+pnpm ci:live-db-suites                                    → live-db-suites-audit: passed
+npx eslint scripts/ci/live-db-suites-audit.ts             → clean
+git status                                                → clean
+```
+
+The two checks are independent: the transpile erases type annotations as well as
+comments, so it alone could mask a types-only edit; the raw-diff line scan closes
+that, and finds every changed line to be `//` or ` * ` prefixed.
+
+### Appendix — outside this round's five items, untriaged
+
+- **`904 → 917` is quadruplicated** while `186`/`112` were consolidated to one home: `.claude/reference/lab-notes.md:1874`, `docs/currents.md:10`, `docs/currents.md:181`, `docs/progresstracking.md:2116`. Both figures are correct against the tree today, so nothing is wrong — but it is the same drift surface E was closing, one figure over.
+- **`docs/currents.md:10` and `:181` still say "not just the suites vitest runs (904 → 917 files)"** — the exact equivalence FIX B removed from the module header, and off by one against it (`index.test.ts` is in the 904 and vitest runs it not at all).
+- **"which is the form both in-tree sites use"** (`HELPER_DB_MARKER` BOUND) over-specifies: `pool-wait.test.ts:6` is `as unknown as import('postgres').Sql` exactly, but `raise.test.ts:40` is `as never as import('postgres').TransactionSql`. Both use the inline import-type *spelling* and both are matched, so the mechanism claim is unaffected; only the exemplar is narrower than "both".
+- **Two invisible shapes the BOUND does not name**, found by sweep: a bare `require('postgres')` and a subpath specifier (`from 'postgres/src/index.js'`) both return `[]`, yet each *does* name the module — so the BOUND's leading generalisation ("typed WITHOUT the module being named in this file") is narrower than its own enumeration implies. Practically inert: the tree's actual `require` idiom is `require('node:fs') as typeof import('node:fs')` (3 sites), and the `postgres` analogue of that form is matched; an untyped `require('postgres')` yields an implicit `any`, which the no-`any` invariant already forbids.
