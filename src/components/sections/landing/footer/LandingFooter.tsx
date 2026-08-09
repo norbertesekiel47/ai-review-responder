@@ -42,14 +42,19 @@ interface FooterColumn {
 }
 
 /** Composed here, not reordered in `marketing-links.ts` — that module owns the
- *  label/href facts, each surface owns its own ordering. */
+ *  label/href facts, each surface owns its own ordering.
+ *
+ *  Legal is NOT a column. Its six links stacked into one narrow column at the
+ *  far right while Company held a single link — a 6/1/3 imbalance that made
+ *  the whole top block read as crowded-right, empty-middle. The legal set now
+ *  rides the bottom bar as a horizontal row beside the copyright, which is
+ *  also where a visitor actually looks for Privacy/Terms. */
 const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     heading: 'Product',
     links: [MARKETING_LINKS.features, MARKETING_LINKS.howItWorks, MARKETING_LINKS.pricing],
   },
   { heading: 'Company', links: COMPANY_LINKS },
-  { heading: 'Legal', links: LEGAL_LINKS },
 ];
 
 /**
@@ -99,12 +104,20 @@ function WordmarkReveal({ text }: { text: string }) {
     <svg
       ref={svgRef}
       className="rw-lp-foot-wordmark"
-      /* 300x58, not the source's 300x100. The SVG's height is derived from its
-         viewBox ratio (width/300*H), so the extra 42 units were rendering as
-         ~230px of empty box above and below the glyphs — the source hides that
-         with large negative margins instead. Sizing the box to the type is the
-         same result without margins that have to be re-tuned per breakpoint. */
-      viewBox="0 0 300 58"
+      /* 375x58, and the width is MEASURED, not styled. The glyph run
+         ("REPWORTH" at font-size 68 with -0.02em tracking) is 370.8 user units
+         wide — `getComputedTextLength()`, 2026-08-08. In the 300-unit box this
+         shipped with, 35.4 units overflowed each side: the footer's
+         `overflow: hidden` clipped the R's and H's outer strokes, and the
+         reveal mask's <rect> ends at the viewBox edge, so the hover light
+         could NEVER reach either letter — the mask has no coverage where the
+         glyphs were painting. 375 holds the run with ~2 units of slack; both
+         defects are gone by construction. Re-measure before changing the
+         wordmark text, the font size or the tracking.
+
+         Height stays 58, not the source's 100 — the extra 42 units rendered as
+         ~230px of empty box that the source hid with negative margins. */
+      viewBox="0 0 375 58"
       preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
@@ -126,7 +139,18 @@ function WordmarkReveal({ text }: { text: string }) {
           <stop offset="100%" stopColor="black" />
         </m.radialGradient>
         <mask id={maskId}>
-          <rect x="0" y="0" width="100%" height="100%" fill={`url(#${revealId})`} />
+          {/* Overscanned WELL past the viewBox, in user units — never 0/0/
+              100%/100%. The glyph ink is not contained by the box: with
+              `dominant-baseline: middle` the alphabetic baseline lands at
+              46.9 (29 + x-height/2) and the caps' ink tops at −4.6 (canvas
+              `actualBoundingBoxAscent`, 2026-08-08), painted via the SVG's
+              `overflow: visible`. A rect that stops at the viewBox edge
+              masks that band to black, so the reveal cut off in a hard line
+              just below the letter tops. The rect is only the mask's canvas
+              — the radial gradient is what bounds the visible light — so
+              overscan costs nothing, and it also absorbs small font-metric
+              drift at the R and H edges. */}
+          <rect x="-20" y="-24" width="415" height="106" fill={`url(#${revealId})`} />
         </mask>
       </defs>
 
@@ -204,6 +228,22 @@ export function LandingFooter() {
               time; across a New Year boundary those differ and React would warn
               on a mismatch that is not worth a client-only render. */}
           <span suppressHydrationWarning>&copy; {year} RepWorth. All rights reserved.</span>
+
+          {/* The legal set, as a row — see the FOOTER_COLUMNS note for why it
+              is not a column. Links reuse `rw-lp-foot-link` so the focus ring
+              asserted in focus-visible-marketing.test.ts covers them; the
+              modifier only sets the bottom bar's smaller size. */}
+          <nav aria-label="Legal" className="rw-lp-foot-legal">
+            <ul className="rw-lp-foot-legal-list">
+              {LEGAL_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className="rw-lp-foot-link rw-lp-foot-legal-link">
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         </div>
       </div>
     </footer>

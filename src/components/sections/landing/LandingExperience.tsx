@@ -18,6 +18,7 @@ import { HeroSection } from './hero/HeroSection';
 import { PersonasSection } from './personas/PersonasSection';
 import { ChapterRail } from './scroll/ChapterRail';
 import { SectionTransition } from './scroll/SectionTransition';
+import { SmoothScrollProvider } from './scroll/SmoothScroll';
 import { WatchdogsSection } from './watchdogs/WatchdogsSection';
 import './agent-flip-card.css';
 import './cta/cta.css';
@@ -101,7 +102,13 @@ export function LandingExperience(props: LandingExperienceProps) {
     // exists to prevent.
     <LazyMotion features={domAnimation} strict>
       <AmbientMotionProvider>
-        <LandingChrome {...props} />
+        {/* Smoothed scroll + eased snap. Inside the page providers, outside
+            the chrome, so both the rail (scrollTo) and the chapters (snap
+            targets) sit under one instance. Renders nothing when gated off —
+            native scroll + the CSS snap fallback take over. */}
+        <SmoothScrollProvider>
+          <LandingChrome {...props} />
+        </SmoothScrollProvider>
       </AmbientMotionProvider>
     </LazyMotion>
   );

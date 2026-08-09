@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { SCROLL_CHAPTERS } from './section-map';
+import { useLenis } from './SmoothScroll';
 
 /**
  * Fixed chapter rail — where am I, how much is left, jump anywhere.
@@ -29,6 +30,7 @@ import { SCROLL_CHAPTERS } from './section-map';
 export function ChapterRail() {
   const [activeId, setActiveId] = useState<string>(SCROLL_CHAPTERS[0]?.id ?? '');
   const prefersReducedMotion = usePrefersReducedMotion();
+  const lenis = useLenis();
 
   useEffect(() => {
     const sections = SCROLL_CHAPTERS.map((chapter) => document.getElementById(chapter.id)).filter(
@@ -51,7 +53,30 @@ export function ChapterRail() {
   }, []);
 
   const jumpTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({
+    const element = document.getElementById(id);
+    if (!element) return;
+    // Through Lenis when it is running: a native smooth `scrollIntoView` and a
+    // Lenis instance both writing scroll position is a fight, and Lenis's own
+    // eased glide is the better jump anyway. Lenis is never alive under
+    // reduced motion (SmoothScroll gates it), so the `auto` branch below still
+    // owns that case.
+    //
+    // The target is the LAYOUT offset, not the element (which Lenis resolves
+    // via getBoundingClientRect): mid-scroll the chapter wrappers carry a
+    // drift/scale transform, so a click made during a transition would measure
+    // the transformed box and land up to ~40px off — and nothing corrects a
+    // programmatic scroll afterwards (snap only follows wheel input). Native
+    // CSS snap used to absorb exactly this error after scrollIntoView, so the
+    // offset walk is that correction, done up front. Measured: 1665 vs 1624.
+    if (lenis) {
+      let top = 0;
+      for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+        top += node.offsetTop;
+      }
+      lenis.scrollTo(top, { duration: 1.2 });
+      return;
+    }
+    element.scrollIntoView({
       behavior: prefersReducedMotion ? 'auto' : 'smooth',
       block: 'start',
     });

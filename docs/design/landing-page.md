@@ -60,8 +60,8 @@ src/components/sections/landing/
   future/     {FutureSection.tsx, future.css, future-copy.ts}
   cta/        {CtaSection.tsx, cta.css, cta-copy.ts}
   footer/     {LandingFooter.tsx, footer.css, footer-copy.ts}
-  scroll/     {SectionTransition.tsx, ChapterRail.tsx, section-map.ts,
-               scroll-experience.css}
+  scroll/     {SectionTransition.tsx, ChapterRail.tsx, SmoothScroll.tsx,
+               section-map.ts, scroll-experience.css}
 src/hooks/useMediaQuery.ts
 src/app/(public)/page.tsx      passes primaryCtaHref/Label + selfServeEnabled
 src/app/layout.tsx             Plus Jakarta weights 200/300
@@ -185,12 +185,52 @@ near the frame edge. Do not swap the source without moving the copy with it.
 
 **Scroll — the dissolve plateau is narrow (`[0, 0.42, 0.58, 1]`) on purpose.**
 Snap parks a section at exactly 0.5. A wide plateau (`0.26/0.74`) measured 0.97
-and 0.92 at the halfway point — no visible handoff at all.
+and 0.92 at the halfway point — no visible handoff at all. The transition has
+three channels on the same plateau: opacity (floor 0.35), drift (34px) and a
+hair of scale (floor **0.982** — at the seam it interpolates to ≈0.994, under
+6px of edge reveal per side at 1920px; lower and the ink behind reads as a
+border).
+
+**Scroll — Lenis owns snapping while it is alive; the CSS block is the
+FALLBACK.** `SmoothScroll.tsx` runs Lenis + its Snap module under exactly the
+CSS gate's bounds (native CSS `proximity` snap places points correctly but the
+browser's landing animation is abrupt and has no easing knob — that was the
+clunk). The instance stamps `lenis` on `<html>`; the CSS rule is scoped
+`:not(.lenis)`, so reduced motion, small viewports, JS off, or a destroyed
+instance all hand snapping back to CSS. Never let both run at once. Snap
+elements register with `ignoreTransform: true` — the default
+`getBoundingClientRect()` would bake the wrapper's mid-transition drift/scale
+into the snap position. `distanceThreshold` is **35%**, not the 50% default:
+sections sit one viewport apart, so at 50% every rest position is within range
+of some snap point and proximity degenerates into mandatory.
 
 **Scroll — snap is bounded to `min-height: 700px` AND `min-width: 901px`.** Below
 700px tall sections overflow and `mandatory` would strand content; below 901px the
 layout stacks (personas is 2214px against an 844px viewport) so snap points sit
 2.6 screens apart. Scoped with `:has(.rw-lp)` so other routes are untouched.
+`SmoothScroll.tsx` and the chapter markers gate on the same bounds — the three
+must move together.
+
+**Scroll — the rail jump walks `offsetTop`, never the element rect.** Mid-scroll
+the chapter wrappers are transformed, so `lenis.scrollTo(element)` (rect-based)
+lands up to ~40px off (measured: 1665 vs 1624) — and nothing corrects a
+programmatic scroll afterwards; snap only follows wheel input. Native CSS snap
+used to absorb exactly this error after `scrollIntoView`.
+
+**Chapter markers (the vertical `02–05` stamps) are wrapper chrome, not section
+content.** Rendered by `SectionTransition` from `SCROLL_CHAPTERS.marker`
+(single owner; indexes are STATED, not derived, so unbuilt sections 6–8 landing
+later cannot renumber them), inside the animated wrapper so each dissolves with
+its own section. Colors measured composited over every ground they sit on:
+index gold 0.85 = 7.44:1 on ink / 7.08 under the personas wash; label 0.55 =
+5.40 / 5.26 / 5.25. The teal index restates `#a9c6c0` because
+`--rw-lp-watch-accent` is scoped to a CHILD of the wrapper.
+
+**Personas — the gold wash (`0.055` at 12% 0%) is measured like the watchdogs'
+teal one.** Its peak lifts the ground to rgb(31,41,34); the 0.55 column-note
+measures 5.10:1 there (5.40 on flat ink) and the gold eyebrow 8.79:1.
+Re-measure both before raising the alpha. 0.055, not the teal's 0.07 — gold is
+the brighter pigment.
 
 **`SectionTransition` always renders `motion.div`, never an early `return <div>`.**
 `usePrefersReducedMotion` resolves `false` then flips `true` after mount;
@@ -199,9 +239,24 @@ IntersectionObserver — captured at mount — ends up watching detached element
 rail froze on "Top" for reduced-motion users only. `Reveal` has the same latent
 shape; harmless there because nothing observes its nodes.
 
-**Footer — the wordmark viewBox is `300×58`, not `300×100`.** The extra 42 units
-render as ~230px of empty box; the source hides that with large negative margins.
-Sizing the box to the type dropped the footer 816px → 705px.
+**Footer — the wordmark viewBox is `375×58`, and the WIDTH is measured.** The
+glyph run ("REPWORTH", font-size 68, -0.02em tracking) is 370.8 user units by
+`getComputedTextLength()`. In the 300-unit box this shipped with, 35.4 units
+overflowed each side: the footer's `overflow: hidden` clipped the R's and H's
+outer strokes, and the reveal mask's `<rect>` ends at the viewBox edge, so the
+hover light could never reach either letter. Stroke-width rides the box —
+`0.44 = 0.35 × 375/300` keeps the rendered weight. Height stays 58, not the
+source's 100 (the extra 42 units rendered as ~230px of empty box that the
+source hid with negative margins; sizing the box to the type dropped the
+footer 816px → 705px). Re-measure the run before changing the wordmark text,
+font size or tracking.
+
+**Footer — Legal is a bottom-bar ROW, not a third column.** Six legal links
+stacked in one narrow column beside a one-link Company column read as
+crowded-right/empty-middle. The bottom bar carries them beside the copyright;
+the links reuse `.rw-lp-foot-link` so the asserted focus ring covers them, and
+`.rw-lp-foot-legal-link` only sets the smaller size plus the same 6px
+target-size padding trick the column links use.
 
 **Three flip selectors, all required:** `:hover` (pointer),
 `[data-flipped='true']` (touch), `:focus-visible` (keyboard).

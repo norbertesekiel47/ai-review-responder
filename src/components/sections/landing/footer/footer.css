@@ -52,10 +52,16 @@
 
 /* ---------- top: brand + columns ---------- */
 
+/* Brand wide, columns narrow — the inverse of the 1fr/1.4fr this shipped
+   with. That ratio was sized for THREE link columns; once Legal moved to the
+   bottom bar (see LandingFooter.tsx) the remaining two columns rattled in a
+   1.4fr tract and the block read as crowded-right with a dead middle. The
+   brand block now owns the left, and the two columns sit in a right tract
+   sized for their content. */
 .rw-lp-foot-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: clamp(2.5rem, 6vw, 6rem);
   align-items: start;
 }
 
@@ -111,12 +117,12 @@
 
 .rw-lp-foot-columns {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(1.5rem, 3vw, 3rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(2rem, 4vw, 4rem);
 }
 
 .rw-lp-foot-column-heading {
-  margin: 0 0 1rem;
+  margin: 0 0 1.25rem;
   font-family: var(--rw-font-display);
   font-weight: 500;
   font-size: 0.625rem;
@@ -128,7 +134,11 @@
 .rw-lp-foot-list {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  /* 0.875rem, up from 0.625 — with Legal's six rows gone from the columns the
+     footer has height to spend, and the tighter gap was half of what read as
+     "crowded". Centre-to-centre is now ~38px, comfortably over the 24px
+     spacing floor. */
+  gap: 0.875rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -197,7 +207,11 @@
   letter-spacing: -0.02em;
   text-transform: uppercase;
   fill: transparent;
-  stroke-width: 0.35;
+  /* 0.44, not the 0.35 the 300-unit viewBox used. Stroke width is in USER
+     units, so widening the box to the measured 375 (see LandingFooter.tsx)
+     thinned the rendered stroke by the same 300/375 ratio; 0.35 x 375/300 =
+     0.4375 restores the weight the page was tuned with. */
+  stroke-width: 0.44;
 }
 
 /* Always on, so the wordmark is a graphic in its own right rather than an
@@ -216,17 +230,45 @@
   opacity: 1;
 }
 
-/* ---------- bottom bar ---------- */
+/* ---------- bottom bar ----------
+   Copyright left, the legal row right — the row is where Legal's six links
+   went when they left the column grid (see LandingFooter.tsx). `flex-wrap` +
+   `row-gap` because at narrow widths the two halves stack rather than
+   squeeze. */
 
 .rw-lp-foot-bottom {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 2rem;
   padding-top: clamp(1rem, 2vh, 1.5rem);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-family: var(--rw-font-display);
   font-weight: 400;
   font-size: 0.75rem;
   color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+.rw-lp-foot-legal-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem clamp(1rem, 2vw, 1.75rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Size only — colour, hover and the focus ring all come from
+   `.rw-lp-foot-link`, which these links also carry. The 6px vertical padding
+   is the same TARGET-SIZE fix the column links use: it takes a 12px line to a
+   24px hit box without entering layout. */
+.rw-lp-foot-legal-link {
+  padding: 6px 0;
+  font-size: 0.75rem;
 }
 
 /* ---------- narrow ---------- */
@@ -239,13 +281,6 @@
 
   .rw-lp-foot-wordmark-wrap {
     margin: clamp(1.25rem, 3vh, 2rem) 0 clamp(0.75rem, 2vh, 1.25rem);
-  }
-}
-
-@media (max-width: 560px) {
-  .rw-lp-foot-columns {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.75rem 1.25rem;
   }
 }
 
