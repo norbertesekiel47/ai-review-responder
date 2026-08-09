@@ -1061,11 +1061,14 @@ Revisit triggers:
   only reaches a uniqueness check after column resolution, so even that failure
   evidenced the column set. No natural import run has happened since the drop;
   this probe is what stands in for one.
-  **PRODUCTION (`udeyaqnvpojbwgoaxwdg`) — PENDING**, to be applied in lockstep at
-  promotion and recorded the same way. Prod holds 0 rows / 0 businesses so its
-  preflight is trivially satisfied; it is still run in the apply window and its
-  zero-row result still recorded, because a skipped preflight is not a passed
-  preflight.
+  **and PRODUCTION (`udeyaqnvpojbwgoaxwdg`) 2026-08-08**, in lockstep at
+  promotion, same change window, same verification. Preflight ran in the apply
+  window and returned `total_rows=0, unreconciled_two_branch=0, businesses=0` —
+  trivially satisfied, and recorded anyway, because a skipped preflight is not a
+  passed preflight. Post-apply introspection named all seven counter columns and
+  returned exactly three, with the same shape as staging: `imported_count` and
+  `skipped_count` integer NOT NULL DEFAULT 0, `oldest_skipped_create_time`
+  timestamptz nullable. Both Supabase projects are now level at 103.
 
 - **102** — `import_consent_analytics_events`: extends the
   `analytics_events.event_name` DB CHECK allowlist with `import_offer_created`
