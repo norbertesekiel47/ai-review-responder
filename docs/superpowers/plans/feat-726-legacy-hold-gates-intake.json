@@ -45,7 +45,8 @@
     "src/app/api/dashboard/past-replies/draft/[responseId]/route.ts",
     "src/app/api/dashboard/past-replies/__tests__/draft-status.test.ts",
     "src/app/api/dashboard/past-replies/__tests__/draft.test.ts",
-    "src/app/api/dashboard/past-replies/__tests__/draft-id.test.ts"
+    "src/app/api/dashboard/past-replies/__tests__/draft-id.test.ts",
+    "scripts/ci/tenant-scope-allowlist.ts"
   ],
   "tests_to_add": [
     "returns status failed with error held_for_review and no draft sentinel anywhere in the serialized body when the resolved response has an open moderation flag",

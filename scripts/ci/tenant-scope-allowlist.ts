@@ -326,7 +326,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT id, status, response_text, business_id FROM responses WHERE review_id = ${outbox.aggregate_id} AND status IN ('pending_approval', 'approved', 'edited') ORDER BY version DESC LIMIT 1",
+    sqlSnippet: "SELECT id, status, response_text, business_id, EXISTS ( SELECT 1 FROM flagged_responses f WHERE f.response_id = responses.id AND f.status = 'open' ) AS held FROM responses WHERE review_id = ${outbox.aggregate_id} AND status IN ('pending_approval', 'approved', 'edited') ORDER BY version DESC LIMIT 1",
     category: 'tenant-root-lookup',
     reason: "Draft-status route verifies the owner-resolved location against the outbox payload before reading this response row, then rechecks response.business_id.",
   },
@@ -1690,7 +1690,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/past-replies/draft/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT id AS response_id, COALESCE(edited_text, approved_text, response_text) AS text, (edited_text IS NOT NULL) AS is_edited, status FROM responses WHERE review_id = ${parsed.data.review_id} AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1",
+    sqlSnippet: "SELECT id AS response_id, COALESCE(edited_text, approved_text, response_text) AS text, (edited_text IS NOT NULL) AS is_edited, status FROM responses WHERE review_id = ${parsed.data.review_id} AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1 FOR UPDATE",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },

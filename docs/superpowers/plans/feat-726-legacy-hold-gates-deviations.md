@@ -28,3 +28,32 @@
   amendments (per #643 rule) — both intake copies updated in lockstep;
   `allowed_edit_surface` unchanged, amendment count remains 0.
   VERDICT: ACCEPT.
+- **D3** [2026-08-09, step 4] Plan said "Task 2 runs alone" for the
+  first-task enforcement spot check; Task 1 (eval) was in fact the first
+  dispatched task and passed the spot check (3 in-surface files, clean
+  tree), so Tasks 2/3/4 dispatched in parallel — disjoint file sets, all
+  blocked only on Task 1. VERDICT: ACCEPT.
+- **D4** [2026-08-09, Task 4] `edit-surface-guard.sh` blocked the in-surface
+  edit to `src/app/api/dashboard/past-replies/draft/[responseId]/route.ts`:
+  the hook matches with bash `[[ "$REL_PATH" == $GLOB ]]`, so the intake
+  entry's `[responseId]` parses as a character class — the literal bracket
+  path can never match its own entry (verified under bash: the entry instead
+  matches e.g. `draft/r/route.ts`). Fix: re-spelled the SAME path in
+  `.feature/intake.json` (gitignored) as
+  `draft/\\[responseId\\]/route.ts`, which under bash matches exactly the
+  literal path and nothing else (verified). Not a surface amendment — the
+  file was already listed verbatim; amendment count stays 0. The docs intake
+  copy keeps the human-readable literal spelling (it is not hook-consumed).
+  Latent hook footgun for any future bracketed Next.js dynamic-route surface
+  entry — worth a hook-side escape (e.g. literal compare before glob) in a
+  follow-up outside this feature's scope.
+- **D5** [2026-08-09, step 5 gate] `tenant-scope` audit RED: the allowlist
+  keys entries on exact sqlSnippet fingerprints, and both changed queries
+  moved out from under theirs (poller lookup gained the held EXISTS column;
+  POST existing-draft SELECT gained FOR UPDATE) — "unused entry" + "missing
+  scope" pairs for the two files. Resolution, owner-approved: **surface
+  amendment #1** adds `scripts/ci/tenant-scope-allowlist.ts`; the two
+  sqlSnippet strings updated to the new query text. No entries added or
+  removed, ALLOWLIST_BASELINE stays 412, both reasons remain accurate (the
+  routes' tenant-scoping story is unchanged). A 2nd amendment would trip the
+  abort criteria. VERDICT: ACCEPT.
