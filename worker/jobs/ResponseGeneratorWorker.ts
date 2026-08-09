@@ -1,7 +1,8 @@
 import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { sql } from '../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxCompletedWithReason, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { OUTBOX_COMPLETION_REASON } from '../../src/lib/shared/outbox-completion-reason';
 import { completeRun, findActiveReviewRun } from '../../src/lib/agents/run-spine';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
@@ -106,7 +107,7 @@ export async function handleResponseGeneration(
   // ── Persist response + outbox + cost link + moderation hold in one tx ─
   // (invariant #4: a high-severity flag holds the draft + skips notification,
   // atomically with response persistence). DB failure throws → BullMQ retry.
-  const responseId = await persistResponseAndNotify(sql, {
+  const persisted = await persistResponseAndNotify(sql, {
     result: draft.result,
     retryCostId: draft.retryCostId,
     reviewId,
@@ -121,6 +122,15 @@ export async function handleResponseGeneration(
     preLlmSubscriptionTier: ctx.subscriptionTier,
     logger,
   });
+  if (persisted.kind === 'skipped_stale_content') {
+    // Content-freshness gate fired (ADR 0017): nothing was persisted, so the
+    // job completes — not fails — with the queryable completion reason. The
+    // colliding fresh job (already its own outbox row) generates the
+    // current-content draft.
+    await markOutboxCompletedWithReason(sql, outboxId, OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT, outboxAttempt);
+    return;
+  }
+  const responseId = persisted.responseId;
 
   await maybeEnqueueFirstResponseDrafted(sql, {
     accountId: ctx.accountId,

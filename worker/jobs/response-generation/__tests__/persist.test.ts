@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GenerationResult } from '../../../../src/lib/responses/types';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
@@ -30,9 +31,14 @@ vi.mock('../../../../src/lib/agents/run-spine', () => ({
   recordOutcome: vi.fn(),
 }));
 
-import { persistResponseAndNotify } from '../persist';
+import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
 import { findActiveReviewRun, recordStep, recordOutcome } from '../../../../src/lib/agents/run-spine';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
+import {
+  GENERATE_RESPONSE_ORIGIN_LANE,
+  GENERATE_RESPONSE_ORIGIN_LANES,
+} from '../../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../../src/lib/shared/outbox-completion-reason';
 
 const RESULT: GenerationResult = {
   responseText: 'Thank you for the kind review.',
@@ -290,8 +296,10 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
   it('auto-approves eligible live-ingest-new drafts and enqueues publish without notifying owner', async () => {
     queuePersistRows({ autoApprove: true });
 
-    const responseId = await persistResponseAndNotify(mockSql, baseInput());
+    const outcome = await persistResponseAndNotify(mockSql, baseInput());
 
+    if (outcome.kind !== 'persisted') throw new Error('expected persisted');
+    const responseId = outcome.responseId;
     expect(responseId).toBe('deterministic-uuid-v7');
     const texts = txTexts();
     expect(texts[3]).toContain('approval_method');
@@ -760,11 +768,148 @@ describe('persistResponseAndNotify run-spine instrumentation', () => {
     vi.mocked(findActiveReviewRun).mockResolvedValue(null);
     queuePersistRows({ structural: true }); // flag off → structural short-circuit
 
-    const responseId = await persistResponseAndNotify(mockSql, baseInput());
+    const outcome = await persistResponseAndNotify(mockSql, baseInput());
 
-    expect(responseId).toBe('deterministic-uuid-v7');
+    expect(outcome).toEqual({ kind: 'persisted', responseId: 'deterministic-uuid-v7' });
     expect(recordStep).not.toHaveBeenCalled();
     expect(recordOutcome).not.toHaveBeenCalled();
     expect(txArgs()).toContain(QUEUE_NAMES.SEND_NOTIFICATION);
+  });
+});
+
+describe('content-freshness gate (ADR 0017)', () => {
+  // Block fixture built on the file's baseInput (the name is taken at module
+  // scope by the live_ingest_new-defaulting helper): default non-auto lane
+  // ON_DEMAND_GENERATE — with no AUTO_APPROVAL env set the persist is a
+  // structural non-candidate, so the review-lock SELECT is the tx's ONLY
+  // preamble statement and the zero-writes assertions count statements without
+  // candidate-lane noise. reviewId matches the queued lock row's 'review-1'.
+  function gateInput(overrides: PersistInputOverrides = {}) {
+    return baseInput({
+      reviewId: 'review-1',
+      originLane: GENERATE_RESPONSE_ORIGIN_LANE.ON_DEMAND_GENERATE,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    // Round-2 finding #4: without these resets the zero-writes count
+    // assertion inherits calls from earlier tests in the file.
+    vi.clearAllMocks();
+    txQueue.length = 0;
+  });
+
+  it('skips persist and returns skipped_stale_content when loaded and current hashes are both non-null and differ', async () => {
+    txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
+    const outcome = await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: 'hash-loaded' }));
+    expect(outcome).toEqual({ kind: 'skipped_stale_content' });
+  });
+
+  it('gate skip performs no writes: no responses INSERT, no api_costs link, no spine steps, no notification enqueue', async () => {
+    txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
+    await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: 'hash-loaded', retryCostId: 'retry-cost-1' }));
+    // The review-lock SELECT must be the ONLY tx statement, and nothing may
+    // run on the top-level sql handle either (codex finding: a pre-gate
+    // sql`UPDATE api_costs` outside the tx would evade a tx-only assertion).
+    expect(mockTx).toHaveBeenCalledTimes(1);
+    expect(mockSql).not.toHaveBeenCalled(); // sql.begin is a property call, not a tagged-template call
+    expect(findActiveReviewRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(recordOutcome).not.toHaveBeenCalled();
+  });
+
+  it('content-freshness gate skips every generate-response origin lane before lane-specific work', async () => {
+    // A gate conditional on one lane would pass every other test in this file.
+    // Round-2 finding #3 / round-3 nit: enable the flag CONCRETELY, the way
+    // this file's candidate tests do, so live_ingest_new v1 is a TRUE
+    // candidate and its 3-statement lock preamble executes (reviews FOR UPDATE
+    // → businesses FOR UPDATE → entitlement advisory lock). "Lane-specific
+    // work" the gate must precede is the runtime-state read / responses INSERT
+    // / notification enqueue — NOT the deadlock-avoidance lock preamble, which
+    // by the WS8 lock-order law must stay first and is write-free (harmless on
+    // skip).
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    try {
+      for (const lane of GENERATE_RESPONSE_ORIGIN_LANES) {
+        vi.clearAllMocks();
+        txQueue.length = 0;
+        const isCandidateLane = lane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW;
+        txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
+        if (isCandidateLane) {
+          txQueue.push([{ id: 'biz-1' }]); // businesses FOR UPDATE
+          txQueue.push([]);                // acquireTierEntitlementLock advisory-lock statement
+        }
+        const outcome = await persistResponseAndNotify(mockSql, gateInput({
+          loadedReviewContentHash: 'hash-loaded',
+          originLane: lane,
+          version: isCandidateLane ? 1 : 2,
+        }));
+        expect(outcome, `lane ${lane}`).toEqual({ kind: 'skipped_stale_content' });
+        // Preamble statements only — nothing after the gate ran on any lane.
+        expect(mockTx, `lane ${lane}`).toHaveBeenCalledTimes(isCandidateLane ? 3 : 1);
+        expect(txQueue, `lane ${lane}`).toHaveLength(0);
+        expect(findActiveReviewRun, `lane ${lane}`).not.toHaveBeenCalled();
+      }
+    } finally {
+      delete process.env.AUTO_APPROVAL_ENABLED;
+    }
+  });
+
+  it('gate skip logs stale_review_content with review_id, business_id, version, and origin_lane without raw hashes', async () => {
+    txQueue.push([{ id: 'review-1', review_content_hash: 'hash-current' }]);
+    const log = vi.fn();
+    await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: 'hash-loaded', logger: { log, warn: vi.fn() } }));
+    expect(log).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      reason: OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT,
+      review_id: 'review-1',
+      business_id: expect.any(String),
+      version: expect.any(Number),
+      origin_lane: expect.any(String),
+    }));
+    const [, fields] = log.mock.calls[0]!;
+    expect(JSON.stringify(fields)).not.toContain('hash-loaded');
+    expect(JSON.stringify(fields)).not.toContain('hash-current');
+  });
+
+  it('persists when loaded hash is null (legacy pre-hash review passes the gate)', async () => {
+    queuePersistRows({
+      structural: true,
+      reviewLockRows: [{ id: 'review-1', review_content_hash: 'hash-current' }],
+    });
+    const outcome = await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: null }));
+    expect(outcome).toEqual({ kind: 'persisted', responseId: 'deterministic-uuid-v7' });
+    expect(txTexts().some((text) => text.includes('INSERT INTO responses'))).toBe(true);
+  });
+
+  it('persists when current hash is null', async () => {
+    queuePersistRows({
+      structural: true,
+      reviewLockRows: [{ id: 'review-1', review_content_hash: null }],
+    });
+    const outcome = await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: 'hash-loaded' }));
+    expect(outcome).toEqual({ kind: 'persisted', responseId: 'deterministic-uuid-v7' });
+    expect(txTexts().some((text) => text.includes('INSERT INTO responses'))).toBe(true);
+  });
+
+  it('persists when hashes match', async () => {
+    queuePersistRows({
+      structural: true,
+      reviewLockRows: [{ id: 'review-1', review_content_hash: 'hash-1' }],
+    });
+    const outcome = await persistResponseAndNotify(mockSql, gateInput({ loadedReviewContentHash: 'hash-1' }));
+    expect(outcome).toEqual({ kind: 'persisted', responseId: 'deterministic-uuid-v7' });
+    expect(txTexts().some((text) => text.includes('INSERT INTO responses'))).toBe(true);
+  });
+
+  it('content-freshness gate skips iff both hashes are non-null and differ', () => {
+    // fast-check house style: src/lib/reviews/__tests__/sentiment.test.ts "invariants" block
+    fc.assert(fc.property(
+      fc.option(fc.string(), { nil: null }),
+      fc.option(fc.string(), { nil: null }),
+      (loaded, current) => {
+        expect(hasStaleReviewContent(loaded, current))
+          .toBe(loaded !== null && current !== null && loaded !== current);
+      },
+    ));
   });
 });

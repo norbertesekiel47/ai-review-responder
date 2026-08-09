@@ -22,13 +22,22 @@ import type { LLMCallResult } from '@/lib/llm/types';
 
 // ── Cached generation shape (stored in Redis) ────────────────────────
 
-interface CachedGeneration {
+// Exported type-only for the avoid-facts guardrail's cache overwrite in
+// worker/jobs/response-generation/generate-draft.ts — the second writer of
+// this payload shape must stay compile-time-linked to it (a provenance-less
+// or drifted overwrite would be rejected by every later cache read).
+export interface CachedGeneration {
   responseText: string;
   language: string;
   provider: 'openai' | 'anthropic';
   model: string;
   promptTokens: number;
   completionTokens: number;
+  /** ADR 0017 provenance: the review_content_hash the generating attempt
+   *  loaded (null for legacy pre-hash reviews). Binds cache identity to
+   *  CONTENT — the (reviewId, version) key alone cannot, because live-ingest's
+   *  content-change replacement job shares the in-flight version. */
+  reviewContentHash: string | null;
 }
 
 // ── Type guard ───────────────────────────────────────────────────────
@@ -123,18 +132,31 @@ async function runProductionMode(
     if (cached) {
       const parsed = tryParseCachedGeneration(cached, reviewId, version);
       if (parsed) {
-        return {
-          responseText: parsed.responseText,
-          language: parsed.language,
-          provider: parsed.provider,
-          model: parsed.model,
-          usage: {
-            promptTokens: parsed.promptTokens,
-            completionTokens: parsed.completionTokens,
-          },
-          costUsd: 0,
-          apiCostId: null,
-        };
+        // ADR 0017: cache identity must bind to CONTENT, not just
+        // (reviewId, version) — live-ingest's content-change replacement job
+        // deliberately shares the in-flight version, so a draft cached against
+        // hash H1 would otherwise be served to a replacement attempt that
+        // loaded H2, whose content-freshness gate then sees H2 == H2 and
+        // persists the stale text. Accept ONLY on STRICT equality with this
+        // attempt's loaded hash: null === null passes (legacy pre-hash
+        // reviews); a provenance-less pre-change entry (undefined) or a
+        // mismatched hash is rejected — cleared best-effort (mirroring the
+        // corrupt-payload branch) and regenerated fresh.
+        if (parsed.reviewContentHash === (options.loadedReviewContentHash ?? null)) {
+          return {
+            responseText: parsed.responseText,
+            language: parsed.language,
+            provider: parsed.provider,
+            model: parsed.model,
+            usage: {
+              promptTokens: parsed.promptTokens,
+              completionTokens: parsed.completionTokens,
+            },
+            costUsd: 0,
+            apiCostId: null,
+          };
+        }
+        clearCachedGeneration(reviewId, version).catch(() => { /* best effort */ });
       }
     }
   }
@@ -173,7 +195,13 @@ async function runProductionMode(
       const lang = detectResponseLanguage(llm.text);
 
       if (!options.skipCache) {
-        await tryWriteCache(reviewId, version, llm, lang);
+        await tryWriteCache(
+          reviewId,
+          version,
+          llm,
+          lang,
+          options.loadedReviewContentHash ?? null,
+        );
       }
 
       return {
@@ -228,6 +256,7 @@ async function tryWriteCache(
   version: number,
   llmResult: LLMCallResult,
   responseLanguage: string,
+  reviewContentHash: string | null,
 ): Promise<void> {
   try {
     const cachePayload: CachedGeneration = {
@@ -237,6 +266,7 @@ async function tryWriteCache(
       model: llmResult.model,
       promptTokens: llmResult.usage.promptTokens,
       completionTokens: llmResult.usage.completionTokens,
+      reviewContentHash,
     };
     await setCachedGeneration(reviewId, version, JSON.stringify(cachePayload));
   } catch (cacheError) {

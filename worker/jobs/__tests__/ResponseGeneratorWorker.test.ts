@@ -10,6 +10,7 @@ const {
   mockSql,
   mockTx,
   mockMarkOutboxCompleted,
+  mockMarkOutboxCompletedWithReason,
   mockMarkOutboxFailed,
   mockIsMockMode,
   mockSanitizeText,
@@ -45,6 +46,7 @@ const {
     mockSql,
     mockTx,
     mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxCompletedWithReason: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockIsMockMode: vi.fn(() => false),
     mockSanitizeText: vi.fn((text: string) => text),
@@ -67,6 +69,7 @@ vi.mock('../../../src/lib/db/server', () => ({
 
 vi.mock('../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
   markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
@@ -145,6 +148,7 @@ import { persistResponseAndNotify } from '../response-generation/persist';
 import { CostLimitExceededError, RegenBudgetExceededError } from '../../../src/lib/costs/tracker';
 import { CostInfraUnavailableError } from '../../../src/lib/costs/errors';
 import { SKIP_REASON_ARCHIVED_LOCATION } from '../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
 import {
   makeLoadContextReviewRow as mockReviewRow,
   makeLoadContextBusinessRow as mockBusinessRow,
@@ -283,6 +287,24 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-gen-1', undefined);
+  });
+
+  // Content-freshness gate (ADR 0017): a skipped_stale_content persist outcome
+  // completes the outbox — not fails — with the queryable one-owner reason,
+  // and must not fire first_response_drafted (nothing was drafted).
+  it('completes the outbox with stale_review_content and skips first_response_drafted on a gate skip', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    vi.mocked(persistResponseAndNotify).mockResolvedValueOnce({ kind: 'skipped_stale_content' });
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      mockSql, 'outbox-gen-1', OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT, undefined,
+    );
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled(); // first_response_drafted must not fire
   });
 
   it('passes a normalized valid origin lane and suppress flag to persistence', async () => {

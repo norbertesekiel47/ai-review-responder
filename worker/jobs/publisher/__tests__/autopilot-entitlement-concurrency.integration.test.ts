@@ -427,10 +427,12 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
   });
 
   it('production persist grants auto_policy under the live review-business-entitlement lock spine', async () => {
-    const responseId = await persistResponseAndNotify(
+    const outcome = await persistResponseAndNotify(
       sqlA(),
       persistInput('Thanks!', 'ws8-live-persist'),
     );
+    if (outcome.kind !== 'persisted') throw new Error('expected persisted');
+    const responseId = outcome.responseId;
 
     const [response] = await sqlA()<{
       status: string;
@@ -475,9 +477,10 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     const grant = persistResponseAndNotify(
       sqlA(),
       persistInput(responseText, 'ws8-live-grant-waits-tier'),
-    ).then((responseId) => {
+    ).then((outcome) => {
       grantFinished = true;
-      return responseId;
+      if (outcome.kind !== 'persisted') throw new Error('expected persisted');
+      return outcome.responseId;
     });
 
     const blocked = await waitForGrantEntitlementLock();

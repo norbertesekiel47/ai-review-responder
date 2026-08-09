@@ -18,6 +18,16 @@ export const OUTBOX_COMPLETION_REASON = {
    * incident; the query that makes it useful is in ADR 0016.
    */
   IMPORT_CONSENT_BLOCKED: 'import_consent_blocked',
+  /**
+   * A `generate_response` job whose persist was refused by the
+   * content-freshness gate (ADR 0017): review content changed between the
+   * worker's load and the persist boundary. Zero writes happened — the
+   * (review_id, version) slot stays free for the colliding fresh job, which
+   * owns the current-content draft. Read by operators — no poller, no alert
+   * (the gate working is not an incident; the structured log line in
+   * persist.ts carries the per-fire detail).
+   */
+  STALE_REVIEW_CONTENT: 'stale_review_content',
 } as const;
 
 /** Every value `job_outbox.completion_reason` may be written with. */

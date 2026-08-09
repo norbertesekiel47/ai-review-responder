@@ -18,6 +18,7 @@ import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
+import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
 import {
   enqueuePendingPostNotice,
   enqueuePublishResponse,
@@ -66,7 +67,25 @@ export interface PersistResponseInput {
   logger: Pick<WorkerLogger, 'log' | 'warn'>;
 }
 
-export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<string> {
+export type PersistResponseOutcome =
+  | { kind: 'persisted'; responseId: string }
+  | { kind: 'skipped_stale_content' };
+
+/**
+ * The content-freshness gate predicate (ADR 0017). A freshness check, not a
+ * provenance proof: a null hash on EITHER side passes — legacy pre-hash
+ * reviews must keep generating.
+ */
+export function hasStaleReviewContent(
+  loadedReviewContentHash: string | null,
+  currentReviewContentHash: string | null,
+): boolean {
+  return loadedReviewContentHash !== null
+    && currentReviewContentHash !== null
+    && loadedReviewContentHash !== currentReviewContentHash;
+}
+
+export async function persistResponseAndNotify(sql: postgres.Sql, input: PersistResponseInput): Promise<PersistResponseOutcome> {
   const {
     result, retryCostId, reviewId, businessId, version,
     correlationId, suppressNotification, originLane, loadedReviewContentHash,
@@ -89,8 +108,8 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     && version === 1
     && !suppressNotification;
 
-  await sql.begin(async (tx) => {
-    await acquirePersistLocks(tx, {
+  return sql.begin(async (tx): Promise<PersistResponseOutcome> => {
+    const { currentReviewContentHash } = await acquirePersistLocks(tx, {
       reviewId,
       businessId,
       responseId,
@@ -98,6 +117,21 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       isAutoApprovalCandidate,
       logger,
     });
+
+    // Content-freshness gate (ADR 0017): runs before the lane split, covers all
+    // lanes. Skip-the-INSERT keeps the (review_id, version) slot free for the
+    // colliding fresh job — persisting in ANY status would starve it via the
+    // idempotency check. Zero writes on skip.
+    if (hasStaleReviewContent(loadedReviewContentHash, currentReviewContentHash)) {
+      logger.log('content-freshness gate skipped persist', {
+        reason: OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT,
+        review_id: reviewId,
+        business_id: businessId,
+        version,
+        origin_lane: originLane,
+      });
+      return { kind: 'skipped_stale_content' }; // tx commits with zero writes
+    }
 
     await tx`
       INSERT INTO responses (
@@ -142,65 +176,21 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       held,
     });
 
-    // Structural non-candidates get their decision without touching the DB:
-    // no runtime-state read (074 columns stay unread on flag-off deploys,
-    // finding 5) and no fallback log — logAutoApprovalFallbackIfNeeded's
-    // isAutoCandidate narrowing requires the live_ingest_new lane AND a
-    // configured policy, and structural blocks either fail the lane check or
-    // (flag off / regen / suppressed) are not the runtime-prerequisite story
-    // that log exists for (spec §15).
-    let runtimeState: AutoApprovalRuntimeState | null = null;
-    let autoDecision: AutoApprovalDecision;
-    if (isAutoApprovalCandidate) {
-      // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
-      runtimeState = await loadAutoApprovalRuntimeState(tx, {
-        reviewId,
-        businessId,
-        accountId,
-      });
-      if (preLlmSubscriptionTier !== runtimeState.subscriptionTier) {
-        logger.log('Subscription tier changed during response generation', {
-          account_id: accountId,
-          pre_llm_subscription_tier: preLlmSubscriptionTier,
-          current_subscription_tier: runtimeState.subscriptionTier,
-        });
-      }
-      autoDecision = evaluateAutoApprovalCandidate({
-        originLane,
-        version,
-        suppressNotification,
-        loadedReviewContentHash,
-        currentReviewContentHash: runtimeState.currentReviewContentHash,
-        currentStarRating: runtimeState.currentStarRating,
-        effectivePolicy: runtimeState.effectivePolicy,
-        moderation,
-        held,
-        subscriptionStatus: runtimeState.subscriptionStatus,
-        subscriptionTier: runtimeState.subscriptionTier,
-        accountPastDueAt: runtimeState.accountPastDueAt,
-        accountFlags: runtimeState.accountFlags,
-        activeLocationNow: runtimeState.activeLocationNow,
-        activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
-        triageSeverity: runtimeState.triageSeverity,
-        triageSource: runtimeState.triageSource,
-        autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
-      });
-
-      logAutoApprovalFallbackIfNeeded({
-        logger,
-        autoDecision,
-        runtimeState,
-        responseId,
-        reviewId,
-        businessId,
-        version,
-        originLane,
-        moderation,
-      });
-    } else {
-      autoDecision = structurallyBlockedDecision({ originLane, version, suppressNotification });
-    }
+    const { runtimeState, autoDecision } = await resolveAutoApprovalDecision(tx, {
+      isAutoApprovalCandidate,
+      reviewId,
+      businessId,
+      accountId,
+      responseId,
+      version,
+      originLane,
+      suppressNotification,
+      loadedReviewContentHash,
+      moderation,
+      held,
+      preLlmSubscriptionTier,
+      logger,
+    });
 
     // The moderation veto precedes the policy gate: a held draft never reaches
     // the gate, so no policy_gate step is recorded for it. On every other path
@@ -230,13 +220,13 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         originLane,
         moderation,
       });
-      return;
+      return { kind: 'persisted', responseId };
     }
 
     // Backfill suppression (spec §4.6, §6.7) OR a high-severity flag both skip
     // the approval notification.
     if (suppressNotification || held) {
-      return;
+      return { kind: 'persisted', responseId };
     }
 
     await enqueueSendNotification(tx, {
@@ -244,9 +234,99 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       businessId,
       correlationId,
     });
+    return { kind: 'persisted', responseId };
+  });
+}
+
+/**
+ * Resolves the auto-approval decision for a freshly persisted draft, on the
+ * OPEN transaction `tx` after the moderation/hold write. Structural
+ * non-candidates get their decision without touching the DB: no runtime-state
+ * read (074 columns stay unread on flag-off deploys, finding 5) and no
+ * fallback log — logAutoApprovalFallbackIfNeeded's isAutoCandidate narrowing
+ * requires the live_ingest_new lane AND a configured policy, and structural
+ * blocks either fail the lane check or (flag off / regen / suppressed) are
+ * not the runtime-prerequisite story that log exists for (spec §15).
+ */
+async function resolveAutoApprovalDecision(
+  tx: postgres.TransactionSql,
+  args: {
+    isAutoApprovalCandidate: boolean;
+    reviewId: string;
+    businessId: string;
+    accountId: string;
+    responseId: string;
+    version: number;
+    originLane: GenerateResponseOriginLane | null;
+    suppressNotification: boolean;
+    loadedReviewContentHash: string | null;
+    moderation: ModerationDecision;
+    held: boolean;
+    preLlmSubscriptionTier: SubscriptionTierValue;
+    logger: Pick<WorkerLogger, 'log'>;
+  },
+): Promise<{ runtimeState: AutoApprovalRuntimeState | null; autoDecision: AutoApprovalDecision }> {
+  const {
+    isAutoApprovalCandidate, reviewId, businessId, accountId, responseId,
+    version, originLane, suppressNotification, loadedReviewContentHash,
+    moderation, held, preLlmSubscriptionTier, logger,
+  } = args;
+
+  if (!isAutoApprovalCandidate) {
+    return {
+      runtimeState: null,
+      autoDecision: structurallyBlockedDecision({ originLane, version, suppressNotification }),
+    };
+  }
+
+  // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const runtimeState = await loadAutoApprovalRuntimeState(tx, {
+    reviewId,
+    businessId,
+    accountId,
+  });
+  if (preLlmSubscriptionTier !== runtimeState.subscriptionTier) {
+    logger.log('Subscription tier changed during response generation', {
+      account_id: accountId,
+      pre_llm_subscription_tier: preLlmSubscriptionTier,
+      current_subscription_tier: runtimeState.subscriptionTier,
+    });
+  }
+  const autoDecision = evaluateAutoApprovalCandidate({
+    originLane,
+    version,
+    suppressNotification,
+    loadedReviewContentHash,
+    currentReviewContentHash: runtimeState.currentReviewContentHash,
+    currentStarRating: runtimeState.currentStarRating,
+    effectivePolicy: runtimeState.effectivePolicy,
+    moderation,
+    held,
+    subscriptionStatus: runtimeState.subscriptionStatus,
+    subscriptionTier: runtimeState.subscriptionTier,
+    accountPastDueAt: runtimeState.accountPastDueAt,
+    accountFlags: runtimeState.accountFlags,
+    activeLocationNow: runtimeState.activeLocationNow,
+    activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
+    triageSeverity: runtimeState.triageSeverity,
+    triageSource: runtimeState.triageSource,
+    autoApprovedTodayCount: runtimeState.autoApprovedTodayCount,
   });
 
-  return responseId;
+  logAutoApprovalFallbackIfNeeded({
+    logger,
+    autoDecision,
+    runtimeState,
+    responseId,
+    reviewId,
+    businessId,
+    version,
+    originLane,
+    moderation,
+  });
+
+  return { runtimeState, autoDecision };
 }
 
 /**
@@ -264,7 +344,7 @@ async function acquirePersistLocks(
     isAutoApprovalCandidate: boolean;
     logger: Pick<WorkerLogger, 'warn'>;
   },
-): Promise<void> {
+): Promise<{ currentReviewContentHash: string | null }> {
   const {
     reviewId, businessId, responseId, accountId, isAutoApprovalCandidate, logger,
   } = args;
@@ -277,9 +357,13 @@ async function acquirePersistLocks(
   // ingest, edit-publish/failed-hook, or another persist for the same
   // review). Taking FOR UPDATE first subsumes the later KEY SHARE. Bonus:
   // the auto-approval content-hash re-read further down happens under this
-  // lock, so it cannot race a concurrent content-changed ingest.
-  const [reviewLock] = await tx<{ id: string }[]>`
-    SELECT id FROM reviews
+  // lock, so it cannot race a concurrent content-changed ingest. The
+  // content-freshness gate's freshness re-read (ADR 0017) rides this SAME
+  // statement: the current review_content_hash returned here is read under
+  // the lock, so the gate's comparison cannot race a concurrent
+  // content-changed ingest either.
+  const [reviewLock] = await tx<{ id: string; review_content_hash: string | null }[]>`
+    SELECT id, review_content_hash FROM reviews
     WHERE id = ${reviewId} AND business_id = ${businessId}
     FOR UPDATE
   `;
@@ -320,6 +404,8 @@ async function acquirePersistLocks(
     // before the responses INSERT (and every later account-FK child write).
     await acquireTierEntitlementLock(tx, accountId);
   }
+
+  return { currentReviewContentHash: reviewLock?.review_content_hash ?? null };
 }
 
 /**

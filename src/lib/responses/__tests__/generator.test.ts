@@ -38,6 +38,7 @@ vi.mock('@/lib/costs/tracker', () => ({
   reserveCost: vi.fn().mockResolvedValue('2025-06-15'),
   finalizeCost: vi.fn().mockResolvedValue(undefined),
   setCachedGeneration: vi.fn().mockResolvedValue(undefined),
+  clearCachedGeneration: vi.fn().mockResolvedValue(undefined),
   releaseCost: vi.fn().mockResolvedValue(undefined),
   CostLimitExceededError: class CostLimitExceededError extends Error {
     name = 'CostLimitExceededError';
@@ -256,6 +257,9 @@ describe('generateResponse', () => {
         model: 'gpt-4o-mini',
         promptTokens: 80,
         completionTokens: 40,
+        // ADR 0017: cache identity binds to content provenance; null matches
+        // the absent loaded hash (legacy pre-hash review).
+        reviewContentHash: null,
       }),
     );
 
@@ -265,6 +269,98 @@ describe('generateResponse', () => {
     expect(result.responseText).toBe('Cached response');
     expect(result.costUsd).toBe(0);
     expect(tracker.reserveCost).not.toHaveBeenCalled();
+  });
+
+  it('generation cache is accepted only when the cached review_content_hash strictly equals the loaded hash (null matches null for legacy pre-hash reviews)', async () => {
+    const tracker = await import('@/lib/costs/tracker');
+    const { generateResponse } = await import('../generator');
+
+    // Matching hash → served from cache: no LLM call, no cost reservation.
+    vi.mocked(tracker.checkIdempotentCache).mockResolvedValueOnce(
+      JSON.stringify({
+        responseText: 'Cached H1 draft',
+        language: 'en',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        promptTokens: 80,
+        completionTokens: 40,
+        reviewContentHash: 'hash-H1',
+      }),
+    );
+    const hit = await generateResponse(mockSql, review, businessContext, [], {
+      ...productionOptions,
+      loadedReviewContentHash: 'hash-H1',
+    });
+    expect(hit.responseText).toBe('Cached H1 draft');
+    expect(hit.costUsd).toBe(0);
+
+    // Legacy pre-hash review: cached null matches a loaded null — and absence
+    // of loadedReviewContentHash in production options is treated as null.
+    vi.mocked(tracker.checkIdempotentCache).mockResolvedValueOnce(
+      JSON.stringify({
+        responseText: 'Cached legacy draft',
+        language: 'en',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        promptTokens: 80,
+        completionTokens: 40,
+        reviewContentHash: null,
+      }),
+    );
+    const legacyHit = await generateResponse(mockSql, review, businessContext, [], productionOptions);
+    expect(legacyHit.responseText).toBe('Cached legacy draft');
+    expect(legacyHit.costUsd).toBe(0);
+
+    expect(openaiCreate).not.toHaveBeenCalled();
+    expect(tracker.reserveCost).not.toHaveBeenCalled();
+    expect(tracker.clearCachedGeneration).not.toHaveBeenCalled();
+  });
+
+  it('generation cache rejects a stale-tagged or provenance-less cached draft, clears it, and regenerates', async () => {
+    const tracker = await import('@/lib/costs/tracker');
+    const { generateResponse } = await import('../generator');
+
+    // (a) Stale-tagged: cached against H1, but this attempt loaded H2 (the
+    // live-ingest replacement job shares the same reviewId + version).
+    vi.mocked(tracker.checkIdempotentCache).mockResolvedValueOnce(
+      JSON.stringify({
+        responseText: 'Stale H1 draft',
+        language: 'en',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        promptTokens: 80,
+        completionTokens: 40,
+        reviewContentHash: 'hash-H1',
+      }),
+    );
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Fresh H2 draft'));
+    const regenerated = await generateResponse(mockSql, review, businessContext, [], {
+      ...productionOptions,
+      loadedReviewContentHash: 'hash-H2',
+    });
+    expect(regenerated.responseText).toBe('Fresh H2 draft');
+    expect(tracker.clearCachedGeneration).toHaveBeenCalledWith('rev-001', 1);
+
+    // (b) Provenance-less pre-change entry (no reviewContentHash key at all):
+    // rejected even when this attempt itself loaded null — undefined !== null.
+    vi.mocked(tracker.checkIdempotentCache).mockResolvedValueOnce(
+      JSON.stringify({
+        responseText: 'Provenance-less draft',
+        language: 'en',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        promptTokens: 80,
+        completionTokens: 40,
+      }),
+    );
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Fresh regenerated draft'));
+    const fresh = await generateResponse(mockSql, review, businessContext, [], productionOptions);
+    expect(fresh.responseText).toBe('Fresh regenerated draft');
+
+    expect(tracker.clearCachedGeneration).toHaveBeenCalledTimes(2);
+    expect(openaiCreate).toHaveBeenCalledTimes(2);
+    // Both rejections fell through to FRESH generation — full cost lifecycle ran.
+    expect(tracker.reserveCost).toHaveBeenCalledTimes(2);
   });
 
   it('throws TypeError when production mode missing reviewId', async () => {
