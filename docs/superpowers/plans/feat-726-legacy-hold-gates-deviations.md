@@ -46,7 +46,10 @@
   copy keeps the human-readable literal spelling (it is not hook-consumed).
   Latent hook footgun for any future bracketed Next.js dynamic-route surface
   entry — worth a hook-side escape (e.g. literal compare before glob) in a
-  follow-up outside this feature's scope.
+  follow-up outside this feature's scope. VERDICT: ACCEPT (orchestrator
+  read-back: workaround empirically proven — the bracketed route file
+  committed through the armed guard; zero scope change; hook footgun
+  earmarked for lab-notes promotion at step 8).
 - **D5** [2026-08-09, step 5 gate] `tenant-scope` audit RED: the allowlist
   keys entries on exact sqlSnippet fingerprints, and both changed queries
   moved out from under theirs (poller lookup gained the held EXISTS column;
