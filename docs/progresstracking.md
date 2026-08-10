@@ -2952,3 +2952,106 @@ dependency, no schema change.**
   `flagged_responses` audit script, dashboard `route.test.ts` decomposition
   (1012 lines), `statusArraySql(sql,…)` write-client hygiene in the reviews
   draft-status route.
+
+## 2026-08-09 — #731 deferred maintainability bundle (PR #749, squash 6b02910a)
+
+- **What**: the four surviving maintainability items from #678's step-7
+  review, landed as one run. (1) `toCardRow`'s seven `isOrphan ? … : …`
+  ternaries → ONE dispatch on the Posted-reply axis to two private mappers,
+  `orphanReplyFacts` / `liveReplyFacts` (`src/lib/past-replies/replies-view.ts`),
+  both typed `Required<Pick<ReviewsListRow, …>>`. (2) The Reviews list's two
+  `COUNT(*)` group denominators + `AVG(star_rating)` merged into ONE query
+  (`src/lib/past-replies/load-replies.ts`) — three snapshots became one.
+  (3) `peekRegenBudget` DELETED from `src/lib/costs/tracker.ts`; its one
+  caller (`src/lib/shared/dashboard-regen-rate-limit.ts`) now calls
+  `peekRegenBudgetBatch([reviewId])`. (4) The retired
+  `PAST_REPLIES_VIEW_ENABLED` dropped from
+  `worker/jobs/publisher/__tests__/edit-existing-reply.integration.test.ts`.
+  Item 4 of the original five is **MOOT** — #727 deleted `row_state` and
+  `ReviewRowState`, so there was nothing to retype. No migration, no env var,
+  no flag, no dependency, no new file.
+- **The one user-visible fix (item 2)**: two `COUNT`s + an `AVG` in a
+  `Promise.all` could observe three states, so a reply posted between the
+  unanswered and answered `COUNT` made a review invisible to **both**,
+  deflating `totalPages` — the page then rendered more rows than its own
+  "N of M" admitted, with no error and no log. The merged query closes the
+  partition arithmetically: `LEFT JOIN responses p ON p.review_id = r.id AND
+  p.status = 'posted'` + `COUNT(*) FILTER (WHERE p.review_id IS NULL)` /
+  `FILTER (WHERE p.review_id IS NOT NULL)`. It cannot multiply rows because
+  `responses_one_posted_per_review` (migration 031) is
+  `UNIQUE (review_id) WHERE status = 'posted'` — the same index, and the same
+  join shape, the file's main row source already depends on.
+- **Why `Required<Pick<>>` and not a bare `Pick` (item 1)**: `version`,
+  `failed_response_id` and `failed_posting_error` are OPTIONAL on
+  `PastReplyRow`, so a bare `Pick` lets a mapper omit `failed_response_id`
+  and make recovery silently unreachable — #678's round-2 Defect A, which is
+  precisely why this refactor was deferred in the first place. Omission is
+  now `TS2741` at the mapper's own return (observed at
+  `replies-view.ts(257,3)` naming the field). Card key set unchanged (18);
+  mappers are private, so the six pinned titles assert through `toCardRow`.
+  Recorded as an addendum on `docs/adr/0018-row-state-axes-projection.md`.
+- **Fail-open posture preserved (item 3)**: the two peeks carried OPPOSITE
+  failure contracts — one threw and its caller caught, one swallowed and
+  logged — over a duplicated used/limit/remaining derivation. After the
+  consolidation an absent **map** entry is the single fail-open path, while an
+  absent Redis **key** still means "unused"; inverting those two would
+  disable every Regenerate during an Upstash outage. `subject_count` on the
+  shared `regen_budget_peek_failed` warn replaces the deleted
+  `[DashboardRegenBudget]` route discriminator. D-F unchanged — the
+  authoritative per-review daily cap is still the worker's Lua `INCR`.
+- **Workflow**: /feature normal lane, `surface: mixed`, 14 locked eval titles
+  authored verbatim before implementation (Task 1) — four red by design, ten
+  a green-on-arrival regression net for the two behaviour-preserving
+  refactors. 0 gate-fail rounds, **0 amendments to `allowed_edit_surface`**.
+  **Every one of D3–D7 is a defect in the PLAN's verification commands, not
+  in the implementation** — five of the seven deviations exist because the
+  plan's gates were wrong while its substance was right; each was caught by
+  the executing agent and fixed without deleting an assertion, widening a
+  surface or changing a locked title.
+- **Review**: two axes, round 1 → **six accepted findings**, all fixed
+  in-branch. Both axes independently found the merged denominator's first
+  shipped shape — `CROSS JOIN LATERAL (SELECT EXISTS …)` read by both
+  `FILTER`s — to be a large read regression resting on a **false planner
+  claim in its own rationale comment**: Postgres pulls the single-row LATERAL
+  up and plans one correlated SubPlan per reference (SubPlan 1 *and* SubPlan
+  3, each `loops=20000`), measuring ~81–261× planner cost, ~137× buffer
+  accesses (586 vs 80,206) and 2.5–13× exec at 20k reviews versus the
+  `LEFT JOIN` Hash Right Join. Also: a permanently-vacuous privacy test
+  DELETED rather than patched (the rewired enforcer emits no log of its own
+  and the suite mocked `@/lib/costs/tracker` away, so the assertion body ran
+  zero times) and re-homed as an **unconditional** assertion in
+  `regen-budget-batch.test.ts`; the #678 AVG title's strip surgery repaired;
+  two stale `NOT EXISTS` comments corrected; `seedPostedResponse` given the
+  file's own `bizId` trailing-default idiom. Round 2 verified all six fixed
+  with no regressions and no new fronts — the spec axis reproduced the plan
+  change on its own fixture and confirmed the ON-clause `status` predicate is
+  load-bearing (dropping it yields 23,000 rows). Reports:
+  `docs/reviews/feat-731-maintainability-bundle/`.
+- **Allowlist**: `ALLOWLIST_BASELINE` **409 → 408** — two orphaned `COUNT`
+  entries out, one merged entry in. `ci:tenant-scope` never prints the SQL it
+  wants (`TenantScopeFinding` has no SQL field), so the `sqlSnippet` was
+  derived by reusing the audit's own `extractSqlTemplates` + normaliser;
+  landed first try (fifth regeneration: 420→418→414→412→409→408).
+- **`reclassify` WARN on the TEST bucket** (490 actual vs 230 estimated,
+  2.13×) after the fix round → step 0 re-run against the shipped diff:
+  RISK `normal`, SURFACE `mixed` (as declared, deliberately not narrowed —
+  it cost extra rigour and bought no blind spot), SIZE `normal`. **Lane
+  unchanged.** The estimate had been anchored to the production figure at
+  ~1.15:1 — verbatim the #643 mistake the intake guidance warns about — and
+  the largest single contributor was coverage added *because* the review
+  found a hole. RISK=high escalation considered and **declined**: that lane's
+  distinguishing control is a staging ride, and staging exists to exercise
+  the worker, queue, webhooks and migrations, none of which this branch
+  touches. Flagged to the owner rather than buried in a WARN row.
+- **Nine durable lessons promoted to lab-notes**, headed by *never measure a
+  feature's diff against `origin/main` — use `git merge-base origin/main
+  HEAD`*: #747 merged mid-run and inflated the production bucket to 3,075
+  lines (15× the estimate), which under the abort criteria argued for tearing
+  the branch down; the true figures were 290 prod / 430 test, both under 2×,
+  and the two branches' changed-file sets were wholly disjoint. The same trap
+  had already been written up as D2 two hours earlier (a stale sibling branch
+  whose diff rendered #730's merged work backwards, reading as a revert) and
+  was still walked into — the symptom does not resemble the cause.
+- **Ship**: no staging ride (see the declined escalation above); PR #749
+  squash-merged to `6b02910a`. **Last implementation ticket on wayfinder map
+  #710** — every item on that map is now merged.
