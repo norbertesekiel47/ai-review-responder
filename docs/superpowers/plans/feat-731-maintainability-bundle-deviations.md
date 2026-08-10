@@ -323,6 +323,61 @@ hits the same wall.
 
 ---
 
+## D8 — `origin/main` moved mid-run (#747 merged), and the orchestrator fell into D2's trap while measuring
+
+**What happened.** PR #747 (`Harden authenticated dashboard design system`) was
+merged to `main` as `3887707d` by a different session *while Tasks 2-5 were
+running*. My fork point stayed `352d5c1d`.
+
+**The trap.** Measuring the reclassify buckets, I ran `git diff origin/main
+--numstat` and got **3,075 changed production lines** against a 200-line
+estimate — a 15× overshoot that would have fired the re-classification trigger
+and, under the abort criteria, argued for tearing the branch down. The diff
+listed ~60 files I had never touched: `_styles/*.css`, `SettingsModal.tsx`,
+`Sidebar.tsx`, `TopBar.tsx`, a deleted `src/lib/client-response.ts`.
+
+It was #747's work rendered **backwards**, because my branch did not yet contain
+it — **precisely the failure mode I had written up as D2 two hours earlier and
+warned the next reader about.** Knowing the trap in the abstract did not stop me
+walking into it, because the symptom (a huge unexplained diff) does not resemble
+the cause (a moved baseline).
+
+**Correct measurement**, against the merge base:
+
+| Bucket | Estimate | Actual | Ratio | 2× threshold |
+|---|---|---|---|---|
+| Production (`src/`, `scripts/`, `worker/`, excl. tests) | 200 | **290** | 1.45× | under |
+| Test (`**/__tests__/**`) | 230 | **430** | 1.87× | under |
+
+Both under threshold, so **no reclassify fires** — consistent with the gate
+emitting no `reclassify` WARN row. The lane was correctly chosen.
+
+**Interaction risk, checked rather than assumed.** #747 touched
+`dashboard/reviews/history/page.tsx` and `PastRepliesClient.tsx` — the *only two
+production consumers* of `PastRepliesPageView`, i.e. exactly the surface Task 3
+reshapes. Inspected: a hex literal → `var(--rw-app-text-soft)`,
+`role="tablist"` → `role="group"` + `aria-pressed`, and one CSS import. Nothing
+reads `unansweredTotal` / `answeredTotal` / `avgStarRating` differently, and the
+`'3 of 47'` / `'2 of 3'` assertions are client-side filtering over props,
+indifferent to which query produced the denominators.
+
+`comm -12` over the two branches' changed-file lists returns **empty** — the file
+sets are wholly disjoint — and `git merge origin/main` applied with no conflicts.
+
+**Verdict: ACCEPT.** No amendment (surface unchanged), no gate-fail round. The
+merge is in the branch and the gate was re-run on the merged tree.
+
+**Durable lesson (promote at step 8, and it supersedes D2's weaker phrasing):**
+*never measure a feature's diff against `origin/main` — always against
+`git merge-base origin/main HEAD`.* On a long-running branch `main` can move
+underneath you mid-run, and the resulting inflation is indistinguishable from
+genuine scope creep at exactly the moment the workflow asks you to judge scope
+creep. `scripts/verify-gate.sh`'s own `reclassify` row already does this
+correctly; the hand-run measurement is what needs the discipline. Worth wiring
+the merge-base form into the plan template so it is not re-derived per feature.
+
+---
+
 # Step 6 triage — orchestrator verdicts (2026-08-09)
 
 Read end to end before any review dispatch. D1 and D2 carry their verdicts
