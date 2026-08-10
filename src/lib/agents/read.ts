@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import type { EscalationStatus } from '@/lib/escalations/types';
 import type { TriageOutput, TriageSeverity } from '@/lib/reviews/triage-schema';
 import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
@@ -322,13 +323,13 @@ export async function getReviewTimeline(
              resp.version
       FROM responses resp
       JOIN businesses b ON b.id = resp.business_id
-      LEFT JOIN flagged_responses fr
-        ON fr.response_id = resp.id AND fr.status = 'open'
       WHERE resp.review_id = ${params.reviewId}
         AND b.account_id = ${params.accountId}
         AND b.archived_at IS NULL
         AND resp.status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
-        AND fr.id IS NULL
+        -- Held drafts never surface on the timeline (invariant #4);
+        -- src/lib/moderation/held-draft.ts owns the predicate (#730).
+        AND NOT ${openFlagExistsSql(sql, sql`resp.id`)}
       ORDER BY resp.version DESC
       LIMIT 1
     `,

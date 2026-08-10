@@ -321,6 +321,9 @@ describeWithDb('agent spine reads against live Postgres', { timeout: 30_000 }, (
 
   // ── #730 behavior pins: these must survive the openFlagExistsSql migration ──
 
+  // Declared last on purpose: these tests seed pending_approval fixtures on the
+  // shared business that persist until afterAll — a test added below them would
+  // inherit those rows.
   it('getReviewTimeline excludes a response whose flag is open and includes it once closed', async () => {
     const flaggedReviewId = randomUUID();
     const flaggedResponseId = randomUUID();
