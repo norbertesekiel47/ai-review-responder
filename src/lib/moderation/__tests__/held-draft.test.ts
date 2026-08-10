@@ -3,17 +3,21 @@
 // release admin-held drafts to owners. Previously covered only indirectly
 // via integration tests.
 import { describe, it, expect } from 'vitest';
-import { hasOpenFlag, HeldForReviewError } from '../held-draft';
+import type postgres from 'postgres';
+import { hasOpenFlag, openFlagExistsSql, HeldForReviewError } from '../held-draft';
 
 type TxCall = { text: string; values: unknown[] };
 
-/** Minimal tagged-template tx double — enough for hasOpenFlag's single query. */
+/**
+ * Minimal tagged-template tx double — captures every tagged-template call
+ * (outer query + spliced fragments) in order.
+ */
 function mkTx(rows: unknown[]) {
   const calls: TxCall[] = [];
   const tx = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     calls.push({ text: strings.raw.join('$'), values });
     return Promise.resolve(rows);
-  }) as never;
+  }) as unknown as postgres.TransactionSql;
   return { tx, calls };
 }
 
@@ -33,11 +37,10 @@ describe('hasOpenFlag', () => {
   it("filters on status = 'open' and the response id — the predicate that makes the hold binding", async () => {
     const { tx, calls } = mkTx([]);
     await hasOpenFlag(tx, RESPONSE_ID);
-    expect(calls).toHaveLength(1);
-    const [query] = calls;
-    expect(query!.text).toContain("status = 'open'");
-    expect(query!.text).toContain('FROM flagged_responses');
-    expect(query!.values).toContain(RESPONSE_ID);
+    const allText = calls.map((c) => c.text).join('\n');
+    expect(allText).toContain("status = 'open'");
+    expect(allText).toContain('FROM flagged_responses');
+    expect(calls.flatMap((c) => c.values)).toContain(RESPONSE_ID);
   });
 
   // #730 behavior pin: the true/false contract that must survive the
@@ -51,7 +54,17 @@ describe('hasOpenFlag', () => {
 });
 
 describe('openFlagExistsSql', () => {
-  it.todo('openFlagExistsSql spells the correlated open-flag EXISTS once, against the given ref');
+  it('openFlagExistsSql spells the correlated open-flag EXISTS once, against the given ref', () => {
+    const { tx, calls } = mkTx([]);
+    const ref = tx`resp.id`;
+    openFlagExistsSql(tx, ref);
+    const exists = calls.at(-1)!;
+    expect(exists.text).toContain('EXISTS (');
+    expect(exists.text).toContain('FROM flagged_responses fr');
+    expect(exists.text).toContain("fr.status = 'open'");
+    expect(exists.text).toContain('fr.response_id = ');
+    expect(exists.values).toContain(ref);
+  });
   it.todo('all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains');
 });
 
