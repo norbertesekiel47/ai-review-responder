@@ -3055,3 +3055,93 @@ dependency, no schema change.**
 - **Ship**: no staging ride (see the declined escalation above); PR #749
   squash-merged to `6b02910a`. **Last implementation ticket on wayfinder map
   #710** — every item on that map is now merged.
+
+## 2026-08-10 — #719 onboarding drip dropped-column repair (PR #740, squash 0ae7e0e7)
+
+- **What**: three defects, one incident. **A** — migration 034 dropped
+  `users.business_id` on 2026-05-10 and three live queries kept reading it,
+  throwing Postgres `42703` on every run. `handleOnboardingDrip` threw *after*
+  claiming its `onboarding_drip_log` row and *before* sending, so the
+  `onboarding_drip` topic had **never once reached `completed`** and no owner
+  received a drip for three months. **B** — the scheduler's in-flight
+  `NOT EXISTS` excluded only `status <> 'failed'`, so every failed row was
+  re-minted next cycle (93 rows at planning, 101 by ship). **C** —
+  `worker/index.ts` added a Sentry *breadcrumb* on job failure and never
+  `captureException`, so a hard deterministic crash raised no issue at all.
+  That third one is why A and B survived three months.
+- **Repairs**: (1) `ownerHasDashboardAuth` + `buildDashboardUrl` → one
+  `resolveDashboardUrl` on the post-034 path `businesses.account_id →
+  users.account_id`, consumed by `OnboardingDripWorker`, `WeeklySummaryWorker`
+  and `MonthlyImpactWorker` (the latter two were latent — they had not yet run
+  in staging). (2) **Drip staleness cap** (3 days) + rolling **churn cap**
+  (3 failures / 24h) on `OnboardingDripScheduler`, with an injected `asOf` seam;
+  `runOnboardingDripCycle` now THROWS where `checkAndSchedule` swallowed. (3)
+  new `worker/job-failure-sink.ts` raising a real Sentry issue on the terminal
+  attempt, tagged `{subsystem, queue, topic}`.
+- **No** migration, schema change, env var, feature flag, or new dependency.
+- **Staging ride PASSED — the evidence, not the intent**: deployed `9156a467`
+  at 10:47 UTC; the scheduler ticked at 10:57:53 and **two day_1 drips actually
+  sent** — `onboarding_drip_log.sent_at` non-NULL, `notification_deliveries`
+  rows carrying Resend message ids, outbox rows `completed`, and **zero** new
+  failed rows since deploy. Worth recording that the first evidence query was
+  MISLEADING: three rows sat at `status='completed'` with timestamps *before*
+  the deploy, because the skip paths (`markOutboxCompleted` on not-entitled /
+  bounced / already-claimed) complete a row without sending anything. The
+  intake's own observability bullet called completion "the single proof that
+  defect A is fixed" and that is simply false — `sent_at` plus a delivery row
+  is what discriminates.
+- **The third staging location did not send, and that is the feature working**:
+  it carried **13 failures in the trailing 24h** against a cap of 3, so the
+  churn cap held it. Both new bounds are therefore demonstrated live rather than
+  only unit-tested. Its day_1 is permanently lost — the churn cap holds it until
+  the failures age out, by which time the staleness cap has closed. Both caps
+  behaved exactly as designed and one owner still lost one email. The plan
+  forbids shortening the grace to force it. Filed as #738.
+- **Review**: 2 plan rounds (Codex adversarial) + 1 branch round on three
+  parallel axes. Three HIGH findings, all fixed pre-merge:
+  - **A2** — the sink gated on `isTerminalAttempt`, which plan round 1 had
+    explicitly directed it to reuse. That was wrong for the call site: it is the
+    **catch-block** predicate, and the sink runs in the `'failed'` **event**
+    where `attemptsMade` is already incremented, so it fired one attempt early
+    AND again on the real last one — duplicate Sentry issue plus a false
+    "exhausted its retries" for a job BullMQ then retried successfully.
+    `worker/jobs/judge/failed-hook.ts:44-57` already documented the split and
+    ends "do not unify them": the trap was written down and walked into anyway.
+    The eval did not catch it — its case (`attemptsMade: 1 / attempts: 5`) does
+    not discriminate the two predicates, so it passed before AND after the fix.
+  - **A6** — `scrubSentryEvent` never covered `event.exception.values`, which is
+    exactly where `captureException` puts the raw message. Promoting job failures
+    from breadcrumbs (scrubbed) to issues (not) was a net **PII regression** on
+    the louder channel. Fixed at the root in `sentry-scrub.ts`, so every
+    `captureException` in the repo benefits.
+  - **A1** — the staleness cap was producer-only. Now also a fail-closed
+    chokepoint in the handler, placed BEFORE the drip-log claim (a refusal must
+    not consume the claim a legitimate re-send needs) and completing with
+    `completion_reason='drip_too_stale'`. Mirrors #679's `guardImportConsent`,
+    minus the `FOR UPDATE` it does not need — nothing mutates the anchor.
+  - **A4 (LOW but load-bearing)** — the day_30 admin-branch deletion was
+    justified by "admins carry `account_id IS NULL`". Migration 034 §5d
+    backfills `users.account_id` with **no role filter**, so that is false and
+    pre-034 business-scoped admins do carry one. The deletion stands (it is the
+    signed-off behaviour change); the stated reason was corrected in the code
+    comment.
+- **Gate**: green. `reclassify` stayed **WARN** and was owner-waived — 628
+  production changed lines against a 120 estimate. The estimate was written as a
+  *net* figure while the gate measures *changed* lines, and a whole-body
+  extraction counts as delete-plus-add. Units error, not scope creep.
+- **`allowed_edit_surface` amended 3×**, each owner-approved: D1 (two sibling
+  call sites), D12 (`scripts/ci/tenant-scope-allowlist.ts`), and a third for
+  `sentry-scrub.ts` + `outbox-completion-reason.ts` when A6/A1 landed.
+- **Ship friction worth recording**: four rebases. `main` took ~10 commits
+  during this PR's life while a full CI run costs ~12 minutes, so every green
+  was invalidated before it could merge. Resolved by arming GitHub auto-merge,
+  which closes the window between "green" and "merged". Two conflict classes
+  recurred: `lab-notes.md` tail-appends (every docs sweep collides) and the
+  `OUTBOX_COMPLETION_REASON` enum (#728 added `STALE_REVIEW_CONTENT` beside this
+  ticket's `DRIP_TOO_STALE`).
+- **Follow-ups filed**: **#736** (watchdog terminalizer destroys per-job
+  `last_error`), **#738** (scheduler-side staleness skips leave no durable
+  record), **#739** (repo-wide dropped-column CI audit — the reviewer MEASURED
+  it at ~40 lines across 7 `DROP COLUMN`s in 103 migrations, contradicting the
+  "epic-sized" framing this ticket used to decline it; migration 103 dropped
+  four more columns with no forward guard).
