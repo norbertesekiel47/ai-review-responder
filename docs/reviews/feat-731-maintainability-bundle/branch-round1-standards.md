@@ -215,3 +215,56 @@ Shipped shape is the spec axis's variant (`FILTER (WHERE p.review_id IS NULL / I
 | 4 — `emptyBusinessId` is caller-discipline-by-comment | **NOTED, accepted as-is.** The tension with `load-replies.ts:192` ("orphan-ness is DATA, not caller discipline") is real and well spotted, but that principle governs *production* invariants; for a test fixture there is no cheap structural alternative and the payoff (live-Postgres coverage of the zero-row aggregate path) is real. |
 | 5 — `RegenBudgetStatus.remaining` redundant | **NOTED, out of scope.** Pre-existing and untouched. |
 | 6 — window functions, considered and rejected | **AGREED**; it matches the intake's own stated non-goal. Now recorded in two reports so it is not re-litigated. |
+
+---
+
+# Round 2 verification
+
+**Scope:** verification-only. Diffed `27a57cc2` and `ed5bf612` (fix round) and the branch as a whole against the fork point `3887707d` (= `git merge-base origin/main HEAD`, re-confirmed; never a bare `origin/main` — deviation D8). `368c053d` confirmed docs-only (deviations doc, D9). No new fronts opened against unchanged code. Read-only: nothing edited outside this report.
+**Date:** 2026-08-09
+
+## Per-finding verification
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F1 — vacuous privacy test | **VERIFIED FIXED** | The `never leaks the raw review id into the fail-open log` title is gone from `dashboard-regen-rate-limit.test.ts` (replaced by an 8-line tombstone comment naming its new home). `regen-budget-batch.test.ts:140-173` asserts unconditionally — `toHaveBeenCalledTimes(1)` first, so `logged` is provably defined, then `event`/`peek`/`subject_count`/`reason` plus `Object.keys(logged).sort()` toEqual the exact four keys and two `not.toContain(REVIEW_*)`. No `if` guard anywhere. |
+| F2 — LEFT JOIN instead of CROSS JOIN LATERAL | **VERIFIED FIXED** | `load-replies.ts:351-364` ships `LEFT JOIN responses p ON p.review_id = r.id AND p.status = 'posted'` with `COUNT(*) FILTER (WHERE p.review_id IS NULL / IS NOT NULL)`. Zero `has_reply` / `CROSS JOIN LATERAL` occurrences remain in `src/lib/past-replies/`, `src/lib/costs/`, `src/lib/shared/`, or the allowlist. |
+| F2 collateral (a) — unverified planner claim | **VERIFIED RETIRED** | "the EXISTS is evaluated ONCE in the LATERAL … spelling it twice would plan two correlated subqueries per row" is deleted. The replacement makes **no** planner assertion; it states the migration-031 index (verified verbatim: `CREATE UNIQUE INDEX … responses_one_posted_per_review ON responses (review_id) WHERE status = 'posted'`) and cross-references the row source's identical join. The `EXPLAIN` numbers live in the commit message, not in a source comment. |
+| F2 collateral (b) — the test's SQL-regex surgery | **VERIFIED RETIRED** | `reviews-list.test.ts:402-416`: the `text.replace(/CROSS JOIN LATERAL …/)` excision and the now-wrong `not.toMatch(/JOIN\s+responses/)` are both gone, replaced by "exactly one join to `responses`, and it is a LEFT one". No whitespace-coupled string surgery left in the title. |
+| F2 collateral (c) — allowlist `sqlSnippet` | **VERIFIED SHRUNK, not removable** | 374 → 312 chars, one line. The entry itself cannot be retired — the query still legitimately references `responses`, so a `tenant-root-lookup` allowlist row is still required; regenerated via the audit's own normaliser and `ci:tenant-scope` passes at 408 = baseline 408. Counting this as "retired" would have been wrong; shortening is the whole of what was available. |
+| F3 — two stale `NOT EXISTS` comments | **VERIFIED FIXED** | `replies-view.ts:368-370` now names "the unanswered side of `load-replies`' merged denominator query — `COUNT(*) FILTER (WHERE p.review_id IS NULL)` over the posted-only LEFT JOIN". `load-replies.ts:163-165` now names the same `FILTER`. The only surviving `NOT EXISTS` in `load-replies.ts` is line 196 (the #678-deleted orphan query) — correctly left alone, exactly as round 1 asked. |
+| F4 — hand-rolled `seedPostedResponse` duplicate | **VERIFIED FIXED** | `load-replies.integration.test.ts:117-121` signature is now `(responseId, reviewId, bizId: string = businessId)`, matching the `seedReview` / `seedReplacementDraft` precedent; the 11-column inline INSERT at the old `:467-473` is gone, replaced by `seedPostedResponse(responseId, reviewId, isolatedBusinessId)`. Its comment's now-false "the FILTER predicate is an EXISTS, not a join" rationale was rewritten to the index argument that actually holds under the join. |
+| Appendix item 2 — `ReplyFacts` dangling referents | **VERIFIED FIXED** (`ed5bf612`) | `replies-view.ts:231-234` now reads "deleting the `failed_response_id` line from `orphanReplyFacts` below reports `TS2741` at that function's `return {`". `orphanReplyFacts` is at `:259`, genuinely below the `:236` type declaration, so both the name and the "below" are accurate. |
+
+**No regressions found.** Nothing in the fix round re-opens a round-1 finding or breaks an adjacent one.
+
+## Standards judgement on the fix round's own diff
+
+**Compliant.** Detail, since two of the checks were named explicitly:
+
+- **The new rationale comment (`load-replies.ts:305-349`) does not repeat the old failure mode.** The old comment's sole justification was an unverifiable planner assertion; every claim in the replacement is either a checkable external fact (the migration-031 index definition, cited with its file path and verified byte-accurate) or a structural property of the shipped SQL (LEFT JOIN preserves every review; `IS NULL`/`IS NOT NULL` is a total split; the ON clause can only decide whether `p.*` is NULL, never whether the review survives — which is the real reason the AVG's row set is safe). It also states the *intent* that the denominator deliberately mirrors the row source's join, which is a constraint on future edits that the code cannot show. The one paragraph closest to narration is "the partition stays arithmetically CLOSED" — a fluent SQL reader can see that — but it answers the question the whole ticket exists to answer, so I would not cut it. Block grew 25 → ~45 lines; `load-replies.ts` 389 → 405, nowhere near the 1000-line threshold.
+- **The new test follows the suite's conventions rather than forking them.** The logger mock is byte-identical in shape to the one already in `dashboard-regen-rate-limit.test.ts` (`const mockWarn = vi.fn()` + `vi.mock('@/lib/shared/logger', () => ({ createWorkerLogger: () => ({ log, warn: mockWarn, error }) }))`), it drives failure through the suite's existing `mockRedis.mget.mockRejectedValueOnce` idiom and its existing `loadBatchPeek()` dynamic-import helper, and it relies on the suite's existing `vi.clearAllMocks()` in `beforeEach` — which is what makes `toHaveBeenCalledTimes(1)` a safe exact pin. `mockWarn` in the enforcer suite is **not** left dangling: it still backs the rate-limit titles at `:119,120,135,143`.
+- **No `any`, no new silent catch, no glossary violation.** The new test narrows via `as Record<string, unknown>`. The fix round adds no `catch` at all — the only swallow is the pre-existing, locked D-F posture in `tracker.ts`. Grep over every added source line in `4eee7181..HEAD` for the CONTEXT.md:30-31 *Avoid* list (`the regenerate budget`, `regen budget`, `regeneration budget`, `Past Replies`, `History tab`, `the archive`, `on-demand drafting`, `manual generation`) returns nothing.
+- **Judgement note (not a finding).** The reshaped `reviews-list.test.ts` pin catches an inner join and a second join, but not a hypothetical `WHERE p.review_id IS NOT NULL` narrowing of the AVG's row set; round 1's remedy sketch had a second half ("no `WHERE`/`AND` clause outside the join condition references `responses`") that was not implemented. I do not ask for it: implementing it would reintroduce exactly the region-splitting text surgery the finding retired, the shipped pin is strictly stronger against the *actual* pre-#678 defect (an inner join), and the behaviour has real live-DB coverage — `load-replies.integration.test.ts:288` pins the AVG over a mixed fixture and `:442,459,489` pin the closed partition, the answered-counts-once case, and the zero-review null.
+
+### Mechanical evidence (re-run at round 2)
+
+| Check | Result |
+|---|---|
+| `pnpm typecheck` | pass |
+| `pnpm lint` | pass |
+| 5 affected unit suites | 5 files / **99** tests passed — net-unchanged from round 1 (−1 vacuous title, +1 unconditional replacement) |
+| `pnpm ci:tenant-scope` | pass — entries 408 (baseline 408) |
+| `pnpm ci:static-policy` | pass (1129 files) |
+| `pnpm ci:live-db-suites` | pass |
+| `pnpm ci:db-imports` | pass (strict) |
+| `pnpm ci:response-status` / `ci:reviews-status` | pass (908 files / no raw `reviews.status` literals — the new `p.status` is qualified, so no pragma needed) |
+| File sizes | `load-replies.ts` 405, `replies-view.ts` 386, `tracker.ts` 426, `dashboard-regen-rate-limit.ts` 116 — threshold not approached |
+
+## Appendix — new, untriaged
+
+**None.** I found nothing outside the fix round's own diff worth recording, and deliberately did not re-litigate the `Required<>` wrapper, the D-F swallow-and-log posture, or the window-function alternative.
+
+## Round 2 verdict
+
+**Approve — all six accepted round-1 items verified fixed, no regressions, fix round is standards-clean.** No round 3 needed on this axis.
