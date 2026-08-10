@@ -6,10 +6,10 @@ export { OffboardingStatusScreen } from './OffboardingStatusScreen';
 
 export function ActivePendingBusinessScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--rw-app-bg)' }}>
-      <div className="max-w-md w-full rounded-lg p-8 text-center" style={{ background: 'var(--rw-card)', border: '1px solid var(--rw-hair)' }}>
-        <h1 className="text-2xl font-bold mb-4">Set up your business</h1>
-        <p className="mb-6" style={{ color: 'var(--rw-app-text-muted)' }}>
+    <div className="account-state-screen">
+      <section className="card account-state-card account-state-card--compact">
+        <h1 className="account-state-title">Set up your business</h1>
+        <p className="account-state-copy">
           Your subscription is active. Just one more step: tell us about
           your business so we can start fetching reviews.
         </p>
@@ -19,7 +19,7 @@ export function ActivePendingBusinessScreen() {
         >
           Set up business
         </Link>
-      </div>
+      </section>
     </div>
   );
 }

@@ -42,14 +42,20 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
-LINT_OUT=$(echo "$CHANGED" | tr '\n' '\0' | xargs -0 pnpm exec eslint 2>&1)
-if [ $? -ne 0 ]; then
-  echo "$HASH" > "$BLOCKED_STAMP"
-  {
-    echo "eslint failed on changed files — fix before finishing the turn:"
-    echo "$LINT_OUT" | head -25
-  } >&2
-  exit 2
+# Deleted (and rename-mangled "old -> new") paths can't be linted — ESLint
+# errors "No files matching the pattern" and exits non-zero. Pass ESLint only
+# paths that still exist on disk; the typecheck above already covers deletions.
+LINTABLE=$(echo "$CHANGED" | while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f"; done)
+if [ -n "$LINTABLE" ]; then
+  LINT_OUT=$(echo "$LINTABLE" | tr '\n' '\0' | xargs -0 pnpm exec eslint 2>&1)
+  if [ $? -ne 0 ]; then
+    echo "$HASH" > "$BLOCKED_STAMP"
+    {
+      echo "eslint failed on changed files — fix before finishing the turn:"
+      echo "$LINT_OUT" | head -25
+    } >&2
+    exit 2
+  fi
 fi
 
 echo "$HASH" > "$GREEN_STAMP"

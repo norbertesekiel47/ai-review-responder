@@ -30,9 +30,9 @@ export function VoiceClient() {
   if (f.fetchError) {
     return (
       <SettingsShell>
-        <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
-          <div className="set-section-title" style={{ color: '#991B1B' }}>Error</div>
-          <p style={{ fontSize: 13, color: '#B91C1C' }}>{f.fetchError}</p>
+        <div className="set-section set-section--error">
+          <div className="set-section-title settings-error-title">Error</div>
+          <p className="settings-error-copy">{f.fetchError}</p>
         </div>
       </SettingsShell>
     );
@@ -91,7 +91,7 @@ export function VoiceClient() {
 
       {/* Per-location voice config header — shows location name */}
       {f.isMultiLocation && f.selectedDisplayName && (
-        <div style={{ marginBottom: 12, fontSize: 14, fontWeight: 600, color: 'var(--rw-app-text-heading, #1F2937)' }}>
+        <div className="settings-location-heading">
           Voice for {f.selectedDisplayName}
         </div>
       )}
@@ -100,7 +100,7 @@ export function VoiceClient() {
       <BrandVoicePanel form={f.form} set={f.set} />
 
       {f.saveError && (
-        <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{f.saveError}</p>
+        <p className="settings-error-copy settings-error-copy--after">{f.saveError}</p>
       )}
 
       {/* Voice Report Card — what voice learning inferred for this location (#540) */}

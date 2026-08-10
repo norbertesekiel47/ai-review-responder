@@ -65,6 +65,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
             key={t.id}
             type="button"
             className={`tone-chip ${active === t.id ? 'active' : ''}`}
+            aria-pressed={active === t.id}
             onClick={() => pickPreset(t.id, t.canonical)}
           >
             {t.label}
@@ -73,6 +74,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
         <button
           type="button"
           className={`tone-chip ${active === 'custom' ? 'active' : ''}`}
+          aria-pressed={active === 'custom'}
           onClick={pickCustom}
         >
           Custom…

@@ -33,8 +33,8 @@ export function LocationPicker({ locations }: Props) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ locationId: selected }),
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
         setError(friendlyMessage(body.error ?? `select_location_failed_${res.status}`));
         setBusy(false);
         return;
@@ -47,106 +47,90 @@ export function LocationPicker({ locations }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="text-2xl font-semibold" style={{ color: 'var(--rw-app-text)' }}>
-        Pick a Google Business location
-      </h1>
-      <p className="mt-2 text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>
-        Select the location RepWorth should publish responses for. You can
-        change this later by reconnecting.
-      </p>
+    <div className="content content--narrow">
+      <section className="card connection-selection" aria-labelledby="connection-location-title">
+        <h2 className="account-state-title" id="connection-location-title">
+          Pick a Google Business location
+        </h2>
+        <p className="account-state-copy">
+          Select the location RepWorth should publish responses for. You can
+          change this later by reconnecting.
+        </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-        <div className="space-y-2">
-          {locations.map((loc) => (
-            <label
-              key={loc.id}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition"
-              style={
-                selected === loc.id
-                  ? { borderColor: 'var(--rw-accent-500)', background: 'var(--rw-sage-soft)' }
-                  : { borderColor: 'var(--rw-hair)', background: 'var(--rw-card)' }
-              }
+        <form onSubmit={handleSubmit} className="connection-selection-form">
+          <fieldset className="connection-options">
+            <legend className="sr-only">Google Business locations</legend>
+            {locations.map((loc) => (
+              <label
+                key={loc.id}
+                className={`connection-option ${selected === loc.id ? 'connection-option--selected' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="location"
+                  value={loc.id}
+                  checked={selected === loc.id}
+                  onChange={() => setSelected(loc.id)}
+                  disabled={busy}
+                  className="connection-option-radio"
+                />
+                <div className="connection-option-copy">
+                  <strong>{loc.name}</strong>
+                  <span>{loc.address}</span>
+                </div>
+              </label>
+            ))}
+          </fieldset>
+
+          {error && (
+            <p className="connection-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="connection-actions">
+            <button
+              type="submit"
+              disabled={!selected || busy}
+              className="btn btn-primary"
             >
-              <input
-                type="radio"
-                name="location"
-                value={loc.id}
-                checked={selected === loc.id}
-                onChange={() => setSelected(loc.id)}
-                disabled={busy}
-                className="mt-1"
-              />
-              <div>
-                <div className="font-medium" style={{ color: 'var(--rw-app-text)' }}>{loc.name}</div>
-                <div className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{loc.address}</div>
-              </div>
-            </label>
-          ))}
-        </div>
-
-        {error && (
-          <p
-            className="rounded border p-3 text-sm"
-            style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)', color: 'var(--rw-danger)' }}
-          >
-            {error}
-          </p>
-        )}
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={!selected || busy}
-            className="btn btn-primary disabled:opacity-50"
-          >
-            {busy ? 'Connecting…' : 'Connect this location'}
-          </button>
-          <Link
-            href="/dashboard/connect"
-            className="text-sm hover:underline"
-            style={{ color: 'var(--rw-app-text-muted)' }}
-          >
-            Cancel
-          </Link>
-        </div>
-      </form>
+              {busy ? 'Connecting…' : 'Connect this location'}
+            </button>
+            <Link href="/dashboard/connect" className="btn btn-secondary">
+              Cancel
+            </Link>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }
 
+const SESSION_EXPIRED = 'Your connect session expired. Please start over.';
+const ACCOUNT_MISMATCH = 'This connect session doesn’t match your account. Please start over.';
+const NO_PERMISSION = 'You don’t have permission to do that.';
+
+// Map (not a plain object) so an attacker-influenced code like 'toString'
+// can never resolve through the prototype chain.
+const FRIENDLY_MESSAGES = new Map<string, string>([
+  ['connect_session_missing', SESSION_EXPIRED],
+  ['connect_session_expired', SESSION_EXPIRED],
+  ['connect_pending_missing', SESSION_EXPIRED],
+  ['invalid_location_id', 'That location isn’t recognized — please pick one from the list.'],
+  ['finalize_in_progress', 'Another tab is already finalizing this connection — please wait a moment and refresh.'],
+  ['finalize_unknown_admin_required', 'This connection needs manual review by our support team.'],
+  ['already_connected_by_parallel_flow', 'This business was just connected from another tab.'],
+  ['flow_changed', 'The connection flow changed — please start over from the dashboard.'],
+  ['malformed_pending_marker', 'Something went wrong with this connect session. Please start over.'],
+  ['business_mismatch', ACCOUNT_MISMATCH],
+  ['user_mismatch', ACCOUNT_MISMATCH],
+  ['zernio_auth_error', 'Google authorization expired before you finished. Please reconnect.'],
+  ['zernio_validation_error', 'Google rejected that selection — please pick a different location.'],
+  ['feature_disabled', 'Google Business publishing isn’t available right now.'],
+  ['forbidden', NO_PERMISSION],
+  ['unauthorized', NO_PERMISSION],
+]);
+
 function friendlyMessage(code: string): string {
-  switch (code) {
-    case 'connect_session_missing':
-    case 'connect_session_expired':
-      return 'Your connect session expired. Please start over.';
-    case 'invalid_location_id':
-      return 'That location isn’t recognized — please pick one from the list.';
-    case 'finalize_in_progress':
-      return 'Another tab is already finalizing this connection — please wait a moment and refresh.';
-    case 'finalize_unknown_admin_required':
-      return 'This connection needs manual review by our support team.';
-    case 'already_connected_by_parallel_flow':
-      return 'This business was just connected from another tab.';
-    case 'flow_changed':
-      return 'The connection flow changed — please start over from the dashboard.';
-    case 'connect_pending_missing':
-      return 'Your connect session expired. Please start over.';
-    case 'malformed_pending_marker':
-      return 'Something went wrong with this connect session. Please start over.';
-    case 'business_mismatch':
-    case 'user_mismatch':
-      return 'This connect session doesn’t match your account. Please start over.';
-    case 'zernio_auth_error':
-      return 'Google authorization expired before you finished. Please reconnect.';
-    case 'zernio_validation_error':
-      return 'Google rejected that selection — please pick a different location.';
-    case 'feature_disabled':
-      return 'Google Business publishing isn’t available right now.';
-    case 'forbidden':
-    case 'unauthorized':
-      return 'You don’t have permission to do that.';
-    default:
-      return `Unable to connect (${code}).`;
-  }
+  return FRIENDLY_MESSAGES.get(code) ?? `Unable to connect (${code}).`;
 }

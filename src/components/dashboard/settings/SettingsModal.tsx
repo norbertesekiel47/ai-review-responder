@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 interface SettingsModalProps {
   /** Accessible name for the dialog, announced when focus enters it. */
@@ -12,13 +12,13 @@ interface SettingsModalProps {
 }
 
 /**
- * Shared scaffold for settings confirmation dialogs: a click-to-dismiss backdrop
- * button plus a labelled native `<dialog>` content box. Owns the keyboard-dismiss
- * contract (Escape) so every settings modal behaves the same. Full focus
- * trap/restore is intentionally out of scope for now.
+ * Shared scaffold for settings confirmation dialogs. The native `<dialog>` is
+ * the full-viewport interaction surface, so its backdrop remains clickable after
+ * showModal() makes the rest of the document inert.
  */
 export function SettingsModal({ title, closeLabel, onClose, children }: SettingsModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const descriptionId = useId();
 
   // The component is mounted only while open, so mount = open. showModal() puts
   // the element into the top layer and exposes the implicit dialog role.
@@ -30,34 +30,40 @@ export function SettingsModal({ title, closeLabel, onClose, children }: Settings
     };
   }, []);
 
-  // Escape stays on the document keydown listener (the single authoritative
-  // close path). onCancel below suppresses the native ESC auto-close so this
-  // listener is not double-invoked in a real browser.
+  // Dismissal listeners are attached to the dialog node imperatively: the
+  // backdrop click is a pointer-only redundancy of the native Escape path
+  // (`cancel`), not the element's interactive affordance — keyboard and
+  // screen-reader users dismiss via Escape or the dialog's own buttons.
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClick = (event: globalThis.MouseEvent) => {
+      if (event.target === dialog) onClose();
     };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    const handleCancel = (event: Event) => {
+      event.preventDefault();
+      onClose();
+    };
+    dialog.addEventListener('click', handleClick);
+    dialog.addEventListener('cancel', handleCancel);
+    return () => {
+      dialog.removeEventListener('click', handleClick);
+      dialog.removeEventListener('cancel', handleCancel);
+    };
   }, [onClose]);
 
   return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label={closeLabel}
-        onClick={onClose}
-      />
-      <dialog
-        ref={dialogRef}
-        className="modal-content"
-        aria-modal="true"
-        aria-label={title}
-        onCancel={(event) => event.preventDefault()}
-      >
+    <dialog
+      ref={dialogRef}
+      className="modal-overlay"
+      aria-modal="true"
+      aria-label={title}
+      aria-describedby={descriptionId}
+    >
+      <div className="modal-content">
+        <span id={descriptionId} className="sr-only">{closeLabel}. Press Escape to close.</span>
         {children}
-      </dialog>
-    </div>
+      </div>
+    </dialog>
   );
 }

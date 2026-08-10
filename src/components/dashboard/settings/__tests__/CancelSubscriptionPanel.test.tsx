@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { CancelSubscriptionPanel } from '../CancelSubscriptionPanel';
 import type { OffboardingStatus } from '@/hooks/useOffboardingStatus';
 
@@ -31,4 +32,23 @@ it('disables cancel when a data deletion is active', () => {
   render(<CancelSubscriptionPanel accountTimeZone="UTC" />);
   expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
   expect(screen.getByText(/deletion is in progress/i)).toBeInTheDocument();
+});
+
+it('shows a recoverable status-bearing message for a non-JSON cancellation failure', async () => {
+  mockHook = { ...base, status: { enabled: true, activeOffboarding: null } };
+  const json = vi.fn();
+  vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    ok: false,
+    status: 502,
+    headers: new Headers({ 'Content-Type': 'text/html' }),
+    json,
+  } as unknown as Response);
+  const user = userEvent.setup();
+
+  render(<CancelSubscriptionPanel accountTimeZone="UTC" />);
+  await user.click(screen.getByRole('button', { name: 'Cancel subscription' }));
+  await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
+
+  expect(await screen.findByText('Unable to schedule cancellation (502)')).toBeInTheDocument();
+  expect(json).not.toHaveBeenCalled();
 });

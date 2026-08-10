@@ -23,7 +23,7 @@ const PAST_DUE_DIALOG_STYLE: CSSProperties = {
   zIndex: 80,
   display: 'grid',
   placeItems: 'center',
-  background: 'rgba(17, 24, 39, 0.42)',
+  background: 'var(--rw-overlay)',
   padding: 16,
   border: 'none',
   maxWidth: 'none',
@@ -92,7 +92,7 @@ export function PastDueModal({
           borderRadius: 8,
           border: '1px solid var(--rw-blush)',
           background: 'var(--rw-blush-soft)',
-          boxShadow: '0 20px 45px rgba(17, 24, 39, 0.18)',
+          boxShadow: 'var(--rw-shadow-pop)',
           padding: 20,
         }}
       >

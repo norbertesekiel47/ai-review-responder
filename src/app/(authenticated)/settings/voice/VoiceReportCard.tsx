@@ -46,7 +46,7 @@ function SnippetBlock({ snippet }: { snippet: TraitSnippet }) {
       <div
         style={{
           background: 'var(--rw-sage-soft)',
-          borderLeft: '3px solid var(--rw-sage-deep)',
+          border: '1px solid var(--rw-sage-line)',
           borderRadius: 8,
           padding: '10px 12px',
         }}
@@ -117,7 +117,7 @@ function ReportCardBody({
   error: string | null;
 }) {
   if (error) {
-    return <p style={{ fontSize: 13, color: '#B91C1C', margin: 0 }}>{error}</p>;
+    return <p className="settings-error-copy">{error}</p>;
   }
   if (!data) {
     return <SettingsSkeleton rows={2} />;

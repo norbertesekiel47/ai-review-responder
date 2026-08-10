@@ -7,6 +7,7 @@ import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { loadPastRepliesPageView } from '@/lib/past-replies/load-replies';
 import { parsePageParam } from '@/lib/past-replies/replies-view';
 import { PastRepliesClient } from './PastRepliesClient';
+import '@/app/(authenticated)/_styles/past-replies.css';
 
 export const dynamic = 'force-dynamic';
 

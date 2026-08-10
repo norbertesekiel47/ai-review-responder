@@ -56,7 +56,7 @@ export function Step3Voice({
       )}
 
       {voiceLoading ? (
-        <p style={{ color: '#6B7280' }}>Loading voice settings…</p>
+        <p style={{ color: 'var(--rw-app-text-muted)' }}>Loading voice settings…</p>
       ) : (
         <>
           <div className="set-section" style={{ marginBottom: 20 }}>

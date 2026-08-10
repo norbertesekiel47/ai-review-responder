@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement as h } from 'react';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
@@ -89,6 +89,8 @@ describe('Sidebar', () => {
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
     expect(dash.className).toContain('active');
+    expect(dash).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /reviews/i })).not.toHaveAttribute('aria-current');
   });
 
   it('renders the Reviews nav item (Insights/Past Replies removed)', () => {
@@ -119,6 +121,7 @@ describe('Sidebar', () => {
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i }).className).toContain('active');
+    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /^dashboard$/i }).className).not.toContain('active');
   });
 
@@ -205,5 +208,34 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: /bristol bay coffee/i })).toBeInTheDocument();
     // The static businessName div should NOT be present
     expect(screen.queryByText('Bristol Bay Coffee', { selector: '.brand-biz' })).not.toBeInTheDocument();
+  });
+
+  it('supports arrow navigation and restores focus when the location menu closes', async () => {
+    const user = userEvent.setup();
+    const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" solicitationEnabled={false} />,
+        {
+          locations: [
+            { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },
+            { id: LOC_B, name: 'Westside Bakery', displayLabel: null, isPrimary: false },
+          ],
+          multiLocationEnabled: true,
+        },
+      ),
+    );
+    const trigger = screen.getByRole('button', { name: /bristol bay coffee/i });
+
+    trigger.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('menuitemradio', { name: /all locations/i })).toHaveFocus());
+
+    await user.keyboard('{End}');
+    expect(screen.getByRole('menuitem', { name: /add location/i })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

@@ -201,7 +201,7 @@ function ReplyToolbar({
           <button
             type="button"
             onClick={() => onQueryChange('')}
-            style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', padding: 2 }}
+            style={{ background: 'none', border: 'none', color: 'var(--rw-app-text-soft)', cursor: 'pointer', padding: 2 }}
             aria-label="Clear search"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
@@ -211,8 +211,8 @@ function ReplyToolbar({
         )}
       </div>
 
-      <div className="pr-chips" role="tablist" aria-label="Filter by rating">
-        <button type="button" className={`pr-chip ${rating === 'all' ? 'active' : ''}`} onClick={() => onRatingChange('all')}>
+      <div className="pr-chips" role="group" aria-label="Filter by rating">
+        <button type="button" className={`pr-chip ${rating === 'all' ? 'active' : ''}`} aria-pressed={rating === 'all'} onClick={() => onRatingChange('all')}>
           All
         </button>
         {([5, 4, 3, 2, 1] as const).map((value) => (
@@ -220,6 +220,7 @@ function ReplyToolbar({
             key={value}
             type="button"
             className={`pr-chip ${rating === value ? 'active' : ''}`}
+            aria-pressed={rating === value}
             onClick={() => onRatingChange(value)}
           >
             {value}

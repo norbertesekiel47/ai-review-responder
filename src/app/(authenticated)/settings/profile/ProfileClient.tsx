@@ -21,9 +21,9 @@ export function ProfileClient({ postalAddress }: Props) {
 
   if (f.fetchError) {
     return (
-      <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
-        <div className="set-section-title" style={{ color: '#991B1B' }}>Error</div>
-        <p style={{ fontSize: 13, color: '#B91C1C' }}>{f.fetchError}</p>
+      <div className="set-section set-section--error">
+        <div className="set-section-title settings-error-title">Error</div>
+        <p className="settings-error-copy">{f.fetchError}</p>
       </div>
     );
   }
