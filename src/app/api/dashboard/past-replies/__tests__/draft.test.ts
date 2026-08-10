@@ -12,6 +12,7 @@ const {
   mockValidateOptimistic,
   mockEnforceRegenLimit,
   txQueue,
+  txExecutedCalls,
   txMock,
   beginMock,
   sqlProxy,
@@ -22,9 +23,22 @@ const {
   const mockValidateOptimistic = vi.fn();
   const mockEnforceRegenLimit = vi.fn();
 
-  // Each call to tx`...` returns the next array from the queue.
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
+  // Each executed tx`...` statement returns the next array from the queue.
+  // Fragment builds (hasOpenFlag's `${responseId}::uuid` ref and the
+  // openFlagExistsSql `EXISTS (…)`, #730 T4) are captured but must NOT
+  // consume the queue; txExecutedCalls records executed statements only, so
+  // positional assertions survive future fragment compositions.
   const txQueue: unknown[][] = [];
-  const txMock = vi.fn(async () => txQueue.shift() ?? []);
+  const txExecutedCalls: unknown[][] = [];
+  const txMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (!isExecutedStatement(text)) return { fragmentText: text, values };
+    txExecutedCalls.push([strings, ...values]);
+    return Promise.resolve(txQueue.shift() ?? []);
+  });
   // Enqueue helpers now bind JSONB via `tx.json(x)` (Postgres.js identity JSONB
   // constructor) instead of the module `jsonb` helper. Mirror the module mock's
   // identity passthrough so payloads flow into the tagged-template params as before.
@@ -56,6 +70,7 @@ const {
     mockValidateOptimistic,
     mockEnforceRegenLimit,
     txQueue,
+    txExecutedCalls,
     txMock,
     beginMock,
     sqlProxy,
@@ -166,6 +181,7 @@ function seedTxRows(...rowsets: unknown[][]) {
 beforeEach(() => {
   vi.clearAllMocks();
   txQueue.length = 0;
+  txExecutedCalls.length = 0;
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   // Default: getRequestScope resolves to the primary location.
@@ -345,8 +361,8 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(typeof body.response_id).toBe('string');
     expect(body.response_id).toMatch(/^[0-9a-f-]{36}$/);
 
-    // INSERT call: last tx invocation. Inspect the SQL template + bound parameters.
-    const insertCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    // INSERT call: last executed tx statement. Inspect the SQL template + bound parameters.
+    const insertCall = txExecutedCalls.at(-1) as unknown[];
     expect(insertCall).toBeDefined();
     const templateStrings = insertCall[0] as unknown as TemplateStringsArray;
     const sqlText = templateStrings.join('|');
@@ -388,7 +404,7 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(typeof body.outbox_id).toBe('string');
     expect(body.outbox_id).toMatch(/^[0-9a-f-]{36}$/);
 
-    const insertCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    const insertCall = txExecutedCalls.at(-1) as unknown[];
     expect(insertCall).toBeDefined();
     const templateStrings = insertCall[0] as unknown as TemplateStringsArray;
     const sqlText = templateStrings.join('|');
@@ -461,7 +477,7 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
     // The INSERT must use ALT_LOCATION_ID as business_id — NOT LOCATION_ID.
-    const insertCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    const insertCall = txExecutedCalls.at(-1) as unknown[];
     const args = insertCall.slice(1);
     expect(args[2]).toBe(ALT_LOCATION_ID); // business_id in INSERT
     expect(args[2]).not.toBe(LOCATION_ID); // explicitly not the primary location
@@ -505,9 +521,10 @@ describe('POST /api/dashboard/past-replies/draft', () => {
 // button". When the existing-draft branch resolves a held draft, the route
 // must refuse with the owner-visible vocabulary `held_for_review` and never
 // echo the draft payload. src/lib/moderation/held-draft.ts is the semantic
-// owner of "is this draft held" — the REAL hasOpenFlag executes its
-// flagged_responses query against the tx queue mock (consuming one entry,
-// binding the response id), so it is deliberately NOT mocked here.
+// owner of "is this draft held" — the REAL hasOpenFlag executes its query
+// against the tx queue mock (one executed statement consuming one entry; its
+// openFlagExistsSql fragment builds are captured without consuming, #730),
+// so it is deliberately NOT mocked here.
 
 // Unique sentinels: heldness refusals assert these appear NOWHERE in the
 // serialized body — a leak of either is an invariant #4 violation.
@@ -545,10 +562,13 @@ describe('POST /api/dashboard/past-replies/draft — moderation-held draft gate 
     });
     expect(existingSelect).toBeDefined();
     expect(joinTemplate(existingSelect as unknown[])).toContain('FOR UPDATE');
-    // hasOpenFlag executed against flagged_responses, binding the held draft's id.
+    // hasOpenFlag composes openFlagExistsSql (#730): the EXISTS build call
+    // carries flagged_responses, and its embedded ref fragment binds the held
+    // draft's id.
     const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
     expect(flagCall).toBeDefined();
-    expect((flagCall as unknown[]).slice(1)).toContain(SENTINEL_HELD_ID);
+    const flagRef = (flagCall as unknown[])[1] as { values: unknown[] };
+    expect(flagRef.values).toContain(SENTINEL_HELD_ID);
   });
 
   it('invariants: no non-terminal status ever leaks existing draft text or response id while an open flag exists', async () => {

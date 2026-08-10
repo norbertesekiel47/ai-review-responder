@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, sqlRead } from '@/lib/db/server';
 import { requireDashboardReviewOwner } from '@/lib/approval/http-routes';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
@@ -58,9 +59,8 @@ export async function GET(
     // `pending_approval` with an OPEN `flagged_responses` row. Returning it as
     // `ready` would hand the owner held text plus an `Approve & post` button —
     // the exact release path `src/lib/moderation/held-draft.ts` exists to block.
-    // That module is the SEMANTIC OWNER of "is this draft held"; its `hasOpenFlag`
-    // is an in-tx, post-FOR-UPDATE release gate, so this read path spells the
-    // predicate inline instead (D6).
+    // That module is the SEMANTIC OWNER of "is this draft held"; this read
+    // path composes its openFlagExistsSql fragment (#730).
     // The `held` flag is SELECTed (not filtered) so a held draft is
     // distinguishable from "no draft at all"; filtering would make this route
     // report `idle` for both and the list fall through to `generate` (D9).
@@ -69,10 +69,7 @@ export async function GET(
     >`
       SELECT
         resp.id, resp.status, resp.response_text,
-        EXISTS (
-          SELECT 1 FROM flagged_responses f
-          WHERE f.response_id = resp.id AND f.status = 'open'
-        ) AS held
+        ${openFlagExistsSql(sqlRead, sqlRead`resp.id`)} AS held
       FROM responses resp
       WHERE resp.review_id = ${reviewId}::uuid
         AND resp.business_id = ${businessId}::uuid

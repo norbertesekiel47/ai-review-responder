@@ -10,7 +10,7 @@ const {
   mockValidateOptimistic,
   mockInsertAuditLogSession,
   txQueue,
-  txMock,
+  txExecutedCalls,
   topLevelQueue,
   sqlProxy,
 } = vi.hoisted(() => {
@@ -20,9 +20,22 @@ const {
   const mockValidateOptimistic = vi.fn();
   const mockInsertAuditLogSession = vi.fn();
 
-  // Each call to tx`...` returns the next array from the queue.
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
+  // Each executed tx`...` statement returns the next array from the queue.
+  // Fragment builds (hasOpenFlag's `${responseId}::uuid` ref and the
+  // openFlagExistsSql `EXISTS (…)`, #730 T4) are captured but must NOT
+  // consume the queue; txExecutedCalls records executed statements only, so
+  // positional assertions survive future fragment compositions.
   const txQueue: unknown[][] = [];
-  const txMock = vi.fn(async () => txQueue.shift() ?? []);
+  const txExecutedCalls: unknown[][] = [];
+  const txMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (!isExecutedStatement(text)) return { fragmentText: text, values };
+    txExecutedCalls.push([strings, ...values]);
+    return Promise.resolve(txQueue.shift() ?? []);
+  });
   // Enqueue helpers now bind JSONB via `tx.json(x)` (Postgres.js identity JSONB
   // constructor) instead of the module `jsonb` helper. Mirror the module mock's
   // identity passthrough so payloads flow into the tagged-template params as before.
@@ -59,6 +72,7 @@ const {
     mockValidateOptimistic,
     mockInsertAuditLogSession,
     txQueue,
+    txExecutedCalls,
     txMock,
     beginMock,
     topLevelQueue,
@@ -178,6 +192,7 @@ function seedTopLevelRows(...rowsets: unknown[][]) {
 beforeEach(() => {
   vi.clearAllMocks();
   txQueue.length = 0;
+  txExecutedCalls.length = 0;
   topLevelQueue.length = 0;
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -372,8 +387,9 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(auditCall[5]).toEqual({ mode: 'manual' });
     expect(auditCall[6]).toEqual({ responseTextAtApproval: 'Brand new reply' });
 
-    // UPDATE responses tx call (4th tx call: lock-review, lock-candidate, hasOpenFlag, UPDATE)
-    const updateCall = txMock.mock.calls[3] as unknown as unknown[];
+    // UPDATE responses tx call (4th executed statement: lock-review,
+    // lock-candidate, hasOpenFlag, UPDATE — fragment builds not counted)
+    const updateCall = txExecutedCalls[3]!;
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
     expect(updateSql).toContain('UPDATE responses');
     expect(updateSql).toContain("'edited'");
@@ -384,8 +400,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(updateCall).toContain(RESPONSE_ID);
     expect(updateCall).toContain(LOCATION_ID);
 
-    // INSERT outbox tx call (5th tx call)
-    const insertCall = txMock.mock.calls[4] as unknown as unknown[];
+    // INSERT outbox tx call (5th executed statement)
+    const insertCall = txExecutedCalls[4]!;
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO job_outbox');
     expect(insertCall[1]).toBe(body.outbox_id);
@@ -427,7 +443,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
       responseTextAtApproval: 'Worker-generated draft',
     });
 
-    const updateCall = txMock.mock.calls[3] as unknown as unknown[];
+    const updateCall = txExecutedCalls[3]!;
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
     // CASE expression flips on edited_text presence — when NULL, status='approved'.
     expect(updateSql).toContain(
@@ -508,8 +524,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     const auditCall = mockInsertAuditLogSession.mock.calls[0]!;
     expect(auditCall[2]).toBe(ALT_LOCATION_ID);
 
-    // Outbox payload references ALT_LOCATION_ID.
-    const insertCall = txMock.mock.calls[4] as unknown as unknown[];
+    // Outbox payload references ALT_LOCATION_ID (5th executed statement).
+    const insertCall = txExecutedCalls[4]!;
     const payload = insertCall[5] as unknown as { response_id: string; business_id: string };
     expect(payload.business_id).toBe(ALT_LOCATION_ID);
   });

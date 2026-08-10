@@ -34,6 +34,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, sqlRead } from '@/lib/db/server';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
@@ -110,9 +111,8 @@ export async function GET(request: NextRequest): Promise<Response> {
       // `pending_approval` with an OPEN `flagged_responses` row — a
       // moderation-held draft "surfaces neither its text nor any button".
       // `src/lib/moderation/held-draft.ts` is the SEMANTIC OWNER of "is this
-      // draft held"; its `hasOpenFlag` is an in-tx, post-FOR-UPDATE release
-      // gate, so this read-only poller spells the predicate inline as a
-      // correlated EXISTS instead (D6).
+      // draft held"; this read path composes its openFlagExistsSql fragment
+      // (#730).
       const responseRows = await sqlRead<{
         id: string;
         status: string;
@@ -121,10 +121,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         held: boolean;
       }[]>`
         SELECT id, status, response_text, business_id,
-          EXISTS (
-            SELECT 1 FROM flagged_responses f
-            WHERE f.response_id = responses.id AND f.status = 'open'
-          ) AS held
+          ${openFlagExistsSql(sqlRead, sqlRead`responses.id`)} AS held
         FROM responses
         WHERE review_id = ${outbox.aggregate_id}
           AND status IN ('pending_approval', 'approved', 'edited') -- status-audit-ignore: 3-value poll subset (excludes awaiting_owner_connect); no exact group match, not a reusable grouping

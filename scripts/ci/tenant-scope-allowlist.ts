@@ -326,7 +326,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT id, status, response_text, business_id, EXISTS ( SELECT 1 FROM flagged_responses f WHERE f.response_id = responses.id AND f.status = 'open' ) AS held FROM responses WHERE review_id = ${outbox.aggregate_id} AND status IN ('pending_approval', 'approved', 'edited') ORDER BY version DESC LIMIT 1",
+    sqlSnippet: "SELECT id, status, response_text, business_id, ${openFlagExistsSql(sqlRead, sqlRead`responses.id`)} AS held FROM responses WHERE review_id = ${outbox.aggregate_id} AND status IN ('pending_approval', 'approved', 'edited') ORDER BY version DESC LIMIT 1",
     category: 'tenant-root-lookup',
     reason: "Draft-status route verifies the owner-resolved location against the outbox payload before reading this response row, then rechecks response.business_id.",
   },
