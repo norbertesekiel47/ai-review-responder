@@ -246,4 +246,8 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     // is the tenant proof; call 1 is the draft lookup that carries the predicate.
     expect(readCalls[1]!.text).toContain('flagged_responses');
   });
+
+  // #730 T4: pins that the openFlagExistsSql fragment lands correlated against
+  // the right response alias in every awaited query of the draft-status routes.
+  it.todo('each draft-status awaited query projects held from its correctly correlated response alias');
 });

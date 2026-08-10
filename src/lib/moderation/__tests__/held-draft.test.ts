@@ -39,6 +39,20 @@ describe('hasOpenFlag', () => {
     expect(query!.text).toContain('FROM flagged_responses');
     expect(query!.values).toContain(RESPONSE_ID);
   });
+
+  // #730 behavior pin: the true/false contract that must survive the
+  // openFlagExistsSql fragment migration unchanged.
+  it('hasOpenFlag keeps its contract: true while a flag is open, false once the flag closes', async () => {
+    const open = mkTx([{ one: 1 }]);
+    await expect(hasOpenFlag(open.tx, RESPONSE_ID)).resolves.toBe(true);
+    const closed = mkTx([]);
+    await expect(hasOpenFlag(closed.tx, RESPONSE_ID)).resolves.toBe(false);
+  });
+});
+
+describe('openFlagExistsSql', () => {
+  it.todo('openFlagExistsSql spells the correlated open-flag EXISTS once, against the given ref');
+  it.todo('all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains');
 });
 
 describe('HeldForReviewError', () => {

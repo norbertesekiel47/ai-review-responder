@@ -85,4 +85,8 @@ describe('getActiveDashboardData — feed projection', () => {
     expect(escalationLateral).toContain("AND e.status <> 'resolved'");
     expect(escalationLateral).toContain('LIMIT 1');
   });
+
+  // #730 T5: pins that the openFlagExistsSql migration keeps the held
+  // predicate INSIDE the response LATERAL bodies, with its polarity intact.
+  it.todo('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned');
 });

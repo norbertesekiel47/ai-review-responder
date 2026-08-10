@@ -223,6 +223,8 @@ describeWithDb('agent spine reads against live Postgres', { timeout: 30_000 }, (
     if (!db) return;
     if (tenant) {
       await sql()`DELETE FROM review_escalations WHERE account_id = ${tenant.accountId}::uuid`;
+      // FK order: flagged_responses (#730 held-filtering pins) references responses.
+      await sql()`DELETE FROM flagged_responses WHERE account_id = ${tenant.accountId}::uuid`;
       await sql()`DELETE FROM responses WHERE business_id IN (${businessId}::uuid, ${otherBusinessId}::uuid)`;
       await sql()`DELETE FROM agent_outcomes WHERE account_id = ${tenant.accountId}::uuid`;
       await sql()`DELETE FROM agent_runs WHERE account_id = ${tenant.accountId}::uuid`;
@@ -315,5 +317,125 @@ describeWithDb('agent spine reads against live Postgres', { timeout: 30_000 }, (
         '30d',
       ),
     ).resolves.toEqual({ reply: 1, guardian: 1, insights: 0 });
+  });
+
+  // ── #730 behavior pins: these must survive the openFlagExistsSql migration ──
+
+  it('getReviewTimeline excludes a response whose flag is open and includes it once closed', async () => {
+    const flaggedReviewId = randomUUID();
+    const flaggedResponseId = randomUUID();
+    const flagId = randomUUID();
+    await sql()`
+      INSERT INTO reviews (
+        id, business_id, provider, provider_review_id, provider_review_name,
+        provider_location_name, reviewer_name, star_rating, review_text,
+        review_date, status
+      ) VALUES (
+        ${flaggedReviewId}::uuid, ${businessId}::uuid, 'zernio', ${`agent-read-${flaggedReviewId}`},
+        ${`zernio://agent-read/reviews/${flaggedReviewId}`}, 'zernio://agent-read/locations/1',
+        'Held Reviewer', 2, 'A held-draft fixture review.',
+        '2026-07-12T09:30:00.000Z'::timestamptz, 'pending_approval'
+      )
+    `;
+    await sql()`
+      INSERT INTO responses (
+        id, review_id, business_id, response_text, original_draft_text, version, status
+      ) VALUES (
+        ${flaggedResponseId}::uuid, ${flaggedReviewId}::uuid, ${businessId}::uuid,
+        'Held draft response.', 'Held draft response.', 1, 'pending_approval'
+      )
+    `;
+    await sql()`
+      INSERT INTO flagged_responses (
+        id, response_id, account_id, business_id, review_id,
+        source, reason, severity, status
+      ) VALUES (
+        ${flagId}::uuid, ${flaggedResponseId}::uuid, ${accountId()}::uuid,
+        ${businessId}::uuid, ${flaggedReviewId}::uuid,
+        'local_regex', 'agent-read integration fixture hold', 'high', 'open'
+      )
+    `;
+
+    // While the flag is open the timeline exists but carries NO response.
+    const heldTimeline = await getReviewTimeline(sql(), {
+      accountId: accountId(),
+      reviewId: flaggedReviewId,
+    });
+    expect(heldTimeline).not.toBeNull();
+    expect(heldTimeline?.response).toBeNull();
+
+    // Admin disposition closes the flag → the same query now shows the draft.
+    await sql()`
+      UPDATE flagged_responses SET status = 'dismissed_false_positive'
+      WHERE id = ${flagId}::uuid
+    `;
+    const releasedTimeline = await getReviewTimeline(sql(), {
+      accountId: accountId(),
+      reviewId: flaggedReviewId,
+    });
+    expect(releasedTimeline?.response).toMatchObject({
+      id: flaggedResponseId,
+      status: 'pending_approval',
+      version: 1,
+    });
+  });
+
+  it('getReviewTimeline falls back to the newest unheld response when the latest response is open-flagged', async () => {
+    // v1 (unheld, posted) + v2 (open-flagged, higher version) on ONE review:
+    // the timeline must return v1 — NOT null. Pins that held-filtering applies
+    // to the candidate set BEFORE ORDER BY version DESC LIMIT 1 (the T6
+    // rewrite must preserve this).
+    const fallbackReviewId = randomUUID();
+    const unheldV1Id = randomUUID();
+    const flaggedV2Id = randomUUID();
+    await sql()`
+      INSERT INTO reviews (
+        id, business_id, provider, provider_review_id, provider_review_name,
+        provider_location_name, reviewer_name, star_rating, review_text,
+        review_date, status
+      ) VALUES (
+        ${fallbackReviewId}::uuid, ${businessId}::uuid, 'zernio', ${`agent-read-${fallbackReviewId}`},
+        ${`zernio://agent-read/reviews/${fallbackReviewId}`}, 'zernio://agent-read/locations/1',
+        'Fallback Reviewer', 3, 'A fallback fixture review.',
+        '2026-07-13T09:30:00.000Z'::timestamptz, 'posted'
+      )
+    `;
+    await sql()`
+      INSERT INTO responses (
+        id, review_id, business_id, response_text, original_draft_text,
+        version, status, approval_method, approved_at, posted_at
+      ) VALUES
+        (
+          ${unheldV1Id}::uuid, ${fallbackReviewId}::uuid, ${businessId}::uuid,
+          'Unheld posted v1.', 'Unheld posted v1.',
+          1, 'posted', 'owner', '2026-07-13T10:00:00.000Z'::timestamptz,
+          '2026-07-13T10:05:00.000Z'::timestamptz
+        ),
+        (
+          ${flaggedV2Id}::uuid, ${fallbackReviewId}::uuid, ${businessId}::uuid,
+          'Held replacement v2.', 'Held replacement v2.',
+          2, 'pending_approval', NULL, NULL, NULL
+        )
+    `;
+    await sql()`
+      INSERT INTO flagged_responses (
+        id, response_id, account_id, business_id, review_id,
+        source, reason, severity, status
+      ) VALUES (
+        ${randomUUID()}::uuid, ${flaggedV2Id}::uuid, ${accountId()}::uuid,
+        ${businessId}::uuid, ${fallbackReviewId}::uuid,
+        'local_regex', 'agent-read integration fixture hold', 'high', 'open'
+      )
+    `;
+
+    const timeline = await getReviewTimeline(sql(), {
+      accountId: accountId(),
+      reviewId: fallbackReviewId,
+    });
+    expect(timeline?.response).toMatchObject({
+      id: unheldV1Id,
+      status: 'posted',
+      version: 1,
+    });
   });
 });
