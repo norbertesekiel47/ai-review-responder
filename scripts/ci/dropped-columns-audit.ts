@@ -139,6 +139,58 @@ export interface ColumnRef {
   dropped: DroppedColumn;
 }
 
+/** Every relation named after FROM/JOIN/UPDATE/INTO, lowercased. */
+function relationsIn(sanitized: string): Set<string> {
+  const relations = new Set<string>();
+  for (const rel of sanitized.matchAll(/\b(?:from|join|update|into)\s+(?:only\s+)?([A-Za-z_]\w*)/gi)) {
+    relations.add(rel[1]!.toLowerCase());
+  }
+  return relations;
+}
+
+/** The table name plus every alias the template binds to it. */
+function tableQualifiers(sanitized: string, table: string): Set<string> {
+  const qualifiers = new Set<string>([table]);
+  const aliasRe = new RegExp(
+    `\\b(?:from|join|update)\\s+${escapeRegExp(table)}\\s+(?:as\\s+)?([A-Za-z_]\\w*)`,
+    'gi',
+  );
+  for (const alias of sanitized.matchAll(aliasRe)) {
+    const candidate = alias[1]!.toLowerCase();
+    if (!NON_ALIAS_KEYWORDS.has(candidate)) qualifiers.add(candidate);
+  }
+  return qualifiers;
+}
+
+/** Offsets of every match of `re` in `text`. */
+function matchOffsets(text: string, re: RegExp): number[] {
+  return [...text.matchAll(re)].map((hit) => hit.index!);
+}
+
+/**
+ * References to ONE dropped column inside a template already known to name its
+ * table as a relation. Qualified references count through the table name or
+ * any bound alias; bare column names are attributable only when the template
+ * touches a single relation — with several, a bare `business_id` might belong
+ * to a table that legitimately still has one.
+ */
+function refsForDroppedColumn(
+  sanitized: string,
+  relations: ReadonlySet<string>,
+  dropped: DroppedColumn,
+): ColumnRef[] {
+  const qualifiers = tableQualifiers(sanitized, dropped.table);
+  const qualifiedRe = new RegExp(
+    `\\b(?:${[...qualifiers].map(escapeRegExp).join('|')})\\.${escapeRegExp(dropped.column)}\\b`,
+    'gi',
+  );
+  let offsets = matchOffsets(sanitized, qualifiedRe);
+  if (offsets.length === 0 && relations.size === 1) {
+    offsets = matchOffsets(sanitized, new RegExp(`(?<![.\\w])${escapeRegExp(dropped.column)}\\b`, 'gi'));
+  }
+  return offsets.map((offset) => ({ offset, dropped }));
+}
+
 /**
  * Relation-anchored reference search over ONE sanitized SQL text. Pure —
  * unit-tested with synthetic templates.
@@ -147,46 +199,10 @@ export function findDroppedColumnRefs(
   sanitized: string,
   droppedColumns: readonly DroppedColumn[],
 ): ColumnRef[] {
-  const refs: ColumnRef[] = [];
-  const relations = new Set<string>();
-  for (const rel of sanitized.matchAll(/\b(?:from|join|update|into)\s+(?:only\s+)?([A-Za-z_]\w*)/gi)) {
-    relations.add(rel[1]!.toLowerCase());
-  }
-
-  for (const dropped of droppedColumns) {
-    if (!relations.has(dropped.table)) continue;
-
-    const qualifiers = new Set<string>([dropped.table]);
-    const aliasRe = new RegExp(
-      `\\b(?:from|join|update)\\s+${escapeRegExp(dropped.table)}\\s+(?:as\\s+)?([A-Za-z_]\\w*)`,
-      'gi',
-    );
-    for (const alias of sanitized.matchAll(aliasRe)) {
-      const candidate = alias[1]!.toLowerCase();
-      if (!NON_ALIAS_KEYWORDS.has(candidate)) qualifiers.add(candidate);
-    }
-
-    const qualifiedRe = new RegExp(
-      `\\b(?:${[...qualifiers].map(escapeRegExp).join('|')})\\.${escapeRegExp(dropped.column)}\\b`,
-      'gi',
-    );
-    let matched = false;
-    for (const hit of sanitized.matchAll(qualifiedRe)) {
-      refs.push({ offset: hit.index!, dropped });
-      matched = true;
-    }
-
-    // Bare column names are attributable only when the template touches a
-    // single relation — with several, a bare `business_id` might belong to a
-    // table that legitimately still has one.
-    if (!matched && relations.size === 1) {
-      const bareRe = new RegExp(`(?<![.\\w])${escapeRegExp(dropped.column)}\\b`, 'gi');
-      for (const hit of sanitized.matchAll(bareRe)) {
-        refs.push({ offset: hit.index!, dropped });
-      }
-    }
-  }
-  return refs;
+  const relations = relationsIn(sanitized);
+  return droppedColumns.flatMap((dropped) =>
+    relations.has(dropped.table) ? refsForDroppedColumn(sanitized, relations, dropped) : [],
+  );
 }
 
 export interface Finding {
