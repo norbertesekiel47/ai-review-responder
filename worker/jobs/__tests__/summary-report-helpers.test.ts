@@ -12,7 +12,6 @@ vi.mock('../../../src/lib/shared/outbox', () => ({
 }));
 
 import {
-  buildDashboardUrl,
   calculateBaselineResponseRate,
   completeOrFailSkippedSummaryReport,
   mapSummaryReviews,
@@ -49,13 +48,13 @@ describe('summary report helpers', () => {
     ).toBeNull();
   });
 
-  it('only builds dashboard URLs when the owner has auth and app URL is configured', () => {
-    expect(buildDashboardUrl([{ exists: 1 }], 'https://app.repworth.com')).toBe(
-      'https://app.repworth.com/dashboard',
-    );
-    expect(buildDashboardUrl([], 'https://app.repworth.com')).toBeNull();
-    expect(buildDashboardUrl([{ exists: 1 }], undefined)).toBeNull();
-  });
+  // The `buildDashboardUrl` case that lived here was deleted with the function
+  // in #719 Task 2. Its three assertions are superseded, not dropped: live-schema
+  // titles 2, 3 and 7 in worker/jobs/__tests__/onboarding-drip.integration.test.ts
+  // assert owner-with-auth → URL, owner-without-auth → null, and no-app-URL → null
+  // against real Postgres. That matters — this suite fed the old helper a
+  // hand-built Array<{exists:number}>, which is precisely why it could not catch
+  // the dropped users.business_id column that made every call throw 42703.
 
   it('maps review rows into the LLM summary shape', () => {
     expect(

@@ -7,6 +7,7 @@ const {
   sqlReturnQueue,
   mockSql,
   mockMarkOutboxCompleted,
+  mockMarkOutboxCompletedWithReason,
   mockMarkOutboxFailed,
   mockSendInternalEmail,
   mockRecordNotificationDelivery,
@@ -30,6 +31,7 @@ const {
     sqlReturnQueue,
     mockSql,
     mockMarkOutboxCompleted: vi.fn(),
+    mockMarkOutboxCompletedWithReason: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockSendInternalEmail: vi.fn().mockResolvedValue({ messageId: 'msg-drip-1' }),
     mockRecordNotificationDelivery: vi.fn(),
@@ -46,6 +48,7 @@ const {
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  markOutboxCompletedWithReason: mockMarkOutboxCompletedWithReason,
   markOutboxFailed: mockMarkOutboxFailed,
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
@@ -87,7 +90,13 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     account_updated_at: new Date(),
     initial_review_count: 20,
     initial_responded_count: 5,
-    subscription_activated_at: new Date('2026-04-01T00:00:00Z'),
+    // Relative to now, not a hard-coded date. #719 added a fail-closed Drip
+    // staleness cap in the handler, so a fixture pinned to a fixed calendar day
+    // starts refusing every drip once wall-clock passes it — the suite would rot
+    // silently into "all sends skipped" and still read as a legitimate pass.
+    // 12h ago keeps every drip type inside its grace window; cases that WANT the
+    // refusal override this explicitly.
+    subscription_activated_at: new Date(Date.now() - 12 * 60 * 60 * 1000),
     ...overrides,
   };
 }
@@ -111,6 +120,67 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(mockSql, 'outbox-drip-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  // ── Drip staleness cap (#719 review A1) ────────────────────────────
+  // The scheduler already excludes stale pairs, so this only fires for a row
+  // that reached the handler another way: an operator re-drive, a future second
+  // producer, or a row minted just inside the boundary and stranded through a
+  // multi-day worker outage. Producer-only enforcement is not enforcement.
+
+  it('refuses a drip past the staleness cap and never sends', async () => {
+    // day_1 due at activated + 1d, cap at + 4d. 10 days ago is far past it.
+    sqlReturnQueue.push([
+      mockBusinessRow({
+        subscription_activated_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      }),
+    ]);
+
+    await handleOnboardingDrip(makeJob());
+
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompletedWithReason).toHaveBeenCalledWith(
+      mockSql,
+      'outbox-drip-1',
+      'drip_too_stale',
+      undefined,
+    );
+    // Completed, never failed — a policy refusal is the guard working, so it
+    // must not burn watchdog retries the way a genuine error does.
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // And it must NOT consume the (business_id, drip_type) claim: the guard runs
+    // before the drip-log INSERT, so exactly one query — the business lookup —
+    // has run by the time it returns.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a drip still inside the staleness window', async () => {
+    // Deliberately 5 minutes INSIDE the boundary, not exactly on it.
+    //
+    // An exact-boundary fixture here is a time RACE, not a boundary check: the
+    // cap is `activated + 4 days`, so seeding `Date.now() - 4 days` makes the cap
+    // equal to the instant the fixture was built — and `handleOnboardingDrip`
+    // then constructs its OWN `new Date()` a few ms later, which is already past
+    // it. The guard correctly refuses, the test fails, and nothing is wrong with
+    // the code. It passed locally and lost the race on slower CI.
+    //
+    // Exact equality (`<` vs `<=`) IS pinned, by the scheduler suite's title 12,
+    // which can do it honestly because `runOnboardingDripCycle` takes an injected
+    // `asOf`. The handler has no such seam — it builds its own clock — so the
+    // strongest thing testable here is "comfortably inside still sends".
+    sqlReturnQueue.push([
+      mockBusinessRow({
+        subscription_activated_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000),
+      }),
+    ]);
+    sqlReturnQueue.push([{ id: 'claim-1' }]); // drip-log claim
+    sqlReturnQueue.push([]); // dashboard-url probe
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // sent_at update
+
+    await handleOnboardingDrip(makeJob());
+
+    expect(mockMarkOutboxCompletedWithReason).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).toHaveBeenCalled();
   });
 
   it('skips when subscription is not active (completes outbox)', async () => {
@@ -314,7 +384,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ responded: 12 }]);               // 5. responded
     sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // 6. latest ranking
     sqlReturnQueue.push([{ rank_position: 8 }]);            // 7. earliest ranking
-    sqlReturnQueue.push([{ name: 'Admin Pat' }]);           // 8. scoped admin sign-off
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);           // 8. onboarded_by admin sign-off
     sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
@@ -354,7 +424,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ total: 15 }]);            // 4. total reviews
     sqlReturnQueue.push([{ responded: 12 }]);        // 5. responded
     sqlReturnQueue.push([]);                         // 6. no latest ranking
-    sqlReturnQueue.push([{ name: 'Admin Pat' }]);    // 7. admin sign-off
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);    // 7. onboarded_by admin sign-off
     sqlReturnQueue.push([]);                         // 8. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
@@ -362,7 +432,10 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     const statements = mockSql.mock.calls
       .map(([strings]: [TemplateStringsArray]) => strings.join(' ? '))
       .join('\n');
-    expect(statements).toContain("WHERE role = 'admin'");
+    // The sign-off is resolved from businesses.onboarded_by and still admits
+    // only `admin`. The former `WHERE role = 'admin' AND business_id = …`
+    // branch read a column migration 034 dropped and is gone (#719).
+    expect(statements).toContain("u.role = 'admin'");
     expect(statements).not.toContain('sales_partner');
     expect(mockBuildOnboardingDay30Html).toHaveBeenCalledWith(
       expect.objectContaining({ supportContactName: 'Admin Pat' }),
@@ -380,9 +453,8 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ total: 3 }]);     // 4. total reviews
     sqlReturnQueue.push([{ responded: 3 }]); // 5. responded
     sqlReturnQueue.push([]);                  // 6. no latest ranking (skips earliest)
-    sqlReturnQueue.push([]);                  // 7. no scoped admin sign-off
-    sqlReturnQueue.push([]);                  // 8. no onboarder fallback
-    sqlReturnQueue.push([]);                  // 9. UPDATE sent_at
+    sqlReturnQueue.push([]);                  // 7. no onboarded_by admin sign-off
+    sqlReturnQueue.push([]);                  // 8. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 

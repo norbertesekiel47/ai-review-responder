@@ -24,12 +24,11 @@ import {
   startOrGetActiveRun,
 } from '../../src/lib/agents/run-spine';
 import {
-  buildDashboardUrl,
   calculateBaselineResponseRate,
   loadLatestRankingSummary,
   mapSummaryReviews,
-  ownerHasDashboardAuth,
   prepareSummaryReport,
+  resolveDashboardUrl,
   sendSummaryReportEmail,
   type SummaryReportBusiness,
 } from './summary-report-helpers';
@@ -210,10 +209,7 @@ async function loadWeeklyValueInputs(
   `;
   const ranking = await loadLatestRankingSummary(db, businessId);
   const cfg = getWorkerConfig();
-  const dashboardUrl = buildDashboardUrl(
-    await ownerHasDashboardAuth(db, businessId),
-    cfg.NEXT_PUBLIC_APP_URL,
-  );
+  const dashboardUrl = await resolveDashboardUrl(db, businessId, cfg.NEXT_PUBLIC_APP_URL);
   const competitorDelta = await resolveNamedRival(db, businessId);
   logger.log('competitor_delta_resolved', {
     businessId,

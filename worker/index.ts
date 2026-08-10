@@ -10,6 +10,7 @@ import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { getRedisOptions, QUEUE_NAMES, queues, topicToQueue } from './queues';
 import { attachEmitterErrorLogger } from './emitter-errors';
+import { attachJobFailureSink } from './job-failure-sink';
 import { createQueueHealthHandler, QUEUE_HEALTH_JOB_STATES } from './internal/queue-health';
 import { queryBacklogDepth } from '../src/lib/shared/backlog-depth';
 import { withJobLogContext } from './job-log-context';
@@ -475,6 +476,11 @@ const workers = Object.values(workersByQueue);
 // Sentry breadcrumbs on job lifecycle + non-fatal 'error' sink (P5): a Worker
 // 'error' with no listener escalates to a fatal uncaughtException, so one
 // Redis blip would restart every queue. See worker/emitter-errors.ts.
+//
+// 'failed' is NOT a breadcrumb (#719): a breadcrumb attaches to some later
+// unrelated event or to nothing at all, so a handler that threw on every attempt
+// raised no issue. attachJobFailureSink captures the terminal attempt as a real
+// Sentry issue — see worker/job-failure-sink.ts.
 for (const [queueName, worker] of Object.entries(workersByQueue)) {
   attachEmitterErrorLogger(worker, `worker:${queueName}`);
   worker.on('active', (job) => {
@@ -483,9 +489,7 @@ for (const [queueName, worker] of Object.entries(workersByQueue)) {
   worker.on('completed', (job) => {
     Sentry.addBreadcrumb({ category: 'worker', message: `Completed ${job.name} (${job.id})`, level: 'info' });
   });
-  worker.on('failed', (job, err) => {
-    Sentry.addBreadcrumb({ category: 'worker', message: `Failed ${job?.name} (${job?.id}): ${err.message}`, level: 'error' });
-  });
+  attachJobFailureSink(worker, queueName);
 }
 
 // Re-export for use by other modules (ingress handlers, tests)

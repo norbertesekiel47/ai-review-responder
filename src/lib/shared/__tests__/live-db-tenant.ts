@@ -68,6 +68,66 @@ export async function seedTenantAccount(
   return { userId, accountId, ownerEmail };
 }
 
+export interface LocationSeed {
+  businessId: string;
+}
+
+export interface SeedLocationOverrides {
+  businessId?: string;
+  name?: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  isPrimary?: boolean;
+  subscriptionActivatedAt?: Date | null;
+  onboardedBy?: string | null;
+}
+
+/**
+ * Inserts one `businesses` row (= one Google Business Profile location) under an
+ * already-seeded account. `seedTenantAccount` covers `users` + `accounts` only,
+ * and every suite that needs a location was hand-rolling this INSERT.
+ *
+ * No deferred-constraints transaction: `businesses.account_id` references an
+ * already-committed parent, so unlike the owner/account pair there is no
+ * mutually-referential cycle to defer.
+ *
+ * Verified against the live schema: `businesses`' only NOT NULL columns without
+ * a default are `id, name, owner_name, owner_email, account_id` — all supplied
+ * here. `onboarded_by` is an FK to `users(id)`, so a caller passing one must
+ * have seeded that user first and must delete the location before it.
+ */
+export async function seedLocation(
+  db: Sql,
+  accountId: string,
+  overrides: SeedLocationOverrides = {},
+): Promise<LocationSeed> {
+  const businessId = overrides.businessId ?? randomUUID();
+  await db`
+    INSERT INTO businesses (
+      id, account_id, name, owner_name, owner_email, is_primary,
+      subscription_activated_at, onboarded_by
+    )
+    VALUES (
+      ${businessId}::uuid, ${accountId}::uuid,
+      ${overrides.name ?? 'Seed Location'},
+      ${overrides.ownerName ?? 'Seed Owner'},
+      ${overrides.ownerEmail ?? `loc-${businessId}@test.local`},
+      ${overrides.isPrimary ?? true},
+      ${overrides.subscriptionActivatedAt ?? null},
+      ${overrides.onboardedBy ?? null}
+    )
+  `;
+  return { businessId };
+}
+
+/**
+ * Deletes one seeded location. Callers must have removed their own rows that
+ * reference it without `ON DELETE CASCADE` first.
+ */
+export async function cleanupLocation(db: Sql, businessId: string): Promise<void> {
+  await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+}
+
 /**
  * Deletes the seeded account + user pair (deferred-constraints transaction).
  * Callers must have removed their own domain rows referencing the pair first.
