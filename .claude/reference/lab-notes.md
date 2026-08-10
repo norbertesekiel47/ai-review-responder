@@ -1979,3 +1979,65 @@ the caller's client as a union — `SubscriptionSql` in
   a fresh re-spend. Deliberately NO clear-on-skip in the gate: the
   provenance check is the one owner of cache validity (a second guard is
   two-owner drift).
+
+## 2026-08-09 — #730 open-flag predicate consolidation ship
+
+### [2026-08-09] #730 — the /feature surface globs have TWO matchers with disjoint escape semantics
+
+- [2026-08-09] The intake's `src/app/api/dashboard/reviews/[reviewId]/…`
+  surface entries never matched their own paths, blocking the T1/T4 edits →
+  `edit-surface-guard.sh` matches with bash `[[ == ]]` (unquoted pattern), so
+  `[reviewId]` parses as a character class; meanwhile the merge-time mirror
+  `scripts/ci/feature-surface-audit.ts` (`globToRegExp`) escapes EVERY
+  non-wildcard char, so the same entry matches literally there — and the
+  escape fix (`\[reviewId\]`) inverts the failure: bash matches, the TS
+  audit demands a literal backslash in the path → the ONLY spelling both
+  engines accept is the `*` wildcard
+  (`src/app/api/dashboard/reviews/*/draft-status/…`). Verify any
+  non-alphanumeric surface entry against BOTH engines before locking an
+  intake; the audit's own header ("character classes are NOT supported (no
+  intake uses them)") is the contract — bracketed Next.js route dirs go in
+  as `*`.
+
+### [2026-08-09] #730 — a composable SQL fragment's BUILD calls break every ordered-mock double downstream of it
+
+- [2026-08-09] Re-expressing `hasOpenFlag` on `openFlagExistsSql` (and
+  composing the fragment at 8 call sites) broke 21 tests across 5 suites in
+  two waves — 9 failures in 3 suites surfaced at T4, 12 more in 2 suites
+  only at the gate's whole-repo run — none of them in the suites the
+  per-task run commands covered → a Postgres.js fragment is BUILT with
+  tagged-template calls (`tx`${id}::uuid``, the `EXISTS (…)` body) that a
+  queue/positional test double counts as executed statements, shifting or
+  consuming every later ledger position (409s from a mis-read held probe;
+  empty dashboard payloads) → when a shared helper gains fragment
+  composition, EVERY suite whose double flows through it needs the
+  fragment-aware branch BEFORE its first post-change run:
+  `isExecutedStatement = /^\s*(select|insert|update|delete|with)\b/i` on the
+  joined template strings; build calls return `{ fragmentText, values }` and
+  never touch the queue; positional assertions re-point to an executed-only
+  capture (`txExecutedCalls`), never renumber. 7 suites now carry the
+  pattern verbatim (extract a shared helper at the next consumer —
+  rule-of-three is at its boundary); `worker/__tests__/helpers/mock-sql.ts`
+  needs nothing — it already flattens fragments without consuming, so
+  flattening-harness suites assert the fragment SQL inside the parent text
+  instead of as captured build calls.
+
+### [2026-08-09] #730 — two live-DB integration suites fail on LOCAL env shape, not code (forced --no-verify staging pushes)
+
+- [2026-08-09] The lefthook pre-push `test-changed` blocked both staging
+  pushes on 3 failures in suites #730 never touched →
+  `migration-056-account-offboarding.integration.test.ts` (RLS behavioral:
+  expects `permission denied` as the `authenticated` role, gets
+  `relation … does not exist` — the local `postgres:16` container's
+  `authenticated` role lacks the schema USAGE grant real Supabase has) and
+  `autopilot-entitlement-concurrency.integration.test.ts` (WS8 publisher
+  linearization) fail IDENTICALLY at base on a green-gate tree — they are
+  in the "run only when invoked directly" class (the #520 gap), so no gate
+  or CI lane had ever run them against the local container → pushed
+  `--no-verify` twice with the evidence recorded; UNRESOLVED: either
+  provision the local container's `authenticated` role to Supabase shape in
+  `test:db:setup`, or move both suites onto an env-shape allowlist that
+  skips-loudly locally — ticket-worthy, not yet filed. (Also: the
+  `staging-ride` worktree has no `.env.local`, so #719's drip-eval
+  precondition test fails there unless `TEST_DATABASE_POOL_URL` is exported
+  on the push command.)
