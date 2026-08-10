@@ -1,0 +1,68 @@
+{
+  "classification": "normal",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Re-anchor the reputation KPIs (review volume MoM, 8-week sentiment trend, avg star) on the Review-time anchor LEAST(review_date, detected_at) so a consented Review import lands in its true months/weeks instead of a one-time spike, keep the workflow KPIs (response rate) on detected_at, and exclude responses with approved_at < detected_at from avg time-to-respond.",
+  "non_goals": [
+    "Re-anchoring MonthlyImpactWorker digest counts (locked at grilling 2026-08-10: the digest is an activity summary; detected_at semantics preserved, including the unanswered-imported nudge)",
+    "Any import discriminator marker or migration (rejected at grilling: no schema change; provenance-by-column deferred until a second consumer exists)",
+    "KPI card copy / microcopy changes (locked: zero prod customers, new semantics are the intuitive reading; SURFACE stays backend)",
+    "Any change to the Review import lanes, reconcileExternallyAnsweredReview, or the Reviews list / ProvenanceBadge",
+    "TTR clamping (rejected at grilling: exclusion chosen; clamped zeros would read as faster-than-real response times)"
+  ],
+  "user_visible_behavior": [
+    "Review volume MoM counts reviews by their review-time month: a 100-review import redistributes into true months instead of +100 in the import month",
+    "8-week sentiment trend buckets by review-time week: an import instantly yields a real historical trend, not one spike-week bucket",
+    "Avg star windows on review-time: imported reviews older than the window no longer pollute the recent average",
+    "Avg time-to-respond never includes a pre-existing Google reply (approved_at < detected_at rows excluded), so it can never go negative",
+    "Response rate is UNCHANGED: imported unanswered reviews still drag the rate within the detected_at window (the digest-nudge reasoning from the #675 intake)"
+  ],
+  "invariants": [
+    "Tenant-scope predicates (r.business_id = / b.account_id = + b.archived_at IS NULL) and FROM/JOIN stay written out literally in every query template — the anchor is a lazy fragment like detectedAtWindowFilter, never a fragment that hides FROM/JOIN (scripts/ci/tenant-scope-audit.ts reads raw template text)",
+    "The Review-time anchor never exceeds detected_at: LEAST(review_date, detected_at); Postgres LEAST ignores NULLs so NULL review_date falls back to detected_at",
+    "Location-scope and account-scope queries (getLocationKpiSummary / getAccountKpiSummary) receive identical anchor treatment",
+    "No schema change; no new index (volume/trend queries scan per-business, idx_reviews_business_review_date exists from migration 031)",
+    "KPI cache behavior unchanged (45s fail-open TTL; no invalidation added)"
+  ],
+  "edge_cases": [
+    "review_date IS NULL → anchor falls back to detected_at (LEAST NULL-skip)",
+    "review_date in the future (provider clock skew) → clamps to detected_at; without the clamp a future-dated review silently vanishes from the trend's generate_series LEFT JOIN",
+    "Imported reply whose original Google updateTime falls INSIDE the TTR window but before detected_at: contributes a bounded negative sample today — must be excluded (the −2.9yr staging rows are already outside the approved_at window filter; the in-window case is the live bug)",
+    "Imported review older than the trend/volume window drops out entirely — correct under review-time semantics",
+    "Review detected organically (review_date ≈ detected_at) may shift one week/month bucket at boundaries — accepted, more truthful"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/kpi/service.ts:124 detectedAtWindowFilter — the lazy fragment factory shape the new anchor fragment must follow",
+    "src/lib/kpi/service.ts:149 ttrHandledWindowFilter — where the approved_at >= detected_at exclusion composes in",
+    "src/lib/kpi/__tests__/service.test.ts — fragment-aware createMockSql harness conventions",
+    "Live-DB suite conventions: *.integration.test.ts naming, assertSchemaReady, no run-time DDL (lab-notes #573)"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/kpi/service.ts",
+    "src/lib/kpi/__tests__/**",
+    "docs/adr/0019-kpi-review-time-anchor.md",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "volume MoM buckets an imported review into its review_date month, not the import month",
+    "sentiment trend buckets an imported review into its review_date week, not the import week",
+    "avg star window excludes a review whose review_date is outside the window even though detected_at is inside",
+    "review-time anchor falls back to detected_at when review_date is NULL",
+    "review-time anchor clamps a future review_date to detected_at",
+    "response rate still windows on detected_at so imported unanswered reviews drag the rate",
+    "time-to-respond excludes a response whose approved_at predates its review's detected_at",
+    "time-to-respond keeps a response whose approved_at follows its review's detected_at"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "60",
+  "estimated_test_lines": "350",
+  "dependencies_added": [],
+  "rollback_plan": "Pure read-path change: revert the PR. No data written, no migration; the 45s KPI cache self-expires.",
+  "observability": [
+    "No new signal added — KPIs are read-only aggregates; wrongness manifests as wrong dashboard numbers, proven by the live-DB integration suite",
+    "Post-merge staging check: re-run the #688 evidence query against the #677 imported location — TTR must draw zero samples from approved_at < detected_at rows, and volume MoM must redistribute the 66 imported reviews across their review_date months"
+  ],
+  "open_questions": []
+}
