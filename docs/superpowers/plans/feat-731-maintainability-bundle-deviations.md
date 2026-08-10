@@ -378,6 +378,78 @@ the merge-base form into the plan template so it is not re-derived per feature.
 
 ---
 
+## D9 — `reclassify` WARN fired on the TEST bucket after the fix round; step 0 re-run, lane UNCHANGED
+
+The gate's `reclassify` row went WARN after the round-1 fix round:
+
+```
+RECLASSIFY: test 490 > 2x estimated_test_lines (230) changed lines
+(workflow artifacts excluded) — re-run step 0 (re-classification trigger).
+```
+
+This is a mandatory STOP-and-re-derive trigger, so step 0 was re-run against the
+real figures rather than the WARN being noted and walked past.
+
+| Bucket | Estimate | Actual | Ratio | Trigger |
+|---|---|---|---|---|
+| Production (`src/`, `scripts/`, `worker/`, excl. tests) | 200 | 323 | 1.62× | no |
+| Test (`**/__tests__/**`) | 230 | **490** | **2.13×** | **yes** |
+
+**Step 0 re-derivation, from the shipped diff rather than from the plan:**
+
+- **RISK — still `normal`.** No migration and no schema change; nothing under
+  `worker/` except a test file; no billing/Stripe surface; no auth surface; no
+  write to an approval method; the authoritative per-review-daily-cap gate (the
+  worker's Lua INCR) untouched. Every RISK=high trigger is absent, and the fix
+  round changed a read query's join shape and added test coverage — neither
+  moves the risk domain.
+- **SURFACE — `mixed` as declared, and deliberately not narrowed.** The shipped
+  diff touches no `src/app/` or `src/components/` file, so the literal reading is
+  `backend`; the intake declared `mixed` because the page view feeds a server
+  component. Consequence of leaving it: the gate also ran `build`. That is a
+  superset of what `backend` would have run, so the declaration cost extra rigour
+  and bought no blind spot — not worth an amendment to correct downward.
+- **SIZE — still `normal`.** 813 changed lines over 7 source + 7 test files, one
+  seam per item. Every *epic* trigger is negative: the surface was declared tight
+  at intake and **never amended** (0 amendments), it spans one risk domain, it
+  decomposed into 6 tasks (not >8), and no investigation question was left open.
+
+**Conclusion: the lane was right; my test estimate was wrong** — and wrong in the
+specific way this workflow already warns about. I estimated 230 test lines
+against 200 production, a ratio of ~1.15:1, and the intake guidance says
+verbatim that *"estimating tests at 1:1 fires the reclassify trigger on exactly
+the features whose test rigour is most worth having, the #643 lesson."* I read
+that line, wrote the two estimates separately as instructed, and still anchored
+the test figure to the production one. The actual ratio is 490/323 ≈ **1.52:1**,
+which is unremarkable for a feature whose deliverable is 14 pinned titles across
+five suites plus a live-Postgres partition guard.
+
+Where the overshoot came from also matters: the largest single contributor is the
+**fix round** (`regen-budget-batch.test.ts` +99, `dashboard-regen-rate-limit.test.ts`
+reshaped), i.e. tests added *because the review found a coverage hole*. A trigger
+that pushes toward a heavier lane for having fixed a review finding is reading
+the signal backwards, so the honest response is to correct the estimate, not the
+lane.
+
+**Escalation to the RISK=high lane was considered and declined.** That lane's
+distinguishing control is a staging ride, and staging exists to exercise the
+worker, the queue, webhooks and migrations in lockstep — **none of which this
+branch touches**. A staging ride here would burn a deploy cycle to observe
+nothing. Flagged to the owner in the final report so the call is visible and
+overridable rather than buried in a WARN row.
+
+**Verdict: ACCEPT, no lane change, no amendment.** Recorded because a WARN that
+is reasoned past without a written record is indistinguishable from a WARN that
+was ignored.
+
+**Durable lesson (promote at step 8):** estimate the test bucket from the
+*number of pinned titles and the suites they span*, not as a ratio of the
+production estimate. For this branch a bottom-up count — 14 titles × ~25 lines
+of body/fixture, plus harness reshaping in 5 suites — lands near 450 and would
+not have tripped anything.
+
+---
+
 # Step 6 triage — orchestrator verdicts (2026-08-09)
 
 Read end to end before any review dispatch. D1 and D2 carry their verdicts
