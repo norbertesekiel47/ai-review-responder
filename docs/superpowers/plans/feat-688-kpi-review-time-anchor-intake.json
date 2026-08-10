@@ -43,7 +43,8 @@
     "docs/adr/0019-kpi-review-time-anchor.md",
     "CONTEXT.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "scripts/ci/tenant-scope-allowlist.ts"
   ],
   "tests_to_add": [
     "volume MoM buckets an imported review into its review_date month, not the import month",

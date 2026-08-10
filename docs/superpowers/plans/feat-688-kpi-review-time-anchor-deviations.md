@@ -70,3 +70,10 @@ Dated notes where execution had to depart from (or disambiguate) the plan
   `harness.sqlCalls[1].text` fails typecheck; written as
   `harness.sqlCalls[1]!.text` (matches the integration suite's existing
   `locations[0]!` style).
+- [2026-08-10, orchestrator] **Surface amendment #1 (user-approved in
+  session):** `scripts/ci/tenant-scope-allowlist.ts` added to
+  `allowed_edit_surface` (both intake copies updated) so Task 3's executor can
+  re-pin the three trend-query `sqlSnippet` entries per the Task 2 note above.
+  Mechanical re-pin only — no allowlist growth, no scope-predicate change.
+  This is the first amendment; a second would fire the re-classification
+  trigger (step 5 abort criteria).
