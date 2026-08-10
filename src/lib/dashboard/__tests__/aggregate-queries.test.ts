@@ -258,7 +258,13 @@ describe('getPendingApprovalCountsForAccount', () => {
     expect(call.text).toContain('account_id');
     expect(call.text).toContain('GROUP BY resp.business_id');
     expect(call.text).toContain("resp.status = 'pending_approval'");
+    // #730: the held-exclusion is composed via openFlagExistsSql; the
+    // fragment-aware harness flattens the fragment's text into this same
+    // captured call, so the predicate (and its NEGATED polarity + correlated
+    // ref) stays observable right here.
     expect(call.text).toContain('flagged_responses');
+    expect(call.text).toContain('AND NOT EXISTS');
+    expect(call.text).toContain('fr.response_id = resp.id');
     expect(call.values).toContain('acc-1');
   });
 });

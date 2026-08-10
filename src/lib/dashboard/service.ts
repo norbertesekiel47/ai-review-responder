@@ -29,6 +29,7 @@ import {
   type DashboardZernioConnectionRow,
 } from './service-mappers';
 import { getPendingApprovalCount } from './pending-count';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import {
   buildReputationSummary,
   type RateWindowRow,
@@ -250,10 +251,7 @@ async function buildActiveDashboardData(
           AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
           -- Held-for-review drafts (high-severity moderation flag still open)
           -- must never surface to the owner UI; the admin queue owns them.
-          AND NOT EXISTS (
-            SELECT 1 FROM flagged_responses fr
-            WHERE fr.response_id = responses.id AND fr.status = 'open'
-          )
+          AND NOT ${openFlagExistsSql(sql, sql`responses.id`)}
         ORDER BY version DESC
         LIMIT 1
       ) resp ON true

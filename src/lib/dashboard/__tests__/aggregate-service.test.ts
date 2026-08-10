@@ -100,6 +100,25 @@ beforeEach(() => {
   harness.sqlReturnQueue.push([{ locations_included: 5, locations_paid: 0 }], []);
 });
 
+/** The awaited account-wide recent-reviews feed query, by its FROM anchor. */
+function feedQuery() {
+  return harness.sqlCalls.find((call) => call.text.includes('FROM reviews rev'));
+}
+
+/** Same slicer as service.feed-projection.test.ts — one LATERAL body by alias. */
+function lateralBody(queryText: string, alias: 'resp' | 'esc'): string {
+  const startMarker = 'LEFT JOIN LATERAL (';
+  const endMarker = `) ${alias} ON true`;
+  const endIndex = queryText.indexOf(endMarker);
+  const startIndex = queryText.lastIndexOf(startMarker, endIndex);
+
+  if (startIndex === -1 || endIndex === -1) {
+    throw new Error(`Missing ${alias} LATERAL join in recent-reviews query`);
+  }
+
+  return queryText.slice(startIndex + startMarker.length, endIndex).trim();
+}
+
 describe('getAggregateDashboardData — byte-identical composition from slices', () => {
   beforeEach(() => {
     mockFetchSlices.mockResolvedValue(twoLocationSlices());
@@ -227,6 +246,28 @@ describe('getAggregateDashboardData — recent-reviews feed (unchanged)', () => 
       expect(review.escalation).toEqual({ id: 'escalation-open-1', status: 'escalated', severity: 'high' });
     }
     expect(result.recentReviews.map((r) => r.locationDisplayName).sort()).toEqual(['Downtown', 'Westside Bakery']);
+  });
+
+  // #730 T5 mirror of service.feed-projection.test.ts: the account-wide feed's
+  // response LATERAL keeps the composed openFlagExistsSql held-filter INSIDE
+  // the LATERAL body, with the same polarity/placement/correlation. The shared
+  // mock-sql harness FLATTENS nested fragment text into the awaited statement,
+  // so the pins read the flattened form.
+  it('keeps held-filtering inside the response LATERAL: polarity and placement pinned', async () => {
+    mockFetchSlices.mockResolvedValue(twoLocationSlices());
+
+    await getAggregateDashboardData(mockSql, 'acc-1');
+
+    const query = feedQuery();
+    expect(query).toBeDefined();
+    const body = lateralBody(query!.text, 'resp');
+    const notIdx = body.indexOf('AND NOT EXISTS'); // NEGATED polarity
+    const orderIdx = body.indexOf('ORDER BY version DESC');
+    expect(notIdx).toBeGreaterThan(-1);
+    expect(orderIdx).toBeGreaterThan(notIdx); // filter BEFORE order/limit — held newest falls back to unheld sibling
+    // Correlation pin — flattened form (fragment text spliced in place).
+    expect(body).toContain('FROM flagged_responses fr');
+    expect(body).toContain('fr.response_id = responses.id');
   });
 });
 

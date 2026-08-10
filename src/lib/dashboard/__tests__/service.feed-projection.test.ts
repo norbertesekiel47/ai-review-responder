@@ -88,5 +88,25 @@ describe('getActiveDashboardData — feed projection', () => {
 
   // #730 T5: pins that the openFlagExistsSql migration keeps the held
   // predicate INSIDE the response LATERAL bodies, with its polarity intact.
-  it.todo('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned');
+  it('the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned', async () => {
+    seedDashboardQueries();
+
+    await getActiveDashboardData(mockSql, BUSINESS_ID);
+
+    const query = recentReviewsQuery();
+    expect(query).toBeDefined();
+    const body = lateralBody(query!.text, 'resp');
+    // The shared mock-sql harness FLATTENS nested fragment text into the
+    // awaited statement (fragments splice, they do not consume the queue or
+    // record their own sqlCalls entry) — so the composed openFlagExistsSql
+    // predicate is asserted in its flattened form, not as a placeholder.
+    const notIdx = body.indexOf('AND NOT EXISTS'); // NEGATED polarity
+    const orderIdx = body.indexOf('ORDER BY version DESC');
+    expect(notIdx).toBeGreaterThan(-1);
+    expect(orderIdx).toBeGreaterThan(notIdx); // filter BEFORE order/limit — held newest falls back to unheld sibling
+    // Correlation pin — flattened form: the EXISTS body correlates on the
+    // unaliased responses table of THIS LATERAL, via the fragment's own text.
+    expect(body).toContain('FROM flagged_responses fr');
+    expect(body).toContain('fr.response_id = responses.id');
+  });
 });

@@ -142,10 +142,10 @@ async function seedReplacementDraft(
   `;
 }
 
-// Status literals are spelled inline; the loader's LATERAL composes
-// `openFlagExistsSql` from the held-draft owner module (#730;
-// src/lib/moderation/held-draft.ts is the semantic owner). `api_cost_id` is
-// nullable — deliberately omitted.
+// Status literals are spelled inline because this is a WRITE fixture seeding
+// the full migration-051 vocabulary; the read-side spelling is owned by
+// openFlagExistsSql (held-draft.ts, #730). `api_cost_id` is nullable —
+// deliberately omitted.
 async function seedFlag(
   reviewId: string,
   draftId: string,
