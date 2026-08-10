@@ -40,3 +40,33 @@ Dated notes where execution had to depart from (or disambiguate) the plan
   seven clusters requires `isPrimary: bizId === VOLUME_BIZ` (first run failed
   on the partial unique). Worth knowing for any future multi-location live-DB
   suite built on `seedLocation`.
+- [2026-08-10, Task 2] **`pnpm ci:tenant-scope` cannot pass without an edit
+  OUTSIDE the allowed surface — blocked by `edit-surface-guard.sh`.** The
+  plan's "ci:tenant-scope — PASS (fragments hide no FROM/JOIN)" holds for the
+  fragments themselves, but `scripts/ci/tenant-scope-allowlist.ts` pins the
+  EXACT raw template text of both trend queries (3 entries: location/reviews
+  ~`:2277`, account/businesses ~`:2302`, account/reviews ~`:2309` — the trend
+  subquery's scope is invisible to the scanner, which strips SELECT subqueries
+  before predicate analysis). Task 2's anchor rewrite of the trend subquery
+  invalidates those snippets → audit fails with 3 `unused tenant scope
+  allowlist entry` + 3 `missing account_id or business_id scope`. The fix is
+  mechanical — re-pin the three `sqlSnippet` strings to the new template text
+  (swap `detected_at`→`${reviewTimeAnchor(sql, '')}` / `r.detected_at`→
+  `${reviewTimeAnchor(sql, 'r.')}` in the SELECT-wk, week-filter, and GROUP BY
+  positions) — but the file is outside the intake contract's
+  `allowed_edit_surface`, and amending that needs user sign-off. Rate/TTR
+  entries still match (unchanged queries); star/volume are not allowlisted
+  (scope directly visible). Also note: Task 3's `ttrHandledWindowFilter`
+  change alters `${ttrHandledWindowFilter(sql, HANDLED, windowDays)}` only as
+  an interpolation NAME, which does NOT change the outer template text, so
+  Task 3 should not hit this — the exposure is unique to the trend snippets.
+- [2026-08-10, Task 2] **Characterization pins re-derived.** The mock suite's
+  pinned SQL constants (STAR/VOLUME/TREND, both scopes) lock exact composed
+  text; the anchor rewrite is the second sanctioned re-derivation (noted in
+  the pin block's comment). RATE/TTR pins untouched. Pins verified against
+  the actual emitted text by running the suite, not hand-derived only.
+- [2026-08-10, Task 2] **Plan's mock-test snippet needed `!` on indexed
+  access** — the repo compiles with `noUncheckedIndexedAccess`, so
+  `harness.sqlCalls[1].text` fails typecheck; written as
+  `harness.sqlCalls[1]!.text` (matches the integration suite's existing
+  `locations[0]!` style).

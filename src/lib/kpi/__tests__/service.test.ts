@@ -178,6 +178,32 @@ describe('window parameterization (#403)', () => {
   });
 });
 
+describe('review-time anchor (#688)', () => {
+  // Fragment-text assertions only — the SQL's MEANING (month/week bucketing,
+  // LEAST NULL-skip, future clamp) is proven against real Postgres in
+  // service.anchor.integration.test.ts. Query order: 0 rate, 1 star,
+  // 2 volume, 3 ttr, 4 trend.
+  it('anchors star/volume/trend on the review-time anchor and keeps rate on detected_at', async () => {
+    seed();
+    await getLocationKpiSummary(mockSql, 'biz-1');
+    expect(harness.sqlCalls[1]!.text).toContain('LEAST(review_date, detected_at)');
+    expect(harness.sqlCalls[2]!.text).toContain('LEAST(review_date, detected_at)');
+    expect(harness.sqlCalls[4]!.text).toContain('LEAST(review_date, detected_at)');
+    expect(harness.sqlCalls[0]!.text).not.toContain('LEAST(');
+    expect(harness.sqlCalls[0]!.text).toContain('detected_at >=');
+  });
+
+  it('account scope anchors star/volume/trend on the r.-prefixed review-time anchor', async () => {
+    seed();
+    await getAccountKpiSummary(mockSql, 'acct-1');
+    expect(harness.sqlCalls[1]!.text).toContain('LEAST(r.review_date, r.detected_at)');
+    expect(harness.sqlCalls[2]!.text).toContain('LEAST(r.review_date, r.detected_at)');
+    expect(harness.sqlCalls[4]!.text).toContain('LEAST(r.review_date, r.detected_at)');
+    expect(harness.sqlCalls[0]!.text).not.toContain('LEAST(');
+    expect(harness.sqlCalls[0]!.text).toContain('detected_at >=');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Characterization pins (A+ campaign 2d).
 //
@@ -192,6 +218,11 @@ describe('window parameterization (#403)', () => {
 // ttrSelectExpr, ttrHandledWindowFilter) compose byte-identically into each
 // caller's own template. If these ever need to change, re-derive them from
 // scratch against the real behavior — do not just relax the assertion.
+//
+// Re-derived for #688 (review-time anchor): the star/volume/trend pins in
+// both scopes now carry LEAST(review_date, detected_at) via the
+// reviewTimeAnchor/reviewTimeWindowFilter fragments; rate and ttr pins are
+// unchanged (detected_at is deliberate there — workflow KPIs).
 // ---------------------------------------------------------------------------
 
 describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS)', () => {
@@ -216,16 +247,16 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
       WHERE business_id = ?
         AND status <> ?
         AND star_rating IS NOT NULL
-        AND detected_at >= NOW() - make_interval(days => ?)
+        AND LEAST(review_date, detected_at) >= NOW() - make_interval(days => ?)
     `;
   const VOLUME_LOCATION = `
       SELECT
         COUNT(*) FILTER (
-          WHERE detected_at >= DATE_TRUNC('month', NOW())
+          WHERE LEAST(review_date, detected_at) >= DATE_TRUNC('month', NOW())
         )::int AS current_month,
         COUNT(*) FILTER (
-          WHERE detected_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-            AND detected_at < DATE_TRUNC('month', NOW())
+          WHERE LEAST(review_date, detected_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+            AND LEAST(review_date, detected_at) < DATE_TRUNC('month', NOW())
         )::int AS prior_month
       FROM reviews
       WHERE business_id = ?
@@ -251,14 +282,14 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', detected_at)::date AS wk,
+        SELECT DATE_TRUNC('week', LEAST(review_date, detected_at))::date AS wk,
                AVG(sentiment_score) AS avg_score,
                COUNT(*) AS cnt
         FROM reviews
         WHERE business_id = ?
           AND status <> ?
-          AND detected_at >= NOW() - make_interval(weeks => ?)
-        GROUP BY DATE_TRUNC('week', detected_at)
+          AND LEAST(review_date, detected_at) >= NOW() - make_interval(weeks => ?)
+        GROUP BY DATE_TRUNC('week', LEAST(review_date, detected_at))
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
     `;
@@ -288,14 +319,14 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         AND b.archived_at IS NULL
         AND r.status <> ?
         AND r.star_rating IS NOT NULL
-        AND r.detected_at >= NOW() - make_interval(days => ?)
+        AND LEAST(r.review_date, r.detected_at) >= NOW() - make_interval(days => ?)
     `;
   const VOLUME_ACCOUNT = `
       SELECT
-        COUNT(*) FILTER (WHERE r.detected_at >= DATE_TRUNC('month', NOW()))::int AS current_month,
+        COUNT(*) FILTER (WHERE LEAST(r.review_date, r.detected_at) >= DATE_TRUNC('month', NOW()))::int AS current_month,
         COUNT(*) FILTER (
-          WHERE r.detected_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-            AND r.detected_at < DATE_TRUNC('month', NOW())
+          WHERE LEAST(r.review_date, r.detected_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+            AND LEAST(r.review_date, r.detected_at) < DATE_TRUNC('month', NOW())
         )::int AS prior_month
       FROM reviews r
       JOIN businesses b ON b.id = r.business_id
@@ -325,7 +356,7 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', r.detected_at)::date AS wk,
+        SELECT DATE_TRUNC('week', LEAST(r.review_date, r.detected_at))::date AS wk,
                AVG(r.sentiment_score) AS avg_score,
                COUNT(*) AS cnt
         FROM reviews r
@@ -333,8 +364,8 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         WHERE b.account_id = ?
           AND b.archived_at IS NULL
           AND r.status <> ?
-          AND r.detected_at >= NOW() - make_interval(weeks => ?)
-        GROUP BY DATE_TRUNC('week', r.detected_at)
+          AND LEAST(r.review_date, r.detected_at) >= NOW() - make_interval(weeks => ?)
+        GROUP BY DATE_TRUNC('week', LEAST(r.review_date, r.detected_at))
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
     `;

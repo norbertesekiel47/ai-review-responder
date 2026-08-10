@@ -2,7 +2,8 @@
 //
 // Launch KPI layer (Spec 11). Windowed metrics scoped per-location (business_id)
 // or per-account (active locations). Mirrors dashboard/service.ts query style.
-// Does NOT overload valueSummary (lifetime). No real-DB test — keep SQL standard.
+// Does NOT overload valueSummary (lifetime). Keep SQL standard — semantics are
+// proven against real Postgres by __tests__/service.anchor.integration.test.ts.
 
 import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
@@ -120,11 +121,36 @@ function notDeletedFilter(sql: Sql, prefix: '' | 'r.') {
     : sql`status <> ${REVIEW_STATUS.DELETED}`;
 }
 
-/** Rolling `detected_at` lookback shared by the response-rate and avg-star queries. */
+/**
+ * Rolling `detected_at` lookback — serves the response-rate query only
+ * (workflow KPI — #688 keeps it on detected_at).
+ */
 function detectedAtWindowFilter(sql: Sql, prefix: '' | 'r.', windowDays: number) {
   return prefix === 'r.'
     ? sql`r.detected_at >= NOW() - make_interval(days => ${windowDays})`
     : sql`detected_at >= NOW() - make_interval(days => ${windowDays})`;
+}
+
+/**
+ * Review-time anchor (#688, ADR 0019) — the timestamp the reputation KPIs
+ * (volume MoM, sentiment trend, avg star) bucket on, so a consented Review
+ * import lands in its true months/weeks instead of spiking the import month.
+ * LEAST ignores NULLs in Postgres: a NULL review_date falls back to
+ * detected_at, and a clock-skewed FUTURE review_date clamps to detected_at
+ * (unclamped, a future week silently vanishes from the trend's
+ * generate_series LEFT JOIN). Workflow KPIs (response rate) deliberately
+ * stay on detected_at — imported unanswered reviews are meant to drag the
+ * rate (#675 nudge reasoning).
+ */
+function reviewTimeAnchor(sql: Sql, prefix: '' | 'r.') {
+  return prefix === 'r.'
+    ? sql`LEAST(r.review_date, r.detected_at)`
+    : sql`LEAST(review_date, detected_at)`;
+}
+
+/** Rolling review-time lookback for the avg-star query (both scopes). */
+function reviewTimeWindowFilter(sql: Sql, prefix: '' | 'r.', windowDays: number) {
+  return sql`${reviewTimeAnchor(sql, prefix)} >= NOW() - make_interval(days => ${windowDays})`;
 }
 
 /** responses.status membership check against the handled-status vocabulary. */
@@ -197,16 +223,16 @@ export async function getLocationKpiSummary(
       WHERE business_id = ${businessId}
         AND ${notDeletedFilter(sql, '')}
         AND star_rating IS NOT NULL
-        AND ${detectedAtWindowFilter(sql, '', windowDays)}
+        AND ${reviewTimeWindowFilter(sql, '', windowDays)}
     `,
     sql<VolumeRow[]>`
       SELECT
         COUNT(*) FILTER (
-          WHERE detected_at >= DATE_TRUNC('month', NOW())
+          WHERE ${reviewTimeAnchor(sql, '')} >= DATE_TRUNC('month', NOW())
         )::int AS current_month,
         COUNT(*) FILTER (
-          WHERE detected_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-            AND detected_at < DATE_TRUNC('month', NOW())
+          WHERE ${reviewTimeAnchor(sql, '')} >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+            AND ${reviewTimeAnchor(sql, '')} < DATE_TRUNC('month', NOW())
         )::int AS prior_month
       FROM reviews
       WHERE business_id = ${businessId}
@@ -230,14 +256,14 @@ export async function getLocationKpiSummary(
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', detected_at)::date AS wk,
+        SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk,
                AVG(sentiment_score) AS avg_score,
                COUNT(*) AS cnt
         FROM reviews
         WHERE business_id = ${businessId}
           AND ${notDeletedFilter(sql, '')}
-          AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
-        GROUP BY DATE_TRUNC('week', detected_at)
+          AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks})
+        GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
     `,
@@ -306,14 +332,14 @@ export async function getAccountKpiSummary(
         AND b.archived_at IS NULL
         AND ${notDeletedFilter(sql, 'r.')}
         AND r.star_rating IS NOT NULL
-        AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}
+        AND ${reviewTimeWindowFilter(sql, 'r.', windowDays)}
     `,
     sql<VolumeRow[]>`
       SELECT
-        COUNT(*) FILTER (WHERE r.detected_at >= DATE_TRUNC('month', NOW()))::int AS current_month,
+        COUNT(*) FILTER (WHERE ${reviewTimeAnchor(sql, 'r.')} >= DATE_TRUNC('month', NOW()))::int AS current_month,
         COUNT(*) FILTER (
-          WHERE r.detected_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-            AND r.detected_at < DATE_TRUNC('month', NOW())
+          WHERE ${reviewTimeAnchor(sql, 'r.')} >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+            AND ${reviewTimeAnchor(sql, 'r.')} < DATE_TRUNC('month', NOW())
         )::int AS prior_month
       FROM reviews r
       JOIN businesses b ON b.id = r.business_id
@@ -341,7 +367,7 @@ export async function getAccountKpiSummary(
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', r.detected_at)::date AS wk,
+        SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')})::date AS wk,
                AVG(r.sentiment_score) AS avg_score,
                COUNT(*) AS cnt
         FROM reviews r
@@ -349,8 +375,8 @@ export async function getAccountKpiSummary(
         WHERE b.account_id = ${accountId}
           AND b.archived_at IS NULL
           AND ${notDeletedFilter(sql, 'r.')}
-          AND r.detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
-        GROUP BY DATE_TRUNC('week', r.detected_at)
+          AND ${reviewTimeAnchor(sql, 'r.')} >= NOW() - make_interval(weeks => ${trendWeeks})
+        GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')})
       ) agg ON agg.wk = gs::date
       ORDER BY week_start ASC
     `,
