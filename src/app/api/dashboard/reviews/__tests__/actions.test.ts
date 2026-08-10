@@ -56,10 +56,21 @@ vi.mock('@/lib/db/auth', () => {
 // ── Mock DB ─────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => {
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
   const sqlProxy = new Proxy(() => {}, {
     apply: (_target, _thisArg, args: unknown[]) => {
       const strings = args[0];
-      sqlQueryTexts.push(Array.isArray(strings) ? strings.join(' ') : String(strings));
+      const text = Array.isArray(strings) ? strings.join(' ') : String(strings);
+      sqlQueryTexts.push(text);
+      // Fragment builds (hasOpenFlag's `${id}::uuid` ref and the
+      // openFlagExistsSql `EXISTS (…)`, #730) are captured in sqlQueryTexts
+      // but must NOT consume the ledger — mockSqlResults/sqlCallCounter
+      // account for EXECUTED statements only.
+      if (Array.isArray(strings) && !isExecutedStatement(text)) {
+        return { fragmentText: text, values: args.slice(1) };
+      }
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -164,10 +175,12 @@ function setResponseLookup(
   // (FOR UPDATE, tx statement #1), locks the response (SELECT ... FOR
   // UPDATE), checks for an open moderation flag (hasOpenFlag), re-asserts
   // the writable/offboarding gate by business id, and recovers the
-  // correlation id — then invokes the action.
+  // correlation id — then invokes the action. One ledger position per
+  // EXECUTED statement: hasOpenFlag's openFlagExistsSql fragment builds
+  // (#730) do not consume.
   mockSqlResults.push([]); // reviews lock-order anchor FOR UPDATE (tx statement #1)
   mockSqlResults.push([]); // responses SELECT id ... FOR UPDATE
-  mockSqlResults.push([]); // hasOpenFlag → no open flag
+  mockSqlResults.push([]); // hasOpenFlag executed probe → no open flag
   mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]); // in-tx writable re-assert (business)
   mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]); // recoverCorrelationId
   // The action's claim (lockPendingResponse): the responses FOR UPDATE row,
@@ -724,7 +737,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     // The gate SELECT (FOR SHARE) was the final statement in the transaction:
     // lookup, account, reviews lock-order anchor, response FOR UPDATE,
     // hasOpenFlag, writable-business, correlation, claim responses FOR
-    // UPDATE, gate.
+    // UPDATE, gate — 9 EXECUTED statements (fragment builds don't count).
     expect(sqlQueryTexts.some((text) => text.includes('FOR SHARE'))).toBe(true);
     expect(sqlCallCounter.value).toBe(9);
   });

@@ -1,0 +1,80 @@
+{
+  "classification": "high",
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Consolidate every owner-facing surfacing spelling of the open-flag predicate onto one composable fragment (openFlagExistsSql) owned by src/lib/moderation/held-draft.ts \u2014 the semantic owner of 'is this draft held' \u2014 leaving the deliberately-distinct consumers alone with the divergence recorded on the owner module (#725 deliverable, #730 build half).",
+  "non_goals": [
+    "No change to the 8 deliberately-distinct consumers: admin disposition (/api/admin/flagged), admin queue (flagged-service), admin badge (nav-counts-service), health-alert backlog check, offboarding purge-verification + purge-stages + table-disposition, and the producer (response-generation/persist.ts keeps its module-local FLAGGED_RESPONSE_STATUS_OPEN)",
+    "No higher-level read helpers \u2014 the shape is fragment + retained hasOpenFlag only (#725 \u00a72)",
+    "No behavior change anywhere \u2014 every rewrite is semantics-preserving",
+    "No new CONTEXT.md glossary term \u2014 the divergence note lives as a comment block on the owner module (#725 \u00a73)",
+    "No shared helper growing a boolean parameter meaning 'actually a different query' (the failure mode this scoping exists to prevent)",
+    "No touch to worker/jobs/publisher/held-flag-gate.ts or the other hasOpenFlag call sites \u2014 they are already on the owner"
+  ],
+  "user_visible_behavior": [
+    "None. Held drafts remain projected (SELECTed-not-filtered, D9) on the two draft-status routes and the Reviews list, and remain excluded from dashboard reads, pending counts, and the review timeline \u2014 byte-identical result sets"
+  ],
+  "invariants": [
+    "Invariant #4 as structure: a held draft never surfaces its text or an affordance to the owner \u2014 projected sites stay SELECTed-not-filtered (D9); filtered sites keep excluding held rows",
+    "hasOpenFlag keeps its exact signature and in-tx post-FOR-UPDATE release-gate contract; none of its call sites move",
+    "After migration, the read-side 'open' literal is spelled only inside openFlagExistsSql in held-draft.ts",
+    "Tenant scoping of every migrated query is unchanged; ALLOWLIST_BASELINE stays 409 \u2014 snippet text regenerates in place, no entry adds or removes",
+    "The 8 deliberately-distinct consumers keep their own spellings on purpose"
+  ],
+  "edge_cases": [
+    "src/lib/agents/read.ts getReviewTimeline: null-filtered anti-join (LEFT JOIN flagged_responses \u2026 AND fr.id IS NULL) rewrites to NOT EXISTS via the fragment \u2014 must preserve the timeline row set exactly",
+    "src/lib/dashboard/pending-count.ts has TWO spellings (per-business count + account-grouped sibling); both migrate",
+    "The fragment's correlated ref must compose in three contexts: qualified column refs (resp.id, resp2.id, responses.id) inside LATERAL/correlated subqueries, and hasOpenFlag's ${responseId}::uuid parameter \u2014 ref parameter is a Postgres.js fragment, not a string",
+    "scripts/ci/tenant-scope-allowlist.ts keys on verbatim SQL source; the SIX entries whose sqlSnippet contains a migrated predicate (past-replies draft-status ~327; load-replies main ~1285; service.ts ~1509 + ~1516; aggregate-service.ts ~1530 + ~1537) regenerate in place in the same PR (the feat-719 gate-block trap, #725 note 1). pending-count has NO entry \u2014 its queries are directly scoped; the migration must not add one",
+    "The stale D6 comments in draft-status/route.ts and load-replies.ts cite '#680 item' for a consolidation #680 never did \u2014 they are rewritten as part of the migration",
+    "past-replies/draft-status/route.ts (added by #726, after #725's 6-file table was drawn) carries an inline projected EXISTS \u2014 it joins the migration set, making it 7 files / 8 inline spellings"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/shared/response-status-sql.ts (statusArraySql) \u2014 the house pattern for a composable Postgres.js SQL fragment builder, already interpolated by draft-status/route.ts",
+    "src/lib/moderation/held-draft.ts contract-header comment style \u2014 the divergence note extends it",
+    "Postgres.js nested-Query splicing (lab-notes #573/#706 mechanic) \u2014 fragments compose into LATERAL/correlated contexts as raw SQL text"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/moderation/held-draft.ts",
+    "src/lib/moderation/__tests__/held-draft.test.ts",
+    "src/app/api/dashboard/reviews/*/draft-status/route.ts",
+    "src/app/api/dashboard/reviews/*/draft-status/__tests__/**",
+    "src/app/api/dashboard/past-replies/draft-status/route.ts",
+    "src/app/api/dashboard/past-replies/__tests__/**",
+    "src/lib/past-replies/load-replies.ts",
+    "src/lib/past-replies/__tests__/**",
+    "src/lib/dashboard/service.ts",
+    "src/lib/dashboard/aggregate-service.ts",
+    "src/lib/dashboard/pending-count.ts",
+    "src/lib/dashboard/__tests__/**",
+    "src/lib/agents/read.ts",
+    "src/lib/agents/__tests__/**",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/app/api/dashboard/reviews/__tests__/actions.test.ts",
+    "src/app/api/dashboard/__tests__/route.test.ts"
+  ],
+  "tests_to_add": [
+    "openFlagExistsSql spells the correlated open-flag EXISTS once, against the given ref",
+    "hasOpenFlag keeps its contract: true while a flag is open, false once the flag closes",
+    "a held draft still projects draft_held true after the fragment migration",
+    "getReviewTimeline excludes a response whose flag is open and includes it once closed",
+    "property: projected held and filtered visibility agree for every flag-row status combination",
+    "hasOpenFlag executes the UUID-parameter fragment against live Postgres",
+    "getReviewTimeline falls back to the newest unheld response when the latest response is open-flagged",
+    "per-business and account-grouped pending counts exclude the same open-held rows across two businesses",
+    "each draft-status awaited query projects held from its correctly correlated response alias",
+    "the response LATERALs keep held-filtering inside the LATERAL: polarity and placement pinned",
+    "all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains"
+  ],
+  "verification_commands": [
+    "pnpm vitest run src/lib/past-replies/__tests__/load-replies.integration.test.ts src/lib/agents/__tests__/read.integration.test.ts"
+  ],
+  "estimated_prod_lines": "\u00b1140 (held-draft.ts +~45 incl. divergence comment block; 8 spelling swaps net-negative ~-25 code; D6 comment rewrites; ~8 allowlist snippet lines regenerated). Code is net-negative; the divergence comment block offsets some of it in raw line count",
+  "estimated_test_lines": "\u00b1450 (eleven promised titles incl. live hasOpenFlag verification, fast-check property on an isolated business, grouped-count cross-business guard, alias/placement pins, source-scan; plus churn in SQL-text-pinning mock suites upgraded to fragment-aware doubles) \u2014 corrected from \u00b1300 after plan-review round 1",
+  "dependencies_added": [],
+  "rollback_plan": "No migration, no flag, no schema touch \u2014 db_touching covers read-query text only. Back out = revert the squash-merge commit on main; nothing to unwind in either Supabase project",
+  "observability": [
+    "No new runtime signal \u2014 semantics-preserving refactor. A regression would surface as held drafts appearing in owner reads (invariant #4 leak); guarded pre-merge by the two live-DB integration suites + the D9 projected assertions + ci:tenant-scope/ci:rls-audit green, not by a new prod metric. Post-deploy staging smoke: pending count and Reviews list for a location with a known held draft match pre-deploy values"
+  ],
+  "open_questions": []
+}

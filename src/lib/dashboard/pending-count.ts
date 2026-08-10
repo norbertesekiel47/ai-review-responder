@@ -7,6 +7,7 @@
 // can never disagree or over-count (PLAN.md PR2 A.4).
 
 import type { Sql } from 'postgres';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 
 export async function getPendingApprovalCount(sql: Sql, businessId: string): Promise<number> {
   const [row] = await sql<{ count: number }[]>`
@@ -14,10 +15,7 @@ export async function getPendingApprovalCount(sql: Sql, businessId: string): Pro
     FROM responses resp
     WHERE resp.business_id = ${businessId}
       AND resp.status = 'pending_approval'
-      AND NOT EXISTS (
-        SELECT 1 FROM flagged_responses fr
-        WHERE fr.response_id = resp.id AND fr.status = 'open'
-      )
+      AND NOT ${openFlagExistsSql(sql, sql`resp.id`)}
   `;
   return row?.count ?? 0;
 }
@@ -42,10 +40,7 @@ export async function getPendingApprovalCountsForAccount(
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
       AND resp.status = 'pending_approval'
-      AND NOT EXISTS (
-        SELECT 1 FROM flagged_responses fr
-        WHERE fr.response_id = resp.id AND fr.status = 'open'
-      )
+      AND NOT ${openFlagExistsSql(sql, sql`resp.id`)}
     GROUP BY resp.business_id
   `;
 

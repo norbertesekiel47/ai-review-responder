@@ -33,21 +33,36 @@ vi.mock('@/lib/db/auth', () => {
 
 // ── Mock DB ──────────────────────────────────────────────────────────
 
-vi.mock('@/lib/db/server', () => ({
-  sql: new Proxy(() => {}, {
-    apply: (_target, _thisArg, argumentsList) => {
-      const first = argumentsList[0];
-      if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
-        capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
-        capturedSqlValues.push(argumentsList.slice(1));
-      }
-      const result = mockSqlResults[sqlCallCounter.value] ?? [];
-      sqlCallCounter.value++;
-      return Promise.resolve(result);
-    },
-  }),
-  jsonb: (v: unknown) => v,
-}));
+vi.mock('@/lib/db/server', () => {
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
+  return {
+    sql: new Proxy(() => {}, {
+      apply: (_target, _thisArg, argumentsList) => {
+        const first = argumentsList[0];
+        const isTemplate = first != null && typeof first === 'object' && 'raw' in (first as object);
+        if (isTemplate) {
+          const text = (first as TemplateStringsArray).raw.join('?');
+          // Fragment builds (the dashboard-service's openFlagExistsSql
+          // `EXISTS (…)` + its `responses.id` ref, #730 T5) are returned as
+          // inert fragment objects: they must NOT consume a ledger position
+          // — mockSqlResults/sqlCallCounter and the captured texts/values
+          // account for EXECUTED statements only.
+          if (!isExecutedStatement(text)) {
+            return { fragmentText: text, values: argumentsList.slice(1) };
+          }
+          capturedSqlTexts.push(text);
+          capturedSqlValues.push(argumentsList.slice(1));
+        }
+        const result = mockSqlResults[sqlCallCounter.value] ?? [];
+        sqlCallCounter.value++;
+        return Promise.resolve(result);
+      },
+    }),
+    jsonb: (v: unknown) => v,
+  };
+});
 
 // ── Mock Redis (Zernio pending marker read) ──────────────────────────
 // The dashboard service reads `connect_pending:{businessId}` from Redis to

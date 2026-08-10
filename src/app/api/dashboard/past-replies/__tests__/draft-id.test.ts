@@ -11,6 +11,7 @@ const {
   topLevelQueue,
   topLevelMock,
   txQueue,
+  txExecutedCalls,
   txMock,
   beginMock,
   sqlProxy,
@@ -35,9 +36,22 @@ const {
     return topLevelQueue.shift() ?? [];
   });
 
-  // Each call to tx`...` returns the next array from the queue.
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
+  // Each executed tx`...` statement returns the next array from the queue.
+  // Fragment builds (hasOpenFlag's `${responseId}::uuid` ref and the
+  // openFlagExistsSql `EXISTS (…)`, #730 T4) are captured but must NOT
+  // consume the queue; txExecutedCalls records executed statements only, so
+  // positional/length assertions survive future fragment compositions.
   const txQueue: unknown[][] = [];
-  const txMock = vi.fn(async () => txQueue.shift() ?? []);
+  const txExecutedCalls: unknown[][] = [];
+  const txMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (!isExecutedStatement(text)) return { fragmentText: text, values };
+    txExecutedCalls.push([strings, ...values]);
+    return Promise.resolve(txQueue.shift() ?? []);
+  });
 
   // sql.begin runs the callback synchronously with the tx mock.
   const beginMock = vi.fn(async (cb: (tx: unknown) => Promise<Response>) => cb(txMock));
@@ -58,6 +72,7 @@ const {
     topLevelQueue,
     topLevelMock,
     txQueue,
+    txExecutedCalls,
     txMock,
     beginMock,
     sqlProxy,
@@ -185,6 +200,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   topLevelQueue.length = 0;
   txQueue.length = 0;
+  txExecutedCalls.length = 0;
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   // Default: getRequestScope resolves to the primary location.
@@ -329,8 +345,8 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     );
     expect(res.status).toBe(204);
 
-    // UPDATE call: last tx invocation. Inspect SQL + bound params.
-    const updateCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    // UPDATE call: last executed tx statement. Inspect SQL + bound params.
+    const updateCall = txExecutedCalls.at(-1) as unknown[];
     expect(updateCall).toBeDefined();
     const templateStrings = updateCall[0] as unknown as TemplateStringsArray;
     const sqlText = templateStrings.join('|');
@@ -452,8 +468,8 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
     expect(res.status).toBe(204);
 
-    // Last tx call should be the UPDATE to superseded.
-    const updateCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    // Last executed tx statement should be the UPDATE to superseded.
+    const updateCall = txExecutedCalls.at(-1) as unknown[];
     const templateStrings = updateCall[0] as unknown as TemplateStringsArray;
     const sqlText = templateStrings.join('|');
     expect(sqlText).toContain('UPDATE responses');
@@ -471,8 +487,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
     // lock-response, hasOpenFlag, offboarding lookup — no UPDATE.
-    expect(txMock.mock.calls.length).toBe(3);
-    const lastCall = txMock.mock.calls.at(-1) as unknown as unknown[];
+    // (Executed statements only; fragment builds are not counted.)
+    expect(txExecutedCalls.length).toBe(3);
+    const lastCall = txExecutedCalls.at(-1) as unknown[];
     const sqlText = (lastCall[0] as TemplateStringsArray).join('|');
     expect(sqlText).toContain('FROM account_offboardings');
   });
@@ -485,9 +502,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
     expect(res.status).toBe(204);
 
-    // Only one tx call (the SELECT FOR UPDATE) — no UPDATE.
-    expect(txMock.mock.calls.length).toBe(1);
-    const onlyCall = txMock.mock.calls[0] as unknown as unknown[];
+    // Only one executed tx statement (the SELECT FOR UPDATE) — no UPDATE.
+    expect(txExecutedCalls.length).toBe(1);
+    const onlyCall = txExecutedCalls[0]!;
     const sqlText = (onlyCall[0] as unknown as TemplateStringsArray).join('|');
     expect(sqlText).not.toContain('UPDATE responses');
   });
@@ -500,8 +517,8 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     const res = await DELETE(makeRequest({ method: 'DELETE' }), ctx());
     expect(res.status).toBe(204);
 
-    // Only one tx call (the SELECT FOR UPDATE) — no UPDATE.
-    expect(txMock.mock.calls.length).toBe(1);
+    // Only one executed tx statement (the SELECT FOR UPDATE) — no UPDATE.
+    expect(txExecutedCalls.length).toBe(1);
   });
 
   it('REGRESSION: when rw_location_scope cookie points at a non-primary location, DELETE scopes to that location (not primary)', async () => {
@@ -526,8 +543,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
     // Leading arg is the sql client resolveOwnerScope threads through (A+ campaign 2a).
     expect(mockGetRequestScope).toHaveBeenCalledWith(sqlProxy, ACCOUNT_ID, ALT_LOCATION_ID);
 
-    // The tx SELECT FOR UPDATE must have used ALT_LOCATION_ID as business_id.
-    const selectCall = txMock.mock.calls[0] as unknown as unknown[];
+    // The tx SELECT FOR UPDATE must have used ALT_LOCATION_ID as business_id
+    // (first executed tx statement).
+    const selectCall = txExecutedCalls[0]!;
     const selectArgs = selectCall.slice(1);
     // args: [responseId, locationId] → second bound value is the locationId
     expect(selectArgs[1]).toBe(ALT_LOCATION_ID);
@@ -542,8 +560,9 @@ describe('DELETE /api/dashboard/past-replies/draft/:responseId', () => {
 // it and PATCH must not update it; both refuse with the owner-visible
 // vocabulary `held_for_review`. src/lib/moderation/held-draft.ts is the
 // semantic owner of "is this draft held" — the REAL hasOpenFlag executes its
-// flagged_responses query against the tx queue mock (consuming one entry,
-// binding the response id), so it is deliberately NOT mocked here.
+// query against the tx queue mock (one executed statement consuming one
+// entry; its openFlagExistsSql fragment builds are captured without
+// consuming, #730), so it is deliberately NOT mocked here.
 
 describe('draft/:responseId — moderation-held draft gate (#726)', () => {
   const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
@@ -564,10 +583,13 @@ describe('draft/:responseId — moderation-held draft gate (#726)', () => {
     for (const call of txCalls) {
       expect(joinTemplate(call)).not.toContain('UPDATE responses');
     }
-    // hasOpenFlag ran against flagged_responses, binding the target response id.
+    // hasOpenFlag composes openFlagExistsSql (#730): the EXISTS build call
+    // carries flagged_responses, and its embedded ref fragment binds the
+    // target response id.
     const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
     expect(flagCall).toBeDefined();
-    expect((flagCall as unknown[]).slice(1)).toContain(RESPONSE_ID);
+    const flagRef = (flagCall as unknown[])[1] as { values: unknown[] };
+    expect(flagRef.values).toContain(RESPONSE_ID);
   });
 
   it('PATCH returns 409 held_for_review and does not update a held draft', async () => {
@@ -588,9 +610,12 @@ describe('draft/:responseId — moderation-held draft gate (#726)', () => {
     for (const call of txCalls) {
       expect(joinTemplate(call)).not.toContain('UPDATE responses');
     }
-    // hasOpenFlag ran against flagged_responses, binding the target response id.
+    // hasOpenFlag composes openFlagExistsSql (#730): the EXISTS build call
+    // carries flagged_responses, and its embedded ref fragment binds the
+    // target response id.
     const flagCall = txCalls.find((call) => joinTemplate(call).includes('flagged_responses'));
     expect(flagCall).toBeDefined();
-    expect((flagCall as unknown[]).slice(1)).toContain(RESPONSE_ID);
+    const flagRef = (flagCall as unknown[])[1] as { values: unknown[] };
+    expect(flagRef.values).toContain(RESPONSE_ID);
   });
 });

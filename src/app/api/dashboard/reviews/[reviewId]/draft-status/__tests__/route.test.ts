@@ -46,9 +46,17 @@ const {
     apply: (target, thisArg, args) => Reflect.apply(target as never, thisArg, args),
   });
 
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
   // sqlRead (read bulkhead): the tenant proof, the draft lookup, the outbox lookup.
   const sqlReadMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    readCalls.push({ text: strings.join('?'), values });
+    const text = strings.join('?');
+    readCalls.push({ text, values });
+    // Fragment builds (the `resp.id` ref, the openFlagExistsSql `EXISTS (…)`)
+    // are captured for assertions but must NOT consume the queued result of
+    // the outer executed query (#730 T4).
+    if (!isExecutedStatement(text)) return { fragmentText: text, values };
     return Promise.resolve(readQueue.shift() ?? []);
   });
   const sqlReadProxy = new Proxy(sqlReadMock, {
@@ -228,7 +236,7 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     // pending_approval with an OPEN flagged_responses row. Returning it as
     // `ready` would hand the owner held text plus an `Approve & post` button —
     // the exact release path src/lib/moderation/held-draft.ts exists to block.
-    // The `held` flag is SELECTed, not filtered (D6/D9): filtering would make
+    // The `held` flag is SELECTed, not filtered (D9): filtering would make
     // this route report `idle` for "no draft" and "held draft" alike.
     seedOwned();
     seedRead([{ id: 'resp-held', status: 'pending_approval', response_text: 'Held text', held: true }]);
@@ -242,8 +250,44 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     expect(body.status).not.toBe('ready');
     expect(body).not.toHaveProperty('response_text');
     expect(JSON.stringify(body)).not.toContain('Held text');
-    // The hold must be read from flagged_responses, not inferred. Read call 0
-    // is the tenant proof; call 1 is the draft lookup that carries the predicate.
-    expect(readCalls[1]!.text).toContain('flagged_responses');
+    // The hold must be read from flagged_responses, not inferred. The predicate
+    // arrives via the composed openFlagExistsSql fragment (#730), so it lives
+    // in the fragment's captured build call, not the outer draft-lookup text.
+    expect(readCalls.some((call) => call.text.includes('flagged_responses'))).toBe(true);
+  });
+
+  // #730 T4: pins that the openFlagExistsSql fragment lands correlated against
+  // the right response alias in every awaited query of the draft-status routes.
+  it('each draft-status awaited query projects held from its correctly correlated response alias', async () => {
+    seedOwned();
+    seedRead([{ id: 'resp-1', status: 'pending_approval', response_text: 'Draft text', held: false }]);
+
+    const GET = await importGET();
+    const res = await GET(makeRequest(), routeParams);
+    expect(res.status).toBe(200);
+
+    const refCall = readCalls.find((c) => c.text.trim() === 'resp.id');
+    expect(refCall, 'fragment ref must correlate on the outer query alias').toBeDefined();
+    const existsCall = readCalls.find((c) => c.text.includes('FROM flagged_responses'));
+    expect(existsCall).toBeDefined();
+    expect(existsCall!.text).toContain("fr.status = 'open'");
+    // The ref embedded in the EXISTS build call is the `resp.id` fragment —
+    // an uncorrelated EXISTS (any open flag anywhere holds every poll) would
+    // over-refuse fail-safe but still betray the query's contract.
+    const embeddedRef = existsCall!.values[0] as { fragmentText?: string };
+    expect(embeddedRef?.fragmentText).toBe('resp.id');
+    // Built is not enough — the fragment must LAND in the executed draft
+    // lookup: a refactor that builds the EXISTS but projects `false AS held`
+    // would otherwise pass. The executed query's captured values must embed
+    // the fragment object the build call returned.
+    const draftLookup = readCalls.find(
+      (c) => /^\s*select\b/i.test(c.text) && c.text.includes('FROM responses'),
+    );
+    expect(draftLookup).toBeDefined();
+    expect(
+      draftLookup!.values.some(
+        (v) => (v as { fragmentText?: string }).fragmentText?.includes('FROM flagged_responses') ?? false,
+      ),
+    ).toBe(true);
   });
 });

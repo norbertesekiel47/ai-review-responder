@@ -33,9 +33,19 @@ const {
     apply: (target, _this, args) => Reflect.apply(target as never, _this, args),
   });
 
+  const isExecutedStatement = (text: string) =>
+    /^\s*(select|insert|update|delete|with)\b/i.test(text);
+
   // sqlRead (read bulkhead): the route-body reads (job_outbox lookup + the
   // completed-job response lookup) moved off write `sql` onto it (#477 Task 1).
-  const sqlReadMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  // Fragment builds (the `responses.id` ref, the openFlagExistsSql `EXISTS (…)`)
+  // are captured in mock.calls for assertions but must NOT consume the queued
+  // result of the outer executed query (#730 T4).
+  const sqlReadMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (!isExecutedStatement(text)) return { fragmentText: text, values };
+    return Promise.resolve(topLevelQueue.shift() ?? []);
+  });
   const sqlReadProxy = new Proxy(sqlReadMock, {
     apply: (target, _this, args) => Reflect.apply(target as never, _this, args),
   });
@@ -428,9 +438,9 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
 // A moderation-held draft (invariant #4) "surfaces neither its text nor any
 // button" — the poller must answer with the owner-visible refusal vocabulary
 // `held_for_review` and never the draft text. src/lib/moderation/held-draft.ts
-// is the semantic owner of "is this draft held"; the read-only poller holds no
-// tx, so it spells the same predicate as a correlated EXISTS on
-// flagged_responses inside the tenant-scoped response lookup.
+// is the semantic owner of "is this draft held"; the poller composes its
+// openFlagExistsSql fragment (#730) into the tenant-scoped response lookup,
+// projected as `held`.
 
 // Unique sentinels: heldness refusals assert these appear NOWHERE in the
 // serialized body — a leak of either is an invariant #4 violation.
@@ -497,8 +507,9 @@ describe('GET /api/dashboard/past-replies/draft-status — moderation-held draft
 
   it('spells the correlated open-flag EXISTS with status open inside the tenant-scoped response lookup', async () => {
     // SQL-text assertion (held-draft.test.ts technique): the heldness
-    // predicate must live IN the response lookup itself — the poller's
-    // spelling of the held-draft.ts semantics.
+    // predicate is composed into the response lookup via openFlagExistsSql
+    // (#730) — the poller projects the held-draft.ts semantics, so the
+    // EXISTS text lives in the fragment's captured build call.
     seedCompletedOutbox();
     seedTopLevel([
       {
@@ -517,14 +528,66 @@ describe('GET /api/dashboard/past-replies/draft-status — moderation-held draft
     const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
     const responseLookup = readCalls.find((call) => joinTemplate(call).includes('FROM responses'));
     expect(responseLookup).toBeDefined();
-    const text = joinTemplate(responseLookup as unknown[]);
+    // The outer lookup projects the composed fragment as `held`.
+    expect(joinTemplate(responseLookup as unknown[])).toMatch(/AS held/);
+
+    const existsCall = readCalls.find((call) => joinTemplate(call).includes('FROM flagged_responses'));
+    expect(existsCall).toBeDefined();
+    const text = joinTemplate(existsCall as unknown[]);
     expect(text).toMatch(/EXISTS/);
     expect(text).toMatch(/flagged_responses/);
+    expect(text).toMatch(/fr\.response_id\s*=/);
+    expect(text).toMatch(/fr\.status\s*=\s*'open'/);
     // Correlation predicate: an uncorrelated EXISTS (any open flag anywhere
     // holds every poll) would over-refuse fail-safe but still betray the
-    // query's contract — assert the join back to the outer responses row.
-    expect(text).toMatch(/f\.response_id\s*=\s*responses\.id/);
-    expect(text).toMatch(/f\.status\s*=\s*'open'/);
+    // query's contract — assert the ref embedded in the EXISTS build call is
+    // the outer `responses.id` fragment.
+    const embeddedRef = (existsCall as unknown[])[1] as { fragmentText?: string };
+    expect(embeddedRef?.fragmentText).toBe('responses.id');
+  });
+
+  // #730 T4: pins that the openFlagExistsSql fragment lands correlated against
+  // the right response alias in every awaited query of the draft-status routes.
+  it('each draft-status awaited query projects held from its correctly correlated response alias', async () => {
+    seedCompletedOutbox();
+    seedTopLevel([
+      {
+        id: SENTINEL_HELD_ID,
+        status: 'pending_approval',
+        response_text: SENTINEL_HELD_TEXT,
+        business_id: LOCATION_ID,
+        held: false,
+      },
+    ]);
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(200);
+
+    const readCalls: unknown[][] = sqlReadProxy.mock.calls;
+    const joinTemplate = (call: unknown[]) => (call[0] as TemplateStringsArray).join('|');
+    const refCall = readCalls.find((call) => joinTemplate(call).trim() === 'responses.id');
+    expect(refCall, 'fragment ref must correlate on the outer query alias').toBeDefined();
+    const existsCall = readCalls.find((call) => joinTemplate(call).includes('FROM flagged_responses'));
+    expect(existsCall).toBeDefined();
+    expect(joinTemplate(existsCall as unknown[])).toContain("fr.status = 'open'");
+    // Symmetry with the reviews-route #9: the EXISTS build call embeds the
+    // outer `responses.id` ref fragment.
+    const embeddedRef = (existsCall as unknown[])[1] as { fragmentText?: string };
+    expect(embeddedRef?.fragmentText).toBe('responses.id');
+    // Built is not enough — the fragment must LAND in the executed response
+    // lookup: a refactor that builds the EXISTS but projects `false AS held`
+    // would otherwise pass. mock.calls entries are raw arg arrays
+    // `[strings, ...values]`, so the executed call's values are `.slice(1)`.
+    const responseLookup = readCalls.find((call) => {
+      const text = joinTemplate(call);
+      return /^\s*select\b/i.test(text) && text.includes('FROM responses');
+    });
+    expect(responseLookup).toBeDefined();
+    expect(
+      (responseLookup as unknown[])
+        .slice(1)
+        .some((v) => (v as { fragmentText?: string }).fragmentText?.includes('FROM flagged_responses') ?? false),
+    ).toBe(true);
   });
 
   it('returns 403 with no heldness signal when the held response belongs to another tenant', async () => {

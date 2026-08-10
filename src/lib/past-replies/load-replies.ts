@@ -4,6 +4,7 @@ import {
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '@/lib/publishing/orphan-markers';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
+import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import {
@@ -229,19 +230,13 @@ export async function loadPastRepliesPageView(
       -- Action slot projects 'none' — the withdrawn slot — instead (D9).
       --
       -- src/lib/moderation/held-draft.ts is the SEMANTIC owner of "a draft is
-      -- held while an open flagged_responses row exists". Its hasOpenFlag is an
-      -- in-tx, post-lock release gate taking a TransactionSql — it cannot be
-      -- composed into a LATERAL — so the predicate is spelled inline here (D6);
-      -- consolidating the spellings into one exported fragment is a #680 item.
+      -- held while an open flagged_responses row exists"; this projection
+      -- composes its openFlagExistsSql fragment (#730). Projected, not
+      -- filtered (D9): a held draft must stay distinguishable from "no draft".
       LEFT JOIN LATERAL (
         SELECT
           resp2.id,
-          EXISTS (
-            SELECT 1
-            FROM flagged_responses f
-            WHERE f.response_id = resp2.id
-              AND f.status = 'open'
-          ) AS held
+          ${openFlagExistsSql(sql, sql`resp2.id`)} AS held
         FROM responses resp2
         WHERE resp2.review_id = r.id
           AND resp2.status = ANY(${[...NON_TERMINAL_STATUSES] as string[]}::text[])
