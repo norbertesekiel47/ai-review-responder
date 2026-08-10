@@ -20,6 +20,16 @@
 // NEVER applies migration SQL — provisioning is `pnpm test:db:setup`'s job.
 // Fixtures are DML-only, and ALL time arithmetic happens in SQL
 // (NOW() - interval '…' / make_interval) — never via a JS Date.
+//
+// Accepted timing risks (#688 round-1 review, adjudicated wontfix): fixtures
+// seed from NOW() in beforeAll while assertions recompute DATE_TRUNC
+// month/week buckets at assert time — a run straddling a calendar boundary
+// in that seconds-wide window fails loudly and a rerun passes; deterministic
+// clock injection would widen the production interface (NOW() is baked into
+// the KPI queries). Relatedly, the future-clamp fixture (NOW() + 2 days)
+// only lands in a LATER ISO week on Sat/Sun runs, so this suite's live
+// distinction between LEAST and a naive COALESCE is weekend-only — the mock
+// suite's LEAST( template pins are the every-day backstop.
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
@@ -39,6 +49,7 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { getAccountKpiSummary, getLocationKpiSummary } from '../service';
 import type { DashboardKpiSummary } from '../types';
 
@@ -129,7 +140,7 @@ async function seedPostedResponse(
     ) VALUES (
       ${randomUUID()}::uuid, ${reviewId}::uuid, ${bizId}::uuid,
       'Thank you!', 'Thank you!', 'Thank you!', 'en', 1,
-      ${POSTED}, 'owner', ${approvedAt}, NOW()
+      ${POSTED}, ${APPROVAL_METHOD.OWNER}, ${approvedAt}, NOW()
     )
   `;
 }
