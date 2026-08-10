@@ -549,8 +549,13 @@ Re-run step 5. When triage completes, run
 
 **After merge (both lanes)**:
 - `git pull --ff-only` on local `main` (squash-merge lag).
-- Fast-forward `staging` onto `main` (`git merge --ff-only main`) so it never
-  drifts.
+- Realign `staging` to `main` so it never drifts, per `deployment-guide.md`
+  §"Re-sync staging". `git merge --ff-only main` succeeds only if staging was
+  merely BEHIND; if the feature rode staging and the PR was squash-merged (the
+  default for a RISK=high lane) the branches have diverged and ff aborts — the
+  runbook's answer is `git reset --hard origin/main` + `--force-with-lease`.
+  Do NOT reach for a sync merge instead: it leaves staging permanently ahead,
+  which is the drift this step exists to prevent (#719, 2026-08-10).
 - **Worktree cleanup**: run `bash scripts/feature-cleanup.sh` from the main
   checkout (dry run — lists worktrees whose PR merged with clean trees),
   review the plan, then re-run with `--apply`. This also sweeps earlier

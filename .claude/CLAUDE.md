@@ -30,7 +30,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 
 - **Three lanes.** *Preview* — per-PR, Vercel UI only (no worker/queue/webhooks → frontend checks only). *Staging* — persistent full stack, test/sandbox creds + separate Supabase; **the only non-prod place the whole pipeline runs**. *Production* — `main`, live creds.
 - **Promotion = merge the PR into `main`.** `staging` is not a promotion gate — never "merge `staging` → `main`". Anything touching the worker, a webhook, a migration, or billing rides `staging` first, then lands on `main` via PR.
-- **After promotion, fast-forward `staging` onto `main`** (`git merge --ff-only main`) so it never drifts. Migrations run against **both** Supabase projects in lockstep, **staging first**; "applied to prod, not staging" is a bug. **Standing exception until the prod WS8 cutover:** migration 078 is deliberately absent in prod — it applies *inside* the cutover (`docs/runbooks/ws8-tier-cutover.md`); do NOT apply it out-of-band. All autonomy flags are OFF in prod; ordered go-live flip per design doc §8.4.
+- **After promotion, realign `staging` to `main`** so it never drifts — the exact procedure is `deployment-guide.md` §"Re-sync staging", which branches on how staging got ahead. `git merge --ff-only main` works **only** when staging was merely behind; after a squash merge the two have genuinely diverged and it aborts, and the runbook's answer is `git reset --hard origin/main` + `git push --force-with-lease` (safe because staging is a disposable integration anchor — nothing of value lives only there). **Do not substitute a sync merge**: it "works" and leaves staging permanently ahead, which is the drift this rule exists to prevent (staging reached 101 commits ahead by #719 that way). Migrations run against **both** Supabase projects in lockstep, **staging first**; "applied to prod, not staging" is a bug. **Standing exception until the prod WS8 cutover:** migration 078 is deliberately absent in prod — it applies *inside* the cutover (`docs/runbooks/ws8-tier-cutover.md`); do NOT apply it out-of-band. All autonomy flags are OFF in prod; ordered go-live flip per design doc §8.4.
 - **Push to `staging` auto-deploys the full staging stack.** Both the Railway staging worker **and** the Vercel staging Custom Env redeploy on push (the Vercel deploy is git-sourced `target:staging`; verified 2026-06-02). Vercel previews still auto-deploy per PR. To rebuild the staging UI without a push, deploy the custom env explicitly (`POST /v13/deployments` with `target:"staging"` + `gitSource:{ref:"staging"}`) — see `deployment-guide.md` Phase 3.
 - **CI gates PRs + push-to-`main`, NOT `staging` pushes** — rely on the PR's CI before promoting.
 - **Local `main` lags after GitHub squash-merges** — `git pull --ff-only` (then `pnpm install` if deps changed).
@@ -160,6 +160,14 @@ decide *where new worker code goes*:
 - **Non-fatal emitter `'error'` sink**: `worker/emitter-errors.ts` (`attachEmitterErrorLogger`
   — every BullMQ Queue/Worker + raw Redis client gets a listener at its registration site;
   an unlistened `'error'` is a fatal `uncaughtException`).
+- **Terminal job-failure sink**: `worker/job-failure-sink.ts` (`attachJobFailureSink` — attached
+  to every BullMQ Worker in the same registration loop as `attachEmitterErrorLogger`; raises a
+  real Sentry issue on the terminal attempt, replacing the breadcrumb that hid #719 for three
+  months). Its terminal test is the `'failed'`-EVENT predicate `attemptsMade >= max` and is
+  deliberately NOT `isTerminalAttempt` from `src/lib/shared/outbox.ts`, which is the
+  CATCH-BLOCK form and fires one attempt early here — see `worker/jobs/judge/failed-hook.ts`,
+  which keeps its own copy and says "do not unify them". Writes nothing to `job_outbox`: the
+  **Watchdog** overwrites `last_error` unconditionally (follow-up #736).
 - **Queues**: `worker/queues.ts`; **Redis connection options**: `worker/redis-connection.ts`
   (side-effect-free — unit-testable without booting the queues).
 - **Entry point** `worker/index.ts`: pure registration + lifecycle, **no DB writes**.
