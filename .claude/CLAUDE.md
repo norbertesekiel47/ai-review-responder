@@ -166,8 +166,10 @@ decide *where new worker code goes*:
   months). Its terminal test is the `'failed'`-EVENT predicate `attemptsMade >= max` and is
   deliberately NOT `isTerminalAttempt` from `src/lib/shared/outbox.ts`, which is the
   CATCH-BLOCK form and fires one attempt early here — see `worker/jobs/judge/failed-hook.ts`,
-  which keeps its own copy and says "do not unify them". Writes nothing to `job_outbox`: the
-  **Watchdog** overwrites `last_error` unconditionally (follow-up #736).
+  which keeps its own copy and says "do not unify them". Writes nothing to `job_outbox` —
+  failed-hooks own that surface. (Since #736 the **Watchdog** terminalizer PRESERVES a
+  non-empty `last_error` and writes its generic reclaim text only as a fallback, so a
+  hook's bounded error class survives; watchdog seam: `runOutboxWatchdogRecovery`.)
 - **Queues**: `worker/queues.ts`; **Redis connection options**: `worker/redis-connection.ts`
   (side-effect-free — unit-testable without booting the queues).
 - **Entry point** `worker/index.ts`: pure registration + lifecycle, **no DB writes**.

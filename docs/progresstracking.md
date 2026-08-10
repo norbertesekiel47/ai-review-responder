@@ -3145,3 +3145,56 @@ dependency, no schema change.**
   it at ~40 lines across 7 `DROP COLUMN`s in 103 migrations, contradicting the
   "epic-sized" framing this ticket used to decline it; migration 103 dropped
   four more columns with no forward guard).
+
+## 2026-08-10 — #736 + #738 + #739: the #719 follow-up trio (PRs #753, #754, #755)
+
+The three tickets #719's step-7 review filed, shipped as three independent
+branches in one session, each staging-ridden before merge.
+
+- **#736 (PR #753, squash `a3d63b90`)** — `OutboxPoller`'s watchdog terminalizer
+  now preserves a non-empty per-job `last_error`
+  (`COALESCE(NULLIF(last_error, ''), <generic reclaim text>)`) instead of
+  unconditionally overwriting it with the message that made #719's 93 failed
+  rows read as routine reclaims. The PII bounded-class contract holds by
+  construction (nothing new is persisted), and the generate-asks
+  retryable-exhaustion `last_error` survives both watchdog arms. Watchdog phase
+  extracted as `runOutboxWatchdogRecovery(db, staleSecs, logger)`; new live-DB
+  suite proves preserve / NULL→generic / ''→generic / re-pend-keeps-error /
+  fresh-row-untouched on real Postgres. Fittingly, staging's #719-era data
+  still showed eight failed rows all carrying the generic text.
+- **#738 (PR #754, squash `5307e7f1`, migration 104)** — durable record for
+  scheduler-side staleness skips. The ticket's outbox-tombstone option was
+  rejected on a measured flaw: ArchivalPoller deletes completed outbox rows
+  after 7 days, so the record would evaporate and the pair would re-mint
+  forever. Instead `onboarding_drip_log` (never archived, one row per pair)
+  gains `skipped_at`/`skip_reason` + two named CHECKs; the scheduler stamps
+  every too-late pair once (guarded `ON CONFLICT … DO UPDATE` covers dead claim
+  rows), and the stamp replaces the GRACE+1 reporting window as the dedup —
+  closing the silent deploy-backlog case too. Outer-window removal is
+  re-mint-safe because archival (7d) > grace (3d); recorded as load-bearing.
+  Migration applied staging-then-prod in lockstep on promotion day, verified by
+  introspection both times. First-round fallow failed on
+  `runOnboardingDripCycle` complexity → `recordStalenessSkips` extracted.
+- **#739 (PR #755, squash `e97617a2`)** — `ci:dropped-columns`, the forward
+  guard the review measured at ~40 lines against the "epic-sized" framing that
+  had deferred it. Ledger phase replays migrations (DROP COLUMN adds a pair,
+  later ADD COLUMN clears it, CREATE/DROP TABLE resets the table → 6 dropped
+  columns at head); scan phase walks src/ + worker/ SQL tagged templates with
+  relation-anchored matching so `users.business_id` flags while the many
+  legitimate `business_id` columns don't. Same-length blanking of
+  interpolations/comments/strings keeps offsets real and JSONB keys inert.
+  Wired package.json + ci.yml + lefthook; the derived `ci-audit-wiring` test
+  needed no change. Mutation-probed against the literal #719 query shapes.
+  First-round fallow failed on `findDroppedColumnRefs` cognitive complexity →
+  decomposed into four helpers.
+- **Staging ride**: migration 104 applied to staging Supabase BEFORE the
+  staging push (schema-ahead-of-code); all three branches octopus-merged onto
+  `staging`; Railway worker deployed and booted clean. The deployed scheduler's
+  first cycle wrote zero skip records — correct: the one candidate-looking pair
+  (#719's dead claim) is excluded by its completed outbox row until archival
+  frees it (~Aug 16), which live-confirms the designed durable backstop path.
+- **Worth carrying**: fallow's new-code complexity gate caught BOTH worker-side
+  loops on first CI contact (helper extraction fixed each in minutes) — write
+  new multi-branch loops as named helpers up front. And the local `pnpm
+  ci:fallow` (no coverage) agreed with CI's `ci:fallow:coverage` verdict both
+  times, so the fast local run is a trustworthy pre-push signal for this class.
