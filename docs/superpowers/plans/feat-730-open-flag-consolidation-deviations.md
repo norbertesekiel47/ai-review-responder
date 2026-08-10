@@ -62,6 +62,23 @@ ACCEPT / RE-PLAN before review.
   whose double passes through `hasOpenFlag` or a migrated call site needs
   the fragment-aware branch BEFORE its first post-migration run.
 
+## Execution (T5) — harness reality vs plan assumptions (both benign)
+
+- **[2026-08-09] The dashboard suites' shared harness
+  (`worker/__tests__/helpers/mock-sql.ts`) was ALREADY fragment-aware** —
+  pre-existing (#598 lineage): fragment builds flatten text+values into the
+  parent statement without consuming the return queue. The plan's Step 3
+  harness upgrade was a no-op, and title #10 + the aggregate mirror assert
+  the plan's sanctioned "flattened form" (fragment SQL text inside the
+  LATERAL body) rather than the captured-build form. Triage: ACCEPT — plan
+  v4 explicitly made the pin harness-adaptive with locked intent.
+- **[2026-08-09] The `aggregate-queries.test.ts` ~261 `flagged_responses`
+  pin was strengthened IN PLACE, not relocated.** Under the flattening
+  harness there is no separate fragment call to relocate to (the plan's
+  premise assumed queue-based doubles). The original assertion was kept and
+  extended with `AND NOT EXISTS` + `fr.response_id = resp.id`. Nothing
+  deleted or weakened. Triage: ACCEPT.
+
 ## Plan-review round 1 (codex, VERDICT: REVISE) — intake corrections
 
 Owner-approved intake-field corrections (NOT surface amendments; the
