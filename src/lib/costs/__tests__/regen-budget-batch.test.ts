@@ -1,6 +1,8 @@
 // src/lib/costs/__tests__/regen-budget-batch.test.ts
 //
-// T1 EVAL suite for #678 — the batched sibling of `peekRegenBudget` (D-F).
+// T1 EVAL suite for #678 — the batched advisory peek (D-F). Since #731 deleted
+// the single-key sibling it is the ONLY advisory peek, so this suite owns the
+// whole used/limit/remaining derivation as well as the fail-open contract.
 //
 // The **Reviews list** needs one per-review counter per ANSWERED row. A
 // `Generate` is free by construction (`generate-draft.ts` charges only
@@ -99,7 +101,7 @@ describe('peekRegenBudgetBatch', () => {
     expect(statuses.get(REVIEW_B)).toEqual({ used: 0, limit: 3, remaining: 3 });
     expect(statuses.get(REVIEW_C)).toEqual({ used: 3, limit: 3, remaining: 0 });
 
-    // ONE round trip, on the same UTC-date-scoped keys `peekRegenBudget` uses.
+    // ONE round trip, on UTC-date-scoped keys the worker's Lua INCR shares.
     const today = todayDateStr();
     expect(mockRedis.mget).toHaveBeenCalledTimes(1);
     expect(mockRedis.mget).toHaveBeenCalledWith(
@@ -144,5 +146,34 @@ describe('peekRegenBudgetBatch', () => {
     mockRedis.mget.mockClear();
     await expect(peekRegenBudgetBatch([])).resolves.toBeInstanceOf(Map);
     expect(mockRedis.mget).not.toHaveBeenCalled();
+  });
+
+  // ── #731 item 3: the used/limit/remaining derivation, absorbed from the
+  // deleted single-key peek's suite. `tracker.test.ts`'s mockRedis has no
+  // `mget`, so these two cases cannot live there — they moved here BEFORE the
+  // single-key peek and its describe block were deleted.
+
+  it('treats a missing counter as zero used, so a full budget remains', async () => {
+    const peekRegenBudgetBatch = await loadBatchPeek();
+    mockRedis.mget.mockResolvedValueOnce([null]);
+
+    const statuses = await peekRegenBudgetBatch([REVIEW_A]);
+
+    // An absent KEY means unused. Only an absent MAP ENTRY means the peek
+    // failed — the distinction the whole fail-open posture rests on.
+    expect(statuses.get(REVIEW_A)).toEqual({ used: 0, limit: 3, remaining: 3 });
+  });
+
+  it('reports zero remaining once the per-review daily cap is reached', async () => {
+    const peekRegenBudgetBatch = await loadBatchPeek();
+    mockRedis.mget.mockResolvedValueOnce(['3']);
+
+    const statuses = await peekRegenBudgetBatch([REVIEW_A]);
+
+    expect(statuses.get(REVIEW_A)).toEqual({ used: 3, limit: 3, remaining: 0 });
+    // Read-only: surfacing "limit reached" must consume no budget and trigger
+    // no LLM spend (issue #335 AC), so neither the counter nor the Lua runs.
+    expect(mockRedis.incr).not.toHaveBeenCalled();
+    expect(mockRedis.eval).not.toHaveBeenCalled();
   });
 });

@@ -409,39 +409,10 @@ describe('checkAskRegenBudget', () => {
   });
 });
 
-describe('peekRegenBudget', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('reports remaining budget from the read-only counter without spending', async () => {
-    mockRedis.get.mockResolvedValueOnce('2');
-
-    const { peekRegenBudget } = await import('../tracker');
-    const status = await peekRegenBudget('rev-001');
-
-    expect(status).toEqual({ used: 2, limit: 3, remaining: 1 });
-    expect(mockRedis.get).toHaveBeenCalledTimes(1);
-    // Read-only: must NOT increment the counter or run the budget Lua — surfacing
-    // the message can't consume budget or trigger LLM spend (issue #335 AC).
-    expect(mockRedis.incr).not.toHaveBeenCalled();
-    expect(mockRedis.eval).not.toHaveBeenCalled();
-  });
-
-  it('treats a missing counter as zero used (full budget remaining)', async () => {
-    mockRedis.get.mockResolvedValueOnce(null);
-
-    const { peekRegenBudget } = await import('../tracker');
-    expect(await peekRegenBudget('rev-001')).toEqual({ used: 0, limit: 3, remaining: 3 });
-  });
-
-  it('reports zero remaining once the daily cap is reached', async () => {
-    mockRedis.get.mockResolvedValueOnce('3');
-
-    const { peekRegenBudget } = await import('../tracker');
-    expect(await peekRegenBudget('rev-001')).toEqual({ used: 3, limit: 3, remaining: 0 });
-  });
-});
+// #731: the single-key advisory peek was deleted (one caller, nothing varying
+// behind it, and the OPPOSITE failure contract to the batched one). Its three
+// cases now live in regen-budget-batch.test.ts, which is the only suite whose
+// mockRedis has `mget`.
 
 describe('recordApiCost', () => {
   beforeEach(() => {

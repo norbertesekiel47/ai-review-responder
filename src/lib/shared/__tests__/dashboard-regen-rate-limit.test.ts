@@ -183,6 +183,11 @@ describe('enforceRegenBudgetForReview', () => {
     mockPeekRegenBudgetBatch.mockResolvedValue(new Map());
 
     expect(await enforceRegenBudgetForReview(REVIEW_ID)).toBeNull();
+    // Pins that the null came from the BATCHED peek's absent entry, not from
+    // some other path that also returns null (deviation D3(c): before the
+    // rewire this title was green because a swallowed TypeError also returned
+    // null, so `toBeNull()` alone cannot tell the two apart).
+    expect(mockPeekRegenBudgetBatch).toHaveBeenCalledWith([REVIEW_ID]);
   });
 
   it('never leaks the raw review id into the fail-open log', async () => {
