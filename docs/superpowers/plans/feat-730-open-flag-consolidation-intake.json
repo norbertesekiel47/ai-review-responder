@@ -49,7 +49,9 @@
     "src/lib/dashboard/__tests__/**",
     "src/lib/agents/read.ts",
     "src/lib/agents/__tests__/**",
-    "scripts/ci/tenant-scope-allowlist.ts"
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/app/api/dashboard/reviews/__tests__/actions.test.ts",
+    "src/app/api/dashboard/__tests__/route.test.ts"
   ],
   "tests_to_add": [
     "openFlagExistsSql spells the correlated open-flag EXISTS once, against the given ref",

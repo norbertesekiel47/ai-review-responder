@@ -79,6 +79,38 @@ ACCEPT / RE-PLAN before review.
   extended with `AND NOT EXISTS` + `fr.response_id = resp.id`. Nothing
   deleted or weakened. Triage: ACCEPT.
 
+## Execution (T7) — surface amendment #2 + gate-red repair + one locked-comment reword
+
+- **[2026-08-09] SURFACE AMENDMENT #2 (test-only, 2 files): the gate's
+  whole-repo `test` row surfaced 12 failures in
+  `src/app/api/dashboard/reviews/__tests__/actions.test.ts` (6) and
+  `src/app/api/dashboard/__tests__/route.test.ts` (6) — the SAME
+  mock-ledger class as the T4 entry above** (ordered result queues consume
+  fragment build calls; `hasOpenFlag` re-expression + dashboard-service
+  composition skew every later queue position → 409s / empty payloads).
+  Predicted by the T4 entry's follow-through note; these two suites were in
+  no task's run set and OUTSIDE the declared surface (drawn from #725's
+  source-file inventory, not the transitive test blast radius). Amendment:
+  the two exact file paths added to `allowed_edit_surface` (both copies).
+  Classification: the auto-approve clause's exact shape (≤2 files inside
+  the dashboard tree the surface already covers, mechanical repair of
+  feature-caused breakage, established fragment-aware pattern) — BUT this
+  is the 2nd amendment, which the abort-criteria letter names as a
+  stop-patching tripwire. Orchestrator call: the tripwire's purpose (scope
+  rot / lane misclassification) is not served by aborting a completed,
+  otherwise-green refactor over two test-double repairs of an
+  already-triaged class; the feature is ALREADY in the highest lane
+  (RISK=high → owner merge approval mandatory). **OWNER RATIFICATION of
+  this call is required at the merge gate — if the owner disagrees, the
+  repair commit + this amendment revert cleanly.**
+- **[2026-08-09] T7's locked `.todo`-scan comment lines self-tripped and
+  were reworded** — the plan's own comment text contained bare
+  `it.todo`/`test.todo` sequences, and held-draft.test.ts scans ITSELF (it
+  is in SUITES). The plan's round-3 analysis cleared the regex literal but
+  not its accompanying comments. Fix kept the regex byte-identical
+  (weakening was the forbidden move) and spelled the sequences indirectly
+  in comments. Titles/structure/assertions unchanged. Triage: ACCEPT.
+
 ## Plan-review round 1 (codex, VERDICT: REVISE) — intake corrections
 
 Owner-approved intake-field corrections (NOT surface amendments; the
