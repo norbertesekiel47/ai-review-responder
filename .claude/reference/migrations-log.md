@@ -1012,7 +1012,23 @@ Revisit triggers:
   deliberately unarchived). Schema requirement:
   `MIGRATION_104_DRIP_LOG_SKIP_RECORD` (schema-ready.ts); behavior proven by
   `worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts`.
-  **LOCAL-ONLY**
+  **APPLIED TO STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-10**, ahead of the
+  staging worker deploy (schema-ahead-of-code, the safe direction for an
+  additive migration) — verified the way this log's header demands, by
+  `information_schema.columns` + `pg_constraint` introspection, never the
+  migration ledger: both columns present (timestamptz / text, nullable), both
+  named CHECKs present, 3 existing `onboarding_drip_log` rows untouched. The
+  deployed scheduler's first cycle correctly wrote ZERO skip records: the one
+  eligible-looking pair (the #719-era dead claim) is excluded by its
+  `completed` outbox row from the Aug 9 validation until ArchivalPoller frees
+  it (~Aug 16), at which point the durable-backstop path records it — the
+  designed self-healing observed on live data.
+  **and PRODUCTION (`udeyaqnvpojbwgoaxwdg`) 2026-08-10**, in lockstep at
+  promotion (applied BEFORE merging PR #754, same change window), same
+  introspection verification: both columns, both CHECKs,
+  `onboarding_drip_log` empty (0 rows — prod never completed a drip send
+  during the #719 outage, so the first post-deploy cycles will write the
+  backlog's permanent skip records). Both Supabase projects are level at 104.
 
 - **103** — `drop_legacy_backfill_counters`: **the DROP half of the locked
   backfill-counter collapse and the closing migration of the Consented Review
