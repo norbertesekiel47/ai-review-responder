@@ -2,8 +2,8 @@
 // gap): a typo in hasOpenFlag's status='open' predicate would silently
 // release admin-held drafts to owners. Previously covered only indirectly
 // via integration tests.
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type postgres from 'postgres';
 import { hasOpenFlag, openFlagExistsSql, HeldForReviewError } from '../held-draft';
@@ -21,6 +21,42 @@ function mkTx(rows: unknown[]) {
     return Promise.resolve(rows);
   }) as unknown as postgres.TransactionSql;
   return { tx, calls };
+}
+
+/**
+ * Recursive walk over production .ts/.tsx files — any path containing
+ * `__tests__` or `.test.` (which also covers `.integration.test.`) is
+ * excluded. Walker style mirrors src/__tests__/console-admin-palette.test.ts.
+ */
+function walkProductionTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name) && !full.includes('__tests__') && !full.includes('.test.')) {
+        out.push(full);
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/**
+ * Strip `//` line comments, block comments (incl. JSDoc), and SQL `--` line
+ * comments so prose mentions of flagged_responses (pending-count's JSDoc,
+ * load-replies' in-SQL `--` comment) cannot trip the sweep. Template-literal
+ * CONTENT is deliberately NOT stripped — a real `FROM flagged_responses`
+ * predicate inside a SQL template literal is exactly what the sweep must
+ * catch; the `--` stripper removes only to end-of-line, leaving the rest of
+ * the literal intact.
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/--[^\n]*/g, '');
 }
 
 const RESPONSE_ID = '01890a5d-ac96-774b-bcce-b302099a8057';
@@ -92,7 +128,8 @@ describe('openFlagExistsSql', () => {
 
   it('no promised #730 test title survives as .todo', () => {
     // The verify gate's promised-tests row accepts `.todo`; this closes that
-    // escape mechanically. Scans the four suites that carried stubs.
+    // escape mechanically. Scans the three suites that carried the four
+    // promised stubs.
     const SUITES = [
       'src/lib/moderation/__tests__/held-draft.test.ts',
       'src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts',
@@ -108,6 +145,40 @@ describe('openFlagExistsSql', () => {
       expect(src, `${suite} still carries a .todo stub`).not.toMatch(
         /\b(?:it|test)\s*(?:\.\s*todo\b|\[\s*['"]todo['"]\s*\])/,
       );
+    }
+  });
+
+  it('no production file in the owner-facing trees spells flagged_responses SQL outside the owner module', () => {
+    // Repo-wide ratchet for the owner-facing surface (review round 1): any
+    // NEW owner-facing read added under these trees must compose
+    // openFlagExistsSql — an inline FROM/JOIN on flagged_responses fails
+    // here even though the file is not in OWNER_FACING above. The
+    // deliberately distinct consumers (admin, health-alert, offboarding
+    // purge, producer) live outside these trees on purpose (#725).
+    const OWNER_TREES = ['src/app/api/dashboard', 'src/lib/dashboard', 'src/lib/past-replies', 'src/lib/agents'];
+    const offenders: string[] = [];
+    for (const tree of OWNER_TREES) {
+      for (const file of walkProductionTsFiles(resolve(process.cwd(), tree))) {
+        const src = stripComments(readFileSync(file, 'utf-8'));
+        if (/(?:FROM|JOIN)\s+flagged_responses/i.test(src)) offenders.push(file);
+      }
+    }
+    expect(offenders, 'inline flagged_responses SQL outside the owner module').toEqual([]);
+  });
+
+  it('no owner-facing call passes a ref qualified by the reserved fr alias', () => {
+    // The fragment's internal alias `fr` shadows an outer alias of the same
+    // name: a ref like sql`fr.id` would silently self-correlate
+    // (fr.response_id = fr.id) and report held=false. The doc comment
+    // reserves the alias; this makes the reservation mechanical.
+    const OWNER_TREES = ['src/app/api/dashboard', 'src/lib/dashboard', 'src/lib/past-replies', 'src/lib/agents'];
+    for (const tree of OWNER_TREES) {
+      for (const file of walkProductionTsFiles(resolve(process.cwd(), tree))) {
+        const src = readFileSync(file, 'utf-8');
+        for (const call of src.match(/openFlagExistsSql\([^)]*\)/g) ?? []) {
+          expect(call, `${file}: ref must not be qualified by the reserved fr alias`).not.toMatch(/\bfr\./);
+        }
+      }
     }
   });
 });
