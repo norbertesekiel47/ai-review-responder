@@ -164,11 +164,14 @@ field a compile error rather than something review has to notice.
 
 That guarantee was **confirmed empirically, not asserted**: deleting the
 `failed_response_id` line from `orphanReplyFacts` produces
-`error TS2741: Property 'failed_response_id' is missing …` at
-`replies-view.ts(257,3)` — the compiler names the exact field Defect A lost.
-(The mapper's own doc comment and commit `ee5c6b8f`'s message both say TS2739;
-that was a pre-observation guess. TS2741 is the single-missing-property code
-actually emitted — TS2739 is its multi-property sibling.)
+`error TS2741: Property 'failed_response_id' is missing …`, anchored at that
+function's `return {` — the compiler names the exact field Defect A lost.
+TS2741 is the single-missing-property code; TS2739 is its multi-property
+sibling. (Commit `ee5c6b8f`'s message and the mapper's original doc comment both
+said TS2739, a pre-observation guess; the comment was corrected in `8cd0a58a`,
+the commit message stands as written. No line number is cited here deliberately
+— an anchor into a file this ADR does not own goes stale on the next edit, as
+this paragraph's own first draft did.)
 
 Consequence for future edits: **adding a field to the card that depends on the
 Posted-reply axis means adding it to `ReplyFacts`**, which then forces both
