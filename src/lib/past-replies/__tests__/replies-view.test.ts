@@ -194,6 +194,120 @@ describe('toCardRow', () => {
   it('fails closed for orphan recovery on an unsupported stored tier', () => {
     expect(toCardRow(orphanRow(), ACTIVATED, false).canEdit).toBe(false);
   });
+
+  // ── #731 item 1: the orphan/live reply-facts split ──────────────────────────
+  //
+  // These six titles are the contract the split must preserve. They go through
+  // `toCardRow` — the module's interface — and never reach the two private
+  // mappers directly: testing past the interface would pin the refactor's
+  // shape instead of its behaviour.
+
+  it('toCardRow maps an orphan row from the orphan_* LATERALs and never from resp.*', () => {
+    // resp.* is populated with sentinels an orphan must NOT surface. In
+    // production `is_orphan` already encodes `resp.id IS NULL` (load-replies
+    // F3), so this row is impossible; it is constructed precisely so a mapper
+    // that reads the wrong side fails loudly rather than coincidentally.
+    const card = toCardRow(
+      orphanRow({
+        response_id: 'LIVE-resp-must-not-leak',
+        approved_text: 'LIVE-text-must-not-leak',
+        approval_method: APPROVAL_METHOD.OWNER,
+        posted_at: new Date('2026-04-03T10:00:00.000Z'),
+        version: 9,
+        failed_response_id: 'SIDECAR-must-not-leak',
+        failed_posting_error: 'delete_failed_must_not_leak',
+      }),
+      ACTIVATED,
+      true,
+    );
+
+    expect(card.reply_state).toBe('orphan');
+    // Every field comes from the orphan_* side.
+    expect(card.response_id).toBe('fail-1');
+    expect(card.approved_text).toBe('old reply');
+    expect(card.failed_response_id).toBe('fail-1');
+    expect(card.failed_posting_error).toBe('post_after_delete_failed_x');
+    // ...and nothing from resp.* or fail_sidecar leaks through.
+    expect(JSON.stringify(card)).not.toContain('must-not-leak');
+  });
+
+  it('toCardRow keeps failed_response_id populated on an orphan row so recovery stays reachable', () => {
+    // #678 round-2 Defect A: the deleted `toOrphanCardRow` dropped this field,
+    // and because AnsweredControls + RecoveryControl gate the recovery ACTIONS
+    // on it (not on the badge), recovery went silently unreachable. This is the
+    // regression pin for re-splitting the function.
+    const card = toCardRow(orphanRow(), ACTIVATED, true);
+
+    expect(card.failed_response_id).toBe('fail-1');
+    expect(card.failed_response_id).not.toBeNull();
+    expect(card.row_action).toBe('recover');
+  });
+
+  it('toCardRow maps a posted row from resp.* and still carries its own delete_failed_* sidecar', () => {
+    const card = toCardRow(
+      answeredRow({
+        failed_response_id: 'sidecar-1',
+        failed_posting_error: 'delete_failed_transient',
+      }),
+      ACTIVATED,
+      true,
+    );
+
+    expect(card.reply_state).toBe('posted');
+    expect(card.response_id).toBe('resp-1');
+    expect(card.approved_text).toBe('Thank you!');
+    expect(card.posted_at).toBe('2026-04-01T13:00:00.000Z');
+    expect(card.version).toBe(2);
+    // The sidecar badge on a still-live Google reply — NOT an orphan marker.
+    expect(card.failed_response_id).toBe('sidecar-1');
+    expect(card.failed_posting_error).toBe('delete_failed_transient');
+  });
+
+  it('toCardRow nulls posted_at, approval_method and version on an orphan row', () => {
+    const card = toCardRow(
+      orphanRow({
+        posted_at: new Date('2026-04-03T10:00:00.000Z'),
+        approval_method: APPROVAL_METHOD.AUTO_POLICY,
+        version: 4,
+      }),
+      ACTIVATED,
+      true,
+    );
+
+    // An orphan has no live posted reply, so there is no posting time, no
+    // approval provenance and no optimistic-concurrency version to offer.
+    expect(card.posted_at).toBeNull();
+    expect(card.approval_method).toBeNull();
+    expect(card.version).toBeNull();
+  });
+
+  it('toCardRow derives provenance_badge from the dispatched approval_method, not the raw row', () => {
+    const card = toCardRow(
+      orphanRow({ approval_method: APPROVAL_METHOD.AUTO_POLICY }),
+      ACTIVATED,
+      true,
+    );
+
+    // Reading r.approval_method here would badge an orphan `auto_approved` for
+    // a reply that is not on Google at all.
+    expect(card.approval_method).toBeNull();
+    expect(card.provenance_badge).toBeNull();
+  });
+
+  it('toCardRow maps a never-replied row with no reply facts and no recovery affordance', () => {
+    const card = toCardRow(reviewRow(), ACTIVATED, true);
+
+    expect(card.reply_state).toBe('none');
+    expect(card.row_action).toBe('generate');
+    // response_id null IS the unanswered predicate (the LEFT JOIN found nothing).
+    expect(card.response_id).toBeNull();
+    expect(card.approved_text).toBeNull();
+    expect(card.approval_method).toBeNull();
+    expect(card.posted_at).toBeNull();
+    expect(card.version).toBeNull();
+    expect(card.failed_response_id).toBeNull();
+    expect(card.failed_posting_error).toBeNull();
+  });
 });
 
 describe('groupReplies', () => {

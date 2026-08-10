@@ -55,6 +55,10 @@ const businessId = randomUUID();
 // seed per-run rows here so the suite business's static fixtures (which already
 // include unheld pending_approval drafts) stay an undisturbed baseline.
 const isolatedBusinessId = randomUUID();
+// #731 item 2: a business with NO reviews at all, so the merged denominator
+// query's zero-row aggregate path is exercised. Kept deliberately empty — no
+// test may seed into it.
+const emptyBusinessId = randomUUID();
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('reviews-list integration database was not initialized');
@@ -194,6 +198,11 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
       VALUES (${isolatedBusinessId}::uuid, 'Reviews List Isolated Location', 'Reviews List Owner',
               ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active')
     `;
+    await sql()`
+      INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
+      VALUES (${emptyBusinessId}::uuid, 'Reviews List Empty Location', 'Reviews List Owner',
+              ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active')
+    `;
 
     // Two answered + two unanswered, deliberately interleaved in time so a
     // date-only ORDER BY would put an answered row first.
@@ -233,10 +242,10 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
       // FK order: flagged_responses references responses. The isolated business
       // (#730) is swept with the same ordering — per-test finally blocks should
       // have emptied it already; this is the belt-and-braces net.
-      await sql()`DELETE FROM flagged_responses WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid)`;
-      await sql()`DELETE FROM responses WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid)`;
-      await sql()`DELETE FROM reviews WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid)`;
-      await sql()`DELETE FROM businesses WHERE id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid)`;
+      await sql()`DELETE FROM flagged_responses WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid, ${emptyBusinessId}::uuid)`;
+      await sql()`DELETE FROM responses WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid, ${emptyBusinessId}::uuid)`;
+      await sql()`DELETE FROM reviews WHERE business_id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid, ${emptyBusinessId}::uuid)`;
+      await sql()`DELETE FROM businesses WHERE id IN (${businessId}::uuid, ${isolatedBusinessId}::uuid, ${emptyBusinessId}::uuid)`;
       await cleanupTenantAccount(sql(), tenant);
     }
     await db.end({ timeout: 5 });
@@ -422,5 +431,78 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
       await sql()`DELETE FROM responses WHERE business_id = ${isolatedBusinessId}::uuid`;
       await sql()`DELETE FROM reviews WHERE business_id = ${isolatedBusinessId}::uuid`;
     }
+  });
+
+  // ── #731 item 2: the denominator partition, against live Postgres ───────────
+
+  it('unansweredTotal + answeredTotal equals the location review count exactly', async () => {
+    const view = (await loadPastRepliesPageView(sql(), {
+      accountId: tenant!.accountId,
+      locationId: businessId,
+      page: 1,
+    })) as unknown as ReviewsListView | null;
+
+    const [countRow] = await sql()<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM reviews WHERE business_id = ${businessId}::uuid
+    `;
+
+    // The partition is arithmetically closed, not close-enough: post-#731 both
+    // denominators are COUNT(*) FILTERs over ONE scan, so a review can be
+    // invisible to neither and double-counted by neither.
+    expect(view!.unansweredTotal + view!.answeredTotal).toBe(countRow!.count);
+  });
+
+  it('a review with a posted reply counts once as answered and never also as unanswered', async () => {
+    const reviewId = randomUUID();
+    const responseId = randomUUID();
+    try {
+      await seedReview(reviewId, 4, '2026-04-10T12:00:00Z', REVIEW_STATUS.POSTED, isolatedBusinessId);
+      // ONE posted row is all the schema permits — the partial unique index
+      // `responses_one_posted_per_review` (migration 031) is UNIQUE on
+      // (review_id) WHERE status = 'posted'. The answered side must still count
+      // the review once, because the FILTER predicate is an EXISTS, not a join:
+      // were it a join, the review's other non-posted siblings would each
+      // contribute a row and inflate the denominator past COUNT(*).
+      await sql()`
+        INSERT INTO responses (
+          id, review_id, business_id, response_text, original_draft_text,
+          approved_text, response_language, version, status, approval_method, posted_at
+        ) VALUES (
+          ${responseId}::uuid, ${reviewId}::uuid, ${isolatedBusinessId}::uuid,
+          'Thanks!', 'Thanks!', 'Thanks!', 'en', 1, 'posted', 'owner', NOW()
+        )
+      `;
+
+      const view = (await loadPastRepliesPageView(sql(), {
+        accountId: tenant!.accountId,
+        locationId: isolatedBusinessId,
+        page: 1,
+      })) as unknown as ReviewsListView | null;
+
+      expect(view!.answeredTotal).toBe(1);
+      expect(view!.unansweredTotal).toBe(0);
+      expect(view!.answeredRows.map((r) => r.review_id)).toContain(reviewId);
+      expect(view!.unansweredRows.map((r) => r.review_id)).not.toContain(reviewId);
+    } finally {
+      await sql()`DELETE FROM responses WHERE business_id = ${isolatedBusinessId}::uuid`;
+      await sql()`DELETE FROM reviews WHERE business_id = ${isolatedBusinessId}::uuid`;
+    }
+  });
+
+  it('the merged denominator query returns one row for a location with zero reviews, so avgStarRating stays null', async () => {
+    const view = (await loadPastRepliesPageView(sql(), {
+      accountId: tenant!.accountId,
+      locationId: emptyBusinessId,
+      page: 1,
+    })) as unknown as ReviewsListView | null;
+
+    // An aggregate with no GROUP BY returns exactly ONE row even over zero
+    // input rows, so the three figures are 0 / 0 / NULL rather than undefined.
+    // If this ever reads `undefined`, the merged query grew a GROUP BY.
+    expect(view).not.toBeNull();
+    expect(view!.unansweredTotal).toBe(0);
+    expect(view!.answeredTotal).toBe(0);
+    expect(view!.avgStarRating).toBeNull();
+    expect(view!.totalPages).toBe(1);
   });
 });

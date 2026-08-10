@@ -15,12 +15,13 @@ vi.mock('@/lib/shared/logger', () => ({
   createWorkerLogger: () => ({ log: vi.fn(), warn: mockWarn, error: vi.fn() }),
 }));
 
-// The per-review budget peek is exercised in isolation here — its Redis math is
-// covered by tracker.test.ts. We drive the enforcer's threshold + fail-open
-// behavior directly.
-const mockPeekRegenBudget = vi.fn();
+// The per-review daily cap peek is exercised in isolation here — its Redis math
+// and its swallow-and-log live in src/lib/costs/__tests__/regen-budget-batch.test.ts.
+// #731: the enforcer now calls the BATCHED peek, which never rejects, so an
+// ABSENT MAP ENTRY (not a rejection) is the fail-open signal.
+const mockPeekRegenBudgetBatch = vi.fn();
 vi.mock('@/lib/costs/tracker', () => ({
-  peekRegenBudget: (...args: unknown[]) => mockPeekRegenBudget(...args),
+  peekRegenBudgetBatch: (...args: unknown[]) => mockPeekRegenBudgetBatch(...args),
 }));
 
 import {
@@ -146,14 +147,19 @@ describe('enforceDashboardRegenRateLimit', () => {
 describe('enforceRegenBudgetForReview', () => {
   const REVIEW_ID = 'rev-001';
 
-  it('returns null (allows) when regenerations remain', async () => {
-    mockPeekRegenBudget.mockResolvedValue({ used: 1, limit: 3, remaining: 2 });
+  it('enforceRegenBudgetForReview proceeds when the batched peek reports remaining above zero', async () => {
+    mockPeekRegenBudgetBatch.mockResolvedValue(
+      new Map([[REVIEW_ID, { used: 1, limit: 3, remaining: 2 }]]),
+    );
 
     expect(await enforceRegenBudgetForReview(REVIEW_ID)).toBeNull();
+    expect(mockPeekRegenBudgetBatch).toHaveBeenCalledWith([REVIEW_ID]);
   });
 
-  it('returns a 429 regen_limit_reached no-store response when the daily cap is reached', async () => {
-    mockPeekRegenBudget.mockResolvedValue({ used: 3, limit: 3, remaining: 0 });
+  it('enforceRegenBudgetForReview returns 429 regen_limit_reached when the batched peek reports zero remaining', async () => {
+    mockPeekRegenBudgetBatch.mockResolvedValue(
+      new Map([[REVIEW_ID, { used: 3, limit: 3, remaining: 0 }]]),
+    );
 
     const result = await enforceRegenBudgetForReview(REVIEW_ID);
 
@@ -168,14 +174,19 @@ describe('enforceRegenBudgetForReview', () => {
     expect(body.limit).toBe(3);
   });
 
-  it('FAILS OPEN: returns null when the budget peek throws (worker stays the gate)', async () => {
-    mockPeekRegenBudget.mockRejectedValue(new Error('ECONNREFUSED'));
+  it('enforceRegenBudgetForReview proceeds when the batched peek returns no entry for the review', async () => {
+    // The ONLY fail-open path after #731. An absent MAP ENTRY means the MGET
+    // itself failed, so the advisory peek is UNKNOWN. Distinct from an absent
+    // Redis KEY, which still yields `{ used: 0 }` — inverting the two would 429
+    // every regenerate during an Upstash outage. The authoritative gate is
+    // unaffected: the worker's Lua INCR still refuses over-budget work (D-F).
+    mockPeekRegenBudgetBatch.mockResolvedValue(new Map());
 
     expect(await enforceRegenBudgetForReview(REVIEW_ID)).toBeNull();
   });
 
   it('never leaks the raw review id into the fail-open log', async () => {
-    mockPeekRegenBudget.mockRejectedValue(new Error('ECONNREFUSED'));
+    mockPeekRegenBudgetBatch.mockResolvedValue(new Map());
 
     await enforceRegenBudgetForReview(REVIEW_ID);
 

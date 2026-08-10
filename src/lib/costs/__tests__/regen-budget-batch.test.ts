@@ -125,4 +125,24 @@ describe('peekRegenBudgetBatch', () => {
     expect(statuses.size).toBe(0);
     expect(statuses.get(REVIEW_A)).toBeUndefined();
   });
+
+  it('peekRegenBudgetBatch never rejects, so no caller needs a catch of its own', async () => {
+    const peekRegenBudgetBatch = await loadBatchPeek();
+
+    // Three ways the peek can fail, all of which must resolve rather than throw
+    // — this is the whole reason #731 could delete the single-key peek and its
+    // caller's try/catch (D-F / D10: the swallow lives HERE, once).
+    mockRedis.mget.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(peekRegenBudgetBatch([REVIEW_A])).resolves.toBeInstanceOf(Map);
+
+    mockRedis.mget.mockImplementationOnce(() => {
+      throw new Error('synchronous client construction failed');
+    });
+    await expect(peekRegenBudgetBatch([REVIEW_A])).resolves.toBeInstanceOf(Map);
+
+    // An empty input short-circuits without touching Redis at all.
+    mockRedis.mget.mockClear();
+    await expect(peekRegenBudgetBatch([])).resolves.toBeInstanceOf(Map);
+    expect(mockRedis.mget).not.toHaveBeenCalled();
+  });
 });

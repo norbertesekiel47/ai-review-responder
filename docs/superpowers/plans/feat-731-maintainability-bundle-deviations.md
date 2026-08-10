@@ -66,3 +66,57 @@ yet as an outgoing change, which reads exactly like a revert.
 **Verdict: ACCEPT** (no action; documentation only).
 
 ---
+
+## D3 — Task 1 (EVAL): three defects in the plan's verbatim step code
+
+All three found while authoring the 14 locked titles. The **titles** are
+untouched (`ALL 14 PRESENT` passes); only the plan's surrounding code was wrong.
+
+**(a) `REVIEW_STATUS.RESPONDED` does not exist** — Step 6, title *"a review with a
+posted reply counts once as answered…"*. The canonical vocabulary
+(`src/lib/reviews/status.ts:23-32`) is `new | generating | pending_approval |
+approved | awaiting_manual_post | posted | failed | deleted`. Used
+`REVIEW_STATUS.POSTED`, which is what every existing answered fixture in the same
+suite already seeds (`:200-201`). Left unfixed this was a `TS2339` plus an
+`undefined` bind, not a silent pass.
+
+**(b) Step 6's "Two posted rows for ONE review" is schema-impossible** — the plan's
+own code inserts exactly one, and `responses_one_posted_per_review`
+(`supabase/migrations/031_edit_existing_replies.sql:41-43`, `UNIQUE (review_id)
+WHERE status = 'posted'`) forbids a second. Intake edge case *"A review with
+MULTIPLE posted responses (defensive)"* is therefore **structurally
+unreachable**, not merely untested. Kept the plan's one-row code and rewrote the
+comment to state the index and to re-ground the EXISTS-not-join rationale on the
+review's non-posted siblings. **No new assertion was invented.**
+
+**(c) Step 9's red prediction is wrong: 2 of the 4 `enforceRegenBudgetForReview`
+titles are GREEN today, for the wrong reason.** The plan expected all four to fail
+with `TypeError: peekRegenBudget is not a function`. That TypeError *is* thrown —
+but `dashboard-regen-rate-limit.ts:93-102` **catches it** and returns `null`
+(fail-open). So every title whose only assertion is `toBeNull()` passes:
+
+| Title | Plan | Observed | Why |
+|---|---|---|---|
+| …reports remaining above zero | FAIL | **FAIL** | `toHaveBeenCalledWith([REVIEW_ID])` — 0 calls |
+| …returns 429 …zero remaining | FAIL | **FAIL** | `expected null to be an instance of NextResponse` |
+| …returns no entry for the review | FAIL | **PASS** | swallowed TypeError also returns `null` |
+| never leaks the raw review id (kept) | FAIL | **PASS** | assertion is conditional on a log |
+
+The two greens are *coincidental*, not evidence: nothing today calls the batched
+peek at all. Item 3 still has genuine red cover from the first two titles, and all
+four go green through the intended path once Task 4 rewires the enforcer.
+
+Deliberately **not** "fixed" by adding a call-assertion to the third title: that
+would edit a locked title's body beyond the plan, and title 1 already pins the
+call shape. Flagging for triage instead — the orchestrator may want Task 4's
+verification step to assert `mockPeekRegenBudgetBatch` was called on all three,
+since two of them cannot distinguish rewired-correctly from
+still-broken-but-swallowing.
+
+**Also worth carrying forward (not a deviation):** this suite reads
+`process.env.TEST_DATABASE_POOL_URL` at module scope and vitest loads no dotenv,
+so `.env.local:301` alone does **not** wake it — the var must be exported on the
+command line, exactly as Task 3 Step 5 already notes. A bare
+`pnpm vitest run …integration.test.ts` self-skips.
+
+---

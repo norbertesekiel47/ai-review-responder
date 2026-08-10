@@ -101,6 +101,17 @@ function fakeSql(rows: FakeRows): { sql: Sql; calls: SqlCall[] } {
     const text = strings.join('?');
     calls.push({ text, values });
     if (/AS\s+review_id/i.test(text)) return Promise.resolve(rows.main ?? []);
+    // #731 item 2: the MERGED denominator query — two COUNT(*) FILTERs plus the
+    // AVG over one snapshot. Matched FIRST because its text also matches the
+    // `AVG(` and `COUNT(*)` branches below; dispatching it there would resolve
+    // it to `[{ avg }]` and silently zero both denominators.
+    if (/unanswered_total/i.test(text)) {
+      return Promise.resolve([{
+        unanswered_total: rows.unansweredTotal ?? 0,
+        answered_total: rows.answeredTotal ?? 0,
+        avg_star_rating: rows.avg ?? null,
+      }]);
+    }
     if (/AVG\(/i.test(text)) return Promise.resolve([{ avg: rows.avg ?? null }]);
     if (/COUNT\(\*\)/i.test(text) && /NOT\s+EXISTS/i.test(text)) {
       return Promise.resolve([{ count: rows.unansweredTotal ?? 0 }]);
@@ -184,6 +195,7 @@ function mainQuery(calls: SqlCall[]): SqlCall {
  */
 const ROW_PRODUCING_QUERY_SHAPES = [
   /AS\s+review_id/i,
+  /unanswered_total/i,
   /AVG\(/i,
   /COUNT\(\*\)/i,
   /FROM\s+businesses\s+b/i,
@@ -351,6 +363,37 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     }
     const bizLookup = calls.find((call) => /FROM\s+businesses\s+b/i.test(call.text));
     expect(bizLookup!.values).toContain(ACCOUNT_ID);
+  });
+
+  it('loadPastRepliesPageView issues ONE denominator query, so the two counts and the average share a single snapshot', async () => {
+    const { view, calls } = await loadView({
+      main: [listRow(), answeredRow({ review_id: 'rev-2' })],
+      unansweredTotal: 7,
+      answeredTotal: 3,
+      avg: 4.25,
+    });
+
+    // Exactly TWO data queries now: the single row source and ONE denominator
+    // query. Pre-#731 there were four — two COUNTs and the AVG in a
+    // `Promise.all`, i.e. three snapshots. A reply posted between the
+    // unanswered COUNT and the answered COUNT made a review invisible to both,
+    // deflating totalPages so the page rendered more rows than its own
+    // "N of M" admitted. COUNT(*) FILTER closes the partition arithmetically.
+    const dataQueries = rowProducingQueries(calls).filter(
+      (call) => !/FROM\s+businesses\s+b/i.test(call.text),
+    );
+    expect(dataQueries).toHaveLength(2);
+
+    // The denominator query is the one that is NOT the row source.
+    const denominators = dataQueries.find((call) => !/AS\s+review_id/i.test(call.text))!;
+    expect(denominators.text).toMatch(/COUNT\(\*\)\s*FILTER/i);
+    expect(denominators.text).toMatch(/AVG\(/i);
+    expect(denominators.values).toContain(LOCATION_ID);
+
+    // All three figures survive the merge.
+    expect(view!.unansweredTotal).toBe(7);
+    expect(view!.answeredTotal).toBe(3);
+    expect(view!.avgStarRating).toBe(4.25);
   });
 
   it('loadPastRepliesPageView averages star rating over all reviews, not only replied ones', async () => {
