@@ -236,7 +236,7 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     // pending_approval with an OPEN flagged_responses row. Returning it as
     // `ready` would hand the owner held text plus an `Approve & post` button —
     // the exact release path src/lib/moderation/held-draft.ts exists to block.
-    // The `held` flag is SELECTed, not filtered (D6/D9): filtering would make
+    // The `held` flag is SELECTed, not filtered (D9): filtering would make
     // this route report `idle` for "no draft" and "held draft" alike.
     seedOwned();
     seedRead([{ id: 'resp-held', status: 'pending_approval', response_text: 'Held text', held: true }]);
@@ -276,5 +276,18 @@ describe('GET /api/dashboard/reviews/[reviewId]/draft-status', () => {
     // over-refuse fail-safe but still betray the query's contract.
     const embeddedRef = existsCall!.values[0] as { fragmentText?: string };
     expect(embeddedRef?.fragmentText).toBe('resp.id');
+    // Built is not enough — the fragment must LAND in the executed draft
+    // lookup: a refactor that builds the EXISTS but projects `false AS held`
+    // would otherwise pass. The executed query's captured values must embed
+    // the fragment object the build call returned.
+    const draftLookup = readCalls.find(
+      (c) => /^\s*select\b/i.test(c.text) && c.text.includes('FROM responses'),
+    );
+    expect(draftLookup).toBeDefined();
+    expect(
+      draftLookup!.values.some(
+        (v) => (v as { fragmentText?: string }).fragmentText?.includes('FROM flagged_responses') ?? false,
+      ),
+    ).toBe(true);
   });
 });

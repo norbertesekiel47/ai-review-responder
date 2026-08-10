@@ -438,9 +438,9 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
 // A moderation-held draft (invariant #4) "surfaces neither its text nor any
 // button" — the poller must answer with the owner-visible refusal vocabulary
 // `held_for_review` and never the draft text. src/lib/moderation/held-draft.ts
-// is the semantic owner of "is this draft held"; the read-only poller holds no
-// tx, so it spells the same predicate as a correlated EXISTS on
-// flagged_responses inside the tenant-scoped response lookup.
+// is the semantic owner of "is this draft held"; the poller composes its
+// openFlagExistsSql fragment (#730) into the tenant-scoped response lookup,
+// projected as `held`.
 
 // Unique sentinels: heldness refusals assert these appear NOWHERE in the
 // serialized body — a leak of either is an invariant #4 violation.
@@ -570,6 +570,24 @@ describe('GET /api/dashboard/past-replies/draft-status — moderation-held draft
     const existsCall = readCalls.find((call) => joinTemplate(call).includes('FROM flagged_responses'));
     expect(existsCall).toBeDefined();
     expect(joinTemplate(existsCall as unknown[])).toContain("fr.status = 'open'");
+    // Symmetry with the reviews-route #9: the EXISTS build call embeds the
+    // outer `responses.id` ref fragment.
+    const embeddedRef = (existsCall as unknown[])[1] as { fragmentText?: string };
+    expect(embeddedRef?.fragmentText).toBe('responses.id');
+    // Built is not enough — the fragment must LAND in the executed response
+    // lookup: a refactor that builds the EXISTS but projects `false AS held`
+    // would otherwise pass. mock.calls entries are raw arg arrays
+    // `[strings, ...values]`, so the executed call's values are `.slice(1)`.
+    const responseLookup = readCalls.find((call) => {
+      const text = joinTemplate(call);
+      return /^\s*select\b/i.test(text) && text.includes('FROM responses');
+    });
+    expect(responseLookup).toBeDefined();
+    expect(
+      (responseLookup as unknown[])
+        .slice(1)
+        .some((v) => (v as { fragmentText?: string }).fragmentText?.includes('FROM flagged_responses') ?? false),
+    ).toBe(true);
   });
 
   it('returns 403 with no heldness signal when the held response belongs to another tenant', async () => {
