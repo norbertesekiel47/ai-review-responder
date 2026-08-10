@@ -51,7 +51,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
         <div className="content content--timeline">
           <LiveRegion message={message} level="assertive" />
           <section className="card timeline-error">
-            <h1>Unable to load this timeline</h1>
+            <h2>Unable to load this timeline</h2>
             <p>{message}</p>
             <button
               type="button"
@@ -77,7 +77,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
   return (
     <>
       <TopBar title="Review timeline" subtitle="A record of how your agent team handled this review." />
-      <main className="content content--timeline">
+      <div className="content content--timeline">
         <Link className="timeline-back-link" href="/dashboard/reviews">
           <BackIcon />
           Back to reviews
@@ -87,7 +87,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
           <div className="timeline-review__primary">
             <div>
               <p className="timeline-review__eyebrow">Review</p>
-              <h1 id="timeline-review-heading">{reviewerName}</h1>
+              <h2 id="timeline-review-heading">{reviewerName}</h2>
             </div>
             <ReviewRating rating={timeline.review.rating} />
           </div>
@@ -155,7 +155,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
             ))}
           </section>
         )}
-      </main>
+      </div>
     </>
   );
 }

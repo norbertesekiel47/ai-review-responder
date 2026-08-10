@@ -19,6 +19,8 @@ import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { multiLocationEnabled } from '@/lib/locations/flags';
 import { AddLocationWizard } from './AddLocationWizard';
+import '@/app/(authenticated)/_styles/settings.css';
+import '@/app/(authenticated)/_styles/wizard.css';
 
 export const dynamic = 'force-dynamic';
 

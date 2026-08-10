@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { apiErrorMessage, readJsonObject, type JsonObject } from '@/lib/client-response';
 
 type ReasonCode = 'too_expensive' | 'missing_features' | 'switched_service' | 'unused' | 'other';
 
@@ -17,6 +18,16 @@ interface DeleteDataOffboardingModalProps {
   idempotencyKey: string;
   onClose: () => void;
   onConfirmed: (offboarding: { id: string; mode: string; status: string }) => void;
+}
+
+function readConfirmedOffboarding(body: JsonObject): { id: string; mode: string; status: string } | null {
+  const value = body.offboarding;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as JsonObject;
+  if (typeof record.id !== 'string' || typeof record.mode !== 'string' || typeof record.status !== 'string') {
+    return null;
+  }
+  return { id: record.id, mode: record.mode, status: record.status };
 }
 
 export function DeleteDataOffboardingModal({
@@ -45,9 +56,9 @@ export function DeleteDataOffboardingModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       });
-      const freshBody = await freshAuth.json().catch(() => ({}));
       if (!freshAuth.ok) {
-        throw new Error(freshBody.detail ?? freshBody.error ?? 'Unable to verify password');
+        const freshBody = await readJsonObject(freshAuth);
+        throw new Error(apiErrorMessage(freshBody, 'Unable to verify password', freshAuth.status));
       }
 
       const confirm = await fetch('/api/account/offboarding/confirm', {
@@ -62,12 +73,16 @@ export function DeleteDataOffboardingModal({
           confirmationText: 'DELETE DATA',
         }),
       });
-      const confirmBody = await confirm.json().catch(() => ({}));
       if (!confirm.ok) {
-        throw new Error(confirmBody.detail ?? confirmBody.error ?? 'Unable to request data deletion');
+        const confirmBody = await readJsonObject(confirm);
+        throw new Error(apiErrorMessage(confirmBody, 'Unable to request data deletion', confirm.status));
       }
 
-      onConfirmed(confirmBody.offboarding ?? { id: 'pending', mode: 'delete_data', status: 'pending' });
+      const confirmBody = await readJsonObject(confirm);
+      onConfirmed(
+        readConfirmedOffboarding(confirmBody)
+          ?? { id: 'pending', mode: 'delete_data', status: 'pending' },
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to request data deletion');
       setSubmitting(false);
@@ -86,33 +101,33 @@ export function DeleteDataOffboardingModal({
         Delete RepWorth data?
       </div>
       <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           This stops review processing immediately.
         </p>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           RepWorth cancels billing and disconnects Google publishing before deletion.
         </p>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           Data enters a 30-day deletion window. During that window, you can keep your data but product access is not restored.
         </p>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           We retain records we are legally required to keep, including billing, audit, security, and abuse-prevention records.
         </p>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           The current billing period is forfeited and non-refundable.
         </p>
-        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.5, margin: 0 }}>
+        <p className="settings-body-copy">
           There is no self-serve export. Contact support before deleting data if you need records.
         </p>
       </div>
 
       <fieldset style={{ border: 0, padding: 0, margin: '0 0 12px' }}>
-        <legend style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+        <legend style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 8 }}>
           Main reason
         </legend>
         <div style={{ display: 'grid', gap: 6 }}>
           {REASON_OPTIONS.map((option) => (
-            <label key={option.value} style={{ display: 'flex', gap: 8, fontSize: 13, color: '#374151' }}>
+            <label key={option.value} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--rw-app-text)' }}>
               <input
                 type="radio"
                 name="delete-data-reason"
@@ -127,7 +142,7 @@ export function DeleteDataOffboardingModal({
         </div>
       </fieldset>
 
-      <label style={{ display: 'grid', gap: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>
+      <label style={{ display: 'grid', gap: 6, fontSize: 13, color: 'var(--rw-app-text)', marginBottom: 12 }}>
         Password
         <input
           type="password"
@@ -139,7 +154,7 @@ export function DeleteDataOffboardingModal({
         />
       </label>
 
-      <label style={{ display: 'grid', gap: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>
+      <label style={{ display: 'grid', gap: 6, fontSize: 13, color: 'var(--rw-app-text)', marginBottom: 12 }}>
         Type DELETE DATA
         <input
           type="text"
@@ -151,7 +166,7 @@ export function DeleteDataOffboardingModal({
       </label>
 
       {error && (
-        <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>
+        <div className="settings-error-copy settings-error-copy--compact settings-error-copy--modal">
           {error}
         </div>
       )}

@@ -28,22 +28,22 @@
   font-weight: 600;
   font-family: var(--rw-font-display);
   background: var(--rw-app-border-soft);
-  color: #9CA3AF;
-  transition: all 200ms var(--rw-ease);
+  color: var(--rw-app-text-soft);
+  transition: background-color 200ms var(--rw-ease), box-shadow 200ms var(--rw-ease), color 200ms var(--rw-ease);
 }
 .wizard-step-dot.active {
   background: var(--rw-accent-600);
-  color: #fff;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+  color: var(--rw-on-accent);
+  box-shadow: 0 0 0 4px var(--rw-focus-ring);
 }
 .wizard-step-dot.done {
-  background: #DCFCE7;
-  color: #166534;
+  background: var(--rw-green-100);
+  color: var(--rw-green-800);
 }
 
 /* ── Wizard panel (card) ────────────────────────────────────────────────── */
 .wizard-panel {
-  background: #fff;
+  background: var(--rw-card);
   border: 1px solid var(--rw-app-border);
   border-radius: 12px;
   box-shadow: var(--rw-shadow-sm);
@@ -70,11 +70,11 @@
 .wizard-error {
   margin-top: 16px;
   padding: 10px 14px;
-  background: #FEF2F2;
-  border: 1px solid #FECACA;
+  background: var(--rw-danger-soft);
+  border: 1px solid var(--rw-danger);
   border-radius: 8px;
   font-size: 13px;
-  color: #991B1B;
+  color: var(--rw-danger);
 }
 
 .wizard-success {
@@ -83,12 +83,20 @@
   gap: 8px;
   margin-top: 16px;
   padding: 10px 14px;
-  background: #F0FDF4;
-  border: 1px solid #BBF7D0;
+  background: var(--rw-success-bg);
+  border: 1px solid var(--rw-success-border);
   border-radius: 8px;
   font-size: 13px;
-  color: #166534;
+  color: var(--rw-green-800);
 }
+
+.wizard-inline-link {
+  color: var(--rw-accent-fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wizard-inline-link:hover { color: var(--rw-accent-800); }
 
 /* ── Skip button ────────────────────────────────────────────────────────── */
 .wizard-skip-btn {
@@ -185,12 +193,12 @@
 
 /* ── Input error state ──────────────────────────────────────────────────── */
 .input-error {
-  border-color: #FCA5A5 !important;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+  border-color: var(--rw-danger) !important;
+  box-shadow: 0 0 0 3px var(--rw-danger-soft) !important;
 }
 .field-error {
   font-size: 12px;
-  color: #DC2626;
+  color: var(--rw-danger);
   margin-top: 2px;
 }
 
@@ -203,13 +211,13 @@
   font-size: 14px;
   font-family: var(--rw-font-body);
   color: var(--rw-app-text);
-  background: #fff;
+  background: var(--rw-white);
   appearance: auto;
 }
 .select:focus {
   outline: none;
-  border-color: var(--rw-accent-500);
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  border-color: var(--rw-focus);
+  box-shadow: 0 0 0 3px var(--rw-focus-ring);
 }
 
 /* ── Spinner ─────────────────────────────────────────────────────────────── */
@@ -217,8 +225,8 @@
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
+  border: 2px solid color-mix(in srgb, var(--rw-on-accent) 30%, transparent);
+  border-top-color: var(--rw-white);
   border-radius: 50%;
   animation: wizard-spin 600ms linear infinite;
   vertical-align: middle;
@@ -226,6 +234,18 @@
 }
 @keyframes wizard-spin {
   to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+  .wizard-panel .tone-chip,
+  .select { transition: none; }
+}
+
+@media (any-pointer: coarse) {
+  .wizard-panel .tone-chip,
+  .wizard-actions .btn,
+  .select { min-height: 44px; }
 }
 
 /* ── Tone grid (overrides from settings.css for wizard context) ──────────── */
@@ -239,18 +259,18 @@
   padding: 6px 14px;
   border-radius: 9999px;
   border: 1px solid var(--rw-app-border);
-  background: #fff;
+  background: var(--rw-white);
   cursor: pointer;
   font-family: var(--rw-font-body);
   color: var(--rw-app-text);
-  transition: all 160ms var(--rw-ease);
+  transition: background-color 160ms var(--rw-ease), border-color 160ms var(--rw-ease), color 160ms var(--rw-ease);
 }
 .wizard-panel .tone-chip:hover {
   border-color: var(--rw-accent-300);
 }
 .wizard-panel .tone-chip.active {
   background: var(--rw-accent-600);
-  color: #fff;
+  color: var(--rw-white);
   border-color: var(--rw-accent-600);
 }
 
@@ -275,14 +295,14 @@
   height: 28px;
   border: none;
   background: none;
-  color: #9CA3AF;
+  color: var(--rw-app-text-soft);
   cursor: pointer;
   border-radius: 6px;
-  transition: all 160ms var(--rw-ease);
+  transition: background-color 160ms var(--rw-ease), color 160ms var(--rw-ease);
 }
 .wizard-panel .list-row-x:hover {
-  background: #FEF2F2;
-  color: #DC2626;
+  background: var(--rw-danger-soft);
+  color: var(--rw-danger);
 }
 .wizard-panel .list-add {
   display: inline-flex;

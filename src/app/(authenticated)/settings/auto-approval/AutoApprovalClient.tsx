@@ -22,6 +22,7 @@ import type {
   AutoApprovalThreshold,
   VetoWindowMinutes,
 } from '@/lib/auto-approval/types';
+import { readJsonObject } from '@/lib/client-response';
 
 const THRESHOLD_OPTIONS: Array<{ value: AutoApprovalThreshold | null; label: string }> = [
   { value: null, label: 'Off' },
@@ -149,11 +150,12 @@ export function AutoApprovalClient({ initialState }: Props) {
           ...(confirmationLevel ? { confirmationLevel } : {}),
         }),
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const body = await readJsonObject(res);
         throw new Error(errorMessage(body, res.status));
       }
-      dispatch({ type: 'save_succeeded', data: body as AutoApprovalSettingsResponse });
+      const body = await readJsonObject(res);
+      dispatch({ type: 'save_succeeded', data: body as unknown as AutoApprovalSettingsResponse });
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
       flashTimeoutRef.current = setTimeout(() => dispatch({ type: 'clear_saved_flash' }), 1800);
     } catch (error) {
@@ -380,7 +382,7 @@ export function AutoApprovalClient({ initialState }: Props) {
       </section>
 
       {saveError && (
-        <p style={{ fontSize: 13, color: '#DC2626', marginTop: -8 }}>{saveError}</p>
+        <p className="settings-error-copy settings-error-copy--before">{saveError}</p>
       )}
 
       {pendingConfirmation?.kind === 'exposure_expansion' && (
@@ -392,7 +394,7 @@ export function AutoApprovalClient({ initialState }: Props) {
           <div className="set-section-title" style={{ marginBottom: 8 }}>
             Confirm auto-approval change
           </div>
-          <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
             This expands auto-approval for {pendingConfirmation.label}. Matching rated reviews can post to Google automatically without owner review when safety, billing, active location, and Google connection checks pass.
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
@@ -419,7 +421,7 @@ export function AutoApprovalClient({ initialState }: Props) {
           <div className="set-section-title" style={{ marginBottom: 8 }}>
             Give this location its own settings?
           </div>
-          <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
             This gives {pendingConfirmation.label} its own settings — it switches to manual approval until you pick a threshold for it.
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>

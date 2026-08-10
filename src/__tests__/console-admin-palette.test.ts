@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 //   - src/app/(authenticated)/dashboard/connect/page.tsx        (P0 #10)
 //   - chart SERIES color #ea580c (RankingChart, AggregateVelocityCard,
 //     tokens.css --rw-chart-5)                                  (data-viz)
-//   - review stars: dashboard token --rw-star is Warm Editorial gold #D4A24C (2026-06 redesign);
+//   - review stars: dashboard token --rw-star is accessible Warm Editorial gold #9A691D;
 //     marketing/auth/admin glyphs stay teal #97B3AE — all locked by no-yellow-star-colors.test.ts
 const SWEPT_FILES = [
   // Owner Console — token system

@@ -31,9 +31,11 @@ authoritative enforcement layer.
 ## typecheck-on-stop.sh
 
 The policy is portable: fingerprint dirty TypeScript files, run typecheck and
-changed-file ESLint once per state, and feed failures back. The Codex port
-derives the repository root from Git and uses the session ID from the stop
-payload. CI and pre-push checks remain the stronger enforcement layer.
+changed-file ESLint once per state, and feed failures back. Deleted TypeScript
+files still trigger the project typecheck but are excluded from ESLint's file
+arguments; untracked TypeScript files remain included. The Codex port derives
+the repository root from Git and uses the session ID from the stop payload. CI
+and pre-push checks remain the stronger enforcement layer.
 
 ## Global cbm hooks
 

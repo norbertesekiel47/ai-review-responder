@@ -83,8 +83,8 @@ export function TopBar({
 
   return (
     <div className="topbar">
-      <div>
-        <div className="page-title">{title}</div>
+      <div className="topbar-heading">
+        <h1 className="page-title">{title}</h1>
         {subtitle && <div className="page-sub">{subtitle}</div>}
       </div>
       {/* Mobile LocationPicker — rendered between title and spacer on mobile.
@@ -94,30 +94,33 @@ export function TopBar({
           <LocationPicker compact singleLocationLabel={businessName} />
         </div>
       )}
-      <div className="topbar-spacer" />
-      {children && <div className="topbar-actions">{children}</div>}
-      {showLive && (
-        <>
-          <span className="live-pill">
-            <span className="live-dot" />
-            Live · syncs in {secondsToRefresh}s
-          </span>
-          <button
-            type="button"
-            className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
-            onClick={() => void doRefresh(false)}
-          >
-            <span className="refresh-icon" style={{ display: 'inline-flex' }}>
-              <Icon name="refresh" size={14} />
-            </span>
-            Refresh
-          </button>
-        </>
-      )}
-      {rightLink && (
-        <Link href={rightLink.href} className="refresh-btn">
-          <Icon name="home" size={14} /> {rightLink.label}
-        </Link>
+      {(children || showLive || rightLink) && (
+        <div className="topbar-controls">
+          {children && <div className="topbar-actions">{children}</div>}
+          {showLive && (
+            <>
+              <span className="live-pill">
+                <span className="live-dot" aria-hidden="true" />
+                Live · syncs in {secondsToRefresh}s
+              </span>
+              <button
+                type="button"
+                className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
+                onClick={() => void doRefresh(false)}
+              >
+                <span className="refresh-icon" style={{ display: 'inline-flex' }}>
+                  <Icon name="refresh" size={14} />
+                </span>
+                Refresh
+              </button>
+            </>
+          )}
+          {rightLink && (
+            <Link href={rightLink.href} className="refresh-btn">
+              <Icon name="home" size={14} /> {rightLink.label}
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

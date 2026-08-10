@@ -525,6 +525,18 @@
       // differently by design (different data + richness).
       "src/components/dashboard/aggregate/AggregateIntelligenceBriefCard.tsx",
       "src/components/dashboard/kpi/IntelligenceBriefCard.tsx",
+      // AggregateVelocityCard ↔ VelocityCard / VelocityChart (design-audit PR):
+      // same aggregate-vs-per-location family as the IntelligenceBrief pair
+      // above. All three clone groups pre-exist on main in substance (verified
+      // with `git show origin/main:<path>`): the shared "Review Velocity" card
+      // chrome + KpiSummary row mirror VelocityCard by design (an account-level
+      // stacked view of the same metric), and the y-tick gridline block mirrors
+      // VelocityChart's. The audit PR only added `id:` to the datum shape,
+      // aria-pressed on the toggle, and the sr-only data tables, which re-keyed
+      // the pre-existing groups into the new-only gate. ONE side listed (the
+      // aggregate card) so the canonical per-location components stay visible
+      // to `fallow dupes`.
+      "src/components/dashboard/aggregate/AggregateVelocityCard.tsx",
 
       // Landing/marketing sections: shared animation/section scaffold (count-up
       // already consolidated); section structure kept readable per-section.
@@ -745,6 +757,19 @@
       // admin React component to the email template module. Ignoring the admin
       // side keeps the email helper visible.
       "src/app/admin/businesses/*/_components/ReviewsList.tsx",
+
+      // ── Authenticated-dashboard design audit (PR #747) ──
+      // Step3Voice.tsx:111-134 ↔ BrandVoicePanel.tsx:86-108 — the avoid-facts /
+      // sample-replies set-section + ListEditor blocks. Pre-existing on main
+      // (verified with `git show origin/main:<path>`; the audit PR's only edit
+      // to Step3Voice is one color-token swap). The wizard step deliberately
+      // mirrors the Brand Voice settings panel so a new location's voice form
+      // looks identical to the panel owners already know; the two diverge in
+      // copy ("One per line.") and form-state plumbing (wizard callbacks vs the
+      // panel's useSettingsForm), so extraction would be a config-knobbed
+      // wrapper the design rules reject. Ignoring the wizard side keeps
+      // BrandVoicePanel — the canonical settings surface — visible.
+      "src/app/(authenticated)/dashboard/add-location/wizard/steps/Step3Voice.tsx",
 
       // ── MFA recovery step-up (fix-mfa-recovery-step-up) ──
       // useMfaEnrollment.ts:50-58 (normalizeFactors) ↔ mfa.ts:76-84

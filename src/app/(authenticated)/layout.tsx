@@ -23,9 +23,6 @@ import {
 } from '@/lib/shared/request-path-header';
 import './_styles/tokens.css';
 import './_styles/console.css';
-import './_styles/past-replies.css';
-import './_styles/settings.css';
-import './_styles/wizard.css';
 
 // Warm Editorial: Young Serif is display-only (single weight 400) — page titles,
 // stat numerals, section/card headings. DM Sans carries all body/UI text.
@@ -108,7 +105,8 @@ export default async function AuthenticatedLayout({
             multiLocationEnabled={false}
             enableLocationProvider={false}
           >
-            <div className="main">{children}</div>
+            <a className="skip-link" href="#main-content">Skip to main content</a>
+            <main className="main" id="main-content">{children}</main>
           </AuthenticatedProviders>
         </div>
       );
@@ -178,6 +176,7 @@ export default async function AuthenticatedLayout({
         multiLocationEnabled={multiLocationEnabled}
       >
         <PendingCountProvider initialCount={initialPendingCount}>
+          <a className="skip-link" href="#main-content">Skip to main content</a>
           <div className="shell">
             <Sidebar
               businessName={businessName}
@@ -185,7 +184,7 @@ export default async function AuthenticatedLayout({
               ownerEmail={ownerEmail}
               solicitationEnabled={solicitationEnabled}
             />
-            <div className="main">{children}</div>
+            <main className="main" id="main-content">{children}</main>
           </div>
           <MobileTabBar solicitationEnabled={solicitationEnabled} />
         </PendingCountProvider>

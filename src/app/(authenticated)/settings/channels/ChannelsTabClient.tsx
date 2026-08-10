@@ -81,9 +81,9 @@ export function ChannelsTabClient(props: Props) {
     return (
       <SettingsShell>
         <ChannelsClient {...props} />
-        <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
-          <div className="set-section-title" style={{ color: '#991B1B' }}>Couldn&apos;t load notification preferences</div>
-          <p style={{ fontSize: 13, color: '#B91C1C' }}>{f.fetchError}</p>
+        <div className="set-section set-section--error">
+          <div className="set-section-title settings-error-title">Couldn&apos;t load notification preferences</div>
+          <p className="settings-error-copy">{f.fetchError}</p>
         </div>
       </SettingsShell>
     );
@@ -203,7 +203,7 @@ export function ChannelsTabClient(props: Props) {
       </div>
 
       {f.saveError && (
-        <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{f.saveError}</p>
+        <p className="settings-error-copy settings-error-copy--after">{f.saveError}</p>
       )}
     </SettingsShell>
   );

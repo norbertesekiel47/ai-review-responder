@@ -26,11 +26,11 @@ export function Step2GoogleBusiness({ onNext }: Step2GoogleBusinessProps) {
             <p style={{ fontWeight: 500, marginBottom: 4 }}>
               Connect later from Settings
             </p>
-            <p style={{ color: '#6B7280', fontSize: 14 }}>
+            <p style={{ color: 'var(--rw-app-text-muted)', fontSize: 14 }}>
               After creating your location, go to{' '}
               <Link
                 href="/dashboard/connect"
-                style={{ color: 'var(--color-teal-500, #0D9488)', textDecoration: 'underline' }}
+                className="wizard-inline-link"
               >
                 Connect
               </Link>{' '}

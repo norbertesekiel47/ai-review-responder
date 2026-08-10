@@ -530,6 +530,24 @@ describe('AutoApprovalClient', () => {
     expect(remountedCap).toHaveAttribute('placeholder', 'Default (10)');
   });
 
+  it('surfaces a status-bearing fallback when a save failure is not JSON', async () => {
+    const json = vi.fn();
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'Content-Type': 'text/html' }),
+      json,
+    } as unknown as Response);
+    const user = userEvent.setup();
+
+    render(<AutoApprovalClient initialState={baseState} />);
+    await user.selectOptions(screen.getByLabelText('Account default policy'), '4');
+    await user.click(await screen.findByRole('button', { name: 'Confirm auto-approval' }));
+
+    expect((await screen.findAllByText('Save failed (502)')).length).toBeGreaterThan(0);
+    expect(json).not.toHaveBeenCalled();
+  });
+
   it('daily cap expansion commits after blur confirmation with the exact PATCH body', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({
       ...baseState,

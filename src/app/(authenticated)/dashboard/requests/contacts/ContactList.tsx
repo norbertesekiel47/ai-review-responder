@@ -629,7 +629,7 @@ const ROW_CONFIRM_TONE: Record<
     wash: 'var(--rw-danger-soft)',
     messageColor: 'var(--rw-danger)',
     confirmClassName: 'btn',
-    confirmStyle: { background: 'var(--rw-danger)', color: '#FDFBF7' },
+    confirmStyle: { background: 'var(--rw-danger)', color: 'var(--rw-on-accent)' },
   },
   accent: {
     wash: 'var(--rw-accent-50)',

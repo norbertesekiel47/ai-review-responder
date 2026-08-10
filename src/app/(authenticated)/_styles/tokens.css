@@ -23,7 +23,7 @@
      Consumed by the Console surface; globals.css doesn't declare these, so they
      live here. Island colors (--rw-sage/teal/peach/cream/ink/…) are NOT
      re-declared — the app inherits them by fall-through from globals.css. */
-  --rw-star:  #D4A24C;        /* review star glyph — warm gold, never garish #eab308 */
+  --rw-star:  #9A691D;        /* review star glyph — warm gold, 4.68:1 on card */
   --rw-white: #FFFFFF;        /* opaque white surface */
   --rw-text:  var(--rw-ink);  /* generic text → Island --rw-ink (globals.css) = #2a2a2a */
 
@@ -42,19 +42,29 @@
   --rw-hair-2:          rgba(80, 60, 40, 0.14);
   --rw-app-text:        #2A2118;  /* espresso ink */
   --rw-app-text-muted:  #6B5E50;  /* warm muted */
-  --rw-app-text-soft:   #9C8E7E;  /* warm faint */
+  --rw-app-text-soft:   #716457;  /* secondary text, AA on Console surfaces */
+  --rw-app-text-hover:  #3D3122;
+  --rw-on-accent:       #FFFDF9;  /* light text on dark semantic fills */
+  --rw-on-dark-muted:   #D8CFC4;  /* secondary text on espresso overlays */
+  --rw-overlay:         rgba(42, 33, 24, 0.48);
+  --rw-field-glass:     rgba(253, 251, 247, 0.82);
+  --rw-floating-surface: rgba(255, 253, 249, 0.95);
+  --rw-focus:           #557069;  /* keyboard focus, 5.29:1 on app surface */
+  --rw-focus-ring:      rgba(85, 112, 105, 0.20);
+  --rw-control-hover:   #F3EFE8;
+  --rw-control-surface: #F8F4ED;
 
   /* Warm Editorial accents. The bare sage base is the Island --rw-sage in
      globals.css; the Console surface uses only the -deep / -soft / -line family. */
-  --rw-sage-deep:       #5E7C76;
+  --rw-sage-deep:       #527069;  /* accessible text/icon sage, 5.33:1 on card */
   --rw-sage-soft:       rgba(151, 179, 174, 0.16);
   --rw-sage-line:       rgba(151, 179, 174, 0.34);
   --rw-blush:           #F2C3B9;
-  --rw-blush-deep:      #A85F4E;
+  --rw-blush-deep:      #934D3F;  /* accessible on blush-soft, 5.45:1 */
   --rw-blush-soft:      #FBEDE9;
-  --rw-danger:          #B4493A;  /* terracotta, never pure red */
+  --rw-danger:          #A64033;  /* terracotta, 5.11:1 on danger wash */
   --rw-danger-soft:     #F7E6E2;  /* danger wash */
-  --rw-violet:          #8A76B8;  /* auto-approved provenance */
+  --rw-violet:          #6F579E;  /* Insights provenance, 5.85:1 on card */
   --rw-violet-soft:     #EFEAF6;
 
   /* App layout — sidebar width. The sticky save-bar's `left` offset derives
@@ -64,13 +74,13 @@
   /* Primary accent (Warm Editorial SAGE). Renamed from the misleading --rw-blue-*
      in the design-token-utilities PR (audit #3) — the values were always sage,
      never blue. Consumed via var(--rw-accent-*) in console.css + components. */
-  --rw-accent-600:   #5E7C76;  /* primary accent — active nav, links, CTAs */
+  --rw-accent-600:   #527069;  /* primary accent — active nav, links, CTAs */
   --rw-accent-700:   #527069;  /* hover */
   --rw-accent-500:   #97B3AE;  /* focus ring, accent border */
   --rw-accent-100:   #E4ECEA;  /* accent badge bg */
   --rw-accent-50:    rgba(151, 179, 174, 0.16);  /* accent panel bg */
   --rw-accent-800:   #4A615C;  /* accent badge text */
-  --rw-accent-fg:    #5E7C76;
+  --rw-accent-fg:    #527069;
   --rw-accent:     var(--rw-accent-600);
   --rw-accent-soft: var(--rw-accent-50);
 
@@ -79,8 +89,28 @@
   --rw-green-100:  #DCFCE7;  /* badge: posted */
   --rw-green-800:  #166534;
 
+  --rw-success-bg:     #F0FDF4;
+  --rw-success-border: #BBF7D0;
+  --rw-success-shadow: rgba(22, 101, 52, 0.32);
+
   --rw-yellow-100: #FEF9C3;  /* badge: pending_approval */
   --rw-yellow-800: #854D0E;
+
+  --rw-warning-bg:            #FFFBEB;
+  --rw-warning-soft:          #FEF3C7;
+  --rw-warning-border:        #FDE68A;
+  --rw-warning-border-strong: #FCD34D;
+  --rw-warning-fg:            #92400E;
+  --rw-warning-fg-strong:     #78350F;
+  --rw-warning-icon:          #B45309;
+  --rw-warning-action-hover:  #451A03;
+  --rw-warning-highlight:     #FEF08A;
+
+  --rw-info-bg:      #EFF6FF;
+  --rw-info-border:  #BFDBFE;
+  --rw-info-fg:      #1E3A8A;
+  --rw-info-fg-soft: #1E40AF;
+  --rw-info-link:    #1D4ED8;
 
   /* Attention / awaiting state — brand blush #F2C3B9 (replaces the old banned
      palette). Owner-facing: ConnectGoogleBanner reconnect banner + the
@@ -175,7 +205,7 @@
   /* ---------- Motion ---------- */
   --rw-ease:        cubic-bezier(0.25, 0.46, 0.45, 0.94); /* easeOut */
   --rw-ease-inout:  cubic-bezier(0.42, 0, 0.58, 1);       /* easeInOut */
-  --rw-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);       /* warm spring */
+  --rw-ease-decelerate: cubic-bezier(0.32, 0.72, 0, 1);   /* confident arrival, no overshoot */
   --rw-dur-fast:    200ms;
   --rw-dur-base:    500ms;  /* carousel, card flips */
   --rw-dur-slow:    800ms;  /* hero intro */
@@ -200,7 +230,7 @@
 .rw-app h1 { font: var(--rw-app-h1); color: var(--rw-app-text); }
 .rw-app h2 { font: var(--rw-app-h2); color: var(--rw-app-text); }
 .rw-app h3 { font: var(--rw-app-h3); color: var(--rw-app-text); }
-.rw-app label { font: var(--rw-app-label); color: #374151; }
+.rw-app label { font: var(--rw-app-label); color: var(--rw-app-text); }
 .rw-app .stat { font: var(--rw-app-stat); }
 .rw-app .muted { color: var(--rw-app-text-muted); }
 .rw-app code, .rw-app .mono { font-family: var(--rw-font-mono); }

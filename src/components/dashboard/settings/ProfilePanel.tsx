@@ -61,7 +61,7 @@ export function ProfilePanel({ data }: Props) {
               value={data.settings.googlePlaceId}
               disabled
               readOnly
-              style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 }}
+              style={{ fontFamily: 'var(--rw-font-mono)', fontSize: 12 }}
             />
             <button type="button" className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy}>
               {copied ? (

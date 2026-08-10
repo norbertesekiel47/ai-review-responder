@@ -24,6 +24,8 @@ describe('ToneChipPicker', () => {
     render(<ToneChipPicker tone="thunderously regal" onChange={() => {}} />);
     expect(screen.getAllByRole('button')).toHaveLength(6);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /custom/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /professional/i })).toHaveAttribute('aria-pressed', 'false');
   });
   it('calls onChange with canonical tone when picking a preset', async () => {
     const onChange = vi.fn();

@@ -18,8 +18,8 @@ export function DeleteDataPanel() {
 
   if (loadError) {
     return (
-      <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
-        <div style={{ fontSize: 13, color: '#B91C1C' }}>{loadError}</div>
+      <div className="set-section set-section--error">
+        <div className="settings-error-copy">{loadError}</div>
       </div>
     );
   }
@@ -42,16 +42,16 @@ export function DeleteDataPanel() {
       </div>
 
       {isDeleting ? (
-        <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, margin: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text)', lineHeight: 1.5, margin: 0 }}>
           Data deletion is in progress. We&apos;ll email you when it completes.
         </p>
       ) : isCancelScheduled ? (
-        <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, margin: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--rw-app-text)', lineHeight: 1.5, margin: 0 }}>
           You have a scheduled cancellation. Reactivate it, or wait until it completes, before deleting data.
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, margin: 0 }}>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text)', lineHeight: 1.5, margin: 0 }}>
             This removes your account data and cannot be undone.
           </p>
           <button

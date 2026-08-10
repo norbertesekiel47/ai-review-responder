@@ -50,6 +50,7 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
         <button
           type="button"
           className={`tab ${mode === 'aggregate' ? 'active' : ''}`}
+          aria-pressed={mode === 'aggregate'}
           onClick={() => setMode('aggregate')}
           style={{ padding: '4px 12px', fontSize: 12 }}
         >
@@ -58,6 +59,7 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
         <button
           type="button"
           className={`tab ${mode === 'per-location' ? 'active' : ''}`}
+          aria-pressed={mode === 'per-location'}
           onClick={() => setMode('per-location')}
           style={{ padding: '4px 12px', fontSize: 12 }}
         >

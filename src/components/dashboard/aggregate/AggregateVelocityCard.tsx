@@ -37,6 +37,7 @@ export function AggregateVelocityCard({ reviewVelocity, perLocationVelocity }: P
   const [mode, setMode] = useState<'total' | 'stacked'>('total');
 
   const data = reviewVelocity.map((r, i) => ({
+    id: r.weekStart,
     label: weekShortLabel(r.weekStart, i, reviewVelocity.length),
     count: r.count,
   }));
@@ -56,6 +57,7 @@ export function AggregateVelocityCard({ reviewVelocity, perLocationVelocity }: P
         <button
           type="button"
           className={`tab ${mode === 'total' ? 'active' : ''}`}
+          aria-pressed={mode === 'total'}
           onClick={() => setMode('total')}
           style={{ padding: '4px 12px', fontSize: 12 }}
         >
@@ -64,6 +66,7 @@ export function AggregateVelocityCard({ reviewVelocity, perLocationVelocity }: P
         <button
           type="button"
           className={`tab ${mode === 'stacked' ? 'active' : ''}`}
+          aria-pressed={mode === 'stacked'}
           onClick={() => setMode('stacked')}
           style={{ padding: '4px 12px', fontSize: 12 }}
         >
@@ -120,10 +123,37 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
+      <table className="sr-only">
+        <caption>Review velocity by location</caption>
+        <thead>
+          <tr>
+            <th scope="col">Week</th>
+            {perLocationVelocity.map((location) => <th key={location.locationId} scope="col">{location.displayName}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((week) => (
+            <tr key={week}>
+              <th scope="row">{week}</th>
+              {perLocationVelocity.map((location) => (
+                <td key={location.locationId}>
+                  {location.velocity.find((entry) => entry.weekStart === week)?.count ?? 0} reviews
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <LazyMotion features={domAnimation} strict>
-        <svg viewBox={`0 0 ${width} ${H}`} className="chart-shell" style={{ height: H, display: 'block', overflow: 'visible' }}>
-          {[0, Math.round(maxStack / 2), maxStack].map((t, i) => (
-            <g key={i}>
+        <svg
+          viewBox={`0 0 ${width} ${H}`}
+          className="chart-shell"
+          style={{ height: H, display: 'block', overflow: 'visible' }}
+          aria-hidden="true"
+          focusable="false"
+        >
+          {Array.from(new Set([0, Math.round(maxStack / 2), maxStack])).map((t) => (
+            <g key={t}>
               <line x1={PAD.l} x2={width - PAD.r} y1={yScale(t)} y2={yScale(t)} style={{ stroke: CHART_GRID_STROKE }} strokeWidth="1" />
               <text x={PAD.l - 8} y={yScale(t) + 3} textAnchor="end" fontSize="10" style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}>
                 {t}
