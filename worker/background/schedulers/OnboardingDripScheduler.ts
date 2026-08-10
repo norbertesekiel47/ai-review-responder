@@ -6,7 +6,7 @@ import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status'
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { createGuardedPoll } from '../guarded-poll';
-import { DRIP_STALENESS_GRACE_DAYS } from '../../jobs/OnboardingDripWorker';
+import { DRIP_SKIP_REASONS, DRIP_STALENESS_GRACE_DAYS } from '../../jobs/OnboardingDripWorker';
 import type { OnboardingDripPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[OnboardingDripScheduler]';
@@ -53,6 +53,8 @@ export interface DripCycleResult {
   queued: number;
   tooLate: number;
   churnCapped: number;
+  /** Too-late pairs whose durable skip record was written THIS cycle (#738). */
+  skipRecorded: number;
 }
 
 /**
@@ -115,14 +117,18 @@ export async function runOnboardingDripCycle(
     WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.TRIALING})
       AND b.subscription_activated_at IS NOT NULL
       AND b.subscription_activated_at <= ${asOf}::timestamptz - (d.days || ' days')::interval
-      -- Abandoned tail: a pair past the grace window is reported for exactly one
-      -- day (so the skip is observable) and then never selected again.
-      AND b.subscription_activated_at
-            > ${asOf}::timestamptz - ((d.days + ${STALENESS_GRACE_DAYS} + 1) || ' days')::interval
+      -- No outer time bound (#738): the durable skip record below replaces the
+      -- old one-day GRACE+1 reporting window as the dedup, so a too-late pair —
+      -- including a backlog already past the window at deploy — is selected
+      -- until its skip is recorded, then excluded by the NOT EXISTS. Removing
+      -- the bound is safe against re-mints from the ArchivalPoller freeing a
+      -- completed-without-send outbox row: archival (7 days) strictly exceeds
+      -- the grace window (3 days), so any pair it frees re-enters this query
+      -- already too late and lands in the skip branch, never the queue branch.
       AND NOT EXISTS (
         SELECT 1 FROM onboarding_drip_log dl
         WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type
-          AND dl.sent_at IS NOT NULL
+          AND (dl.sent_at IS NOT NULL OR dl.skipped_at IS NOT NULL)
       )
       AND NOT EXISTS (
         SELECT 1 FROM job_outbox jo
@@ -138,6 +144,35 @@ export async function runOnboardingDripCycle(
   // reporting it as merely churn-capped would imply it returns tomorrow.
   const churnCapped = dueDrips.filter((r) => !r.too_late && r.churn_capped);
   const actionable = dueDrips.filter((r) => !r.too_late && !r.churn_capped);
+
+  // Durable skip record (#738): a too-late pair is leaving FOR GOOD, so the
+  // drop is stamped on onboarding_drip_log — the permanent per-pair table the
+  // ArchivalPoller never touches — rather than left to a log line under the
+  // log sink's retention. The stamp is also the dedup that keeps the pair out
+  // of the next cycle's candidates. ON CONFLICT covers a dead claim row
+  // (claimed, crashed before send): the guarded DO UPDATE stamps it, and a
+  // sent or already-skipped row is untouched. A genuinely in-flight pair can't
+  // reach here — the candidate query excludes any pair with a non-failed
+  // outbox row.
+  let skipRecorded = 0;
+  for (const row of tooLate) {
+    try {
+      const recorded = await db`
+        INSERT INTO onboarding_drip_log (id, business_id, drip_type, skipped_at, skip_reason)
+        VALUES (${uuidv7()}, ${row.business_id}, ${row.drip_type}, ${asOf}, ${DRIP_SKIP_REASONS.TOO_STALE})
+        ON CONFLICT (business_id, drip_type) DO UPDATE
+          SET skipped_at = EXCLUDED.skipped_at, skip_reason = EXCLUDED.skip_reason
+          WHERE onboarding_drip_log.sent_at IS NULL
+            AND onboarding_drip_log.skipped_at IS NULL
+      `;
+      if (recorded.count > 0) skipRecorded++;
+    } catch (err: unknown) {
+      logger.error(
+        `Failed to record staleness skip for ${row.drip_type} on business ${row.business_id}`,
+        err,
+      );
+    }
+  }
 
   let queued = 0;
   for (const row of actionable) {
@@ -172,6 +207,7 @@ export async function runOnboardingDripCycle(
   if (tooLate.length > 0) {
     logger.warn('Skipped drips past the staleness grace window', {
       count: tooLate.length,
+      skip_records_written: skipRecorded,
       grace_days: STALENESS_GRACE_DAYS,
     });
   }
@@ -185,7 +221,7 @@ export async function runOnboardingDripCycle(
     logger.log(`Queued ${queued} onboarding_drip outbox entries`);
   }
 
-  return { queued, tooLate: tooLate.length, churnCapped: churnCapped.length };
+  return { queued, tooLate: tooLate.length, churnCapped: churnCapped.length, skipRecorded };
 }
 
 export async function checkAndSchedule(): Promise<void> {

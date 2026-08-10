@@ -410,6 +410,21 @@ export const MIGRATION_100_IMPORT_CONSENT: SchemaRequirement = {
 };
 
 /**
+ * 104 adds the scheduler-side Drip staleness cap skip record (#738). The two
+ * CHECKs are named because the columns can exist without them (a container
+ * provisioned from a draft that stopped at the ALTER), and the suites assert
+ * behavior the constraints enforce.
+ */
+export const MIGRATION_104_DRIP_LOG_SKIP_RECORD: SchemaRequirement = {
+  migration: '104_drip_log_skip_record',
+  columns: ['onboarding_drip_log.skipped_at', 'onboarding_drip_log.skip_reason'],
+  constraints: [
+    { table: 'onboarding_drip_log', name: 'onboarding_drip_log_skip_pairing' },
+    { table: 'onboarding_drip_log', name: 'onboarding_drip_log_skip_send_exclusive' },
+  ],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,

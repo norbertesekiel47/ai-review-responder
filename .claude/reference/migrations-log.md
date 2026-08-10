@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **103** — next migration is **104**
+Current head: **104** — next migration is **105**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,38 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
+  staleness cap** skips (#738, closing #719 step-7 review A3's accepted
+  asymmetry). Adds nullable `skipped_at TIMESTAMPTZ` + `skip_reason TEXT` to
+  `onboarding_drip_log` and two named CHECKs:
+  `onboarding_drip_log_skip_pairing` (`(skipped_at IS NULL) = (skip_reason IS
+  NULL)` — a skip is stamped whole or not at all) and
+  `onboarding_drip_log_skip_send_exclusive` (`skipped_at IS NULL OR sent_at IS
+  NULL` — a skip and a send are mutually exclusive outcomes; unreachable by
+  construction since the handler chokepoint refuses BEFORE the claim and
+  staleness is monotone, so a violation is a loud logic-bug signal). Both
+  CHECKs pass trivially on existing rows (new columns NULL everywhere) → no
+  preflight; constraints guarded on `pg_constraint` so the file stays
+  re-runnable. **Why this table:** `job_outbox` completion markers age out
+  under the ArchivalPoller's 7-day completed-row retention, while
+  `onboarding_drip_log` is never archived and is exactly one row per
+  (business_id, drip_type) — the stamp permanently answers "which drips were
+  dropped as too-late, and when". The scheduler writes it
+  (`OnboardingDripScheduler` INSERT … ON CONFLICT with a guarded DO UPDATE for
+  dead claim rows) and the stamp replaces the old GRACE+1 one-day reporting
+  window as the candidate-query dedup — so a backlog already past the window
+  at deploy is recorded once instead of skipped silently. Removing that outer
+  window is re-mint-safe because archival (7d) strictly exceeds grace (3d).
+  `skip_reason` vocabulary owned by `DRIP_SKIP_REASONS`
+  (`worker/jobs/OnboardingDripWorker.ts`), derived from
+  `OUTBOX_COMPLETION_REASON.DRIP_TOO_STALE` so one grep finds both enforcement
+  points; no DB CHECK on the value (083 precedent). **No new relation → no RLS
+  change and no retention-policy row** (`onboarding_drip_log` remains
+  deliberately unarchived). Schema requirement:
+  `MIGRATION_104_DRIP_LOG_SKIP_RECORD` (schema-ready.ts); behavior proven by
+  `worker/background/schedulers/__tests__/onboarding-drip-scheduler.integration.test.ts`.
+  **LOCAL-ONLY**
 
 - **103** — `drop_legacy_backfill_counters`: **the DROP half of the locked
   backfill-counter collapse and the closing migration of the Consented Review

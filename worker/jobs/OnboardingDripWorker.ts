@@ -41,6 +41,18 @@ import { resolveDashboardUrl } from './summary-report-helpers';
 export const DRIP_STALENESS_GRACE_DAYS = 3;
 
 /**
+ * `onboarding_drip_log.skip_reason` vocabulary (#738) — written by the
+ * scheduler when it drops a too-late pair, alongside `skipped_at`. Owned here
+ * with the rest of the staleness-cap policy, and DERIVED from
+ * `OUTBOX_COMPLETION_REASON.DRIP_TOO_STALE` on purpose: the handler chokepoint
+ * and the scheduler skip record are the two enforcement points of ONE cap, so
+ * one spelling — and one grep — covers both.
+ */
+export const DRIP_SKIP_REASONS = {
+  TOO_STALE: OUTBOX_COMPLETION_REASON.DRIP_TOO_STALE,
+} as const;
+
+/**
  * Days after `subscription_activated_at` at which each drip becomes due.
  *
  * Module-private: only `isDripTooStale` reads it, and the scheduler expresses the
