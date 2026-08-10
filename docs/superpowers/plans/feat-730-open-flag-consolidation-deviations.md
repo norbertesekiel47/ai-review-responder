@@ -43,6 +43,25 @@ ACCEPT / RE-PLAN before review.
   paths through three review rounds; the merge-time audit already matched
   them literally).
 
+## Execution (T4) — plan gap: T2's blast radius wider than its run commands
+
+- **[2026-08-09] T2's `hasOpenFlag` re-expression silently broke 9 tests in
+  three suites the plan never ran between T2 and T4** (`publish.test.ts`,
+  `draft.test.ts`, `draft-id.test.ts` under
+  `src/app/api/dashboard/past-replies/__tests__/`). Root cause: the
+  re-expressed body issues fragment BUILD calls (`tx`${id}::uuid``, the
+  EXISTS fragment) that queue/positional `tx` doubles consume or index past
+  — exactly the failure mode the plan's fragment-aware-double section
+  predicted, but its "every queue-based suite touched by migration" list
+  missed that T2 alone (not just T3-T6 call-site swaps) touches every suite
+  whose double flows through `hasOpenFlag`. Discovered at T4 Step 4 because
+  its vitest path (`src/app/api/dashboard/past-replies`) is a directory
+  sweep. Verified pre-existing at f4f93ab8 via stash. Triage: ACCEPT — fixed
+  inside T4 (files are in T4's declared surface; same fragment-aware
+  pattern), amended into the T4 commit. Follow-through for T5-T7: any suite
+  whose double passes through `hasOpenFlag` or a migrated call site needs
+  the fragment-aware branch BEFORE its first post-migration run.
+
 ## Plan-review round 1 (codex, VERDICT: REVISE) — intake corrections
 
 Owner-approved intake-field corrections (NOT surface amendments; the
