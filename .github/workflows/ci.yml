@@ -87,6 +87,8 @@ jobs:
         run: pnpm ci:feature-surface
       - name: Run agent configuration audit
         run: pnpm ci:agent-config
+      - name: Run dropped-columns SQL reference audit
+        run: pnpm ci:dropped-columns
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)
