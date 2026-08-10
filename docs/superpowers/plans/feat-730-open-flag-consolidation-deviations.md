@@ -3,6 +3,28 @@
 Entries the plan did not anticipate, one per item. Step 6 triages each with
 ACCEPT / RE-PLAN before review.
 
+## Step 6 triage verdicts (2026-08-09, read-back complete)
+
+- Setup / feat-719 surface overlap + merge order: **ACCEPT** — agreement
+  stands; status update at triage time: PR #740 is OPEN with
+  `mergeStateStatus: DIRTY` (conflicted, auto-merge stuck) — owner decision
+  pending on whether #740 still lands first or the order flips.
+- T1 surface amendment #1 (spelling-only `*` respelling): **ACCEPT** —
+  **OWNER RATIFIED 2026-08-09** ("I approve for the remaining steps").
+- T4 T2-blast-radius gap (3 suites fixed in-surface): **ACCEPT**.
+- T5 harness already fragment-aware (flattened-form pins): **ACCEPT**.
+- T5 ~261 pin strengthened in place (no fragment call to relocate to):
+  **ACCEPT**.
+- T7 surface amendment #2 (2 blast-radius test files): **ACCEPT** —
+  **OWNER RATIFIED 2026-08-09** (same approval).
+- T7 locked-comment reword (self-trip fix, regex byte-identical):
+  **ACCEPT**.
+- Plan-review round-1 intake corrections (historical, owner-approved during
+  planning): **ACCEPT**.
+- Post-execution review notes (fast-follow ratchet; statusArraySql client
+  observation): recorded for owner as future hygiene items — no verdict
+  needed, nothing on this branch depends on them.
+
 ## Setup-time notes
 
 - **[2026-08-09] Surface overlap with `feat-719-drip-dropped-column` on
