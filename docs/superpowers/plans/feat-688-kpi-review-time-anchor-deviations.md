@@ -77,3 +77,37 @@ Dated notes where execution had to depart from (or disambiguate) the plan
   Mechanical re-pin only — no allowlist growth, no scope-predicate change.
   This is the first amendment; a second would fire the re-classification
   trigger (step 5 abort criteria).
+
+## Step 6 triage verdicts (orchestrator, 2026-08-10)
+
+1. weekStart-not-ISO — **ACCEPT** (same-decode-path expectations are correct;
+   the stale `types.ts` "ISO date" doc comment is pre-existing, flagged for the
+   step 8 docs sweep, not fixed here).
+2. no-RESPONSE_STATUS-export — **ACCEPT** (`satisfies` anchoring keeps the
+   no-string-literal rule's intent).
+3. tests-7/8-ordering — **ACCEPT**.
+4. account-supplementary-as-consistency-pin — **ACCEPT** (strictly stronger
+   than the plan's example: locks cross-scope divergence, keeps the 4-red eval
+   contract).
+5. seedLocation-isPrimary-unique — **ACCEPT** (lab-notes candidate at step 8).
+6. tenant-scope-allowlist-out-of-surface — **ACCEPT** (resolved by
+   user-approved amendment #1; re-pin landed in 06766252, audit green at
+   baseline 408 entries).
+7. characterization-pins-re-derived — **ACCEPT** (sanctioned re-derivation,
+   verified against emitted text).
+8. noUncheckedIndexedAccess-bang — **ACCEPT**.
+9. amendment-record — **ACCEPT** (is the record itself).
+
+No RE-PLAN verdicts; no locked intake decision invalidated.
+
+## Reclassify WARN re-check (step 0 re-run, 2026-08-10)
+
+Gate reported production bucket 188 > 2×60. Real breakdown (diff vs fork point
+8db5fe28, workflow artifacts excluded): `src/lib/kpi/service.ts` 63 +
+`scripts/ci/tenant-scope-allowlist.ts` 6 = **69 true production lines** (at
+estimate); the remainder is `docs/adr/0019-kpi-review-time-anchor.md` (118) +
+CONTEXT.md (1) — documentation the bucket classifier counts as production.
+Test bucket 443 vs 350 (1.27×, under trigger). Re-run of step 0 with real
+numbers: RISK = normal, SURFACE = backend, SIZE = normal — lane unchanged, and
+the full normal pipeline was applied from the start, so no under-classified
+controls were skipped. Proceeding; amendment count stays at 1.
