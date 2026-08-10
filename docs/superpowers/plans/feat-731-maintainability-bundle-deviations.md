@@ -170,3 +170,207 @@ parallel. Task 2's honest boundary is `replies-view.test.ts` +
 `src/components/dashboard/reviews`.
 
 ---
+
+## D7 — Task 5: Step 2's `rg` gate contradicts Step 1.3's own verbatim comment
+
+Step 1.3 supplies replacement comment text that **names the retired flag**
+("…retired the companion UI flag `PAST_REPLIES_VIEW_ENABLED`…"), and Step 2 then
+expects `rg -n "PAST_REPLIES_VIEW_ENABLED" worker/` to print **nothing**. Both
+cannot hold. Followed Step 1.3 literally, so the grep prints exactly one hit —
+line 74, inside that comment. The gate's *intent* (no surviving set/restore
+site) is met and provable with a comment-excluding grep:
+
+```bash
+rg -n "PAST_REPLIES_VIEW_ENABLED" worker/ | rg -v '^\S+:[0-9]+:\s*//'   # → no output, exit 1
+```
+
+Recorded rather than silently reworded because the comment is the change's
+documentation value: it is the thing that stops the flag being re-added, and it
+must agree with CONTEXT.md:30. A future reader running Step 2 verbatim will see
+the same single hit and should not treat it as an incomplete removal.
+
+**Two incidentals, no action needed.** (a) The `afterAll` comment "Restore the
+three env vars that `vi.hoisted()` overwrote" was *stale before* this change
+(four were overwritten) and is now **accurate** — three overwrites survive
+(`DATABASE_POOL_URL`, `ALLOW_E2E_DB_WRITES`, `EDIT_REPLIES_ENABLED`);
+`TEST_DATABASE_POOL_URL` is set-if-absent by the `.env.local` loop, not
+overwritten. Left as-is. (b) Committed with the pathspec form
+(`git commit -m … -- <file>`) instead of Step 4's `git add` + `git commit`:
+identical result here (`git diff --cached` was empty), but `git commit` commits
+the whole **index**, so with Tasks 2-4 editing the same worktree a sibling agent
+staging a file between this task's `add` and `commit` would have been swept into
+this commit. The pathspec form cannot do that. Worth promoting into the plan
+template's concurrency note for any future parallel-task bundle.
+
+---
+
+## D6 — Task 4: Step 3's verbatim doc comment fights Step 5's own grep gate
+
+**(a) The plan's replacement comment re-introduces the name Step 5 forbids.**
+Step 3's verbatim text opens ``#731 deleted the single-key sibling
+`peekRegenBudget`.`` — a prose mention, but `rg -n "peekRegenBudget\b"` cannot
+tell prose from a call, so following Step 3 literally guarantees Step 5 reports
+one hit *in production code*, whose stated triage is "the intake's caller
+analysis was wrong — STOP and report". Resolved by keeping the fact and dropping
+the identifier ("deleted the single-key sibling"): the gate stays clean and stays
+a true signal for the next reader, and the identifier survives where it belongs —
+the commit subject (`delete peekRegenBudget, one advisory-peek contract
+survives`) and therefore `git log -S`. Nothing else in Step 3's text changed.
+
+**(b) Two comment references lived outside the file Step 2 names.**
+`regen-budget-batch.test.ts:3` ("the batched sibling of `peekRegenBudget`") and
+`:102` ("the same UTC-date-scoped keys `peekRegenBudget` uses") both named the
+deleted function. Step 2 names only `tracker.test.ts`'s `describe` block, so the
+plan's triage rule — "a hit in a test file means Step 2 missed something" — would
+have sent the next reader hunting for a deletion that was never incomplete. Both
+rewritten to describe the surviving contract (`:3` now records that this suite
+owns the whole used/limit/remaining derivation since the single-key peek went
+away). Same class as D7(a) in Task 5: the gate was specified against *call sites*
+while the change also moves *prose*.
+
+**(c) D3(c)'s prediction held exactly, and the extra assertion was needed.**
+Observed before the rewire: titles 1 and 2 RED, titles 3 and 4 GREEN via the
+swallowed `TypeError`. After: all four green through the intended path. Title 3
+now carries the authorised
+`expect(mockPeekRegenBudgetBatch).toHaveBeenCalledWith([REVIEW_ID])`, so it can
+distinguish rewired-correctly from returns-null-for-some-other-reason; title 4
+(`never leaks the raw review id`) stays assertion-conditional-on-a-log by design
+and is still not evidence of the wiring on its own. All four title texts
+unchanged.
+
+**Verified while there, no action.** The new doc comment's "Two callers" claim is
+accurate — `src/lib/past-replies/load-replies.ts` is the batch caller and the
+enforcer is now the single-id caller. `createWorkerLogger` is still live at
+`dashboard-regen-rate-limit.ts:58` for `rate_limit_exceeded`, so deleting the
+budget path's `catch` did not orphan the import. On the sibling entry's
+incidental (b) above: this task did use `git add <paths>` + `git commit`, but
+checked `git status --porcelain` between the two and confirmed only its own five
+paths were staged (Task 3's two `past-replies` files were dirty-but-unstaged at
+that instant). The pathspec form is still the better default.
+
+---
+
+## D5 — Task 3: a FOURTH landmine in `reviews-list.test.ts`, and Step 6's snippet source does not exist
+
+**(a) The merge breaks a pre-existing #678 title the plan never names — a third
+assertion in that file, not just landmines 2 and 3.**
+`'loadPastRepliesPageView averages star rating over all reviews, not only replied
+ones'` (`reviews-list.test.ts:399`) locates the AVG query by `/AVG\(/i` and then
+asserts `expect(avgQuery.text).not.toContain("'posted'")`. Post-merge the AVG
+lives in the same template as the partitioning `CROSS JOIN LATERAL (… p.status =
+'posted' …)`, so the literal is present and the title fails — the only red in
+Step 4's run:
+
+```
+AssertionError: expected '\n      SELECT\n        COUNT(*) FILT…' not to contain '\'posted\''
+ ❯ src/lib/past-replies/__tests__/reviews-list.test.ts:407:31
+```
+
+The title's *claim* survives the merge intact (nothing restricts the AVG's own
+row set: `FROM reviews r` + `WHERE r.business_id = …`, single conjunct). Only its
+*mechanism* — "the string `'posted'` appears nowhere in this query" — was an
+artefact of the AVG having had a template to itself. Fixed by stripping the
+partitioning LATERAL and re-applying **both** original assertions verbatim to the
+remainder, plus two positive pins on the surviving FROM/WHERE so the title still
+fails if a future edit narrows the AVG's row set:
+
+```ts
+const outsideLateral = avgQuery.text.replace(/CROSS JOIN LATERAL \([\s\S]*?\) posted/i, '');
+expect(outsideLateral).not.toMatch(/JOIN\s+responses/i);
+expect(outsideLateral).not.toContain("'posted'");
+expect(outsideLateral).toMatch(/FROM\s+reviews\s+r\b/i);
+expect(outsideLateral).toMatch(/WHERE\s+r\.business_id\s*=/i);
+```
+
+No assertion was deleted and no title text changed. Worth promoting into the plan
+template's landmine method: the recon enumerated assertions that count queries
+(landmine 2) and assertions that dispatch on query text (landmine 3), but missed
+assertions that **identify** a query by text and then constrain it — a merge
+changes what a text-matched query *contains*, not only how many there are.
+
+**(b) Step 6's "take the exact expected text from the failure output" is
+impossible — `ci:tenant-scope` never prints SQL.** The audit reports only
+`file: table: reason` triples:
+
+```
+src/lib/past-replies/load-replies.ts: responses: unused tenant scope allowlist entry   (×2, the orphaned COUNTs)
+src/lib/past-replies/load-replies.ts: responses: missing account_id or business_id scope  (the unexempted merge)
+```
+
+`TenantScopeFinding` (`scripts/ci/tenant-scope-audit.ts:12`) carries no SQL
+field, so there is nothing to paste — and the step's own warning ("a guessed
+snippet is the #1 way this step burns a round") is exactly right, which makes the
+missing output a real dead end rather than a cosmetic one. Derived it instead by
+reusing the audit's own extractor and normaliser, which is what the match
+actually keys on (`getAllowlistEntry`: `normalizeSql(stripSqlComments(x))` on
+both sides):
+
+```ts
+// scratchpad, throwaway
+const { extractSqlTemplates } = await import(`${ROOT}/scripts/ci/tenant-scope-audit.ts`);
+for (const t of extractSqlTemplates(readFileSync(target, 'utf8'))) {
+  const norm = t.sqlText.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--.*$/gm, ' ').replace(/\s+/g, ' ').trim();
+  if (/unanswered_total/i.test(norm)) console.log(norm);
+}
+```
+
+First try, no burned round: `pnpm ci:tenant-scope` → `passed — entries: 408
+(baseline: 408)`. `normalizeSql` and `stripSqlComments` are module-private, so
+the two-line re-spelling above is the whole cost; the durable fix is either to
+export them or to put the normalised SQL on the finding. Recommend the latter —
+every future allowlist regeneration (this is the fourth: 420→418→414→412→409→408)
+hits the same wall.
+
+---
+
+# Step 6 triage — orchestrator verdicts (2026-08-09)
+
+Read end to end before any review dispatch. D1 and D2 carry their verdicts
+inline above (both ACCEPT, both recorded pre-implementation).
+
+**Every D3–D7 entry is a defect in MY plan, not in the implementation.** Each was
+found by the agent executing the step, fixed without deleting an assertion,
+widening a surface, or changing a locked title. That is the eval-first
+discipline working as designed, and it is worth saying plainly: five of the seven
+entries exist because the plan's *verification commands* were wrong while its
+*substance* was right.
+
+| # | Verdict | Reasoning |
+|---|---|---|
+| D3(a) | **ACCEPT** | `REVIEW_STATUS.RESPONDED` was my invention; `POSTED` is the real vocabulary and is what the suite's own fixtures seed. Would have been a `TS2339`, not a silent pass. |
+| D3(b) | **ACCEPT** | `responses_one_posted_per_review` makes "multiple posted responses" **structurally unreachable**, so the intake `edge_cases` entry naming it is VOID — not untested. The agent kept the one-row fixture and documented the index instead of branching around an impossible state, which is the correct call (`.claude/CLAUDE.md`: assert impossible states, don't branch around them). No new assertion was invented to fill the gap; good. |
+| D3(c) | **ACCEPT — actioned** | Two of four titles passed coincidentally because the pre-change `try/catch` swallowed the `TypeError` and returned `null`. I folded a `toHaveBeenCalledWith([REVIEW_ID])` requirement into Task 4's dispatch; Task 4 confirms all four now pass **through the intended path**. Hole closed. |
+| D4 | **ACCEPT** | Step 4's `grep -A2 'orphanReplyFacts'` cannot match — TS anchors the error at the object literal and names the structural types, never the enclosing function. My stop condition would have fired a **false STOP on a correct refactor**. The substance held: TS2741 at `replies-view.ts(257,3)` naming `failed_response_id` was observed, so the `Required<>` guarantee is proven, which was the whole point of Task 2. |
+| D5(a) | **ACCEPT — highest signal on the branch** | A **fourth** landmine my recon missed. I enumerated assertions that *count* queries and assertions that *dispatch* on query text, but not assertions that **identify** a query by text and then constrain its contents. `'…averages star rating over all reviews…'` asserts `not.toContain("'posted'")` on the text-matched AVG, which the merge breaks by putting the partitioning LATERAL in the same template. The fix strips the LATERAL and re-applies both original assertions verbatim to the remainder plus two positive FROM/WHERE pins — strictly stronger than what it replaced, and no title text or assertion was deleted. |
+| D5(b) | **ACCEPT** | Step 6 instructed pasting SQL from `ci:tenant-scope`'s output; `TenantScopeFinding` has no SQL field, so the audit prints only file/table/reason. The step was a dead end as written — and its own warning about guessed snippets was right, which is what makes it a dead end rather than a nuisance. Deriving the snippet by reusing the audit's own `extractSqlTemplates` + normaliser is the correct workaround and landed 408 first try. |
+| D6 | **ACCEPT** | My Step 3 replacement comment named `peekRegenBudget` in prose, which Step 5's own `rg` gate would then have reported as a production hit and demanded a STOP for. Plan self-contradiction; the agent kept the fact and dropped the identifier. |
+| D7 | **ACCEPT** | Same class as D6 in Task 5: Step 1.3's replacement comment names `PAST_REPLIES_VIEW_ENABLED` while Step 2 demands the grep print nothing. Resolved the OPPOSITE way to D6 — the name was **kept** — and that asymmetry is deliberate and correct, not drift: this comment's whole job is to warn a future reader off reintroducing a retired flag, which requires naming it (`CONTEXT.md:30` names it for the same reason), whereas D6's comment explains a completed consolidation whose fact survives without the identifier. |
+
+**Abort-criteria check:** 0 gate-fail rounds, **0 amendments to
+`allowed_edit_surface`** (the five paths were declared at intake, per the
+ticket's own instruction), and no entry invalidates a locked intake *decision* —
+D3(b) voids an *edge case*, which is a correction, not an invalidation. Nowhere
+near teardown. Proceed to the gate and then review.
+
+## Durable lessons — promote at step 8
+
+1. **A grep gate that forbids a string forbids it in prose too.** D6 and D7 are
+   the same defect twice: a plan step said "this identifier must not appear" and
+   then a sibling step wrote a comment that legitimately names it. Scope such a
+   gate to code (`rg … | rg -v '^\S+:[0-9]+:\s*//'`) or expect a false positive.
+2. **Landmine enumeration needs a third category.** Before merging or reshaping a
+   query, find assertions that (i) count queries, (ii) dispatch on query text,
+   **and (iii) identify a query by text then constrain its contents.** (iii) is
+   the one that bites, because a merge changes what a text-matched query
+   *contains*, not just how many exist. (D5(a))
+3. **`ci:tenant-scope` cannot tell you the snippet it wants.** Four
+   regenerations (420→418→414→412→409→408) have each hit this. Either export
+   `normalizeSql`/`stripSqlComments` or put the normalised SQL on
+   `TenantScopeFinding`. Worth its own ticket.
+4. **Never verify a type-level guarantee by grepping for the enclosing function
+   name.** TypeScript reports structural-assignability errors at the offending
+   literal and names the types, not the function. (D4)
+5. **Under concurrent task dispatch, commit with a pathspec** (`git commit -m … --
+   <files>`), never bare `git add` + `git commit`: the latter commits the whole
+   index, so a sibling agent staging between the two calls is swept into your
+   commit. Two agents independently reached for this. (D7)
