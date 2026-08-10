@@ -101,11 +101,19 @@ function fakeSql(rows: FakeRows): { sql: Sql; calls: SqlCall[] } {
     const text = strings.join('?');
     calls.push({ text, values });
     if (/AS\s+review_id/i.test(text)) return Promise.resolve(rows.main ?? []);
-    if (/AVG\(/i.test(text)) return Promise.resolve([{ avg: rows.avg ?? null }]);
-    if (/COUNT\(\*\)/i.test(text) && /NOT\s+EXISTS/i.test(text)) {
-      return Promise.resolve([{ count: rows.unansweredTotal ?? 0 }]);
+    // #731 item 2: the MERGED denominator query — two COUNT(*) FILTERs plus the
+    // AVG over one snapshot. It is the ONLY aggregate query now; the three
+    // legacy branches it replaced (a bare `AVG(`, a `COUNT(*)`+`NOT EXISTS` and
+    // a bare `COUNT(*)`) were retired with the queries they served, so no shape
+    // ahead of this one can swallow it and resolve it to `[{ avg }]` — which
+    // would silently zero BOTH denominators while the suite stayed green.
+    if (/unanswered_total/i.test(text)) {
+      return Promise.resolve([{
+        unanswered_total: rows.unansweredTotal ?? 0,
+        answered_total: rows.answeredTotal ?? 0,
+        avg_star_rating: rows.avg ?? null,
+      }]);
     }
-    if (/COUNT\(\*\)/i.test(text)) return Promise.resolve([{ count: rows.answeredTotal ?? 0 }]);
     if (/FROM\s+businesses/i.test(text)) return Promise.resolve(rows.biz ?? [DEFAULT_BIZ]);
     return Promise.resolve([]);
   };
@@ -173,8 +181,9 @@ function mainQuery(calls: SqlCall[]): SqlCall {
 }
 
 /**
- * The four shapes `fakeSql` actually resolves rows for, i.e. the discrimination
- * `mainQuery` does, widened to its three siblings.
+ * The three shapes `fakeSql` actually resolves rows for, i.e. the discrimination
+ * `mainQuery` does, widened to its two siblings. Three, not five, since #731
+ * merged the two group COUNTs and the AVG into one denominator query.
  *
  * Query-count assertions must run through this rather than counting raw tagged
  * template calls (Q3). A tagged call can also be a FRAGMENT — a bound
@@ -184,8 +193,7 @@ function mainQuery(calls: SqlCall[]): SqlCall {
  */
 const ROW_PRODUCING_QUERY_SHAPES = [
   /AS\s+review_id/i,
-  /AVG\(/i,
-  /COUNT\(\*\)/i,
+  /unanswered_total/i,
   /FROM\s+businesses\s+b/i,
 ] as const;
 
@@ -336,13 +344,13 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     const dataQueries = rowProducingQueries(calls).filter(
       (call) => !/FROM\s+businesses\s+b/i.test(call.text),
     );
-    // Exactly FOUR ROW-PRODUCING queries: the single row source, the two group
-    // COUNTs, and the average. Pre-#678 there were five (the separate orphan
-    // query, deleted by F3) and the counts were the activation-split
-    // gap/historical pair, which S3 replaces with per-row provenance badges.
+    // Exactly TWO row-producing data queries: the single row source and the
+    // merged denominator query. Pre-#731 there were four — the two group
+    // COUNTs and the AVG were separate, i.e. three snapshots (#731 item 2).
+    // Pre-#678 there were five (the separate orphan query, deleted by F3).
     // Counted through rowProducingQueries so a bound fragment (e.g. a status
     // `text[]`) never inflates the number and dictates the production SQL (Q3).
-    expect(dataQueries).toHaveLength(4);
+    expect(dataQueries).toHaveLength(2);
     for (const call of dataQueries) {
       expect(call.text).toMatch(/business_id\s*=/i);
       expect(call.values).toContain(OTHER_LOCATION_ID);
@@ -351,6 +359,37 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     }
     const bizLookup = calls.find((call) => /FROM\s+businesses\s+b/i.test(call.text));
     expect(bizLookup!.values).toContain(ACCOUNT_ID);
+  });
+
+  it('loadPastRepliesPageView issues ONE denominator query, so the two counts and the average share a single snapshot', async () => {
+    const { view, calls } = await loadView({
+      main: [listRow(), answeredRow({ review_id: 'rev-2' })],
+      unansweredTotal: 7,
+      answeredTotal: 3,
+      avg: 4.25,
+    });
+
+    // Exactly TWO data queries now: the single row source and ONE denominator
+    // query. Pre-#731 there were four — two COUNTs and the AVG in a
+    // `Promise.all`, i.e. three snapshots. A reply posted between the
+    // unanswered COUNT and the answered COUNT made a review invisible to both,
+    // deflating totalPages so the page rendered more rows than its own
+    // "N of M" admitted. COUNT(*) FILTER closes the partition arithmetically.
+    const dataQueries = rowProducingQueries(calls).filter(
+      (call) => !/FROM\s+businesses\s+b/i.test(call.text),
+    );
+    expect(dataQueries).toHaveLength(2);
+
+    // The denominator query is the one that is NOT the row source.
+    const denominators = dataQueries.find((call) => !/AS\s+review_id/i.test(call.text))!;
+    expect(denominators.text).toMatch(/COUNT\(\*\)\s*FILTER/i);
+    expect(denominators.text).toMatch(/AVG\(/i);
+    expect(denominators.values).toContain(LOCATION_ID);
+
+    // All three figures survive the merge.
+    expect(view!.unansweredTotal).toBe(7);
+    expect(view!.answeredTotal).toBe(3);
+    expect(view!.avgStarRating).toBe(4.25);
   });
 
   it('loadPastRepliesPageView averages star rating over all reviews, not only replied ones', async () => {
@@ -363,9 +402,18 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 
     expect(view!.avgStarRating).toBe(4.25);
     const avgQuery = calls.find((call) => /AVG\(/i.test(call.text))!;
-    // No posted-only JOIN: the denominator is every review for the location.
-    expect(avgQuery.text).not.toMatch(/JOIN\s+responses/i);
-    expect(avgQuery.text).not.toContain("'posted'");
+    // #731: the AVG now shares the merged denominator query, which DOES join
+    // `responses` — so "there is no join" is no longer the right pin.
+    //
+    // The AVG's row set must stay EVERY review for the location. A LEFT join
+    // cannot narrow it (an unmatched review survives with p.* NULL); an inner
+    // join would, and that was the pre-#678 defect this title guards. So the
+    // pin is: exactly one join to `responses`, and it is a LEFT one.
+    const responsesJoins = avgQuery.text.match(/JOIN\s+responses/gi) ?? [];
+    expect(responsesJoins).toHaveLength(1);
+    expect(avgQuery.text).toMatch(/LEFT JOIN\s+responses/i);
+    expect(avgQuery.text).toMatch(/FROM\s+reviews\s+r\b/i);
+    expect(avgQuery.text).toMatch(/WHERE\s+r\.business_id\s*=/i);
   });
 
   it('loadPastRepliesPageView returns each orphan review exactly once as recover and never as generate', async () => {

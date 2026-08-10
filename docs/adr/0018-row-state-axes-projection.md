@@ -138,3 +138,47 @@ capability-projected axis was reviewed and deferred as a map #710 question
   rejects a second live draft) and the response never includes the held text.
   Raised in the plan's round-1 codex review; documented here as a consequence
   rather than "fixed", because the fix would be un-locking #672.
+
+## Addendum (2026-08-09, #731 implementation) — the reply-facts split is safe because of a type
+
+`toCardRow` now dispatches its seven axis-dependent fields to two private
+mappers (`orphanReplyFacts` / `liveReplyFacts`) instead of resolving each with
+its own `isOrphan ? … : …` ternary. The **Posted-reply axis** therefore has a
+second consumer: it already chose the **Action slot**, and it now also selects
+the *source* of the card's reply fields (`orphan_*` LATERALs vs `resp.*` +
+`fail_sidecar`). One axis, one dispatch, two decisions — no new model.
+
+This **reverses a #678 round-2 decision.** Defect A merged the then-separate
+`toOrphanCardRow` back into `toCardRow` because the split had dropped
+`failed_response_id`, and since `AnsweredControls` and `RecoveryControl` gate the
+recovery *actions* on that field rather than on the badge, recovery became
+silently unreachable — a defect no test caught because the card still *rendered*
+correctly.
+
+The reversal is safe now for a reason that did not exist then, and it is not
+"we will be more careful": both mappers return
+`Required<Pick<ReviewsListRow, …>>`. `version`, `failed_response_id` and
+`failed_posting_error` are **optional** on `PastReplyRow`, so a bare `Pick<>`
+would reproduce Defect A exactly. `Required<>` strips the `?`, making an omitted
+field a compile error rather than something review has to notice.
+
+That guarantee was **confirmed empirically, not asserted**: deleting the
+`failed_response_id` line from `orphanReplyFacts` produces
+`error TS2741: Property 'failed_response_id' is missing …`, anchored at that
+function's `return {` — the compiler names the exact field Defect A lost.
+TS2741 is the single-missing-property code; TS2739 is its multi-property
+sibling. (Commit `ee5c6b8f`'s message and the mapper's original doc comment both
+said TS2739, a pre-observation guess; the comment was corrected in `8cd0a58a`,
+the commit message stands as written. No line number is cited here deliberately
+— an anchor into a file this ADR does not own goes stale on the next edit, as
+this paragraph's own first draft did.)
+
+Consequence for future edits: **adding a field to the card that depends on the
+Posted-reply axis means adding it to `ReplyFacts`**, which then forces both
+mappers to answer for it. A field added only to the object literal in
+`toCardRow` is axis-independent by construction — if it is not, the type will
+not stop you, so keep the distinction deliberate.
+
+The mappers are deliberately **not exported**. They are an internal seam; every
+test reaches them through `toCardRow`, so the pinned card key set (18 keys) and
+the behaviour contract stay the test surface rather than the refactor's shape.

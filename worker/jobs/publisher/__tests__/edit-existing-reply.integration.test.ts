@@ -43,7 +43,6 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
     DATABASE_POOL_URL: process.env.DATABASE_POOL_URL,
     ALLOW_E2E_DB_WRITES: process.env.ALLOW_E2E_DB_WRITES,
     EDIT_REPLIES_ENABLED: process.env.EDIT_REPLIES_ENABLED,
-    PAST_REPLIES_VIEW_ENABLED: process.env.PAST_REPLIES_VIEW_ENABLED,
     // The .env.local loop below sets this when it isn't already exported (e.g. `pnpm test`).
     TEST_DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL,
   };
@@ -71,11 +70,10 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
   if (testDbUrl) {
     process.env.DATABASE_POOL_URL = testDbUrl;
     process.env.ALLOW_E2E_DB_WRITES = 'true';
+    // Edit routes require EDIT_REPLIES_ENABLED, the sole gate since #678
+    // retired the companion UI flag PAST_REPLIES_VIEW_ENABLED (the Reviews list
+    // renders unconditionally). editRepliesEnabled() is its only reader.
     process.env.EDIT_REPLIES_ENABLED = 'true';
-    // Edit routes require BOTH flags (PAST_REPLIES_VIEW_ENABLED + EDIT_REPLIES_ENABLED);
-    // the /retry + /restore-original scenarios drive the real route handlers, which
-    // 503 without this — keep it in lockstep with the route flag gate.
-    process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   }
   return { testDbUrl, originalEnv };
 });
@@ -325,11 +323,6 @@ afterAll(async () => {
     delete process.env.EDIT_REPLIES_ENABLED;
   } else {
     process.env.EDIT_REPLIES_ENABLED = originalEnv.EDIT_REPLIES_ENABLED;
-  }
-  if (originalEnv.PAST_REPLIES_VIEW_ENABLED === undefined) {
-    delete process.env.PAST_REPLIES_VIEW_ENABLED;
-  } else {
-    process.env.PAST_REPLIES_VIEW_ENABLED = originalEnv.PAST_REPLIES_VIEW_ENABLED;
   }
   if (originalEnv.TEST_DATABASE_POOL_URL === undefined) {
     delete process.env.TEST_DATABASE_POOL_URL;

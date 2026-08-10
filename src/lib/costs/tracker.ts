@@ -361,30 +361,21 @@ export interface RegenBudgetStatus {
 }
 
 /**
- * Read-only snapshot of the per-review regeneration budget. Unlike
- * checkRegenBudget it does NOT increment the counter — it is a pure `GET`, so
- * surfacing "limit reached" to the owner consumes no budget and triggers no LLM
- * spend (issue #335). The authoritative gate stays worker-side in
- * checkRegenBudget; this is only for synchronous UX feedback before enqueueing.
- */
-export async function peekRegenBudget(reviewId: string): Promise<RegenBudgetStatus> {
-  const redis = getCacheRedis();
-  const raw = await redis.get(regenBudgetKey(reviewId));
-  const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
-  const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  const limit = MAX_REGEN_PER_SUBJECT_PER_DAY;
-  return { used, limit, remaining: Math.max(0, limit - used) };
-}
-
-/**
- * Batched sibling of peekRegenBudget for the **Reviews list**, which needs a
- * counter per ANSWERED row (a Generate is free by construction — the door only
- * charges `version > 1` — so unanswered rows are never passed in). One MGET
- * instead of N GETs, and read-only exactly like the single-key peek: no INCR,
- * no eval, no LLM spend.
+ * The per-review daily cap's **advisory peek** — the only one. Two callers: the
+ * **Reviews list** page load, which needs a counter per ANSWERED row (a first
+ * `Generate` is free by construction — the door charges only `version > 1`, so
+ * unanswered rows are never passed in), and the Regenerate route, which passes
+ * exactly one id. One MGET, read-only: no INCR, no eval, no LLM spend.
+ *
+ * #731 deleted the single-key sibling. It had one caller and nothing varied
+ * behind it, while carrying the OPPOSITE failure contract — it threw and its
+ * caller caught — so the module presented two contracts for one behaviour and
+ * duplicated the used/limit/remaining derivation. A single-id call is
+ * `peekRegenBudgetBatch([id])`; the failure log's `subject_count` distinguishes
+ * that path from a page-sized batch.
  *
  * `regenBudgetKey` embeds `todayDateStr()` (UTC), so the whole batch shares one
- * date — consistent with the single-key peek.
+ * date.
  *
  * FAILS OPEN (D-F, #678): a Redis outage resolves to an EMPTY map rather than
  * throwing or reporting zeros, so no counter renders and every Regenerate stays

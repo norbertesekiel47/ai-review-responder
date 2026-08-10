@@ -146,7 +146,11 @@ export async function loadPastRepliesPageView(
 
   // ── Main data load ─────────────────────────────────────────────────────────
   //
-  // FOUR queries, not five. The separate orphan query this file used to run was
+  // THREE queries in the whole page load: the `biz` lookup above, the single row
+  // source below, and ONE denominator query — #731 merged the two group COUNTs
+  // and the AVG into it so all three figures share one snapshot.
+  //
+  // The separate orphan query this file used to run was
   // deleted at #678 (F3): it de-duplicated against the main query purely because
   // the main query INNER JOINed `posted`. Under the LEFT JOIN below the main
   // query returns EVERY review, so an orphan review would have matched both — it
@@ -157,9 +161,10 @@ export async function loadPastRepliesPageView(
   //
   // Consequence, and it is the correct one: orphan cards are now inside the
   // LIMIT/OFFSET window and inside unansweredTotal (they have no posted sibling,
-  // so the NOT EXISTS count already includes them), i.e. paginated like every
-  // other row instead of repeating on every page.
-  const [rows, unansweredCountRows, answeredCountRows, avgRows] = await Promise.all([
+  // so the merged denominator's `COUNT(*) FILTER (WHERE p.review_id IS NULL)`
+  // already counts them), i.e. paginated like every other row instead of
+  // repeating on every page.
+  const [rows, denominatorRows] = await Promise.all([
     // The SINGLE row source for the page:
     //   - review_content_hash + version for the optimistic-concurrency snapshot
     //   - the `resp` LEFT JOIN: the live posted reply, or NULL — this is what
@@ -297,46 +302,72 @@ export async function loadPastRepliesPageView(
       LIMIT ${PAGE_SIZE} OFFSET ${offset}
     `,
 
-    // Group denominators. These replace the activation-split gap/historical
-    // COUNTs: the split is no longer a section boundary (S3 → per-row provenance
-    // badges), and both counts now span every review for the location rather
-    // than only posted ones. Orphan rows need no separate term — they have no
-    // posted sibling, so the unanswered count already includes them.
-    sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
+    // Group denominators AND the average star rating — ONE query, ONE snapshot.
+    //
+    // #731: these were three queries inside this `Promise.all`, so they could
+    // observe three different states. A reply posted between the unanswered
+    // COUNT and the answered COUNT made that review invisible to BOTH, which
+    // deflated `totalPages` and rendered an "N of M" with more rows on the page
+    // than M admitted. `COUNT(*) FILTER` makes the partition arithmetic rather
+    // than coincidental: unanswered + answered is now `COUNT(*)` by
+    // construction. (The row source is still a separate snapshot from this one,
+    // and deliberately so — rows-vs-counts skew is inherent to any paginated
+    // list and cannot produce N > M.)
+    //
+    // The partition stays arithmetically CLOSED under the LEFT JOIN: the join
+    // preserves every review for the location (an unmatched review survives with
+    // `p.*` NULL), and `p.review_id IS NULL` / `IS NOT NULL` over that same
+    // column is a total, never-NULL-valued split — so
+    // `unanswered + answered ≡ COUNT(*)` by construction, not by two predicates
+    // a reader must verify are exact complements.
+    //
+    // The join CANNOT multiply rows: `responses_one_posted_per_review`
+    // (supabase/migrations/031_edit_existing_replies.sql) is
+    // `UNIQUE (review_id) WHERE status = 'posted'`, so a review has at most one
+    // posted response and `COUNT(*)` stays the review count. Non-posted siblings
+    // (drafts, failed, superseded) are excluded by the ON clause, so they cannot
+    // contribute a row either.
+    //
+    // Deliberately the SAME join shape the main row source uses ~160 lines above
+    // (`LEFT JOIN responses resp ON resp.review_id = r.id AND resp.status =
+    // 'posted'`), which depends on that same index for exactly the same reason —
+    // if it multiplied, the list would render duplicate rows. One encoding of
+    // "does this review have a live posted reply?" for the whole page, so the
+    // denominators and the rows agree by construction rather than by inspection.
+    //
+    // Orphan rows need no term of their own — they have no posted sibling, so
+    // the unanswered side already counts them.
+    //
+    // The AVG spans every review for the location, replied or not: the pre-#678
+    // query INNER-JOINed posted responses, which answered a different question
+    // ("how do the reviews you replied to rate?") than the tile asks. Its row set
+    // is restricted by nothing but `r.business_id` — the posted predicate lives
+    // entirely in the join's ON clause, where it can only decide whether `p.*` is
+    // NULL, never whether the review survives.
+    //
+    // Scoping is unchanged (invariant #8): `r.business_id = ${locationId}`,
+    // resolved for the current account by the `biz` lookup above.
+    sql<
+      { unanswered_total: number; answered_total: number; avg_star_rating: number | null }[]
+    >`
+      SELECT
+        COUNT(*) FILTER (WHERE p.review_id IS NULL)::int     AS unanswered_total,
+        COUNT(*) FILTER (WHERE p.review_id IS NOT NULL)::int AS answered_total,
+        AVG(r.star_rating)::float                            AS avg_star_rating
       FROM reviews r
-      WHERE r.business_id = ${locationId}
-        AND NOT EXISTS (
-          SELECT 1
-          FROM responses p
-          WHERE p.review_id = r.id
-            AND p.status = 'posted'
-        )
-    `,
-    sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
-      FROM reviews r
-      WHERE r.business_id = ${locationId}
-        AND EXISTS (
-          SELECT 1
-          FROM responses p
-          WHERE p.review_id = r.id
-            AND p.status = 'posted'
-        )
-    `,
-    // Mean star rating over ALL reviews for the location. The pre-#678 query
-    // JOINed posted responses, which answered a different question ("how do the
-    // reviews you replied to rate?") than the tile asks.
-    sql<{ avg: number | null }[]>`
-      SELECT AVG(r.star_rating)::float AS avg
-      FROM reviews r
+      LEFT JOIN responses p
+        ON p.review_id = r.id
+       AND p.status = 'posted'
       WHERE r.business_id = ${locationId}
     `,
   ]);
 
-  const unansweredTotal = unansweredCountRows[0]?.count ?? 0;
-  const answeredTotal = answeredCountRows[0]?.count ?? 0;
-  const avgStarRating = avgRows[0]?.avg ?? null;
+  // An aggregate with no GROUP BY returns exactly one row even over zero input
+  // rows, so a location with no reviews yields 0 / 0 / NULL rather than an
+  // absent row. The `?? ` fallbacks are belt-and-braces, not the happy path.
+  const unansweredTotal = denominatorRows[0]?.unanswered_total ?? 0;
+  const answeredTotal = denominatorRows[0]?.answered_total ?? 0;
+  const avgStarRating = denominatorRows[0]?.avg_star_rating ?? null;
 
   const { unansweredRows, answeredRows } = groupReplies(rows, activatedAtIso, hasPaidTier);
 

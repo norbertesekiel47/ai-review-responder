@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
-import { peekRegenBudget } from '@/lib/costs/tracker';
+import { peekRegenBudgetBatch } from '@/lib/costs/tracker';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
 
@@ -76,32 +76,31 @@ const REGEN_LIMIT_MESSAGE =
 
 /**
  * Returns a 429 `regen_limit_reached` NextResponse when this review has used its
- * per-day regeneration cap, or null when a regenerate may proceed. Call BEFORE
+ * per-review daily cap, or null when a regenerate may proceed. Call BEFORE
  * enqueueing the regenerate so the owner gets synchronous feedback instead of a
  * silent worker-side failure (issue #335).
  *
- * The peek is a read-only counter GET — it does NOT consume budget or trigger
- * LLM spend. FAILS OPEN by design: a Redis outage returns null so a legitimate
- * regenerate is never blocked here. The authoritative gate is the worker's
- * checkRegenBudget (itself retryable on Redis transport failure), so over-budget
- * work is still rejected before any spend even when this peek is bypassed.
+ * The peek is a read-only counter read — it does NOT consume budget or trigger
+ * LLM spend. FAILS OPEN by design: an Upstash outage returns null so a
+ * legitimate regenerate is never blocked here. The authoritative gate is the
+ * worker's checkRegenBudget (itself retryable on Redis transport failure), so
+ * over-budget work is still rejected before any spend even when this peek is
+ * bypassed.
  */
 export async function enforceRegenBudgetForReview(
   reviewId: string,
 ): Promise<NextResponse | null> {
-  let status;
-  try {
-    status = await peekRegenBudget(reviewId);
-  } catch (err) {
-    createWorkerLogger('[DashboardRegenBudget]').warn({
-      event: 'regen_budget_peek_failed',
-      route: 'dashboard_regenerate',
-      reason: err instanceof Error ? err.message : 'unknown',
-    });
-    return null;
-  }
-
-  if (status.remaining > 0) {
+  // ONE contract, not two (#731). peekRegenBudgetBatch never rejects — it calls
+  // getCacheRedis() inside its own try and logs on the shared
+  // `regen_budget_peek_failed` stream — so this call site needs no catch of its
+  // own, and the deleted one is not a lost guard.
+  //
+  // An ABSENT MAP ENTRY is the single fail-open path: the MGET itself failed, so
+  // the advisory peek is UNKNOWN and the regenerate proceeds. An absent Redis
+  // KEY is a different fact and still yields `{ used: 0 }` — inverting the two
+  // would 429 every regenerate during an Upstash outage (D-F).
+  const status = (await peekRegenBudgetBatch([reviewId])).get(reviewId);
+  if (status === undefined || status.remaining > 0) {
     return null;
   }
 

@@ -1,0 +1,91 @@
+{
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Land #731's deferred maintainability bundle as one run: split toCardRow's orphan/live field mapping behind a type-checked slice, collapse the Reviews list's two group denominators and its average star rating into ONE snapshot, delete the redundant single-key per-review daily cap peek in favour of its batched sibling, and drop the retired PAST_REPLIES_VIEW_ENABLED from the publisher edit-existing-reply suite.",
+  "non_goals": [
+    "Item 4 of the original five (retype PastReplyRow.row_state to ReviewRowState) — MOOT: #727 deleted both symbols; the wire now carries reply_state + row_action per ADR 0018. Nothing to retype.",
+    "Changing the fail-open posture of the per-review daily cap's advisory peek (D-F, confirmed sound). This bundle unifies WHERE the swallow lives, never whether it swallows.",
+    "Touching the authoritative per-review daily cap gate (the Lua INCR in checkRegenBudget / generate-draft.ts). Only the advisory peek is in scope.",
+    "Folding the group denominators into the main row query (window functions). The rows-vs-counts snapshot split is inherent to any paginated list and cannot produce N > M; folding would rewrite the main query's 1.4kB allowlist snippet for no correctness gain.",
+    "Re-litigating the Posted-reply axis / Replacement-draft axis / Action slot model (ADR 0018). toCardRow's dispatch INPUT stays `reply === 'orphan'`.",
+    "Any migration, any new or retired feature flag, any new env var, any new dependency.",
+    "Renaming or re-homing the Reviews list surface, its route, or PastReplyCard's props."
+  ],
+  "user_visible_behavior": [
+    "The Reviews list's 'N of M' pagination and its Answered/Unanswered denominators can no longer disagree: a reply posted mid-load previously let a review be counted in neither denominator, deflating totalPages so the page rendered more rows than its own page count admitted. All three figures (unanswered total, answered total, average star rating) now come from one snapshot.",
+    "No other observable change. Items 1, 3 and 5 are behaviour-preserving by construction: identical card fields, identical 429 regen_limit_reached / proceed decisions, identical publisher suite outcome."
+  ],
+  "invariants": [
+    "Invariant #4 (high-confidence unsafe drafts are held, not notified) — held is CARRIED not filtered through the draft LATERAL, and none/posted x held still project row_action 'none'. Item 2 must not touch the draft LATERAL or the main row query.",
+    "Invariant #8 (auth scope is app-enforced) — the merged denominator query stays scoped by r.business_id = locationId, resolved for the current account before any responses existence test. Its tenant-scope allowlist entry keeps category 'tenant-root-lookup' and the existing reason text.",
+    "Invariant #13 (feature flags are server-authoritative) — item 5 deletes a RETIRED flag's last worker-side reads; it introduces no flag and no NEXT_PUBLIC_* companion.",
+    "D-F / D10 (the advisory peek fails OPEN) — a Redis transport failure must leave every Regenerate enabled and every route-level regenerate permitted. After the consolidation the ONLY fail-open path is an absent Map entry, and it must still be logged on the shared regen_budget_peek_failed stream.",
+    "The advisory peek never rejects and never increments — no INCR, no eval, no LLM spend, so no caller needs a catch of its own.",
+    "Orphan rows are mapped from the orphan_* LATERALs, never from resp.* — and failed_response_id stays populated on an orphan row, because AnsweredControls and RecoveryControl gate the recovery ACTIONS on it (#678 round-2 Defect A). The re-split is safe only because the slice type makes omission a compile error.",
+    "The tenant-scope allowlist may only SHRINK here: 409 -> 408. Two entries out, one in.",
+    "reviews.sentiment_* is untouched — no review-content write site is in scope."
+  ],
+  "edge_cases": [
+    "Orphan row: response_id carries orphan_failed_response_id (not resp.id), approved_text carries superseded_text, and posted_at / approval_method / version are all null because an orphan has no live posted reply.",
+    "Posted row that ALSO has a delete_failed_* sibling: failed_response_id / failed_posting_error come from fail_sidecar, not from the orphan LATERALs — the sidecar badge on a healthy live reply.",
+    "A row that is neither orphan nor posted (never-replied, reply_state 'none'): every reply-facts field is null-or-absent and no recovery affordance is reachable.",
+    "version present but not a number (Postgres.js hands back a non-number): must still map to null, exactly as the current `typeof r.version !== 'number'` guard does.",
+    "provenance_badge is derived from the DISPATCHED approval_method (null on an orphan), not the raw row — otherwise an orphan could render an auto_approved / owner_approved badge for a reply that is not on Google.",
+    "Location with zero reviews: the merged denominator query must return one row with unanswered 0, answered 0, avg NULL — not zero rows — so avgStarRating stays null and totalPages clamps to 1.",
+    "A review with MULTIPLE posted responses (defensive): the answered denominator counts the review once, because the FILTER predicate is an EXISTS, not a join.",
+    "Redis MGET fails for the route's single-review peek: the Map is empty, .get(reviewId) is undefined, and enforceRegenBudgetForReview returns null (proceed) after logging on regen_budget_peek_failed.",
+    "Redis key absent for a review that IS in the batch: still yields { used: 0, limit, remaining: limit } — absent KEY means unused, only an absent MAP ENTRY means the peek failed. Inverting these would disable every Regenerate during an Upstash outage.",
+    "Empty reviewIds array: peekRegenBudgetBatch short-circuits to an empty Map without touching Redis — so the route path must not read that as a peek failure when it passes exactly one id (it never passes zero).",
+    "The publisher suite's originalEnv snapshot/restore must stay balanced after the PAST_REPLIES_VIEW_ENABLED triplet is removed — a half-removed restore leaks env state into sibling suites."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/past-replies/replies-view.ts — deriveAxes / deriveRowAction are the in-file precedent for a total, exhaustively-typed derivation over the two axes; the new reply-facts split follows their shape and comment density.",
+    "src/lib/costs/tracker.ts peekRegenBudgetBatch — the surviving contract: getCacheRedis() INSIDE the try, swallow-and-log on the shared regen_budget_peek_failed stream, empty Map on failure.",
+    "src/lib/past-replies/load-replies.ts — the existing COUNT(*)::int AS count / AVG(r.star_rating)::float AS avg casts and the `FROM reviews r WHERE r.business_id = ${locationId}` scoping are carried verbatim into the merged query.",
+    "scripts/ci/tenant-scope-allowlist.ts lines 51-70 — the ledger-comment-plus-baseline convention for a shrink (the #678 414->412 and #729 412->409 entries are the two nearest precedents).",
+    "src/lib/past-replies/__tests__/reviews-list.test.ts — the SqlCall { text, values } recording harness is how the 'one denominator query' title is asserted without a live DB.",
+    "src/lib/reviews/__tests__/sentiment.test.ts — house style for an 'invariants' describe block, if a property test proves useful for the denominator partition.",
+    "docs/adr/0018-row-state-axes-projection.md — the ADR this bundle amends; ADR 0017's addendum (commit 76b40b7b) is the precedent for the addendum format."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/past-replies/**",
+    "src/lib/costs/**",
+    "worker/jobs/publisher/__tests__/**",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/shared/dashboard-regen-rate-limit.ts",
+    "src/lib/shared/__tests__/dashboard-regen-rate-limit.test.ts",
+    "docs/adr/0018-row-state-axes-projection.md",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "toCardRow maps an orphan row from the orphan_* LATERALs and never from resp.*",
+    "toCardRow keeps failed_response_id populated on an orphan row so recovery stays reachable",
+    "toCardRow maps a posted row from resp.* and still carries its own delete_failed_* sidecar",
+    "toCardRow nulls posted_at, approval_method and version on an orphan row",
+    "toCardRow derives provenance_badge from the dispatched approval_method, not the raw row",
+    "toCardRow maps a never-replied row with no reply facts and no recovery affordance",
+    "loadPastRepliesPageView issues ONE denominator query, so the two counts and the average share a single snapshot",
+    "unansweredTotal + answeredTotal equals the location review count exactly",
+    "a review with a posted reply counts once as answered and never also as unanswered",
+    "the merged denominator query returns one row for a location with zero reviews, so avgStarRating stays null",
+    "enforceRegenBudgetForReview proceeds when the batched peek returns no entry for the review",
+    "enforceRegenBudgetForReview returns 429 regen_limit_reached when the batched peek reports zero remaining",
+    "enforceRegenBudgetForReview proceeds when the batched peek reports remaining above zero",
+    "peekRegenBudgetBatch never rejects, so no caller needs a catch of its own"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "200",
+  "estimated_test_lines": "230",
+  "dependencies_added": [],
+  "rollback_plan": "Plain `git revert` of the squash-merge commit. There is no migration, no feature flag, no env var and no dependency, so revert is total and needs no ordering. The only non-source artefact is scripts/ci/tenant-scope-allowlist.ts: the revert restores ALLOWLIST_BASELINE 408 -> 409 and the two COUNT entries in the same commit, so ci:tenant-scope goes green immediately rather than needing a follow-up. Nothing is written to either Supabase project, so prod/staging need no lockstep step.",
+  "observability": [
+    "Item 3: the shared regen_budget_peek_failed warn stream is now the ONLY peek-failure signal for both callers. A route-level peek failure appears as { event: 'regen_budget_peek_failed', peek: 'batch', subject_count: 1 } — the subject_count discriminates the route's single-review path from the Reviews list's page-sized batch, so 'is the route failing open?' is answerable without a second log site. The [DashboardRegenBudget] logger prefix and its route field disappear with the deleted catch; that is the intended consolidation, and the loss of the route discriminator is what subject_count replaces.",
+    "Item 2: no new signal, deliberately — the merged query is a read on a server-rendered page, so a failure surfaces as a loadPastRepliesPageView exception in Sentry exactly as the three queries did. What the change removes is a symptom that was UNOBSERVABLE by design: the skew rendered as a silently wrong 'N of M' with no error and no log. Post-change the partition is arithmetically closed, so the failure mode cannot recur silently.",
+    "Items 1 and 5: no new signal. A regression in item 1 is caught by the pinned card-field tests, not in prod; item 5 is test-only.",
+    "Nothing added here logs review or response text, tokens or secrets."
+  ],
+  "open_questions": []
+}
