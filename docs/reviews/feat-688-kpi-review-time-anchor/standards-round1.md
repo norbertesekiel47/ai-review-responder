@@ -254,3 +254,39 @@ staleness inside the `reason` strings.
 - LOW (`approval_method` raw `'owner'` literal) — **ACCEPT, FIXED**: fixture
   now imports `APPROVAL_METHOD` from `@/lib/auto-approval/types` and uses
   `APPROVAL_METHOD.OWNER`.
+
+## Round 2 verification (standards axis)
+
+Verified fix commit `aafe96b5` against the round-1 triage verdicts (2026-08-10).
+
+- **F1 (calendar-boundary flake, adjudicated wontfix) — VERIFIED.** The suite
+  header comment (`src/lib/kpi/__tests__/service.anchor.integration.test.ts:24-32`)
+  documents the adjudication accurately: beforeAll seed vs assert-time
+  `DATE_TRUNC` recompute, seconds-wide window, loud failure with a passing
+  rerun, and clock injection rejected because `NOW()` is baked into the
+  production KPI queries. The comment's factual claims check out against the
+  code — the future-clamp fixture it cites is indeed `NOW() + interval
+  '2 days'` (line 224), and its Sat/Sun-only ISO-week-crossing arithmetic is
+  correct for Monday-start weeks. The commit's diff on this file touches only
+  the header comment, one import, and one fixture value binding — no fixture
+  time arithmetic and no assertion changed, so the adjudicated risk profile is
+  unaltered.
+- **F2 (`approval_method` raw `'owner'` literal) — VERIFIED.** The fixture now
+  imports `APPROVAL_METHOD` from `@/lib/auto-approval/types` (line 52) and
+  binds `${APPROVAL_METHOD.OWNER}` in `seedPostedResponse` (line 143) —
+  identical import path and usage shape to the sibling live-DB suite
+  `worker/jobs/response-generation/__tests__/auto-approval-daily-cap.integration.test.ts:40`.
+  `APPROVAL_METHOD.OWNER === 'owner'`, so no behavior change; the value moved
+  from an inline SQL literal to a bind parameter, which is the house pattern.
+- **No new violations in `aafe96b5`.** The only code change is the test file
+  (comment block matches the file's existing header style; no `any`; one stray
+  literal removed, none added). The remaining additions are the two round-1
+  review reports under `docs/reviews/feat-688-kpi-review-time-anchor/` — docs
+  only.
+- **Checks re-run**: `pnpm typecheck` → clean; `TEST_DATABASE_POOL_URL` (from
+  `.env.local`) `pnpm vitest run src/lib/kpi/__tests__/service.anchor.integration.test.ts`
+  → 9/9 passed (330ms). Working tree clean for `src/lib/kpi/` at verification
+  time.
+
+**Round-2 verdict: VERIFIED — all accepted findings addressed as triaged; no
+new findings.**

@@ -280,3 +280,15 @@ severity is low.
 - LOW (future-clamp test weekend-only vs COALESCE) — **ACCEPT as documented
   risk**: suite header comment added; the mock `LEAST(` template pins remain
   the every-day backstop. No code change.
+
+## Round 2 verification (spec axis)
+
+Verified against fix commit `aafe96b5` in the worktree, 2026-08-10.
+
+| Finding | Verdict | Evidence |
+|---|---|---|
+| HIGH — dashboard aggregates still detected_at (Finding A) → follow-up issue | **VERIFIED** | Issue #757 exists, state OPEN, title "Apply the Review-time anchor to the dashboard-payload aggregates — the surfaces customers actually see". Body names `src/lib/dashboard/service.ts` (~:486+, `fetchReputationRows` hero-band star windows + 8-week trend) and `src/lib/dashboard/aggregate-queries.ts` (~:164-215 velocity/rating breakdown), the zero-consumer `/api/dashboard/kpis` route, references ADR 0019 (decision of record) and map #667, and states "blocks GA" explicitly. Surface stayed clean: `git show --stat aafe96b5` touches only the two round-1 reports + the integration suite; branch-wide `git diff --name-only 8db5fe28..HEAD` (13 files) contains no `src/lib/dashboard/**` file — no fix was attempted on this branch. |
+| LOW — future-clamp weekend-only discrimination (Finding B) → documented risk | **VERIFIED** | Suite header (`service.anchor.integration.test.ts:24-33`) now carries an "Accepted timing risks (#688 round-1 review, adjudicated wontfix)" block naming both the calendar-boundary straddle and the weekend-only LEAST-vs-COALESCE distinction, with the mock `LEAST(` pins named as the every-day backstop. The commit's only non-comment suite changes are one added import (`APPROVAL_METHOD`) and the `'owner'` → `${APPROVAL_METHOD.OWNER}` literal swap in `seedPostedResponse` (`APPROVAL_METHOD.OWNER === 'owner'` per `src/lib/auto-approval/types.ts:19` — semantics-preserving). Zero `expect` lines changed; no assertion weakened. |
+| Fix-commit scope + gate | **VERIFIED** | `aafe96b5` diff = `spec-correctness-round1.md` (new), `standards-round1.md` (new), `service.anchor.integration.test.ts` (+13/−1: header comment, import, one literal) — a subset of the allowed set (the deviations file was already updated in `0e56c6e2`, which also records the reclassify adjudication). `.feature/gate-status.json` mtime 2026-08-10 15:44:21 > HEAD commit 15:42:49; `passed:true`, mode `full`, all 25 checks PASS except `reclassify: WARN`, whose adjudication (188-line bucket = 118 ADR doc lines misclassified; true production 69; lane unchanged) is recorded in `feat-688-kpi-review-time-anchor-deviations.md:103-113`. |
+
+No new findings. Round-2 verdict: all round-1 accepted findings addressed as triaged.
