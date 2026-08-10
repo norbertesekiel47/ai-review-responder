@@ -3198,3 +3198,48 @@ branches in one session, each staging-ridden before merge.
   new multi-branch loops as named helpers up front. And the local `pnpm
   ci:fallow` (no coverage) agreed with CI's `ci:fallow:coverage` verdict both
   times, so the fast local run is a trustworthy pre-push signal for this class.
+
+## 2026-08-10 — #688 KPI Review-time anchor (PR #758, squash b9fe3c5f)
+
+- **What**: resolved the GA-gating wayfinder decision ticket #688 (map #667):
+  KPI treatment of imported reviews. Decision locked at an in-session grilling
+  (four questions, all recommended options chosen): reputation KPIs (volume
+  MoM, sentiment trend, avg star) bucket on the **Review-time anchor**
+  `LEAST(review_date, detected_at)`; response rate stays `detected_at` (#675
+  nudge preserved); MonthlyImpactWorker digest untouched; TTR gains
+  `approved_at >= detected_at` (exclusion, not clamp — clamped zeros read
+  faster-than-real); discriminator migration and accept-as-is both rejected.
+  ADR 0019 + CONTEXT.md glossary term **Review-time anchor**.
+- **Why LEAST not COALESCE**: Postgres LEAST ignores NULLs (NULL review_date
+  → detected_at) and clamps a clock-skewed FUTURE review_date that would
+  otherwise vanish from the trend's `generate_series` LEFT JOIN.
+- **Files**: `src/lib/kpi/service.ts` (two lazy fragments + six query sites,
+  both scopes; exported interface unchanged); new live-DB eval suite
+  `src/lib/kpi/__tests__/service.anchor.integration.test.ts` (8 promised
+  titles committed red-first — 4 red / 4 regression pins — plus an
+  account-scope consistency pin); mock fragment/characterization pins in
+  `service.test.ts`; `scripts/ci/tenant-scope-allowlist.ts` 3 trend snippets
+  re-pinned (baseline 408 — user-approved surface amendment #1: the audit
+  strips SELECT subqueries, so the trend queries are allowlisted by EXACT raw
+  template text and any edit invalidates the pin).
+- **Negative-TTR evidence**: the −2.9-year staging rows were already outside
+  the 30d `approved_at` window filter; the LIVE bug was the bounded in-window
+  case (reply made days before import) — test 7 constructs exactly that.
+- **Workflow record**: verify gate GREEN ×3 (`--review`); reclassify WARN
+  adjudicated (prod bucket 188 counted ADR 0019's 118 doc lines; true prod
+  ≈ 69 vs 60 estimate; test 443 vs 350); 9 deviations, all ACCEPT; review
+  round 1 = spec + standards axes, round 2 verification VERIFIED both.
+- **The finding that outlived the branch**: `GET /api/dashboard/kpis` has
+  ZERO consumers — the visible dashboard (ReputationHeroBand via
+  `src/lib/dashboard/service.ts`, velocity/rating breakdown via
+  `aggregate-queries.ts`) still buckets on `detected_at` (pre-existing gap).
+  Extending the branch was rejected (2nd surface amendment fires the abort
+  criteria; different module + Redis-cached payload); **#757 (GA-blocking)**
+  carries it. #688 closed with the decision comment; map #667 noted.
+- **Worth carrying**: `date`-typed columns (OID 1082) decode to JS `Date` in
+  postgres.js — `String()` gives the long local form, so SQL-side `::date`
+  expectations must round-trip the same decode path (the `types.ts` "ISO
+  date" comment is wrong at runtime; cleanup left to #757's KPI-surface
+  adjudication). `seedLocation` defaults `isPrimary: true` and
+  `businesses_account_primary_uniq` allows one primary per account — pass
+  `isPrimary: false` for every cluster after the first.

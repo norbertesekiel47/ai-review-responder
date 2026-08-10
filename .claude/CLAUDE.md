@@ -178,7 +178,7 @@ decide *where new worker code goes*:
 
 - **Schema + migrations** → `.claude/reference/migrations-log.md` (authoritative): base schema (`001_initial_schema.sql`), current head / next number, and the UUIDv7 time-ordered-PK convention. Read it before any migration.
 - **Review sentiment**: `reviews.sentiment_*` populated by `classifySentiment` (`src/lib/reviews/sentiment.ts`, deterministic star-based `deterministic_star_v1`) at all review-content write sites; status-only writes don't touch it.
-- **Customer KPIs**: `src/lib/kpi/*` (`DashboardKpiSummary` — response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend); per-location or per-account; served by `GET /api/dashboard/kpis`.
+- **Customer KPIs**: `src/lib/kpi/*` (`DashboardKpiSummary` — response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend); per-location or per-account; served by `GET /api/dashboard/kpis`. Reputation KPIs (volume MoM, trend, avg star) bucket on the **Review-time anchor** `LEAST(review_date, detected_at)` (#688, ADR 0019); response rate stays on `detected_at`; TTR excludes `approved_at < detected_at`. **Caveat:** the route currently has zero consumers — the visible dashboard reads `src/lib/dashboard/*` aggregates, still `detected_at`-anchored; re-anchoring them is GA-blocking #757.
 - **Finance/margin signals**: admin-only, aggregate-on-read from `api_costs` via `src/lib/admin/margin-service.ts`. Cross-account queries intentionally allowlisted in tenant-scope audit.
 
 ## Non-obvious gotchas — read before touching related code
