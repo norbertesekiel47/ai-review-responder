@@ -5,8 +5,43 @@ does not restate them. `/feature-resume feat-731-maintainability-bundle`.
 
 ## Where we are
 
-**Phase:** `plan_approved` (see `.feature/state.json` — authoritative).
-**Current step:** 4 (EXECUTE).
+**Phase:** `reviewed` (see `.feature/state.json` — authoritative).
+**Current step:** 8 (SHIP), RISK = normal lane: push → PR → CI green → merge.
+
+### Post-review status (updated 2026-08-09)
+
+All six tasks committed; gate **GREEN** three times (last: `--review` mode, 27
+rows, both changed integration suites RAN not skipped, `promised-tests` 14/14,
+`diff-coverage` pass). Review complete at **round 2 of 3** — both axes verified
+every accepted finding fixed with no regressions and no new fronts.
+
+Round 1 findings, all ACCEPTED and fixed in `27a57cc2`:
+1. **The merged denominator query was a plan regression with a false rationale**
+   (found independently by BOTH axes). The `CROSS JOIN LATERAL … EXISTS` is now
+   `LEFT JOIN responses p … AND p.status = 'posted'` with
+   `COUNT(*) FILTER (WHERE p.review_id IS NULL / IS NOT NULL)`. Two independent
+   `EXPLAIN ANALYZE` reproductions confirm a Hash Right Join replacing two
+   correlated SubPlans at `loops=20000` — ~81–261× planner cost and ~137× buffer
+   accesses. The new comment makes **no planner claim at all**; that unverifiable
+   assertion was the root of the finding.
+2. **The logging-privacy test had gone vacuous.** Coverage moved to where the log
+   now lives (`regen-budget-batch.test.ts`); the un-failable test was deleted.
+3. Two stale `NOT EXISTS` comments; a hand-rolled `seedPostedResponse` duplicate;
+   plus two accepted appendix items (a stale ADR line citation, a dangling
+   referent in the `ReplyFacts` doc block).
+
+**Open decision the owner may want to override — see deviations D9.** The gate's
+`reclassify` row WARNs: the test bucket is 490 lines against a 230 estimate
+(2.13×). Step 0 was re-run against the real figures (production 323 = 1.62×,
+under threshold) and the lane came out **unchanged** — RISK normal, SURFACE
+mixed, SIZE normal, 0 surface amendments. Escalation to the RISK=high lane was
+declined because that lane's control is a staging ride, and staging exists to
+exercise worker/queue/webhook/migration paths, none of which this branch touches.
+The estimate was wrong, not the lane.
+
+**Also note (D8):** `origin/main` moved mid-run — PR #747 merged as `3887707d`.
+It is merged into this branch, the file sets are wholly disjoint, and the branch
+is currently 0 commits behind.
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-731-maintainability-bundle`, branched from `origin/main` @ `352d5c1d`.
 **Enforcement:** ARMED (`scripts/arm-check.sh` verified at setup).
 
