@@ -100,3 +100,49 @@ Findings:
 Overall: codex's NO-SHIP rested on the two high findings; both are now
 mechanically enforced (ref-alias scan + owner-tree sweep). The remaining
 recommendations are recorded fast-follows.
+
+## Round-2 verification (spec+adversarial axes)
+
+Verification-only pass over commit `203a3b9d`. Mechanical gate: commit stat =
+exactly 2 files (`CONTEXT.md`, `src/lib/moderation/__tests__/held-draft.test.ts`);
+`pnpm vitest run src/lib/moderation/__tests__/held-draft.test.ts` = **10/10
+passed**; `203a3b9d..HEAD` contains only the four `docs/reviews/...` round-1
+report files (`ec1c3531`). Overall: **VERIFIED**.
+
+1. **SPEC MINOR (title-#11 JOIN gap) — VERIFIED.** New additive owner-tree
+   sweep matches `(?:FROM|JOIN)\s+flagged_responses` (case-insensitive) over
+   comment-stripped production files under the four claimed trees; the locked
+   title-#11 OWNER_FACING body has zero changes in `aa01232b..203a3b9d`.
+2. **[high] enumerative guard — VERIFIED.** A hypothetical new
+   `src/lib/dashboard/foo.ts` with inline `JOIN flagged_responses` would be
+   walked (recursive `readdirSync`, test files excluded via `__tests__` +
+   `.test.` filters), comment-stripped with template-literal content intact,
+   and matched (JOIN and multiline anti-join forms both empirically confirmed
+   via regex simulation). The four deliberately-distinct consumer categories
+   all live outside the swept trees: admin (`src/app/api/admin/flagged/route.ts`,
+   `src/lib/admin/*`), health-alert (`worker/background/pollers/health-alert/checks.ts`),
+   purge (`src/lib/account-offboarding/purge-verification.ts`,
+   `worker/jobs/account-offboarding/purge-stages.ts`), producer
+   (`worker/jobs/response-generation/persist.ts`, an INSERT). Minor accepted
+   residual: the `--` stripper also matches a TS decrement operator on the
+   same line as SQL — contrived, left to review.
+3. **[high] alias capture — VERIFIED, residual judged acceptable.** The test
+   scans real call text; `openFlagExistsSql(sql, sql`fr.id`)` added to a
+   swept file is captured and fails the test (empirically confirmed). All 8
+   real call sites use bare refs (`resp.id`/`resp2.id`/`responses.id`) with
+   no `)` inside the ref, so the suite passes today. Residual: the regex
+   truncates at the first `)`, so a paren-containing ref hiding `fr.` AFTER
+   the first close-paren (e.g. `sql\`lower(x) || fr.id\``) would false-pass —
+   the test is partial-scan there, not strictly fail-safe. Acceptable: refs
+   are contractually simple column references, `fr.` before the first `)` is
+   still caught, and closing it needs paren-balancing/AST extraction —
+   disproportionate for this guard.
+4. **[medium] glossary — VERIFIED.** Amended in place, no new term; held-ness
+   release (any disposition off `open`) is now distinct from re-notification
+   (`approved_for_owner_review` only); references
+   `src/lib/moderation/held-draft.ts`; the three status names match migration
+   051's CHECK constraint exactly.
+5. **STANDARDS Low (.todo comment) — VERIFIED.** Comment reads "the three
+   suites that carried the four promised stubs"; test body byte-unchanged.
+
+Appendix (untriaged new observations): none.

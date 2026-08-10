@@ -222,3 +222,64 @@ review: both live-DB integration suites, the D9 projected assertions, `ci:tenant
   `(?:FROM|JOIN)\s+flagged_responses` over comment-stripped production
   sources in the four owner-facing trees); the locked title-#11 body itself
   is untouched.
+
+## Round-2 verification (spec+adversarial axes)
+
+Verification-only pass over commit `203a3b9d` (claimed fixes for the accepted
+SPEC + ADVERSARIAL findings). Mechanical gate: `git show 203a3b9d --stat` =
+exactly 2 files (`CONTEXT.md`, `src/lib/moderation/__tests__/held-draft.test.ts`);
+`pnpm vitest run src/lib/moderation/__tests__/held-draft.test.ts` = **10/10
+passed**; `203a3b9d..HEAD` contains only the four `docs/reviews/...` round-1
+report files (`ec1c3531`). Overall: **VERIFIED**.
+
+1. **SPEC MINOR (title-#11 scan misses JOIN form) — VERIFIED.** New additive
+   test `no production file in the owner-facing trees spells flagged_responses
+   SQL outside the owner module` matches `(?:FROM|JOIN)\s+flagged_responses`
+   (case-insensitive, `\s+` spans newlines) over comment-stripped production
+   `.ts`/`.tsx` under exactly the four claimed trees. The locked title-#11
+   OWNER_FACING body has zero changes in `aa01232b..203a3b9d` (diff shows only
+   the new imports, two helpers, the `.todo` comment reword, and two appended
+   tests).
+2. **ADVERSARIAL [high] enumerative guard — VERIFIED.** Simulated a
+   hypothetical `src/lib/dashboard/foo.ts`: `readdirSync` walk collects any
+   new `.ts` (excluding `__tests__` paths and `.test.` names, which covers
+   `.integration.test.`); `stripComments` leaves template-literal content
+   intact; the regex catches both the `JOIN` form and a multiline anti-join
+   (empirically confirmed via regex simulation). The deliberately-distinct
+   consumers all live outside the swept trees: `src/app/api/admin/flagged/route.ts`
+   + `src/lib/admin/{flagged-service,nav-counts-service}.ts` (admin),
+   `worker/background/pollers/health-alert/checks.ts`,
+   `src/lib/account-offboarding/purge-verification.ts` +
+   `worker/jobs/account-offboarding/purge-stages.ts`, and the producer
+   `worker/jobs/response-generation/persist.ts` (an `INSERT INTO`, which the
+   FROM/JOIN regex would not match regardless). Noted residual, acceptable:
+   `stripComments`' SQL `--` stripper also matches a TS decrement operator, so
+   a line like `i--; sql\`FROM flagged_responses\`` would be masked — contrived
+   enough to leave to review.
+3. **ADVERSARIAL [high] alias capture — VERIFIED, residual judged
+   acceptable.** The test reads real production call text from the swept
+   trees; empirically, `openFlagExistsSql(sql, sql`fr.id`)` in a swept file is
+   captured and flagged (`\bfr\.` matches after a backtick). Passes today: all
+   8 production call sites use bare refs `resp.id`/`resp2.id`/`responses.id`
+   — none contains `)` or `fr.` (the `${responseId}::uuid` site is inside the
+   owner module, outside the sweep by design). Residual: `[^)]*` truncates at
+   the first `)`, so it is NOT strictly fail-safe — a paren-containing ref
+   yields a *truncated* match, and `fr.` occurring after the first `)` (e.g.
+   `sql\`lower(x) || fr.id\``) would false-pass; `fr.` before the first `)` is
+   still caught. Judgment: acceptable — the fragment's contract documents ref
+   as a simple column reference, all real refs are bare columns, and the
+   evasion requires deliberately hiding the reserved alias behind a function
+   call inside the ref; a full fix needs paren-balancing/AST, disproportionate
+   here.
+4. **ADVERSARIAL [medium] glossary — VERIFIED.** One line amended in place;
+   no new term added. The entry now separates held-ness release (any
+   disposition off `open`) from re-notification (`approved_for_owner_review`
+   only), references `src/lib/moderation/held-draft.ts`, and the three
+   non-open names match migration `051_flagged_responses.sql`'s CHECK
+   vocabulary byte-for-byte (`approved_for_owner_review`,
+   `dismissed_false_positive`, `requires_regeneration`).
+5. **STANDARDS Low (.todo comment) — VERIFIED.** Comment now reads "the three
+   suites that carried the four promised stubs"; the executable body (SUITES
+   array, loop, regex) is byte-unchanged per the diff.
+
+Appendix (untriaged new observations): none.
