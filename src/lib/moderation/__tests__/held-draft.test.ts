@@ -2,6 +2,8 @@
 // gap): a typo in hasOpenFlag's status='open' predicate would silently
 // release admin-held drafts to owners. Previously covered only indirectly
 // via integration tests.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type postgres from 'postgres';
 import { hasOpenFlag, openFlagExistsSql, HeldForReviewError } from '../held-draft';
@@ -65,7 +67,49 @@ describe('openFlagExistsSql', () => {
     expect(exists.text).toContain('fr.response_id = ');
     expect(exists.values).toContain(ref);
   });
-  it.todo('all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains');
+  it('all eight owner-facing reads compose openFlagExistsSql and no owner-facing inline spelling remains', () => {
+    // file → minimum openFlagExistsSql(...) INVOCATIONS (import lines never
+    // match `openFlagExistsSql(`): pending-count has TWO spellings.
+    const OWNER_FACING: Array<[string, number]> = [
+      ['src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts', 1],
+      ['src/app/api/dashboard/past-replies/draft-status/route.ts', 1],
+      ['src/lib/past-replies/load-replies.ts', 1],
+      ['src/lib/dashboard/service.ts', 1],
+      ['src/lib/dashboard/aggregate-service.ts', 1],
+      ['src/lib/dashboard/pending-count.ts', 2],
+      ['src/lib/agents/read.ts', 1],
+    ];
+    for (const [file, minCalls] of OWNER_FACING) {
+      const raw = readFileSync(resolve(process.cwd(), file), 'utf-8');
+      // strip line comments so a mention in prose can neither satisfy the
+      // invocation count nor trip the inline-spelling scan (round-3 hardening)
+      const src = raw.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+      const calls = src.match(/openFlagExistsSql\(/g)?.length ?? 0;
+      expect(calls, `${file} must invoke openFlagExistsSql at least ${minCalls}×`).toBeGreaterThanOrEqual(minCalls);
+      expect(src, `${file} re-spells the open-flag predicate inline`).not.toMatch(/FROM\s+flagged_responses/i);
+    }
+  });
+
+  it('no promised #730 test title survives as .todo', () => {
+    // The verify gate's promised-tests row accepts `.todo`; this closes that
+    // escape mechanically. Scans the four suites that carried stubs.
+    const SUITES = [
+      'src/lib/moderation/__tests__/held-draft.test.ts',
+      'src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/route.test.ts',
+      'src/lib/dashboard/__tests__/service.feed-projection.test.ts',
+    ];
+    for (const suite of SUITES) {
+      const src = readFileSync(resolve(process.cwd(), suite), 'utf-8');
+      // `.todo` on it/test, dot or bracket access, whitespace-tolerant
+      // (round-3 hardening: bracket access `['todo'](...)` and a spaced
+      // `. todo (...)` count too). NOTE: spelled indirectly here — a literal
+      // runner-dot-todo sequence in this comment would trip the scan below
+      // when this suite reads its own source (it is in SUITES).
+      expect(src, `${suite} still carries a .todo stub`).not.toMatch(
+        /\b(?:it|test)\s*(?:\.\s*todo\b|\[\s*['"]todo['"]\s*\])/,
+      );
+    }
+  });
 });
 
 describe('HeldForReviewError', () => {
