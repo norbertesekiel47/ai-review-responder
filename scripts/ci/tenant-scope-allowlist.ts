@@ -67,7 +67,13 @@ export interface TenantScopeAllowlistEntry {
 //     natively business-scoped (`AND business_id = …`), so the three
 //     Generate-door entries above were deleted — the audit sees the scope and
 //     needs no suppression at all.
-export const ALLOWLIST_BASELINE = 409;
+//   409 → 408 (#731), a SHRINK. The two `load-replies.ts` group-count entries
+//     merged into one: the unanswered COUNT, the answered COUNT and the AVG
+//     became a single `COUNT(*) FILTER` query over one snapshot, so the three
+//     figures can no longer disagree. Two entries out, one in. The exemption
+//     narrows in the same motion — the merged query is scoped by
+//     `r.business_id = ${locationId}` exactly as its predecessors were.
+export const ALLOWLIST_BASELINE = 408;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1288,17 +1294,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'tenant-root-lookup',
     reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
   },
+  // #731 — the two group-count entries above merged into ONE. The unanswered
+  // COUNT, the answered COUNT and the AVG became a single `COUNT(*) FILTER`
+  // query over one snapshot, so this is the sole denominator entry: two out,
+  // one in, 409 -> 408.
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r WHERE r.business_id = ${locationId} AND NOT EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' )",
-    category: 'tenant-root-lookup',
-    reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
-  },
-  {
-    file: "src/lib/past-replies/load-replies.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r WHERE r.business_id = ${locationId} AND EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' )",
+    sqlSnippet: "SELECT COUNT(*) FILTER (WHERE NOT posted.has_reply)::int AS unanswered_total, COUNT(*) FILTER (WHERE posted.has_reply)::int AS answered_total, AVG(r.star_rating)::float AS avg_star_rating FROM reviews r CROSS JOIN LATERAL ( SELECT EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' ) AS has_reply ) posted WHERE r.business_id = ${locationId}",
     category: 'tenant-root-lookup',
     reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
   },

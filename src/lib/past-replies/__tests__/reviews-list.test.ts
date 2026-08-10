@@ -102,9 +102,11 @@ function fakeSql(rows: FakeRows): { sql: Sql; calls: SqlCall[] } {
     calls.push({ text, values });
     if (/AS\s+review_id/i.test(text)) return Promise.resolve(rows.main ?? []);
     // #731 item 2: the MERGED denominator query — two COUNT(*) FILTERs plus the
-    // AVG over one snapshot. Matched FIRST because its text also matches the
-    // `AVG(` and `COUNT(*)` branches below; dispatching it there would resolve
-    // it to `[{ avg }]` and silently zero both denominators.
+    // AVG over one snapshot. It is the ONLY aggregate query now; the three
+    // legacy branches it replaced (a bare `AVG(`, a `COUNT(*)`+`NOT EXISTS` and
+    // a bare `COUNT(*)`) were retired with the queries they served, so no shape
+    // ahead of this one can swallow it and resolve it to `[{ avg }]` — which
+    // would silently zero BOTH denominators while the suite stayed green.
     if (/unanswered_total/i.test(text)) {
       return Promise.resolve([{
         unanswered_total: rows.unansweredTotal ?? 0,
@@ -112,11 +114,6 @@ function fakeSql(rows: FakeRows): { sql: Sql; calls: SqlCall[] } {
         avg_star_rating: rows.avg ?? null,
       }]);
     }
-    if (/AVG\(/i.test(text)) return Promise.resolve([{ avg: rows.avg ?? null }]);
-    if (/COUNT\(\*\)/i.test(text) && /NOT\s+EXISTS/i.test(text)) {
-      return Promise.resolve([{ count: rows.unansweredTotal ?? 0 }]);
-    }
-    if (/COUNT\(\*\)/i.test(text)) return Promise.resolve([{ count: rows.answeredTotal ?? 0 }]);
     if (/FROM\s+businesses/i.test(text)) return Promise.resolve(rows.biz ?? [DEFAULT_BIZ]);
     return Promise.resolve([]);
   };
@@ -184,8 +181,9 @@ function mainQuery(calls: SqlCall[]): SqlCall {
 }
 
 /**
- * The four shapes `fakeSql` actually resolves rows for, i.e. the discrimination
- * `mainQuery` does, widened to its three siblings.
+ * The three shapes `fakeSql` actually resolves rows for, i.e. the discrimination
+ * `mainQuery` does, widened to its two siblings. Three, not five, since #731
+ * merged the two group COUNTs and the AVG into one denominator query.
  *
  * Query-count assertions must run through this rather than counting raw tagged
  * template calls (Q3). A tagged call can also be a FRAGMENT — a bound
@@ -196,8 +194,6 @@ function mainQuery(calls: SqlCall[]): SqlCall {
 const ROW_PRODUCING_QUERY_SHAPES = [
   /AS\s+review_id/i,
   /unanswered_total/i,
-  /AVG\(/i,
-  /COUNT\(\*\)/i,
   /FROM\s+businesses\s+b/i,
 ] as const;
 
@@ -348,13 +344,13 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
     const dataQueries = rowProducingQueries(calls).filter(
       (call) => !/FROM\s+businesses\s+b/i.test(call.text),
     );
-    // Exactly FOUR ROW-PRODUCING queries: the single row source, the two group
-    // COUNTs, and the average. Pre-#678 there were five (the separate orphan
-    // query, deleted by F3) and the counts were the activation-split
-    // gap/historical pair, which S3 replaces with per-row provenance badges.
+    // Exactly TWO row-producing data queries: the single row source and the
+    // merged denominator query. Pre-#731 there were four — the two group
+    // COUNTs and the AVG were separate, i.e. three snapshots (#731 item 2).
+    // Pre-#678 there were five (the separate orphan query, deleted by F3).
     // Counted through rowProducingQueries so a bound fragment (e.g. a status
     // `text[]`) never inflates the number and dictates the production SQL (Q3).
-    expect(dataQueries).toHaveLength(4);
+    expect(dataQueries).toHaveLength(2);
     for (const call of dataQueries) {
       expect(call.text).toMatch(/business_id\s*=/i);
       expect(call.values).toContain(OTHER_LOCATION_ID);
@@ -406,9 +402,21 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 
     expect(view!.avgStarRating).toBe(4.25);
     const avgQuery = calls.find((call) => /AVG\(/i.test(call.text))!;
+    // #731: the AVG now shares the merged denominator query, so `'posted'` DOES
+    // appear in its text — confined to the CROSS JOIN LATERAL EXISTS that
+    // partitions the two COUNT(*) FILTERs. What this title has always been about
+    // survives verbatim once that LATERAL is stripped: nothing restricts the
+    // AVG's OWN row set, which is every review for the location.
+    const outsideLateral = avgQuery.text.replace(
+      /CROSS JOIN LATERAL \([\s\S]*?\) posted/i,
+      '',
+    );
     // No posted-only JOIN: the denominator is every review for the location.
-    expect(avgQuery.text).not.toMatch(/JOIN\s+responses/i);
-    expect(avgQuery.text).not.toContain("'posted'");
+    expect(outsideLateral).not.toMatch(/JOIN\s+responses/i);
+    expect(outsideLateral).not.toContain("'posted'");
+    // …and the surviving FROM/WHERE is `reviews` scoped by business_id alone.
+    expect(outsideLateral).toMatch(/FROM\s+reviews\s+r\b/i);
+    expect(outsideLateral).toMatch(/WHERE\s+r\.business_id\s*=/i);
   });
 
   it('loadPastRepliesPageView returns each orphan review exactly once as recover and never as generate', async () => {
