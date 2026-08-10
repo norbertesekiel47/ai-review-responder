@@ -227,8 +227,11 @@ const toIso = (d: Date | null): string | null =>
  * `failed_response_id`, and because `AnsweredControls` and `RecoveryControl`
  * gate the recovery ACTIONS on that field (not on the badge), recovery went
  * silently unreachable. Stripping the `?` makes the omission a compile error
- * (TS2739) rather than something a reviewer has to catch. That type — not
- * vigilance — is what makes re-splitting the function safe this time.
+ * — TS2741 for one omitted field, TS2739 for several — rather than something a
+ * reviewer has to catch. Verified, not assumed: deleting the
+ * `failed_response_id` line here reports `TS2741` at this mapper's `return {`.
+ * That type — not vigilance — is what makes re-splitting the function safe
+ * this time.
  */
 type ReplyFacts = Required<
   Pick<
