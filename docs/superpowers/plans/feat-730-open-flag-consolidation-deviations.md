@@ -17,6 +17,32 @@ ACCEPT / RE-PLAN before review.
   `feature-cleanup.sh` to sweep it — this file is the single record of the
   agreement.
 
+## Execution (T1) — surface amendment #1, spelling-only
+
+- **[2026-08-09] SURFACE AMENDMENT #1 (spelling-only, zero path-scope
+  change): the two `[reviewId]` surface entries respelled with `*`.** T1's
+  implementer was blocked landing the title #9 `.todo` stub:
+  `edit-surface-guard.sh` matches with bash `[[ == ]]` (unquoted pattern),
+  so `[reviewId]` parses as a character class and the literal bracketed
+  directory can never match its own entry — T4 (route.ts under the same
+  dir) would hit the identical wall, making plan v4 unexecutable as
+  spelled. Escaping (`\[reviewId\]`) was rejected: it fixes the hook but
+  breaks the merge-time mirror `scripts/ci/feature-surface-audit.ts`, whose
+  `globToRegExp` escapes the backslash literally (the two engines disagree
+  in BOTH bracket spellings). The `*` respelling
+  (`src/app/api/dashboard/reviews/*/draft-status/route.ts` + `…/__tests__/**`)
+  is the only spelling both engines accept — verified by direct test in
+  each engine before applying — and it restores the audit's documented
+  assumption ("character classes are NOT supported (no intake uses them)").
+  Both intake copies updated together. Orchestrator classification, for
+  owner review at step 6: recorded as amendment #1 for the abort budget
+  (a 2nd, genuinely broadening amendment aborts), but NOT treated as the
+  reclassification STOP trigger — that trigger targets scope growth
+  revealing lane misclassification, and this amendment adds zero files to
+  the intended surface (the committed intake already named these exact
+  paths through three review rounds; the merge-time audit already matched
+  them literally).
+
 ## Plan-review round 1 (codex, VERDICT: REVISE) — intake corrections
 
 Owner-approved intake-field corrections (NOT surface amendments; the

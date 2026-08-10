@@ -37,8 +37,8 @@
   "allowed_edit_surface": [
     "src/lib/moderation/held-draft.ts",
     "src/lib/moderation/__tests__/held-draft.test.ts",
-    "src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts",
-    "src/app/api/dashboard/reviews/[reviewId]/draft-status/__tests__/**",
+    "src/app/api/dashboard/reviews/*/draft-status/route.ts",
+    "src/app/api/dashboard/reviews/*/draft-status/__tests__/**",
     "src/app/api/dashboard/past-replies/draft-status/route.ts",
     "src/app/api/dashboard/past-replies/__tests__/**",
     "src/lib/past-replies/load-replies.ts",
