@@ -111,6 +111,26 @@ ACCEPT / RE-PLAN before review.
   (weakening was the forbidden move) and spelled the sequences indirectly
   in comments. Titles/structure/assertions unchanged. Triage: ACCEPT.
 
+## Post-execution review notes (owner decisions, not applied)
+
+- **[2026-08-09] Fast-follow recommendation from the T7 quality review (NOT
+  applied — would alter the locked title-#11 body):** the source-scan guard
+  is enumerative (7 files) while its promised title claims a universal; an
+  8th owner-facing read in a NEW file inlining the predicate would pass
+  green. Recommended ratchet: a directory-glob negative sweep over the four
+  owner-facing trees (excluding the owner module) + a docblock pointer on
+  `openFlagExistsSql` telling future composers to grow OWNER_FACING.
+  Caveat if adopted: two prose `flagged_responses` mentions in unstripped
+  comment forms (pending-count.ts JSDoc, load-replies.ts in-SQL `--`) sit
+  one word away from false positives — the sweep needs block/SQL-comment
+  stripping first.
+- **[2026-08-09] Pre-existing, out-of-scope observation from the T4 quality
+  review:** `src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts`
+  builds `statusArraySql(sql, …)` with the write client inside a `sqlRead`
+  query, beside the new `openFlagExistsSql(sqlRead, …)` that follows the
+  documented pass-the-surrounding-client rule. Behavior-neutral today;
+  one-word fix if the owner wants it in a hygiene pass.
+
 ## Plan-review round 1 (codex, VERDICT: REVISE) — intake corrections
 
 Owner-approved intake-field corrections (NOT surface amendments; the

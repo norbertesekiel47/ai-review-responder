@@ -5,14 +5,22 @@ feat-730-open-flag-consolidation`). It references, never restates.
 
 ## Position in the workflow
 
-- Steps 0–3 COMPLETE. Phase: `plan_approved` (`.feature/state.json`;
-  `planReviewRounds=3` — the counter is EXHAUSTED, no further plan reviews).
-- **Next action: step 4 EXECUTE** — set phase `executing`, then
-  `subagent-driven-development` from the orchestrator session: SERIAL
-  T1→T2→T3→T4→T5→T6→T7 per the plan's dispatch-order section (no parallel
-  dispatch — round-1 finding 10). T1 runs alone, then the first-task
-  enforcement spot check (`git status --porcelain` vs `allowed_edit_surface`)
-  before dispatching T2.
+- Steps 0–4 COMPLETE (2026-08-09 evening session). Phase: `gate_green` at
+  `39daaff7`; all 25 gate rows PASS; `planReviewRounds=3` (exhausted),
+  `branchReviewRounds=0`.
+- Execution ran serial T1→T7 via subagent-driven-development, each task
+  through spec + quality review (all APPROVED). Implementation commits:
+  `521021cb` (T1 eval tests) → `901b6537` (T2 fragment) → `f4f93ab8` (T3
+  load-replies) → `024921fd` + `59cf71f9` (T4 routes + review round) →
+  `dc401eb4` (T5 dashboard trio) → `adced7d1` (T6 timeline) → `b0d33089`
+  (T7 source-scan) → `39daaff7` (blast-radius repair). Docs commits
+  interleaved (amendments + deviations).
+- **Next actions: step 6 deviations triage confirmation (all entries carry
+  inline ACCEPT triage; TWO items need OWNER RATIFICATION — surface
+  amendments #1 and #2, see deviations file), then step 7 dual review
+  (branch counter at 0), then step 8 ship HIGH lane: staging ride → PR →
+  owner merge approval. Merge-order agreement with PR #740 (feat-719)
+  stands: #740 lands first; rebase before opening this PR if needed.
 
 ## Artifacts (worktree-relative)
 
