@@ -120,3 +120,53 @@ command line, exactly as Task 3 Step 5 already notes. A bare
 `pnpm vitest run …integration.test.ts` self-skips.
 
 ---
+
+## D4 — Task 2 Step 4: the `Required<>` proof command greps for a string TypeScript never emits
+
+**The guarantee itself holds.** Deleting the `failed_response_id` line from
+`orphanReplyFacts` produces, as promised:
+
+```
+src/lib/past-replies/replies-view.ts(257,3): error TS2741: Property
+'failed_response_id' is missing in type '{ response_id: string | null;
+approved_text: string | null; approval_method: null; posted_at: null;
+version: null; failed_posting_error: string | null; }' but required in type
+'Required<Pick<ReviewsListRow, "response_id" | … | "failed_posting_error">>'.
+```
+
+**Observed code: TS2741** (the single-property form; the plan's alternative
+TS2739 is the ≥2-missing-properties form, so it would appear only if a mapper
+dropped two fields at once). The line was restored immediately.
+
+**But the plan's verification command reports nothing.** Step 4 says to run
+`pnpm typecheck 2>&1 | grep -A2 'orphanReplyFacts'`. TypeScript anchors an
+assignability error at the **returned object literal's position** and describes
+the two structural types — it never names the enclosing function. So that grep
+emits zero lines, which under Step 4's own stop condition ("if it does not
+appear the `Required<>` wrapper is not doing its job and this refactor is
+unsafe") reads as a mandatory STOP on a refactor that is in fact correct. A
+worker following the command literally aborts the task.
+
+Correct command — grep the file and the code, not the function name:
+
+```bash
+pnpm typecheck 2>&1 | grep -E 'replies-view\.ts.*TS27(39|41)'
+```
+
+Nothing was changed in production code because of this; recording it so the
+same false STOP does not fire the next time the guarantee is re-verified (e.g.
+if a reviewer asks for the proof, or if a future field joins `ReplyFacts`).
+
+**Concurrent-task noise seen at Step 5, for the record:** `pnpm vitest run
+src/lib/past-replies src/components/dashboard/reviews` failed 14 then 2 tests
+across two runs, every failure inside `reviews-list.test.ts` and originating at
+`load-replies.ts:341` (`ReferenceError: unansweredCountRows is not defined`,
+then the AVG-query assertions) — Task 3's file caught mid-refactor, not a
+regression from the split. `replies-view.test.ts` was 37/37 and all nine
+`src/components/dashboard/reviews` suites were green in every run. Worth a line
+in the plan's concurrency note: Task 2's Step 5 command reaches into Task 3's
+file set, so its "all PASS" expectation cannot hold while the two run in
+parallel. Task 2's honest boundary is `replies-view.test.ts` +
+`src/components/dashboard/reviews`.
+
+---

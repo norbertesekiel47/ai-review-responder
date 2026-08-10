@@ -215,18 +215,92 @@ const toIso = (d: Date | null): string | null =>
   d instanceof Date ? d.toISOString() : d == null ? null : String(d);
 
 /**
+ * The seven fields whose SOURCE is decided entirely by the Posted-reply axis:
+ * an orphan reads them from the `orphan_*` LATERALs, every other row from
+ * `resp.*` + `fail_sidecar`. Everything else on the card is axis-independent.
+ *
+ * `Required<>` is load-bearing, not decoration. `version`,
+ * `failed_response_id` and `failed_posting_error` are OPTIONAL on
+ * `PastReplyRow` (`PastReplyCard.tsx:51,55,56`), so a bare `Pick<>` would let
+ * either mapper silently omit one — which is exactly how #678's round-2
+ * Defect A happened: the deleted `toOrphanCardRow` dropped
+ * `failed_response_id`, and because `AnsweredControls` and `RecoveryControl`
+ * gate the recovery ACTIONS on that field (not on the badge), recovery went
+ * silently unreachable. Stripping the `?` makes the omission a compile error
+ * (TS2739) rather than something a reviewer has to catch. That type — not
+ * vigilance — is what makes re-splitting the function safe this time.
+ */
+type ReplyFacts = Required<
+  Pick<
+    ReviewsListRow,
+    | 'response_id'
+    | 'approved_text'
+    | 'approval_method'
+    | 'posted_at'
+    | 'version'
+    | 'failed_response_id'
+    | 'failed_posting_error'
+  >
+>;
+
+/**
+ * Orphan reply facts — mapped from the `orphan_*` LATERALs, never from `resp.*`.
+ *
+ * `response_id` carries the FAILED id because `/retry` and `/restore-original`
+ * address the failed response by id, and `failed_response_id` carries it too
+ * because the card gates the recovery actions on that field specifically.
+ * The three response-level fields are null: an orphan has no live posted reply,
+ * so there is no posting time, no approval provenance and no
+ * optimistic-concurrency version to hand out.
+ */
+function orphanReplyFacts(r: ReviewRow): ReplyFacts {
+  return {
+    response_id: r.orphan_failed_response_id,
+    approved_text: r.superseded_text ?? null,
+    approval_method: null,
+    posted_at: null,
+    version: null,
+    failed_response_id: r.orphan_failed_response_id,
+    failed_posting_error: r.orphan_posting_error,
+  };
+}
+
+/**
+ * Live reply facts — `posted` and `none` alike, so there is no third mapper.
+ *
+ * `response_id` is null for a never-replied review because the `resp` join is
+ * LEFT, and that null IS the unanswered predicate. The failed_* pair comes from
+ * `fail_sidecar` — the `delete_failed_*` sibling of a reply that is STILL live
+ * on Google — which is a different fact from an orphan marker and must not be
+ * conflated with one.
+ */
+function liveReplyFacts(r: ReviewRow): ReplyFacts {
+  return {
+    response_id: r.response_id,
+    approved_text: r.approved_text,
+    approval_method: r.approval_method,
+    posted_at: toIso(r.posted_at),
+    // Postgres.js can hand back a non-number here; the guard is carried
+    // verbatim from the pre-#731 `typeof r.version !== 'number'` ternary.
+    version: typeof r.version === 'number' ? r.version : null,
+    failed_response_id: r.failed_response_id ?? null,
+    failed_posting_error: r.failed_posting_error ?? null,
+  };
+}
+
+/**
  * Maps one row of the single row source → the wire shape the card expects.
  *
  * **Orphan rows are mapped from the `orphan_*` LATERALs, not from `resp.*`.**
- * This carries the deleted `toOrphanCardRow`'s field mapping (round-2 Defect A):
- * `PastReplyCard` renders the recovery badge from the server-derived orphan
- * axis (`Provenance`) but still gates the recovery ACTIONS on
- * `row.failed_response_id` — in `AnsweredControls` and `RecoveryControl` — so
- * dropping it makes recovery silently unreachable.
- * `response_id` carries the failed id too — `/retry` and `/restore-original`
- * address the failed response by id.
- * The three response-level fields (`posted_at`, `approval_method`, `version`)
- * are null because an orphan has no live posted reply.
+ * The field mapping is owned by two private mappers dispatched on the
+ * Posted-reply axis — `orphanReplyFacts` / `liveReplyFacts` — which replaced
+ * seven `isOrphan ? … : …` ternaries at #731. The dispatch happens ONCE; see
+ * `ReplyFacts` for why the split is safe now when #678's round-2 Defect A says
+ * it was not before.
+ *
+ * The mappers are deliberately NOT exported: they are an internal seam, and
+ * every test reaches them through `toCardRow`. Testing them directly would pin
+ * the refactor's shape instead of the card's behaviour.
  */
 export function toCardRow(
   r: ReviewRow,
@@ -234,12 +308,14 @@ export function toCardRow(
   hasPaidTier: boolean,
 ): ReviewsListRow {
   const { reply, draft } = deriveAxes(r);
-  const isOrphan = reply === 'orphan';
 
   const reviewDateIso =
     r.review_date instanceof Date ? r.review_date.toISOString() : String(r.review_date);
   const externalReplyIngestedAt = toIso(r.external_reply_ingested_at);
-  const approvalMethod = isOrphan ? null : r.approval_method;
+  // The ONE dispatch on the Posted-reply axis. `none` and `posted` share a
+  // mapper because they read the same columns — the difference between them is
+  // whether the LEFT JOIN found a row, which `liveReplyFacts` passes through.
+  const facts = reply === 'orphan' ? orphanReplyFacts(r) : liveReplyFacts(r);
 
   return {
     review_id: r.review_id,
@@ -247,23 +323,20 @@ export function toCardRow(
     review_date: reviewDateIso,
     reviewer_name: r.reviewer_name,
     star_rating: r.star_rating,
-    response_id: isOrphan ? r.orphan_failed_response_id : r.response_id,
-    approved_text: isOrphan ? r.superseded_text ?? null : r.approved_text,
-    approval_method: approvalMethod,
-    posted_at: isOrphan ? null : toIso(r.posted_at),
     external_reply_ingested_at: externalReplyIngestedAt,
     review_content_hash: r.review_content_hash,
-    version: isOrphan || typeof r.version !== 'number' ? null : r.version,
     // Strict paid-tier gate computed server-side.
     canEdit: canEdit(hasPaidTier),
-    failed_response_id: isOrphan ? r.orphan_failed_response_id : r.failed_response_id ?? null,
-    failed_posting_error: isOrphan ? r.orphan_posting_error : r.failed_posting_error ?? null,
+    ...facts,
     reply_state: reply,
     row_action: deriveRowAction(reply, draft),
     provenance_badge: provenanceBadge(
       {
         external_reply_ingested_at: externalReplyIngestedAt,
-        approval_method: approvalMethod,
+        // The DISPATCHED approval_method, not `r.approval_method`: reading the
+        // raw row would badge an orphan `auto_approved`/`owner_approved` for a
+        // reply that is not on Google at all.
+        approval_method: facts.approval_method,
         review_date: reviewDateIso,
       },
       activatedAtIso,
