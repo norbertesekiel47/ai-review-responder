@@ -58,6 +58,44 @@ export interface DripCycleResult {
 }
 
 /**
+ * Durable skip record (#738): a too-late pair is leaving FOR GOOD, so the drop
+ * is stamped on onboarding_drip_log — the permanent per-pair table the
+ * ArchivalPoller never touches — rather than left to a log line under the log
+ * sink's retention. The stamp is also the dedup that keeps the pair out of the
+ * next cycle's candidates. ON CONFLICT covers a dead claim row (claimed,
+ * crashed before send): the guarded DO UPDATE stamps it, and a sent or
+ * already-skipped row is untouched. A genuinely in-flight pair can't reach
+ * here — the candidate query excludes any pair with a non-failed outbox row.
+ * Returns how many records were written this cycle.
+ */
+async function recordStalenessSkips(
+  db: Sql,
+  tooLate: readonly { business_id: string; drip_type: string }[],
+  asOf: Date,
+): Promise<number> {
+  let recorded = 0;
+  for (const row of tooLate) {
+    try {
+      const result = await db`
+        INSERT INTO onboarding_drip_log (id, business_id, drip_type, skipped_at, skip_reason)
+        VALUES (${uuidv7()}, ${row.business_id}, ${row.drip_type}, ${asOf}, ${DRIP_SKIP_REASONS.TOO_STALE})
+        ON CONFLICT (business_id, drip_type) DO UPDATE
+          SET skipped_at = EXCLUDED.skipped_at, skip_reason = EXCLUDED.skip_reason
+          WHERE onboarding_drip_log.sent_at IS NULL
+            AND onboarding_drip_log.skipped_at IS NULL
+      `;
+      if (result.count > 0) recorded++;
+    } catch (err: unknown) {
+      logger.error(
+        `Failed to record staleness skip for ${row.drip_type} on business ${row.business_id}`,
+        err,
+      );
+    }
+  }
+  return recorded;
+}
+
+/**
  * One drip cycle. THROWS on a query failure — the poll wrapper below is the only
  * place that swallows. The old `checkAndSchedule` caught its own query error and
  * returned, so a crashed query and a legitimate "nothing due" were the same
@@ -145,34 +183,7 @@ export async function runOnboardingDripCycle(
   const churnCapped = dueDrips.filter((r) => !r.too_late && r.churn_capped);
   const actionable = dueDrips.filter((r) => !r.too_late && !r.churn_capped);
 
-  // Durable skip record (#738): a too-late pair is leaving FOR GOOD, so the
-  // drop is stamped on onboarding_drip_log — the permanent per-pair table the
-  // ArchivalPoller never touches — rather than left to a log line under the
-  // log sink's retention. The stamp is also the dedup that keeps the pair out
-  // of the next cycle's candidates. ON CONFLICT covers a dead claim row
-  // (claimed, crashed before send): the guarded DO UPDATE stamps it, and a
-  // sent or already-skipped row is untouched. A genuinely in-flight pair can't
-  // reach here — the candidate query excludes any pair with a non-failed
-  // outbox row.
-  let skipRecorded = 0;
-  for (const row of tooLate) {
-    try {
-      const recorded = await db`
-        INSERT INTO onboarding_drip_log (id, business_id, drip_type, skipped_at, skip_reason)
-        VALUES (${uuidv7()}, ${row.business_id}, ${row.drip_type}, ${asOf}, ${DRIP_SKIP_REASONS.TOO_STALE})
-        ON CONFLICT (business_id, drip_type) DO UPDATE
-          SET skipped_at = EXCLUDED.skipped_at, skip_reason = EXCLUDED.skip_reason
-          WHERE onboarding_drip_log.sent_at IS NULL
-            AND onboarding_drip_log.skipped_at IS NULL
-      `;
-      if (recorded.count > 0) skipRecorded++;
-    } catch (err: unknown) {
-      logger.error(
-        `Failed to record staleness skip for ${row.drip_type} on business ${row.business_id}`,
-        err,
-      );
-    }
-  }
+  const skipRecorded = await recordStalenessSkips(db, tooLate, asOf);
 
   let queued = 0;
   for (const row of actionable) {
