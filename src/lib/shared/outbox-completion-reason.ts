@@ -43,8 +43,10 @@ export const OUTBOX_COMPLETION_REASON = {
    * Like IMPORT_CONSENT_BLOCKED: an operational-window signal, not an audit
    * record. Nothing reads it in code — no poller, no alert, no admin surface —
    * and `ArchivalPoller` deletes the completed row 7 days after `completed_at`.
-   * What outlives that window is the absence of an `onboarding_drip_log.sent_at`
-   * for the pair.
+   * What outlives that window: the scheduler-side skip record
+   * (`onboarding_drip_log.skipped_at`/`skip_reason`, #738 — `DRIP_SKIP_REASONS`
+   * in OnboardingDripWorker.ts derives its value from this constant), plus the
+   * absence of an `onboarding_drip_log.sent_at` for the pair.
    */
   DRIP_TOO_STALE: 'drip_too_stale',
 } as const;

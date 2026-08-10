@@ -27,7 +27,10 @@
 //     DELTA against a baseline cycle run before the fixture is seeded. Both runs
 //     take the same fixed `asOf`, which is what makes the delta stable — a
 //     wall-clock cycle could move a contaminating business across a boundary
-//     between the two runs.
+//     between the two runs. ONE sanctioned absolute read: after two marking
+//     cycles at the same pinned `asOf`, every visible too-late pair carries a
+//     durable skip record (#738), so `tooLate === 0` is stable — eligibility is
+//     time-frozen and the live-DB lock rules out new contaminating inserts.
 //
 // Applies NO migration SQL: `pnpm test:db:setup` provisions the schema and this
 // file asserts it with `assertSchemaReady` (#573). It DOES hold the cross-process
@@ -50,6 +53,7 @@ import {
 import {
   assertSchemaReady,
   MIGRATION_100_IMPORT_CONSENT,
+  MIGRATION_104_DRIP_LOG_SKIP_RECORD,
   type SchemaRequirement,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
@@ -62,6 +66,7 @@ import {
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { OnboardingDripPayload } from '@/lib/shared/worker-types';
+import { DRIP_SKIP_REASONS } from '../../../jobs/OnboardingDripWorker';
 import {
   runOnboardingDripCycle,
   type DripCycleResult,
@@ -94,7 +99,9 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-/** Grace is 3 days, so day_1's cap is activation + 4 days and the outer reporting window is + 5. */
+/** Grace is 3 days, so day_1's cap is activation + 4 days. (The old GRACE+1
+ * outer reporting window is gone since #738 — the durable skip record is the
+ * dedup now, so a too-late pair is selected once, recorded, and excluded.) */
 const STALENESS_GRACE_DAYS = 3;
 
 const DRIP_TYPES = {
@@ -206,6 +213,24 @@ async function seedRecentFailures(
   }
 }
 
+interface DripLogState {
+  sent_at: Date | null;
+  skipped_at: Date | null;
+  skip_reason: string | null;
+}
+
+/** The onboarding_drip_log row for ONE seeded pair, or undefined when absent. */
+async function dripLogRow(
+  businessId: string,
+  dripType: string,
+): Promise<DripLogState | undefined> {
+  const [row] = await db()<DripLogState[]>`
+    SELECT sent_at, skipped_at, skip_reason FROM onboarding_drip_log
+    WHERE business_id = ${businessId}::uuid AND drip_type = ${dripType}
+  `;
+  return row;
+}
+
 /** Pending rows the cycle minted for ONE seeded location and drip type. */
 async function pendingDripCount(businessId: string, dripType: string): Promise<number> {
   const [row] = await db()<{ count: number }[]>`
@@ -235,6 +260,7 @@ describeWithDb(
       await assertSchemaReady(db(), [
         ONBOARDING_DRIP_SCHEDULER_SCHEMA,
         MIGRATION_100_IMPORT_CONSENT,
+        MIGRATION_104_DRIP_LOG_SKIP_RECORD,
       ]);
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
@@ -268,6 +294,13 @@ describeWithDb(
             WHERE topic = ${QUEUE_NAMES.ONBOARDING_DRIP}
               AND status = 'pending'
               AND created_at >= ${suiteStartedAt}
+          `;
+          // Same for durable skip records (#738): every cycle this suite runs
+          // stamps skipped_at with the pinned ASOF, so equality identifies
+          // exactly the rows OUR cycles wrote — including ones on contaminating
+          // businesses — without touching any other suite's records.
+          await db()`
+            DELETE FROM onboarding_drip_log WHERE skipped_at = ${ASOF}
           `;
         }
       } finally {
@@ -304,11 +337,15 @@ describeWithDb(
       expect(after.tooLate - baseline.tooLate).toBe(1);
     });
 
-    it('the scheduler stops reporting a drip at the grace-plus-one outer boundary', async () => {
-      // Past GRACE + 1 the pair leaves the query for good — no row AND no
-      // report, so the abandoned tail cannot warn once an hour forever. Scoped
-      // to day_1 because the 10-day location's day_7 is legitimately at ITS own
-      // grace boundary and is expected to queue.
+    it('the scheduler records a durable skip for every too-late pair, exactly once (#738)', async () => {
+      // The old GRACE+1 outer window reported an abandoned pair for one day and
+      // then dropped it from the query silently — so a backlog already past the
+      // window (the 10-day location here) never appeared anywhere. Now BOTH
+      // locations get a permanent onboarding_drip_log skip record on first
+      // selection, no outbox row is minted, and the record itself is the dedup
+      // that keeps the pair out of the next cycle. day_1-scoped because the
+      // 10-day location's day_7 sits exactly ON its own grace boundary and is
+      // expected to queue.
       const baseline = await runCycle();
       const atOuterBoundary = await seedDueLocation(
         activationFor(DRIP_TYPES.day1, (STALENESS_GRACE_DAYS + 1) * DAY_MS),
@@ -319,7 +356,74 @@ describeWithDb(
 
       expect(await pendingDripCount(atOuterBoundary, DRIP_TYPES.day1)).toBe(0);
       expect(await pendingDripCount(longAbandoned, DRIP_TYPES.day1)).toBe(0);
-      expect(after.tooLate - baseline.tooLate).toBe(0);
+      expect(after.tooLate - baseline.tooLate).toBe(2);
+
+      // The durable record answers "which drips were dropped as too-late, and
+      // when" — stamped with the cycle's asOf and the owned reason vocabulary.
+      for (const businessId of [atOuterBoundary, longAbandoned]) {
+        const record = await dripLogRow(businessId, DRIP_TYPES.day1);
+        expect(record).toBeDefined();
+        expect(record!.sent_at).toBeNull();
+        expect(record!.skipped_at).toEqual(ASOF);
+        expect(record!.skip_reason).toBe(DRIP_SKIP_REASONS.TOO_STALE);
+      }
+
+      // Exactly once: the record replaces the old time-window dedup. The two
+      // prior cycles marked EVERY too-late pair the query can see (seeded and
+      // contaminating alike), so a third cycle finds none at all.
+      const third = await runCycle();
+      expect(third.tooLate).toBe(0);
+      expect(third.skipRecorded).toBe(0);
+    });
+
+    it('a durable skip stamps a dead claim row rather than leaving the pair unrecorded (#738)', async () => {
+      // A pair whose handler claimed the drip_log row but crashed before the
+      // send has a row with sent_at NULL. The skip INSERT conflicts on
+      // (business_id, drip_type); the guarded DO UPDATE stamps that dead claim
+      // instead of silently no-oping — without it the pair would be reselected
+      // and re-reported every cycle forever.
+      const businessId = await seedDueLocation(
+        activationFor(DRIP_TYPES.day1, STALENESS_GRACE_DAYS * DAY_MS + MINUTE_MS),
+      );
+      await db()`
+        INSERT INTO onboarding_drip_log (
+          id, business_id, drip_type, sent_at, claimed_at, claimed_by_outbox_id
+        ) VALUES (
+          ${randomUUID()}::uuid, ${businessId}::uuid, ${DRIP_TYPES.day1}, NULL,
+          ${ASOF}::timestamptz - INTERVAL '2 days', 'dead-claim-outbox-id'
+        )
+      `;
+
+      await runCycle();
+
+      const record = await dripLogRow(businessId, DRIP_TYPES.day1);
+      expect(record!.skipped_at).toEqual(ASOF);
+      expect(record!.skip_reason).toBe(DRIP_SKIP_REASONS.TOO_STALE);
+      expect(record!.sent_at).toBeNull();
+    });
+
+    it('a sent pair is never skip-marked (#738)', async () => {
+      // A pair with a genuine send is excluded from the candidate query by the
+      // sent_at arm of the NOT EXISTS, so the skip write can never see it —
+      // and migration 104's skip/send-exclusive CHECK makes the contradiction
+      // unrepresentable even if it did.
+      const businessId = await seedDueLocation(
+        activationFor(DRIP_TYPES.day1, STALENESS_GRACE_DAYS * DAY_MS + MINUTE_MS),
+      );
+      await db()`
+        INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at)
+        VALUES (
+          ${randomUUID()}::uuid, ${businessId}::uuid, ${DRIP_TYPES.day1},
+          ${ASOF}::timestamptz - INTERVAL '3 days'
+        )
+      `;
+
+      await runCycle();
+
+      const record = await dripLogRow(businessId, DRIP_TYPES.day1);
+      expect(record!.sent_at).not.toBeNull();
+      expect(record!.skipped_at).toBeNull();
+      expect(record!.skip_reason).toBeNull();
     });
 
     // ── Churn cap ─────────────────────────────────────────────────────
@@ -351,6 +455,9 @@ describeWithDb(
 
       // A cap written as `count = 3` lets the fourth failure through.
       expect(await pendingDripCount(businessId, DRIP_TYPES.day1)).toBe(0);
+      // A churn-capped pair returns tomorrow — it must NOT get the permanent
+      // staleness skip record (#738).
+      expect(await dripLogRow(businessId, DRIP_TYPES.day1)).toBeUndefined();
     });
 
     it('the scheduler counts a recent dispatch failure whose outbox row was created more than 24 hours ago', async () => {
@@ -413,7 +520,11 @@ describeWithDb(
       expect(await pendingDripCount(churnedDay7, DRIP_TYPES.day7)).toBe(0);
       expect(await pendingDripCount(staleDay30, DRIP_TYPES.day30)).toBe(0);
       expect(after.churnCapped - baseline.churnCapped).toBe(1);
-      expect(after.tooLate - baseline.tooLate).toBe(1);
+      // Four, not one (#738): the outer reporting window that used to hide the
+      // OTHER never-sent pairs of these fixtures is gone, so the 33-day
+      // location's day_1/day_7/day_30 and the 7-day location's day_1 are all
+      // selected, recorded and counted as too late in the same cycle.
+      expect(after.tooLate - baseline.tooLate).toBe(4);
     });
 
     it('every scheduler skip completes without a swallowed SQL error', async () => {
@@ -432,6 +543,7 @@ describeWithDb(
         queued: expect.any(Number),
         tooLate: expect.any(Number),
         churnCapped: expect.any(Number),
+        skipRecorded: expect.any(Number),
       });
 
       expect(loggerStub.error).not.toHaveBeenCalled();

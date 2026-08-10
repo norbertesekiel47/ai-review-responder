@@ -206,6 +206,34 @@ describe('OnboardingDripScheduler', () => {
     expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
+  it('records a drip_log skip (not an outbox job) for a too-late pair (#738)', async () => {
+    const now = new Date('2026-04-16T12:00:00Z');
+    vi.setSystemTime(now);
+
+    // The candidate query flags the pair as too late.
+    sqlReturnQueue.push([{ business_id: 'biz-1', drip_type: 'day_1', too_late: true }]);
+    // The durable skip INSERT into onboarding_drip_log.
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));
+
+    const mod = await import('../OnboardingDripScheduler');
+    await mod.checkAndSchedule();
+
+    // 1 main query + 1 skip record = 2 — and the second statement targets the
+    // drip log, never job_outbox: a too-late pair is recorded, not queued.
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    const skipCall = mockSql.mock.calls[1];
+    const skipText = Array.from(skipCall[0] as TemplateStringsArray).join('');
+    expect(skipText).toContain('INSERT INTO onboarding_drip_log');
+    expect(skipText).not.toContain('job_outbox');
+    expect(skipCall.slice(1)).toContain('drip_too_stale');
+
+    expect(mockLogger.log).not.toHaveBeenCalledWith(expect.stringContaining('Queued'));
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Skipped drips past the staleness grace window',
+      expect.objectContaining({ count: 1, skip_records_written: 1 }),
+    );
+  });
+
   it('handles 23505 unique constraint gracefully', async () => {
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
