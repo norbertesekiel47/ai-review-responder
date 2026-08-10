@@ -142,9 +142,10 @@ async function seedReplacementDraft(
   `;
 }
 
-// Status literals are spelled inline the same way the loader's LATERAL spells
-// `f.status = 'open'` (D6; src/lib/moderation/held-draft.ts is the semantic
-// owner). `api_cost_id` is nullable — deliberately omitted.
+// Status literals are spelled inline; the loader's LATERAL composes
+// `openFlagExistsSql` from the held-draft owner module (#730;
+// src/lib/moderation/held-draft.ts is the semantic owner). `api_cost_id` is
+// nullable — deliberately omitted.
 async function seedFlag(
   reviewId: string,
   draftId: string,
@@ -366,6 +367,7 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
             page: 1,
           })) as unknown as ReviewsListView | null;
           const row = view!.unansweredRows.find((r) => r.review_id === propReviewId);
+          expect(row).toBeDefined();
           // Projected mode: unanswered+pending draft ⇒ draft_ready unless held ⇒ none (#727 model).
           expect(row!.row_action).toBe(expectHeld ? 'none' : 'draft_ready');
           // Filtered mode, BOTH spellings:
