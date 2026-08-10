@@ -93,6 +93,15 @@ describe('OutboxPoller.pollOutbox', () => {
     expect(sqlText(mockTx.mock.calls[0])).toContain('attempts < max_attempts');
     expect(sqlText(mockTx.mock.calls[1])).toContain("status = 'failed'");
     expect(sqlText(mockTx.mock.calls[1])).toContain('attempts >= max_attempts');
+    // #736: the terminalizer must PRESERVE a per-job last_error when one is
+    // already present (failed-hooks write bounded error classes onto
+    // still-dispatched rows) and fall back to the generic reclaim text only
+    // for rows that recorded nothing. An unconditional overwrite is what hid
+    // #719 for three months. Live-DB proof of the value-level behavior is in
+    // OutboxPoller.watchdog.integration.test.ts; this pins the SQL shape.
+    expect(sqlText(mockTx.mock.calls[1])).toContain(
+      "COALESCE(NULLIF(last_error, ''), 'Stale dispatched entry exceeded max_attempts')",
+    );
     expect(sqlText(mockTx.mock.calls[2])).toContain("status = 'dispatching'");
     expect(sqlText(mockTx.mock.calls[2])).toContain("INTERVAL '2 minutes'");
   });

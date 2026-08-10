@@ -1,7 +1,13 @@
 import * as Sentry from '@sentry/node';
+import type { Sql } from 'postgres';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
-import { createWorkerLogger, logUnhandledPollError, toError } from '../../../src/lib/shared/logger';
+import {
+  createWorkerLogger,
+  logUnhandledPollError,
+  toError,
+  type WorkerLogger,
+} from '../../../src/lib/shared/logger';
 import { withTimeout } from '../../../src/lib/shared/with-timeout';
 import { topicToQueue } from '../../queues';
 
@@ -82,6 +88,86 @@ let activeCycleToken: number | null = null;
 let activeCycleStartedAt = 0;
 let cycleSeq = 0;
 
+/**
+ * Watchdog recovery for rows stuck in 'dispatched'/'dispatching' — a BullMQ
+ * worker crashed after the poller marked the entry dispatched but before the
+ * worker completed it. Resets retryable rows to 'pending'; terminalizes rows
+ * out of attempts. Extracted from pollOutbox at #736 with `db` explicit
+ * (mirrors `runOnboardingDripCycle(db, asOf)`) so the live-DB suite can drive
+ * exactly this phase with its own client, without the claim/dispatch phases
+ * touching Redis or contaminating rows.
+ */
+export async function runOutboxWatchdogRecovery(
+  db: Sql,
+  watchdogStaleSecs: number,
+  logger: WorkerLogger,
+): Promise<void> {
+  await db.begin(async (tx) => {
+    const [recovered] = await tx<{ count: string }[]>`
+      WITH recovered AS (
+        UPDATE job_outbox
+        SET status = 'pending', available_at = NOW(), dispatched_at = NULL
+        WHERE status = 'dispatched'
+          AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
+          AND attempts < max_attempts
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM recovered
+    `;
+
+    // last_error is preserved when a per-job error is already present (#736):
+    // failed-hooks record bounded error classes on still-dispatched rows
+    // (recordOutboxTransientError — e.g. generate-asks retryable exhaustion),
+    // and overwriting them with the generic reclaim text is what made #719's
+    // 93 failed rows read as routine watchdog reclaims for three months. The
+    // generic text is a fallback for rows that genuinely died without
+    // recording anything. This writes nothing new itself, so the
+    // bounded-class-only PII contract (worker/jobs/csv-ingest/failed-hook.ts)
+    // is honored by construction.
+    const [terminated] = await tx<{ count: string }[]>`
+      WITH terminated AS (
+        UPDATE job_outbox
+        SET status = 'failed',
+            last_error = COALESCE(NULLIF(last_error, ''), 'Stale dispatched entry exceeded max_attempts'),
+            completed_at = NOW()
+        WHERE status = 'dispatched'
+          AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
+          AND attempts >= max_attempts
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM terminated
+    `;
+
+    const recoveredCount = parseInt(recovered?.count ?? '0', 10);
+    const terminatedCount = parseInt(terminated?.count ?? '0', 10);
+
+    // Recover stale 'dispatching' rows (claimed but process crashed before dispatch).
+    // Only recover rows older than 2 minutes — active claims from other processes
+    // use dispatching + dispatched_at = NOW() and should not be reset.
+    const [staleDispatching] = await tx<{ count: string }[]>`
+      WITH recovered_dispatching AS (
+        UPDATE job_outbox
+        SET status = 'pending', available_at = NOW(), dispatched_at = NULL
+        WHERE status = 'dispatching'
+          AND attempts < max_attempts
+          AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes')
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM recovered_dispatching
+    `;
+
+    const staleDispatchingCount = parseInt(staleDispatching?.count ?? '0', 10);
+
+    if (recoveredCount > 0 || terminatedCount > 0 || staleDispatchingCount > 0) {
+      logger.log('Watchdog recovered stale entries', {
+        recovered: recoveredCount,
+        failed: terminatedCount,
+        stale_dispatching: staleDispatchingCount,
+      });
+    }
+  });
+}
+
 // Watchdog + claim + dispatch in one linear cycle; the branch count is the
 // per-row dispatch-failure vocabulary. Pre-existing size — the perf pass only
 // parameterized the watchdog window.
@@ -118,65 +204,7 @@ export async function pollOutbox(): Promise<void> {
     // Runs in its own transaction so a timeout or failure here
     // doesn't block the dispatch phase.
     try {
-      await sql.begin(async (tx) => {
-        // If a BullMQ worker crashed after the OutboxPoller marked the entry
-        // as 'dispatched' but before the worker marked it as 'completed',
-        // the entry is stuck. Reset retryable ones to 'pending'; fail terminal ones.
-
-        const [recovered] = await tx<{ count: string }[]>`
-          WITH recovered AS (
-            UPDATE job_outbox
-            SET status = 'pending', available_at = NOW(), dispatched_at = NULL
-            WHERE status = 'dispatched'
-              AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
-              AND attempts < max_attempts
-            RETURNING id
-          )
-          SELECT COUNT(*)::text AS count FROM recovered
-        `;
-
-        const [terminated] = await tx<{ count: string }[]>`
-          WITH terminated AS (
-            UPDATE job_outbox
-            SET status = 'failed',
-                last_error = 'Stale dispatched entry exceeded max_attempts',
-                completed_at = NOW()
-            WHERE status = 'dispatched'
-              AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
-              AND attempts >= max_attempts
-            RETURNING id
-          )
-          SELECT COUNT(*)::text AS count FROM terminated
-        `;
-
-        const recoveredCount = parseInt(recovered?.count ?? '0', 10);
-        const terminatedCount = parseInt(terminated?.count ?? '0', 10);
-
-        // Recover stale 'dispatching' rows (claimed but process crashed before dispatch).
-        // Only recover rows older than 2 minutes — active claims from other processes
-        // use dispatching + dispatched_at = NOW() and should not be reset.
-        const [staleDispatching] = await tx<{ count: string }[]>`
-          WITH recovered_dispatching AS (
-            UPDATE job_outbox
-            SET status = 'pending', available_at = NOW(), dispatched_at = NULL
-            WHERE status = 'dispatching'
-              AND attempts < max_attempts
-              AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes')
-            RETURNING id
-          )
-          SELECT COUNT(*)::text AS count FROM recovered_dispatching
-        `;
-
-        const staleDispatchingCount = parseInt(staleDispatching?.count ?? '0', 10);
-
-        if (recoveredCount > 0 || terminatedCount > 0 || staleDispatchingCount > 0) {
-          logger.log('Watchdog recovered stale entries', {
-            recovered: recoveredCount,
-            failed: terminatedCount,
-            stale_dispatching: staleDispatchingCount,
-          });
-        }
-      });
+      await runOutboxWatchdogRecovery(sql, watchdogStaleSecs, logger);
     } catch (watchdogError) {
       logger.error(
         'Watchdog recovery failed (continuing to dispatch)',
