@@ -61,5 +61,7 @@ pre-push:
       run: pnpm ci:feature-surface
     agent-config:
       run: pnpm ci:agent-config
+    dropped-columns:
+      run: pnpm ci:dropped-columns
     db-imports:
       run: pnpm ci:db-imports
