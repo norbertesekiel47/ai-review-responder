@@ -8,7 +8,7 @@ Check the relevant section before implementing anything in these areas.
 Jump to the dated entries by subsystem (search the anchors below):
 
 - **Postgres.js / JSONB / PgBouncer** — JSONB string-wrapping, v3 double-encoding, statement_timeout, FOR UPDATE under PgBouncer; the AUTHORITATIVE production JSONB parse-site allowlist (2026-08-03); every error class reachable from a query carries a STRING `code` (`PostgresError`, `57014`, `CONNECTION_*`, Node `ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`) — narrow a swallow-catch on that shape, NEVER on `instanceof PostgresError`, which rethrows transient blips into the caller (#679, 2026-08-08)
-- **Indexes / migrations** — STABLE-in-predicate, ON CONFLICT byte-for-byte, column-level REVOKE, pg_constraint relation scoping, CHECK passes NULL (pair NOT NULL + NULL-safe preflights), hung ALTER TABLE = lock queue behind a long-lived Supavisor session (cancel stalled backend, verify clean, retry); a hash column's invariant asserted only in a COMMENT is unenforced — pair it with a format CHECK (`token_hash ~ '^[a-f0-9]{64}$'`, migration 056's pattern) and mutation-verify it; `migration-immutability-guard.sh` keys on the migrations-log HEAD rather than "applied", so amending a local-only migration after the log bump is a guaranteed false positive (escape hatch `MIGRATION_GUARD_DISABLE=1` is launch-time only)
+- **Indexes / migrations** — STABLE-in-predicate, ON CONFLICT byte-for-byte, column-level REVOKE, pg_constraint relation scoping, CHECK passes NULL (pair NOT NULL + NULL-safe preflights), hung ALTER TABLE = lock queue behind a long-lived Supavisor session (cancel stalled backend, verify clean, retry); a hash column's invariant asserted only in a COMMENT is unenforced — pair it with a format CHECK (`token_hash ~ '^[a-f0-9]{64}$'`, migration 056's pattern) and mutation-verify it; `migration-immutability-guard.sh` keys on the migrations-log HEAD rather than "applied", so amending a local-only migration after the log bump is a guaranteed false positive (escape hatch `MIGRATION_GUARD_DISABLE=1` is launch-time only); a `CROSS JOIN LATERAL (SELECT EXISTS (…))` consumed by two `COUNT(*) FILTER`s does NOT share one evaluation — Postgres pulls the single-row LATERAL up and plans one correlated SubPlan per reference (~81–261× planner cost, ~137× buffers vs `LEFT JOIN … AND status='posted'` + `FILTER (WHERE p.review_id IS NULL / IS NOT NULL)`, which is the shape that ships), and never justify a SQL shape with an unverified planner claim in a comment (#731, 2026-08-09)
 - **Zernio** — nested `account.id`, MOCK_EXTERNAL_APIS real-path tests, reviewReply normalization; the sandbox feed is non-descending in practice — the consented import's dirty-ordering WARN + page-to-feed-end is the NORM on staging, not an incident (#675, 2026-08-06)
 - **Stripe** — inbound_events payload shape, overage idempotency, billing reconciliation from stored quota; `maxNetworkRetries: 0` still retries ONCE on ECONNRESET/EPIPE (stripe-node 22.2.0 `_shouldRetry` — under-lock worst case ≈ 2× the per-call timeout, #514)
 - **Supabase auth** — implicit-flow OTP, identities:[] for existing emails, auth_id vs users.id, SMTP rate limit, a client-wide fetch timeout also bounds identity MUTATIONS → split bounded/unbounded clients (#508)
@@ -16,12 +16,12 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs); `createWorkerLogger` OBJECT args pass through the analytics blocked-key sanitizer, which silently drops any key containing `token` — a deliberately-safe derived value (hash prefix, masked suffix, key id) must be NAMED to survive it (`hash_prefix`, not `token_hash_prefix`), and string args bypass the sanitizer entirely (#644)
 - **Ingress / rate limiting** — the limiter's ingress-scope test needs BOTH arms: `request.routeOptions.url` (post-routing, resolved) and `decodeIngressPath(request.url)` (raw, decoded). Percent-encoded paths (`/%69ngress/resend`) defeat a raw check and absolute-form request targets (RFC 9112 §3.2.2) defeat the decoded one — either alone bypassed the limiter for Stripe, Resend, Telegram, Twilio and Zernio alike. A statutory opt-out route is exempt by design (§9.2), and the exemption must be read from the RESOLVED route config so an unmatched path under the prefix cannot inherit it (#644)
-- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit), Railway RAILPACK build has no `.git` so git-touching `prepare`/`postinstall` scripts must be `|| true`, Fallow `fallow-ignore-next-line` is single-line (directive + reason on ONE line or it suppresses the next *comment*, not the code) + `--gate new-only` resolution conventions (delete genuine dead code, `usedClassMembers` for interface dispatch, inline `complexity`, `duplicates.ignore` for divergent clones); `ci:db-imports` AST guard — STRICT composition-root allowlist with registration-derived worker roots (flipped from a checked-in baseline in A+ campaign PR 3; shipped as PR 1a); fallow CRAP is inflated repo-wide because the coverage input excludes integration suites → integration-only-covered code reads as ~0% covered and accrues PHANTOM complexity debt that decomposition cannot clear (#581); a `verify-gate.sh` run whose row COUNT shrank is DISARMED (missing `.feature/intake.json`), not faster — it still prints GREEN; a gate row must be a CHECK never a MUTATION — `pnpm test:db:setup` DROPs schema `public`, so declaring it in `verification_commands` races the parallel fan-out and produces a spurious RED; never author a fallow suppression from a PREDICTION (an export whose only consumer is a live-DB suite is not dead code, so the marker itself fails as `stale suppression`); `estimated_diff_size` must budget production and TEST lines separately or `reclassify` fires on exactly the DB-contract features whose 4:1 test ratio is designed; the post-merge promotion sweep does NOT need the main checkout — park `.feature/intake.json` and `git checkout -b <docs-branch> origin/main` in the shipping worktree itself (same checkout satisfies containment, no intake satisfies arming), and branch off `origin/main` never local `main`, which lags after every squash merge; `feature-cleanup.sh` derives `MAIN_ROOT` from its cwd, so run from inside a feature worktree it skips that worktree and silently cleans nothing (#644); a verify-gate GREEN branch can still fail CI's fallow job — `ci:fallow*` is deliberately outside the local gate, so run `npx fallow audit --gate new-only --base origin/main` before opening a PR whose diff added mirrored/parallel blocks, and remediate on merit not suppression (#675, 2026-08-06); `git merge --ff-only main` CANNOT fast-forward `staging` after a squash merge and `git cherry` is the wrong check (patch-ids do not survive squashing) — use `git diff --stat staging origin/main`, then reset + `--force-with-lease` (#679, 2026-08-08); staging is behind Vercel team-SSO AND app auth, so any smoke crossing a Next.js route needs the owner's browser — worker/Railway ingress stays scriptable, so split the smoke list by surface before estimating it (#679, 2026-08-08); a gate row's NAME is also its status slot, its `.feature/logs/<name>.log` and its coverage dir, so the old 40-char truncation could report PASS for a FAILED suite — `row_slug` (`scripts/gate-rows.sh`) truncates for readability and identifies by an appended hash, and `launch()` asserts uniqueness at registration (#696, 2026-08-08); a "is it wired?" test asserting SOURCE TEXT is the same defect class as the bug it guards — extract to a sourced library, or `eval "$(sed -n '/^fn() {/,/^}/p' script.sh)"` to run the REAL body; keep text assertions for genuinely textual properties and write them as patterns not literals (#696, 2026-08-08); `exit` in a SOURCED bash file kills the caller — a library signals, the entry point decides, and the entry point's abort path is defined BEFORE the `source` line; follow every `source` with a `command -v <symbol>` guard or a failed load resurfaces as exit 127 misread by the call site (#696, 2026-08-08); under `set -u` on **bash 3.2** (what `/usr/bin/env bash` is on macOS) `"${ARR[@]}"` on an EMPTY array is fatal — use `${ARR[@]+"${ARR[@]}"}` (#696, 2026-08-08); in a guard module whose PROSE is its spec, an absolute written about a narrow text-presence check ("`unlocked-ddl` can never fire") is itself a false claim — say what the code literally does and mutation-prove each claim BEFORE writing it, and expect the documentation to be its own cost centre, since `reclassify` fires on prose volume no heavier lane control can address (#706, 2026-08-08); `verify-gate.sh` resolves `TEST_DATABASE_POOL_URL` but NOT `DATABASE_POOL_URL`, so a changed integration suite that transitively imports the `src/lib/db/server` singleton dials vitest.setup's dummy `localhost:5432` — export BOTH vars to the test DB when invoking the gate (fallow.yml CI already exports both); permanent fix is #744 (#728, 2026-08-09)
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit), Railway RAILPACK build has no `.git` so git-touching `prepare`/`postinstall` scripts must be `|| true`, Fallow `fallow-ignore-next-line` is single-line (directive + reason on ONE line or it suppresses the next *comment*, not the code) + `--gate new-only` resolution conventions (delete genuine dead code, `usedClassMembers` for interface dispatch, inline `complexity`, `duplicates.ignore` for divergent clones); `ci:db-imports` AST guard — STRICT composition-root allowlist with registration-derived worker roots (flipped from a checked-in baseline in A+ campaign PR 3; shipped as PR 1a); fallow CRAP is inflated repo-wide because the coverage input excludes integration suites → integration-only-covered code reads as ~0% covered and accrues PHANTOM complexity debt that decomposition cannot clear (#581); a `verify-gate.sh` run whose row COUNT shrank is DISARMED (missing `.feature/intake.json`), not faster — it still prints GREEN; a gate row must be a CHECK never a MUTATION — `pnpm test:db:setup` DROPs schema `public`, so declaring it in `verification_commands` races the parallel fan-out and produces a spurious RED; never author a fallow suppression from a PREDICTION (an export whose only consumer is a live-DB suite is not dead code, so the marker itself fails as `stale suppression`); `estimated_diff_size` must budget production and TEST lines separately or `reclassify` fires on exactly the DB-contract features whose 4:1 test ratio is designed; the post-merge promotion sweep does NOT need the main checkout — park `.feature/intake.json` and `git checkout -b <docs-branch> origin/main` in the shipping worktree itself (same checkout satisfies containment, no intake satisfies arming), and branch off `origin/main` never local `main`, which lags after every squash merge; `feature-cleanup.sh` derives `MAIN_ROOT` from its cwd, so run from inside a feature worktree it skips that worktree and silently cleans nothing (#644); a verify-gate GREEN branch can still fail CI's fallow job — `ci:fallow*` is deliberately outside the local gate, so run `npx fallow audit --gate new-only --base origin/main` before opening a PR whose diff added mirrored/parallel blocks, and remediate on merit not suppression (#675, 2026-08-06); `git merge --ff-only main` CANNOT fast-forward `staging` after a squash merge and `git cherry` is the wrong check (patch-ids do not survive squashing) — use `git diff --stat staging origin/main`, then reset + `--force-with-lease` (#679, 2026-08-08); staging is behind Vercel team-SSO AND app auth, so any smoke crossing a Next.js route needs the owner's browser — worker/Railway ingress stays scriptable, so split the smoke list by surface before estimating it (#679, 2026-08-08); a gate row's NAME is also its status slot, its `.feature/logs/<name>.log` and its coverage dir, so the old 40-char truncation could report PASS for a FAILED suite — `row_slug` (`scripts/gate-rows.sh`) truncates for readability and identifies by an appended hash, and `launch()` asserts uniqueness at registration (#696, 2026-08-08); a "is it wired?" test asserting SOURCE TEXT is the same defect class as the bug it guards — extract to a sourced library, or `eval "$(sed -n '/^fn() {/,/^}/p' script.sh)"` to run the REAL body; keep text assertions for genuinely textual properties and write them as patterns not literals (#696, 2026-08-08); `exit` in a SOURCED bash file kills the caller — a library signals, the entry point decides, and the entry point's abort path is defined BEFORE the `source` line; follow every `source` with a `command -v <symbol>` guard or a failed load resurfaces as exit 127 misread by the call site (#696, 2026-08-08); under `set -u` on **bash 3.2** (what `/usr/bin/env bash` is on macOS) `"${ARR[@]}"` on an EMPTY array is fatal — use `${ARR[@]+"${ARR[@]}"}` (#696, 2026-08-08); in a guard module whose PROSE is its spec, an absolute written about a narrow text-presence check ("`unlocked-ddl` can never fire") is itself a false claim — say what the code literally does and mutation-prove each claim BEFORE writing it, and expect the documentation to be its own cost centre, since `reclassify` fires on prose volume no heavier lane control can address (#706, 2026-08-08); `verify-gate.sh` resolves `TEST_DATABASE_POOL_URL` but NOT `DATABASE_POOL_URL`, so a changed integration suite that transitively imports the `src/lib/db/server` singleton dials vitest.setup's dummy `localhost:5432` — export BOTH vars to the test DB when invoking the gate (fallow.yml CI already exports both); permanent fix is #744 (#728, 2026-08-09); NEVER measure a feature's diff — or a collision check against an open PR — against `origin/main`: use `git merge-base origin/main HEAD`, because `main` moves mid-run and the inflation is indistinguishable from genuine scope creep at exactly the moment `reclassify` asks you to judge it (bit the same run twice: a fake revert on a stale branch, then a fake 15× overshoot); a grep gate that forbids an identifier forbids it in PROSE too (scope it to code with `rg … | rg -v '^\S+:[0-9]+:\s*//'`); `ci:tenant-scope` cannot tell you the snippet it wants (`TenantScopeFinding` has no SQL field — derive it by reusing the audit's own `extractSqlTemplates` + normaliser; five regenerations 420→418→414→412→409→408 have hit this); under concurrent subagent dispatch commit with a pathspec (`git commit -m … -- <files>`), never bare `git add` + `git commit` (#731, 2026-08-09)
 - **Solicitation / CSV ingest** — the `csv_ingest` advisory-lock contract covers status transitions only: the offboarding purge hard-DELETEs `contact_csv_uploads` unlocked, so `writeTerminalUploadState` deliberately TOLERATES a 0-row terminal write rather than asserting (#582); the batch builder pools every contact of the business, so a staging smoke's funnel never equals its own CSV; `useReviewedPing` is `visibilityState`-gated so background automation never writes `reviewed_at`; the Suppression ledger's §1.2 lookup has ONE owner (`suppressionMatchSql`) and its `channel` is a PARAMETER on both reader and writer — a hardcoded literal on one side fails OPEN the day the channel enum grows (#643); the offboarding token scrub matches on `account_id` alone so its account-leading index is usable, with the `business_id` arm kept only in the purge VERIFIER as a cross-account tripwire
 - **Worker startup / Sentry** — the production startup asserts (`assertAlertSinkEnv` / `assertAdminNotificationEmail` / Stripe) early-return unless `NODE_ENV==='production'`, so a prod env that omits `NODE_ENV` silently disables the whole boot-safety layer (set `NODE_ENV=production` AND `SENTRY_DSN` together); Fallow reason-placement refinement (2026-06-20); unlistened EventEmitter `'error'` on any Queue/Worker/ioredis client = fatal uncaughtException → `attachEmitterErrorLogger` + per-source suppress window (#508)
 - **Live-DB test suites** — a live-DB **suite** must be named `*.integration.test.ts` (that glob is what puts it in vitest's serialized `integration` project), and no live-DB **file** — suite or `__tests__/` helper — may execute DDL at run time: DDL's ACCESS EXCLUSIVE locks deadlock sibling suites whenever `verify-gate.sh` runs vitest in CONCURRENT PROCESSES, where in-process serialization does not reach (#573); provision with `pnpm test:db:setup`, assert with `assertSchemaReady`. Detection is AST extraction of EXECUTED SQL, not a text marker (#694, 2026-08-08 entry), over every `.ts`/`.tsx` under `__tests__/` rather than the suites alone — a helper can BUILD a DDL fragment a suite splices in, and reaches the DB by importing `postgres` (#706, 2026-08-08 entry). Two lock-enforced allowlists — migration-**shape** files and **DDL-probe** suites — must hold `acquireLiveDbLock` AND roll back any unconditional re-apply (a committed re-apply of an old migration reverts a later one on the shared DB); statically-invisible safety takes `-- live-db-ddl-ignore: <reason>`; force a transaction abort with `helpers/abort-injection.ts`, never a temporary constraint. Unsetting `TEST_DATABASE_POOL_URL` does NOT sleep the suites — `.env.local` disk fallback (#563, 2026-08-03 entry) — but `pnpm vitest run <file>` does NOT hydrate it, so a suite gated on it SKIPS silently (#694)
 - **False coverage / mutation** — a test that passes whether or not the bug exists is the dominant defect mode on guard-shaped work; a fix for an "X is untested" finding must ITSELF be mutation-pinned or it reproduces the defect (happened twice in consecutive rounds at #679, and ~10 instances there were caught by mutation, none by reading); a JS `throw` does not poison a Postgres transaction, so savepoint-recovery tests need Postgres-side abort injection (#679, 2026-08-08)
-- **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract), memoized `getServerConfig()` ignores late `process.env` mutation (set env before first access or mock the accessor; `flags.ts` reads live on purpose), `AbortSignal.timeout` runs on Node's internal timers — vitest fake timers can't advance it (real timers + injectable small timeout, #508), module-scope `llmCircuitBreaker` singleton leaks state across suites that mock the SDKs but drive the real `runLlmTask` → `reset()` in `beforeEach` (#515), `app.inject()` NORMALISES the request target so an inject-only suite is structurally blind to anything about the raw request line (absolute-form targets, malformed targets) — a surviving mutant there means dead logic OR a harness blind spot, so reach for a real-socket `net.connect` test before deleting a security-adjacent branch (#644)
+- **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract), memoized `getServerConfig()` ignores late `process.env` mutation (set env before first access or mock the accessor; `flags.ts` reads live on purpose), `AbortSignal.timeout` runs on Node's internal timers — vitest fake timers can't advance it (real timers + injectable small timeout, #508), module-scope `llmCircuitBreaker` singleton leaks state across suites that mock the SDKs but drive the real `runLlmTask` → `reset()` in `beforeEach` (#515), `app.inject()` NORMALISES the request target so an inject-only suite is structurally blind to anything about the raw request line (absolute-form targets, malformed targets) — a surviving mutant there means dead logic OR a harness blind spot, so reach for a real-socket `net.connect` test before deleting a security-adjacent branch (#644); before merging or reshaping a query, enumerate THREE categories of dependent assertion — tests that (i) count queries, (ii) dispatch on query text, and (iii) IDENTIFY a query by text then constrain its contents; (iii) is the one that bites, and never verify a type-level guarantee by grepping for the enclosing function name (TS anchors structural-assignability errors at the offending literal and names the TYPES — `TS2741` one missing property, `TS2739` several) (#731, 2026-08-09)
 - **Frontend / CSS / brand** — iOS Safari rounded-island clip is `overflow:hidden`+`border-radius`+retained `transform` (not a sibling clip), reproduce an audit's CSS cause before trusting it; flag-driven copy swaps on dead-end features mislead; an admin "act on stuck items" panel needs a real outbox-backed route (2026-05-29 launch readiness)
 - **Owner offboarding** — `railway up` from a worktree ships stale worker code (`OutboxPoller: Unknown topic`); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; `approval_audit_log` has no `approval_link_id`/`user_agent` (mock-asserted SQL *text* hid the drift); keep-my-data must be exempt from the blanket `/api/account/*` owner-API proxy gate; the `purge_after` token-expiry trigger blocks shrinking the purge window while a keep-my-data token is live
 - **Worker crash-net / cost-guard** — crash-net rejection classification (strict recoverable-DB allowlist vs billing's broad transient check, transient-rejection governor); cost-guard fail-open limiters + pre-LLM reservation retry matrix (transport retryable, budget terminal, finalize never job-retried), Upstash SPOF; a cache whose KEY a replacement job can legitimately share must bind its PAYLOAD to content provenance — the `(reviewId, version)` idempotent-generation cache served a stale draft to live-ingest's same-version replacement job and deterministically defeated the #728 persist gate (#728, 2026-08-09)
@@ -2041,3 +2041,179 @@ the caller's client as a union — `SubscriptionSql` in
   `staging-ride` worktree has no `.env.local`, so #719's drip-eval
   precondition test fails there unless `TEST_DATABASE_POOL_URL` is exported
   on the push command.)
+
+## 2026-08-09 — #731 deferred maintainability bundle ship
+
+### [2026-08-09] #731 — never measure a feature's diff against `origin/main`; measure against `git merge-base origin/main HEAD`
+
+- [2026-08-09] Twice in one run a moved baseline was misread as real code
+  movement: first a sibling PR (#747) whose `git diff origin/main --
+  src/lib/past-replies/load-replies.ts` showed a 15-line change that
+  *inverted* #730's just-merged `openFlagExistsSql` composition — reading as
+  a revert of merged work on a file this bundle edits — and then, after #747
+  actually landed on `main` mid-run, `git diff origin/main --numstat`
+  reported **3,075 changed production lines against a 200-line estimate**
+  (15×), which fires `/feature`'s reclassify trigger and under the abort
+  criteria argues for tearing the branch down → diffing a branch against a
+  moved `main` renders every commit the branch has not merged yet as an
+  *outgoing* change, so a stale branch's diff shows the newer commit
+  backwards and a long-running branch's diff shows the whole of `main`'s
+  progress as its own; the true figures were 290 prod / 430 test, both under
+  the 2× threshold, and `comm -12` over the two changed-file lists was empty
+  → always measure a feature's own diff, and any collision check against an
+  open PR, from `git merge-base origin/main HEAD` (or the PR's own merge
+  base), never from `origin/main`. `scripts/verify-gate.sh`'s `reclassify`
+  row already does this correctly; the hand-run measurement is what needs the
+  discipline, and knowing the trap in the abstract did **not** prevent
+  walking into it a second time two hours later — the symptom (a huge
+  unexplained diff) does not resemble the cause (a moved baseline), and it
+  surfaces at exactly the moment the workflow asks you to judge scope creep.
+
+### [2026-08-09] #731 — a `CROSS JOIN LATERAL (SELECT EXISTS (…))` read by two `COUNT(*) FILTER`s is NOT one shared evaluation
+
+- [2026-08-09] Merging the Reviews list's two group-denominator `COUNT`s into
+  one snapshot via `CROSS JOIN LATERAL (SELECT EXISTS (SELECT 1 FROM
+  responses p WHERE p.review_id = r.id AND p.status = 'posted') AS has)` +
+  `COUNT(*) FILTER (WHERE NOT posted.has)` / `FILTER (WHERE posted.has)`
+  shipped a large read regression that both round-1 review axes found
+  independently → Postgres pulls the single-row LATERAL up and plans **one
+  correlated SubPlan per reference** (SubPlan 1 *and* SubPlan 3, each
+  `loops=20000`), so the "the EXISTS is evaluated ONCE" premise is false and
+  the shape forfeits the hash semi/anti-join the two deleted `EXISTS` /
+  `NOT EXISTS` counts each got. Measured on Postgres 16 with the
+  production-shaped partial index at 20k reviews for one location:
+  **~81–261× planner cost**, **~137× buffer accesses** (586 vs 80,206) and
+  2.5–13× execution, direction reproducing across three runs on two
+  independently-built fixtures → for a two-way partition count, `LEFT JOIN
+  responses p ON p.review_id = r.id AND p.status = 'posted'` +
+  `COUNT(*) FILTER (WHERE p.review_id IS NULL)` /
+  `FILTER (WHERE p.review_id IS NOT NULL)` — a Hash Right Join, and the
+  partition is closed *arithmetically* because a LEFT JOIN preserves every
+  review and `IS NULL` / `IS NOT NULL` is a total split. The join cannot
+  multiply rows because `responses_one_posted_per_review` (migration 031) is
+  `UNIQUE (review_id) WHERE status = 'posted'`; that index guarantee is what
+  makes the shape safe, and it is the same join, on the same index, the
+  file's main row source 160 lines above already treats as load-bearing —
+  declining a second dependency on it bought nothing and cost an order of
+  magnitude.
+
+### [2026-08-09] #731 — never justify a SQL shape with an unverified planner claim in a comment
+
+- [2026-08-09] The regression above shipped *because* its rationale comment
+  asserted a planner behaviour ("the EXISTS is evaluated ONCE in the
+  LATERAL") that nobody had run `EXPLAIN` against; the sentence then read as
+  the reason not to question the shape, and a second comment in the same
+  change compounded it ("the FILTER predicate is an EXISTS, not a join", used
+  to explain why a review with multiple posted responses counts once) →
+  a plausible planner story is indistinguishable from a measured one once it
+  is written in the imperative voice next to the code it defends, and common
+  subexpression elimination across `FILTER` references is exactly the kind of
+  optimisation a reader will assume rather than check → state only
+  independently checkable facts in the comment (an index's uniqueness
+  guarantee, a join's totality, a predicate's exhaustiveness) and put
+  measurements in the commit message, where they carry their date and their
+  fixture. The replacement comment re-makes **no** planner assertion.
+
+### [2026-08-09] #731 — landmine enumeration before a query merge needs a THIRD category of dependent assertion
+
+- [2026-08-09] Merging two queries into one broke a pre-existing #678 title
+  the plan's recon never named — `'loadPastRepliesPageView averages star
+  rating over all reviews, not only replied ones'` locates the AVG query with
+  `/AVG\(/i` and then asserts `expect(avgQuery.text).not.toContain("'posted'")`,
+  which the merge falsifies by putting the partitioning predicate in the same
+  template → the recon enumerated assertions that (i) **count** queries and
+  (ii) **dispatch** on query text, but not assertions that (iii) **identify**
+  a query by text and then constrain its *contents*; a merge changes what a
+  text-matched query contains, not only how many queries exist, so category
+  (iii) is the one that bites → before merging or reshaping a query,
+  enumerate all three categories. The title's *claim* survived intact (the
+  AVG's row set is still `FROM reviews r WHERE r.business_id = …`, one
+  conjunct); only its mechanism was an artefact of the AVG having had a
+  template to itself, so both original assertions were re-applied to the
+  strip remainder plus two positive `FROM`/`WHERE` pins — no assertion
+  deleted, no title text changed. Related but distinct from #730's
+  fragment-blast-radius note above, which is about *build calls* consuming an
+  ordered mock's queue positions; this one is about the *text* a surviving
+  assertion matches on.
+
+### [2026-08-09] #731 — `ci:tenant-scope` cannot tell you the snippet it wants, and every allowlist regeneration hits that wall
+
+- [2026-08-09] The plan's step said to take the expected `sqlSnippet` "from
+  the failure output", and warned correctly that a guessed snippet is the #1
+  way the step burns a round — but the audit prints only `file: table:
+  reason` triples → `TenantScopeFinding`
+  (`scripts/ci/tenant-scope-audit.ts`) carries **no SQL field**, so there is
+  nothing to paste, which makes the step a dead end rather than a nuisance
+  → derive the snippet by reusing the audit's own machinery, which is what
+  the match keys on (`getAllowlistEntry` compares
+  `normalizeSql(stripSqlComments(x))` on both sides): import
+  `extractSqlTemplates` from the audit module in a throwaway script, apply
+  the same comment-strip + whitespace-collapse, and print the template you
+  are re-pinning. Landed 408 (baseline 408) first try, no burned round. Five
+  regenerations have now hit this wall (420→418→414→412→409→408); the durable
+  fix is to put the normalised SQL on the finding (preferred) or export
+  `normalizeSql`/`stripSqlComments`, which are module-private — worth its own
+  ticket.
+
+### [2026-08-09] #731 — a grep gate that forbids an identifier forbids it in prose too
+
+- [2026-08-09] Two plan steps demanded an identifier appear nowhere
+  (`rg -n "peekRegenBudget\b"` → no hits; `rg -n
+  "PAST_REPLIES_VIEW_ENABLED" worker/` → no hits) while sibling steps
+  supplied verbatim replacement **comments** that legitimately named it, so
+  following the plan literally guaranteed the gate reported a hit whose
+  stated triage was "STOP and report" → `rg` cannot tell a call site from
+  prose, and a retirement comment's whole job is often to name the thing it
+  warns you off re-adding → scope such a gate to code
+  (`rg … | rg -v '^\S+:[0-9]+:\s*//'`) and decide per comment whether the
+  identifier earns its place: #731 **dropped** it where the comment merely
+  records a completed consolidation (the fact survives without the name, and
+  `git log -S` still finds it via the commit subject) and **kept** it where
+  the comment exists to stop a retired flag being reintroduced — the same
+  reason CONTEXT.md names it.
+
+### [2026-08-09] #731 — never verify a type-level guarantee by grepping for the enclosing function name
+
+- [2026-08-09] The plan proved its `Required<Pick<…>>` slice by deleting a
+  field and running `pnpm typecheck 2>&1 | grep -A2 'orphanReplyFacts'`,
+  whose stop condition ("if it does not appear this refactor is unsafe")
+  fires a **false STOP on a correct refactor** — the grep emits zero lines →
+  TypeScript anchors a structural-assignability error at the offending
+  object literal's position and describes the two structural types; it never
+  names the enclosing function → grep the file and the error code:
+  `pnpm typecheck 2>&1 | grep -E 'replies-view\.ts.*TS27(39|41)'`. Note the
+  code: **TS2741** is the single-missing-property form (what one deleted
+  field actually reports, observed at `replies-view.ts(257,3)` naming
+  `failed_response_id`), **TS2739** the ≥2-properties sibling — a proof
+  command pinned to the wrong one of the pair also emits nothing.
+
+### [2026-08-09] #731 — under concurrent subagent dispatch, commit with a pathspec
+
+- [2026-08-09] Two parallel task agents independently reached for
+  `git commit -m … -- <files>` instead of the plan's `git add` + `git commit`
+  → `git commit` with no pathspec commits the whole **index**, so a sibling
+  agent staging a file between one agent's `add` and its `commit` is swept
+  into the wrong commit (both agents were editing the same worktree; one
+  confirmed via `git status --porcelain` between the two calls that a
+  sibling's two dirty files happened to be unstaged at that instant — luck,
+  not a guarantee) → the pathspec form is the default for any parallel-task
+  bundle; it cannot capture another agent's work no matter the timing. Worth
+  carrying in the plan template's concurrency note.
+
+### [2026-08-09] #731 — estimate the test-line bucket bottom-up from pinned titles × suites, never as a ratio of the production estimate
+
+- [2026-08-09] The gate's `reclassify` row went WARN on the **test** bucket
+  after the review-fix round (490 actual vs a 230 estimate, 2.13×), forcing a
+  full step-0 re-derivation that came back **lane unchanged** on all three
+  axes → the estimate had been anchored to the production figure at ~1.15:1,
+  which is verbatim the #643 mistake the intake guidance warns about; the
+  actual ratio (490/323 ≈ 1.52:1) is unremarkable for a feature whose
+  deliverable is 14 pinned titles across five suites plus a live-Postgres
+  partition guard, and the largest single contributor was tests added
+  *because* the review found a coverage hole — a trigger that pushes toward a
+  heavier lane for having fixed a review finding is reading its own signal
+  backwards → count the test bucket bottom-up (14 titles × ~25 lines of
+  body/fixture + harness reshaping in 5 suites ≈ 450, which trips nothing).
+  Correct the estimate in the retrospective, never the intake — and record
+  the reasoning, because a WARN reasoned past without a written record is
+  indistinguishable from a WARN that was ignored.
