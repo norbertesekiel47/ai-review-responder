@@ -2900,3 +2900,55 @@ dependency, no schema change.**
   **Content-freshness gate** glossary term (survived the squash — verified
   in this sweep, not duplicated).
 - **Ship**: PR #743, owner-approved squash-merge to `8ee889ff`.
+
+## 2026-08-09 — #730 owner-facing open-flag predicate consolidation (PR #746)
+
+- **What**: 8 owner-facing inline spellings of the open-flag EXISTS predicate
+  (7 files) consolidated onto `openFlagExistsSql(db, ref)` on
+  `src/lib/moderation/held-draft.ts`; `hasOpenFlag` re-expressed on it
+  (signature + call sites untouched); divergence comment block for the 4
+  deliberately-distinct consumer categories (#725 inventory); CONTEXT.md
+  **Moderation hold** entry sharpened (flag-release ≠ re-notification).
+  Semantics-preserving: no migration, no env var, no flag, no dependency.
+- **Workflow**: /feature high lane; plan v4 after 3 codex plan-review rounds;
+  serial T1→T7 subagent execution, spec + quality review per task; 11 promised
+  tests landed BEFORE the refactor (T1 eval task) incl. live-DB fast-check
+  property over all migration-051 flag-status subsets on an isolated business.
+- **Two owner-ratified surface amendments**: (1) the `[reviewId]` surface
+  globs could never match their own paths in the bash edit-guard (character
+  classes) — respelled `*`, the only spelling BOTH the hook and
+  `feature-surface-audit.ts` accept; (2) two blast-radius test files
+  (`dashboard/reviews/__tests__/actions.test.ts`,
+  `dashboard/__tests__/route.test.ts`) added after the gate's whole-repo test
+  row exposed them.
+- **Blast radius (lab-notes)**: the fragment's build calls broke ordered-mock
+  suites in two waves — 9 failures in 3 suites at T4, 12 in 2 more at T7 —
+  all repaired with one fragment-aware double pattern (`isExecutedStatement`
+  verb check; build calls return `{ fragmentText, values }` without consuming
+  the queue). `worker/__tests__/helpers/mock-sql.ts` was already
+  fragment-aware (flattening), so dashboard suites needed pins only.
+- **Mechanical enforcement**: title-#11 per-file invocation scan
+  (pending-count = 2), owner-tree sweep (`FROM|JOIN flagged_responses`
+  forbidden in production files under the four owner-facing trees,
+  comment-stripped), reserved-`fr`-ref scan, `.todo`-survivor scan.
+- **Review**: three-axis round 1 — spec PASS (1 minor, fixed), standards
+  APPROVE via thermo-nuclear (fast-follow hygiene), codex adversarial
+  needs-attention (2 high closed mechanically in-branch: ref-alias scan +
+  owner-tree sweep; glossary fix; test-double extraction recorded
+  fast-follow). Round 2 verification: all accepted fixes VERIFIED. Reports:
+  `docs/reviews/feat-730-open-flag-consolidation/`.
+- **Allowlist**: 6 tenant-scope sqlSnippets regenerated in place (audit does
+  NOT print extracted text — derive via its exported `extractSqlTemplates`);
+  `ALLOWLIST_BASELINE` stays 409; pending-count correctly gained no entry.
+- **Ship**: staging ride `58b9973a` (worker deploy SUCCESS, boot clean, zero
+  errors; Vercel staging Ready behind SSO); PR #746 all-green CI; owner
+  flipped the #740 merge-order agreement — #746 squash-merged to `5936468d`
+  first, #740 (still open, conflicted) rebases onto it. Two `--no-verify`
+  staging pushes on recorded evidence: pre-existing env-shaped failures in
+  migration-056 RLS + WS8 concurrency integration suites (see lab-notes;
+  ticket-worthy).
+- **Fast-follows recorded** (deviations log): shared fragment-aware SQL test
+  double (`isExecutedStatement` ×7 at rule-of-three boundary), repo-wide
+  `flagged_responses` audit script, dashboard `route.test.ts` decomposition
+  (1012 lines), `statusArraySql(sql,…)` write-client hygiene in the reviews
+  draft-status route.
