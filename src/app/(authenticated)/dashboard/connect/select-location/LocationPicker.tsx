@@ -106,38 +106,31 @@ export function LocationPicker({ locations }: Props) {
   );
 }
 
+const SESSION_EXPIRED = 'Your connect session expired. Please start over.';
+const ACCOUNT_MISMATCH = 'This connect session doesn’t match your account. Please start over.';
+const NO_PERMISSION = 'You don’t have permission to do that.';
+
+// Map (not a plain object) so an attacker-influenced code like 'toString'
+// can never resolve through the prototype chain.
+const FRIENDLY_MESSAGES = new Map<string, string>([
+  ['connect_session_missing', SESSION_EXPIRED],
+  ['connect_session_expired', SESSION_EXPIRED],
+  ['connect_pending_missing', SESSION_EXPIRED],
+  ['invalid_location_id', 'That location isn’t recognized — please pick one from the list.'],
+  ['finalize_in_progress', 'Another tab is already finalizing this connection — please wait a moment and refresh.'],
+  ['finalize_unknown_admin_required', 'This connection needs manual review by our support team.'],
+  ['already_connected_by_parallel_flow', 'This business was just connected from another tab.'],
+  ['flow_changed', 'The connection flow changed — please start over from the dashboard.'],
+  ['malformed_pending_marker', 'Something went wrong with this connect session. Please start over.'],
+  ['business_mismatch', ACCOUNT_MISMATCH],
+  ['user_mismatch', ACCOUNT_MISMATCH],
+  ['zernio_auth_error', 'Google authorization expired before you finished. Please reconnect.'],
+  ['zernio_validation_error', 'Google rejected that selection — please pick a different location.'],
+  ['feature_disabled', 'Google Business publishing isn’t available right now.'],
+  ['forbidden', NO_PERMISSION],
+  ['unauthorized', NO_PERMISSION],
+]);
+
 function friendlyMessage(code: string): string {
-  switch (code) {
-    case 'connect_session_missing':
-    case 'connect_session_expired':
-      return 'Your connect session expired. Please start over.';
-    case 'invalid_location_id':
-      return 'That location isn’t recognized — please pick one from the list.';
-    case 'finalize_in_progress':
-      return 'Another tab is already finalizing this connection — please wait a moment and refresh.';
-    case 'finalize_unknown_admin_required':
-      return 'This connection needs manual review by our support team.';
-    case 'already_connected_by_parallel_flow':
-      return 'This business was just connected from another tab.';
-    case 'flow_changed':
-      return 'The connection flow changed — please start over from the dashboard.';
-    case 'connect_pending_missing':
-      return 'Your connect session expired. Please start over.';
-    case 'malformed_pending_marker':
-      return 'Something went wrong with this connect session. Please start over.';
-    case 'business_mismatch':
-    case 'user_mismatch':
-      return 'This connect session doesn’t match your account. Please start over.';
-    case 'zernio_auth_error':
-      return 'Google authorization expired before you finished. Please reconnect.';
-    case 'zernio_validation_error':
-      return 'Google rejected that selection — please pick a different location.';
-    case 'feature_disabled':
-      return 'Google Business publishing isn’t available right now.';
-    case 'forbidden':
-    case 'unauthorized':
-      return 'You don’t have permission to do that.';
-    default:
-      return `Unable to connect (${code}).`;
-  }
+  return FRIENDLY_MESSAGES.get(code) ?? `Unable to connect (${code}).`;
 }

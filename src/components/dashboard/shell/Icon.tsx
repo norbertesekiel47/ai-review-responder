@@ -28,6 +28,10 @@ interface Props extends Omit<SVGProps<SVGSVGElement>, 'name'> {
   size?: number;
 }
 
+// Flat name→SVG dispatch: one `case` per icon is the entire branch count
+// (cognitive complexity 2). A record-of-components rewrite would churn every
+// line of the file without changing behavior or readability.
+// fallow-ignore-next-line complexity
 export function Icon({ name, size = 18, ...rest }: Props) {
   const props: SVGProps<SVGSVGElement> = {
     width: size,

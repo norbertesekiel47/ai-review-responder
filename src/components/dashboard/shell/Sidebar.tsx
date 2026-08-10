@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { deriveNavSection } from '@/components/dashboard/shell/active-nav';
+import { deriveNavSection, type NavSection } from '@/components/dashboard/shell/active-nav';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
@@ -27,6 +27,31 @@ function deriveInitials(name: string, email: string): string {
     return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
   }
   return (email[0] ?? '?').toUpperCase();
+}
+
+/** One nav row. Pairing className and aria-current here keeps the visual
+ *  active state and the assistive-tech current-page state from drifting. */
+function NavItem({
+  href,
+  section,
+  activeNav,
+  children,
+}: {
+  href: string;
+  section: NavSection;
+  activeNav: NavSection | null;
+  children: ReactNode;
+}) {
+  const active = activeNav === section;
+  return (
+    <Link
+      href={href}
+      className={`nav-item ${active ? 'active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+    >
+      {children}
+    </Link>
+  );
 }
 
 export function Sidebar({
@@ -82,49 +107,29 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">
-        <Link
-          href="/dashboard"
-          className={`nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}
-          aria-current={activeNav === 'dashboard' ? 'page' : undefined}
-        >
+        <NavItem href="/dashboard" section="dashboard" activeNav={activeNav}>
           <Icon name="home" /> Dashboard
-        </Link>
-        <Link
-          href="/dashboard/reviews"
-          className={`nav-item ${activeNav === 'reviews' ? 'active' : ''}`}
-          aria-current={activeNav === 'reviews' ? 'page' : undefined}
-        >
+        </NavItem>
+        <NavItem href="/dashboard/reviews" section="reviews" activeNav={activeNav}>
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
-        </Link>
+        </NavItem>
         {solicitationEnabled && (
-          <Link
-            href="/dashboard/requests"
-            className={`nav-item ${activeNav === 'requests' ? 'active' : ''}`}
-            aria-current={activeNav === 'requests' ? 'page' : undefined}
-          >
+          <NavItem href="/dashboard/requests" section="requests" activeNav={activeNav}>
             <Icon name="trend" /> Requests
-          </Link>
+          </NavItem>
         )}
-        <Link
-          href="/dashboard/analytics"
-          className={`nav-item ${activeNav === 'analytics' ? 'active' : ''}`}
-          aria-current={activeNav === 'analytics' ? 'page' : undefined}
-        >
+        <NavItem href="/dashboard/analytics" section="analytics" activeNav={activeNav}>
           <Icon name="chart" /> Analytics
-        </Link>
+        </NavItem>
       </div>
 
       <div className="nav-divider" />
 
       <div className="nav-section">
-        <Link
-          href="/settings"
-          className={`nav-item ${activeNav === 'settings' ? 'active' : ''}`}
-          aria-current={activeNav === 'settings' ? 'page' : undefined}
-        >
+        <NavItem href="/settings" section="settings" activeNav={activeNav}>
           <Icon name="cog" /> Settings
-        </Link>
+        </NavItem>
       </div>
 
       <div className="sidebar-spacer" />

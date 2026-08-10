@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 interface SettingsModalProps {
   /** Accessible name for the dialog, announced when focus enters it. */
@@ -30,9 +30,27 @@ export function SettingsModal({ title, closeLabel, onClose, children }: Settings
     };
   }, []);
 
-  function handleDialogClick(event: MouseEvent<HTMLDialogElement>) {
-    if (event.target === event.currentTarget) onClose();
-  }
+  // Dismissal listeners are attached to the dialog node imperatively: the
+  // backdrop click is a pointer-only redundancy of the native Escape path
+  // (`cancel`), not the element's interactive affordance — keyboard and
+  // screen-reader users dismiss via Escape or the dialog's own buttons.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClick = (event: globalThis.MouseEvent) => {
+      if (event.target === dialog) onClose();
+    };
+    const handleCancel = (event: Event) => {
+      event.preventDefault();
+      onClose();
+    };
+    dialog.addEventListener('click', handleClick);
+    dialog.addEventListener('cancel', handleCancel);
+    return () => {
+      dialog.removeEventListener('click', handleClick);
+      dialog.removeEventListener('cancel', handleCancel);
+    };
+  }, [onClose]);
 
   return (
     <dialog
@@ -41,11 +59,6 @@ export function SettingsModal({ title, closeLabel, onClose, children }: Settings
       aria-modal="true"
       aria-label={title}
       aria-describedby={descriptionId}
-      onClick={handleDialogClick}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
     >
       <div className="modal-content">
         <span id={descriptionId} className="sr-only">{closeLabel}. Press Escape to close.</span>

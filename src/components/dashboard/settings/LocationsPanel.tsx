@@ -68,7 +68,14 @@ const ARCHIVED_TOGGLE_STYLE: CSSProperties = {
   textAlign: 'left',
 };
 
-const ARCHIVED_DATE_FORMATTER = new Intl.DateTimeFormat();
+// Explicit locale + timeZone so server render and browser hydration produce
+// the same text regardless of the viewer's locale settings.
+const ARCHIVED_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
 
 // ── Types ──────────────────────────────────────────────────────────────
 
