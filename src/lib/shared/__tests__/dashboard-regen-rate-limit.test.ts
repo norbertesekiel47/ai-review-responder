@@ -190,14 +190,12 @@ describe('enforceRegenBudgetForReview', () => {
     expect(mockPeekRegenBudgetBatch).toHaveBeenCalledWith([REVIEW_ID]);
   });
 
-  it('never leaks the raw review id into the fail-open log', async () => {
-    mockPeekRegenBudgetBatch.mockResolvedValue(new Map());
-
-    await enforceRegenBudgetForReview(REVIEW_ID);
-
-    if (mockWarn.mock.calls.length > 0) {
-      const logged = mockWarn.mock.calls[0]?.[0];
-      expect(JSON.stringify(logged)).not.toContain(REVIEW_ID);
-    }
-  });
+  // The former `never leaks the raw review id into the fail-open log` title was
+  // DELETED here, not weakened: post-#731 the enforcer emits no log of its own
+  // (the warn moved into `peekRegenBudgetBatch`) and this suite replaces that
+  // module wholesale above, so `mockWarn` could never receive a call and the
+  // title's `if (…length > 0)` body executed zero assertions for ANY
+  // implementation. Its guarantee now lives where the log does, asserted
+  // unconditionally: `regen-budget-batch.test.ts` → 'the peek-failure warn
+  // carries subject_count and never a review id'.
 });

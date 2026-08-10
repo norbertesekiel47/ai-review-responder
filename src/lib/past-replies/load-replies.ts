@@ -161,8 +161,9 @@ export async function loadPastRepliesPageView(
   //
   // Consequence, and it is the correct one: orphan cards are now inside the
   // LIMIT/OFFSET window and inside unansweredTotal (they have no posted sibling,
-  // so the NOT EXISTS count already includes them), i.e. paginated like every
-  // other row instead of repeating on every page.
+  // so the merged denominator's `COUNT(*) FILTER (WHERE p.review_id IS NULL)`
+  // already counts them), i.e. paginated like every other row instead of
+  // repeating on every page.
   const [rows, denominatorRows] = await Promise.all([
     // The SINGLE row source for the page:
     //   - review_content_hash + version for the optimistic-concurrency snapshot
@@ -313,16 +314,36 @@ export async function loadPastRepliesPageView(
     // and deliberately so — rows-vs-counts skew is inherent to any paginated
     // list and cannot produce N > M.)
     //
-    // The posted-reply EXISTS is evaluated ONCE per review in the LATERAL and
-    // consumed by both FILTERs; spelling it twice would plan two correlated
-    // subqueries per row. Orphan rows need no term of their own — they have no
-    // posted sibling, so the unanswered side already counts them.
+    // The partition stays arithmetically CLOSED under the LEFT JOIN: the join
+    // preserves every review for the location (an unmatched review survives with
+    // `p.*` NULL), and `p.review_id IS NULL` / `IS NOT NULL` over that same
+    // column is a total, never-NULL-valued split — so
+    // `unanswered + answered ≡ COUNT(*)` by construction, not by two predicates
+    // a reader must verify are exact complements.
+    //
+    // The join CANNOT multiply rows: `responses_one_posted_per_review`
+    // (supabase/migrations/031_edit_existing_replies.sql) is
+    // `UNIQUE (review_id) WHERE status = 'posted'`, so a review has at most one
+    // posted response and `COUNT(*)` stays the review count. Non-posted siblings
+    // (drafts, failed, superseded) are excluded by the ON clause, so they cannot
+    // contribute a row either.
+    //
+    // Deliberately the SAME join shape the main row source uses ~160 lines above
+    // (`LEFT JOIN responses resp ON resp.review_id = r.id AND resp.status =
+    // 'posted'`), which depends on that same index for exactly the same reason —
+    // if it multiplied, the list would render duplicate rows. One encoding of
+    // "does this review have a live posted reply?" for the whole page, so the
+    // denominators and the rows agree by construction rather than by inspection.
+    //
+    // Orphan rows need no term of their own — they have no posted sibling, so
+    // the unanswered side already counts them.
     //
     // The AVG spans every review for the location, replied or not: the pre-#678
-    // query JOINed posted responses, which answered a different question ("how
-    // do the reviews you replied to rate?") than the tile asks. It is restricted
-    // by nothing but `r.business_id` — the posted predicate lives entirely in the
-    // LATERAL that partitions the two COUNTs.
+    // query INNER-JOINed posted responses, which answered a different question
+    // ("how do the reviews you replied to rate?") than the tile asks. Its row set
+    // is restricted by nothing but `r.business_id` — the posted predicate lives
+    // entirely in the join's ON clause, where it can only decide whether `p.*` is
+    // NULL, never whether the review survives.
     //
     // Scoping is unchanged (invariant #8): `r.business_id = ${locationId}`,
     // resolved for the current account by the `biz` lookup above.
@@ -330,18 +351,13 @@ export async function loadPastRepliesPageView(
       { unanswered_total: number; answered_total: number; avg_star_rating: number | null }[]
     >`
       SELECT
-        COUNT(*) FILTER (WHERE NOT posted.has_reply)::int AS unanswered_total,
-        COUNT(*) FILTER (WHERE posted.has_reply)::int     AS answered_total,
-        AVG(r.star_rating)::float                         AS avg_star_rating
+        COUNT(*) FILTER (WHERE p.review_id IS NULL)::int     AS unanswered_total,
+        COUNT(*) FILTER (WHERE p.review_id IS NOT NULL)::int AS answered_total,
+        AVG(r.star_rating)::float                            AS avg_star_rating
       FROM reviews r
-      CROSS JOIN LATERAL (
-        SELECT EXISTS (
-          SELECT 1
-          FROM responses p
-          WHERE p.review_id = r.id
-            AND p.status = 'posted'
-        ) AS has_reply
-      ) posted
+      LEFT JOIN responses p
+        ON p.review_id = r.id
+       AND p.status = 'posted'
       WHERE r.business_id = ${locationId}
     `,
   ]);

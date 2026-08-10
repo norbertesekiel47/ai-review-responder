@@ -114,13 +114,17 @@ async function seedReview(
   `;
 }
 
-async function seedPostedResponse(responseId: string, reviewId: string): Promise<void> {
+async function seedPostedResponse(
+  responseId: string,
+  reviewId: string,
+  bizId: string = businessId,
+): Promise<void> {
   await sql()`
     INSERT INTO responses (
       id, review_id, business_id, response_text, original_draft_text,
       approved_text, response_language, version, status, approval_method, posted_at
     ) VALUES (
-      ${responseId}::uuid, ${reviewId}::uuid, ${businessId}::uuid,
+      ${responseId}::uuid, ${reviewId}::uuid, ${bizId}::uuid,
       'Thank you!', 'Thank you!', 'Thank you!', 'en', 1, 'posted', 'owner', NOW()
     )
   `;
@@ -459,19 +463,12 @@ describeWithDb('Reviews list query against live Postgres', { timeout: 30_000 }, 
       await seedReview(reviewId, 4, '2026-04-10T12:00:00Z', REVIEW_STATUS.POSTED, isolatedBusinessId);
       // ONE posted row is all the schema permits — the partial unique index
       // `responses_one_posted_per_review` (migration 031) is UNIQUE on
-      // (review_id) WHERE status = 'posted'. The answered side must still count
-      // the review once, because the FILTER predicate is an EXISTS, not a join:
-      // were it a join, the review's other non-posted siblings would each
-      // contribute a row and inflate the denominator past COUNT(*).
-      await sql()`
-        INSERT INTO responses (
-          id, review_id, business_id, response_text, original_draft_text,
-          approved_text, response_language, version, status, approval_method, posted_at
-        ) VALUES (
-          ${responseId}::uuid, ${reviewId}::uuid, ${isolatedBusinessId}::uuid,
-          'Thanks!', 'Thanks!', 'Thanks!', 'en', 1, 'posted', 'owner', NOW()
-        )
-      `;
+      // (review_id) WHERE status = 'posted'. That index is exactly what lets the
+      // merged denominator use a plain LEFT JOIN without fanning out: the
+      // answered side counts this review once because at most one posted row can
+      // match, and the ON clause's `status = 'posted'` keeps every non-posted
+      // sibling from contributing a row of its own.
+      await seedPostedResponse(responseId, reviewId, isolatedBusinessId);
 
       const view = (await loadPastRepliesPageView(sql(), {
         accountId: tenant!.accountId,

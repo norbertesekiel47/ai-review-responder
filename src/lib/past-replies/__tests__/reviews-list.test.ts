@@ -402,21 +402,18 @@ describe('loadPastRepliesPageView (Reviews list)', () => {
 
     expect(view!.avgStarRating).toBe(4.25);
     const avgQuery = calls.find((call) => /AVG\(/i.test(call.text))!;
-    // #731: the AVG now shares the merged denominator query, so `'posted'` DOES
-    // appear in its text — confined to the CROSS JOIN LATERAL EXISTS that
-    // partitions the two COUNT(*) FILTERs. What this title has always been about
-    // survives verbatim once that LATERAL is stripped: nothing restricts the
-    // AVG's OWN row set, which is every review for the location.
-    const outsideLateral = avgQuery.text.replace(
-      /CROSS JOIN LATERAL \([\s\S]*?\) posted/i,
-      '',
-    );
-    // No posted-only JOIN: the denominator is every review for the location.
-    expect(outsideLateral).not.toMatch(/JOIN\s+responses/i);
-    expect(outsideLateral).not.toContain("'posted'");
-    // …and the surviving FROM/WHERE is `reviews` scoped by business_id alone.
-    expect(outsideLateral).toMatch(/FROM\s+reviews\s+r\b/i);
-    expect(outsideLateral).toMatch(/WHERE\s+r\.business_id\s*=/i);
+    // #731: the AVG now shares the merged denominator query, which DOES join
+    // `responses` — so "there is no join" is no longer the right pin.
+    //
+    // The AVG's row set must stay EVERY review for the location. A LEFT join
+    // cannot narrow it (an unmatched review survives with p.* NULL); an inner
+    // join would, and that was the pre-#678 defect this title guards. So the
+    // pin is: exactly one join to `responses`, and it is a LEFT one.
+    const responsesJoins = avgQuery.text.match(/JOIN\s+responses/gi) ?? [];
+    expect(responsesJoins).toHaveLength(1);
+    expect(avgQuery.text).toMatch(/LEFT JOIN\s+responses/i);
+    expect(avgQuery.text).toMatch(/FROM\s+reviews\s+r\b/i);
+    expect(avgQuery.text).toMatch(/WHERE\s+r\.business_id\s*=/i);
   });
 
   it('loadPastRepliesPageView returns each orphan review exactly once as recover and never as generate', async () => {

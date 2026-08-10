@@ -364,8 +364,9 @@ export interface GroupedReplies {
  * live reply on Google, so everything else — including orphan `recover` rows
  * (D-G) and held rows — groups under Unanswered. The row set is identical to
  * the pre-#727 `regenerate` grouping (pinned by test).
- * Orphans need no separate count: they have no posted sibling, so
- * `load-replies`' `NOT EXISTS` unanswered denominator already includes them.
+ * Orphans need no separate count: they have no posted sibling, so the unanswered
+ * side of `load-replies`' merged denominator query — `COUNT(*) FILTER (WHERE
+ * p.review_id IS NULL)` over the posted-only LEFT JOIN — already includes them.
  *
  * One row array, not two: post-F3 there is no separate orphan query to merge,
  * so there is no de-dup step either — the single row source returns each review

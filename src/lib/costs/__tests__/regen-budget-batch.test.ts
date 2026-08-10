@@ -57,6 +57,15 @@ vi.mock('@/lib/db/server', () => ({
   jsonb: (v: unknown) => v,
 }));
 
+// Capture the swallow-and-log payload. #731 moved this warn OUT of
+// `enforceRegenBudgetForReview` and into `peekRegenBudgetBatch`, so this suite is
+// now the only place the logging-privacy contract can be observed — the enforcer
+// suite mocks this whole module away and can no longer see a log at all.
+const mockWarn = vi.fn();
+vi.mock('@/lib/shared/logger', () => ({
+  createWorkerLogger: () => ({ log: vi.fn(), warn: mockWarn, error: vi.fn() }),
+}));
+
 const REVIEW_A = 'rev-aaa';
 const REVIEW_B = 'rev-bbb';
 const REVIEW_C = 'rev-ccc';
@@ -126,6 +135,41 @@ describe('peekRegenBudgetBatch', () => {
     // Inverting this would disable every Regenerate during an Upstash outage.
     expect(statuses.size).toBe(0);
     expect(statuses.get(REVIEW_A)).toBeUndefined();
+  });
+
+  it('the peek-failure warn carries subject_count and never a review id', async () => {
+    // The logging-privacy pin (CLAUDE.md → Structured logging: never log raw
+    // review/response text or ids). It lives HERE, not in
+    // dashboard-regen-rate-limit.test.ts: post-#731 the enforcer emits no log of
+    // its own and that suite replaces this whole module with a `vi.fn`, so its
+    // former `never leaks the raw review id` title could not observe a warn for
+    // ANY implementation and was deleted rather than left permanently vacuous.
+    //
+    // Asserted UNCONDITIONALLY — no `if (mockWarn.mock.calls.length > 0)` guard.
+    // A privacy assertion must fail loudly when its subject moves again, which is
+    // exactly the signal a guarded version suppresses.
+    mockRedis.mget.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+    const peekRegenBudgetBatch = await loadBatchPeek();
+    await peekRegenBudgetBatch([REVIEW_A, REVIEW_B]);
+
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+    const logged = mockWarn.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(logged.event).toBe('regen_budget_peek_failed');
+    expect(logged.peek).toBe('batch');
+    // The COUNT is what discriminates the route's single-id call from a
+    // page-sized batch — the ids themselves are never the observability payload.
+    // Adding a `review_ids` field, or folding ids into `reason`, fails here.
+    expect(logged.subject_count).toBe(2);
+    const serialized = JSON.stringify(logged);
+    expect(serialized).not.toContain(REVIEW_A);
+    expect(serialized).not.toContain(REVIEW_B);
+    // `reason` is the provider error's message VERBATIM — that is the payload's
+    // sanitization boundary, pinned so it is a visible decision rather than an
+    // assumption. The four keys above are everything this code constructs, so an
+    // id can only ever arrive from inside `err.message`.
+    expect(logged.reason).toBe('ECONNREFUSED');
+    expect(Object.keys(logged).sort()).toEqual(['event', 'peek', 'reason', 'subject_count']);
   });
 
   it('peekRegenBudgetBatch never rejects, so no caller needs a catch of its own', async () => {

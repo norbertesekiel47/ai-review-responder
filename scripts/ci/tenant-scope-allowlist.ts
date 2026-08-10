@@ -1301,7 +1301,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/past-replies/load-replies.ts",
     table: "responses",
-    sqlSnippet: "SELECT COUNT(*) FILTER (WHERE NOT posted.has_reply)::int AS unanswered_total, COUNT(*) FILTER (WHERE posted.has_reply)::int AS answered_total, AVG(r.star_rating)::float AS avg_star_rating FROM reviews r CROSS JOIN LATERAL ( SELECT EXISTS ( SELECT 1 FROM responses p WHERE p.review_id = r.id AND p.status = 'posted' ) AS has_reply ) posted WHERE r.business_id = ${locationId}",
+    sqlSnippet: "SELECT COUNT(*) FILTER (WHERE p.review_id IS NULL)::int AS unanswered_total, COUNT(*) FILTER (WHERE p.review_id IS NOT NULL)::int AS answered_total, AVG(r.star_rating)::float AS avg_star_rating FROM reviews r LEFT JOIN responses p ON p.review_id = r.id AND p.status = 'posted' WHERE r.business_id = ${locationId}",
     category: 'tenant-root-lookup',
     reason: "Authenticated Reviews list page uses the owner-selected locationId resolved for the current account before joining or existence-testing response rows.",
   },
