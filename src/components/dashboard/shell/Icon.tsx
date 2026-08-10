@@ -38,6 +38,8 @@ export function Icon({ name, size = 18, ...rest }: Props) {
     strokeWidth: 2,
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
+    'aria-hidden': true,
+    focusable: false,
     className: rest.className ? `ni-icon ${rest.className}` : 'ni-icon',
     ...rest,
   };
@@ -126,7 +128,7 @@ export function Icon({ name, size = 18, ...rest }: Props) {
       );
     case 'google':
       return (
-        <svg width={size} height={size} viewBox="0 0 24 24" className={props.className}>
+        <svg {...props} stroke="none">
           <path fill="#4285F4" d="M22.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h6c-.3 1.4-1 2.6-2.2 3.4v2.8h3.6c2.1-1.9 3.2-4.7 3.2-8.1z" />
           <path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.3 1.1-3.7 1.1-2.8 0-5.2-1.9-6.1-4.5H2.2v2.8C4 20.4 7.7 23 12 23z" />
           <path fill="#FBBC05" d="M5.9 14.1c-.2-.7-.4-1.4-.4-2.1s.1-1.4.4-2.1V7.1H2.2A11 11 0 001 12c0 1.8.4 3.5 1.2 4.9l3.7-2.8z" />

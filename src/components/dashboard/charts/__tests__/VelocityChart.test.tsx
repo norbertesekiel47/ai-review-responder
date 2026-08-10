@@ -28,9 +28,9 @@ describe('weekShortLabel', () => {
 
 describe('VelocityChart', () => {
   const data = [
-    { label: 'May 31', count: 0 },
-    { label: '', count: 2 },
-    { label: 'Jun 14', count: 65 },
+    { id: '2026-05-31', label: 'May 31', count: 0 },
+    { id: '2026-06-07', label: '', count: 2 },
+    { id: '2026-06-14', label: 'Jun 14', count: 65 },
   ];
 
   it('renders one bar per datum with a measured-contract viewBox', () => {
@@ -39,7 +39,7 @@ describe('VelocityChart', () => {
     expect(svg.getAttribute('viewBox')).toBe('0 0 640 220'); // canonical in jsdom
     expect(svg.hasAttribute('preserveAspectRatio')).toBe(false);
     expect(container.querySelectorAll('rect').length).toBe(3);
-    expect(screen.getByText('May 31')).toBeInTheDocument();
+    expect(screen.getAllByText('May 31')).toHaveLength(2);
   });
 
   it('renders the average reference line label', () => {
@@ -53,5 +53,13 @@ describe('VelocityChart', () => {
     expect(svg.getAttribute('viewBox')).toBe('0 0 640 220');
     expect(container.querySelectorAll('rect').length).toBe(0);
     expect(svg.innerHTML).not.toContain('NaN');
+  });
+
+  it('provides the weekly values to screen readers without exposing decorative SVG', () => {
+    const { container } = render(<VelocityChart data={data} />);
+
+    expect(screen.getByRole('table', { name: /review velocity history/i })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '65 reviews' })).toBeInTheDocument();
+    expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 });

@@ -68,6 +68,8 @@ const ARCHIVED_TOGGLE_STYLE: CSSProperties = {
   textAlign: 'left',
 };
 
+const ARCHIVED_DATE_FORMATTER = new Intl.DateTimeFormat();
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface LocationEntry {
@@ -473,6 +475,7 @@ function LocationRow({
                 className="loc-row-edit-btn"
                 onClick={() => dispatch({ type: 'startEditingLabel' })}
                 title="Edit display label"
+                aria-label={`Edit display label for ${displayName}`}
               >
                 <Icon name="edit" size={12} />
               </button>
@@ -588,7 +591,7 @@ function ArchivedLocationRow({
   }
 
   const archivedDate = location.archivedAt
-    ? new Date(location.archivedAt).toLocaleDateString()
+    ? ARCHIVED_DATE_FORMATTER.format(new Date(location.archivedAt))
     : null;
 
   return (

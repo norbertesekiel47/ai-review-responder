@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { RankingChart } from '@/components/dashboard/kpi/RankingChart';
 import type { RankingChartSeries } from '@/components/dashboard/kpi/RankingChart.helpers';
 
@@ -53,5 +53,13 @@ describe('RankingChart owner-series emphasis', () => {
     const svg = container.querySelector('svg')!;
     expect(svg.hasAttribute('preserveAspectRatio')).toBe(false);
     expect(svg.getAttribute('viewBox')).toBe('0 0 640 240'); // canonical width in jsdom
+  });
+
+  it('provides the exact chart data to screen readers without exposing decorative SVG', () => {
+    const { container } = render(<RankingChart series={series} />);
+
+    expect(screen.getByRole('table', { name: /search ranking history/i })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '#2' })).toBeInTheDocument();
+    expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 });

@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 // garish #eab308 yellow / text-yellow-*. Originally locked to brand teal #97B3AE
 // everywhere. 2026-06 dashboard redesign (high-end-visual-design): the
 // AUTHENTICATED dashboard token --rw-star moved to Warm Editorial muted gold
-// #D4A24C — a recognizable, non-garish gold that matches the approved mockup.
+// #9A691D — a recognizable, non-garish gold that also clears AA contrast on
+// the Warm Editorial card surface.
 // Marketing (globals.css), auth island, and admin glyphs stay brand teal
 // #97B3AE (out of the redesign scope). The garish-yellow ban below is global.
 // Scoped to star call-sites so it never trips on legit yellow STATUS badges
@@ -16,7 +17,7 @@ const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
 describe('review stars use the brand glyph color, never garish yellow (P2 #28)', () => {
   it('--rw-star is Warm Editorial gold (redesign) and no --rw-yellow-500 remains', () => {
     const tokens = read('src/app/(authenticated)/_styles/tokens.css');
-    expect(tokens).toMatch(/--rw-star:\s*#D4A24C/);
+    expect(tokens).toMatch(/--rw-star:\s*#9A691D/);
     expect(tokens).not.toMatch(/--rw-yellow-500/);
   });
 

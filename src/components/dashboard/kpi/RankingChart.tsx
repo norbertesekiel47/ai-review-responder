@@ -59,7 +59,7 @@ export function RankingChart({
   const x = scalePoint<string>().domain(allDates).range([PAD.l, width - PAD.r]);
   const xFor = (date: string) => x(date) ?? PAD.l;
   const y = scaleLinear().domain([minRank, maxRank]).range([PAD.t, H - PAD.b]);
-  const yTicks = [1, Math.ceil((maxRank + 1) / 2), maxRank];
+  const yTicks = Array.from(new Set([1, Math.ceil((maxRank + 1) / 2), maxRank]));
 
   // In owner mode the first series is the headline series (sage, bold); the
   // rest recede. In series mode every line keeps its own legend color.
@@ -69,10 +69,36 @@ export function RankingChart({
 
   return (
     <div ref={ref}>
+      <table className="sr-only">
+        <caption>Search ranking history</caption>
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            {series.map((item) => <th key={item.keyword} scope="col">{item.keyword}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {allDates.map((date) => (
+            <tr key={date}>
+              <th scope="row">{labelByDate.get(date) ?? date}</th>
+              {series.map((item) => {
+                const position = item.points.find((point) => point.date === date)?.position;
+                return <td key={item.keyword}>{position == null ? 'No ranking' : `#${position}`}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <LazyMotion features={domAnimation} strict>
-        <svg viewBox={`0 0 ${width} ${H}`} className="chart-shell tall" style={{ height: H }}>
-          {yTicks.map((t, i) => (
-            <g key={i}>
+        <svg
+          viewBox={`0 0 ${width} ${H}`}
+          className="chart-shell tall"
+          style={{ height: H }}
+          aria-hidden="true"
+          focusable="false"
+        >
+          {yTicks.map((t) => (
+            <g key={t}>
               <line className="rank-grid" x1={PAD.l} x2={width - PAD.r} y1={y(t)} y2={y(t)} strokeDasharray="3 3" />
               <text className="rank-axis" x={PAD.l - 6} y={y(t) + 3} textAnchor="end" fontSize="10">
                 #{t}
@@ -95,7 +121,7 @@ export function RankingChart({
             const color = colorFor(s, si);
             const faded = isFaded(si);
             return (
-              <g key={`${s.keyword}-${si}`} style={{ opacity: faded ? 0.65 : 1 }}>
+              <g key={s.keyword} style={{ opacity: faded ? 0.65 : 1 }}>
                 <m.path
                   d={path}
                   fill="none"
@@ -106,9 +132,9 @@ export function RankingChart({
                   animate={{ pathLength: 1 }}
                   transition={chartTransition(reduced, LINE_REVEAL, si * LINE_STAGGER_S)}
                 />
-                {sorted.map((p, pi) => (
+                {sorted.map((p) => (
                   <circle
-                    key={`${si}-${pi}-${p.date}`}
+                    key={p.date}
                     cx={xFor(p.date)}
                     cy={y(p.position)}
                     r={faded ? 2.5 : 3}

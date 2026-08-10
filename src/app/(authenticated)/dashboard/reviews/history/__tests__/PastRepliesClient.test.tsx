@@ -91,11 +91,15 @@ describe('PastRepliesClient', () => {
     );
 
     expect(screen.getByText('3 of 47')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /filter by rating/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^all$/i })).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(screen.getByRole('button', { name: /5/ }));
 
     expect(screen.getByText('2 of 3')).toBeInTheDocument();
     expect(screen.queryByText('2 of 47')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^5/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^all$/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('shows first-run copy for a brand-new location with zero reviews and no filter', () => {

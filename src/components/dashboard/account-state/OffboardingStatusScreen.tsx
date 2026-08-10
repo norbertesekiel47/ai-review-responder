@@ -16,13 +16,14 @@ export function OffboardingStatusScreen({
   accountTimeZone,
 }: OffboardingStatusScreenProps) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: 'var(--rw-app-bg)' }}>
-      <div className="max-w-2xl w-full rounded-lg p-8" style={{ background: 'var(--rw-card)', border: '1px solid var(--rw-hair)' }}>
+    <div className="account-state-screen">
+      <section className="card account-state-card" aria-labelledby="account-status-title">
+        <h1 className="account-state-title" id="account-status-title">Account status</h1>
         <OffboardingStatusBanner
           activeOffboarding={activeOffboarding}
           accountTimeZone={accountTimeZone}
         />
-        <div style={{ display: 'grid', gap: 12, marginTop: 18 }}>
+        <div className="account-state-details">
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--rw-app-text-muted)', textTransform: 'uppercase' }}>
               Current state
@@ -41,13 +42,13 @@ export function OffboardingStatusScreen({
               response drafts, provider identifiers, and business content are not shown here.
             </p>
           )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+          <div className="account-state-actions">
             <Link className="btn btn-secondary" href="/help/contact">
               Contact support
             </Link>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

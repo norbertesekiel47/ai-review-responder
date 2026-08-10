@@ -33,8 +33,8 @@ export function LocationPicker({ locations }: Props) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ locationId: selected }),
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
         setError(friendlyMessage(body.error ?? `select_location_failed_${res.status}`));
         setBusy(false);
         return;
@@ -47,70 +47,61 @@ export function LocationPicker({ locations }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="text-2xl font-semibold" style={{ color: 'var(--rw-app-text)' }}>
-        Pick a Google Business location
-      </h1>
-      <p className="mt-2 text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>
-        Select the location RepWorth should publish responses for. You can
-        change this later by reconnecting.
-      </p>
+    <div className="content content--narrow">
+      <section className="card connection-selection" aria-labelledby="connection-location-title">
+        <h2 className="account-state-title" id="connection-location-title">
+          Pick a Google Business location
+        </h2>
+        <p className="account-state-copy">
+          Select the location RepWorth should publish responses for. You can
+          change this later by reconnecting.
+        </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-        <div className="space-y-2">
-          {locations.map((loc) => (
-            <label
-              key={loc.id}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition"
-              style={
-                selected === loc.id
-                  ? { borderColor: 'var(--rw-accent-500)', background: 'var(--rw-sage-soft)' }
-                  : { borderColor: 'var(--rw-hair)', background: 'var(--rw-card)' }
-              }
+        <form onSubmit={handleSubmit} className="connection-selection-form">
+          <fieldset className="connection-options">
+            <legend className="sr-only">Google Business locations</legend>
+            {locations.map((loc) => (
+              <label
+                key={loc.id}
+                className={`connection-option ${selected === loc.id ? 'connection-option--selected' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="location"
+                  value={loc.id}
+                  checked={selected === loc.id}
+                  onChange={() => setSelected(loc.id)}
+                  disabled={busy}
+                  className="connection-option-radio"
+                />
+                <div className="connection-option-copy">
+                  <strong>{loc.name}</strong>
+                  <span>{loc.address}</span>
+                </div>
+              </label>
+            ))}
+          </fieldset>
+
+          {error && (
+            <p className="connection-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="connection-actions">
+            <button
+              type="submit"
+              disabled={!selected || busy}
+              className="btn btn-primary"
             >
-              <input
-                type="radio"
-                name="location"
-                value={loc.id}
-                checked={selected === loc.id}
-                onChange={() => setSelected(loc.id)}
-                disabled={busy}
-                className="mt-1"
-              />
-              <div>
-                <div className="font-medium" style={{ color: 'var(--rw-app-text)' }}>{loc.name}</div>
-                <div className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{loc.address}</div>
-              </div>
-            </label>
-          ))}
-        </div>
-
-        {error && (
-          <p
-            className="rounded border p-3 text-sm"
-            style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)', color: 'var(--rw-danger)' }}
-          >
-            {error}
-          </p>
-        )}
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={!selected || busy}
-            className="btn btn-primary disabled:opacity-50"
-          >
-            {busy ? 'Connecting…' : 'Connect this location'}
-          </button>
-          <Link
-            href="/dashboard/connect"
-            className="text-sm hover:underline"
-            style={{ color: 'var(--rw-app-text-muted)' }}
-          >
-            Cancel
-          </Link>
-        </div>
-      </form>
+              {busy ? 'Connecting…' : 'Connect this location'}
+            </button>
+            <Link href="/dashboard/connect" className="btn btn-secondary">
+              Cancel
+            </Link>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

@@ -13,6 +13,7 @@ interface Props {
 
 export function VelocityCard({ reviewVelocity }: Props) {
   const data = reviewVelocity.map((r, i) => ({
+    id: r.weekStart,
     label: weekShortLabel(r.weekStart, i, reviewVelocity.length),
     count: r.count,
   }));

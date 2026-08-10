@@ -42,6 +42,12 @@ describe('TopBar', () => {
     expect(updaterBody).not.toContain('doRefresh');
   });
 
+  it('exposes the page title as the primary heading', () => {
+    render(wrapWithProvider(<TopBar title="Dashboard" subtitle="Your reputation overview" />));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+  });
+
   it('auto refreshes once when the countdown reaches zero', async () => {
     vi.useFakeTimers();
     const refresh = vi.fn();

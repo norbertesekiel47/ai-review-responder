@@ -68,16 +68,16 @@ export function OffboardingStatusClient() {
           accountTimeZone={accountTimeZone}
         />
       ) : (
-        <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: 'var(--rw-app-bg)' }}>
-          <div className="max-w-md w-full rounded-lg p-8 text-center" style={{ background: 'var(--rw-card)', border: '1px solid var(--rw-hair)' }}>
-            <h1 className="text-2xl font-bold mb-4">No account teardown in progress</h1>
-            <p className="mb-6" style={{ color: 'var(--rw-app-text-muted)' }}>
+        <div className="account-state-screen">
+          <section className="card account-state-card account-state-card--compact">
+            <h1 className="account-state-title">No account teardown in progress</h1>
+            <p className="account-state-copy">
               Your account does not have an active deletion or teardown status to show.
             </p>
             <Link className="btn btn-primary" href="/dashboard">
               Return to dashboard
             </Link>
-          </div>
+          </section>
         </div>
       )}
     </div>
@@ -88,9 +88,9 @@ async function fetchAccountOffboardingStatus(): Promise<OffboardingStatusRespons
   const res = await fetch('/api/account/offboarding/status', {
     headers: { Accept: 'application/json' },
   });
-  const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? body.error ?? 'Unable to load account status');
   }
-  return body as OffboardingStatusResponse;
+  return res.json() as Promise<OffboardingStatusResponse>;
 }

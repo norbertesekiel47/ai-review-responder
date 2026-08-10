@@ -67,9 +67,9 @@ auth pages, onboarding, marketing, admin, and the multi-location **aggregate** r
   Single weight (400), so it is display-only; never body or labels.
 - **Body / UI:** DM Sans (already the product body font) for everything functional.
 - **Field:** warm off-white `#FDFBF7` with a fixed whisper grain overlay (opacity ~0.045).
-- **Accents:** sage `#97B3AE` / sage-deep `#5E7C76` (primary, positive), blush `#F2C3B9` /
-  blush-deep `#A85F4E` (attention), warm gold `#D4A24C` (star ratings), terracotta `#B4493A`
-  (danger — never pure red), violet `#8A76B8` (auto-approved provenance).
+- **Accents:** sage `#97B3AE` / sage-deep `#527069` (primary, positive), blush `#F2C3B9` /
+  blush-deep `#934D3F` (attention), accessible warm gold `#9A691D` (star ratings),
+  terracotta `#A64033` (danger — never pure red), violet `#6F579E` (Insights provenance).
 - **Surfaces:** double-bezel cards (outer tray `#F4EEE4` + inner core `#FFFDF9`), soft *warm*
   diffused shadows (never harsh black), concentric radii.
 
@@ -96,14 +96,14 @@ is the mapping intent.
 | Hairlines | `--rw-hair` `rgba(80,60,40,.08)` · `--rw-hair-2` `.14` | | was `#E5E7EB` |
 | Primary accent | `--rw-sage` `#97B3AE` · `--rw-sage-deep` `#5E7C76` (+ soft/line) | | **remap `--rw-blue-*` usages** |
 | Attention | `--rw-blush` `#F2C3B9` · `--rw-blush-deep` `#A85F4E` (+ soft) | | reuse existing `--rw-attn-*` |
-| Stars | `--rw-gold` `#D4A24C` | | mockup uses warm gold for recognizability |
-| Danger | `--rw-danger` `#B4493A` (+ soft) | | was `--rw-red-*` |
-| Auto provenance | `--rw-violet` `#8A76B8` | | reuse `--rw-auto-*` slot |
+| Stars | `--rw-star` `#9A691D` | | accessible warm gold for recognizability |
+| Danger | `--rw-danger` `#A64033` (+ soft) | | terracotta, AA on danger wash |
+| Insights provenance | `--rw-violet` `#6F579E` | | accessible violet on card and violet wash |
 | Display font | `--rw-font-display` | `'Young Serif', ui-serif, Georgia, serif` | **was Plus Jakarta Sans** |
 | Body font | `--rw-font-body` | `'DM Sans', …` | unchanged |
 | Radii | `--rw-radius-card` 24 · core 18 · sm 12 · pill | | concentric: core = card − pad(6) |
 | Shadow | `--rw-sh-1/-2/-pop` warm diffused | | replace `--rw-shadow-*` on app surfaces |
-| Motion | `--rw-ease-spring` `cubic-bezier(.32,.72,0,1)` · `--rw-ease-out` `cubic-bezier(.22,1,.36,1)` | | |
+| Motion | `--rw-ease-decelerate` `cubic-bezier(.32,.72,0,1)` · `--rw-ease` `cubic-bezier(.25,.46,.45,.94)` | | |
 
 > **Migration cost flag.** Several dashboard components use **literal Tailwind hex** inline
 > (e.g. error states `#FEF2F2`/`#991B1B` in `DashboardContent.tsx`, the save button
@@ -204,7 +204,7 @@ Mapping kept for visual reference only.
 
 ## 8. Motion
 
-- Entry: `reveal` → fade-up + de-blur (`translateY(18px)`, `blur(6px)` → 0) over ~800ms `ease-spring`, staggered ~80ms within a group. Maps to the existing `.section-enter` convention in `DashboardContent.tsx`.
+- Entry: `reveal` → fade-up + de-blur (`translateY(18px)`, `blur(6px)` → 0) over ~800ms with confident deceleration, staggered ~80ms within a group. Maps to the existing `.section-enter` convention in `DashboardContent.tsx`.
 - Velocity bars grow via `transform: scaleY()` (bottom origin) — **not** height.
 - Trend line draws via `stroke-dashoffset`.
 - Button-in-button hover physics; `active:scale(.975)`.
@@ -234,8 +234,8 @@ Land via PR, staging first (touches the dashboard data path). CI green incl. `pn
 
 ## 11. Open decisions to confirm
 
-- **Star color:** mockup uses warm gold `#D4A24C` (recognizable). The existing product uses a
-  deliberate **sage** star (`--rw-star`, "intentionally teal, not yellow"). Confirm gold vs sage.
+- **Star color:** the shipped Console uses accessible warm gold `#9A691D`; retain it for
+  recognizability and AA contrast rather than reverting to decorative sage.
 - **Young Serif single weight** — accept display-only usage, or pick a 2-weight editorial face
   if more heading hierarchy is wanted.
 - **Aggregate timing** — restyle aggregate in the visual-layer PR (consistent look immediately)

@@ -82,12 +82,17 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">
-        <Link href="/dashboard" className={`nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}>
+        <Link
+          href="/dashboard"
+          className={`nav-item ${activeNav === 'dashboard' ? 'active' : ''}`}
+          aria-current={activeNav === 'dashboard' ? 'page' : undefined}
+        >
           <Icon name="home" /> Dashboard
         </Link>
         <Link
           href="/dashboard/reviews"
           className={`nav-item ${activeNav === 'reviews' ? 'active' : ''}`}
+          aria-current={activeNav === 'reviews' ? 'page' : undefined}
         >
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
@@ -104,6 +109,7 @@ export function Sidebar({
         <Link
           href="/dashboard/analytics"
           className={`nav-item ${activeNav === 'analytics' ? 'active' : ''}`}
+          aria-current={activeNav === 'analytics' ? 'page' : undefined}
         >
           <Icon name="chart" /> Analytics
         </Link>
@@ -112,7 +118,11 @@ export function Sidebar({
       <div className="nav-divider" />
 
       <div className="nav-section">
-        <Link href="/settings" className={`nav-item ${activeNav === 'settings' ? 'active' : ''}`}>
+        <Link
+          href="/settings"
+          className={`nav-item ${activeNav === 'settings' ? 'active' : ''}`}
+          aria-current={activeNav === 'settings' ? 'page' : undefined}
+        >
           <Icon name="cog" /> Settings
         </Link>
       </div>
@@ -128,7 +138,7 @@ export function Sidebar({
       </div>
 
       {signOutError && (
-        <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>Sign out failed</p>
+        <p style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>Sign out failed</p>
       )}
       <button
         type="button"

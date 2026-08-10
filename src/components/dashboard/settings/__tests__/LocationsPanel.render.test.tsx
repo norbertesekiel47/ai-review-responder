@@ -136,7 +136,7 @@ describe('LocationsPanel connection action', () => {
       />,
     );
 
-    await user.click(screen.getByTitle('Edit display label'));
+    await user.click(screen.getByRole('button', { name: 'Edit display label for Testing Business' }));
 
     await waitFor(() => {
       expect(screen.getByRole('textbox', { name: /location display name/i })).toHaveFocus();

@@ -21,6 +21,7 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD } from '@/components/dashboard/charts/velocity-math';
 
 export interface VelocityDatum {
+  id: string;
   label: string;
   count: number;
 }
@@ -59,10 +60,24 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
 
   const hover = useNearestDatum(data.map((_, i) => centerX(i)));
   const hoveredDatum = hover.index != null ? data[hover.index] : undefined;
-  const yTicks = [0, Math.round(max / 2), max];
+  const yTicks = Array.from(new Set([0, Math.round(max / 2), max]));
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
+      <table className="sr-only">
+        <caption>Review velocity history</caption>
+        <thead>
+          <tr><th scope="col">Week</th><th scope="col">Reviews</th></tr>
+        </thead>
+        <tbody>
+          {data.map((datum, index) => (
+            <tr key={datum.id}>
+              <th scope="row">{datum.label || `Week ${index + 1}`}</th>
+              <td>{datum.count} reviews</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <LazyMotion features={domAnimation} strict>
         <svg
           viewBox={`0 0 ${width} ${H}`}
@@ -70,6 +85,8 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           style={{ height: H, display: 'block', overflow: 'visible' }}
           onPointerMove={hover.onPointerMove}
           onPointerLeave={hover.onPointerLeave}
+          aria-hidden="true"
+          focusable="false"
         >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -82,8 +99,8 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             </linearGradient>
           </defs>
 
-          {yTicks.map((t, i) => (
-            <g key={i}>
+          {yTicks.map((t) => (
+            <g key={t}>
               <line x1={PAD.l} x2={width - PAD.r} y1={yScale(t)} y2={yScale(t)} style={{ stroke: CHART_GRID_STROKE }} strokeWidth="1" />
               <text x={PAD.l - 8} y={yScale(t) + 3} textAnchor="end" fontSize="10" style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}>
                 {t}
@@ -118,7 +135,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             const yPos = PAD.t + innerH - h;
             const isHover = hover.index === i;
             return (
-              <g key={i}>
+              <g key={d.id}>
                 <m.rect
                   x={xPos}
                   width={barW}
@@ -172,7 +189,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           />
           {data.map((d, i) => (
             <circle
-              key={i}
+              key={d.id}
               cx={centerX(i)}
               cy={yScale(d.count)}
               r={hover.index === i ? 5 : 3}
