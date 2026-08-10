@@ -173,8 +173,13 @@ function ttrSelectExpr(sql: Sql) {
 
 /** Trailing time-to-respond filters after the tenant-scope predicate. */
 function ttrHandledWindowFilter(sql: Sql, handled: string[], windowDays: number) {
+  // approved_at >= r.detected_at: a pre-existing Google reply imported by
+  // reconcileExternallyAnsweredReview carries its ORIGINAL timestamp, which
+  // can predate detection — a negative duration is never our response
+  // latency (#688; 16 rows at up to −2.9y measured on staging).
   return sql`${handledStatusFilter(sql, handled)}
         AND resp.approved_at IS NOT NULL
+        AND resp.approved_at >= r.detected_at
         AND resp.approved_at >= NOW() - make_interval(days => ${windowDays})`;
 }
 

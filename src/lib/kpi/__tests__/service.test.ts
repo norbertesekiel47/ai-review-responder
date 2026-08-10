@@ -189,6 +189,7 @@ describe('review-time anchor (#688)', () => {
     expect(harness.sqlCalls[1]!.text).toContain('LEAST(review_date, detected_at)');
     expect(harness.sqlCalls[2]!.text).toContain('LEAST(review_date, detected_at)');
     expect(harness.sqlCalls[4]!.text).toContain('LEAST(review_date, detected_at)');
+    expect(harness.sqlCalls[3]!.text).toContain('approved_at >= r.detected_at');
     expect(harness.sqlCalls[0]!.text).not.toContain('LEAST(');
     expect(harness.sqlCalls[0]!.text).toContain('detected_at >=');
   });
@@ -199,6 +200,7 @@ describe('review-time anchor (#688)', () => {
     expect(harness.sqlCalls[1]!.text).toContain('LEAST(r.review_date, r.detected_at)');
     expect(harness.sqlCalls[2]!.text).toContain('LEAST(r.review_date, r.detected_at)');
     expect(harness.sqlCalls[4]!.text).toContain('LEAST(r.review_date, r.detected_at)');
+    expect(harness.sqlCalls[3]!.text).toContain('approved_at >= r.detected_at');
     expect(harness.sqlCalls[0]!.text).not.toContain('LEAST(');
     expect(harness.sqlCalls[0]!.text).toContain('detected_at >=');
   });
@@ -221,8 +223,10 @@ describe('review-time anchor (#688)', () => {
 //
 // Re-derived for #688 (review-time anchor): the star/volume/trend pins in
 // both scopes now carry LEAST(review_date, detected_at) via the
-// reviewTimeAnchor/reviewTimeWindowFilter fragments; rate and ttr pins are
-// unchanged (detected_at is deliberate there — workflow KPIs).
+// reviewTimeAnchor/reviewTimeWindowFilter fragments, and the ttr pins carry
+// the `approved_at >= r.detected_at` validity filter (Task 3 — a
+// pre-existing imported reply must never contribute a negative duration);
+// rate pins are unchanged (detected_at is deliberate there — workflow KPI).
 // ---------------------------------------------------------------------------
 
 describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS)', () => {
@@ -270,6 +274,7 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         AND r.status <> ?
         AND resp.status = ANY(?::text[])
         AND resp.approved_at IS NOT NULL
+        AND resp.approved_at >= r.detected_at
         AND resp.approved_at >= NOW() - make_interval(days => ?)
     `;
   const TREND_LOCATION = `
@@ -344,6 +349,7 @@ describe('characterization: composed SQL is byte-identical (modulo REVIEW_STATUS
         AND r.status <> ?
         AND resp.status = ANY(?::text[])
         AND resp.approved_at IS NOT NULL
+        AND resp.approved_at >= r.detected_at
         AND resp.approved_at >= NOW() - make_interval(days => ?)
     `;
   const TREND_ACCOUNT = `
