@@ -19,6 +19,7 @@ import {
   type DashboardWindow,
   dashboardWindowParams,
 } from '@/lib/kpi/types';
+import { reviewTimeAnchor, reviewTimeWindowFilter } from '@/lib/kpi/fragments';
 import {
   buildValueSummary,
   buildRanking,
@@ -49,8 +50,10 @@ const RECENT_REVIEW_SLICE_CAP = 10;
  */
 export interface PerLocationAggregateSlice {
   valueSummary: ValueSummary;
+  /** Weekly counts bucketed on the Review-time anchor (ADR 0019, #757). */
   reviewVelocity: DashboardDataActive['reviewVelocity'];
   ranking: DashboardDataActive['ranking'];
+  /** 1–5★ distribution over the Review-time-anchored window (ADR 0019, #757). */
   ratingBreakdown: RatingBreakdown;
   latestBrief: DashboardDataActive['latestBrief'];
   /** LEAST(all-time non-deleted review count, 10) — the size of the capped feed slice. */
@@ -187,36 +190,40 @@ export async function fetchPerLocationAggregateSlices(
     //     businesses × generate_series. `reviews` is joined in the MAIN query
     //     (correlated to the account-scoped businesses row) and bucketed by
     //     week directly, so its tenant scope is statically provable; a review
-    //     matches exactly one gs week, so a plain COUNT is exact.
+    //     matches exactly one gs week, so a plain COUNT is exact. Buckets on the
+    //     Review-time anchor (ADR 0019, #757), which MUST stay inside the LEFT
+    //     JOIN ... ON clause — moved into WHERE the outer join degenerates to an
+    //     inner one and a location with no reviews loses its zero-filled series.
     () => sql<VelocityRow[]>`
-      SELECT b.id AS business_id, gs::date AS week_start, COUNT(rv.id)::int AS count
+      SELECT b.id AS business_id, gs::date AS week_start, COUNT(r.id)::int AS count
       FROM businesses b
       CROSS JOIN generate_series(
         DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})),
         DATE_TRUNC('week', NOW()),
         INTERVAL '1 week'
       ) gs
-      LEFT JOIN reviews rv
-        ON rv.business_id = b.id
-        AND rv.status <> ${REVIEW_STATUS.DELETED}
-        AND rv.detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
-        AND DATE_TRUNC('week', rv.detected_at)::date = gs::date
+      LEFT JOIN reviews r
+        ON r.business_id = b.id
+        AND r.status <> ${REVIEW_STATUS.DELETED}
+        AND ${reviewTimeAnchor(sql, 'r.')} >= NOW() - make_interval(weeks => ${trendWeeks})
+        AND DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')})::date = gs::date
       WHERE b.account_id = ${accountId}::uuid
         AND b.archived_at IS NULL
       GROUP BY b.id, gs::date
       ORDER BY b.id, week_start ASC
     `,
-    // (3) Rating breakdown — windowed GROUP BY b.id, star_rating.
+    // (3) Rating breakdown — GROUP BY b.id, star_rating over the Review-time
+    //     anchored window (ADR 0019, #757).
     () => sql<RatingRow[]>`
-      SELECT b.id AS business_id, rev.star_rating AS stars, COUNT(*)::int AS count
+      SELECT b.id AS business_id, r.star_rating AS stars, COUNT(*)::int AS count
       FROM businesses b
-      JOIN reviews rev ON rev.business_id = b.id
+      JOIN reviews r ON r.business_id = b.id
       WHERE b.account_id = ${accountId}::uuid
         AND b.archived_at IS NULL
-        AND rev.status <> ${REVIEW_STATUS.DELETED}
-        AND rev.star_rating IS NOT NULL
-        AND rev.detected_at >= NOW() - make_interval(days => ${windowDays})
-      GROUP BY b.id, rev.star_rating
+        AND r.status <> ${REVIEW_STATUS.DELETED}
+        AND r.star_rating IS NOT NULL
+        AND ${reviewTimeWindowFilter(sql, 'r.', windowDays)}
+      GROUP BY b.id, r.star_rating
     `,
     // (4) Ranking — last 12 months, ordered so buildRanking's per-keyword
     //     snapshot arrays come out chronological.

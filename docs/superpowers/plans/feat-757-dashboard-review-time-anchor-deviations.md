@@ -103,3 +103,47 @@ dispatcher must give each parallel task its own worktree. `git add -A` is only s
 that owns the tree.
 
 **Verdict:** ACCEPT — narrower staging, same content, no plan surface changed.
+
+---
+
+## D6 — `pnpm ci:tenant-scope` is repo-wide, so T4 cannot use it as task-scoped verification
+
+**When:** Task 4 step 6 (verify), by the T4 implementer.
+
+**What the plan assumed:** T4 Step 6 prescribes `pnpm ci:tenant-scope` as one of T4's own
+verification commands, with the rationale "the alias rename is the one edit that could disturb it —
+prove it, don't assume it". That framing treats the audit as if it reported on T4's change.
+
+**What actually happened:** the audit is repo-wide (`SCANNED_ROOTS = ['src', 'worker']`, no path
+filter, no CLI argument). Run from the shared worktree it reported **four findings, all in
+`src/lib/dashboard/service.ts`** — T3's surface, not T4's:
+
+```
+src/lib/dashboard/service.ts: reviews: unused tenant scope allowlist entry  (×2)
+src/lib/dashboard/service.ts: reviews: missing account_id or business_id scope  (×2)
+```
+
+A naive reading of that red run would have sent T4 to edit `service.ts`, the one file its own task
+statement forbids it to touch.
+
+**What was done instead:** the T4 implementer isolated the signal rather than trusting or ignoring
+the repo-wide verdict — `git archive <ref> src worker` into a scratchpad tree, overlay only
+`aggregate-queries.ts`, run the audit script from that cwd:
+
+- pre-T3 `HEAD` (`e9bf0389`) + T4's change only → **passed**, 408/408. The `rv`/`rev` → `r` rename
+  is structurally invisible to `tableAliases`, exactly as the plan predicted.
+- post-T3 `HEAD` (`ad3e4711`) with **no** T4 change → **the same four findings**. They are
+  pre-existing relative to T4.
+
+T4's delta therefore adds zero tenant-scope findings, and T4 left `service.ts` alone. The four
+findings are reported upward as belonging to T3's landed commit; T3's Step 8 verification list is
+vitest-only, which is why they were not caught there.
+
+**Lesson for future plans:** a repo-wide CI audit prescribed as one task's verification is a
+**gate-level** check, not a task-level one — in a shared worktree it reports on siblings' landed
+work too. Either state the isolation procedure in the step (archive the base ref, overlay the
+task's declared **Files:**, run from that cwd), or move the audit to the verify gate where the whole
+tree is the subject. Never let a task "fix" a repo-wide finding that lands outside its surface.
+
+**Verdict:** ACCEPT — no plan surface changed; the step's intent (prove the rename is invisible)
+was met by isolating the run rather than by reading the repo-wide exit code.
