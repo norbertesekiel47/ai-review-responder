@@ -2,8 +2,14 @@
 //
 // Characterization tests for getAdminOverview — written FIRST (TDD) against
 // the extraction target: src/app/api/admin/overview/route.ts's GET body
-// (7 parallel queries + conditional churn-metrics CTE + churn-score/sort/
+// (7 queries + conditional churn-metrics CTE + churn-score/sort/
 // pagination + email-health redState derivation).
+//
+// Those 7 queries were originally a Promise.all and now run SEQUENTIALLY (#505 —
+// the fan-out exceeded the Vercel pool and wedged connections permanently). The
+// shape is guarded by pool-fanout-sequential.test.ts; this suite is unaffected
+// because sequential await order and Promise.all array order are identical, so
+// the mock's FIFO queue is consumed in exactly the same order as before.
 //
 // getAdminOverview is born-injected (sql is a parameter, A+ campaign PR 2b),
 // so the fragment-aware createMockSql harness (shared with worker suites)
@@ -14,9 +20,8 @@
 // tiebreaker assertions exercise the actual production comparator, not a
 // stand-in.
 //
-// Query order (matches the route's Promise.all literally, since the mock's
-// lazy-thenable queue is consumed in Promise.all's array order — verified
-// against real Promise.all semantics, not an assumption):
+// Query order (matches the service's sequential dispatch order, which the
+// mock's lazy-thenable FIFO queue is consumed in):
 //   0: pendingOutboxRows   1: failedJobsRows   2: todayCostRows
 //   3: notifFailureRows    4: emailHealthRows  5: businessRows
 //   6: businessCountRows   7: metricsRows (ONLY when businessRows non-empty)

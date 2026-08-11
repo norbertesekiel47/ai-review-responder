@@ -11,10 +11,14 @@ export const dynamic = 'force-dynamic';
 export default async function AdminOverviewPage() {
   await requireAdminPage(sql, { from: '/admin/overview' });
 
-  const [overview, navCounts] = await Promise.all([
-    getAdminOverview(sql, { limit: PAGE_SIZE, offset: 0 }),
-    getAdminNavCounts(sql),
-  ]);
+  // SEQUENTIAL — do NOT re-introduce a Promise.all here (#505). Both callees
+  // share the SAME `sql` client (pool = DB_POOL_MAX = 3 on Vercel), and
+  // getAdminNavCounts is itself a 2-query fan-out. Running them concurrently
+  // puts 3 queries in flight against a 3-connection pool with zero headroom —
+  // any future growth in either callee silently crosses the pipelining
+  // threshold and reintroduces the permanent Connection wedge.
+  const overview = await getAdminOverview(sql, { limit: PAGE_SIZE, offset: 0 });
+  const navCounts = await getAdminNavCounts(sql);
 
   return (
     <AdminPage

@@ -64,6 +64,61 @@ blanket fix.
    simpler and cheap enough for the call site's latency budget — dashboard
    reads in particular may prefer the `max` bump to keep parallel latency.
 
+## 2026-08-10 — FIRST CONFIRMED INSTANCES (admin surface), and a falsified caveat
+
+The admin surface stopped being hypothetical. On staging the whole admin portal
+went unusable: every admin **page** returned 200 headers and then never finished
+streaming its body (so the browser sat on `loading.tsx` forever), while admin
+**API routes** stayed healthy. `pg_stat_activity` showed the wedge signature
+live — `state=active, wait_event=ClientRead` backends held for **>3 minutes**,
+accumulating one per render, including `overview-service`'s businesses query and
+`cost-report-service`'s byDay query. Note for future diagnosis: the page-gate
+query `SELECT id, role FROM users WHERE auth_id = $1` was itself among the
+wedged backends, which made the failure look like an auth problem at first.
+
+**Caveat 2 below is CORRECTED — its mechanism is half-right, its conclusion is
+wrong.** It guessed that a Vercel-side wedge "may be masked by function teardown
+recycling the connection before anyone notices" and therefore deprioritized the
+Vercel sites. Teardown *does* eventually reclaim these backends — a follow-up
+check ~40 minutes later showed **zero** wedged connections with no intervention,
+presumably once the isolates were torn down and their sockets sent FIN, giving
+the ClientRead an EOF. But "eventually" is minutes, and the pool is 3. Wedges
+accumulate one per render far faster than teardown returns them, so the surface
+is fully down long before the self-heal arrives, and it re-wedges the moment
+anyone loads the page again. Teardown is a slow janitor, not a safety net —
+treat Vercel fan-out sites as first-class, not lower-urgency. The practical
+consequence for triage: **the evidence is transient**, so capture
+`pg_stat_activity` while the surface is actually broken; come back an hour later
+and it looks clean.
+
+Fixed in this pass (confirmed by the live staging observation above, converted to
+the sequential idiom, and guarded by
+`src/lib/admin/__tests__/pool-fanout-sequential.test.ts`, which asserts peak
+in-flight concurrency === 1 and carries a guards-the-guard case):
+
+- `src/lib/admin/overview-service.ts` — 7-query fan-out → sequential
+- `src/lib/admin/business-detail/queries.ts` — both batches (7 and 6) → sequential
+- `src/lib/admin/cost-report-service.ts` — 5-query fan-out → sequential
+- `src/app/admin/overview/page.tsx`, `src/app/admin/costs/page.tsx`,
+  `src/app/api/admin/costs/route.ts` — composition-level `Promise.all` → sequential
+
+Left concurrent, deliberately, at fan-out **3 = pool 3** (one connection per
+query, the proven non-wedge shape) and now annotated with their count + the limit
+per item 4 below: `src/lib/admin/margin-service.ts`,
+`src/lib/admin/jobs-service.ts`.
+
+**STILL OPEN — owner dashboard, higher blast radius than the admin surface.**
+`src/app/api/dashboard/route.ts` imports the singleton `sql` (pool 3) and reaches
+`fetchReputationRows` (`src/lib/dashboard/service.ts`), a **5-member**
+`Promise.all` — the same fan-out > pool shape, on the product's main screen and
+in production, not just staging. Deliberately NOT fixed here: the two cures carry
+a real trade-off that needs a decision, since sequential costs latency on the
+primary owner view while routing it onto `sqlRead` (`max:8`) preserves
+parallelism but spends the ADR 0009 isolate budget and per that ADR requires
+re-running the burst drill. Also note the line references in the candidate list
+below have drifted — that file was refactored since 2026-07-18 and now holds one
+`Promise.all`, not the ~14-query one originally catalogued.
+
 ## Candidate sites (from the grep sweep, 2026-07-18)
 
 ### Vercel dashboard/KPI/admin — shared `sql` client, Vercel sets `DB_POOL_MAX=3` per serverless instance (`src/lib/db/server.ts`)
