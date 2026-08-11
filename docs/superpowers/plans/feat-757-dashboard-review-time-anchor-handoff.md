@@ -46,7 +46,26 @@ step 7, staging ride + smoke before the PR to `main`, and an explicit merge paus
 - Amendments used: **1 of 2** (`scripts/ci/tenant-scope-allowlist.ts`, D1). A second amendment
   triggers abort criteria — stop and write a post-mortem instead of pushing through.
 
-## STATUS 2026-08-11 — steps 1–7 COMPLETE, awaiting the step 8 staging ride
+## STATUS 2026-08-11 (later) — step 8 staging ride DONE, PR open, awaiting owner merge approval
+
+Rebased onto `origin/main` (`c8bbb39e`, 4 commits, **zero file overlap** → clean replay of 19
+commits). Gate re-run at the new HEAD: **GREEN, 26/26** in `--review` mode. Phase `reviewed`,
+`lastGreenGateSha` == HEAD.
+
+Staging: `git push origin HEAD:staging` fast-forwarded `d43be236..4e614b6e` (staging was 0 ahead /
+9 behind main — no divergence, no force-push). Vercel `dpl_DbZqoP8BvEH7P2EDAn6o9c9RSgnb` READY,
+aliased to `staging.repworth.net`. **Task 7 smoke PASS, 5/5** — evidence in
+`docs/runbooks/evidence/2026-08-11-757-anchor-staging-smoke.md`; fixture cleaned, 0 residual rows.
+
+Three things a resumed session should know:
+- **Assertion 5 was unfalsifiable as the plan wrote it** and was strengthened mid-run (D11). The
+  smoke now proves response rate is still `detected_at`-keyed (20%, not 0%).
+- **#791 filed** — All-Locations combined velocity sorts alphabetically by month name. Pre-existing
+  (PR #28, 2026-05-10), out of surface, amendments 2/2 → ticketed, not fixed.
+- The two `document-feature` sweep items (S3 `docs/currents.md`, ST3
+  `docs/analytics/posthog-dashboards.md`) remain **post-merge**, per their triage verdicts.
+
+## STATUS 2026-08-11 (earlier) — steps 1–7 COMPLETE, awaiting the step 8 staging ride
 
 Phase `reviewed`, gate **GREEN** in `--review` mode at `894bb143` (26 rows incl. `diff-coverage`).
 Branch: T1–T6 + T4.5 all landed, 13/13 live-DB tests pass against real Postgres.

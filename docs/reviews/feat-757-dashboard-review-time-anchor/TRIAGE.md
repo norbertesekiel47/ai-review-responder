@@ -40,10 +40,27 @@ ticketed rather than latent.
 
 ## Step 8 checklist (carried from this triage)
 
-- [ ] `docs/currents.md` — anchor owner + the stale "#757 GA-blocking" line (S3; `document-feature` sweep covers it)
-- [ ] `docs/analytics/posthog-dashboards.md:10-11` — deleted `kpi/*` and route references (ST3; **NOT** in the default sweep set — do it explicitly)
+- [ ] `docs/currents.md` — anchor owner + the stale "#757 GA-blocking" line (S3; `document-feature` sweep covers it) — **post-merge**
+- [ ] `docs/analytics/posthog-dashboards.md:10-11` — deleted `kpi/*` and route references (ST3; **NOT** in the default sweep set — do it explicitly) — **post-merge**
 - [x] File follow-up: Spec 11 KPI clause supersession + the deferred metric contract (A1) → **#789**
 - [x] File follow-up: reopen ADR 0019 Decision 2 — mixed-clock legibility on one dashboard period (A2) → **#790**
+- [x] Staging ride + Task 7 smoke → `docs/runbooks/evidence/2026-08-11-757-anchor-staging-smoke.md` (**PASS**, 5/5 assertions)
+
+## Step 8 addendum — what the staging smoke added
+
+- **Assertion 5 was unfalsifiable as planned and was strengthened.** `responseRate.current` on a
+  location with no responses is 0% under both the correct `detected_at` anchor and a wrongly
+  re-anchored one. Re-run with one `posted` response on the 45-day review, the hypotheses split
+  20% vs 0%; observed **20%**. Response rate is confirmed still on `detected_at`. Recorded as D11.
+- **A2 / #790 now has a live demonstration.** The same payload shows a 20% response rate beside a
+  `ratingBreakdown.total` of 4 that excludes the very review that 20% counts. The mixed clock is
+  real and owner-visible. ADR 0019 Decision 2 stands until #790 concludes; nothing changed here.
+- **New defect found, pre-existing and unrelated → #791.** The All-Locations *combined*
+  `reviewVelocity` sorts alphabetically by month name (`Aug` < `Jul` < `Jun`), because
+  `weekStart` is a `String(Date)` and `aggregate-service.ts:277` compares it with `localeCompare`.
+  Per-location series and all counts are correct. `aggregate-service.ts` is not in this branch's
+  diff; the line dates to PR #28 (2026-05-10). Out of surface and the amendment budget is 2 of 2,
+  so it is ticketed, not fixed here.
 
 **A1 partially resolved on this branch.** The durable half — Spec 11's supersession plus the two
 deleted metrics' full behavioral contract (calendar-month bucketing, null-on-empty-sample, rounding,

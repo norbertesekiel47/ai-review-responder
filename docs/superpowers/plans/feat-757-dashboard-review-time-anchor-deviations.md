@@ -329,3 +329,44 @@ that query's text, not just the ones using the shared harness.
 
 **Verdict:** ACCEPT — owner-approved, one assertion, no production change, and the invariant it
 guards is now better covered than before.
+
+---
+
+## D11 — Task 7's `curl` recipe cannot reach staging, and its assertion 5 was non-discriminating
+
+**When:** step 8, the staging smoke (Task 7).
+
+Three things the plan did not anticipate. **None is a surface amendment** — Task 7 writes only
+`docs/runbooks/evidence/**`, and `feature-surface-audit.ts:49` blanket-allows `^docs/`
+(`ALWAYS_ALLOWED`), so the budget stays at 2 of 2.
+
+**1. `curl -b "$STAGING_COOKIE"` cannot reach the route.** `staging.repworth.net` sits behind
+Vercel SSO deployment protection: an unauthenticated request is 307'd to `vercel.com/sso-api`
+before it ever reaches Next.js. The plan's Step 2 recipe therefore captures a login redirect, not
+a payload — and a careless run would diff two SSO pages and call it a pass. Resolved by fetching
+same-origin from an authenticated browser tab (`fetch(url, {credentials:'include'})`), which
+exercises the identical route, auth path and 45s cache.
+
+**2. A bare `GET /api/dashboard` reads the wrong location.** It resolves to the user's default
+location, which on any real staging account already has reviews — so the plan's *absolute*
+assertions (`ratingBreakdown.total` = 4, five distinct non-zero weeks) would have needed
+baseline-delta arithmetic. `resolveDashboardScopePolicy` accepts a location id in `?scope=`
+(`src/app/api/dashboard/policy.ts`), so the smoke targeted a 0-review scratch location and kept
+every assertion absolute.
+
+**3. Assertion 5 could not fail.** As written it reads `responseRate.current` on a location with
+no responses — that is 0% under the `detected_at` anchor *and* under a wrongly re-anchored one.
+The assertion meant to protect an explicit `non_goals` entry was unfalsifiable. Fixed by seeding
+one `posted` response on the **45-day** review (inside the `detected_at` window, outside the
+30-day review-time window), which forces the hypotheses apart: `detected_at` → 1/5 = **20%**;
+review-time → 0/4 = 0%. Observed 20%.
+
+**Lesson for future plans:** a smoke-test assertion must be authored against the failure it is
+supposed to catch, not against the expected value. "Assert X is 0" over a fixture where X is 0
+under both the correct and the incorrect implementation is a green light wired to nothing — the
+same defect class as the #520 existing-but-not-run suite, one level up. When a plan names a
+metric as *deliberately unchanged*, the fixture must contain a row that would move it if the
+change leaked.
+
+**Verdict:** ACCEPT — no surface change, no amendment consumed; the smoke is strictly stronger
+than the plan specified.
