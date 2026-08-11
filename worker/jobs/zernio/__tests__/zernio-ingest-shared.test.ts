@@ -25,6 +25,8 @@ import {
 } from '@/lib/zernio/errors';
 import type { ZernioReview } from '@/lib/zernio/types';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
+import { buildZernioMonitoredReview } from '@/lib/reviews/zernio-normalize';
+import { computeContentHash } from '@/lib/reviews/types';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
@@ -384,8 +386,10 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(calls[1]!.sql).toContain('external_reply_ingested_at');
     expect(calls[1]!.sql).toContain('ON CONFLICT');
     expect(calls[1]!.sql).toContain('provider_review_name');
-    // The 'zernio' literal is hard-coded into the SQL fragment, not a binding.
-    expect(calls[1]!.sql).toContain("'zernio'");
+    // provider is BOUND, not a SQL literal (#762): it now comes from
+    // buildZernioMonitoredReview's identity, the same owner the live lane uses.
+    // Same value, different transport — assert the binding, not the fragment.
+    expect(calls[1]!.values).toContain('zernio');
     // INSERT into responses with status='posted', version=1 (no priors), all 3 text cols.
     expect(calls[2]!.sql).toContain('INSERT INTO responses');
     expect(calls[2]!.sql).toContain("'posted'");
@@ -870,5 +874,165 @@ describe('consented import seams (#675)', () => {
       expect(cutoff).toEqual(new Date(connectedAt.getTime() - 120_000));
       expect(liveIngestCutoff(null)).toBeNull();
     });
+  });
+});
+
+// ── #762: imported rows must hash like live-ingested rows ─────────────────
+//
+// `insertImportedReview` used to hand-roll `review_content_hash` as
+// `sha256(star|trimmed)` over UNSANITIZED text, while the live lane derives it
+// with `computeContentHash` over SANITIZED, null-when-empty text. The two
+// disagreed on every empty-text review ('5|' vs '5|null') and on any text
+// sanitizing would alter, so a later `review.updated` webhook for an imported
+// row took the content-changed lane — supersede + regenerate — with no actual
+// content change.
+//
+// These guards are red-checkable: restore the old `createHash('sha256')
+// .update(`${matchFields.star_rating}|${matchFields.review_text_trimmed}`)`
+// derivation and (b), (c) and (d) fail.
+describe('insertImportedReview — content hash parity with the live lane (#762)', () => {
+  const ORIGINAL_FLAG = process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_FLAG === undefined) {
+      delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
+    } else {
+      process.env.EXTERNAL_REPLY_IMPORT_ENABLED = ORIGINAL_FLAG;
+    }
+  });
+
+  const mkReview = (overrides: Partial<ZernioReview> = {}): ZernioReview => ({
+    id: 'rev-1',
+    name: 'accounts/A/locations/L/reviews/rev-1',
+    reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+    rating: 5,
+    starRating: 'FIVE',
+    comment: 'Great!',
+    createTime: '2026-04-01T00:00:00Z',
+    updateTime: '2026-04-01T00:00:00Z',
+    reviewReply: { comment: 'Thanks for the review!', updateTime: '2026-04-02T00:00:00Z' },
+    ...overrides,
+  });
+
+  /**
+   * Drive the previously-unseen import branch and return the bound values of
+   * the `INSERT INTO reviews` statement. Call order on this path is:
+   *   0 SELECT matched rows (empty) · 1 INSERT INTO reviews · 2 INSERT INTO
+   *   responses · 3 counter bump
+   */
+  const runImport = async (review: ZernioReview) => {
+    const sql = makeSqlMock();
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    let idx = 0;
+    const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      idx += 1;
+      const rows = idx === 2 ? [{ id: 'new-review-uuid' }] : [];
+      const arr = rows as unknown as typeof rows & { count: number };
+      arr.count = rows.length;
+      return Promise.resolve(arr);
+    });
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    await reconcileExternallyAnsweredReview(sql, review, 'B', 'A', 'L', mkLogger() as any);
+
+    const reviewInsert = calls.find((c) => c.sql.includes('INSERT INTO reviews'));
+    expect(reviewInsert, 'the import branch did not INSERT INTO reviews').toBeDefined();
+    return reviewInsert!.values;
+  };
+
+  it('(a) binds exactly the values the canonical builder produces, in order', async () => {
+    const review = mkReview();
+    const { review: normalized, identity, contentHash } = buildZernioMonitoredReview(review, 'A', 'L');
+    const values = await runImport(review);
+
+    // Full-array equality: any future hand-derivation or reordering of a bound
+    // column fails here rather than silently diverging from the live lane.
+    expect(values).toEqual([
+      'B',
+      identity.provider,
+      identity.providerReviewId,
+      identity.providerReviewName,
+      identity.providerLocationName,
+      identity.googleReviewName,
+      normalized.reviewerName,
+      normalized.starRating,
+      normalized.reviewText,
+      normalized.reviewDate,
+      normalized.detectedLanguage,
+      contentHash,
+      // sentiment score / label / source — classified from the same star rating
+      // the canonical builder carries, asserted by (e).
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    ]);
+  });
+
+  it('(b) empty review text hashes as "5|null", NOT "5|", and stores NULL not \'\'', async () => {
+    const values = await runImport(mkReview({ comment: '' }));
+
+    // The canonical derivation: reviewText is null when empty, so the hash
+    // input is the literal '5|null'.
+    expect(values).toContain(computeContentHash({
+      reviewerName: 'Jane', starRating: 5, reviewText: null,
+      reviewDate: '2026-04-01T00:00:00Z', detectedLanguage: 'en',
+    }));
+    // The exact hash the OLD hand-rolled derivation produced for this input.
+    // sha256('5|') — must not appear.
+    expect(values).not.toContain('8192439466fef48bff93090c08ec982deceb201a68277d98cc7ff7031e81b783');
+    // Value-level guard so a change of hash algorithm cannot hide the bug:
+    // review_text itself is NULL, matching the live lane's null-when-empty.
+    expect(values).toContain(null);
+    expect(values).not.toContain('');
+  });
+
+  it('(c) hashes over SANITIZED text — a stripped zero-width char changes the hash', async () => {
+    // Mid-string BOM: survives String.trim() (which the old derivation used)
+    // but is stripped by sanitizeMultilineText (which the live lane uses).
+    const dirty = 'Great﻿ service';
+    const values = await runImport(mkReview({ comment: dirty }));
+
+    const { contentHash, review: normalized } = buildZernioMonitoredReview(
+      mkReview({ comment: dirty }), 'A', 'L',
+    );
+    expect(normalized.reviewText).toBe('Great service');
+    expect(values).toContain(contentHash);
+    // The old derivation hashed the raw trimmed text, BOM included.
+    expect(contentHash).not.toBe(computeContentHash({
+      reviewerName: 'Jane', starRating: 5, reviewText: dirty,
+      reviewDate: '2026-04-01T00:00:00Z', detectedLanguage: 'en',
+    }));
+    // …and the sanitized text, not the raw one, is what gets stored.
+    expect(values).toContain('Great service');
+    expect(values).not.toContain(dirty);
+  });
+
+  it('(d) detected_language is derived, not hardcoded NULL', async () => {
+    const values = await runImport(mkReview());
+    const { review: normalized } = buildZernioMonitoredReview(mkReview(), 'A', 'L');
+
+    expect(normalized.detectedLanguage).toBe('en');
+    expect(values).toContain('en');
+  });
+
+  it('(e) an imported row and a live-ingested row of identical content hash identically', async () => {
+    // The ticket's acceptance criterion, stated directly: the value the import
+    // path binds must be byte-identical to the value the live ingest path
+    // derives for the same Zernio payload. Both go through the ONE owner,
+    // computeContentHash.
+    for (const comment of ['Great!', '', '   ', 'Great﻿ service', 'Bad service, would not return']) {
+      const review = mkReview({ comment });
+      const liveHash = buildZernioMonitoredReview(review, 'A', 'L').contentHash;
+      const importedValues = await runImport(review);
+
+      expect(importedValues, `content hash diverged for comment=${JSON.stringify(comment)}`)
+        .toContain(liveHash);
+    }
   });
 });
