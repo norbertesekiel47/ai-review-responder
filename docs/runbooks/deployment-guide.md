@@ -521,6 +521,17 @@ Paste the entire block. Adjust values to match what you provisioned in §1.
 > worker without those two values. That is the gates working, not a new defect —
 > but it means a prod deploy attempted with today's variable set fails at boot.
 >
+> **Update 2026-08-10 — the boot-gate set is wider than the callout above.**
+> `assertWorkerStartupEnv` (`worker/config/startup-assert.ts`) also
+> hard-requires, outside mock mode: the full Stripe env
+> (`assertStripeWorkerEnv` — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+> every `STRIPE_PRICE_*`) and both tier cost limits
+> (`assertTierDailyCostLimitsConfigured` — `DAILY_COST_LIMIT_CENTS_COPILOT`/
+> `_AUTOPILOT`). Consequence: the FIRST production worker deploy is only
+> possible inside the WS8 cutover sequence, after live Prices + the webhook
+> secret exist — ordering owned by
+> `docs/runbooks/beta-production-standup.md` Phase D.
+>
 > `RAILWAY_ENVIRONMENT_NAME` itself needs no action: Railway injects it.
 >
 > **Two of the four cannot simply be "set" — the thing they point at does not
