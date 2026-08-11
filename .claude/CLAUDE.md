@@ -83,6 +83,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 - Every outbound provider call (Stripe, Resend, Twilio, Zernio, SerpAPI, OpenAI, Anthropic) gets an explicit timeout + bounded, jittered retries. Every BullMQ handler is idempotent — the key is the deterministic outbox key, not the BullMQ job ID. Webhook handlers verify the signature FIRST and persist raw payload + provider event ID for replay.
 - No `any` (JSONB carve-out excepted — use `unknown` and narrow). No silent catches. No string literals for subscription status, tier IDs, job names, or review status — import the constant from its single authoritative TS file.
 - No new top-level directories, no near-duplicate dependencies, no abstractions for a single caller, no npm/yarn lockfiles. Default is "no new file" — check `docs/directory.md` first.
+- **Next.js 16 moved things** — APIs, conventions, and file structure differ from most training data. Before writing or debugging Next-specific code (routing, caching, `next.config`, server/client boundaries), read the matching guide under `node_modules/next/dist/docs/`; it is version-matched to the installed `next` and mirrors the structure of nextjs.org/docs. Next's own auto-generated `AGENTS.md` block is deliberately off (`agentRules: false`, #798) — this bullet is that guidance's single owner.
 - When deleting a doc or ticking a checklist item, fix its audit tick and grep the filename to clean every cross-reference in the same change.
 
 ## Where things live

@@ -36,13 +36,14 @@ Code.
   `.codex/HOOKS.md`. `pnpm ci:agent-config` validates the hooks, skill
   metadata, reference paths, and repository discoverability in local gates
   and CI.
-
-<!-- BEGIN:nextjs-agent-rules -->
-
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+- This file is hand-owned end to end. Next.js would otherwise upsert a managed
+  `nextjs-agent-rules` block here on every `next dev` that detects a coding
+  agent (its `<!-- BEGIN:… -->` marker is deliberately never written out
+  anywhere in this file — Next matches it with a substring test, and a start
+  marker without its end marker makes it append a second block rather than
+  replace the first); that is off via `agentRules: false` in
+  `next.config.mjs` (decided in #798). Its one useful instruction — read the
+  version-matched Next docs bundled at `node_modules/next/dist/docs/` before
+  writing Next code — now lives in `.claude/CLAUDE.md` → Working rules, which
+  this file already tells you to read first. Do not re-add the block; if it
+  reappears, the flag was dropped.
