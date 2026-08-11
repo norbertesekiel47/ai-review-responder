@@ -163,6 +163,22 @@ nothing, import unbounded above.
   0 since #675. There are exactly three counter columns now; naming a legacy one
   raises 42703. `skipped_count` counts cap overflow + PHI/malformed only —
   out-of-window reviews are unselected, not "skipped".
+- **`imported_count` ≠ rows stored, and `imported + skipped` ≠ selected.** Read
+  the counters as *run disposition*, never as a row count — three asymmetries in
+  `ZernioBackfillWorker`'s loop, all deliberate:
+  1. **PHI splits by answered-ness.** A PHI-hit *unanswered* review takes the
+     explicit `skippedCount += 1` branch. A PHI-hit *answered* one is invisible
+     to that branch: `reconcileExternallyAnsweredReview` screens PHI internally,
+     opens the `review_exceptions` row and returns without throwing, so the loop
+     counts it **`imported`** with **no `reviews` row written**. The exception
+     row IS the audit trail — reconcile against `review_exceptions`, not the
+     counter.
+  2. **A reconcile that throws counts as neither.** Per-review failures are
+     collected into `reconcileFailures` and the loop continues, so the two
+     counters do not sum to `selection.selected.length`.
+  3. **`'unchanged'` counts imported** (row already existed, or a concurrent
+     writer won) — correct, since the review IS in the owner's list either way,
+     but it means `imported_count` overstates rows this run created.
 - **Pagination**: `ZERNIO_IMPORT_MAX_PAGES` (default 6) caps `listReviews`
   paging (pageSize 50, page-boundary dedup by review id). Early stops
   (target met / floor passed) are trusted only while ordering is clean; a

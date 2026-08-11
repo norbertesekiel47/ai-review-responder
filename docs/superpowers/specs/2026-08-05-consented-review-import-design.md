@@ -192,15 +192,31 @@ route; `/admin/jobs` is read-only — so no gate at the four PRODUCT enqueue pat
 can cover it. A database-level gate at the `job_outbox` insertion boundary
 could; that alternative was weighed at #695 and declined (ADR 0016). Among
 application-level loci, the one chokepoint every path shares (product enqueues,
-admin hand-inserts, future code) is `ZernioBackfillWorker` itself. A consent gate joins the
-existing pre-flight guards (`guardZernioJobEligibility`,
-`worker/jobs/zernio/job-eligibility.ts`): the run proceeds **only** on
-`import_decision = 'accepted'`; declined, derived-expired, and pending all
-no-op-complete the outbox row with a logged reason, leaving
-`zernio_backfill_runs.completed_at` untouched. Fail-closed rather than
-block-listed: under D9 an enqueue exists only after a Yes, so anything other
+admin hand-inserts, future code) is `ZernioBackfillWorker` itself. The consent
+gate lives there (`guardImportConsent`, `worker/jobs/zernio/job-eligibility.ts`):
+the run proceeds **only** on `import_decision = 'accepted'`; declined,
+derived-expired, and pending all no-op-complete the outbox row with a logged
+reason, leaving `zernio_backfill_runs.completed_at` untouched. Fail-closed rather
+than block-listed: under D9 an enqueue exists only after a Yes, so anything other
 than `accepted` reaching the worker is a hand-inserted row or a bug — and a
 `pending` row that ran would import without consent (D1).
+
+> **Placement, as shipped (owner decision 2026-08-07, #679).** This paragraph
+> originally said the gate "joins the existing pre-flight guards". It does not,
+> and must not: `guardImportConsent` runs as the FIRST thing the worker does
+> after resolving its outbox handle, **before** the `zernio_backfill_runs`
+> INSERT that claims the run. Running it alongside `guardZernioJobEligibility`
+> would mint a claimed run row for an import that must never happen, which an
+> operator would later read as *"the import was attempted"* — a refusal has to
+> leave no durable trace at all. The two are also deliberately **separate
+> functions**, not one merged guard: a merged guard would have two callers, one
+> of which (`ZernioReviewIngestWorker`) must never reach consent code.
+> `guardImportConsent`'s whole body stays inside `sql.begin` with
+> `SELECT … FOR UPDATE` + `markOutboxCompletedWithReason` — without that
+> serialization an owner's accept races the guard into silent permanent data
+> loss. One carve-out stays ahead of the gate (plan T4): the `isSubscriptionTier`
+> throw, because an unparseable tier is an impossible state to assert on, no
+> Review import happens on either path, and only the outbox disposition differs.
 
 Accepted-but-never-completed stays retryable exactly as §5.1 requires: the
 gate passes on `accepted`, and the `completed_at IS NULL` sentinel keeps the
