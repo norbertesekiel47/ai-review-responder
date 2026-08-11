@@ -8,7 +8,6 @@
 //      replies as 'posted' responses so Past Replies can render them
 //      (spec §4.3, §6.3b).
 
-import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
@@ -27,7 +26,7 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
-import { normalizeGoogleReviewName } from '../../../src/lib/reviews/zernio-normalize';
+import { buildZernioMonitoredReview } from '../../../src/lib/reviews/zernio-normalize';
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
@@ -399,13 +398,33 @@ export async function reconcileExternallyAnsweredReview(
 
 /**
  * INSERT a `reviews` row for a Zernio review we have never seen locally.
- * Race-safe via `ON CONFLICT (provider, provider_review_name) DO UPDATE SET
- * id = reviews.id RETURNING id` — DO NOTHING + RETURNING leaves no row when
- * the conflicting INSERT loses the race because the snapshot can't see the
- * just-committed sibling. DO UPDATE always RETURNs whether the row was
- * inserted or pre-existing; besides opportunistically backfilling a NULL
- * `google_review_name`, the no-op `SET id = id` triggers no observable
- * change on the row content.
+ *
+ * Every persisted value comes from `buildZernioMonitoredReview` — the SAME
+ * builder the live ingest lane uses (`process-review.ts`) — so an imported row
+ * and a live-ingested row of identical content are byte-identical in
+ * `review_content_hash`, `review_text`, `reviewer_name` and `detected_language`
+ * (#762). Do NOT re-derive any of those here. The hash in particular has
+ * exactly one owner, `computeContentHash` (`src/lib/reviews/types.ts`); the
+ * hand-rolled `star|trimmed` form this function used to carry disagreed with it
+ * on every empty-text review (`'5|'` vs `'5|null'`) and on any text sanitizing
+ * would alter, so a later `review.updated` webhook for such a row took the
+ * content-changed lane — supersede + regenerate — with no content change.
+ *
+ * What stays import-specific, and must not be folded into the live lane's
+ * `insertNewReviewRow`:
+ *   - `external_reply_ingested_at` — set only here; the live lane has no such
+ *     column write.
+ *   - `ON CONFLICT … DO UPDATE SET id = reviews.id RETURNING id` — DO NOTHING +
+ *     RETURNING (what the live lane uses, because it only needs the insert
+ *     count) leaves no row when the conflicting INSERT loses the race, since
+ *     the snapshot can't see the just-committed sibling. DO UPDATE always
+ *     RETURNs whether the row was inserted or pre-existing; besides
+ *     opportunistically backfilling a NULL `google_review_name`, the no-op
+ *     `SET id = id` triggers no observable change on the row content.
+ *
+ * The PHI screen deliberately keeps reading `fromZernioReview`'s UNSANITIZED
+ * trimmed text: the caller screens the same value to build the exception row's
+ * `reasons`, and the two must not disagree about whether a review is PHI.
  */
 async function insertImportedReview(
   tx: TxClient,
@@ -420,12 +439,8 @@ async function insertImportedReview(
     return null;
   }
 
-  const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
-  const providerLocationName = `zernio://${accountId}/locations/${locationId}`;
-  const reviewContentHash = createHash('sha256')
-    .update(`${matchFields.star_rating}|${matchFields.review_text_trimmed}`)
-    .digest('hex');
-  const sentiment = classifySentiment(matchFields.star_rating);
+  const { review, identity, contentHash } = buildZernioMonitoredReview(target, accountId, locationId);
+  const sentiment = classifySentiment(review.starRating);
 
   const rows = await tx<{ id: string }[]>`
     INSERT INTO reviews (
@@ -436,13 +451,13 @@ async function insertImportedReview(
       sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
     )
     VALUES (
-      gen_random_uuid(), ${businessId}, 'zernio', ${target.id},
-      ${providerReviewName}, ${providerLocationName},
-      ${normalizeGoogleReviewName(target.name)},
-      ${matchFields.reviewer_name}, ${matchFields.star_rating},
-      ${matchFields.review_text_trimmed},
-      to_timestamp(${matchFields.created_at_ms} / 1000.0),
-      ${null as unknown as string}, ${reviewContentHash},
+      gen_random_uuid(), ${businessId}, ${identity.provider}, ${identity.providerReviewId},
+      ${identity.providerReviewName}, ${identity.providerLocationName},
+      ${identity.googleReviewName},
+      ${review.reviewerName}, ${review.starRating},
+      ${review.reviewText},
+      ${review.reviewDate},
+      ${review.detectedLanguage}, ${contentHash},
       NOW(), 'new', NOW(),
       ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
     )
