@@ -7,17 +7,29 @@ Postgres. Production dashboard creation is an external gate (see bottom).
 
 ## Customer KPIs (Postgres-computed, not PostHog)
 
-These render from `src/lib/kpi/*` (`DashboardKpiSummary`, served by
-`GET /api/dashboard/kpis`), scoped per-location or per-account — NOT from PostHog
-events:
+These render from the dashboard payload (`src/lib/dashboard/*`, served by
+`GET /api/dashboard`), scoped per-location or per-account — NOT from PostHog events.
 
-| KPI | Source | Window |
-|---|---|---|
-| Response rate | `reviews` + handled `responses` | last 30 days |
-| Average star rating | `reviews.star_rating` | last 30 days |
-| Review volume MoM | `reviews.detected_at` | current vs prior calendar month |
-| Average time-to-respond | `responses.approved_at − reviews.detected_at` | last 30 days |
-| Sentiment trend | `reviews.sentiment_score` | weekly, last 8 weeks |
+> **Updated by #757 (2026-08-11).** This section previously pointed at
+> `src/lib/kpi/*` (`DashboardKpiSummary`) and `GET /api/dashboard/kpis`. That stack had
+> **zero consumers** and was deleted; the dashboard payload is now the one KPI path.
+> Two of the five KPIs below went with it — see the deferred rows. Formally superseding
+> Spec 11's launch-KPI clause is tracked in **#789**; ADR 0019's addendum holds the
+> deleted metrics' full behavioral contract so they can be rebuilt faithfully.
+
+Reputation KPIs bucket on the **Review-time anchor** `LEAST(review_date, detected_at)`
+(ADR 0019) so a consented Review import lands in its true weeks. Workflow KPIs stay on
+`detected_at` — an import is account activity.
+
+| KPI | Source | Window | Clock |
+|---|---|---|---|
+| Response rate | `reviews` + handled `responses` | last 30 days | `detected_at` |
+| Average star rating | `reviews.star_rating` | last 30 days | Review-time anchor |
+| Rating breakdown | `reviews.star_rating` | last 30 days | Review-time anchor |
+| Review velocity | `reviews` | weekly, last 8 weeks | Review-time anchor |
+| Sentiment trend | `reviews.sentiment_score` | weekly, last 8 weeks | Review-time anchor |
+| ~~Review volume MoM~~ | — | — | **Deferred — deleted in #757, tracked by #789** |
+| ~~Average time-to-respond~~ | — | — | **Deferred — deleted in #757, tracked by #789** |
 
 ## PostHog dashboards (internal ops/product)
 

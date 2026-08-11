@@ -2,6 +2,17 @@
 
 > **Goal:** Five customer-facing KPIs on dashboard home, per-location + roll-up reporting, PostHog as the internal BI source through $500k ARR, single source-of-truth event taxonomy.
 
+> **⚠️ Superseded in part by #757 (2026-08-11, PR #793).** The status block below is a
+> dated 2026-05-27 snapshot and is no longer true of the codebase: `src/lib/kpi/*`
+> (`DashboardKpiSummary`) and `GET /api/dashboard/kpis` had **zero consumers** and were
+> **deleted**. The dashboard payload (`GET /api/dashboard`) is now the one KPI path, and
+> its reputation metrics bucket on the Review-time anchor (ADR 0019). **Three of the five
+> launch KPIs survive** (response rate, average star, sentiment trend) plus rating
+> breakdown and review velocity; **review volume MoM and average time-to-respond are
+> deferred** — their full behavioral contract is preserved in ADR 0019's addendum and
+> restoring them is tracked by **#789**, which also carries the formal supersession of
+> this capability's launch-KPI clause.
+
 > **🟢 Implementation status (Wave 3, 2026-05-27):** LAUNCH SLICE CODE-COMPLETE (backend). **Done (PR #100, merged to main, migration 052):** deterministic per-review sentiment (`reviews.sentiment_*`, star-based `classifySentiment`, one-time back-fill). **Done (PR #105, merged to main — resubmit of auto-closed #101):** the five launch KPIs as a dedicated `DashboardKpiSummary` (response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend) in `src/lib/kpi/*`, scoped per-location + per-account; served read-only by `GET /api/dashboard/kpis` (auth + IDOR + subscription read-entitlement + scope-UUID validation). PostHog dashboard definitions in `docs/analytics/posthog-dashboards.md`; the typed event taxonomy + CI drift audit shipped in PR #93. Verified 2026-05-27 (CI green, KPI route IDOR + subscription gate confirmed in `route.ts`). **Deferred:** the visible dashboard KPI **cards** (UI follow-up) and CSV/PDF export; production PostHog dashboards + Metabase/read-replica remain external/later.
 
 ---
