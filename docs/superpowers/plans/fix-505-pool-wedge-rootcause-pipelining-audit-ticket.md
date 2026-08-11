@@ -1,9 +1,28 @@
-# Draft — broader pipelining-pattern audit ticket (follow-up to #505)
+# Broader pipelining-pattern audit ticket (follow-up to #505)
 
-**Status: DRAFT.** This is not a live GitHub issue. It is the body to file as
-a new ticket once someone picks up the audit, tied to map #472 alongside
-#474, #480, and the reaper re-arm ticket
-(`fix-505-pool-wedge-rootcause-rearm-ticket.md`).
+**Status: FILED and PARTLY DONE — this is no longer a draft.**
+
+- **Filed as issue #769** (2026-08-10), which is the live home for the remaining
+  site-by-site sweep. Tied to map #472 alongside #474, #480, and the reaper re-arm
+  ticket (`fix-505-pool-wedge-rootcause-rearm-ticket.md`).
+- **Two rounds already merged**: PR #761 (admin surface) and PR #767 (owner
+  dashboard). Both confirmed live on staging, then soaked — see the dated sections
+  below for what was found and fixed.
+- **A capacity question was split out as issue #773**: a **2-query** fan-out wedged
+  during the admin soak despite being *under* the pool, which suggests concurrent
+  requests sharing a Fluid Compute isolate can exceed `DB_POOL_MAX` even when each
+  request stays under it. If that holds, per-request sequencing — the cure this
+  whole ticket prescribes — is necessary but **not sufficient**, and the real answer
+  is a pool-sizing change gated by the ADR 0009 burst drill. **Do not treat this
+  ticket's fix idiom as complete until #773 is answered.**
+- **Still unverified against the real pooler**: the 8-member aggregate wave
+  `fetchPerLocationAggregateSlices`, because staging has no multi-location accounts.
+  Details and the reproduction recipe are in
+  `2026-08-10-505-wedge-soak-handoff.md` §4.
+
+Issue #505 itself is CLOSED and should stay closed — its scope was the worker
+health-poller wedge, which it cured. This document covers the same mechanism on
+other surfaces.
 
 ---
 
