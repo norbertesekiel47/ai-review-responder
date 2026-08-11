@@ -125,6 +125,13 @@ export async function getMarginReport(
 ): Promise<MarginData> {
   const limit = opts.limit ?? 20;
 
+  // Fan-out is 3 on the SHARED `sql` client, whose pool is `DB_POOL_MAX` = 3 on
+  // Vercel — one connection per query, the shape #505 proved non-wedging. It is
+  // AT the limit, not under it: a 4th query here reintroduces the permanent
+  // Connection wedge, and so does racing this against any other `sql` work.
+  // That is exactly why both callers (src/app/admin/costs/page.tsx and
+  // src/app/api/admin/costs/route.ts) now await it sequentially after the cost
+  // report instead of running it concurrently.
   const [accountRows, costRows, platformRows] = await Promise.all([
     sql<AccountRow[]>`
       SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,

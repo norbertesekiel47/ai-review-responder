@@ -17,13 +17,18 @@ const INITIAL_QUERY: CostQuery = { days: 30, limit: PAGE_SIZE, offset: 0, accoun
 export default async function AdminCostsPage() {
   await requireAdminPage(sql, { from: '/admin/costs' });
 
-  const [report, margin] = await Promise.all([
-    getCostReport(sql, INITIAL_QUERY),
-    getMarginReport(sql, { limit: 20 }).catch((err) => {
-      reportCaughtError('admin/costs/page', err);
-      return null;
-    }),
-  ]);
+  // SEQUENTIAL — do NOT re-introduce a Promise.all here (#505). Both callees
+  // share the SAME `sql` client (pool = DB_POOL_MAX = 3 on Vercel) and
+  // getMarginReport is itself a 3-query fan-out, so running them together put 4
+  // queries in flight against a 3-connection pool — over the Supavisor
+  // TRANSACTION pooler the excess query pipelines onto an already-open
+  // connection and parks in state=active / wait_event=ClientRead forever.
+  // Mirrors the same fix in src/app/api/admin/costs/route.ts.
+  const report = await getCostReport(sql, INITIAL_QUERY);
+  const margin = await getMarginReport(sql, { limit: 20 }).catch((err) => {
+    reportCaughtError('admin/costs/page', err);
+    return null;
+  });
 
   return (
     <AdminPage group="Operate" title="Costs" description="LLM + API spend and margin by account">

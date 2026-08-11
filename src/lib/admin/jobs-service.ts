@@ -62,6 +62,12 @@ export async function getAdminJobsData(
   sql: Sql,
   { limit, offset }: { limit: number; offset: number },
 ): Promise<AdminJobsData> {
+  // Fan-out is 3 on the SHARED `sql` client, whose pool is `DB_POOL_MAX` = 3 on
+  // Vercel — one connection per query, the shape #505 proved non-wedging. It is
+  // AT the limit, not under it: a 4th query here reintroduces the permanent
+  // Connection wedge. Both callers race this against `fetchQueueHealth`, which
+  // is safe ONLY because that is an HTTP call to the worker and takes no `sql`
+  // connection; do not swap it for a DB-backed reader without going sequential.
   const [summaryRows, failedRows, countRows] = await Promise.all([
     sql<OutboxSummaryRow[]>`
       SELECT

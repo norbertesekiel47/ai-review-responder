@@ -198,60 +198,68 @@ export async function getAdminOverview(
 ): Promise<OverviewData> {
   const { limit, offset } = params;
 
-  const [
-    pendingOutboxRows,
-    failedJobsRows,
-    todayCostRows,
-    notifFailureRows,
-    emailHealthRows,
-    businessRows,
-    businessCountRows,
-  ] = await Promise.all([
-    sql<SystemHealthRow[]>`
-      SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'pending'
-    `,
-    sql<SystemHealthRow[]>`
-      SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'failed'
-    `,
-    sql<CostRow[]>`
-      SELECT COALESCE(SUM(cost_usd), 0)::float AS total FROM api_costs WHERE created_at >= CURRENT_DATE
-    `,
-    sql<SystemHealthRow[]>`
-      SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
-    `,
-    sql<EmailHealthRow[]>`
-      SELECT
-        COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_24h,
-        COUNT(*) FILTER (WHERE delivered_at IS NOT NULL AND sent_at >= NOW() - INTERVAL '24 hours')::int AS delivered_24h,
-        COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS bounces_7d,
-        COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:hard:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
-        COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
-      FROM notification_deliveries
-    `,
-    // Fetch ALL businesses (no LIMIT/OFFSET): the churn sort is computed in app
-    // code from the pure churn-score formula (single owner: churn-score.ts), so
-    // pagination can only happen after scoring. Fine at the capacity target
-    // (250 locations). total_responses / completed_responses / avg_response_time
-    // are windowed to the trailing RESPONSE_METRICS_WINDOW_DAYS (recent
-    // responsiveness); pending/reconnect counts and last_activity stay ALL-TIME —
-    // old still-pending items and a dormant business's last activity are the churn
-    // signals and must not be windowed away.
-    sql<BusinessRow[]>`
-      SELECT
-        b.id, b.name, a.subscription_status, b.last_sync_at,
-        COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
-        COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
-        COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses,
-        COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses,
-        ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours,
-        MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
-      FROM businesses b
-      JOIN accounts a ON a.id = b.account_id
-      LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
-      GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at
-    `,
-    sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
-  ]);
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). This is a 7-query fan-out on the SHARED `sql`
+  // client, whose pool is `DB_POOL_MAX` = 3 on Vercel (src/lib/db/server.ts).
+  // Fan-out (7) > pool (3) makes postgres.js pipeline the excess queries onto
+  // already-open connections over the Supabase Supavisor TRANSACTION pooler; a
+  // pipelined query's response parks server-side in state=active /
+  // wait_event=ClientRead and is never read — a PERMANENT Connection wedge. No
+  // server-side timeout heals it (in ClientRead the statement is not executing,
+  // so `statement_timeout` never fires), so each render LEAKS a pool slot until
+  // the pool starves and every admin page stops streaming its body while still
+  // returning a 200 header.
+  //
+  // Confirmed live on staging 2026-08-10: wedged backends observed in
+  // pg_stat_activity for >3 minutes, including this businesses query, with the
+  // admin portal fully unusable. That promotes this file from a #505 audit
+  // SUSPECT (fix-505-pool-wedge-rootcause-pipelining-audit-ticket.md:82) to a
+  // confirmed instance, and falsifies that ticket's caveat 2 — a Vercel-side
+  // wedge is NOT masked by function teardown.
+  const pendingOutboxRows = await sql<SystemHealthRow[]>`
+    SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'pending'
+  `;
+  const failedJobsRows = await sql<SystemHealthRow[]>`
+    SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'failed'
+  `;
+  const todayCostRows = await sql<CostRow[]>`
+    SELECT COALESCE(SUM(cost_usd), 0)::float AS total FROM api_costs WHERE created_at >= CURRENT_DATE
+  `;
+  const notifFailureRows = await sql<SystemHealthRow[]>`
+    SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
+  `;
+  const emailHealthRows = await sql<EmailHealthRow[]>`
+    SELECT
+      COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_24h,
+      COUNT(*) FILTER (WHERE delivered_at IS NOT NULL AND sent_at >= NOW() - INTERVAL '24 hours')::int AS delivered_24h,
+      COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS bounces_7d,
+      COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:hard:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
+      COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
+    FROM notification_deliveries
+  `;
+  // Fetch ALL businesses (no LIMIT/OFFSET): the churn sort is computed in app
+  // code from the pure churn-score formula (single owner: churn-score.ts), so
+  // pagination can only happen after scoring. Fine at the capacity target
+  // (250 locations). total_responses / completed_responses / avg_response_time
+  // are windowed to the trailing RESPONSE_METRICS_WINDOW_DAYS (recent
+  // responsiveness); pending/reconnect counts and last_activity stay ALL-TIME —
+  // old still-pending items and a dormant business's last activity are the churn
+  // signals and must not be windowed away.
+  const businessRows = await sql<BusinessRow[]>`
+    SELECT
+      b.id, b.name, a.subscription_status, b.last_sync_at,
+      COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
+      COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
+      COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses,
+      COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses,
+      ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours,
+      MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
+    GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at
+  `;
+  const businessCountRows = await sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`;
 
   const businessIds = businessRows.map((r) => r.id);
 

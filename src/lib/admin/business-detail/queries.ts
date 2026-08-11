@@ -94,16 +94,16 @@ export async function fetchBusinessDetailBatch1(
   sql: Sql,
   businessId: string,
 ): Promise<BusinessDetailBatch1> {
-  const [
-    businessRows,
-    reviewRows,
-    reviewCountRows,
-    rankingSnapshots,
-    zernioConnectionRows,
-    awaitingOwnerConnectRows,
-    finalizeIncidentRows,
-  ] = await Promise.all([
-    sql<BusinessRow[]>`
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). This is a 7-query fan-out on the SHARED `sql`
+  // client, whose pool is `DB_POOL_MAX` = 3 on Vercel (src/lib/db/server.ts).
+  // Fan-out (7) > pool (3) makes postgres.js pipeline the excess queries onto
+  // already-open connections over the Supabase Supavisor TRANSACTION pooler; a
+  // pipelined query's response parks server-side in state=active /
+  // wait_event=ClientRead and is never read — a PERMANENT Connection wedge that
+  // leaks one pool slot per request and no server-side timeout can heal.
+  // Sibling site in this file (batch 2) carries the same guard.
+  const businessRows = await sql<BusinessRow[]>`
       SELECT
         b.id, b.name, b.category, b.website, b.google_place_id, b.tone, b.products_services,
         b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses,
@@ -115,8 +115,8 @@ export async function fetchBusinessDetailBatch1(
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${businessId}
-    `,
-    sql<ReviewRow[]>`
+    `;
+  const reviewRows = await sql<ReviewRow[]>`
       SELECT
         r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date,
         r.detected_language, r.status AS review_status, r.detected_at,
@@ -132,37 +132,37 @@ export async function fetchBusinessDetailBatch1(
       WHERE r.business_id = ${businessId}
       ORDER BY r.detected_at DESC
       LIMIT 100
-    `,
-    sql<{ count: number }[]>`
+    `;
+  const reviewCountRows = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
-    `,
-    sql<RankingSnapshotRow[]>`
+    `;
+  const rankingSnapshots = await sql<RankingSnapshotRow[]>`
       SELECT keyword, rank_position, snapshot_date::text, source
       FROM ranking_snapshots
       WHERE business_id = ${businessId}
       ORDER BY snapshot_date DESC
       LIMIT 50
-    `,
+    `;
     // Zernio panel — current connection snapshot. The partial unique index
     // `zernio_connections_one_active_per_business` allows multiple
     // 'disconnected' rows for audit history; ORDER BY created_at DESC LIMIT 1
     // returns the latest row regardless of status. NULL when the business
     // has never started a Zernio connect flow.
-    sql<ZernioConnectionRow[]>`
+  const zernioConnectionRows = await sql<ZernioConnectionRow[]>`
       SELECT status, connected_at, disconnected_at, disconnect_reason,
              last_error, last_error_at, zernio_account_id, zernio_location_id
       FROM zernio_connections
       WHERE business_id = ${businessId}
       ORDER BY created_at DESC
       LIMIT 1
-    `,
+    `;
     // Responses queued waiting for owner reconnect — surfaced to admins so
     // they can see what's stuck behind a missing/disconnected Zernio
     // connection. Bounded LIMIT 50; admins can page via the responses
     // history if more are needed.
-    sql<AwaitingOwnerConnectRow[]>`
+  const awaitingOwnerConnectRows = await sql<AwaitingOwnerConnectRow[]>`
       SELECT r.id, r.created_at,
              COALESCE(r.approved_text, r.response_text) AS draft_text,
              rev.reviewer_name, rev.review_text, rev.star_rating
@@ -172,18 +172,17 @@ export async function fetchBusinessDetailBatch1(
         AND r.status = 'awaiting_owner_connect'
       ORDER BY r.created_at DESC
       LIMIT 50
-    `,
+    `;
     // Unresolved finalize incidents — block new connect/start flows until
     // ops resolves them. Migration 026 enforces at most one unresolved
     // incident per business; LIMIT 50 is defensive only.
-    sql<ZernioFinalizeIncidentRow[]>`
+  const finalizeIncidentRows = await sql<ZernioFinalizeIncidentRow[]>`
       SELECT id, finalize_unknown_at, flow_id, zernio_profile_id
       FROM zernio_finalize_incidents
       WHERE business_id = ${businessId} AND resolved_at IS NULL
       ORDER BY finalize_unknown_at DESC
       LIMIT 50
-    `,
-  ]);
+    `;
 
   return {
     businessRows,
@@ -212,15 +211,11 @@ export async function fetchBusinessDetailBatch2(
   businessId: string,
   accountId: string,
 ): Promise<BusinessDetailBatch2> {
-  const [
-    metricsRows,
-    accountLocationRows,
-    approvalAuditRows,
-    accountAuditRows,
-    autoApprovalPolicyRows,
-    autoApprovalAccountRows,
-  ] = await Promise.all([
-    sql<BusinessMetricsRow[]>`
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). 6-query fan-out on the SHARED `sql` client,
+  // pool = `DB_POOL_MAX` = 3 on Vercel. Same permanent Connection wedge as the
+  // batch-1 site above; see that guard for the full mechanism.
+  const metricsRows = await sql<BusinessMetricsRow[]>`
       WITH notif AS (
         SELECT
           COUNT(DISTINCT nd.response_id)::int AS notified_count,
@@ -261,40 +256,40 @@ export async function fetchBusinessDetailBatch2(
       CROSS JOIN notif n
       CROSS JOIN resp r
       WHERE b.id = ${businessId}
-    `,
-    // Account locations — all locations under the same account (VAL-ADMIN-001)
-    // Uses idx_businesses_account partial index on (account_id) WHERE archived_at IS NULL.
-    // Also includes archived locations for admin visibility.
-    sql<AccountLocationRow[]>`
+    `;
+  // Account locations — all locations under the same account (VAL-ADMIN-001)
+  // Uses idx_businesses_account partial index on (account_id) WHERE archived_at IS NULL.
+  // Also includes archived locations for admin visibility.
+  const accountLocationRows = await sql<AccountLocationRow[]>`
       SELECT id, name, display_label, is_primary, archived_at
       FROM businesses
       WHERE account_id = ${accountId}
       ORDER BY is_primary DESC, archived_at ASC, created_at ASC
-    `,
-    // Approval audit log — queried by account_id using idx_audit_account
-    // (VAL-ADMIN-004). Returns recent entries across all locations under
-    // the account for admin visibility.
-    sql<ApprovalAuditRow[]>`
+    `;
+  // Approval audit log — queried by account_id using idx_audit_account
+  // (VAL-ADMIN-004). Returns recent entries across all locations under
+  // the account for admin visibility.
+  const approvalAuditRows = await sql<ApprovalAuditRow[]>`
       SELECT id, response_id, action, actor_user_id, created_at, business_id, account_id
       FROM approval_audit_log
       WHERE account_id = ${accountId}
       ORDER BY created_at DESC
       LIMIT 50
-    `,
-    // Account audit log — queried by account_id using idx_account_audit
-    // (account_id, created_at composite index). Returns recent entries
-    // for admin visibility into account-level state changes.
-    sql<AccountAuditRow[]>`
+    `;
+  // Account audit log — queried by account_id using idx_account_audit
+  // (account_id, created_at composite index). Returns recent entries
+  // for admin visibility into account-level state changes.
+  const accountAuditRows = await sql<AccountAuditRow[]>`
       SELECT id, event_type, actor_user_id, location_id, payload, created_at
       FROM account_audit_log
       WHERE account_id = ${accountId}
       ORDER BY created_at DESC
       LIMIT 50
-    `,
-    // Scoped to the reply/posting persona like every other policy reader —
-    // when a future persona (e.g. Solicitation) lands, its rows must not
-    // bleed into the reply-dial diagnostics.
-    sql<AutoApprovalPolicyRow[]>`
+    `;
+  // Scoped to the reply/posting persona like every other policy reader —
+  // when a future persona (e.g. Solicitation) lands, its rows must not
+  // bleed into the reply-dial diagnostics.
+  const autoApprovalPolicyRows = await sql<AutoApprovalPolicyRow[]>`
       SELECT id, account_id, location_id, auto_approve_min_star,
              veto_window_minutes, daily_auto_post_cap, suspended_at
       FROM auto_approval_policies
@@ -302,14 +297,13 @@ export async function fetchBusinessDetailBatch2(
         AND persona = ${POLICY_PERSONA_REPLY}
         AND action_class = ${POLICY_ACTION_POSTING}
       ORDER BY location_id NULLS FIRST
-    `,
-    sql<AutoApprovalAccountRow[]>`
+    `;
+  const autoApprovalAccountRows = await sql<AutoApprovalAccountRow[]>`
       SELECT subscription_tier, subscription_status, past_due_at, flags
       FROM accounts
       WHERE id = ${accountId}
       LIMIT 1
-    `,
-  ]);
+    `;
 
   return {
     metricsRows,

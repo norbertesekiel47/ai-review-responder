@@ -180,23 +180,36 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
   // for aggregated BIGINT values. Postgres INTEGER tops out at 2.1B; at
   // platform scale cumulative call counts could cross that. JS numbers
   // safely represent integers up to 2^53 so ::float handles realistic totals.
-  const [providerRows, byBusinessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
-    // byProvider: When account_id is provided, filter api_costs directly
-    // by account_id (uses idx_api_costs_account) instead of scanning all rows.
-    sql<ProviderRow[]>`
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // of these queries here (#505). This is a 5-query fan-out on the SHARED `sql`
+  // client, whose pool is `DB_POOL_MAX` = 3 on Vercel (src/lib/db/server.ts).
+  // Fan-out (5) > pool (3) makes postgres.js pipeline the excess queries onto
+  // already-open connections over the Supabase Supavisor TRANSACTION pooler; a
+  // pipelined query's response parks server-side in state=active /
+  // wait_event=ClientRead and is never read — a PERMANENT Connection wedge that
+  // leaks one pool slot per request and no server-side timeout can heal.
+  //
+  // Confirmed live on staging 2026-08-10: the byDay and non-rollup
+  // businessCount queries below were both observed wedged in pg_stat_activity,
+  // promoting this file from a #505 audit SUSPECT
+  // (fix-505-pool-wedge-rootcause-pipelining-audit-ticket.md:85) to a confirmed
+  // instance.
+  // byProvider: When account_id is provided, filter api_costs directly
+  // by account_id (uses idx_api_costs_account) instead of scanning all rows.
+  const providerRows = await sql<ProviderRow[]>`
           SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
           FROM api_costs
           WHERE ${optionalAccountPrefix(sql, accountId)}${dateFilter(sql, days)}
           GROUP BY provider
           ORDER BY total_usd DESC
-        `,
-    // byBusiness: server-side aggregation + pagination.
-    // When accountId is provided, filter by account_id directly on api_costs
-    // (VAL-ADMIN-002), enabling idx_api_costs_account index scan.
-    // When needsRollup: UNION detail + rollup, sum per business, sort, paginate.
-    // When not: direct aggregate from api_costs only. Boundary semantics for
-    // the rollup UNION live on the `rollupBoundary` fragment above.
-    needsRollup
+        `;
+  // byBusiness: server-side aggregation + pagination.
+  // When accountId is provided, filter by account_id directly on api_costs
+  // (VAL-ADMIN-002), enabling idx_api_costs_account index scan.
+  // When needsRollup: UNION detail + rollup, sum per business, sort, paginate.
+  // When not: direct aggregate from api_costs only. Boundary semantics for
+  // the rollup UNION live on the `rollupBoundary` fragment above.
+  const byBusinessRows = await (needsRollup
       ? sql<ByBusinessRow[]>`
           WITH combined AS (
             SELECT business_id,
@@ -255,11 +268,11 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
           GROUP BY ac.business_id, b.name, a.subscription_tier
           ORDER BY total_usd DESC, ac.business_id ASC
           LIMIT ${limit} OFFSET ${offset}
-        `,
-    // Total business count for pagination metadata: counts DISTINCT
-    // business_ids across detail ∪ rollup when rollup is active.
-    // When accountId is provided, filter by account_id directly.
-    needsRollup
+        `);
+  // Total business count for pagination metadata: counts DISTINCT
+  // business_ids across detail ∪ rollup when rollup is active.
+  // When accountId is provided, filter by account_id directly.
+  const businessCountRows = await (needsRollup
       ? sql<{ total: number }[]>`
           WITH combined AS (
             SELECT business_id FROM api_costs
@@ -279,10 +292,10 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
           FROM api_costs
           WHERE ${optionalAccountPrefix(sql, accountId)}${dateFilter(sql, days)}
             AND business_id IS NOT NULL
-        `,
-    // byDay: When accountId is provided, filter by account_id directly
-    // (VAL-ADMIN-002, uses idx_api_costs_account for date-range scan).
-    sql<DayRow[]>`
+        `);
+  // byDay: When accountId is provided, filter by account_id directly
+  // (VAL-ADMIN-002, uses idx_api_costs_account for date-range scan).
+  const dayRows = await sql<DayRow[]>`
           SELECT
             DATE(created_at)::text AS day,
             SUM(cost_usd)::float AS total_usd,
@@ -291,14 +304,13 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
           WHERE ${optionalAccountPrefix(sql, accountId)}${dateFilter(sql, days)}
           GROUP BY DATE(created_at)
           ORDER BY day DESC
-        `,
-    // todayTotal: Same account_id filter pattern.
-    sql<TodayTotalRow[]>`
+        `;
+  // todayTotal: Same account_id filter pattern.
+  const todayRows = await sql<TodayTotalRow[]>`
           SELECT COALESCE(SUM(cost_usd), 0)::float AS total
           FROM api_costs
           WHERE ${optionalAccountPrefix(sql, accountId)}created_at >= CURRENT_DATE
-        `,
-  ]);
+        `;
 
   // Rollup queries for byProvider and byDay only when range extends beyond 90 days.
   // byBusiness rollup is already handled server-side in the byBusinessRows query above.
