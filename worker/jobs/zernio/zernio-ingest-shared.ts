@@ -26,7 +26,10 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
-import { buildZernioMonitoredReview } from '../../../src/lib/reviews/zernio-normalize';
+import {
+  buildZernioMonitoredReview,
+  zernioProviderReviewName,
+} from '../../../src/lib/reviews/zernio-normalize';
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
@@ -115,6 +118,36 @@ export async function handleZernioIngestError(
   throw err;
 }
 
+/**
+ * SOLE owner of the `review_exceptions` dedup INSERT (#764).
+ *
+ * The `ON CONFLICT` predicate must match migration 052's partial index
+ * BYTE-FOR-BYTE or Postgres will not recognize the constraint (CLAUDE.md
+ * gotcha), and a silently-unmatched predicate turns the dedup into duplicate
+ * admin notifications on every retry. Keeping exactly one copy is what makes
+ * that checkable. Both producers — `openPhiReviewException` here and the
+ * ingest exhaustion hook's three exception types — go through this.
+ *
+ * Returns the new exception id, or null when an open exception already
+ * suppressed the insert.
+ */
+export async function insertReviewExceptionIfAbsent(
+  db: SqlExecutor,
+  businessId: string,
+  type: string,
+  payload: Record<string, unknown>,
+): Promise<string | null> {
+  const [exception] = await db<{ id: string }[]>`
+    INSERT INTO review_exceptions (id, business_id, type, status, payload)
+    VALUES (${uuidv7()}, ${businessId}, ${type}, 'open', ${db.json(payload as never)})
+    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+      WHERE status = 'open' AND review_id IS NULL
+    DO NOTHING
+    RETURNING id
+  `;
+  return exception?.id ?? null;
+}
+
 export async function openPhiReviewException(
   db: SqlExecutor,
   input: PhiReviewExceptionInput,
@@ -126,27 +159,22 @@ export async function openPhiReviewException(
   // ON CONFLICT no-ops (a still-open exception already exists), we skip both the
   // outbox enqueue and the Sentry alert so we do not re-notify on every repeated
   // ingest of the same review.
-  const [exception] = await db<{ id: string }[]>`
-    INSERT INTO review_exceptions (id, business_id, type, status, payload)
-    VALUES (
-      ${uuidv7()}, ${input.businessId}, 'zernio_likely_phi_review', 'open',
-      ${db.json({
-        provider: 'zernio',
-        provider_review_id: input.review.id,
-        zernio_account_id: input.accountId,
-        zernio_location_id: input.locationId,
-        phi_reasons: input.reasons,
-        source: input.source,
-        detected_at: new Date().toISOString(),
-      } as never)}
-    )
-    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
-      WHERE status = 'open' AND review_id IS NULL
-    DO NOTHING
-    RETURNING id
-  `;
+  const exceptionId = await insertReviewExceptionIfAbsent(
+    db,
+    input.businessId,
+    'zernio_likely_phi_review',
+    {
+      provider: 'zernio',
+      provider_review_id: input.review.id,
+      zernio_account_id: input.accountId,
+      zernio_location_id: input.locationId,
+      phi_reasons: input.reasons,
+      source: input.source,
+      detected_at: new Date().toISOString(),
+    },
+  );
 
-  if (!exception) {
+  if (!exceptionId) {
     logger.warn(`Likely PHI review ${input.review.id} already has an open operator exception`);
     return;
   }
@@ -156,7 +184,7 @@ export async function openPhiReviewException(
     VALUES (
       ${uuidv7()}, ${QUEUE_NAMES.NOTIFY_ADMIN}, 'business',
       ${input.businessId},
-      ${db.json({ review_exception_id: exception.id, business_id: input.businessId } as never)},
+      ${db.json({ review_exception_id: exceptionId, business_id: input.businessId } as never)},
       0, 5
     )
   `;
@@ -210,7 +238,7 @@ export async function reconcileExternallyAnsweredReview(
   logger: WorkerLogger,
   opts?: { consentedImport?: boolean },
 ): Promise<void> {
-  const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
+  const providerReviewName = zernioProviderReviewName(accountId, locationId, target.id);
   // Use the canonical field-match predicate from zernio-field-match.ts.
   // The SQL WHERE fragment below MUST stay in sync with matchesLocalRow in
   // src/lib/reviews/zernio-field-match.ts. The unit tests there verify both
