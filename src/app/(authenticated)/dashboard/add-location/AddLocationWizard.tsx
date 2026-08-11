@@ -99,6 +99,8 @@ export function AddLocationWizard(props: Props) {
               proration={wiz.proration}
               newMonthlyTotalCents={wiz.newMonthlyTotalCents}
               submitting={wiz.submitting}
+              submitted={wiz.submitted}
+              connectHref={wiz.connectHref}
               submitError={wiz.submitError}
               onSubmit={wiz.handleSubmit}
             />

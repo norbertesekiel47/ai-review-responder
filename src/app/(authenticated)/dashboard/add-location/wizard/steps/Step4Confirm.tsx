@@ -20,8 +20,35 @@ interface Step4ConfirmProps {
   proration: ProrationResult;
   newMonthlyTotalCents: number;
   submitting: boolean;
+  /** Terminal success — the location exists and the redirect has been issued. */
+  submitted: boolean;
+  /** Connect-flow route for the created location; the manual escape hatch if
+   * the redirect never lands (#781). */
+  connectHref: string | null;
   submitError: string | null;
   onSubmit: () => void;
+}
+
+/**
+ * Terminal success notice (#781). Rendered from the API result, not from a
+ * completed navigation — so a redirect that never lands leaves the owner with a
+ * confirmation and a working link rather than a spinner. Kept a separate
+ * component so its branch stays out of Step4Confirm's complexity budget.
+ */
+function LocationAddedNotice({ connectHref }: { connectHref: string | null }) {
+  return (
+    <div className="wizard-success" role="status">
+      <Icon name="check" size={14} />
+      <span>
+        Location added — taking you to setup.{' '}
+        {connectHref && (
+          <a className="wizard-inline-link" href={connectHref}>
+            Continue now
+          </a>
+        )}
+      </span>
+    </div>
+  );
 }
 
 export function Step4Confirm({
@@ -36,6 +63,8 @@ export function Step4Confirm({
   proration,
   newMonthlyTotalCents,
   submitting,
+  submitted,
+  connectHref,
   submitError,
   onSubmit,
 }: Step4ConfirmProps) {
@@ -48,6 +77,8 @@ export function Step4Confirm({
       </p>
 
       {submitError && <div className="wizard-error">{submitError}</div>}
+
+      {submitted && <LocationAddedNotice connectHref={connectHref} />}
 
       <div className="wizard-summary">
         <div className="wizard-summary-row">
@@ -128,13 +159,17 @@ export function Step4Confirm({
         type="button"
         className="btn btn-primary wizard-submit-btn"
         onClick={onSubmit}
-        disabled={submitting}
+        // Stays disabled after success too: the location already exists, so a
+        // second click would only add a duplicate.
+        disabled={submitting || submitted}
         style={{ marginTop: 24, width: '100%' }}
       >
         {submitting ? (
           <>
             <span className="spinner" /> Adding location…
           </>
+        ) : submitted ? (
+          'Location added'
         ) : (
           <>
             <Icon name="check" size={14} /> Confirm &amp; add location

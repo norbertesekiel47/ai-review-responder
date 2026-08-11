@@ -288,18 +288,38 @@ describe('async-result actions', () => {
 });
 
 describe('submit lifecycle', () => {
-  it('SUBMIT_STARTED sets submitting and clears prior error', () => {
+  it('SUBMIT_STARTED enters the submitting phase and clears prior error', () => {
     const s = reducer(withState({ submitError: 'old' }), { type: 'SUBMIT_STARTED' });
-    expect(s.submitting).toBe(true);
+    expect(s.submitPhase).toBe('submitting');
     expect(s.submitError).toBeNull();
   });
 
-  it('SUBMIT_FAILED clears submitting and records the message', () => {
-    const s = reducer(withState({ submitting: true }), {
+  it('SUBMIT_STARTED clears a connectHref left by an earlier attempt', () => {
+    const s = reducer(withState({ connectHref: '/dashboard/connect?locationId=old' }), {
+      type: 'SUBMIT_STARTED',
+    });
+    expect(s.connectHref).toBeNull();
+  });
+
+  // #781: the terminal success phase. Without it the wizard could only leave
+  // `submitting` by navigating away, so a navigation that never landed left
+  // the submit button spinning over an add that had already succeeded.
+  it('SUBMIT_SUCCEEDED leaves the submitting phase and records the connect href', () => {
+    const s = reducer(withState({ submitPhase: 'submitting' }), {
+      type: 'SUBMIT_SUCCEEDED',
+      connectHref: '/dashboard/connect?locationId=loc-9',
+    });
+    expect(s.submitPhase).toBe('succeeded');
+    expect(s.connectHref).toBe('/dashboard/connect?locationId=loc-9');
+    expect(s.submitError).toBeNull();
+  });
+
+  it('SUBMIT_FAILED leaves the submitting phase and records the message', () => {
+    const s = reducer(withState({ submitPhase: 'submitting' }), {
       type: 'SUBMIT_FAILED',
       message: 'boom',
     });
-    expect(s.submitting).toBe(false);
+    expect(s.submitPhase).toBe('failed');
     expect(s.submitError).toBe('boom');
   });
 });
