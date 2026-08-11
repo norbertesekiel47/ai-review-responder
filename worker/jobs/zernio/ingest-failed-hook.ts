@@ -10,6 +10,7 @@ import {
   ZernioIngestUnparseableLocationError,
 } from './ZernioReviewIngestWorker';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
+import { insertReviewExceptionIfAbsent } from './zernio-ingest-shared';
 
 interface IngestFailedHookState {
   outboxId?: string;
@@ -101,30 +102,6 @@ async function withOwnedTerminalTransition(
   });
   state.coupledTerminalTxStarted = false;
   return ownsAttempt;
-}
-
-/**
- * Single owner of the review_exceptions dedup INSERT. The ON CONFLICT
- * predicate must match the partial index byte-for-byte (CLAUDE.md gotcha) —
- * keeping the SQL text here means there is exactly one copy to keep in sync.
- * Returns the new exception id, or null when an open exception already
- * suppressed the insert.
- */
-async function insertReviewExceptionIfAbsent(
-  tx: TransactionSql,
-  businessId: string,
-  type: string,
-  payload: Record<string, string | number>,
-): Promise<string | null> {
-  const [exception] = await tx<{ id: string }[]>`
-    INSERT INTO review_exceptions (id, business_id, type, status, payload)
-    VALUES (${uuidv7()}, ${businessId}, ${type}, 'open', ${tx.json(payload as never)})
-    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
-      WHERE status = 'open' AND review_id IS NULL
-    DO NOTHING
-    RETURNING id
-  `;
-  return exception?.id ?? null;
 }
 
 async function captureIngestFailedHookCrash(

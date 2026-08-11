@@ -4,6 +4,8 @@ import {
   buildZernioMonitoredReview,
   extractLocationFromReviewName,
   normalizeGoogleReviewName,
+  zernioProviderLocationName,
+  zernioProviderReviewName,
   ZernioReviewNormalizationError,
 } from '../zernio-normalize';
 import type { ZernioReview } from '@/lib/zernio/types';
@@ -149,5 +151,37 @@ describe('zernioReviewToNormalized — sanitization (F-10)', () => {
   it('falls back to Anonymous when the display name is only formatting chars', () => {
     const r = zernioReviewToNormalized({ ...base, reviewer: { displayName: '\u200B\u202E\uFEFF' }, comment: 'ok' } as never);
     expect(r.reviewerName).toBe('Anonymous');
+  });
+});
+
+// ── #764: the synthetic identity formats have exactly one owner ───────────
+//
+// These strings are WRITTEN and later STRING-COMPARED (reconcile matching,
+// tombstoning, the publisher's location short-circuit) but never parsed back
+// apart, so nothing at runtime would notice drift between a writer and a
+// comparer. Pinning the literal shape here is what makes a change to either
+// builder a deliberate, visible act rather than a silent break.
+describe('zernio identity name builders (#764)', () => {
+  it('pins the provider_review_name format', () => {
+    expect(zernioProviderReviewName('acct-X', 'loc-Y', 'rev_abc'))
+      .toBe('zernio://acct-X/locations/loc-Y/reviews/rev_abc');
+  });
+
+  it('pins the provider_location_name format', () => {
+    expect(zernioProviderLocationName('acct-X', 'loc-Y')).toBe('zernio://acct-X/locations/loc-Y');
+  });
+
+  it('the review name is the location name plus the review segment', () => {
+    // The relationship the reconcile/tombstone queries rely on: a review name
+    // always starts with its location name, so a location-scoped prefix match
+    // and an exact review match address the same rows.
+    const loc = zernioProviderLocationName('a', 'l');
+    expect(zernioProviderReviewName('a', 'l', 'r')).toBe(`${loc}/reviews/r`);
+  });
+
+  it('is the same value buildZernioMonitoredReview persists', () => {
+    const out = buildZernioMonitoredReview(baseReview, 'acct-X', 'loc-Y');
+    expect(out.identity.providerReviewName).toBe(zernioProviderReviewName('acct-X', 'loc-Y', baseReview.id));
+    expect(out.identity.providerLocationName).toBe(zernioProviderLocationName('acct-X', 'loc-Y'));
   });
 });

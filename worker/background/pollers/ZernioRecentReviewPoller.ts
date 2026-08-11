@@ -9,6 +9,7 @@ import { NON_TERMINAL_STATUSES } from '../../../src/lib/shared/response-status';
 import {
   buildZernioMonitoredReview,
   extractLocationFromReviewName,
+  zernioProviderLocationName,
   ZernioReviewNormalizationError,
 } from '../../../src/lib/reviews/zernio-normalize';
 import { processReview } from '../../../src/lib/reviews/process-review';
@@ -192,8 +193,10 @@ async function tombstoneMissingSourceReviews(
   const cutoff = liveIngestCutoff(connection.connected_at);
   if (!cutoff || !feedComplete) return 0;
 
-  const providerLocationName =
-    `zernio://${connection.zernio_account_id}/locations/${connection.zernio_location_id}`;
+  const providerLocationName = zernioProviderLocationName(
+    connection.zernio_account_id,
+    connection.zernio_location_id,
+  );
 
   const missing = await sql<{ id: string; provider_review_id: string }[]>`
     SELECT id, provider_review_id
