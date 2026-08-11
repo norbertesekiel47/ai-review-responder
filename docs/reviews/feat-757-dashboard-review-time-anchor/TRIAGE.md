@@ -42,5 +42,13 @@ ticketed rather than latent.
 
 - [ ] `docs/currents.md` — anchor owner + the stale "#757 GA-blocking" line (S3; `document-feature` sweep covers it)
 - [ ] `docs/analytics/posthog-dashboards.md:10-11` — deleted `kpi/*` and route references (ST3; **NOT** in the default sweep set — do it explicitly)
-- [ ] File follow-up: Spec 11 KPI clause supersession + the deferred metric contract (A1)
-- [ ] File follow-up: reopen ADR 0019 Decision 2 — mixed-clock legibility on one dashboard period (A2)
+- [x] File follow-up: Spec 11 KPI clause supersession + the deferred metric contract (A1) → **#789**
+- [x] File follow-up: reopen ADR 0019 Decision 2 — mixed-clock legibility on one dashboard period (A2) → **#790**
+
+**A1 partially resolved on this branch.** The durable half — Spec 11's supersession plus the two
+deleted metrics' full behavioral contract (calendar-month bucketing, null-on-empty-sample, rounding,
+the `approved_at` window, Decision 3's validity filter, and the response-rate-vs-TTR **multiplicity
+asymmetry**) — is now recorded in ADR 0019's addendum, reconstructed from
+`git show f5151902:src/lib/kpi/service.ts` rather than from memory. #789 carries only the spec-file
+annotation and the eventual restore. A2 is recorded in the ADR as an open question and carried
+whole by #790; Decision 2 stands until it concludes.
