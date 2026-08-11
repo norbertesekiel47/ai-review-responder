@@ -2,10 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement
 > this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Revision 2** — incorporates codex plan-review round 1 (3 BLOCKER, 16 MAJOR, 4 MINOR;
+> 22 accepted, 1 partially rejected). Triage verdicts: "Review appendix" at the bottom.
 
 **Goal:** Bucket the reputation-flavored windows of the *rendered* dashboard payload on the
 **Review-time anchor** `LEAST(review_date, detected_at)` (ADR 0019), make `src/lib/kpi/fragments.ts`
-the single owner of that spelling, and delete the consumer-less Stack A KPI service + `GET /api/dashboard/kpis`.
+the single owner of that spelling, and delete the consumer-less Stack A KPI service +
+`GET /api/dashboard/kpis`.
 
 **Architecture:** #688 shipped the anchor into `src/lib/kpi/service.ts` ("Stack A"), which nothing
 renders. The dashboard owners actually see ("Stack B") is `src/lib/dashboard/service.ts` +
@@ -18,8 +22,22 @@ for SQL-shape pins, `describeWithDb` + `assertSchemaReady` for the live-DB eval 
 route deletion.
 
 **Decisions of record:** ADR 0019 (`docs/adr/0019-kpi-review-time-anchor.md`) ·
-`docs/reviews/PATHFINDER-2026-08-10/03-unified-proposal.md` P1 · issue #757 ·
-intake `docs/superpowers/plans/feat-757-dashboard-review-time-anchor-intake.json`
+`docs/reviews/PATHFINDER-2026-08-10/03-unified-proposal.md` P1 (**see the superseding adjudication
+below**) · issue #757 · intake `docs/superpowers/plans/feat-757-dashboard-review-time-anchor-intake.json`
+
+### Superseding adjudication vs Pathfinder P1 (owner-approved 2026-08-11)
+
+P1 item 1 required extracting **four** fragments (`reviewTimeAnchor`, `reviewTimeWindowFilter`,
+`detectedAtWindowFilter`, the TTR validity filter). This plan extracts **two**. Reason: once Stack A
+is deleted, `detectedAtWindowFilter` and the TTR validity filter have **zero composers** — Stack B's
+response rate stays literal per ADR 0019 D2 (P1 itself forbids touching it) and Stack B has no
+duration metric to validity-filter. Shipping two exports with no callers is dead abstraction, and
+`fallow` would flag them. P1 item 1 is superseded on this point only; items 2–6 are implemented as
+written. The ADR 0019 addendum (Task 6) records this.
+
+P1 also preferred *widening* the fragment prefix union over renaming Stack B's aliases; it left that
+to the implementer. This plan renames (`rv`/`rev` → `r`) — widening to four members forces a
+four-branch switch of near-duplicate SQL in the owner module for no gain.
 
 ---
 
@@ -41,26 +59,27 @@ intake `docs/superpowers/plans/feat-757-dashboard-review-time-anchor-intake.json
 | `src/lib/dashboard/service.ts` → `getActiveDashboardData` | **None** | Deepening: same interface, more correct behavior behind it. |
 | `src/lib/dashboard/aggregate-queries.ts` → `fetchPerLocationAggregateSlices` | **None** | Deepening. |
 | `src/lib/kpi/service.ts`, `src/app/api/dashboard/kpis/route.ts` | **Deleted** | Reverse deletion test: zero complexity reappears (zero consumers). |
-| `src/lib/kpi/types.ts` | **Narrows** (5 orphan exports removed) | Window vocabulary keeps its 9 importers. |
+| `src/lib/kpi/types.ts` | **Narrows** (5 orphan exports removed) | The window vocabulary keeps every one of its importers. |
 
 **Anti-slop guard to carry into the module doc comment:** nothing varies across this seam. Do NOT
 later add an "anchor strategy" / registry / injected-clock abstraction behind it. Two exports, one
-spelling, many composers.
+spelling, many composers — and Task 1's single-owner test enforces exactly that.
 
 ## File structure
 
 **Create**
 - `src/lib/kpi/fragments.ts` — anchor fragment owner
-- `src/lib/kpi/__tests__/fragments.test.ts` — fragment unit pins
+- `src/lib/kpi/__tests__/fragments.test.ts` — fragment unit pins + single-owner source audit
 - `src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts` — live-DB eval suite (moved + re-pointed from `src/lib/kpi/__tests__/service.anchor.integration.test.ts`)
-- `src/lib/dashboard/__tests__/service.review-time-anchor.test.ts` — SQL-shape pins for Stack B single-location
-- `src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts` — SQL-shape pins for Stack B aggregate
+- `src/lib/dashboard/__tests__/service.review-time-anchor.test.ts` — SQL-shape pins, single-location
+- `src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts` — SQL-shape pins, aggregate
 
 **Modify**
-- `src/lib/dashboard/service.ts` — 14 plug lines (velocity, rating breakdown, avg star, sentiment trend)
-- `src/lib/dashboard/aggregate-queries.ts` — 3 plug lines + `rv`/`rev` → `r` alias rename
+- `src/lib/dashboard/service.ts` — 14 plug lines
+- `src/lib/dashboard/aggregate-queries.ts` — 3 plug lines + `rv`/`rev` → `r` rename
 - `src/lib/kpi/types.ts` — drop 5 orphan exports
-- `scripts/ci/__tests__/db-imports-audit.test.ts:102` — stale route path
+- `scripts/ci/tenant-scope-allowlist.ts` — drop 7 entries, baseline 408 → 401
+- `scripts/ci/__tests__/db-imports-audit.test.ts` — lines 102 **and** 118
 - `docs/adr/0019-kpi-review-time-anchor.md`, `CONTEXT.md`, `.claude/CLAUDE.md`, `docs/directory.md`
 
 **Delete**
@@ -71,13 +90,23 @@ spelling, many composers.
 
 ```
 T1 (eval) ─→ T2 (fragments) ─┬─→ T3 (service.ts plugs) ─┐
-                             └─→ T4 (aggregate plugs) ───┴─→ T5 (delete Stack A) ─→ T6 (docs)
+                             └─→ T4 (aggregate plugs) ───┴─→ T5 (delete Stack A) ─→ T6 (docs) ─→ T7 (staging smoke)
 ```
 
-**T3 and T4 are mutually independent** — no blocking edge between them and disjoint edited file
-sets (T3: `service.ts` + `service.review-time-anchor.test.ts`; T4: `aggregate-queries.ts` +
-`aggregate-queries.review-time-anchor.test.ts`). Both depend on T2. Eligible for parallel dispatch
-*after* T1's enforcement spot check passes.
+**T3 and T4 are mutually independent** — no blocking edge between them, and their *edited* file sets
+are disjoint (T3 edits only `service.ts`; T4 edits only `aggregate-queries.ts`; every test file is
+authored in T1 and edited by neither). Eligible for parallel dispatch after T1's enforcement spot
+check.
+
+**Red-branch reality (do not claim otherwise):** T1 and T2 deliberately commit a red branch — that
+is what eval-first means. `review-time-anchor.integration.test.ts` is a *shared* suite covering both
+T3's and T4's metrics, so it stays partly red until **both** land. Therefore:
+
+- T3 and T4 each verify with **only their own shape suite**, named explicitly in their steps.
+- The shared live-DB suite is run **once, in T4's final step**, after whichever of T3/T4 finishes
+  last. If they run in parallel, that step belongs to the second one to complete.
+- The branch is first fully green at the end of T4. Do not let a subagent "fix" a red test that
+  belongs to the other task.
 
 ---
 
@@ -92,110 +121,187 @@ sets (T3: `service.ts` + `service.review-time-anchor.test.ts`; T4: `aggregate-qu
 
 - [ ] **Step 1: Move the live-DB suite and re-point it at the rendered stack**
 
-`git mv src/lib/kpi/__tests__/service.anchor.integration.test.ts src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts`, then rewrite.
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
+git mv src/lib/kpi/__tests__/service.anchor.integration.test.ts \
+       src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts
+```
 
-**Port VERBATIM from the moved file** (do not re-invent — it encodes hard-won live-DB conventions):
-the header's live-DB + accepted-timing-risk notes, the `vi.mock('@/lib/db/redis-cache', ...)`
+**Port from the moved file** (it encodes hard-won live-DB conventions): the `vi.mock('@/lib/db/redis-cache', …)`
 always-miss stub, `POSTED`, `testDatabaseUrl`, `sql()`, `SeedReviewSpec`, `seedReview`,
-`seedPostedResponse`, the `assertSchemaReady(db, [MIGRATION_071_RUN_SPINE])` call, and the
-`afterAll` FK-ordered cleanup loop.
+`seedPostedResponse`, `assertSchemaReady(db, [MIGRATION_071_RUN_SPINE])`, and the `afterAll`
+FK-ordered cleanup loop. **Rewrite, do not port, the header prose** — it names Stack A, the deleted
+`service.test.ts`, and a "mock suite is the every-day backstop" claim that is no longer accurate.
+Keep the live-DB convention paragraph and the calendar-boundary timing-risk paragraph; replace the
+Stack-A specifics with:
 
-**Change these:**
+```
+// EVAL suite for #757 — the Review-time anchor on the RENDERED dashboard stack
+// (getActiveDashboardData + fetchPerLocationAggregateSlices). #688 proved these
+// semantics against Stack A, which nothing renders; this proves them where owners
+// actually read them. The mocked suites
+// (service.review-time-anchor.test.ts / aggregate-queries.review-time-anchor.test.ts)
+// pin the SQL SPELLING every day; this suite proves the bucketing MEANS what
+// ADR 0019 decided, against real Postgres.
+```
+
+**CRITICAL — week-bucket assertions must not use `::text`.** postgres.js decodes a `date` column
+into a JS `Date`, and both `mapReviewVelocity` and `buildReputationSummary` stringify it with
+`String(...)`, which yields the long local form (`"Mon Aug 10 2026 00:00:00 GMT-0700…"`). A
+`::text` expectation (`'2026-08-10'`) can never match. Select expected weeks as `::date` and run
+them through the **same** `String(...)` path — this is exactly what the moved suite's own comment at
+its trend test documents.
 
 ```typescript
-// import: Stack B replaces Stack A
 import { getActiveDashboardData } from '../service';
 import { fetchPerLocationAggregateSlices } from '../aggregate-queries';
 
-// one isolated business per concern
-const VELOCITY_BIZ = randomUUID();   // test 1 — velocity week bucketing
-const TREND_BIZ = randomUUID();      // test 2 — sentiment-trend week bucketing
-const STAR_BIZ = randomUUID();       // test 3 — avg-star window membership
-const RATING_BIZ = randomUUID();     // test 4 — rating-breakdown window membership
-const NULLFB_BIZ = randomUUID();     // test 5 — NULL review_date fallback
-const FUTURE_BIZ = randomUUID();     // test 6 — future review_date clamp
-const RATE_BIZ = randomUUID();       // test 7 — response-rate detected_at pin (negative control)
-const FEED_BIZ = randomUUID();       // test 8 — recent-review feed detected_at pin (negative control)
-const AGG_BIZ = randomUUID();        // test 9 — aggregate slice anchor
-const ALL_BIZ = [VELOCITY_BIZ, TREND_BIZ, STAR_BIZ, RATING_BIZ, NULLFB_BIZ,
-                 FUTURE_BIZ, RATE_BIZ, FEED_BIZ, AGG_BIZ] as const;
+const VELOCITY_BIZ = randomUUID();  // t1  velocity week bucketing
+const TREND_BIZ = randomUUID();     // t2  sentiment-trend week bucketing
+const STAR_BIZ = randomUUID();      // t3 + t10  avg-star current & prior windows
+const RATING_BIZ = randomUUID();    // t4  rating-breakdown window
+const NULLFB_BIZ = randomUUID();    // t5  NULL review_date fallback
+const FUTURE_BIZ = randomUUID();    // t6  future review_date clamp
+const RATE_BIZ = randomUUID();      // t7  response-rate detected_at pin (negative control)
+const FEED_BIZ = randomUUID();      // t8  recent-review feed detected_at pin (negative control)
+const TIMESAVED_BIZ = randomUUID(); // t11 timeSaved approved_at pin (negative control)
+const AGG_BIZ = randomUUID();       // t9 + t12  aggregate anchor + counter negative control
+const EMPTY_BIZ = randomUUID();     // t13 aggregate zero-fill
+const ALL_BIZ = [VELOCITY_BIZ, TREND_BIZ, STAR_BIZ, RATING_BIZ, NULLFB_BIZ, FUTURE_BIZ,
+                 RATE_BIZ, FEED_BIZ, TIMESAVED_BIZ, AGG_BIZ, EMPTY_BIZ] as const;
 
-// seedLocation: businesses_account_primary_uniq permits ONE primary per account
+// seedLocation: businesses_account_primary_uniq permits ONE primary per account.
 isPrimary: bizId === VELOCITY_BIZ,
 
-// helper — every reputation assertion needs the opt-in batch
+/** Reputation metrics are opt-in; every assertion below needs the batch. */
 async function rep(bizId: string) {
   return getActiveDashboardData(sql(), bizId, { includeReputationMetrics: true });
 }
+
+/**
+ * Expected week starts, selected as ::date and stringified through the SAME
+ * postgres.js decode + String() path the mappers use. NEVER ::text.
+ */
+async function weekMarkers() {
+  const [row] = await sql()<{ current_week: unknown; back3: unknown; back6: unknown }[]>`
+    SELECT DATE_TRUNC('week', NOW())::date AS current_week,
+           (DATE_TRUNC('week', NOW()) - interval '21 days')::date AS back3,
+           (DATE_TRUNC('week', NOW()) - interval '42 days')::date AS back6
+  `;
+  return {
+    currentWeek: String(row!.current_week),
+    back3: String(row!.back3),
+    back6: String(row!.back6),
+  };
+}
 ```
 
-Fixtures (all time arithmetic in SQL — never a JS `Date`):
+Fixtures — **all time arithmetic in SQL**, never a JS `Date`:
 
 ```typescript
-// Test 1 — imported review written three weeks back (Monday-aligned), stored today.
-await seedReview(VELOCITY_BIZ, {
-  star: 4,
-  reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '21 days'`,
-  detectedAt: sql()`NOW()`,
-});
-// Test 2 — same shape, plus a sentiment score so the trend has a value.
-await seedReview(TREND_BIZ, {
-  star: 4, sentimentScore: 0.8,
-  reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '21 days'`,
-  detectedAt: sql()`NOW()`,
-});
-// Test 3 — a 1★ import 60 days back (outside the 30d review-time window) beside an
-// organic in-window 5★. Anchored: avg = 5. On detected_at: avg = 3.
-await seedReview(STAR_BIZ, { star: 1, reviewDate: sql()`NOW() - interval '60 days'`, detectedAt: sql()`NOW()` });
-await seedReview(STAR_BIZ, { star: 5, reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
-// Test 4 — same shape for the rating breakdown.
-await seedReview(RATING_BIZ, { star: 1, reviewDate: sql()`NOW() - interval '60 days'`, detectedAt: sql()`NOW()` });
-await seedReview(RATING_BIZ, { star: 5, reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
-// Test 5 — no review_date at all: LEAST ignores NULLs, anchor falls back to detected_at.
-await seedReview(NULLFB_BIZ, { star: 4, sentimentScore: 0.4, reviewDate: null, detectedAt: sql()`NOW()` });
-// Test 6 — provider clock skew: FUTURE review_date clamps to detected_at. A naive
-// COALESCE would bucket it into a week generate_series never emits, vanishing it.
-await seedReview(FUTURE_BIZ, { star: 3, sentimentScore: 0.5, reviewDate: sql()`NOW() + interval '2 days'`, detectedAt: sql()`NOW()` });
-// Test 7 — imported UNANSWERED review, ancient review_date, stored today.
-await seedReview(RATE_BIZ, { star: 2, reviewDate: sql()`NOW() - interval '200 days'`, detectedAt: sql()`NOW()` });
-// Test 8 — imported review (ancient review_date) beside an older-detected organic one.
-await seedReview(FEED_BIZ, { star: 2, reviewDate: sql()`NOW() - interval '200 days'`, detectedAt: sql()`NOW()` });
-await seedReview(FEED_BIZ, { star: 5, reviewDate: sql()`NOW() - interval '2 days'`, detectedAt: sql()`NOW() - interval '2 days'` });
-// Test 9 — aggregate: one import three weeks back, one organic this week.
-await seedReview(AGG_BIZ, { star: 1, reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '21 days'`, detectedAt: sql()`NOW()` });
-await seedReview(AGG_BIZ, { star: 5, reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
+// t1 — imported review written three weeks back (Monday-aligned), stored today.
+await seedReview(VELOCITY_BIZ, { star: 4,
+  reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '21 days'`, detectedAt: sql()`NOW()` });
+
+// t2 — same shape plus a sentiment score so the trend has a value.
+await seedReview(TREND_BIZ, { star: 4, sentimentScore: 0.8,
+  reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '21 days'`, detectedAt: sql()`NOW()` });
+
+// t3 + t10 — a 1★ import 45 days back (OUTSIDE the 30d current window, INSIDE the
+// 60d prior window) beside an organic in-window 5★. Anchored: current 5 from one
+// sample, prior 1 from one sample, delta +4. On detected_at both land in current
+// (avg 3) and prior is empty (delta suppressed) — so this one fixture pins the
+// current window, the prior window, star_n_prior AND the delta.
+await seedReview(STAR_BIZ, { star: 1,
+  reviewDate: sql()`NOW() - interval '45 days'`, detectedAt: sql()`NOW()` });
+await seedReview(STAR_BIZ, { star: 5,
+  reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
+
+// t4 — same shape for the rating breakdown (60 days back: outside the 30d window).
+await seedReview(RATING_BIZ, { star: 1,
+  reviewDate: sql()`NOW() - interval '60 days'`, detectedAt: sql()`NOW()` });
+await seedReview(RATING_BIZ, { star: 5,
+  reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
+
+// t5 — no review_date at all: LEAST ignores NULLs, anchor falls back to detected_at.
+await seedReview(NULLFB_BIZ, { star: 4, sentimentScore: 0.4,
+  reviewDate: null, detectedAt: sql()`NOW()` });
+
+// t6 — provider clock skew. +8 days (NOT +2) guarantees a LATER ISO week EVERY day
+// of the week, so a naive COALESCE(review_date, detected_at) lands in a week
+// generate_series never emits and the row vanishes — failing live, every day.
+await seedReview(FUTURE_BIZ, { star: 3, sentimentScore: 0.5,
+  reviewDate: sql()`DATE_TRUNC('week', NOW()) + interval '8 days'`, detectedAt: sql()`NOW()` });
+
+// t7 — imported UNANSWERED review (current window) + an answered one in the PRIOR
+// window, so the prior rate and its sample size are pinned too.
+await seedReview(RATE_BIZ, { star: 2,
+  reviewDate: sql()`NOW() - interval '200 days'`, detectedAt: sql()`NOW()` });
+const ratePrior = await seedReview(RATE_BIZ, { star: 5,
+  reviewDate: sql()`NOW() - interval '45 days'`, detectedAt: sql()`NOW() - interval '45 days'` });
+await seedPostedResponse(ratePrior, RATE_BIZ, sql()`NOW() - interval '44 days'`);
+
+// t8 — imported review (ancient review_date, detected today) beside an older-detected organic one.
+await seedReview(FEED_BIZ, { star: 2,
+  reviewDate: sql()`NOW() - interval '200 days'`, detectedAt: sql()`NOW()` });
+await seedReview(FEED_BIZ, { star: 5,
+  reviewDate: sql()`NOW() - interval '2 days'`, detectedAt: sql()`NOW() - interval '2 days'` });
+
+// t11 — ancient imported review answered TODAY. timeSaved keys on approved_at, so
+// it counts in the current window no matter what the anchor says.
+const tsReview = await seedReview(TIMESAVED_BIZ, { star: 3,
+  reviewDate: sql()`NOW() - interval '300 days'`, detectedAt: sql()`NOW()` });
+await seedPostedResponse(tsReview, TIMESAVED_BIZ, sql()`NOW() - interval '1 hour'`);
+
+// t9 + t12 — aggregate: one import SIX weeks back (inside the 8-week velocity
+// series, OUTSIDE the 30d rating window) answered today, plus one organic this week.
+const aggImport = await seedReview(AGG_BIZ, { star: 1,
+  reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '42 days'`, detectedAt: sql()`NOW()` });
+await seedPostedResponse(aggImport, AGG_BIZ, sql()`NOW() - interval '1 hour'`);
+await seedReview(AGG_BIZ, { star: 5,
+  reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
+
+// t13 — EMPTY_BIZ gets no reviews at all (zero-fill contract).
 ```
 
-Tests (titles **verbatim** — `promised-tests` matches them exactly):
+Tests — titles **verbatim**, `promised-tests` matches them exactly:
 
 ```typescript
 it('velocity buckets an imported review into its review_date week, not the import week', async () => {
+  const { currentWeek, back3 } = await weekMarkers();
   const data = await rep(VELOCITY_BIZ);
-  const [{ week_start: importWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT DATE_TRUNC('week', NOW())::date::text AS week_start`;
-  const [{ week_start: reviewWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT (DATE_TRUNC('week', NOW()) - interval '21 days')::date::text AS week_start`;
-  const at = (wk: string) => data.reviewVelocity.find((p) => p.weekStart.startsWith(wk))?.count ?? 0;
-  expect(at(reviewWeek)).toBe(1);
-  expect(at(importWeek)).toBe(0);
+  const at = (wk: string) => data.reviewVelocity.find((p) => p.weekStart === wk);
+  expect(at(back3)?.count).toBe(1);
+  expect(at(currentWeek)?.count).toBe(0);
+  // Exactly one row in the whole series — an OR that kept import-time membership
+  // would double-count it and still satisfy the two assertions above.
+  expect(data.reviewVelocity.reduce((n, p) => n + p.count, 0)).toBe(1);
 });
 
 it('sentiment trend buckets an imported review into its review_date week, not the import week', async () => {
+  const { currentWeek, back3 } = await weekMarkers();
   const data = await rep(TREND_BIZ);
-  const [{ week_start: importWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT DATE_TRUNC('week', NOW())::date::text AS week_start`;
-  const [{ week_start: reviewWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT (DATE_TRUNC('week', NOW()) - interval '21 days')::date::text AS week_start`;
-  const at = (wk: string) => data.reputationSummary!.trend.find((p) => p.weekStart.startsWith(wk));
-  expect(at(reviewWeek)?.reviewCount).toBe(1);
-  expect(at(importWeek)?.reviewCount).toBe(0);
+  const at = (wk: string) => data.reputationSummary!.trend.find((p) => p.weekStart === wk);
+  expect(at(back3)?.reviewCount).toBe(1);
+  expect(at(currentWeek)?.reviewCount).toBe(0);
+  expect(data.reputationSummary!.trend.reduce((n, p) => n + p.reviewCount, 0)).toBe(1);
 });
 
 it('avg star window excludes a review whose review_date is outside the window even though detected_at is inside', async () => {
   const data = await rep(STAR_BIZ);
-  // Anchored: only the organic 5★ is in the 30d review-time window.
+  // Anchored: only the organic 5★ is in the 30d current window.
   // On detected_at both are in-window and this reads 3.
   expect(data.reputationSummary!.averageStar.current).toBe(5);
+});
+
+it('avg star prior window and sample size bucket on the review-time anchor', async () => {
+  const data = await rep(STAR_BIZ);
+  const star = data.reputationSummary!.averageStar;
+  // The 45-day-old import belongs to the PRIOR window (30–60d) by review time.
+  // On detected_at it sits in the current window and the prior sample is empty,
+  // which would suppress the delta entirely (buildMetric, reputation-summary.ts).
+  expect(star.priorSampleSize).toBe(1);
+  expect(star.delta).toBe(4);
 });
 
 it('rating breakdown excludes a review whose review_date is outside the window even though detected_at is inside', async () => {
@@ -214,47 +320,80 @@ it('review-time anchor falls back to detected_at when review_date is NULL', asyn
 });
 
 it('review-time anchor clamps a future review_date to detected_at', async () => {
+  const { currentWeek } = await weekMarkers();
   const data = await rep(FUTURE_BIZ);
-  const [{ week_start: thisWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT DATE_TRUNC('week', NOW())::date::text AS week_start`;
-  // Clamped to detected_at = this week. Unclamped it lands in a week
-  // generate_series never emits and vanishes from both series entirely.
-  expect(data.reviewVelocity.find((p) => p.weekStart.startsWith(thisWeek))?.count).toBe(1);
-  expect(data.reputationSummary!.trend.find((p) => p.weekStart.startsWith(thisWeek))?.reviewCount).toBe(1);
+  // NOT a red-before/green-after test: detected_at bucketing already puts this
+  // row in the current week, so it passes before and after. Its job is to fail
+  // if anyone swaps LEAST for COALESCE — under COALESCE the +8d review_date
+  // lands in a week generate_series never emits and the row disappears.
+  expect(data.reviewVelocity.find((p) => p.weekStart === currentWeek)?.count).toBe(1);
+  expect(data.reputationSummary!.trend.find((p) => p.weekStart === currentWeek)?.reviewCount).toBe(1);
   expect(data.reviewVelocity.reduce((n, p) => n + p.count, 0)).toBe(1);
+  expect(data.reputationSummary!.trend.reduce((n, p) => n + p.reviewCount, 0)).toBe(1);
 });
 
 it('response rate still windows on detected_at so imported unanswered reviews drag the rate', async () => {
   const data = await rep(RATE_BIZ);
-  // NEGATIVE CONTROL — green before and after the re-anchor. Workflow KPI,
-  // ADR 0019 D2: the import counts as received and drags the rate to 0%.
-  expect(data.reputationSummary!.responseRate.current).toBe(0);
+  const rate = data.reputationSummary!.responseRate;
+  // NEGATIVE CONTROL — green before and after. Workflow KPI, ADR 0019 D2: the
+  // import counts as received today and drags the current rate to 0%.
+  expect(rate.current).toBe(0);
+  // The prior window is pinned too: re-anchoring it would move the 45-day-old
+  // answered review out of prior and silently empty the sample.
+  expect(rate.priorSampleSize).toBe(1);
+  expect(rate.delta).toBe(-100);
 });
 
 it('recent-review feed still orders on detected_at so an imported review surfaces by ingestion recency', async () => {
   const data = await rep(FEED_BIZ);
-  // NEGATIVE CONTROL — the feed is ingestion recency, not review time. The
-  // 200-day-old import was detected today, so it leads.
+  // NEGATIVE CONTROL — the feed is ingestion recency, not review time.
   expect(data.recentReviews[0]?.starRating).toBe(2);
 });
 
+it('time-saved keys on approved_at so an imported review answered today still counts', async () => {
+  const data = await rep(TIMESAVED_BIZ);
+  // NEGATIVE CONTROL — action timestamp, never anchored. One handled response
+  // × MINUTES_SAVED_PER_RESPONSE (7, dashboard/constants.ts).
+  expect(data.reputationSummary!.timeSavedMinutes.current).toBe(7);
+});
+
 it('aggregate slices apply the same review-time anchor to velocity and rating breakdown', async () => {
+  const { currentWeek, back6 } = await weekMarkers();
   const slices = await fetchPerLocationAggregateSlices(sql(), tenant!.accountId, '30d');
   const slice = slices.get(AGG_BIZ)!;
-  const [{ week_start: reviewWeek }] = await sql()<{ week_start: string }[]>`
-    SELECT (DATE_TRUNC('week', NOW()) - interval '21 days')::date::text AS week_start`;
-  expect(slice.reviewVelocity.find((p) => p.weekStart.startsWith(reviewWeek))?.count).toBe(1);
+  expect(slice.reviewVelocity.find((p) => p.weekStart === back6)?.count).toBe(1);
+  expect(slice.reviewVelocity.find((p) => p.weekStart === currentWeek)?.count).toBe(1);
+  expect(slice.reviewVelocity.reduce((n, p) => n + p.count, 0)).toBe(2);
+  // 42 days back is outside the 30d rating window: only the organic 5★ counts.
   expect(slice.ratingBreakdown.total).toBe(1);
   expect(slice.ratingBreakdown.counts.find((c) => c.stars === 5)?.count).toBe(1);
+});
+
+it('aggregate windowedReceived and windowedResponded still count on detected_at', async () => {
+  const slices = await fetchPerLocationAggregateSlices(sql(), tenant!.accountId, '30d');
+  const slice = slices.get(AGG_BIZ)!;
+  // NEGATIVE CONTROL — these feed the account response rate (workflow KPI).
+  // Both reviews were detected inside 30d; the import is answered, the organic is not.
+  expect(slice.windowedReceived).toBe(2);
+  expect(slice.windowedResponded).toBe(1);
+});
+
+it('a location with no reviews still gets a zero-filled velocity series in the aggregate slice', async () => {
+  const slices = await fetchPerLocationAggregateSlices(sql(), tenant!.accountId, '30d');
+  const slice = slices.get(EMPTY_BIZ)!;
+  // The anchor must stay in the LEFT JOIN ... ON clause. Moved into WHERE it
+  // becomes an inner join and this location loses its series entirely.
+  expect(slice.reviewVelocity).toHaveLength(8);
+  expect(slice.reviewVelocity.every((p) => p.count === 0)).toBe(true);
 });
 ```
 
 - [ ] **Step 2: Author the single-location SQL-shape pins**
 
 `src/lib/dashboard/__tests__/service.review-time-anchor.test.ts` — follow
-`service.rating-breakdown.test.ts` exactly (same mock harness, same Redis stub, same seed pattern).
-The `createMockSql` harness flattens nested fragments into `call.text`, so a composed fragment is
-visible as literal SQL.
+`service.rating-breakdown.test.ts` (same harness, same Redis stub, same seed pattern). The
+`createMockSql` harness flattens nested fragments into `call.text`, so a composed fragment is
+visible as literal SQL; `sqlCalls` records on `await` only.
 
 ```typescript
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -270,12 +409,13 @@ import { getActiveDashboardData } from '../service';
 let harness: MockSqlHarness;
 let mockSql: Sql;
 const BUSINESS_ID = 'biz-anchor-1';
+const ANCHOR = 'LEAST(review_date, detected_at)';
 
-// Sequential settledInOrder call order (with includeReputationMetrics):
-// 0 business, 1 totalReviews, 2 totalResponded, 3 velocity, 4 ranking,
-// 5 recentReviews, 6 monthlyBrief, 7 weeklyBrief, 8 zernioConn,
-// 9 queuedReconnect, 10 unresolvedIncident, 11 ratingBreakdown,
-// then the reputation batch: 12 rate, 13 star, 14 timeSaved, 15 trend, 16 pendingCount.
+// Sequential settledInOrder order: 0 business, 1 totalReviews, 2 totalResponded,
+// 3 velocity, 4 ranking, 5 recentReviews, 6 monthlyBrief, 7 weeklyBrief,
+// 8 zernioConn, 9 queuedReconnect, 10 unresolvedIncident, 11 ratingBreakdown,
+// (readPendingMarker is Redis — it does NOT consume the queue), then the
+// reputation batch: 12 rate, 13 star, 14 timeSaved, 15 trend, 16 pendingCount.
 function seed() {
   harness.resetMockSql();
   harness.sqlReturnQueue.push(
@@ -289,7 +429,11 @@ function seed() {
   );
 }
 
+/** Find by a marker unique to ONE query — never by a string two queries share. */
 const find = (needle: string) => harness.sqlCalls.find((c) => c.text.includes(needle))?.text ?? '';
+const countAnchors = (text: string) => text.split(ANCHOR).length - 1;
+/** Blank out the approved anchor so any REMAINING detected_at is a bare one. */
+const stripAnchor = (text: string) => text.split(ANCHOR).join('«anchor»');
 
 describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () => {
   beforeEach(() => {
@@ -300,46 +444,65 @@ describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () =>
   it('velocity, avg star, sentiment trend and rating breakdown queries all spell LEAST(review_date, detected_at)', async () => {
     seed();
     await getActiveDashboardData(mockSql, BUSINESS_ID, { includeReputationMetrics: true });
-    const velocity = find('COALESCE(r.cnt, 0)');
-    const star = find('star_n_current');
-    const trend = find('AVG(sentiment_score)');
-    const rating = find('GROUP BY star_rating');
-    for (const [name, text] of Object.entries({ velocity, star, trend, rating })) {
-      expect(text, `${name} query must compose the Review-time anchor`).toContain(
-        'LEAST(review_date, detected_at)',
+    const queries = {
+      velocity: find('COALESCE(r.cnt, 0)'),
+      star: find('star_n_current'),
+      trend: find('AVG(sentiment_score)'),
+      rating: find('GROUP BY star_rating'),
+    };
+    // Exact occurrence counts — a partially re-anchored query (say, the FILTER
+    // predicates moved but the outer WHERE left behind) passes a bare
+    // `toContain` and fails here.
+    const expected = { velocity: 3, star: 7, trend: 3, rating: 1 };
+    for (const [name, text] of Object.entries(queries)) {
+      expect(text, `${name} query must be found`).not.toBe('');
+      expect(countAnchors(text), `${name} anchor occurrences`).toBe(
+        expected[name as keyof typeof expected],
       );
-      expect(text, `${name} query must not window on bare detected_at`).not.toMatch(
-        /(?<!LEAST\(review_date, )detected_at >= NOW\(\)/,
-      );
+      // Nothing but the anchor may reference detected_at in these four queries.
+      expect(stripAnchor(text), `${name} must have no bare detected_at`).not.toContain('detected_at');
     }
   });
 
   it('response-rate and timeSaved queries never spell LEAST(', async () => {
     seed();
     await getActiveDashboardData(mockSql, BUSINESS_ID, { includeReputationMetrics: true });
-    // NEGATIVE CONTROL — workflow KPI + action timestamp, ADR 0019 D2.
-    expect(find('received_current')).not.toContain('LEAST(');
-    expect(find('handled_prior')).not.toContain('LEAST(');
-    expect(find('received_current')).toContain('r.detected_at >= NOW()');
+    // NEGATIVE CONTROL. `handled_prior` appears in BOTH the rate and timeSaved
+    // queries, so each is selected by a marker unique to it.
+    const rate = find('received_current');
+    const timeSaved = find('FROM responses resp');
+    expect(rate).not.toBe('');
+    expect(timeSaved).not.toBe('');
+    expect(timeSaved).toContain('handled_prior');
+    expect(rate).not.toContain('LEAST(');
+    expect(timeSaved).not.toContain('LEAST(');
+    expect(rate).toContain('r.detected_at >= NOW()');
+    expect(timeSaved).toContain('resp.approved_at >= NOW()');
   });
 });
 ```
 
 - [ ] **Step 3: Author the aggregate SQL-shape pins**
 
-`src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts` — model the seeding on the
-existing `aggregate-queries.test.ts` (8-member `settledInOrder` wave: 0 baseline, 1 counters,
-2 velocity, 3 rating, 4 ranking, 5 monthly, 6 weekly, 7 pending).
+`src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts` — model the seed on the
+existing `aggregate-queries.test.ts` wave (0 baseline, 1 counters, 2 velocity, 3 rating, 4 ranking,
+5 monthly, 6 weekly, 7 pending).
 
 ```typescript
+const ANCHOR = 'LEAST(r.review_date, r.detected_at)';
+const countAnchors = (t: string) => t.split(ANCHOR).length - 1;
+const stripAnchor = (t: string) => t.split(ANCHOR).join('«anchor»');
+
 it('aggregate velocity and rating-breakdown queries spell LEAST(r.review_date, r.detected_at)', async () => {
   seed();
   await fetchPerLocationAggregateSlices(mockSql, ACCOUNT_ID, '30d');
   const velocity = find('CROSS JOIN generate_series');
   const rating = find('GROUP BY b.id, r.star_rating');
-  expect(velocity).toContain('LEAST(r.review_date, r.detected_at)');
-  expect(rating).toContain('LEAST(r.review_date, r.detected_at)');
-  // Aliases renamed to r. so the fragment's '' | 'r.' union covers both.
+  expect(countAnchors(velocity)).toBe(2);
+  expect(countAnchors(rating)).toBe(1);
+  expect(stripAnchor(velocity)).not.toContain('detected_at');
+  expect(stripAnchor(rating)).not.toContain('detected_at');
+  // Aliases renamed to r. so the fragment's '' | 'r.' union covers both sites.
   expect(velocity).not.toContain('rv.');
   expect(rating).not.toContain('rev.');
 });
@@ -350,23 +513,46 @@ it('aggregate review-counter query never spells LEAST(', async () => {
   // NEGATIVE CONTROL — received_window/responded_window feed the account
   // response rate, a workflow KPI (ADR 0019 D2).
   const counters = find('total_received_all_time');
+  expect(counters).not.toBe('');
   expect(counters).not.toContain('LEAST(');
   expect(counters).toContain('r.detected_at >= NOW()');
 });
 ```
 
-- [ ] **Step 4: Author the fragment unit pins as `.todo`**
+- [ ] **Step 4: Author the fragment pins + the single-owner audit**
 
-`src/lib/kpi/__tests__/fragments.test.ts`. The module does not exist yet, so these two are `.todo`
-in this task and **T2 converts them to real tests** — a `.todo` satisfies the `promised-tests` gate
-while proving nothing, so leaving one behind is a review-blocking defect.
+`src/lib/kpi/__tests__/fragments.test.ts`. The first two are `.todo` here because the module does
+not exist yet; **T2 converts them**. A surviving `.todo` satisfies the `promised-tests` gate while
+proving nothing — treat one as a review-blocking defect. The third is real immediately: it is the
+test that stops Stack B hand-spelling `LEAST(...)` and leaving `fragments.ts` unused, which every
+other test in this plan would happily allow.
 
 ```typescript
-import { describe, it } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const OWNER = join('src', 'lib', 'kpi', 'fragments.ts');
+const ANCHOR_PATTERN = /LEAST\(\s*(?:[A-Za-z_][\w$]*\.)?review_date\s*,/;
+
+function sourceFiles(root: string): string[] {
+  return readdirSync(root, { recursive: true, encoding: 'utf8' })
+    .filter((p) => /\.tsx?$/.test(p) && !p.includes('__tests__'))
+    .map((p) => join(root, p));
+}
 
 describe('kpi/fragments — Review-time anchor owner (#757)', () => {
   it.todo('reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else');
   it.todo('reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text');
+
+  it('the Review-time anchor is spelled only in kpi/fragments.ts', () => {
+    const offenders = [...sourceFiles('src'), ...sourceFiles('worker')]
+      .filter((f) => f !== OWNER && ANCHOR_PATTERN.test(readFileSync(f, 'utf8')));
+    // Every composer must go through the fragment. A hand-spelled LEAST in
+    // dashboard/service.ts would satisfy the live-DB suite AND the shape pins
+    // while leaving fragments.ts dead — this is the only test that catches it.
+    expect(offenders).toEqual([]);
+  });
 });
 ```
 
@@ -375,32 +561,35 @@ describe('kpi/fragments — Review-time anchor owner (#757)', () => {
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
 pnpm vitest run src/lib/dashboard/__tests__/service.review-time-anchor.test.ts \
-  src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts 2>&1 | tail -30
-TEST_DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL" pnpm vitest run \
-  src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
+  src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts \
+  src/lib/kpi/__tests__/fragments.test.ts 2>&1 | tail -30
+pnpm vitest run src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
 ```
 
-Expected — this exact split is the eval's contract, record it in the commit body:
+The split below is the eval's contract — record it in the commit body. **Do not weaken an assertion
+to make it come out right**; a fixture that does not exercise the anchor is the bug.
 
-| Test | Expected now |
-|---|---|
-| 1 velocity week bucketing | **FAIL** |
-| 2 sentiment trend week bucketing | **FAIL** |
-| 3 avg star window | **FAIL** (reads 3, want 5) |
-| 4 rating breakdown window | **FAIL** (total 2, want 1) |
-| 5 NULL review_date fallback | PASS (equivalent under both anchors — regression guard) |
-| 6 future review_date clamp | **FAIL** on a Sat/Sun run, PASS midweek (documented in the ported header) |
-| 7 response rate on detected_at | PASS (negative control) |
-| 8 feed on detected_at | PASS (negative control) |
-| 9 aggregate slice anchor | **FAIL** |
-| 10 shape: LEAST in 4 queries | **FAIL** |
-| 11 shape: no LEAST in rate/timeSaved | PASS (negative control) |
-| 12 shape: LEAST in aggregate | **FAIL** |
-| 13 shape: no LEAST in counters | PASS (negative control) |
-| 14–15 fragment pins | `.todo` |
-
-If a test in the FAIL column passes, the fixture is not exercising the anchor — fix the fixture
-before proceeding. **Do not weaken an assertion to make the split come out right.**
+| # | Test | Now | Why |
+|---|---|---|---|
+| 1 | velocity week bucketing | **FAIL** | buckets on `detected_at` = current week |
+| 2 | sentiment trend week bucketing | **FAIL** | same |
+| 3 | avg star current window | **FAIL** | reads 3, want 5 |
+| 4 | rating breakdown window | **FAIL** | total 2, want 1 |
+| 5 | NULL `review_date` fallback | PASS | equivalent under both anchors — regression guard |
+| 6 | future `review_date` clamp | PASS | equivalent under both — guards against COALESCE, not `detected_at` |
+| 7 | response rate on `detected_at` | PASS | negative control |
+| 8 | feed on `detected_at` | PASS | negative control |
+| 9 | avg star prior window + sample | **FAIL** | prior sample empty today, delta suppressed |
+| 10 | timeSaved on `approved_at` | PASS | negative control |
+| 11 | aggregate slice anchor | **FAIL** | velocity in wrong week, rating total 2 |
+| 12 | aggregate counters on `detected_at` | PASS | negative control |
+| 13 | aggregate zero-fill | PASS | contract preserved by the current SQL — guards the LEFT JOIN move |
+| 14 | shape: anchor ×3/7/3/1 | **FAIL** | zero anchors today |
+| 15 | shape: no LEAST in rate/timeSaved | PASS | negative control |
+| 16 | shape: aggregate anchor ×2/1 | **FAIL** | zero anchors today |
+| 17 | shape: no LEAST in counters | PASS | negative control |
+| 18 | single-owner source audit | PASS | no anchor spelling in Stack B yet |
+| 19–20 | fragment pins | `.todo` | converted in T2 |
 
 - [ ] **Step 6: Commit**
 
@@ -408,8 +597,11 @@ before proceeding. **Do not weaken an assertion to make the split come out right
 git add -A && git commit -m "test(#757): eval — Review-time anchor on the rendered dashboard stack
 
 Live-DB suite moved from kpi/__tests__ and re-pointed at getActiveDashboardData
-+ fetchPerLocationAggregateSlices, plus SQL-shape pins and two negative controls
-(response rate + recent-review feed stay on detected_at, ADR 0019 D2)."
++ fetchPerLocationAggregateSlices. Five negative controls pin the metrics that
+must NOT move (response rate current+prior, recent-review feed, timeSaved,
+aggregate counters), and a source audit pins fragments.ts as the sole speller.
+
+Branch is deliberately RED from here until T4 — eval-first."
 ```
 
 ---
@@ -418,10 +610,8 @@ Live-DB suite moved from kpi/__tests__ and re-pointed at getActiveDashboardData
 
 **Blocking edges:** T1.
 
-**Files:**
-- Create: `src/lib/kpi/fragments.ts`
-- Modify: `src/lib/kpi/service.ts` (import instead of define — Stack A still alive here)
-- Modify: `src/lib/kpi/__tests__/fragments.test.ts` (`.todo` → real)
+**Files:** Create `src/lib/kpi/fragments.ts`; modify `src/lib/kpi/service.ts`,
+`src/lib/kpi/__tests__/fragments.test.ts`
 
 - [ ] **Step 1: Create the fragment module**
 
@@ -431,7 +621,8 @@ Live-DB suite moved from kpi/__tests__ and re-pointed at getActiveDashboardData
 // Single owner of the Review-time anchor spelling (#688 ADR 0019, consolidated
 // by #757). Extracted from kpi/service.ts so the RENDERED dashboard stack
 // (dashboard/service.ts + dashboard/aggregate-queries.ts) composes the same
-// bucketing decision instead of re-spelling it.
+// bucketing decision instead of re-spelling it. fragments.test.ts fails if any
+// non-test source file outside this one spells the anchor.
 //
 // Each factory returns a lazy Postgres.js fragment (a nested sql`` template —
 // never awaited on its own; it composes into a caller's template text + bound
@@ -444,7 +635,7 @@ Live-DB suite moved from kpi/__tests__ and re-pointed at getActiveDashboardData
 // NOT A VARIATION SEAM. Nothing varies across this module — it exists for
 // LOCALITY of one load-bearing spelling (the openFlagExistsSql precedent,
 // #730). Do not add an "anchor strategy", a registry, or an injected clock
-// behind it; if a second bucketing rule is ever needed, that is a new ADR.
+// behind it; a second bucketing rule would be a new ADR, not a new branch here.
 
 import type { Sql } from 'postgres';
 
@@ -453,19 +644,19 @@ type ReviewsPrefix = '' | 'r.';
 
 /**
  * Review-time anchor (#688, ADR 0019) — the timestamp the reputation KPIs
- * (review volume, sentiment trend, avg star, velocity, rating breakdown)
- * bucket on, so a consented Review import lands in its true months/weeks
- * instead of spiking the import month.
+ * (velocity, rating breakdown, avg star, sentiment trend) bucket on, so a
+ * consented Review import lands in its true weeks instead of spiking the
+ * import week.
  *
  * LEAST ignores NULLs in Postgres: a NULL review_date falls back to
  * detected_at, and a clock-skewed FUTURE review_date clamps to detected_at
  * (unclamped, a future week silently vanishes from a trend's generate_series
  * LEFT JOIN). The anchor can never exceed detected_at.
  *
- * Workflow KPIs — response rate, the MonthlyImpactWorker digest — deliberately
- * stay on detected_at: imported unanswered reviews are MEANT to drag the rate
- * (#675 nudge reasoning, ADR 0019 D2). Action timestamps (approved_at) never
- * use this.
+ * Workflow KPIs — response rate, the aggregate review counters, the
+ * MonthlyImpactWorker digest — deliberately stay on detected_at: imported
+ * unanswered reviews are MEANT to drag the rate (#675 nudge reasoning,
+ * ADR 0019 D2). Action timestamps (approved_at) never use this.
  */
 export function reviewTimeAnchor(sql: Sql, prefix: ReviewsPrefix) {
   return prefix === 'r.'
@@ -486,68 +677,62 @@ export function reviewTimeWindowFilter(sql: Sql, prefix: ReviewsPrefix, windowDa
 
 - [ ] **Step 2: Point Stack A at the module (pure move, no behavior change)**
 
-In `src/lib/kpi/service.ts`, delete the local `reviewTimeAnchor` and `reviewTimeWindowFilter`
-definitions (currently lines ~134–154) and add to the import block:
+In `src/lib/kpi/service.ts` delete the local `reviewTimeAnchor` and `reviewTimeWindowFilter`
+definitions (currently ~lines 134–154) and add:
 
 ```typescript
 import { reviewTimeAnchor, reviewTimeWindowFilter } from './fragments';
 ```
 
 Leave `notDeletedFilter`, `detectedAtWindowFilter`, `handledStatusFilter`, `ttrSelectExpr` and
-`ttrHandledWindowFilter` where they are — they die with this file in T5, and extracting a fragment
-with zero surviving composers is dead code (intake non-goal).
+`ttrHandledWindowFilter` in place — they die with this file in T5 (see the superseding adjudication
+at the top; extracting a fragment with no surviving composer is dead code).
 
 - [ ] **Step 3: Convert the two `.todo` pins to real tests**
 
-```typescript
-import { describe, expect, it } from 'vitest';
-import type { Sql } from 'postgres';
-import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
-import { reviewTimeAnchor, reviewTimeWindowFilter } from '../fragments';
+`sqlCalls` records inside `then()`, so simply `await` each host template.
 
-describe('kpi/fragments — Review-time anchor owner (#757)', () => {
-  it('reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else', () => {
+```typescript
+  it('reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else', async () => {
     const harness = createMockSql();
     const sql = harness.mockSql as unknown as Sql;
-    const bare = harness.sqlCalls;
-    // Compose into a host template so the harness records the flattened text.
-    void sql`SELECT ${reviewTimeAnchor(sql, '')} AS a`.then?.(() => {});
-    void sql`SELECT ${reviewTimeAnchor(sql, 'r.')} AS a`.then?.(() => {});
-    const texts = bare.map((c) => c.text);
-    expect(texts[0]).toBe('SELECT LEAST(review_date, detected_at) AS a');
-    expect(texts[1]).toBe('SELECT LEAST(r.review_date, r.detected_at) AS a');
+    await sql`SELECT ${reviewTimeAnchor(sql, '')} AS a`;
+    await sql`SELECT ${reviewTimeAnchor(sql, 'r.')} AS a`;
+    expect(harness.sqlCalls[0]!.text).toBe('SELECT LEAST(review_date, detected_at) AS a');
+    expect(harness.sqlCalls[1]!.text).toBe('SELECT LEAST(r.review_date, r.detected_at) AS a');
     // No FROM/JOIN and no tenant predicate may ever live in the fragment —
     // ci:tenant-scope reads raw template text and would stop seeing it.
-    for (const t of texts) {
-      expect(t).not.toMatch(/\bFROM\b|\bJOIN\b|business_id|account_id/);
+    for (const call of harness.sqlCalls) {
+      expect(call.text).not.toMatch(/\bFROM\b|\bJOIN\b|business_id|account_id/);
+      expect(call.values).toEqual([]);
     }
   });
 
-  it('reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text', () => {
+  it('reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text', async () => {
     const harness = createMockSql();
     const sql = harness.mockSql as unknown as Sql;
-    void sql`SELECT 1 WHERE ${reviewTimeWindowFilter(sql, '', 30)}`.then?.(() => {});
+    await sql`SELECT 1 WHERE ${reviewTimeWindowFilter(sql, '', 30)}`;
     const call = harness.sqlCalls[0]!;
-    expect(call.text).toContain('LEAST(review_date, detected_at) >= NOW() - make_interval(days => ?)');
+    expect(call.text).toBe(
+      'SELECT 1 WHERE LEAST(review_date, detected_at) >= NOW() - make_interval(days => ?)',
+    );
     expect(call.text).not.toMatch(/INTERVAL\s+'\d+\s+days'/i);
-    expect(call.values).toContain(30);
+    expect(call.values).toEqual([30]);
   });
-});
 ```
 
-> If the harness's fragment flattening only records on `await`, await each host template instead of
-> the `.then?.()` nudge — `sqlCalls` is the awaited, fragment-flattened view. Adjust to whichever
-> the harness actually does; the assertions themselves do not change.
+Add the imports this needs (`createMockSql`, `type Sql`, `reviewTimeAnchor`,
+`reviewTimeWindowFilter`) alongside the existing ones.
 
-- [ ] **Step 4: Verify — Stack A is unchanged, fragments are pinned**
+- [ ] **Step 4: Verify — Stack A unchanged, fragments pinned**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
 pnpm vitest run src/lib/kpi/__tests__ 2>&1 | tail -20
 ```
 
-Expected: `fragments.test.ts` 2 PASS (no `.todo` remaining), `service.test.ts` and
-`service.cache.test.ts` still fully PASS — this task must not change Stack A's behavior by one byte.
+Expected: `fragments.test.ts` 3 PASS with **no `.todo` remaining**; `service.test.ts` and
+`service.cache.test.ts` fully PASS — this task must not change Stack A's behavior by one byte.
 
 - [ ] **Step 5: Commit**
 
@@ -555,7 +740,9 @@ Expected: `fragments.test.ts` 2 PASS (no `.todo` remaining), `service.test.ts` a
 git add -A && git commit -m "refactor(#757): extract reviewTimeAnchor + reviewTimeWindowFilter to kpi/fragments.ts
 
 Pure move, no behavior change — Stack A composes them from the new owner.
-Single-owner spelling, not a variation seam (openFlagExistsSql precedent, #730)."
+Single-owner spelling, not a variation seam (openFlagExistsSql precedent, #730).
+Supersedes Pathfinder P1's four-fragment item: the other two have no composer
+once Stack A is deleted."
 ```
 
 ---
@@ -564,7 +751,7 @@ Single-owner spelling, not a variation seam (openFlagExistsSql precedent, #730).
 
 **Blocking edges:** T2. **Mutually independent with T4.**
 
-**Files:** Modify `src/lib/dashboard/service.ts`
+**Files:** Modify `src/lib/dashboard/service.ts` — and nothing else.
 
 - [ ] **Step 1: Import the fragments**
 
@@ -585,7 +772,7 @@ import { reviewTimeAnchor, reviewTimeWindowFilter } from '@/lib/kpi/fragments';
       ) r ON r.wk = gs::date
 ```
 
-Week-based lookback composes the anchor directly — `reviewTimeWindowFilter` is days-only.
+Week-based lookbacks compose the anchor directly — `reviewTimeWindowFilter` is days-only.
 
 - [ ] **Step 3: Rating breakdown (line 371)**
 
@@ -626,8 +813,8 @@ Week-based lookback composes the anchor directly — `reviewTimeWindowFilter` is
   `;
 ```
 
-FILTER predicates compose the anchor directly (the two-sided pairs have no single-sided fragment);
-only the outer single-sided WHERE uses `reviewTimeWindowFilter`.
+Seven anchor occurrences — the shape test pins that exact count. `star_n_prior` is the sample size
+`buildReputationSummary` uses to suppress the delta, so the prior-bucket predicates must move too.
 
 - [ ] **Step 5: Sentiment trend (lines 565, 571, 572)**
 
@@ -644,9 +831,9 @@ only the outer single-sided WHERE uses `reviewTimeWindowFilter`.
         ) agg ON agg.wk = gs::date
 ```
 
-- [ ] **Step 6: Update the reputation-batch doc comment**
+- [ ] **Step 6: Update the `fetchReputationRows` doc comment**
 
-`fetchReputationRows`'s JSDoc (~line 458) currently says "All scoped by business_id". Add:
+Add to its JSDoc (~line 458):
 
 ```
  * Avg star and the sentiment trend bucket on the Review-time anchor (ADR 0019,
@@ -654,30 +841,36 @@ only the outer single-sided WHERE uses `reviewTimeWindowFilter`.
  * on approved_at (action timestamp) — neither may be re-anchored.
 ```
 
-- [ ] **Step 7: DO NOT TOUCH — verify by re-reading before committing**
+- [ ] **Step 7: DO NOT TOUCH — re-read before committing**
 
-`rateRows` (lines 480–514, all seven `r.detected_at`), `timeSavedRows` (537–554, `approved_at`),
-`ORDER BY rev.detected_at DESC` in recentReviews (line 312), totals, ranking, pending. **Do not
-convert any `await` back into a `Promise.all`** — the sequential `settledInOrder` wave and the
-sequential reputation batch are #505's fix and their comments say so.
+`rateRows` (480–514, all seven `r.detected_at`), `timeSavedRows` (537–554, `approved_at`),
+`ORDER BY rev.detected_at DESC` (line 312), totals, ranking, pending. **Do not convert any `await`
+back into a `Promise.all`** — the sequential `settledInOrder` wave and the sequential reputation
+batch are #505's fix and their comments say so.
 
-- [ ] **Step 8: Verify**
+- [ ] **Step 8: Verify — own suite only**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
-pnpm vitest run src/lib/dashboard/__tests__ 2>&1 | tail -30
+pnpm vitest run src/lib/dashboard/__tests__/service.review-time-anchor.test.ts \
+  src/lib/dashboard/__tests__/service.cache.test.ts \
+  src/lib/dashboard/__tests__/service.degradation.test.ts \
+  src/lib/dashboard/__tests__/service.rating-breakdown.test.ts \
+  src/lib/dashboard/__tests__/service.feed-projection.test.ts \
+  src/lib/kpi/__tests__/fragments.test.ts 2>&1 | tail -25
 ```
 
-Expected: shape tests 10 + 11 PASS; every pre-existing dashboard suite still PASS.
+Expected: all PASS. **Do not run the shared `review-time-anchor.integration.test.ts` here** — its
+aggregate assertions belong to T4 and will be red until T4 lands.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add -A && git commit -m "feat(#757): re-anchor single-location dashboard reputation windows
 
-Velocity, rating breakdown, avg star and sentiment trend compose the
-Review-time anchor. Response rate (workflow KPI) and timeSaved (approved_at)
-deliberately unchanged — ADR 0019 D2."
+Velocity, rating breakdown, avg star (current AND prior buckets) and the
+sentiment trend compose the Review-time anchor. Response rate (workflow KPI)
+and timeSaved (approved_at) deliberately unchanged — ADR 0019 D2."
 ```
 
 ---
@@ -686,7 +879,7 @@ deliberately unchanged — ADR 0019 D2."
 
 **Blocking edges:** T2. **Mutually independent with T3.**
 
-**Files:** Modify `src/lib/dashboard/aggregate-queries.ts`
+**Files:** Modify `src/lib/dashboard/aggregate-queries.ts` — and nothing else.
 
 - [ ] **Step 1: Import the fragments**
 
@@ -717,8 +910,9 @@ import { reviewTimeAnchor, reviewTimeWindowFilter } from '@/lib/kpi/fragments';
     `,
 ```
 
-The anchor stays inside the `LEFT JOIN … ON` clause, so a location with no matching review still
-gets its zero-filled row for every week — the per-location zero-fill contract is preserved.
+**The anchor MUST stay inside the `LEFT JOIN … ON` clause.** Moved into `WHERE` it degenerates the
+outer join to an inner one and a location with no reviews loses its zero-filled series entirely —
+that is what live test 13 (`EMPTY_BIZ`) exists to catch.
 
 - [ ] **Step 3: Rating breakdown — rename `rev` → `r`, anchor line 218**
 
@@ -736,14 +930,9 @@ gets its zero-filled row for every week — the per-location zero-fill contract 
     `,
 ```
 
-The rename keeps the fragment's prefix union at two members — widening it to `'rv.' | 'rev.'` would
-force a four-branch switch of near-duplicate SQL in the owner module for no gain (intake decision).
+- [ ] **Step 4: Annotate the slice interface**
 
-- [ ] **Step 4: Fix the now-stale interface comment**
-
-`PerLocationAggregateSlice.windowedReceived` (line ~59) says "Non-deleted reviews with detected_at
-in the window" — still true (it comes from the counter query, which does not move). Leave it, and
-add above `reviewVelocity` / `ratingBreakdown` in the same interface:
+In `PerLocationAggregateSlice` (~line 50), above the two moved fields:
 
 ```typescript
   /** Weekly counts bucketed on the Review-time anchor (ADR 0019, #757). */
@@ -752,42 +941,56 @@ add above `reviewVelocity` / `ratingBreakdown` in the same interface:
   ratingBreakdown: RatingBreakdown;
 ```
 
-- [ ] **Step 5: DO NOT TOUCH** — the counter query (lines 156–184, `r.detected_at` at 168 and 171
-feeds the account response rate), ranking, briefs, pending counts, the baseline anchor read, or the
+Leave `windowedReceived` / `windowedResponded` and their `detected_at` doc comments alone — they
+come from the counter query, which does not move.
+
+- [ ] **Step 5: DO NOT TOUCH** — the counter query (156–184; `r.detected_at` at 168 and 171 feeds
+the account response rate), ranking, briefs, pending counts, the fatal baseline read, or the
 `settledInOrder` sequencing.
 
-- [ ] **Step 6: Verify**
+- [ ] **Step 6: Verify — own suite, then the shared suite if T3 has landed**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
-pnpm vitest run src/lib/dashboard/__tests__ 2>&1 | tail -30
+pnpm vitest run src/lib/dashboard/__tests__/aggregate-queries.review-time-anchor.test.ts \
+  src/lib/dashboard/__tests__/aggregate-queries.test.ts \
+  src/lib/dashboard/__tests__/aggregate-service.test.ts \
+  src/lib/dashboard/__tests__/aggregate-service.degradation.test.ts 2>&1 | tail -25
 pnpm ci:tenant-scope 2>&1 | tail -20
 ```
 
-Expected: shape tests 12 + 13 PASS; `aggregate-queries.test.ts` still PASS; **`ci:tenant-scope`
-clean** — this is the audit the alias rename could disturb, so it runs here rather than waiting for
-the gate.
+`ci:tenant-scope` runs here rather than waiting for the gate — the alias rename is the one edit that
+could disturb it. The audit derives aliases from the SQL text (`tableAliases`), so the rename should
+be structurally invisible; prove it, don't assume it.
+
+**Then, once BOTH T3 and T4 have landed** (whichever finishes second runs this):
+
+```bash
+pnpm vitest run src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
+```
+
+Expected: all 13 live-DB tests PASS. This is the first moment the branch is fully green.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "feat(#757): re-anchor aggregate velocity + rating breakdown
 
-Renames the reviews aliases rv/rev to r so the fragment's '' | 'r.' prefix
-union covers both sites. Counter query (account response rate) untouched."
+Renames the reviews aliases rv/rev to r so the fragment's '' | 'r.' prefix union
+covers both sites. Anchor stays in the LEFT JOIN ON clause so the per-location
+zero-fill survives. Counter query (account response rate) untouched."
 ```
 
 ---
 
 ### Task 5: Delete Stack A
 
-**Blocking edges:** T3 and T4 — Stack B must already carry the anchor so every intermediate commit
-is shippable.
+**Blocking edges:** T3 **and** T4 — Stack B must already carry the anchor.
 
 **Files:**
 - Delete: `src/lib/kpi/service.ts`, `src/lib/kpi/__tests__/service.test.ts`, `src/lib/kpi/__tests__/service.cache.test.ts`
 - Delete: `src/app/api/dashboard/kpis/route.ts`, `src/app/api/dashboard/kpis/__tests__/route.test.ts`
-- Modify: `src/lib/kpi/types.ts`, `scripts/ci/__tests__/db-imports-audit.test.ts`
+- Modify: `src/lib/kpi/types.ts`, `scripts/ci/tenant-scope-allowlist.ts`, `scripts/ci/__tests__/db-imports-audit.test.ts`
 
 - [ ] **Step 1: Delete the files**
 
@@ -798,13 +1001,44 @@ git rm src/lib/kpi/service.ts src/lib/kpi/__tests__/service.test.ts \
 git rm -r src/app/api/dashboard/kpis
 ```
 
-- [ ] **Step 2: Drop the orphaned exports from `src/lib/kpi/types.ts`**
+- [ ] **Step 2: Drop the seven tenant-scope allowlist entries and lower the baseline**
+
+`scripts/ci/tenant-scope-allowlist.ts` carries seven entries whose `file` is
+`src/lib/kpi/service.ts`, under the `// --- KPI service (src/lib/kpi/service.ts) ---` header at
+~line 2258. The audit fails on a stale entry (`UNUSED_ALLOWLIST_REASON = 'unused tenant scope
+allowlist entry'`), so deleting the file without deleting these **breaks `pnpm ci:tenant-scope`**.
+
+Remove the header comment and all seven entries (~lines 2258–2314), then:
+
+```typescript
+export const ALLOWLIST_BASELINE = 401;   // was 408 — seven kpi/service.ts entries removed with the file (#757)
+```
+
+The baseline must move in the same PR or the audit fails on the count mismatch — that guard is
+deliberate ("any add or remove must bump ALLOWLIST_BASELINE in the same PR").
+
+- [ ] **Step 3: Fix BOTH stale references in the CI audit test**
+
+`scripts/ci/__tests__/db-imports-audit.test.ts` names deleted paths twice — line 102 (the route)
+and line **118** (`src/lib/kpi/service.ts`). Both are pure string tests that would keep passing
+while pointing at nothing:
+
+```typescript
+// line 102
+    expect(isCompositionRoot('src/app/api/dashboard/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
+// line 118
+    expect(isCompositionRoot('src/lib/dashboard/service.ts', REGISTERED_WORKER_ROOTS)).toBe(false);
+```
+
+`src/lib/dashboard/service.ts` is the right replacement for 118: a live domain module that is
+correctly *not* a composition root, which is exactly the property that assertion checks.
+
+- [ ] **Step 4: Drop the orphaned exports from `src/lib/kpi/types.ts`**
 
 Remove `KpiResponseRate`, `KpiReviewVolume`, `SentimentTrendPoint`, `KpiScope` and
-`DashboardKpiSummary` (lines 5–53) — verified zero importers once Stack A is gone. **Keep**
+`DashboardKpiSummary` (lines 5–53) — zero importers once Stack A is gone. **Keep**
 `DASHBOARD_WINDOWS`, `DashboardWindow`, `DEFAULT_DASHBOARD_WINDOW`, `DashboardWindowParams`,
-`WINDOW_PARAMS`, `resolveDashboardWindow`, `dashboardWindowParams` — 9 importers. Replace the file
-header:
+`WINDOW_PARAMS`, `resolveDashboardWindow`, `dashboardWindowParams`. Replace the file header:
 
 ```typescript
 // Canonical analytics window vocabulary for the dashboard payload. Formerly
@@ -813,38 +1047,31 @@ header:
 // anchor fragments live beside this file in ./fragments.ts.
 ```
 
-- [ ] **Step 3: Fix the stale route path in the CI audit test**
-
-`scripts/ci/__tests__/db-imports-audit.test.ts:102` asserts composition-root status for the deleted
-route. It is a pure string test so it would keep passing while pointing at nothing. Repoint it at a
-live route:
-
-```typescript
-    expect(isCompositionRoot('src/app/api/dashboard/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
-```
-
-- [ ] **Step 4: Prove nothing references the deleted surface**
+- [ ] **Step 5: Prove nothing references the deleted surface**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
-rg -n "kpi/service|getLocationKpiSummary|getAccountKpiSummary|DashboardKpiSummary|KpiScope" \
+rg -n "kpi/service|getLocationKpiSummary|getAccountKpiSummary|DashboardKpiSummary|KpiScope|KpiResponseRate|KpiReviewVolume|SentimentTrendPoint" \
    src worker scripts e2e || echo "CLEAN"
 rg -n "api/dashboard/kpis" src worker scripts e2e || echo "CLEAN"
 pnpm typecheck 2>&1 | tail -10
+pnpm ci:tenant-scope 2>&1 | tail -10
+pnpm ci:db-imports 2>&1 | tail -10
 ```
 
-Expected: `CLEAN` for both greps, typecheck passes. Historical records
+Expected: `CLEAN` twice, typecheck and both audits pass. Historical records
 (`docs/reviews/**/blast-radius.md`, the superseded root `PLAN.md`) keep their references by design —
 they are a log, not a live cross-reference.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "refactor(#757): delete the consumer-less Stack A KPI service and route
 
 getLocationKpiSummary + getAccountKpiSummary + GET /api/dashboard/kpis had zero
-consumers (verified three ways, Pathfinder P1). The anchor semantics survive in
-kpi/fragments.ts, ADR 0019 and the eval suite. Window vocabulary kept."
+consumers (verified three ways, Pathfinder P1). Drops seven now-unused
+tenant-scope allowlist entries (baseline 408 -> 401) and repoints two stale
+path assertions in the db-imports audit test. Window vocabulary kept."
 ```
 
 ---
@@ -855,9 +1082,12 @@ kpi/fragments.ts, ADR 0019 and the eval suite. Window vocabulary kept."
 
 **Files:** Modify `docs/adr/0019-kpi-review-time-anchor.md`, `CONTEXT.md`, `.claude/CLAUDE.md`, `docs/directory.md`
 
-- [ ] **Step 1: ADR 0019 addendum**
+**Accuracy constraint for every doc edit below:** the **single-location** payload anchors four
+metrics (velocity, rating breakdown, avg star, sentiment trend). The **All-Locations aggregate**
+anchors only **two** (velocity, rating breakdown) — it has no avg-star or sentiment-trend query at
+all. Do not write "per-location and per-account" across all four.
 
-Append:
+- [ ] **Step 1: ADR 0019 addendum**
 
 ```markdown
 ## Addendum — 2026-08-11 (#757): one stack, one fragment owner
@@ -869,61 +1099,158 @@ Review import produced exactly the spike this ADR removes, on the only surfaces
 owners see. #757 closes that gap (Pathfinder 2026-08-10 P1):
 
 - The anchor fragments moved to **`src/lib/kpi/fragments.ts`**, now their single
-  owner. `reviewTimeAnchor` and `reviewTimeWindowFilter` are the only exports —
-  `detectedAtWindowFilter` and the TTR validity filter had no surviving composer
-  and died with Stack A rather than shipping as unused abstraction.
-- The rendered stack composes them for **velocity, rating breakdown, avg star and
-  the sentiment trend**, per-location and per-account. Response rate and the
-  aggregate review counters stay on `detected_at` (Decision 2); timeSaved keys on
-  `approved_at`; the recent-review feed keeps ordering on `detected_at`
-  (ingestion recency).
+  owner, enforced by a source audit in `fragments.test.ts` that fails if any
+  other non-test file spells `LEAST(review_date, detected_at)`.
+- **Single-location payload:** velocity, rating breakdown, avg star (current AND
+  prior buckets, so `star_n_prior` and the delta move with them) and the
+  sentiment trend are anchored.
+- **All-Locations aggregate:** velocity and rating breakdown are anchored. It has
+  no avg-star or sentiment-trend query; its review counters
+  (`windowedReceived`/`windowedResponded`) stay on `detected_at` because they
+  feed the account response rate.
+- Unchanged everywhere: response rate (Decision 2), timeSaved (`approved_at`),
+  the recent-review feed (`detected_at` = ingestion recency), all-time totals,
+  pending counts.
 - `getLocationKpiSummary`, `getAccountKpiSummary` and `GET /api/dashboard/kpis`
   were **deleted** — zero consumers. Their calendar-month volume MoM and TTR
   duration metrics have never rendered anywhere; when the deferred KPI-cards work
   ships it extends the dashboard payload composing the same fragments.
-- Decision 3 (the TTR validity filter) is **recorded but no longer implemented in
-  code**: the dashboard payload has no duration metric to filter. It returns with
-  the metric.
 
-**Deferred, recorded here so it is not rediscovered as a surprise:**
-`LEAST(review_date, detected_at) >= …` is not sargable on either single-column
-index, so these reads fall back to the `business_id` index and filter. At the
-#474 Capacity target (250 locations, ~125 reviews/day) per-business row counts
-are small and both stacks already accepted this since #688. Revisit with an
-expression index only if dashboard read latency regresses — that is a migration,
-and this ADR's no-migration property is deliberate.
+**Supersedes P1 item 1 on one point.** P1 required extracting four fragments;
+only `reviewTimeAnchor` and `reviewTimeWindowFilter` were extracted. Once Stack A
+is deleted, `detectedAtWindowFilter` and the TTR validity filter have zero
+composers — Stack B's response rate stays literal per Decision 2, and Stack B has
+no duration metric. Decision 3 (the TTR validity filter) is therefore **recorded
+but no longer implemented in code**; it returns with the metric.
+
+**Deferred, recorded here so it is not rediscovered as a surprise.** The relevant
+indexes are composite — `idx_reviews_business_detected_at` (migration 010) and
+`idx_reviews_business_review_date` (migration 031), both `(business_id, <ts>)`.
+`LEAST(review_date, detected_at) >= …` is not sargable on either, so these reads
+keep the `business_id` prefix but lose the timestamp as a range key: they become
+prefix-scan-plus-filter. At the #474 Capacity target (250 locations, ~125
+reviews/day) per-business row counts are small, and Stack A has run this way
+since #688. Revisit with an expression index only if dashboard read latency
+regresses — that is a migration, and this ADR's no-migration property is
+deliberate. The All-Locations aggregate is the path to measure first: it scans
+every active location of an account in one statement.
 ```
 
 - [ ] **Step 2: `CONTEXT.md` — Review-time anchor entry**
 
-Change `One owner: `reviewTimeAnchor` (`src/lib/kpi/service.ts`).` to:
+Replace `One owner: `reviewTimeAnchor` (`src/lib/kpi/service.ts`).` with:
 
 ```
-One owner: `reviewTimeAnchor` (`src/lib/kpi/fragments.ts`), composed by the rendered dashboard payload — per-location and per-account velocity, rating breakdown, avg star and sentiment trend (#757).
+One owner: `reviewTimeAnchor` (`src/lib/kpi/fragments.ts`), composed by the rendered dashboard payload — velocity, rating breakdown, avg star and sentiment trend per-location, and velocity + rating breakdown in the All-Locations aggregate (#757).
 ```
 
 - [ ] **Step 3: `.claude/CLAUDE.md` — Customer KPIs bullet**
 
-Replace the bullet (Database section) with:
-
 ```markdown
-- **Customer KPIs**: the dashboard payload (`src/lib/dashboard/*`) is the ONE KPI stack — per-location `getActiveDashboardData` and per-account `fetchPerLocationAggregateSlices`, served by `GET /api/dashboard`. Reputation metrics (velocity, rating breakdown, avg star, sentiment trend) bucket on the **Review-time anchor** `LEAST(review_date, detected_at)` via the single-owner fragments in `src/lib/kpi/fragments.ts` (#688/#757, ADR 0019); response rate and the aggregate review counters stay on `detected_at` (workflow KPIs), timeSaved keys on `approved_at`, and the recent-review feed orders on `detected_at`. `src/lib/kpi/` now holds only the window vocabulary (`types.ts`) and those fragments — the consumer-less `getLocationKpiSummary`/`getAccountKpiSummary` + `GET /api/dashboard/kpis` were deleted in #757.
+- **Customer KPIs**: the dashboard payload (`src/lib/dashboard/*`) is the ONE KPI stack — per-location `getActiveDashboardData` and per-account `fetchPerLocationAggregateSlices`, served by `GET /api/dashboard`. Reputation metrics bucket on the **Review-time anchor** `LEAST(review_date, detected_at)` via the single-owner fragments in `src/lib/kpi/fragments.ts` (#688/#757, ADR 0019): velocity, rating breakdown, avg star and sentiment trend per-location; velocity and rating breakdown in the aggregate. Workflow metrics stay on `detected_at` (response rate, the aggregate `windowedReceived`/`windowedResponded` counters), timeSaved keys on `approved_at`, and the recent-review feed orders on `detected_at`. `src/lib/kpi/` holds only the window vocabulary (`types.ts`) and those fragments — the consumer-less `getLocationKpiSummary`/`getAccountKpiSummary` + `GET /api/dashboard/kpis` were deleted in #757.
 ```
 
 - [ ] **Step 4: `docs/directory.md`**
 
-Update the `src/lib/kpi/` entry to `types.ts` + `fragments.ts` (no service), and remove the
-`src/app/api/dashboard/kpis/` route row.
+`docs/directory.md` currently has **no** `src/lib/kpi/` entry and **no**
+`src/app/api/dashboard/kpis/` row — verify with `rg -n "kpi" docs/directory.md` before editing.
+So this is an **addition, not an edit**, and there is no route row to remove. Add a `src/lib/kpi/`
+entry beside the existing `src/lib/dashboard/` entry, in that file's established format:
+
+```
+`src/lib/kpi/` — analytics window vocabulary (`types.ts`) + the Review-time anchor
+fragments (`fragments.ts`, ADR 0019) composed by the dashboard payload. No service:
+Stack A was deleted in #757.
+```
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
-rg -n "kpi/service" docs/directory.md CONTEXT.md .claude/CLAUDE.md || echo "CLEAN"
-git add -A && git commit -m "docs(#757): ADR 0019 addendum, CONTEXT.md owner path, CLAUDE.md KPI stack, directory"
+rg -n "kpi/service|api/dashboard/kpis" docs/directory.md CONTEXT.md .claude/CLAUDE.md || echo "CLEAN"
+git add -A && git commit -m "docs(#757): ADR 0019 addendum, CONTEXT.md owner path, CLAUDE.md KPI stack, directory entry"
 ```
 
 ---
+
+### Task 7: Staging smoke (step 8 lane — not part of the branch diff)
+
+**Blocking edges:** T6, and the branch being pushed to `staging`.
+
+The locked intake names this as the **only** semantic backstop in production: a syntactically valid
+but semantically wrong anchor emits no Sentry signal. Run it after the branch lands on `staging`,
+before opening the PR to `main`. Capture output to
+`docs/runbooks/evidence/2026-08-11-757-anchor-staging-smoke.md`.
+
+- [ ] **Step 1: Seed an isolated import-shaped fixture on the staging Supabase project**
+
+Use a scratch location you own on staging. All time arithmetic in SQL.
+
+```sql
+-- Replace :biz with the staging business_id under test.
+INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name,
+                     provider_location_name, reviewer_name, star_rating, review_text,
+                     sentiment_score, review_date, detected_at, status)
+SELECT gen_random_uuid(), :biz, 'zernio',
+       'smoke-757-' || g, 'zernio://smoke-757/reviews/' || g,
+       'zernio://smoke-757/locations/1', 'Smoke 757', 4, 'anchor smoke',
+       0.5,
+       DATE_TRUNC('week', NOW()) - (g || ' weeks')::interval,  -- true review time, 1..5 weeks back
+       NOW(),                                                   -- import time = today
+       'new'
+FROM generate_series(1, 5) g;
+```
+
+- [ ] **Step 2: Wait out the 45s cache, then read the payload twice**
+
+The dashboard payload is Redis-cached at 45s (`dashboard:location:<biz>:30d:rep`). Either wait 45s
+after seeding or the first read will serve a pre-seed payload.
+
+```bash
+# authenticated as the owner of :biz on staging
+curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard" | jq '.reviewVelocity, .ratingBreakdown.total'
+curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard?scope=all" | jq '.locations[] | {id, reviewVelocity}'
+```
+
+- [ ] **Step 3: Assert the shape of the answer, not just a 200**
+
+- `reviewVelocity` shows **five distinct non-zero weeks** (1–5 weeks back), not one spike in the
+  current week. This is the whole point of the change.
+- The single-location `sentimentTrend` likewise spreads across those weeks.
+- `ratingBreakdown.total` counts only the seeded rows inside the 30-day review-time window
+  (weeks 1–4; the 5-week-old row falls outside).
+- The All-Locations response shows the same velocity spread for that location.
+- Response rate is **unchanged** by the seed's presence in the way an unanswered import should drag
+  it — the five imports count as received today.
+
+- [ ] **Step 4: Clean up in FK order**
+
+```sql
+DELETE FROM responses WHERE review_id IN (SELECT id FROM reviews WHERE provider_review_id LIKE 'smoke-757-%');
+DELETE FROM reviews WHERE provider_review_id LIKE 'smoke-757-%';
+```
+
+- [ ] **Step 5: Record evidence** — paste both curl outputs and the four assertions into the
+evidence file and commit it on the branch before opening the PR.
+
+---
+
+## Gate (step 5 of the /feature workflow — runs outside these tasks)
+
+Task-local checks are deliberately narrow. Before any review round, the branch must pass the full
+gate from the worktree root:
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
+bash scripts/verify-gate.sh          # lint, typecheck, full test, every ci:* audit, build (surface=ui), promised-tests
+bash scripts/verify-gate.sh --review # adds coverage + changed-line diff-coverage before step 7
+```
+
+`db_touching: true` in the intake, so the gate provisions the test DB serially and **runs** the
+changed `*.integration.test.ts` suite. A gate run that prints the `TEST_DATABASE_POOL_URL` SKIP
+warning is **not** review-ready for this feature — set the variable and re-run. `pnpm test:integration`
+does not hard-gate this suite (CLAUDE.md gotcha, the #520 class), which is precisely why the gate
+must run it.
 
 ## Out of scope (intake non-goals — reject in review if they appear)
 
@@ -933,12 +1260,50 @@ extracting `detectedAtWindowFilter` or a TTR validity fragment · an expression 
 migration · the null-vs-0 empty-state divergence · editing historical `docs/reviews/**` or root
 `PLAN.md` · reintroducing any concurrent `Promise.all` fan-out on the shared pool.
 
+## Review appendix — codex plan review, round 1 (2026-08-11)
+
+Full log: `.feature/logs/codex-plan-round1.log`. Verdict **REVISE**; 3 BLOCKER, 16 MAJOR, 4 MINOR.
+I independently verified every load-bearing factual claim against the code before accepting.
+
+**Accepted (22)** — all folded into this revision:
+
+| Sev | Finding | Where fixed |
+|---|---|---|
+| BLOCKER | Week assertions used `::text`; postgres.js decodes `date` → JS `Date` and the mappers `String()` it, so they could never match | T1 `weekMarkers()` selects `::date` + `String()` |
+| BLOCKER | `AGG_BIZ` import at 21 days sits *inside* the 30d rating window — planned SQL yields total 2, not 1 | T1 fixture moved to 42 days back |
+| BLOCKER | Deleting `kpi/service.ts` strands 7 tenant-scope allowlist entries; audit fails on unused entries, and the file was outside the edit surface | T5 Step 2 + surface amendment #1 |
+| MAJOR | Test 6's "weekend RED" was false — `detected_at` already clamps identically; it only distinguishes LEAST from COALESCE | T1 fixture `+8 days`, relabelled a COALESCE regression guard |
+| MAJOR | `find('handled_prior')` matched the rate query, so timeSaved was never inspected | T1 selects by markers unique to each query |
+| MAJOR | `seedPostedResponse` ported but unused → ESLint `no-unused-vars` error | Used by the new timeSaved + response-rate-prior fixtures |
+| MAJOR | Test 10's lookbehind regex missed `DATE_TRUNC`, `GROUP BY`, upper bounds, whitespace | Strip-anchor-then-assert + exact occurrence counts (3/7/3/1, 2/1) |
+| MAJOR | Avg star proved only `.current`; prior window, `star_n_prior`, delta unproven | New test 9 (45-day fixture pins prior + delta) |
+| MAJOR | Aggregate counters and response-rate prior had no live proof | New test 12; test 7 extended with a prior-window fixture |
+| MAJOR | Aggregate velocity asserted bucket existence only; an OR could double-count | Exact per-week counts + series total |
+| MAJOR | Zero-fill contract unprotected if the anchor moves to `WHERE` | New test 13 (`EMPTY_BIZ`) |
+| MAJOR | Everything could pass with Stack B hand-spelling LEAST and `fragments.ts` unused | New single-owner source audit in `fragments.test.ts` |
+| MAJOR | "Every intermediate commit is shippable" was false | Red-branch reality stated; per-task suites narrowed; shared suite runs once after T3+T4 |
+| MAJOR | Staging smoke named as the only semantic backstop but had no executable task | New Task 7 |
+| MAJOR | Plan cited P1 as decision of record while reversing its four-fragment item | Explicit superseding adjudication at the top + ADR addendum |
+| MAJOR | `db-imports-audit.test.ts` stale at line **118** too, not just 102 | T5 Step 3 fixes both |
+| MAJOR | `docs/directory.md` has no kpi entry and no route row to remove | T6 Step 4 rewritten as an addition |
+| MAJOR | Doc text claimed avg star + trend are anchored per-account; the aggregate has neither query | Accuracy constraint + corrected ADR/CONTEXT/CLAUDE text |
+| MAJOR | No final full-repo gate in the plan | New "Gate" section |
+| MINOR | "9 importers" stale | Count removed |
+| MINOR | "Port VERBATIM" would carry Stack-A header prose | T1 Step 1 rewrites the header, ports only the conventions |
+| MINOR | ADR called the indexes single-column; both are composite | Addendum rewritten with the real index names + the aggregate-path measurement note |
+| MINOR | Task graph listed shape-test files under T3/T4 | Graph corrected — every test file is authored in T1 |
+
+**Partially rejected (1)** — "make T3/T4 atomic". The two tasks edit genuinely disjoint production
+files and have no data dependency; collapsing them would produce one larger, harder-to-review diff.
+The real defect was the false shippability claim and the shared red suite, both fixed above by
+narrowing each task's verification and running the shared suite once after both land.
+
 ## Self-review
 
 - **Spec coverage** — #757 task 1 (re-anchor reputation windows) → T3+T4; task 2 (adjudicate the
   consumer-less route) → T5, deleted; task 3 (extend the TTR validity filter to any dashboard
-  duration metric) → none exists, recorded in the ADR addendum step 1.
+  duration metric) → none exists, recorded in the ADR addendum.
 - **Placeholders** — none: every step carries the literal SQL/TypeScript it changes.
 - **Type consistency** — `reviewTimeAnchor(sql, prefix)` / `reviewTimeWindowFilter(sql, prefix,
-  windowDays)` signatures are identical in T2, T3 and T4; `ReviewsPrefix` is `'' | 'r.'` everywhere
-  and T4's rename is what keeps that true.
+  windowDays)` are spelled identically in T2, T3 and T4; `ReviewsPrefix` is `'' | 'r.'` everywhere,
+  which T4's alias rename is what keeps true.

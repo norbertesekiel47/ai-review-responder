@@ -55,6 +55,7 @@
     "src/lib/dashboard/__tests__/**",
     "src/app/api/dashboard/kpis/**",
     "scripts/ci/__tests__/db-imports-audit.test.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "docs/adr/0019-kpi-review-time-anchor.md",
     "docs/directory.md",
     "CONTEXT.md",
@@ -77,7 +78,12 @@
     "aggregate velocity and rating-breakdown queries spell LEAST(r.review_date, r.detected_at)",
     "aggregate review-counter query never spells LEAST(",
     "reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else",
-    "reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text"
+    "reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text",
+    "avg star prior window and sample size bucket on the review-time anchor",
+    "time-saved keys on approved_at so an imported review answered today still counts",
+    "aggregate windowedReceived and windowedResponded still count on detected_at",
+    "a location with no reviews still gets a zero-filled velocity series in the aggregate slice",
+    "the Review-time anchor is spelled only in kpi/fragments.ts"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "680 changed production lines (~130 added: fragments.ts + plug edits; ~550 deleted: kpi/service.ts 405, kpis/route.ts 91, kpi/types.ts orphans ~50)",
