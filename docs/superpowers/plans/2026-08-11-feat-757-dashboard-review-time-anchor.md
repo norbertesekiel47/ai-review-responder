@@ -3,8 +3,10 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement
 > this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Revision 2** — incorporates codex plan-review round 1 (3 BLOCKER, 16 MAJOR, 4 MINOR;
-> 22 accepted, 1 partially rejected). Triage verdicts: "Review appendix" at the bottom.
+> **Revision 3** — incorporates codex plan-review round 1 (3 BLOCKER / 16 MAJOR / 4 MINOR; 22
+> accepted, 1 partially rejected) and round 2 verification-only (19 FIXED, 1 NOT FIXED, 6 fixes
+> that introduced defects — all seven corrected here). Triage verdicts: the two "Review appendix"
+> sections at the bottom.
 
 **Goal:** Bucket the reputation-flavored windows of the *rendered* dashboard payload on the
 **Review-time anchor** `LEAST(review_date, detected_at)` (ADR 0019), make `src/lib/kpi/fragments.ts`
@@ -90,7 +92,8 @@ spelling, many composers — and Task 1's single-owner test enforces exactly tha
 
 ```
 T1 (eval) ─→ T2 (fragments) ─┬─→ T3 (service.ts plugs) ─┐
-                             └─→ T4 (aggregate plugs) ───┴─→ T5 (delete Stack A) ─→ T6 (docs) ─→ T7 (staging smoke)
+                             └─→ T4 (aggregate plugs) ───┴─→ T4.5 (integration checkpoint)
+                                                              └─→ T5 (delete Stack A) ─→ T6 (docs) ─→ T7 (staging smoke)
 ```
 
 **T3 and T4 are mutually independent** — no blocking edge between them, and their *edited* file sets
@@ -102,10 +105,11 @@ check.
 is what eval-first means. `review-time-anchor.integration.test.ts` is a *shared* suite covering both
 T3's and T4's metrics, so it stays partly red until **both** land. Therefore:
 
-- T3 and T4 each verify with **only their own shape suite**, named explicitly in their steps.
-- The shared live-DB suite is run **once, in T4's final step**, after whichever of T3/T4 finishes
-  last. If they run in parallel, that step belongs to the second one to complete.
-- The branch is first fully green at the end of T4. Do not let a subagent "fix" a red test that
+- T3 and T4 each verify with **only their own suites**, enumerated explicitly in their steps.
+- **Neither T3 nor T4 ever runs the shared live-DB suite.** It has exactly one owner: **T4.5**, a
+  checkpoint task that depends on both. This is deliberate — an earlier draft said "T4's final step"
+  and "whichever finishes second", which leaves the run unowned if T3 finishes second.
+- The branch is first fully green at the end of T4.5. Do not let a subagent "fix" a red test that
   belongs to the other task.
 
 ---
@@ -258,8 +262,11 @@ await seedPostedResponse(tsReview, TIMESAVED_BIZ, sql()`NOW() - interval '1 hour
 const aggImport = await seedReview(AGG_BIZ, { star: 1,
   reviewDate: sql()`DATE_TRUNC('week', NOW()) - interval '42 days'`, detectedAt: sql()`NOW()` });
 await seedPostedResponse(aggImport, AGG_BIZ, sql()`NOW() - interval '1 hour'`);
+// NOW() for BOTH timestamps, not NOW() - interval '1 day': this fixture asserts a
+// CURRENT-WEEK bucket, and on a Monday run a 1-day-old row belongs to the prior
+// ISO week. Any fixture whose assertion names a week must be seeded at NOW().
 await seedReview(AGG_BIZ, { star: 5,
-  reviewDate: sql()`NOW() - interval '1 day'`, detectedAt: sql()`NOW() - interval '1 day'` });
+  reviewDate: sql()`NOW()`, detectedAt: sql()`NOW()` });
 
 // t13 — EMPTY_BIZ gets no reviews at all (zero-fill contract).
 ```
@@ -429,8 +436,20 @@ function seed() {
   );
 }
 
-/** Find by a marker unique to ONE query — never by a string two queries share. */
-const find = (needle: string) => harness.sqlCalls.find((c) => c.text.includes(needle))?.text ?? '';
+/**
+ * Find by a marker that must match EXACTLY ONE query in the wave. Throwing on an
+ * ambiguous marker is the point: a plain `.find()` silently returns the first
+ * match, which is how an earlier draft asserted timeSaved's properties against
+ * the response-rate query and would have passed forever.
+ */
+function findOnly(needle: string): string {
+  const hits = harness.sqlCalls.filter((c) => c.text.includes(needle));
+  if (hits.length !== 1) {
+    throw new Error(`marker ${JSON.stringify(needle)} matched ${hits.length} queries, expected 1`);
+  }
+  return hits[0]!.text;
+}
+const find = findOnly;
 const countAnchors = (text: string) => text.split(ANCHOR).length - 1;
 /** Blank out the approved anchor so any REMAINING detected_at is a bare one. */
 const stripAnchor = (text: string) => text.split(ANCHOR).join('«anchor»');
@@ -455,7 +474,6 @@ describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () =>
     // `toContain` and fails here.
     const expected = { velocity: 3, star: 7, trend: 3, rating: 1 };
     for (const [name, text] of Object.entries(queries)) {
-      expect(text, `${name} query must be found`).not.toBe('');
       expect(countAnchors(text), `${name} anchor occurrences`).toBe(
         expected[name as keyof typeof expected],
       );
@@ -468,11 +486,12 @@ describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () =>
     seed();
     await getActiveDashboardData(mockSql, BUSINESS_ID, { includeReputationMetrics: true });
     // NEGATIVE CONTROL. `handled_prior` appears in BOTH the rate and timeSaved
-    // queries, so each is selected by a marker unique to it.
+    // queries, and `FROM responses resp` appears THREE times (twice inside the
+    // rate query's EXISTS subqueries, service.ts:488,502, before timeSaved's own
+    // at :546) — so timeSaved is selected by the one marker unique to it, and
+    // findOnly throws if that ever stops being true.
     const rate = find('received_current');
-    const timeSaved = find('FROM responses resp');
-    expect(rate).not.toBe('');
-    expect(timeSaved).not.toBe('');
+    const timeSaved = find('JOIN reviews r ON r.id = resp.review_id');
     expect(timeSaved).toContain('handled_prior');
     expect(rate).not.toContain('LEAST(');
     expect(timeSaved).not.toContain('LEAST(');
@@ -492,6 +511,15 @@ existing `aggregate-queries.test.ts` wave (0 baseline, 1 counters, 2 velocity, 3
 const ANCHOR = 'LEAST(r.review_date, r.detected_at)';
 const countAnchors = (t: string) => t.split(ANCHOR).length - 1;
 const stripAnchor = (t: string) => t.split(ANCHOR).join('«anchor»');
+// Same throw-on-ambiguous-marker helper as the single-location suite — copy it
+// verbatim; a plain .find() silently returns the first of several matches.
+function find(needle: string): string {
+  const hits = harness.sqlCalls.filter((c) => c.text.includes(needle));
+  if (hits.length !== 1) {
+    throw new Error(`marker ${JSON.stringify(needle)} matched ${hits.length} queries, expected 1`);
+  }
+  return hits[0]!.text;
+}
 
 it('aggregate velocity and rating-breakdown queries spell LEAST(r.review_date, r.detected_at)', async () => {
   seed();
@@ -513,7 +541,6 @@ it('aggregate review-counter query never spells LEAST(', async () => {
   // NEGATIVE CONTROL — received_window/responded_window feed the account
   // response rate, a workflow KPI (ADR 0019 D2).
   const counters = find('total_received_all_time');
-  expect(counters).not.toBe('');
   expect(counters).not.toContain('LEAST(');
   expect(counters).toContain('r.detected_at >= NOW()');
 });
@@ -588,7 +615,7 @@ to make it come out right**; a fixture that does not exercise the anchor is the 
 | 15 | shape: no LEAST in rate/timeSaved | PASS | negative control |
 | 16 | shape: aggregate anchor ×2/1 | **FAIL** | zero anchors today |
 | 17 | shape: no LEAST in counters | PASS | negative control |
-| 18 | single-owner source audit | PASS | no anchor spelling in Stack B yet |
+| 18 | single-owner source audit | **FAIL** | `src/lib/kpi/service.ts:147` still spells both anchors and `fragments.ts` does not exist yet — T2 turns this green by moving the spelling |
 | 19–20 | fragment pins | `.todo` | converted in T2 |
 
 - [ ] **Step 6: Commit**
@@ -963,13 +990,7 @@ pnpm ci:tenant-scope 2>&1 | tail -20
 could disturb it. The audit derives aliases from the SQL text (`tableAliases`), so the rename should
 be structurally invisible; prove it, don't assume it.
 
-**Then, once BOTH T3 and T4 have landed** (whichever finishes second runs this):
-
-```bash
-pnpm vitest run src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
-```
-
-Expected: all 13 live-DB tests PASS. This is the first moment the branch is fully green.
+**Do NOT run `review-time-anchor.integration.test.ts` here** — T4.5 owns it.
 
 - [ ] **Step 7: Commit**
 
@@ -983,9 +1004,42 @@ zero-fill survives. Counter query (account response rate) untouched."
 
 ---
 
+### Task 4.5: Integration checkpoint — the shared live-DB suite
+
+**Blocking edges:** T3 **and** T4. This task exists so the shared suite has exactly one owner; it is
+the only place it runs during implementation.
+
+**Files:** none — verification only. If it fails, the fix belongs to whichever of T3/T4 owns the
+failing metric, as a follow-up commit on that task's surface.
+
+- [ ] **Step 1: Run the shared live-DB eval suite**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
+pnpm vitest run src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
+```
+
+Requires `TEST_DATABASE_POOL_URL` and a DB at migrations head (`pnpm test:db:setup`). Expected: all
+**13** live-DB tests PASS — the first moment the branch is fully green.
+
+If any of tests 1, 2, 6, 9, 11 fails on a **Monday** run, suspect a fixture whose assertion names a
+week but whose timestamps are not `NOW()` — that is the exact class of bug the AGG_BIZ fixture was
+corrected for. Fix the fixture, never the assertion.
+
+- [ ] **Step 2: Commit only if a fix was needed**
+
+```bash
+git commit -am "fix(#757): <metric> fixture/plug correction found by the shared eval suite"
+```
+
+Otherwise record the green run in the task summary and move on — a verification-only task with no
+diff is a valid outcome.
+
+---
+
 ### Task 5: Delete Stack A
 
-**Blocking edges:** T3 **and** T4 — Stack B must already carry the anchor.
+**Blocking edges:** T4.5 — Stack B must already carry the anchor, proven end to end.
 
 **Files:**
 - Delete: `src/lib/kpi/service.ts`, `src/lib/kpi/__tests__/service.test.ts`, `src/lib/kpi/__tests__/service.cache.test.ts`
@@ -1153,15 +1207,27 @@ One owner: `reviewTimeAnchor` (`src/lib/kpi/fragments.ts`), composed by the rend
 - [ ] **Step 4: `docs/directory.md`**
 
 `docs/directory.md` currently has **no** `src/lib/kpi/` entry and **no**
-`src/app/api/dashboard/kpis/` row — verify with `rg -n "kpi" docs/directory.md` before editing.
-So this is an **addition, not an edit**, and there is no route row to remove. Add a `src/lib/kpi/`
-entry beside the existing `src/lib/dashboard/` entry, in that file's established format:
+`src/app/api/dashboard/kpis/` row — verify with `rg -n "kpi" docs/directory.md` before editing. So
+this is an **addition, not an edit**, and there is no route row to remove.
 
+Add a `kpi/` section immediately after the `### \`dashboard/\`` section (~line 459), matching that
+file's established `### \`dir/\`` + one-line description + `| File | What it does |` table format:
+
+```markdown
+### `kpi/`
+
+Analytics window vocabulary and the Review-time anchor fragments the dashboard payload composes.
+No service layer — the consumer-less Stack A KPI service was deleted in #757.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | `DASHBOARD_WINDOWS` / `DashboardWindow` / `resolveDashboardWindow` / `dashboardWindowParams` — the only window values that may reach windowed SQL, as bound integers (#403). |
+| `fragments.ts` | `reviewTimeAnchor` / `reviewTimeWindowFilter` — single owner of the Review-time anchor `LEAST(review_date, detected_at)` (ADR 0019). Composed by `dashboard/service.ts` + `dashboard/aggregate-queries.ts`; carries no FROM/JOIN and no tenant predicate. |
 ```
-`src/lib/kpi/` — analytics window vocabulary (`types.ts`) + the Review-time anchor
-fragments (`fragments.ts`, ADR 0019) composed by the dashboard payload. No service:
-Stack A was deleted in #757.
-```
+
+While there, fix the stale `dashboard/service.ts` row in the section above it: it describes a
+`buildDashboardData(businessId)` function that no longer exists — the export is
+`getActiveDashboardData`.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -1186,42 +1252,59 @@ before opening the PR to `main`. Capture output to
 
 Use a scratch location you own on staging. All time arithmetic in SQL.
 
+Seed at **exact day offsets**, not Monday-aligned week starts: `DATE_TRUNC('week', NOW()) - N weeks`
+lands 0–6 days earlier than `NOW() - N weeks` depending on the weekday, which makes "is week 4 still
+inside the 30-day window?" answer differently on a Wednesday than on a Monday. Day offsets make the
+window membership deterministic on every run.
+
 ```sql
 -- Replace :biz with the staging business_id under test.
+-- Offsets 7/14/21/28 days are ALL inside the 30-day window; 45 is outside it but
+-- still inside the 8-week velocity series. Five distinct ISO weeks either way.
 INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name,
                      provider_location_name, reviewer_name, star_rating, review_text,
                      sentiment_score, review_date, detected_at, status)
 SELECT gen_random_uuid(), :biz, 'zernio',
-       'smoke-757-' || g, 'zernio://smoke-757/reviews/' || g,
+       'smoke-757-' || d, 'zernio://smoke-757/reviews/' || d,
        'zernio://smoke-757/locations/1', 'Smoke 757', 4, 'anchor smoke',
        0.5,
-       DATE_TRUNC('week', NOW()) - (g || ' weeks')::interval,  -- true review time, 1..5 weeks back
-       NOW(),                                                   -- import time = today
+       NOW() - (d || ' days')::interval,  -- true review time
+       NOW(),                             -- import time = today
        'new'
-FROM generate_series(1, 5) g;
+FROM unnest(ARRAY[7, 14, 21, 28, 45]) d;
 ```
 
-- [ ] **Step 2: Wait out the 45s cache, then read the payload twice**
+- [ ] **Step 2: Wait out the 45s cache, then capture BOTH payloads whole**
 
-The dashboard payload is Redis-cached at 45s (`dashboard:location:<biz>:30d:rep`). Either wait 45s
-after seeding or the first read will serve a pre-seed payload.
+The payload is Redis-cached at 45s (`dashboard:location:<biz>:30d:rep`), so a read within 45s of
+seeding serves the pre-seed payload. Capture the full JSON to disk — the assertions below span
+fields a narrow `jq` filter would discard, and the files become the evidence.
 
 ```bash
 # authenticated as the owner of :biz on staging
-curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard" | jq '.reviewVelocity, .ratingBreakdown.total'
-curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard?scope=all" | jq '.locations[] | {id, reviewVelocity}'
+sleep 50
+curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard"            > /tmp/757-single.json
+curl -s -b "$STAGING_COOKIE" "$STAGING_URL/api/dashboard?scope=all"  > /tmp/757-aggregate.json
+
+jq '{velocity: .reviewVelocity, trend: .reputationSummary.trend,
+     rating: .ratingBreakdown, rate: .reputationSummary.responseRate}' /tmp/757-single.json
+# Aggregate exposes per-location series as .perLocationVelocity[] — there is no .locations[].
+jq '{combined: .reviewVelocity, perLocation: .perLocationVelocity, rating: .ratingBreakdown}' \
+   /tmp/757-aggregate.json
 ```
 
 - [ ] **Step 3: Assert the shape of the answer, not just a 200**
 
-- `reviewVelocity` shows **five distinct non-zero weeks** (1–5 weeks back), not one spike in the
-  current week. This is the whole point of the change.
-- The single-location `sentimentTrend` likewise spreads across those weeks.
-- `ratingBreakdown.total` counts only the seeded rows inside the 30-day review-time window
-  (weeks 1–4; the 5-week-old row falls outside).
-- The All-Locations response shows the same velocity spread for that location.
-- Response rate is **unchanged** by the seed's presence in the way an unanswered import should drag
-  it — the five imports count as received today.
+- **`reviewVelocity` shows five distinct non-zero weeks**, not a single spike in the current week.
+  This is the whole point of the change; a current-week spike of 5 means the anchor did not apply.
+- `reputationSummary.trend` spreads across those same weeks.
+- `ratingBreakdown.total` counts **4** of the seeded rows — the 7/14/21/28-day rows are inside the
+  30-day review-time window; the 45-day row is outside it.
+- `perLocationVelocity` shows the same five-week spread for that location, and the combined
+  `reviewVelocity` agrees with it.
+- `reputationSummary.responseRate.current` reflects **all five** imports as received (they were all
+  detected today) and none as handled — the workflow KPI is deliberately untouched by the anchor,
+  and seeing it move would mean response rate was wrongly re-anchored.
 
 - [ ] **Step 4: Clean up in FK order**
 
@@ -1242,7 +1325,8 @@ gate from the worktree root:
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
-bash scripts/verify-gate.sh          # lint, typecheck, full test, every ci:* audit, build (surface=ui), promised-tests
+bash scripts/verify-gate.sh          # lint, typecheck, full test, build, promised-tests, and every
+                                     # ci:* audit EXCEPT ci:fallow* (which runs in its own workflow)
 bash scripts/verify-gate.sh --review # adds coverage + changed-line diff-coverage before step 7
 ```
 
@@ -1297,6 +1381,23 @@ I independently verified every load-bearing factual claim against the code befor
 files and have no data dependency; collapsing them would produce one larger, harder-to-review diff.
 The real defect was the false shippability claim and the shared red suite, both fixed above by
 narrowing each task's verification and running the shared suite once after both land.
+
+## Review appendix — codex plan review, round 2 (verification-only)
+
+Log: `.feature/logs/codex-plan-round2.log`. Verdict **REVISE**; **19 of 23 round-1 findings
+verified FIXED**, 1 NOT FIXED, 6 fixes introduced defects. No new fronts, empty appendix. All seven
+are corrected in revision 3:
+
+| Sev | Round-2 finding | Fix in revision 3 |
+|---|---|---|
+| BLOCKER | #1 residue — `AGG_BIZ`'s "current week" review seeded at `NOW() - interval '1 day'`, which is the PRIOR ISO week every Monday | Seeded at `NOW()`; rule added: any fixture whose assertion names a week is seeded at `NOW()` |
+| MAJOR | #10 inherited the same Monday failure | Same fix (one fixture, two findings) |
+| MAJOR | #5 NOT FIXED — `find('FROM responses resp')` matches the rate query's EXISTS subqueries (`service.ts:488,502`) before timeSaved (`:546`), so the timeSaved control asserted against the wrong query and would fail forever | `findOnly()` **throws** on an ambiguous marker (both suites), and timeSaved is selected by `JOIN reviews r ON r.id = resp.review_id` — verified to occur exactly once |
+| MAJOR | #13 — shared-suite ownership contradictory ("T4's final step" vs "whichever finishes second", while T3 says never run it) | New **Task 4.5**, a checkpoint task depending on T3+T4 that is the sole owner of the shared suite; T5 now blocks on it |
+| MAJOR | #14 — Task 7 not executable: `.locations[]` does not exist (payload has `.perLocationVelocity[]`), narrow `jq` discarded fields the evidence needs, and "weeks 1–4 within 30 days" is false from Wednesday | Day-offset seeds (7/14/21/28/45), full payloads captured to disk, corrected `jq` paths, exact `ratingBreakdown.total === 4` |
+| MINOR | Test 18 marked PASS at T1, but `kpi/service.ts:147` still spells the anchor then | Table row corrected to FAIL → green at T2 |
+| MINOR | `docs/directory.md` addition did not match the file's `### dir/` + table format | Rewritten in the real format, placed after the `dashboard/` section; also fixes that section's stale `buildDashboardData` row |
+| MINOR | Gate comment said "every `ci:*` audit"; `verify-gate.sh` excludes `ci:fallow*` | Wording corrected |
 
 ## Self-review
 
