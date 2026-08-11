@@ -107,17 +107,38 @@ query, the proven non-wedge shape) and now annotated with their count + the limi
 per item 4 below: `src/lib/admin/margin-service.ts`,
 `src/lib/admin/jobs-service.ts`.
 
-**STILL OPEN — owner dashboard, higher blast radius than the admin surface.**
-`src/app/api/dashboard/route.ts` imports the singleton `sql` (pool 3) and reaches
-`fetchReputationRows` (`src/lib/dashboard/service.ts`), a **5-member**
-`Promise.all` — the same fan-out > pool shape, on the product's main screen and
-in production, not just staging. Deliberately NOT fixed here: the two cures carry
-a real trade-off that needs a decision, since sequential costs latency on the
-primary owner view while routing it onto `sqlRead` (`max:8`) preserves
-parallelism but spends the ADR 0009 isolate budget and per that ADR requires
-re-running the burst drill. Also note the line references in the candidate list
-below have drifted — that file was refactored since 2026-07-18 and now holds one
-`Promise.all`, not the ~14-query one originally catalogued.
+## 2026-08-10 (second pass) — owner dashboard confirmed and fixed
+
+`src/app/api/dashboard/route.ts` passes the singleton `sql` (pool 3), not the
+larger `sqlRead`, so the owner dashboard carried the same defect — in production,
+not just staging. Fixed in the same sequential idiom:
+
+- `getActiveDashboardData` (`service.ts`) — **13-member** wave (11 sql + a Redis
+  marker + the reputation batch), plus the business read racing alongside it.
+  This is the "~14 queries" the candidate list below describes; an `await
+  Promise.all` grep misses it because it is ASSIGNED (`const settledPromise =
+  Promise.allSettled([...])`) and awaited far later in the function.
+- `fetchPerLocationAggregateSlices` (`aggregate-queries.ts`) — **8-member** wave.
+- `fetchReputationRows` (`service.ts`) — **5-query** wave.
+
+Waves with a real degradation contract kept their per-member settled results
+through a new shared runner, `settledInOrder`
+(`src/lib/shared/settled-in-order.ts`); plain awaits would have let one rejection
+throw past the FATAL/degradable split. Members are THUNKS — a promise argument is
+already in flight before the runner sees it.
+
+`aggregate-service.ts`'s two waves are deliberately left concurrent: each is a
+single-member `allSettled` paired with one fatal read (2 streams, under the pool).
+
+**Sequentializing changes query dispatch order — budget for it.** Two suites had
+encoded the old order and failed in ways that read like data bugs rather than
+ordering bugs. Two distinct causes: (a) an `async` function member runs EAGERLY
+while the array is being built, so it dispatched first and now runs in written
+position; (b) a sequential wave stops front-loading its siblings, so a read on
+the following line can move much earlier. Both are written up in the lab notes.
+
+The remaining unverified suspects (past-replies, settings/locations, KPI) are
+tracked in issue #769 rather than here.
 
 ## Candidate sites (from the grep sweep, 2026-07-18)
 
