@@ -116,3 +116,48 @@ laundered.
 - **Glossary**: the term **Review-time anchor** is coined in `CONTEXT.md`
   alongside the Review-import cluster; the fragment doc comment in
   `src/lib/kpi/service.ts` cites this ADR.
+
+## Addendum — 2026-08-11 (#757): one stack, one fragment owner
+
+#688 applied this ADR to `src/lib/kpi/service.ts`, which nothing rendered. The
+customer-visible dashboard reads `src/lib/dashboard/service.ts` +
+`aggregate-queries.ts`, which still bucketed on `detected_at` — so a consented
+Review import produced exactly the spike this ADR removes, on the only surfaces
+owners see. #757 closes that gap (Pathfinder 2026-08-10 P1):
+
+- The anchor fragments moved to **`src/lib/kpi/fragments.ts`**, now their single
+  owner, enforced by a source audit in `fragments.test.ts` that fails if any
+  other non-test file spells `LEAST(review_date, detected_at)`.
+- **Single-location payload:** velocity, rating breakdown, avg star (current AND
+  prior buckets, so `star_n_prior` and the delta move with them) and the
+  sentiment trend are anchored.
+- **All-Locations aggregate:** velocity and rating breakdown are anchored. It has
+  no avg-star or sentiment-trend query; its review counters
+  (`windowedReceived`/`windowedResponded`) stay on `detected_at` because they
+  feed the account response rate.
+- Unchanged everywhere: response rate (Decision 2), timeSaved (`approved_at`),
+  the recent-review feed (`detected_at` = ingestion recency), all-time totals,
+  pending counts.
+- `getLocationKpiSummary`, `getAccountKpiSummary` and `GET /api/dashboard/kpis`
+  were **deleted** — zero consumers. Their calendar-month volume MoM and TTR
+  duration metrics have never rendered anywhere; when the deferred KPI-cards work
+  ships it extends the dashboard payload composing the same fragments.
+
+**Supersedes P1 item 1 on one point.** P1 required extracting four fragments;
+only `reviewTimeAnchor` and `reviewTimeWindowFilter` were extracted. Once Stack A
+is deleted, `detectedAtWindowFilter` and the TTR validity filter have zero
+composers — Stack B's response rate stays literal per Decision 2, and Stack B has
+no duration metric. Decision 3 (the TTR validity filter) is therefore **recorded
+but no longer implemented in code**; it returns with the metric.
+
+**Deferred, recorded here so it is not rediscovered as a surprise.** The relevant
+indexes are composite — `idx_reviews_business_detected_at` (migration 010) and
+`idx_reviews_business_review_date` (migration 031), both `(business_id, <ts>)`.
+`LEAST(review_date, detected_at) >= …` is not sargable on either, so these reads
+keep the `business_id` prefix but lose the timestamp as a range key: they become
+prefix-scan-plus-filter. At the #474 Capacity target (250 locations, ~125
+reviews/day) per-business row counts are small, and Stack A has run this way
+since #688. Revisit with an expression index only if dashboard read latency
+regresses — that is a migration, and this ADR's no-migration property is
+deliberate. The All-Locations aggregate is the path to measure first: it scans
+every active location of an account in one statement.

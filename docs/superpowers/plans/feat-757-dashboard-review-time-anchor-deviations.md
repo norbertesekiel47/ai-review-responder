@@ -224,3 +224,33 @@ a later task is scheduled to delete that path.
 
 **Verdict:** ACCEPT — comment wording only, inside the declared surface, no behavior and no
 allowlist entry changed. Both greps print `CLEAN`.
+
+---
+
+## D9 — Task 6 repeats D8's shape: Step 3's verbatim text defeats Step 5's own `CLEAN` grep
+
+**When:** Task 6, step 5 (verify), by the T6 implementer.
+
+**What the plan assumed:** that pasting Step 3's `.claude/CLAUDE.md` bullet verbatim and then running
+Step 5's `rg -n "kpi/service|api/dashboard/kpis" docs/directory.md CONTEXT.md .claude/CLAUDE.md`
+prints `CLEAN`.
+
+**What actually happened:** Step 3's prescribed text ends `… + \`GET /api/dashboard/kpis\` were
+deleted in #757.` — a tombstone naming the very route Step 5 greps for. Pasted verbatim, the grep
+returns that line instead of `CLEAN`. This is exactly D8's failure mode (a plan prescribing a literal
+string it later sweeps for), recurring one task later in the same plan.
+
+**What was done instead:** the same resolution D8 chose — keep the fact, drop the live path. The
+clause now reads "the consumer-less `getLocationKpiSummary`/`getAccountKpiSummary` and their
+dedicated KPI route were deleted in #757." Nothing else in the bullet changed; the four/two
+metric split, the fragment owner path and the `detected_at` list are verbatim per Step 3. The
+ADR 0019 addendum was **not** reworded — `docs/adr/**` is deliberately outside the Step 5 grep set
+(an ADR is a historical decision record, and naming what was deleted is its job), and the addendum
+is verbatim per Step 1.
+
+**Lesson for future plans:** D8's lesson was scoped to Task 5 and so did not prevent the identical
+defect in Task 6. When a plan contains BOTH a prescribed literal string and a `rg` clean sweep, the
+reconciliation must be done once across **every** task in the plan, not per task.
+
+**Verdict:** ACCEPT — doc prose only, inside the declared surface, same facts, no plan surface
+changed. The grep prints `CLEAN`.
