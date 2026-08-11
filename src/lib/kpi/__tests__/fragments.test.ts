@@ -18,7 +18,13 @@ import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
 import { reviewTimeAnchor, reviewTimeWindowFilter } from '../fragments';
 
 const OWNER = join('src', 'lib', 'kpi', 'fragments.ts');
-const ANCHOR_PATTERN = /LEAST\(\s*(?:[A-Za-z_][\w$]*\.)?review_date\s*,/;
+// Matches the anchor in EITHER argument order. LEAST(detected_at, review_date)
+// is semantically identical, so pinning only the review_date-first spelling
+// would let a hand-rolled copy of the anchor slip past this audit.
+const COL = String.raw`(?:[A-Za-z_][\w$]*\.)?`;
+const ANCHOR_PATTERN = new RegExp(
+  String.raw`LEAST\(\s*${COL}(?:review_date\s*,\s*${COL}detected_at|detected_at\s*,\s*${COL}review_date)\s*\)`,
+);
 
 function sourceFiles(root: string): string[] {
   return readdirSync(root, { recursive: true, encoding: 'utf8' })

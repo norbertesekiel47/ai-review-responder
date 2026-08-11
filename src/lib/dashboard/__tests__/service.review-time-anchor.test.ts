@@ -49,14 +49,13 @@ function seed() {
  * match, which is how an earlier draft asserted timeSaved's properties against
  * the response-rate query and would have passed forever.
  */
-function findOnly(needle: string): string {
+function find(needle: string): string {
   const hits = harness.sqlCalls.filter((c) => c.text.includes(needle));
   if (hits.length !== 1) {
     throw new Error(`marker ${JSON.stringify(needle)} matched ${hits.length} queries, expected 1`);
   }
   return hits[0]!.text;
 }
-const find = findOnly;
 const countAnchors = (text: string) => text.split(ANCHOR).length - 1;
 /** Blank out the approved anchor so any REMAINING detected_at is a bare one. */
 const stripAnchor = (text: string) => text.split(ANCHOR).join('«anchor»');

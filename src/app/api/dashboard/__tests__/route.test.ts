@@ -985,11 +985,21 @@ describe('GET /api/dashboard', () => {
     expect(values).not.toContain(14);
 
     // No interval is ever interpolated as raw SQL text; every windowed query
-    // uses make_interval(...).
-    for (const text of capturedSqlTexts) {
+    // uses make_interval(...). Since #757 some windowed predicates live inside
+    // composed fragments, which this file's mock captures as inert
+    // { fragmentText, values } objects rather than flattening into the parent
+    // text — so both the raw texts AND the fragment texts are swept here.
+    // Without the fragment half, three re-anchored predicates would silently
+    // drop out of this guard.
+    const fragmentTexts = capturedSqlValues
+      .flat()
+      .filter((v): v is { fragmentText: string } =>
+        typeof v === 'object' && v !== null && 'fragmentText' in v)
+      .map((f) => f.fragmentText);
+    for (const text of [...capturedSqlTexts, ...fragmentTexts]) {
       expect(text).not.toMatch(/INTERVAL\s+'\d+\s+(days|weeks)'/i);
     }
-    const joined = capturedSqlTexts.join('\n');
+    const joined = [...capturedSqlTexts, ...fragmentTexts].join('\n');
     expect(joined).toContain('make_interval(days => ?)');
     expect(joined).toContain('make_interval(weeks => ?)');
   });

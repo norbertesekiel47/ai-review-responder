@@ -519,11 +519,14 @@ async function fetchReputationRows(
   `;
   const starRows = await sql<StarWindowRow[]>`
         SELECT
+          -- Single-sided current window: the canonical helper. The prior-window
+          -- pairs below are two-sided, which no fragment models, so they compose
+          -- the anchor directly.
           AVG(star_rating) FILTER (
-            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeWindowFilter(sql, '', windowDays)}
           )::float AS star_current,
           COUNT(star_rating) FILTER (
-            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeWindowFilter(sql, '', windowDays)}
           )::int AS star_n_current,
           AVG(star_rating) FILTER (
             WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${priorEndDays})

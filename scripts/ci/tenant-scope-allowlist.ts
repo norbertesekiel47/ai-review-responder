@@ -77,7 +77,7 @@ export interface TenantScopeAllowlistEntry {
 //     `src/lib/kpi/` was deleted with its route, taking all seven of its
 //     entries with it. Nothing else moved — the rendered dashboard stack
 //     keeps its own entries.
-export const ALLOWLIST_BASELINE = 401;   // was 408 — seven Stack A KPI-service entries removed with the file (#757)
+export const ALLOWLIST_BASELINE = 401;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
