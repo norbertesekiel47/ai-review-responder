@@ -1019,8 +1019,17 @@ cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboar
 pnpm vitest run src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts 2>&1 | tail -40
 ```
 
-Requires `TEST_DATABASE_POOL_URL` and a DB at migrations head (`pnpm test:db:setup`). Expected: all
-**13** live-DB tests PASS — the first moment the branch is fully green.
+Requires a DB at migrations head (`pnpm test:db:setup`) and `TEST_DATABASE_POOL_URL` **exported into
+the environment** — this suite reads `process.env` directly (via `describeWithDb`), so an unexported
+value in `.env.local` makes it **silently self-skip and report green**. `verify-gate.sh` exports it
+itself (:115-117) and warns if it cannot, but a manual `pnpm vitest` run does not:
+
+```bash
+export TEST_DATABASE_POOL_URL="$(grep -E '^TEST_DATABASE_POOL_URL=' .env.local | tail -1 | cut -d= -f2- | tr -d '"')"
+```
+
+Expected: all **13** live-DB tests PASS — the first moment the branch is fully green. A run reporting
+"skipped" is a FAILED checkpoint, not a pass.
 
 If any of tests 1, 2, 6, 9, 11 fails on a **Monday** run, suspect a fixture whose assertion names a
 week but whose timestamps are not `NOW()` — that is the exact class of bug the AGG_BIZ fixture was
