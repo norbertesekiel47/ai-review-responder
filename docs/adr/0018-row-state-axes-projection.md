@@ -182,3 +182,31 @@ not stop you, so keep the distinction deliberate.
 The mappers are deliberately **not exported**. They are an internal seam; every
 test reaches them through `toCardRow`, so the pinned card key set (18 keys) and
 the behaviour contract stay the test surface rather than the refactor's shape.
+
+## Addendum (2026-08-11, #766) — `delete_failed` recovery outranks the moderation hold
+
+The 2026-08-10 architecture pass (`docs/reviews/PATHFINDER-2026-08-10/01-flowcharts/f4-reviews-list.md`)
+surfaced a precedence rule that shipped through #727's full review but existed
+only as code knowledge. Recording it here, because it is the one place the
+Action slot's "withdrawn" projection is deliberately *not* total.
+
+In the `posted × held` cell, the Action slot is withdrawn — no button, no
+counter, no lock, no held indication. Explaining the withdrawal would itself be
+the notification invariant #4 forbids (the draft is **held**, therefore **not
+notified**). But `RecoveryControl` is still rendered inside the panel, and it
+self-gates on a `delete_failed` sidecar.
+
+That is not a leak in the projection, and the two must not be unified:
+
+- **They address different objects.** The hold is about a *held draft*.
+  Recovery is about a *previous response whose delete failed* — a stuck row the
+  owner already knows about, because the failure is a state they saw. Suppressing
+  recovery to protect the hold would strand the owner on an unrelated fault.
+- **The control carries no information about the hold.** It appears iff the
+  sidecar exists, which is independent of moderation state, so its presence
+  cannot be read as evidence a held draft exists.
+
+Consequence for future edits: an affordance may survive the withdrawn Action
+slot **only** if it self-gates on a fact independent of moderation state. Any
+control whose visibility correlates with the held draft belongs behind the
+withdrawal, not beside it.
