@@ -30,7 +30,8 @@ type JobsData = AdminJobsData & {
 
 type FailedJob = JobsData['failedJobs'][number];
 
-export const PAGE_SIZE = 20 as const;
+import { JOBS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
+export { PAGE_SIZE };
 
 const STATE_STYLES: Record<QueueHealthJobState, { label: string; value: string }> = {
   waiting: { label: 'text-gray-500', value: 'text-gray-800' },

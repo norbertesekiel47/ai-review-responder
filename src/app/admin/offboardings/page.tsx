@@ -2,7 +2,10 @@ import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getAdminOffboardings } from '@/lib/admin/offboardings-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
-import { OffboardingsClient, PAGE_SIZE } from './OffboardingsClient';
+import { OffboardingsClient } from './OffboardingsClient';
+// Server-safe: PAGE_SIZE must NOT be imported from the client component
+// module — the bundler would hand the server a stub. See page-sizes.ts.
+import { OFFBOARDINGS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 export const dynamic = 'force-dynamic';
 

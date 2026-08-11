@@ -11,7 +11,8 @@ import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminCount } from '@/components/admin/ui/format';
 
-export const PAGE_SIZE = 20;
+import { COSTS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
+export { PAGE_SIZE };
 const DEFAULT_DAYS = 30;
 
 interface CostData extends CostReportData {

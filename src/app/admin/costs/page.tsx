@@ -4,7 +4,10 @@ import { getCostReport, type CostQuery } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
-import { CostsClient, PAGE_SIZE } from './CostsClient';
+import { CostsClient } from './CostsClient';
+// Server-safe: PAGE_SIZE must NOT be imported from the client component
+// module — the bundler would hand the server a stub. See page-sizes.ts.
+import { COSTS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 export const dynamic = 'force-dynamic';
 

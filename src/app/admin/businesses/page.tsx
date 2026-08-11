@@ -3,7 +3,10 @@ import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getAdminBusinessesList } from '@/lib/admin/businesses-list-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
-import { BusinessesClient, PAGE_SIZE } from './BusinessesClient';
+import { BusinessesClient } from './BusinessesClient';
+// Server-safe: PAGE_SIZE must NOT be imported from the client component
+// module — the bundler would hand the server a stub. See page-sizes.ts.
+import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 export const dynamic = 'force-dynamic';
 

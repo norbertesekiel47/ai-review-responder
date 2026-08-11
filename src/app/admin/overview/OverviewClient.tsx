@@ -13,7 +13,8 @@ import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminCount } from '@/components/admin/ui/format';
 
-export const PAGE_SIZE = 20;
+import { OVERVIEW_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
+export { PAGE_SIZE };
 
 type BusinessRow = OverviewData['businesses'][number];
 
