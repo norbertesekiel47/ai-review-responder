@@ -48,7 +48,8 @@
     "eval:llm": "tsx tests/llm-eval/run.ts",
     "verify:stripe-prices": "tsx scripts/verify-stripe-price-parity.ts",
     "ws8:stripe-preflight": "tsx scripts/ws8-stripe-cutover-preflight.ts",
-    "doctor": "npx react-doctor@latest",
+    "// doctor version pin": "Pinned, not @latest: react-doctor is a blocking CI gate (.github/workflows/react-doctor.yml, blocking: error), and a floating version makes findings change day to day with no change in this repo. This version and the workflow's `version:` input are ONE pin in two places — bump them in the same commit. There is deliberately no react-doctor devDependency: nothing imports it, and an installed-but-never-executed copy is a third version to drift.",
+    "doctor": "npx react-doctor@0.9.11",
     "prepare": "lefthook install || true"
   },
   "dependencies": {
@@ -109,7 +110,6 @@
     "jsdom": "^29.1.1",
     "lefthook": "^2.1.8",
     "postcss": "^8.5.15",
-    "react-doctor": "^0.2.14",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

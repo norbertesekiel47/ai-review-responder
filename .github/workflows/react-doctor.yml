@@ -37,3 +37,9 @@ jobs:
       - uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
           blocking: error
+          # The action's `version` input defaults to `latest`. Left unset, this
+          # blocking gate re-resolves the analyzer on every run, so findings can
+          # change day to day with no change in this repo. Pin it, and keep it in
+          # LOCKSTEP with the `doctor` script in package.json — both execute
+          # react-doctor and must run the same analyzer. Bump them together.
+          version: '0.9.11'
