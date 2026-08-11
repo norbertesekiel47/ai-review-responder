@@ -131,6 +131,7 @@ export function useAddLocationWizard({
   const handleSubmit = useCallback(async () => {
     dispatch({ type: 'SUBMIT_STARTED' });
 
+    let businessId: string | null;
     try {
       const res = await fetch('/api/locations/add', {
         method: 'POST',
@@ -157,21 +158,39 @@ export function useAddLocationWizard({
       }
 
       const result = await res.json();
+      businessId = typeof result.businessId === 'string' ? result.businessId : null;
+    } catch {
+      dispatch({ type: 'SUBMIT_FAILED', message: 'Network error — please try again.' });
+      return;
+    }
 
+    // The location exists from here on, so nothing below may re-open the
+    // loading state or invite a retry. #781: settle into the terminal
+    // `succeeded` phase BEFORE touching the router — navigation is the last
+    // thing that happens, never the thing that ends the spinner.
+    const connectHref = businessId
+      ? `/dashboard/connect?locationId=${encodeURIComponent(businessId)}`
+      : '/dashboard/connect';
+    dispatch({ type: 'SUBMIT_SUCCEEDED', connectHref });
+
+    try {
       // Set the newly created location as the active scope.
       // VAL-SETTINGS-047: cookie set with SameSite=Lax, path=/.
-      if (result.businessId) {
-        setLocationScope(result.businessId as LocationId);
+      if (businessId) {
+        setLocationScope(businessId as LocationId);
       }
 
       // Navigate straight to the scoped connect flow for the new location.
-      const connectHref = result.businessId
-        ? `/dashboard/connect?locationId=${encodeURIComponent(result.businessId)}`
-        : '/dashboard/connect';
+      // Nothing may follow this push. #781: setLocationScope already calls
+      // router.refresh(), and a second refresh issued after the push
+      // supersedes the in-flight navigation — the add succeeded and the owner
+      // went nowhere.
       router.push(connectHref);
-      router.refresh();
-    } catch {
-      dispatch({ type: 'SUBMIT_FAILED', message: 'Network error — please try again.' });
+    } catch (err) {
+      // Not swallowed: step 4 is already showing the terminal "location added"
+      // notice with a manual link to `connectHref`, so the owner has a way
+      // forward. Logged for diagnostics rather than surfaced as a retry.
+      console.error('[add-location] navigation after a successful add failed:', err);
     }
   }, [
     accountId,
@@ -198,6 +217,9 @@ export function useAddLocationWizard({
 
   return {
     ...state,
+    // Derived from the phase so the components keep a flat boolean contract.
+    submitting: state.submitPhase === 'submitting',
+    submitted: state.submitPhase === 'succeeded',
     billingPreview,
     proration,
     newMonthlyTotalCents: billingPreview.newMonthlyTotalCents,

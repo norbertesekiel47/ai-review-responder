@@ -15,6 +15,16 @@ import {
 } from './types';
 import { hasStep1LocationDetails } from './payload';
 
+/**
+ * Lifecycle of the step-4 submit. `succeeded` and `failed` are both TERMINAL:
+ * the wizard reaches one of them from the fetch result alone, never from a
+ * navigation side effect. Before #781 there was no success phase at all, so
+ * the only exit from the loading state was navigating away — which made a
+ * navigation that never landed an unbounded spinner over an add that had in
+ * fact worked.
+ */
+export type SubmitPhase = 'idle' | 'submitting' | 'succeeded' | 'failed';
+
 export interface WizardState {
   step: WizardStep;
   inputMode: LocationInputMode;
@@ -27,8 +37,11 @@ export interface WizardState {
   existingLocations: ExistingLocationVoice[];
   copyFromLocationId: string;
   voiceLoading: boolean;
-  submitting: boolean;
+  submitPhase: SubmitPhase;
   submitError: string | null;
+  /** Set on SUBMIT_SUCCEEDED — the connect-flow route for the created
+   * location, so step 4 can offer a manual link if the redirect never lands. */
+  connectHref: string | null;
   existingPlaceIds: Set<string>;
 }
 
@@ -46,6 +59,7 @@ export type WizardAction =
   | { type: 'VOICE_CONFIGS_FAILED' }
   | { type: 'PLACE_IDS_LOADED'; placeIds: string[] }
   | { type: 'SUBMIT_STARTED' }
+  | { type: 'SUBMIT_SUCCEEDED'; connectHref: string }
   | { type: 'SUBMIT_FAILED'; message: string };
 
 export function initialState(): WizardState {
@@ -61,8 +75,9 @@ export function initialState(): WizardState {
     existingLocations: [],
     copyFromLocationId: '',
     voiceLoading: true,
-    submitting: false,
+    submitPhase: 'idle',
     submitError: null,
+    connectHref: null,
     existingPlaceIds: new Set<string>(),
   };
 }
@@ -194,10 +209,18 @@ export function reducer(state: WizardState, action: WizardAction): WizardState {
       return { ...state, existingPlaceIds: new Set(action.placeIds) };
 
     case 'SUBMIT_STARTED':
-      return { ...state, submitting: true, submitError: null };
+      return { ...state, submitPhase: 'submitting', submitError: null, connectHref: null };
+
+    case 'SUBMIT_SUCCEEDED':
+      return {
+        ...state,
+        submitPhase: 'succeeded',
+        submitError: null,
+        connectHref: action.connectHref,
+      };
 
     case 'SUBMIT_FAILED':
-      return { ...state, submitting: false, submitError: action.message };
+      return { ...state, submitPhase: 'failed', submitError: action.message };
 
     default:
       return state;

@@ -179,10 +179,13 @@ describe('submit payload shape', () => {
     expect(source).not.toContain('googleMapsUrl: null');
   });
 
+  // The href is also asserted behaviourally in useAddLocationWizard.test.tsx;
+  // this source guard remains as the cheap check that the destination is the
+  // scoped connect flow and not the bare dashboard.
   it('routes the newly added location directly to its Google connect flow', () => {
     const source = readWizardSource('../wizard/useAddLocationWizard.ts');
     expect(source).toContain('/dashboard/connect?locationId=');
-    expect(source).toContain('encodeURIComponent(result.businessId)');
+    expect(source).toContain('encodeURIComponent(businessId)');
     expect(source).not.toContain("router.push('/dashboard');");
   });
 });
