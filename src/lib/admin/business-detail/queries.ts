@@ -145,11 +145,11 @@ export async function fetchBusinessDetailBatch1(
       ORDER BY snapshot_date DESC
       LIMIT 50
     `;
-    // Zernio panel — current connection snapshot. The partial unique index
-    // `zernio_connections_one_active_per_business` allows multiple
-    // 'disconnected' rows for audit history; ORDER BY created_at DESC LIMIT 1
-    // returns the latest row regardless of status. NULL when the business
-    // has never started a Zernio connect flow.
+  // Zernio panel — current connection snapshot. The partial unique index
+  // `zernio_connections_one_active_per_business` allows multiple
+  // 'disconnected' rows for audit history; ORDER BY created_at DESC LIMIT 1
+  // returns the latest row regardless of status. NULL when the business
+  // has never started a Zernio connect flow.
   const zernioConnectionRows = await sql<ZernioConnectionRow[]>`
       SELECT status, connected_at, disconnected_at, disconnect_reason,
              last_error, last_error_at, zernio_account_id, zernio_location_id
@@ -158,10 +158,10 @@ export async function fetchBusinessDetailBatch1(
       ORDER BY created_at DESC
       LIMIT 1
     `;
-    // Responses queued waiting for owner reconnect — surfaced to admins so
-    // they can see what's stuck behind a missing/disconnected Zernio
-    // connection. Bounded LIMIT 50; admins can page via the responses
-    // history if more are needed.
+  // Responses queued waiting for owner reconnect — surfaced to admins so
+  // they can see what's stuck behind a missing/disconnected Zernio
+  // connection. Bounded LIMIT 50; admins can page via the responses
+  // history if more are needed.
   const awaitingOwnerConnectRows = await sql<AwaitingOwnerConnectRow[]>`
       SELECT r.id, r.created_at,
              COALESCE(r.approved_text, r.response_text) AS draft_text,
@@ -173,9 +173,9 @@ export async function fetchBusinessDetailBatch1(
       ORDER BY r.created_at DESC
       LIMIT 50
     `;
-    // Unresolved finalize incidents — block new connect/start flows until
-    // ops resolves them. Migration 026 enforces at most one unresolved
-    // incident per business; LIMIT 50 is defensive only.
+  // Unresolved finalize incidents — block new connect/start flows until
+  // ops resolves them. Migration 026 enforces at most one unresolved
+  // incident per business; LIMIT 50 is defensive only.
   const finalizeIncidentRows = await sql<ZernioFinalizeIncidentRow[]>`
       SELECT id, finalize_unknown_at, flow_id, zernio_profile_id
       FROM zernio_finalize_incidents
