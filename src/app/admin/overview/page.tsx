@@ -4,7 +4,10 @@ import { requireAdminPage } from '@/lib/auth/page-gate';
 import { getAdminOverview } from '@/lib/admin/overview-service';
 import { getAdminNavCounts } from '@/lib/admin/nav-counts-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
-import { OverviewClient, PAGE_SIZE } from './OverviewClient';
+import { OverviewClient } from './OverviewClient';
+// Server-safe: PAGE_SIZE must NOT be imported from the client component
+// module — the bundler would hand the server a stub. See page-sizes.ts.
+import { OVERVIEW_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 export const dynamic = 'force-dynamic';
 

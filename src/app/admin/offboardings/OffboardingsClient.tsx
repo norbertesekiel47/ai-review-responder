@@ -15,7 +15,7 @@ import { PaginationFooter, serverPaginationFooterState } from '@/components/admi
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 
-export const PAGE_SIZE = 50 as const;
+import { OFFBOARDINGS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 // Mirrors GET /api/admin/offboardings' body: the list + total come from
 // AdminOffboardingsList (single owner: offboardings-service.ts); limit/offset

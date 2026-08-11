@@ -16,7 +16,7 @@ type NotifData = AdminNotificationsData & { limit: number; offset: number };
 
 type Delivery = NotifData['notifications'][number];
 
-export const PAGE_SIZE = 20 as const;
+import { NOTIFICATIONS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 
 function deliveryStatus(d: Delivery): 'delivered' | 'failed' | 'pending' {

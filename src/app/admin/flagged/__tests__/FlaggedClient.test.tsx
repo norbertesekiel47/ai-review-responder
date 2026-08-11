@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FlaggedClient, PAGE_SIZE } from '../FlaggedClient';
+import { FlaggedClient } from '../FlaggedClient';
+import { FLAGGED_PAGE_SIZE as PAGE_SIZE } from '@/app/admin/page-sizes';
 
 const baseData = {
   flagged: [
