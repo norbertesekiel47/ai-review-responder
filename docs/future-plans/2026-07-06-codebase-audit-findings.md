@@ -177,7 +177,7 @@ Doc says "exactly 2 sites" and references a deleted route (`admin/payment-succes
 ## Non-findings (correctly hedged — do NOT chase)
 
 - **Perf S1** — `ZernioReviewIngestWorker` walks up to 4×50-review pages per webhook. May be deliberate (webhook lacks a stable id, or the page-walk doubles as reply reconciliation). Confirm intent before touching.
-- **Perf S2** — `GET /api/dashboard/kpis` appears to have no UI consumer. No current cost; only a concern if later wired *in addition to* `/api/dashboard`.
+- **Perf S2** — ~~`GET /api/dashboard/kpis` appears to have no UI consumer. No current cost; only a concern if later wired *in addition to* `/api/dashboard`.~~ **RESOLVED by #757 (2026-08-11, PR #793):** the observation was correct — zero consumers, verified three ways — and the route plus its whole `src/lib/kpi/service.ts` stack were **deleted** rather than wired up. `/api/dashboard` is now the one KPI path.
 - **HMAC compares are NOT a security bug** — all four are constant-time; LOW-2 is purely DRY.
 
 ## What's done well (preserve)

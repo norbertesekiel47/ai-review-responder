@@ -3316,3 +3316,110 @@ branches in one session, each staging-ridden before merge.
   adjudication). `seedLocation` defaults `isPrimary: true` and
   `businesses_account_primary_uniq` allows one primary per account — pass
   `isPrimary: false` for every cluster after the first.
+
+## 2026-08-11 — #757 Review-time anchor on the rendered dashboard (PR #793, squash 17f60e2c)
+
+**The gap #688 left.** #688 shipped the Review-time anchor `LEAST(review_date,
+detected_at)` into `src/lib/kpi/*` — a stack with **zero consumers**. What owners
+actually saw (`src/lib/dashboard/*`) still bucketed on `detected_at`, so a consented
+Review import drew one tall bar in the import week and no history. #757 moves the
+anchor to the rendered surfaces and deletes the unrendered stack, leaving ONE KPI
+path instead of two with different clocks. Closes the GA gate #688's review opened.
+
+**No migration, no env var, no flag, no new dependency, no new top-level directory.**
+
+### Re-anchored vs deliberately untouched
+
+| Metric | Surface | Clock |
+|---|---|---|
+| Review velocity | per-location + aggregate | Review-time anchor |
+| Rating breakdown | per-location + aggregate | Review-time anchor |
+| Average star (+ prior window, sample size) | per-location | Review-time anchor |
+| 8-week sentiment trend | per-location | Review-time anchor |
+| Response rate | per-location | **`detected_at`** (ADR 0019 D2) |
+| `windowedReceived` / `windowedResponded` | aggregate | **`detected_at`** |
+| timeSaved | per-location | **`approved_at`** |
+| Recent-review feed ordering | per-location | **`detected_at`** |
+| MonthlyImpactWorker digest | worker | **`detected_at`** (out of scope) |
+
+An import is account activity, and imported unanswered reviews are meant to drag the
+response rate — the #675 nudge reasoning.
+
+### Files
+
+```
+src/lib/kpi/fragments.ts                              ← NEW: reviewTimeAnchor /
+                                                        reviewTimeWindowFilter, single owner
+src/lib/kpi/__tests__/fragments.test.ts               ← NEW: pins the anchor is spelled
+                                                        NOWHERE else (order-insensitive regex)
+src/lib/kpi/service.ts                                ← DELETED (415 lines, zero consumers)
+src/lib/kpi/__tests__/service{,.cache,.anchor.integration}.test.ts ← DELETED (962 lines)
+src/app/api/dashboard/kpis/                           ← DELETED (route + 490-line suite)
+src/lib/kpi/types.ts                                  ← KEPT, trimmed to the window vocabulary
+src/lib/dashboard/service.ts                          ← composes the fragments (14 plug lines)
+src/lib/dashboard/aggregate-queries.ts                ← same, + reviews alias rv/rev → r
+src/lib/dashboard/__tests__/review-time-anchor.integration.test.ts ← NEW live-DB suite (13 tests)
+src/lib/dashboard/__tests__/{service,aggregate-queries}.review-time-anchor.test.ts ← NEW shape pins
+src/app/api/dashboard/__tests__/route.test.ts         ← #403 guard reads through the fragment
+scripts/ci/tenant-scope-allowlist.ts                  ← 408 → 401; 2 survivors re-pinned
+docs/adr/0019-kpi-review-time-anchor.md               ← addendum: one stack, D3 reversal,
+                                                        the deleted metrics' full contract
+```
+
+### Decisions and gotchas worth carrying
+
+- **Only TWO of P1's four fragments were extracted (D3).** Once Stack A is deleted,
+  `detectedAtWindowFilter` and the TTR validity filter have zero composers — response
+  rate stays literal per ADR 0019 D2 (which P1 itself forbids touching) and Stack B has
+  no duration metric. Owner-adjudicated at intake; the defect was the missing written
+  adjudication, now in the plan header and ADR 0019.
+- **The aggregate anchor must stay inside `LEFT JOIN … ON`.** In `WHERE` it degenerates
+  to an inner join and locations with no reviews lose their zero-filled series. Test pins it.
+- **Editing allowlisted SQL silently breaks `ci:tenant-scope` (D7).** Entries are keyed on
+  normalized raw SQL text; re-anchoring produced the paired "unused entry" + "missing
+  scope" findings ×2 queries. #688's lab note predicted exactly this. Derive the
+  replacement snippet from the audit's own `extractSqlTemplates`, never by hand.
+- **The repo has TWO `sql` mocks with different fidelity (D10).** The shared
+  `createMockSql` flattens nested fragments; the bespoke proxy in the dashboard route
+  test does not. Composing a fragment is invisible to one and breaking to the other.
+- **A repo-wide CI audit is a GATE-level check, not a task-level one (D6).** Prescribed as
+  one task's verification in a shared worktree, it reports on siblings' landed work and
+  nearly sent an implementer to edit the one file its task forbade.
+- **The plan twice prescribed a literal string its own `rg` clean-sweep searched for
+  (D8, D9).** A plan containing both a literal comment/prose string and a grep for that
+  string must reconcile them once across every task, not per task.
+
+### Staging proof
+
+`docs/runbooks/evidence/2026-08-11-757-anchor-staging-smoke.md`. Five reviews imported
+today with review dates 7/14/21/28/45 days back rendered as **five distinct non-zero
+weeks with the import week at zero**; `ratingBreakdown.total` = 4 (the 45-day row is
+outside the 30-day review-time window); per-location slices sum to the combined series
+and zero-fill survives.
+
+Two things the smoke itself produced:
+
+- **Assertion 5 was unfalsifiable as planned (D11)** — `responseRate` on a location with
+  no responses is 0% under both the right and the wrong clock. Re-run with one `posted`
+  response on the 45-day review the hypotheses split 20% vs 0%; observed **20%**.
+  Response rate confirmed still `detected_at`-keyed.
+- The plan's `curl` recipe cannot reach staging at all — **Vercel SSO deployment
+  protection** 307s the request before Next.js sees it.
+
+### Follow-ups filed, not fixed here
+
+- **#789** — formally supersede Spec 11's launch-KPI clause and restore volume MoM + TTR
+  when KPI cards ship. Rebuilding them now is new product surface with no consumer,
+  exactly what Pathfinder P1 rejected. Their full behavioral contract (calendar-month
+  bucketing, null-on-empty-sample, rounding, the `approved_at` window, Decision 3's
+  validity filter, and the response-rate-vs-TTR **multiplicity asymmetry**) is
+  reconstructed from git history into ADR 0019's addendum so nothing is lost.
+- **#790** — reopen ADR 0019 Decision 2. One dashboard period now shows a `detected_at`
+  response rate beside a review-time volume series; the staging smoke demonstrated it
+  live (20% rate beside a breakdown of 4 that excludes the counted review). #688
+  anchored a stack nobody rendered, so this branch is the first time the mixed clock is
+  owner-visible.
+- **#791** — All-Locations *combined* velocity sorts alphabetically by month name
+  (`Aug` < `Jul` < `Jun`), because `weekStart` is a `String(Date)` compared with
+  `localeCompare` at `aggregate-service.ts:277`. Counts correct, sequence wrong.
+  Pre-existing since PR #28 (2026-05-10); found by the staging smoke.
