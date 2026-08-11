@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
-import { Young_Serif, DM_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/shell/MobileTabBar';
@@ -26,15 +26,22 @@ import './_styles/console.css';
 
 // Warm Editorial: Young Serif is display-only (single weight 400) — page titles,
 // stat numerals, section/card headings. DM Sans carries all body/UI text.
-const youngSerif = Young_Serif({
-  subsets: ['latin'],
-  weight: ['400'],
+//
+// Self-hosted for the same reason as the root layout — see the comment in
+// src/app/layout.tsx. This second call site is why fixing only the root layout
+// would NOT have fixed the build failure: any next/font/google import anywhere
+// re-introduces the compile-time fetch. `../fonts/dm-sans-latin.woff2` is the
+// same file the root layout uses; Next emits it once and both layouts share it.
+const youngSerif = localFont({
+  src: '../fonts/young-serif-latin.woff2',
+  weight: '400',
   variable: '--rw-font-display',
   display: 'swap',
+  adjustFontFallback: 'Times New Roman',
 });
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const dmSans = localFont({
+  src: '../fonts/dm-sans-latin.woff2',
+  weight: '400 700',
   variable: '--rw-font-body',
   display: 'swap',
 });

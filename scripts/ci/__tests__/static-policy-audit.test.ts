@@ -176,6 +176,35 @@ describe('scanFile — crypto-js (invariant #10)', () => {
   });
 });
 
+describe('scanFile — next/font/google', () => {
+  it('flags a named ESM import of next/font/google', () => {
+    const findings = scanFile('src/app/layout.tsx', "import { Inter } from 'next/font/google';");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('next-font-google');
+  });
+
+  it('flags a dynamic import of next/font/google', () => {
+    const findings = scanFile('src/app/layout.tsx', "await import('next/font/google');");
+    expect(findings.some((f) => f.rule === 'next-font-google')).toBe(true);
+  });
+
+  // The whole point of the ban: the root layout was migrated first while
+  // (authenticated)/layout.tsx still imported the Google loader, and a single
+  // remaining import keeps the compile-time fetch — and the outage — alive.
+  it('flags a second call site outside the root layout', () => {
+    const findings = scanFile(
+      'src/app/(authenticated)/layout.tsx',
+      "import { Young_Serif, DM_Sans } from 'next/font/google';",
+    );
+    expect(findings.some((f) => f.rule === 'next-font-google')).toBe(true);
+  });
+
+  it('does not flag next/font/local', () => {
+    const findings = scanFile('src/app/layout.tsx', "import localFont from 'next/font/local';");
+    expect(findings).toHaveLength(0);
+  });
+});
+
 describe('scanFile — NEXT_PUBLIC allowlist (invariant #13)', () => {
   it('flags a non-allowlisted process.env.NEXT_PUBLIC_ read', () => {
     const findings = scanFile(
