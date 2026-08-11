@@ -22,7 +22,6 @@ type BusinessListData = AdminBusinessesList & {
 type BusinessRow = BusinessListData['businesses'][number];
 
 import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
-export { PAGE_SIZE };
 
 const columns: DataTableColumn<BusinessRow>[] = [
   {

@@ -22,7 +22,6 @@ const ACTION_LABELS: Record<DispositionAction, string> = {
 };
 
 import { FLAGGED_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
-export { PAGE_SIZE };
 
 function FlaggedContent({
   data,

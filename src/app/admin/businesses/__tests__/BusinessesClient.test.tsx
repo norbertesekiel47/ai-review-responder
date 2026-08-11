@@ -2,7 +2,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BusinessesClient, PAGE_SIZE } from '../BusinessesClient';
+import { BusinessesClient } from '../BusinessesClient';
+import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '@/app/admin/page-sizes';
 
 type Props = Parameters<typeof BusinessesClient>[0];
 type InitialData = Props['initialData'];

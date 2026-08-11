@@ -14,7 +14,6 @@ import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/sta
 import { formatAdminCount } from '@/components/admin/ui/format';
 
 import { OVERVIEW_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
-export { PAGE_SIZE };
 
 type BusinessRow = OverviewData['businesses'][number];
 

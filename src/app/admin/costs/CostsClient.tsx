@@ -12,7 +12,6 @@ import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/sta
 import { formatAdminCount } from '@/components/admin/ui/format';
 
 import { COSTS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
-export { PAGE_SIZE };
 const DEFAULT_DAYS = 30;
 
 interface CostData extends CostReportData {
