@@ -38,6 +38,7 @@ import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
+import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,11 +97,14 @@ export async function GET(request: NextRequest): Promise<Response> {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
-    if (
-      outbox.status === 'pending' ||
-      outbox.status === 'dispatching' ||
-      outbox.status === 'dispatched'
-    ) {
+    // The in-flight set is IMPORTED, never re-spelled. Invariant #2's
+    // byte-for-byte hand-spelling requirement covers SQL literals only — it
+    // exists because a bind parameter inside an `ON CONFLICT … WHERE` predicate
+    // defeats partial-index inference. This is a JS comparison, so the exported
+    // constant is the right tool (the sibling reviews/[reviewId]/draft-status
+    // route and import-offer-view.ts are the same call). This route predates
+    // the constant (#56 vs #588); it was the last JS hand-spell left (#764).
+    if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(outbox.status)) {
       return NextResponse.json({ status: 'generating' }, { status: 200 });
     }
 

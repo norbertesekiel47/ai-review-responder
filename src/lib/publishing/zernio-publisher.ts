@@ -3,6 +3,7 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
 import { fromZernioReview, matchesLocalRow } from '@/lib/reviews/zernio-field-match';
+import { zernioProviderLocationName } from '@/lib/reviews/zernio-normalize';
 
 const CACHE_TTL_SECONDS = 86_400;
 
@@ -69,7 +70,7 @@ export async function lookupZernioReviewId(
   // REQUIRE EXACT location match — same-account different-location row is
   // NOT safe to short-circuit (would target the wrong GBP location). Round-2 M4.
   if (ourReview.provider === 'zernio') {
-    const expectedLocationName = `zernio://${accountId}/locations/${locationId}`;
+    const expectedLocationName = zernioProviderLocationName(accountId, locationId);
     if (
       ourReview.provider_location_name === expectedLocationName &&
       ourReview.provider_review_id !== null

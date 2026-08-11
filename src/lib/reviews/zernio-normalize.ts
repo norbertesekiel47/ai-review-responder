@@ -21,6 +21,28 @@ import { sanitizeMultilineText, sanitizeReviewerName } from '@/lib/shared/saniti
 
 const LOG_PREFIX = '[zernio-normalize]';
 
+/**
+ * Synthetic Zernio identity names — the ONLY place either format is spelled.
+ *
+ * These strings are written to `reviews.provider_review_name` /
+ * `provider_location_name` and later **string-compared** (reconcile matching,
+ * tombstoning, the publisher's location short-circuit). They are never parsed
+ * back apart, so nothing would catch drift: one byte of divergence between a
+ * writer and a comparer silently breaks the match, and the symptom surfaces far
+ * from the cause. Call these instead of interpolating the format again (#764).
+ */
+export function zernioProviderReviewName(
+  accountId: string,
+  locationId: string,
+  reviewId: string,
+): string {
+  return `${zernioProviderLocationName(accountId, locationId)}/reviews/${reviewId}`;
+}
+
+export function zernioProviderLocationName(accountId: string, locationId: string): string {
+  return `zernio://${accountId}/locations/${locationId}`;
+}
+
 export class ZernioReviewNormalizationError extends Error {
   constructor(reason: string, readonly raw: unknown) {
     super(`${LOG_PREFIX} ${reason}`);
@@ -68,8 +90,8 @@ export function buildZernioMonitoredReview(
     identity: {
       provider: 'zernio',
       providerReviewId: z.id,
-      providerReviewName: `zernio://${accountId}/locations/${locationId}/reviews/${z.id}`,
-      providerLocationName: `zernio://${accountId}/locations/${locationId}`,
+      providerReviewName: zernioProviderReviewName(accountId, locationId, z.id),
+      providerLocationName: zernioProviderLocationName(accountId, locationId),
       googleReviewName: normalizeGoogleReviewName(z.name),
       identityStrategy: 'zernio_id',
     },
