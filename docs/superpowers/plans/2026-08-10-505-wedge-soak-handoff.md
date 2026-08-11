@@ -1,5 +1,12 @@
 # Handoff — #505 Connection wedge: what shipped, what is still unverified (2026-08-10)
 
+> **Update 2026-08-11 (#779).** The site sweep **#769 is closed** — all three
+> remaining suspects were resolved against the live staging env; see §5. The same
+> PR also settled #773's mechanism question **from postgres.js source**: the answer
+> is **yes**, concurrent requests sharing a Fluid Compute isolate do share the pool,
+> so per-request sequencing is **necessary but not sufficient**. #773 stays open as
+> the capacity decision. Nothing here is a code-site sweep any more.
+
 Written at the end of a long session. Everything below is either merged or filed.
 The one open item that needs real work is **the aggregate wave**, §4.
 
@@ -39,6 +46,7 @@ Diagnostic shortcuts worth reusing:
 | **#761** | Admin surface: `overview-service` (7), `business-detail/queries` (7 + 6), `cost-report-service` (5), costs page/route (4) → sequential | Soaked on staging: 14/14 pages returned full bodies where 7 previously hung forever; 0 wedged |
 | **#770** | 7 admin pages imported `PAGE_SIZE` from `'use client'` siblings → server got a client-reference stub bound as a SQL param | All 7 render; verified visually + by size delta (jobs 21.2KB → 74.8KB) |
 | **#767** | Owner dashboard: `getActiveDashboardData` (13), `fetchPerLocationAggregateSlices` (8), `fetchReputationRows` (5) → sequential | Main wave soaked, see §3. **Aggregate wave NOT soaked, see §4** |
+| **#779** | Locations settings: `settings/locations/page.tsx` (4 > pool 3) → sequential, wave extracted to `src/lib/locations/settings-view.ts` for a testable seam. Closes the #769 sweep | Pool numbers read off the live staging env, not source comments. Guard red-checked (`Promise.all` → "expected 4 to be 1") |
 
 Shared cure: the proven #505 sequential idiom. Waves with a real degradation
 contract keep per-member settled results via `src/lib/shared/settled-in-order.ts`
@@ -94,6 +102,10 @@ It is also the most intricate of the three conversions:
 Verifying it needs a multi-location account on staging (an admin data mutation —
 not done, deliberately). See §6 for the prompt.
 
+**#779 unblocked step 1 of that prompt.** The page an owner uses to *add* a
+location was itself the wedge (fan-out 4 > pool 3), so creating the second staging
+location was hazardous before that fix. It is now safe to drive.
+
 ---
 
 ## 5. Also open
@@ -101,18 +113,42 @@ not done, deliberately). See §6 for the prompt.
 - **#768** — 101 `job_outbox` rows in terminal `failed` on staging. Never
   investigated. Terminal means the watchdog will not reclaim them, so that work is
   dropped. Unknown whether prod has the same.
-- **#769** — remaining #505 suspects: `past-replies/load-replies.ts:167`,
-  `settings/locations/page.tsx:34`, `kpi/service.ts:209,:314` (believed safe on
-  `sqlRead` `max:8` — confirm). The deciding question per site is **which client
-  the caller passes**, since these are `sql`-injected domain modules.
-- **#773 — cross-request concurrency, genuinely unresolved.** During the admin soak one
-  wedge appeared in `listOpenFlaggedResponses`, a **2-query** fan-out that is
-  *under* the pool of 3. The likely explanation is that Fluid Compute reuses an
-  isolate across concurrent requests, so several requests sharing one pool can
-  exceed it even when each stays under. If that holds, **per-request sequencing is
-  necessary but not sufficient**, and the real fix is a capacity decision (pool
-  sizing / `sqlRead` routing) gated by the ADR 0009 burst drill. It did not
-  reproduce during the dashboard soak — absence is not proof.
+- **~~#769~~ — CLOSED 2026-08-11 by PR #779.** All three suspects resolved by
+  tracing which client the caller actually passes, against the live staging env
+  (`DB_POOL_MAX="3"`; `DB_READ_POOL_MAX` unset → `sqlRead` clamps to
+  `WEDGE_SAFE_READ_MIN` = 8):
+
+  | Site | Client | Fan-out | Pool | Verdict |
+  |---|---|---|---|---|
+  | `settings/locations/page.tsx:34` | `sql` singleton | 4 | 3 | **wedge — fixed** |
+  | `past-replies/load-replies.ts:167` | `sql` singleton | 2 | 3 | safe — comment added |
+  | `kpi/service.ts:209` | `sqlRead` | 5 | 8 | safe — comment added |
+  | `kpi/service.ts:314` | `sqlRead` | 5 (+gate = 6 peak) | 8 | safe — comment added |
+
+  The two safe sites carry comments naming the fan-out **and** the client's `max`,
+  so a future extra query is a visible decision rather than a silent regression.
+
+- **#773 — mechanism ANSWERED, capacity decision still open.** The admin-soak
+  anomaly was a wedge in `listOpenFlaggedResponses`, a **2-query** fan-out that is
+  *under* the pool of 3 — which the "fan-out > pool" model cannot explain. #779
+  settled it **from postgres.js@3.4.9 source**, not inference: `handler()`
+  (`src/index.js:329`) never queues on pool exhaustion — it falls through to
+  `go(busy.shift(), query)`, pipelining onto an already-busy connection, and
+  `go()` → `c.execute(q)` keeps accepting until `sent.length < max_pipeline`
+  fails at **100** (`connection.js:176`). So `max` caps **TCP connections, not
+  concurrency**, and `handler()` has no concept of a request. The pool is a module
+  singleton and Fluid Compute reuses one isolate across concurrent requests, so
+  **N requests each staying under the pool still exceed it together** (2 requests
+  × 2 queries = 4 > 3).
+
+  Consequence: **per-request sequencing is necessary but not sufficient.** #761 /
+  #767 / #779 lower per-request demand to 1, which raises the bar from ≥2 to ≥4
+  concurrent requests per isolate — a real risk reduction, not a closure of the
+  class. What remains is a **capacity** decision (raise `DB_POOL_MAX`, route more
+  reads onto `sqlRead` `max:8`, or accept + monitor), and per ADR 0009 that
+  requires re-running the burst drill against the **Vercel** surface rather than
+  the worker. Do not declare the #505 class closed on a green soak — the dashboard
+  soak was 24/24 clean while this mechanism was live.
 
 ---
 
@@ -120,11 +156,12 @@ not done, deliberately). See §6 for the prompt.
 
 Paste this into a fresh session:
 
-> Continue issue #769 (the #505 pipelining-wedge sweep) in the RepWorth repo.
+> Finish the #505 pipelining-wedge work in the RepWorth repo. The code-site sweep
+> (#769) is **closed** — what is left is one soak and one capacity decision.
 > Read `docs/superpowers/plans/2026-08-10-505-wedge-soak-handoff.md` first — it has
 > the full context; this session does not need the previous conversation.
 >
-> **Priority 1 — soak the aggregate wave.** `fetchPerLocationAggregateSlices`
+> **Priority 1 — soak the aggregate wave** (§4; belongs to PR #767, not #769). `fetchPerLocationAggregateSlices`
 > (`src/lib/dashboard/aggregate-queries.ts`, 8 members via `settledInOrder`) shipped
 > in PR #767 but has **never run against the real Supavisor pooler**, because staging
 > has no multi-location accounts. To verify it:
@@ -142,21 +179,16 @@ Paste this into a fresh session:
 >    degrade per-slice (one failing slice empties its column) while the **baseline
 >    read stays FATAL**. Dispatch order changed in #767 — see §4.
 >
-> **Priority 2 — finish the #769 sweep.** For each remaining suspect
-> (`past-replies/load-replies.ts:167`, `settings/locations/page.tsx:34`,
-> `kpi/service.ts:209,:314`), trace which client the caller passes: fan-out > pool
-> wedges, fan-out ≤ pool is the proven-safe shape. Fix with the sequential idiom (or
-> `settledInOrder` where a degradation contract exists); where already safe, add a
-> comment naming the fan-out count and the client's `max`. Guard with a
-> peak-in-flight-concurrency === 1 test including a guards-the-guard case, and
-> red-check it. Do not fix by analogy — the audit ticket is explicit that
-> concurrency > pool is necessary but not sufficient.
->
-> **Priority 3 — settle the cross-request question**, tracked as issue #773. If concurrent requests
-> sharing a Fluid Compute isolate can exceed `DB_POOL_MAX` even when each request
-> stays under it, then per-request sequencing is not a complete fix and the answer is
-> a capacity change gated by the ADR 0009 burst drill. Establish this one way or the
-> other before anyone concludes #505 is closed.
+> **Priority 2 — the capacity decision, issue #773.** The *mechanism* question is
+> already answered (§5): concurrent requests DO share one isolate's pool, so
+> per-request sequencing is necessary but not sufficient. Do not re-derive it. What
+> is open is the cure — raise `DB_POOL_MAX`, route more of the read surface onto
+> `sqlRead` (`max:8`), or accept the residual with monitoring. Per ADR 0009 that is
+> a capacity change requiring the burst drill (`scripts/burst-drill-load.ts`,
+> `docs/runbooks/pool-wedge-burst-drill.md`) to be re-run against the **Vercel**
+> surface rather than the worker, and the per-isolate connection budget re-derived.
+> Note isolate identity is not exposed in `pg_stat_activity` — Supavisor flattens
+> `application_name` to `'Supavisor'` (ADR 0007), so attribution needs another signal.
 >
 > Watch out: sequentializing a wave **changes query dispatch order** and breaks
 > order-seeded fixtures with errors that read like data bugs; adding comment lines
