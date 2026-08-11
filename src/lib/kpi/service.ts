@@ -206,6 +206,14 @@ export async function getLocationKpiSummary(
   // calendar-month regardless of window, per the KpiReviewVolume contract.
   const { windowDays, trendWeeks } = dashboardWindowParams(window);
   const trendSpanWeeks = trendWeeks - 1;
+  // CONCURRENT AT FAN-OUT 5, POOL 8 (#505/#769 sweep). The only caller is
+  // src/app/api/dashboard/kpis/route.ts, which passes `sqlRead` — the dedicated
+  // read bulkhead whose max is clamped to [WEDGE_SAFE_READ_MIN,
+  // READ_POOL_MAX_CEILING] = [8, 8] (src/lib/db/server.ts), NOT the singleton
+  // `sql` at DB_POOL_MAX = 3. This wave is exactly what WEDGE_SAFE_READ_MIN was
+  // sized for: 5 here, +1 for the route's concurrent subscription gate = 6 peak,
+  // under 8. Adding members past 8 — or routing this onto `sql` — reintroduces
+  // the wedge; both are deliberate decisions, not drive-by changes.
   const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
     sql<RateRow[]>`
       SELECT
@@ -311,6 +319,9 @@ export async function getAccountKpiSummary(
   // integers via make_interval(...), never interpolated text (issue #403).
   const { windowDays, trendWeeks } = dashboardWindowParams(window);
   const trendSpanWeeks = trendWeeks - 1;
+  // CONCURRENT AT FAN-OUT 5, POOL 8 — same contract as getLocationKpiSummary
+  // above; the caller (src/app/api/dashboard/kpis/route.ts) passes `sqlRead`,
+  // and this wave runs concurrently with that route's subscription gate = 6 peak.
   const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
     sql<RateRow[]>`
       SELECT

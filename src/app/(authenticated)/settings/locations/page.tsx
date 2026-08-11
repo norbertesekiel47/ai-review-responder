@@ -12,13 +12,12 @@ import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LocationsClient } from './LocationsClient';
 import type { AddLocationState } from '@/components/dashboard/settings/LocationsPanel';
-import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
+import { loadLocationsSettingsView } from '@/lib/locations/settings-view';
 import { multiLocationEnabled } from '@/lib/locations/flags';
 import {
   resolveAddLocationState,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
-import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,31 +29,17 @@ export default async function LocationsPage() {
 
   const access = await requireOwnerAccess(sql);
 
-  // Fetch all active and archived locations for this account
-  const [locations, activeCount, archivedLocations, account] = await Promise.all([
-    getLocationsForAccount(sql, access.accountId),
-    getActiveLocationCount(sql, access.accountId),
-    getArchivedLocationsForAccount(sql, access.accountId),
-    sql<{ subscription_tier: string; subscription_status: string }[]>`
-      SELECT subscription_tier, subscription_status
-      FROM accounts
-      WHERE id = ${access.accountId}::uuid
-      LIMIT 1
-    `.then((rows) => rows[0] ?? null),
-  ]);
-
-  if (!account || !isSubscriptionTier(account.subscription_tier)) {
-    throw new Error(
-      `invalid_ws8_subscription_tier:${account?.subscription_tier ?? 'missing'}`,
-    );
-  }
+  // Every query for this page lives in the loader, and runs SEQUENTIALLY on the
+  // singleton `sql` (pool = DB_POOL_MAX = 3 on Vercel) — see #505 and the
+  // loader's doc comment. Do NOT hoist reads back up here as a Promise.all.
+  const view = await loadLocationsSettingsView(sql, access.accountId);
 
   const voiceHref = '/settings/voice';
 
   const addLocationStateKind = resolveAddLocationState(
     featureEnabled,
-    account.subscription_tier,
-    account.subscription_status,
+    view.subscriptionTier,
+    view.subscriptionStatus,
   );
   const addLocationState: AddLocationState =
     addLocationStateKind === 'enabled'
@@ -67,53 +52,6 @@ export default async function LocationsPage() {
           ctaLabel: 'Review billing',
         };
 
-  // Fetch Zernio connection status for each location (active + archived)
-  const allLocationIds = [...locations, ...archivedLocations].map((l) => l.id);
-
-  let zernioRows: { business_id: string; status: string }[] = [];
-  if (allLocationIds.length > 0) {
-    zernioRows = await sql<{ business_id: string; status: string }[]>`
-      SELECT business_id, status
-      FROM zernio_connections
-      WHERE business_id = ANY(${allLocationIds}::uuid[])
-    `;
-  }
-
-  const zernioMap = new Map(zernioRows.map((r) => [r.business_id, r.status]));
-
-  // VAL-LOC-067: Fetch pending approval count per location for archive dialog
-  let pendingApprovalRows: { business_id: string; count: number }[] = [];
-  if (allLocationIds.length > 0) {
-    pendingApprovalRows = await sql<{ business_id: string; count: number }[]>`
-      SELECT business_id, COUNT(*)::int AS count
-      FROM responses
-      WHERE business_id = ANY(${allLocationIds}::uuid[])
-        AND status = 'pending_approval'
-      GROUP BY business_id
-    `;
-  }
-  const pendingApprovalMap = new Map(pendingApprovalRows.map((r) => [r.business_id, r.count]));
-
-  const locationEntries = locations.map((loc) => ({
-    id: loc.id,
-    name: loc.name,
-    displayLabel: loc.display_label,
-    address: loc.google_place_address,
-    isPrimary: loc.is_primary,
-    googlePlaceId: loc.google_place_id,
-    zernioStatus: (zernioMap.get(loc.id) ?? 'none') as 'none' | 'pending' | 'active' | 'disconnected',
-    pendingApprovalCount: pendingApprovalMap.get(loc.id) ?? 0,
-  }));
-
-  // VAL-SETTINGS-038: Archived locations shown in separate collapsed section
-  const archivedEntries = archivedLocations.map((loc) => ({
-    id: loc.id,
-    name: loc.name,
-    displayLabel: loc.display_label,
-    address: loc.google_place_address,
-    archivedAt: loc.archived_at?.toISOString() ?? null,
-  }));
-
   return (
     <>
       <TopBar
@@ -122,9 +60,9 @@ export default async function LocationsPage() {
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <LocationsClient
-        locations={locationEntries}
-        archivedLocations={archivedEntries}
-        activeCount={activeCount}
+        locations={view.locations}
+        archivedLocations={view.archivedLocations}
+        activeCount={view.activeCount}
         accountId={access.accountId}
         addLocationState={addLocationState}
         voiceHref={voiceHref}

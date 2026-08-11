@@ -226,9 +226,12 @@ const ADMIN_SUPPRESSION_LOOKUP_SQL =
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
-    file: "src/app/(authenticated)/settings/locations/page.tsx",
+    // Moved out of settings/locations/page.tsx by the #769 sweep: the page's
+    // 4-member Promise.all exceeded the pool-3 singleton (#505), so every query
+    // now lives in the sequential loader src/lib/locations/settings-view.ts.
+    file: "src/lib/locations/settings-view.ts",
     table: "accounts",
-    sqlSnippet: "SELECT subscription_tier, subscription_status FROM accounts WHERE id = ${access.accountId}::uuid LIMIT 1",
+    sqlSnippet: "SELECT subscription_tier, subscription_status FROM accounts WHERE id = ${accountId}::uuid LIMIT 1",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },

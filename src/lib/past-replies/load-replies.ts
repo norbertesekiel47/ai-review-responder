@@ -164,6 +164,22 @@ export async function loadPastRepliesPageView(
   // so the merged denominator's `COUNT(*) FILTER (WHERE p.review_id IS NULL)`
   // already counts them), i.e. paginated like every other row instead of
   // repeating on every page.
+  //
+  // CONCURRENT AT FAN-OUT 2, POOL 3 (#505/#769 sweep). The only caller is
+  // src/app/(authenticated)/dashboard/reviews/history/page.tsx, which passes the
+  // `sql` SINGLETON — pool = DB_POOL_MAX = 3 on Vercel, NOT the larger `sqlRead`
+  // (max 8). Two in flight against three connections is the proven-safe shape:
+  // postgres.js only pipelines onto an already-open connection once the pool has
+  // no idle AND no unopened slot left. A THIRD member here would put fan-out at
+  // the pool ceiling and a FOURTH would exceed it — either is a deliberate
+  // decision requiring the sequential idiom, not a drive-by addition.
+  //
+  // Per-request safety is NOT the whole story: the pool is a module singleton and
+  // Fluid Compute reuses one isolate across concurrent requests, so enough
+  // simultaneous renders of this page can still exceed the pool between them
+  // (issue #773 — capacity, gated by the ADR 0009 burst drill). Sequentializing
+  // here would lower this page's contribution from 2 to 1 but cannot close that;
+  // it is left concurrent deliberately, and #773 owns the real fix.
   const [rows, denominatorRows] = await Promise.all([
     // The SINGLE row source for the page:
     //   - review_content_hash + version for the optimistic-concurrency snapshot
