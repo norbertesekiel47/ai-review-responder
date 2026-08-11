@@ -29,6 +29,11 @@ jobs:
           # `scope: changed` diffs against the base branch to report only
           # PR-introduced issues; a shallow clone can't reach it.
           fetch-depth: 0
-      - uses: millionco/react-doctor@1a30f2caac12f1678243cb8733dd7bc1b598a9da # pinned from main 2026-07-16
+      # Pinned to the v2.2.8 RELEASE commit, not to `main`. This action runs with
+      # pull-requests/issues/statuses write, so it tracks tagged releases only —
+      # a `main` pin means every Dependabot bump is an unreviewed branch jump
+      # (the one this replaced was 235 commits). Bump this to the next v* tag's
+      # commit SHA, never to a branch head.
+      - uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
           blocking: error
