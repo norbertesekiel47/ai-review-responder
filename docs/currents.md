@@ -567,6 +567,54 @@ The new shape:
 archived location, failed subscription guard) still use plain `markOutboxCompleted`
 and keep `completion_reason` NULL. They are not policy refusals.
 
+## Quick summary — Reviews list + On-demand generation (2026-08-08, PR #712)
+
+**In one line:** the owner can now see *every* review for a location on one page, and ask for a reply on any of them.
+
+### What changed for an owner
+
+`dashboard/reviews/history` used to show only reviews that already had a reply. It now shows all of them, and it is called the **Reviews list**. The tab reads `All Reviews` instead of `History`.
+
+Rows are grouped `Unanswered` first, then `Answered`, newest first inside each group, 50 per page. Each row offers exactly one action, chosen by the server:
+
+| Row state | What the owner sees |
+|---|---|
+| `generate` | `Generate` — expands the row inline to the draft with `Approve & post` |
+| `regenerate` | `Regenerate` — opens the two-pane drawer, because publishing there **replaces** a live Google reply |
+| `draft_ready` | a `Draft ready` cross-link to **Needs Action**, no Generate |
+| `held` | a muted `Under review` marker — no button, no draft text, no cross-link |
+| `generating` | `Generating…`, and it survives a page refresh |
+| `recover` | the existing orphan recovery card, never Generate |
+
+Answered rows carry a provenance badge so an owner never wonders where a reply came from: `Posted by you before joining`, `Replied on Google`, `Auto-approved`, `You approved`.
+
+### The new shape
+
+| File | Role |
+|---|---|
+| `src/lib/past-replies/load-replies.ts` | the single row source — `LEFT JOIN` + 4 LATERALs (live draft + its held flag, in-flight outbox, orphan sidecar, superseded text). The separate orphan query is **deleted**: under `LEFT JOIN` its `NOT EXISTS` disjointness was false, so orphans would have rendered twice and merged into every page. |
+| `src/lib/past-replies/replies-view.ts` | `deriveRowState` (six states, precedence not preference) + `provenanceBadge`. The card **renders** a state; it never computes one. |
+| `src/app/api/dashboard/reviews/[reviewId]/generate/route.ts` | the Generate door — rate limit → tenant lookup → writable-subscription → budget peek → in-tx guards → `enqueueGenerateResponse` |
+| `src/app/api/dashboard/reviews/[reviewId]/draft-status/route.ts` | polls by `reviewId` (not `outbox_id`, which a refresh loses), account-scoped, **not** gated on `EDIT_REPLIES_ENABLED` |
+| `src/components/dashboard/reviews/useInlineGenerate.ts` | the client state machine: POST → poll → settle |
+| `src/lib/shared/worker-types.ts` | one new **Origin lane**, `on_demand_generate` |
+
+### Why a Generate draft can never auto-post
+
+`isAutoApprovalCandidate` requires `live_ingest_new`. A Generate draft is version 1, so the **Origin lane is what excludes it** — structurally, not by a second guard the ticket explicitly forbade. `suppress_notification: true` is belt-and-braces. The protection is the whole typed chain: producers must supply a typed lane, the enqueue helper serialises it, and an unknown runtime value normalises **fail-closed** to `null`.
+
+### Flag change
+
+`PAST_REPLIES_VIEW_ENABLED` is **retired — deleted, not flipped**. Once the Reviews list is the consented **Review import**'s only destination, the flag would let `import_decision='accepted'` coexist with the imported reviews landing on a `notFound()`. `EDIT_REPLIES_ENABLED` is kept: it gates the live-Google mutation, a larger risk, and is now its sole gate.
+
+**Revert precondition:** reverting restores the flag *read*, so the var must exist before a reverted build boots. Production and staging carry it; **Vercel Preview does not**.
+
+### Known gaps — filed as #710, do not assume settled
+
+The legacy Past Replies draft lane returns moderation-held draft text with no hold check (pre-existing; #678 made it visible by getting its own poller right), `deriveRowState` gives a posted reply precedence over a held replacement draft, the deferred Generate/live-ingest race can persist a draft for stale review text, and the held-draft predicate has ≥8 hand-spelled sites rather than the 3 recorded.
+
+---
+
 ## Quick summary — Import consent analytics sink (2026-08-08, PR #708)
 
 **In one line:** when the counter for "we offered an import / the owner answered"
