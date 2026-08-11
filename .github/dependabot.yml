@@ -37,7 +37,15 @@ updates:
           - patch
 
   - package-ecosystem: github-actions
-    directory: /
+    # `/` covers .github/workflows/** ONLY — it does NOT reach composite actions
+    # nested under .github/actions/*/action.yml, which need their own entry.
+    # Without the glob those pins drift silently and unmonitored: as of this
+    # change .github/actions/setup pinned actions/setup-node@v4.4.0 and
+    # actions/cache@v4.3.0 while the workflow copies had moved on, and no
+    # Dependabot PR in the repo's history had ever touched .github/actions/.
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
