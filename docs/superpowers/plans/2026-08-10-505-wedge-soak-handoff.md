@@ -105,7 +105,7 @@ not done, deliberately). See §6 for the prompt.
   `settings/locations/page.tsx:34`, `kpi/service.ts:209,:314` (believed safe on
   `sqlRead` `max:8` — confirm). The deciding question per site is **which client
   the caller passes**, since these are `sql`-injected domain modules.
-- **Cross-request concurrency — genuinely unresolved.** During the admin soak one
+- **#773 — cross-request concurrency, genuinely unresolved.** During the admin soak one
   wedge appeared in `listOpenFlaggedResponses`, a **2-query** fan-out that is
   *under* the pool of 3. The likely explanation is that Fluid Compute reuses an
   isolate across concurrent requests, so several requests sharing one pool can
@@ -152,7 +152,7 @@ Paste this into a fresh session:
 > red-check it. Do not fix by analogy — the audit ticket is explicit that
 > concurrency > pool is necessary but not sufficient.
 >
-> **Priority 3 — settle the cross-request question** in §5. If concurrent requests
+> **Priority 3 — settle the cross-request question**, tracked as issue #773. If concurrent requests
 > sharing a Fluid Compute isolate can exceed `DB_POOL_MAX` even when each request
 > stays under it, then per-request sequencing is not a complete fix and the answer is
 > a capacity change gated by the ADR 0009 burst drill. Establish this one way or the
