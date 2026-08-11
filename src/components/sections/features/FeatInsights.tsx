@@ -89,7 +89,10 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
                         className={`rw-brief-bar-fill ${fill}`}
                         style={
                           {
-                            '--fill-w': `${m.width}%`,
+                            // Unitless ratio, not a percentage: the bar reveals
+                            // via scaleX (see .rw-brief-bar-fill), and scaleX
+                            // takes a number.
+                            '--fill-r': m.width / 100,
                             '--fill-d': `${400 + i * 150}ms`,
                           } as CSSProperties
                         }

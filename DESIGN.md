@@ -6,8 +6,13 @@ colors:
   island-teal: "#97B3AE"
   island-action: "#557069"
   island-peach: "#F2C3B9"
+  island-pink: "#F0DDD6"
+  island-beige: "#D6CBBF"
   island-cream: "#F0EEEA"
   island-ink: "#2A2A2A"
+  island-ink-soft: "#6A6A6A"
+  island-success: "#1D6B4F"
+  island-error: "#B3261E"
   console-field: "#FDFBF7"
   console-card: "#FFFDF9"
   console-tray: "#F4EEE4"
@@ -151,6 +156,46 @@ typography:
     fontSize: "66px"
     fontWeight: 400
     lineHeight: 0.95
+  marketing-lead:
+    fontFamily: "DM Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "17px"
+    fontWeight: 400
+    lineHeight: 1.6
+  marketing-card-title:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "28px"
+    fontWeight: 600
+    lineHeight: 1.15
+  marketing-section-compact:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "32px"
+    fontWeight: 600
+    lineHeight: 1.1
+  marketing-subsection:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "38px"
+    fontWeight: 600
+    lineHeight: 1.1
+  marketing-section:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "44px"
+    fontWeight: 600
+    lineHeight: 1.08
+  marketing-page-title:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "clamp(40px, 5vw, 60px)"
+    fontWeight: 600
+    lineHeight: 1.05
+  marketing-hero:
+    fontFamily: "Plus Jakarta Sans, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "clamp(44px, 6vw, 68px)"
+    fontWeight: 600
+    lineHeight: 1.03
+  marketing-cinematic:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(40px, 7.5vw, 100px)"
+    fontWeight: 400
+    lineHeight: 1
 rounded:
   hairline: "2px"
   marker: "3px"
@@ -164,6 +209,9 @@ rounded:
   core: "14px"
   xl: "16px"
   card: "20px"
+  marketing-card: "22px"
+  island-compact: "32px"
+  hero-glow: "40px"
   compact-pill: "999px"
   island: "48px"
   pill: "9999px"

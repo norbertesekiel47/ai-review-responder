@@ -163,7 +163,7 @@
   border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 20px;
   padding: 16px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--rw-ink) 4%, transparent);
   animation: rw-bg-float 6s ease-in-out infinite;
 }
 .rw-bg-review:nth-child(odd) { animation-duration: 7s; animation-delay: -2s; }
@@ -173,8 +173,8 @@
   50%      { transform: translateY(-6px); }
 }
 .rw-bg-review.peach { background: rgba(242, 195, 185, 0.25); }
-.rw-bg-review.pink  { background: rgba(240, 221, 214, 0.35); }
-.rw-bg-review.beige { background: rgba(214, 203, 191, 0.30); }
+.rw-bg-review.pink  { background: color-mix(in srgb, var(--rw-pink) 35%, transparent); }
+.rw-bg-review.beige { background: color-mix(in srgb, var(--rw-beige) 30%, transparent); }
 .rw-bg-stars {
   display: flex;
   gap: 2px;
@@ -224,7 +224,7 @@
   max-width: 1440px;
   background: white;
   border-radius: 48px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 25px 50px -12px color-mix(in srgb, var(--rw-ink) 25%, transparent);
   animation: rw-island-in 900ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 @keyframes rw-island-in {
@@ -325,7 +325,7 @@
 /* Hero demo card */
 .rw-hero-demo {
   background: white;
-  border-radius: 24px;
+  border-radius: 22px;
   box-shadow: 0 25px 50px -15px rgba(42, 42, 42, 0.18);
   border: 1px solid rgba(151, 179, 174, 0.15);
   padding: 22px;
@@ -445,11 +445,17 @@
 .rw-demo-act:hover { background: var(--rw-cream); border-color: var(--rw-teal); }
 .rw-demo-act:disabled { opacity: 0.55; cursor: not-allowed; }
 .rw-demo-act.approve { background: var(--rw-teal-strong); color: white; border-color: var(--rw-teal); }
-.rw-demo-act.approve:hover:not(:disabled) { background: #83a19b; }
+/* Hover goes DARKER, not lighter. The previous #83a19b put white label text at
+   ~2.8:1 — an AA failure, and the exact case ADR 0004 forbids ("white text only
+   ever sits on --rw-teal-strong or darker"). --rw-teal-strong-hover is 6.5:1. */
+.rw-demo-act.approve:hover:not(:disabled) { background: var(--rw-teal-strong-hover); }
+/* Brand success, not Tailwind green-600/700 — the ad-hoc greens these replace
+   are precisely what --rw-success was introduced to retire (see the status
+   tokens above). --rw-success is 5.10:1 on white. */
 .rw-demo-act.approved {
-  background: rgba(22,163,74,0.1);
-  color: #15803d;
-  border-color: rgba(22,163,74,0.3);
+  background: color-mix(in srgb, var(--rw-success) 10%, transparent);
+  color: var(--rw-success);
+  border-color: color-mix(in srgb, var(--rw-success) 30%, transparent);
 }
 
 .rw-float-stat {
@@ -499,9 +505,9 @@
   align-items: center;
   gap: 16px;
   padding: 18px 22px;
-  border-radius: 18px;
+  border-radius: 22px;
   background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(58,74,72,0.06);
+  border: 1px solid color-mix(in srgb, var(--rw-ink) 6%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   transition: box-shadow 260ms, border-color 260ms, transform 260ms;
@@ -515,8 +521,8 @@
               box-shadow 260ms, border-color 260ms;
 }
 .rw-tk-tile:hover {
-  box-shadow: 0 12px 32px -20px rgba(58,74,72,0.28);
-  border-color: rgba(58,74,72,0.12);
+  box-shadow: 0 12px 32px -20px color-mix(in srgb, var(--rw-ink) 28%, transparent);
+  border-color: color-mix(in srgb, var(--rw-ink) 12%, transparent);
   transform: translateY(-2px);
 }
 .rw-tk-tile.tone-teal  { background: linear-gradient(135deg, rgba(210,224,211,0.55), rgba(255,255,255,0.65)); }
@@ -623,7 +629,7 @@
 }
 .rw-features-head.in { opacity: 1; transform: none; }
 .rw-features-head h2 {
-  font-size: 46px;
+  font-size: 44px;
   font-weight: 600;
   line-height: 1.08;
   letter-spacing: -0.02em;
@@ -657,7 +663,7 @@
   padding: 28px 26px 22px;
   border-radius: 22px;
   background: white;
-  border: 1px solid rgba(58,74,72,0.08);
+  border: 1px solid color-mix(in srgb, var(--rw-ink) 8%, transparent);
   box-shadow: 0 4px 16px -8px rgba(42,42,42,0.06);
   overflow: hidden;
   isolation: isolate;
@@ -813,7 +819,7 @@
 .rw-voice-dial {
   width: 260px; height: 260px;
   border-radius: 50%;
-  background: conic-gradient(from 225deg, #D2E0D3, #F0DDD6, #F2C3B9, #D6CBBF, #D2E0D3);
+  background: conic-gradient(from 225deg, var(--rw-sage), var(--rw-pink), var(--rw-peach), var(--rw-beige), var(--rw-sage));
   padding: 10px;
   box-shadow: 0 30px 60px -20px rgba(42,42,42,0.3), inset 0 2px 4px rgba(255,255,255,0.6);
   position: relative;
@@ -881,7 +887,7 @@
   height: 8px;
   background: rgba(42,42,42,0.4);
   transform-origin: center 122px;
-  border-radius: 1px;
+  border-radius: 9999px;
 }
 .rw-voice-labels {
   display: flex;
@@ -987,63 +993,6 @@
 }
 .rw-clock-legend .item { color: var(--rw-ink-soft); }
 
-.rw-tl-verdict {
-  margin-top: 28px;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 600ms cubic-bezier(.2,.7,.2,1), transform 600ms cubic-bezier(.2,.7,.2,1);
-}
-.rw-tl-verdict.in { opacity: 1; transform: none; }
-.rw-tl-v-compare { display: flex; flex-direction: column; gap: 14px; }
-.rw-tl-v-line { display: flex; align-items: center; gap: 18px; }
-.rw-tl-v-bar {
-  flex: 1;
-  height: 6px;
-  background: rgba(42,42,42,0.06);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.rw-tl-v-bar-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--rw-teal);
-  border-radius: 999px;
-  transition: width 1400ms cubic-bezier(.2,.7,.2,1) 200ms;
-}
-.rw-tl-v-bar-fill.owner { background: rgba(42,42,42,0.28); transition-delay: 450ms; }
-.rw-tl-v-meta {
-  flex: 0 0 auto;
-  min-width: 130px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-.rw-tl-v-meta-lbl { font: 500 12px/1 var(--rw-font-body); color: var(--rw-ink-soft); }
-.rw-tl-v-meta-val {
-  font-family: var(--rw-font-display);
-  font-variant-numeric: tabular-nums;
-  color: var(--rw-ink);
-}
-.rw-tl-v-meta-val b { font-weight: 600; font-size: 20px; }
-.rw-tl-v-meta-val span { font: 500 12px/1 var(--rw-font-body); color: var(--rw-ink-soft); margin-left: 3px; }
-.rw-tl-v-tag {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(42,42,42,0.08);
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.rw-tl-v-tag-num {
-  font: 600 34px/1 var(--rw-font-display);
-  color: var(--rw-ink);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-.rw-tl-v-tag-lbl { font: 400 14px/1.4 var(--rw-font-body); color: var(--rw-ink-soft); }
-
 /* ---------- CTA ---------- */
 .rw-cta {
   padding: 88px 64px;
@@ -1071,7 +1020,7 @@
   position: absolute;
   bottom: -150px; right: -50px;
   width: 400px; height: 400px;
-  background: radial-gradient(circle, rgba(240,221,214,0.25), transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--rw-pink) 25%, transparent), transparent 70%);
   pointer-events: none;
 }
 .rw-cta h2 {
@@ -1126,7 +1075,7 @@
   -webkit-backdrop-filter: blur(8px);
   border-radius: 9999px;
   border: 1px solid rgba(151,179,174,0.2);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.08);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--rw-ink) 8%, transparent);
 }
 .rw-dot-nav button {
   width: 10px; height: 10px;
@@ -1157,7 +1106,7 @@
   .rw-voice-grid,
   .rw-timeline-grid { grid-template-columns: 1fr; gap: 40px; }
   .rw-features-grid { grid-template-columns: 1fr; }
-  .rw-features-head h2 { font-size: 36px; }
+  .rw-features-head h2 { font-size: 32px; }
   .rw-ticker-bar { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 20px 20px; }
   .rw-tk-num { font-size: 24px; }
   .rw-island-wrap { padding: 30px 8px; }
@@ -1226,14 +1175,19 @@
 /* Hero kicker line */
 .rw-hero-kicker { opacity: 0; transition: opacity 0.8s ease 0.4s; }
 .rw-hero-kicker.in { opacity: 1; }
+/* Reveals on transform, not width: width animation relayouts the flex row on
+   every frame. scaleX from a left origin is compositor-only and pixel-identical
+   for a flat 1px rule. */
 .rw-hero-kicker .line {
   display: inline-block;
-  width: 0;
+  width: 2.5rem;
   height: 1px;
   background: var(--rw-teal);
-  transition: width 0.9s cubic-bezier(.2,.8,.2,1) 0.5s;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.9s cubic-bezier(.2,.8,.2,1) 0.5s;
 }
-.rw-hero-kicker.in .line { width: 2.5rem; }
+.rw-hero-kicker.in .line { transform: scaleX(1); }
 
 /* Hero lede */
 .rw-hero-lede {
@@ -1249,10 +1203,12 @@
 .rw-hero-metric-underline {
   position: absolute; left: 0; bottom: 0; height: 1px;
   background: linear-gradient(90deg, var(--rw-teal), transparent);
-  width: 0;
-  transition: width 1.2s cubic-bezier(.2,.8,.2,1) var(--u-delay, 1s);
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1.2s cubic-bezier(.2,.8,.2,1) var(--u-delay, 1s);
 }
-.rw-hero-metric.in .rw-hero-metric-underline { width: 100%; }
+.rw-hero-metric.in .rw-hero-metric-underline { transform: scaleX(1); }
 
 /* Hero review marquee */
 .rw-feat-marquee-mask {
@@ -1330,14 +1286,18 @@
 }
 .rw-lang-chip { opacity: 0; }
 
-/* Brief bar fills */
+/* Brief bar fills. --fill-r is a unitless RATIO (0-1), not a percentage, because
+   scaleX takes a number; the track is the parent, so the bar is full-width and
+   scaled rather than relaid out each frame. */
 .rw-brief-bar-fill {
   display: block;
   height: 100%;
-  width: 0;
-  transition: width 1s cubic-bezier(.2,.8,.2,1) var(--fill-d, 0ms);
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1s cubic-bezier(.2,.8,.2,1) var(--fill-d, 0ms);
 }
-.rw-reveal.in .rw-brief-bar-fill { width: var(--fill-w, 50%); }
+.rw-reveal.in .rw-brief-bar-fill { transform: scaleX(var(--fill-r, 0.5)); }
 
 /* ROI sparkline */
 .rw-sparkline-path {
@@ -1379,12 +1339,20 @@
      they stay invisible under reduced motion (content loss). */
   .rw-lang-chip,
   .rw-voice-bar,
-  .rw-brief-bar-fill,
   .rw-comp-row,
   .rw-sparkline-path {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
+    animation: none !important;
+  }
+  /* Deliberately NOT in the blanket reset above: this bar encodes a value in its
+     scaleX, so `transform: none` would render every bar full and misstate the
+     data. Pin it to its true ratio instead and drop only the motion. */
+  .rw-brief-bar-fill {
+    opacity: 1 !important;
+    transform: scaleX(var(--fill-r, 0.5)) !important;
+    transition: none !important;
     animation: none !important;
   }
 }
@@ -1484,7 +1452,7 @@
   width: 32px; height: 32px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   color: var(--rw-ink);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.7);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--rw-ink) 6%, transparent), inset 0 1px 0 rgba(255,255,255,0.7);
   transition: transform 0.4s cubic-bezier(.2,.8,.2,1);
 }
 .hiw-overview-cell:hover .hiw-overview-glyph { transform: rotate(-6deg) scale(1.08); }
@@ -1535,7 +1503,7 @@
   display: flex; align-items: center; justify-content: center;
   font-family: var(--rw-font-display); font-weight: 700;
   font-size: 18px; color: var(--rw-ink);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--rw-ink) 6%, transparent);
   border: 1px solid rgba(255,255,255,0.6);
   flex-shrink: 0;
 }
@@ -1576,7 +1544,7 @@
   border-radius: 1rem;
   border: 1px solid rgba(151,179,174,0.1);
   background: white;
-  box-shadow: 0 10px 25px -10px rgba(0,0,0,0.1);
+  box-shadow: 0 10px 25px -10px color-mix(in srgb, var(--rw-ink) 10%, transparent);
   overflow: hidden;
   margin-top: 8px;
 }
@@ -1643,11 +1611,14 @@
 
 /* Step 2 — draft */
 .hiw-draft { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+/* Quoted source review. The peach tint alone marks it as quoted — a 3px accent
+   rule on top of a tinted block is duplicate signal and the most recognizable
+   tell of generated UI. Same reason the Console marks nesting with tone and
+   hairlines, never a colored edge. */
 .hiw-draft-src {
   padding: 12px 14px;
-  border-left: 3px solid var(--rw-peach);
   background: rgba(242,195,185,0.12);
-  border-radius: 0 10px 10px 0;
+  border-radius: 10px;
   font-size: 13px; line-height: 1.55; color: var(--rw-ink);
 }
 .hiw-draft-src-meta {
@@ -1722,7 +1693,6 @@
   padding: 12px 14px;
   border-radius: 10px;
   background: rgba(210,224,211,0.25);
-  border-left: 3px solid var(--rw-teal);
   font-size: 13px; line-height: 1.55; color: var(--rw-ink);
   margin-bottom: 12px;
 }
@@ -1777,7 +1747,7 @@
   border: 1px solid rgba(151,179,174,0.1);
 }
 .hiw-posted-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.hiw-posted-head .hiw-avatar { background: linear-gradient(135deg, #F2C3B9, #F0DDD6); }
+.hiw-posted-head .hiw-avatar { background: linear-gradient(135deg, var(--rw-peach), var(--rw-pink)); }
 .hiw-posted-name { font-weight: 600; font-size: 13.5px; color: var(--rw-ink); display: block; }
 .hiw-posted-when { font-size: 11px; color: var(--rw-ink-soft); display: block; }
 .hiw-posted-review { font-size: 13px; line-height: 1.55; color: var(--rw-ink); margin: 0 0 12px; }
@@ -1786,7 +1756,6 @@
   padding: 12px;
   border-radius: 10px;
   background: rgba(151,179,174,0.08);
-  border-left: 3px solid var(--rw-teal);
 }
 .hiw-posted-reply-head {
   display: flex; align-items: center; gap: 8px;
@@ -1798,7 +1767,7 @@
   display: inline-flex; width: 14px; height: 14px; border-radius: 9999px;
   background: var(--rw-teal-strong); color: white;
   align-items: center; justify-content: center;
-  font-size: 8px;
+  font-size: 9px;
 }
 .hiw-posted-reply-body { font-size: 12.5px; line-height: 1.55; color: var(--rw-ink); }
 .hiw-receipt {
@@ -1843,7 +1812,7 @@
   padding: 18px 16px;
   display: flex; flex-direction: column; gap: 8px;
   position: relative;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--rw-ink) 6%, transparent);
 }
 .hiw-hood-node:not(:last-child)::after {
   content: '';
@@ -1969,7 +1938,7 @@
   text-decoration: none;
   display: inline-block;
 }
-.hiw-cta-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+.hiw-cta-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px color-mix(in srgb, var(--rw-ink) 20%, transparent); }
 .hiw-cta-btn.is-ghost {
   background: transparent; color: white;
   border: 1px solid rgba(255,255,255,0.4);
@@ -1992,7 +1961,7 @@
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(151,179,174,0.2);
   border-radius: 9999px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--rw-ink) 6%, transparent);
 }
 @media (min-width: 1200px) { .hiw-dotnav { display: flex; } }
 .hiw-dotnav-btn {
@@ -2364,7 +2333,7 @@
 }
 .pr-cta h2 {
   font-family: var(--rw-font-display);
-  font-size: 40px; font-weight: 600;
+  font-size: 44px; font-weight: 600;
   margin: 0; letter-spacing: -0.015em;
   color: var(--rw-cream);
   text-wrap: balance;
@@ -2397,8 +2366,8 @@
   .pr-plans { grid-template-columns: 1fr; max-width: 440px; }
   /* Matrix keeps its readable type size and scrolls horizontally below its
      intrinsic three-column width. */
-  .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 2rem 2rem; }
-  .pr-cta h2 { font-size: 28px; }
+  .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 32px 32px; }
+  .pr-cta h2 { font-size: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2551,7 +2520,7 @@
   color: #fff;
   max-width: 1100px;
   margin: 0;
-  text-shadow: 0 2px 40px rgba(0, 0, 0, 0.28);
+  text-shadow: 0 2px 40px color-mix(in srgb, var(--rw-ink) 28%, transparent);
 }
 .rw-vh-title em {
   font-style: normal;
