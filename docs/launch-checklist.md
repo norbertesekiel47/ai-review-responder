@@ -57,6 +57,78 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   an unrelated invoice for the same Stripe customer could wrongly flip a paying
   account to `past_due`. The `invoice.subscription` scoping fix lands later.
 
+### Beta cohort decisions — locked 2026-08-09
+
+> Status note (2026-08-09): the alerting/dashboard wiring above is confirmed
+> **not yet done** — it still gates the first invite.
+
+- **Tier model: the cohort lands on the new Copilot/Autopilot tiers.** The prod
+  WS8 tier cutover (`docs/runbooks/ws8-tier-cutover.md` — migration 078 applies
+  *inside* it, never out-of-band) must run **before the first invite**. Autonomy
+  posture is unchanged (ADR 0005): `AUTO_APPROVAL_ENABLED=false` and
+  `AUTOPILOT_PURCHASABLE=false`, so beta accounts onboard on Copilot; Autopilot
+  opens later through its own separate gate.
+- **Pricing: the first 10–15 beta businesses are free for 3 months**, as a
+  **100%-off Stripe coupon** (`duration: 'repeating'`, `duration_in_months: 3`)
+  applied at subscription creation during hand-onboarding (card up front at $0
+  recommended, so month 4 converts without a chase). Deliberately NOT a 90-day
+  trial: `TRIAL_ENABLED` is off in prod, the trial is 30-day by design
+  (migration 069), and `trialing` is excluded from ranking tracking (invariant
+  #11). The coupon keeps the account `active` with normal $0 subscription
+  invoices — consistent with the subscription-invoices-only constraint above —
+  and never touches a Stripe Price (immutable/grandfathered, invariant #9a).
+  **Mechanics note:** checkout deliberately sets `allow_promotion_codes: false`
+  (`src/lib/payments/create-checkout-session.ts`), and admin-onboarded accounts
+  don't self-pay anyway (`pending_payment_admin_handoff` →
+  `PendingAdminHandoffScreen`) — so the coupon is applied **Stripe-side during
+  the team's out-of-band activation step**, not by the owner at a checkout.
+- **Acquisition: landing-page early-access form → manual invites.** Leads come
+  in via `LeadIntakeForm` (`/book-a-demo` + the pricing CTA anchor); onboarding
+  is hand-run per account via `/admin/businesses/new` (admin + AAL2). The
+  non-technical co-founder playbook for these meetings is
+  `docs/runbooks/beta-onboarding-cofounder-guide.md`.
+  `SELF_SERVE_SIGNUP_ENABLED` stays **`false`** until public-release readiness
+  is decided — do not flip it for the beta.
+
+Pre-invite actions from these decisions:
+
+- [ ] **Stand up the production backend** —
+  `docs/runbooks/beta-production-standup.md` (added 2026-08-10; revised same
+  day after adversarial review) is the ordered path: the prod Railway worker
+  has **never deployed**, prod queue Redis and a prod Sentry project don't
+  exist, and the boot-gate set is wider than deployment-guide §5.2's old
+  callout records (full Stripe env + six price IDs + both tier cost limits are
+  also hard boot gates). The stand-up sequences: land-the-plan → provisioning
+  → env vars → **WS8 zero-state cutover containing the first worker deploy
+  (077 → deploy → smoke → 078)** → remaining webhooks → beta activation path →
+  alerting → smoke. Its phases subsume the items below; they stay listed as
+  individually tickable gates.
+  *(This also resolved the 2026-08-09 `ZERNIO_PUBLISHING_ENABLED` discrepancy
+  note: both prior readings described a worker that had never run. The flag is
+  set deliberately during stand-up Phase B; fix the stale env-vars.md row in
+  Phase G6.)*
+- [ ] Run the prod WS8 tier cutover (`docs/runbooks/ws8-tier-cutover.md`) —
+  stand-up Phase D. **Both 077 AND 078 are WS8-only migrations** (077 =
+  quiesced expand, 078 = strict contract) — never apply either as an ordinary
+  missing migration; the first prod worker deploy happens between them.
+- [ ] **Implement + staging-test the beta activation path** — stand-up
+  Phase F: server-selected 100% coupon on the leased checkout for
+  admin-onboarded accounts (`allow_promotion_codes` stays `false`). The
+  3-months-free offer has **no supported activation path today**;
+  dashboard-created subscriptions, raw-SQL binding, and manual invoices are
+  forbidden substitutes.
+- [ ] Create the live-mode beta coupon (100% off, repeating, 3 months —
+  verify `repeating` behaves against the pinned Stripe apiVersion) and record
+  its ID here: `____` — stand-up Phase F2.
+- [ ] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
+  live snapshot — Railway AND the still-missing Vercel-side read — stand-up
+  Phase G5.
+- [ ] Validate provider moderation on a representative corpus with recorded
+  false-positive/negative acceptance criteria
+  (`docs/runbooks/auto-approval-provider-moderation-validation.md` — the
+  provider check is **binary** `flagged`; there is no threshold knob), then
+  flip `OPENAI_MODERATION_ENABLED` in prod — stand-up Phase G4.
+
 ---
 
 ## 🟠 Production env / vendor gates — shipped features are inert without these
@@ -65,9 +137,13 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   activation funnel (Wave 2, mig 046/049) are no-ops until this is set.
 - [ ] **`IMPERSONATION_COOKIE_SECRET`** (≥32 chars) — required for the admin
   "view-as" support flow (Wave 2, mig 048).
-- [ ] **`OPENAI_MODERATION_ENABLED` + threshold tuning** (Spec 10) — turns on
+- [ ] **`OPENAI_MODERATION_ENABLED` + corpus validation** (Spec 10) — turns on
   the second moderation layer. Local regex rules always run; this adds the
-  OpenAI Moderation pass. Tune the threshold before relying on it.
+  OpenAI Moderation pass. The provider decision is **binary** (`flagged` →
+  high severity; `src/lib/moderation/moderate.ts`) — there is no threshold
+  knob. Before relying on it, validate against a representative sample corpus
+  with recorded FP/FN acceptance criteria
+  (`docs/runbooks/auto-approval-provider-moderation-validation.md`).
 - [ ] **Help Scout inboxes** (Spec 13) — set up `support@` / `billing@` /
   `security@` / `report@` before first paying customer. Finish the macro catalog
   (6 of 20 shipped).
