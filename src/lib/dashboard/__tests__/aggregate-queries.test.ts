@@ -20,9 +20,15 @@ beforeEach(() => {
 
 /**
  * Load the aggregate wave's return values in the deterministic order the mock
- * consumes them. `getPendingApprovalCountsForAccount` awaits its `sql` inside an
- * async function during Promise.all construction, so its query resolves FIRST;
- * the six lazy `sql``` fragments then resolve in their array order.
+ * consumes them — now simply the wave's written order, top to bottom.
+ *
+ * This used to be pending-FIRST, and the reason is worth keeping:
+ * `getPendingApprovalCountsForAccount` is an async function, so calling it while
+ * BUILDING the `Promise.allSettled` array ran its body eagerly and awaited its
+ * `sql` before the driver had attached handlers to the six lazy fragments listed
+ * ahead of it. #505 made the wave sequential and its members THUNKS, so nothing
+ * runs at array-construction time and dispatch order is exactly the source
+ * order. Reordering is safe here: these reads are independent.
  */
 function pushWave(rows: {
   pending: Array<{ business_id: string; count: number }>;
@@ -35,7 +41,6 @@ function pushWave(rows: {
   weekly: unknown[];
 }): void {
   harness.sqlReturnQueue.push(
-    rows.pending,
     rows.baseline,
     rows.counters,
     rows.velocity,
@@ -43,6 +48,7 @@ function pushWave(rows: {
     rows.ranking,
     rows.monthly,
     rows.weekly,
+    rows.pending,
   );
 }
 

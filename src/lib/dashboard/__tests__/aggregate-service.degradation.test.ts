@@ -58,18 +58,26 @@ function preHandledRejection(reason: Error): Promise<never> {
 
 /**
  * Deterministic FIFO order of the 10 SQL results one getAggregateDashboardData
- * call consumes (same thenable-adoption reasoning as aggregate-queries.test.ts's
+ * call consumes (same dispatch-order reasoning as aggregate-queries.test.ts's
  * pushWave):
  *   1. account billing row               (aggregate-service, settled)
- *   2. pending-approval counts           (async helper awaits its sql first)
- *   3. baseline anchor                   (wave — FATAL)
+ *   2. baseline anchor                   (wave — FATAL, now dispatched first)
+ *   3. account-wide recent reviews feed  (aggregate-service, settled)
  *   4. review counters                   (wave, degradable)
  *   5. review velocity                   (wave, degradable)
  *   6. rating breakdown                  (wave, degradable)
  *   7. ranking snapshots                 (wave, degradable)
  *   8. latest monthly briefs             (wave, degradable)
  *   9. latest weekly briefs              (wave, degradable)
- *  10. account-wide recent reviews feed  (aggregate-service, settled)
+ *  10. pending-approval counts           (wave, degradable — now LAST)
+ *
+ * Two positions moved when #505 made the wave sequential. Pending was 2nd
+ * because `getPendingApprovalCountsForAccount` is an async function whose body
+ * ran eagerly while the old `Promise.allSettled` array was being BUILT; as a
+ * thunk it now runs in its written position, last. Recent-reviews rose to 3rd
+ * because the wave no longer dispatches everything up front — it dispatches
+ * baseline and suspends, so `getAccountRecentReviews` (called on the next line
+ * in aggregate-service) gets its query out before the wave resumes.
  */
 function pushDashboardQueries(overrides: Partial<Record<
   'billing' | 'pending' | 'baseline' | 'counters' | 'velocity' | 'rating' | 'ranking' | 'monthly' | 'weekly' | 'recent',
@@ -77,14 +85,11 @@ function pushDashboardQueries(overrides: Partial<Record<
 >> = {}): void {
   harness.sqlReturnQueue.push(
     overrides.billing ?? [{ locations_included: 5, locations_paid: 0 }],
-    overrides.pending ?? [
-      { business_id: 'loc-1', count: 3 },
-      { business_id: 'loc-2', count: 1 },
-    ],
     overrides.baseline ?? [
       { business_id: 'loc-1', name: 'Downtown Cafe', created_at: new Date('2026-01-01'), initial_review_count: 100, initial_responded_count: 30, baseline_captured_at: new Date('2026-01-05') },
       { business_id: 'loc-2', name: 'Westside Bakery', created_at: new Date('2026-01-01'), initial_review_count: null, initial_responded_count: null, baseline_captured_at: null },
     ],
+    overrides.recent ?? [],
     overrides.counters ?? [
       { business_id: 'loc-1', total_received_all_time: 12, total_responded_all_time: 10, received_window: 10, responded_window: 8 },
       { business_id: 'loc-2', total_received_all_time: 12, total_responded_all_time: 10, received_window: 10, responded_window: 8 },
@@ -98,7 +103,10 @@ function pushDashboardQueries(overrides: Partial<Record<
       { business_id: 'loc-1', summary_text: 'Monthly A', month_start_date: '2026-06-01', sent_at: '2026-07-01T00:00:00Z' },
     ],
     overrides.weekly ?? [],
-    overrides.recent ?? [],
+    overrides.pending ?? [
+      { business_id: 'loc-1', count: 3 },
+      { business_id: 'loc-2', count: 1 },
+    ],
   );
 }
 
