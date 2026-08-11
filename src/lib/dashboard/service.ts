@@ -14,6 +14,7 @@ import {
   RECENT_REVIEW_DISPLAY_STATUSES,
 } from '@/lib/shared/response-status';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
+import { settledInOrder } from '@/lib/shared/settled-in-order';
 import {
   type DashboardWindow,
   DEFAULT_DASHBOARD_WINDOW,
@@ -178,16 +179,53 @@ async function buildActiveDashboardData(
       LIMIT 1
     `,
   );
-  const settledPromise = Promise.allSettled([
+  // Business first, ALONE: it is the fatal identity read, so resolving it
+  // before the wave means a missing business throws without dispatching 13
+  // auxiliary queries. (It also removes the unhandled-rejection hazard the old
+  // ordering had to work around by attaching handlers up front.)
+  const businessRows = await businessPromise;
+  const business = businessRows[0];
+  if (!business) {
+    throw new BusinessNotFoundError(businessId);
+  }
+
+  // SEQUENTIAL via settledInOrder — do NOT swap this back to Promise.allSettled
+  // (#505). This wave is 13 members wide (11 sql + a Redis marker + the
+  // 5-query reputation batch) on the SHARED `sql` client, whose pool is
+  // `DB_POOL_MAX` = 3 on Vercel; /api/dashboard/route.ts passes that singleton,
+  // not the larger `sqlRead`. Fan-out that far past the pool makes postgres.js
+  // pipeline the excess onto already-open connections over the Supavisor
+  // TRANSACTION pooler, where the response parks in state=active /
+  // wait_event=ClientRead forever and leaks a pool slot per render. The settled
+  // shape is preserved because each widget degrades independently below.
+  //
+  // Added latency lands only on a cache MISS (45s Redis TTL). The members are
+  // now THUNKS: passing promises would dispatch them before settledInOrder saw
+  // them, which is the concurrency being removed.
+  const [
+    totalReviewSettled,
+    totalRespondedSettled,
+    velocitySettled,
+    rankingSettled,
+    recentReviewSettled,
+    monthlyBriefSettled,
+    weeklyBriefSettled,
+    zernioConnectionSettled,
+    queuedReconnectSettled,
+    unresolvedIncidentSettled,
+    ratingBreakdownSettled,
+    pendingSettled,
+    reputationSettled,
+  ] = await settledInOrder([
     // Total reviews (all time)
-    sql<{ count: number }[]>`
+    () => sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
         AND status <> ${REVIEW_STATUS.DELETED}
     `,
     // Total responded (distinct reviews with non-superseded responses)
-    sql<{ count: number }[]>`
+    () => sql<{ count: number }[]>`
       SELECT COUNT(DISTINCT r.id)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
@@ -196,7 +234,7 @@ async function buildActiveDashboardData(
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last `trendWeeks` weeks (zero-filled), window-driven.
-    sql<{ week_start: unknown; count: unknown }[]>`
+    () => sql<{ week_start: unknown; count: unknown }[]>`
       SELECT gs::date AS week_start,
              COALESCE(r.cnt, 0)::int AS count
       FROM generate_series(
@@ -215,7 +253,7 @@ async function buildActiveDashboardData(
       ORDER BY week_start ASC
     `,
     // Ranking snapshots (all with rank_position)
-    sql<DashboardRankingRow[]>`
+    () => sql<DashboardRankingRow[]>`
       SELECT keyword, snapshot_date, rank_position
       FROM ranking_snapshots
       WHERE business_id = ${businessId}
@@ -225,7 +263,7 @@ async function buildActiveDashboardData(
     `,
     // Recent reviews: last 10 with latest non-superseded/failed response
     // Include pending_approval so the UI can show "check your email" reminders
-    sql<Record<string, unknown>[]>`
+    () => sql<Record<string, unknown>[]>`
       SELECT
         rev.id,
         rev.reviewer_name,
@@ -275,7 +313,7 @@ async function buildActiveDashboardData(
       LIMIT 10
     `,
     // Latest monthly brief (with sent_at for recency comparison)
-    sql<DashboardBriefRow[]>`
+    () => sql<DashboardBriefRow[]>`
       SELECT summary_text, month_start_date, sent_at
       FROM monthly_impact_emails
       WHERE business_id = ${businessId}
@@ -285,7 +323,7 @@ async function buildActiveDashboardData(
       LIMIT 1
     `,
     // Latest weekly brief (with sent_at for recency comparison)
-    sql<DashboardBriefRow[]>`
+    () => sql<DashboardBriefRow[]>`
       SELECT summary_text, week_start_date, sent_at
       FROM weekly_summaries
       WHERE business_id = ${businessId}
@@ -296,7 +334,7 @@ async function buildActiveDashboardData(
     `,
     // Zernio connection: most-recent row (any status). Banner state machine
     // distinguishes 'none' (no row) from 'disconnected' (row with status='disconnected').
-    sql<DashboardZernioConnectionRow[]>`
+    () => sql<DashboardZernioConnectionRow[]>`
       SELECT status, disconnect_reason
       FROM zernio_connections
       WHERE business_id = ${businessId}
@@ -305,7 +343,7 @@ async function buildActiveDashboardData(
     `,
     // Queued-for-reconnect responses: approved drafts parked while Zernio is
     // disconnected. Drives banner headline copy ("3 responses are waiting...").
-    sql<{ count: number }[]>`
+    () => sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM responses
       WHERE business_id = ${businessId}
@@ -313,7 +351,7 @@ async function buildActiveDashboardData(
     `,
     // Unresolved finalize incident: takes priority over the connection status —
     // owner sees "manual review" banner regardless of zernio_connections state.
-    sql<{ count: number }[]>`
+    () => sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM zernio_finalize_incidents
       WHERE business_id = ${businessId}
@@ -324,7 +362,7 @@ async function buildActiveDashboardData(
     // INTEGER CHECK (1..5) or NULL (migration 001), so a direct GROUP BY is
     // exact. The window reaches SQL only as a bound integer via make_interval
     // (issue #403); zero-fill + ordering happen in buildRatingBreakdown.
-    sql<{ stars: number; count: number }[]>`
+    () => sql<{ stars: number; count: number }[]>`
       SELECT star_rating AS stars, COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
@@ -338,37 +376,16 @@ async function buildActiveDashboardData(
     // Surfacing this lets the dashboard render a "Connecting…" UX during the
     // OAuth + finalize window instead of falling back to "Connect" which
     // would 409 on retry and confuse the owner.
-    readPendingMarker(businessId),
+    () => readPendingMarker(businessId),
     // Opt-in reputation batch (single-location landing only), fetched in the
     // SAME parallel wave as the main batch — running it afterwards cost a full
     // extra pool round-trip wave per landing request. Aggregate/connect
     // callers omit the flag and pay nothing.
-    opts?.includeReputationMetrics
-      ? fetchReputationRows(sql, businessId, windowDays, trendWeeks)
-      : Promise.resolve(null),
+    () =>
+      opts?.includeReputationMetrics
+        ? fetchReputationRows(sql, businessId, windowDays, trendWeeks)
+        : Promise.resolve(null),
   ]);
-
-  const businessRows = await businessPromise;
-  const business = businessRows[0];
-  if (!business) {
-    throw new BusinessNotFoundError(businessId);
-  }
-
-  const [
-    totalReviewSettled,
-    totalRespondedSettled,
-    velocitySettled,
-    rankingSettled,
-    recentReviewSettled,
-    monthlyBriefSettled,
-    weeklyBriefSettled,
-    zernioConnectionSettled,
-    queuedReconnectSettled,
-    unresolvedIncidentSettled,
-    ratingBreakdownSettled,
-    pendingSettled,
-    reputationSettled,
-  ] = await settledPromise;
 
   // Fallbacks are typed (not bare []) so T infers as the plain row-array
   // type rather than Postgres.js's RowList intersection.
@@ -446,9 +463,21 @@ async function fetchReputationRows(
 }> {
   const priorEndDays = windowDays * 2;
   const trendSpanWeeks = trendWeeks - 1;
-  const [rateRows, starRows, timeSavedRows, trendRows, pendingApprovalCount] =
-    await Promise.all([
-      sql<RateWindowRow[]>`
+  // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
+  // here (#505). This is a 5-query fan-out on the SHARED `sql` client, whose pool
+  // is `DB_POOL_MAX` = 3 on Vercel (src/lib/db/server.ts) — /api/dashboard/route.ts
+  // passes that singleton, not the larger `sqlRead`. Fan-out (5) > pool (3) makes
+  // postgres.js pipeline the excess queries onto already-open connections over the
+  // Supabase Supavisor TRANSACTION pooler; a pipelined query's response parks
+  // server-side in state=active / wait_event=ClientRead and is never read — a
+  // PERMANENT Connection wedge that leaks one pool slot per render and no
+  // server-side timeout can heal (in ClientRead the statement is not executing, so
+  // `statement_timeout` never fires). The same defect took the admin portal down
+  // on staging 2026-08-10; this is the owner-facing instance of it.
+  //
+  // The added latency lands only on a cache MISS — buildActiveDashboardData is
+  // Redis-cached at DASHBOARD_LOCATION_CACHE_TTL_SECONDS (45s).
+  const rateRows = await sql<RateWindowRow[]>`
         SELECT
           COUNT(*) FILTER (
             WHERE r.detected_at >= NOW() - make_interval(days => ${windowDays})
@@ -482,8 +511,8 @@ async function fetchReputationRows(
         WHERE r.business_id = ${businessId}
           AND r.status <> ${REVIEW_STATUS.DELETED}
           AND r.detected_at >= NOW() - make_interval(days => ${priorEndDays})
-      `,
-      sql<StarWindowRow[]>`
+  `;
+  const starRows = await sql<StarWindowRow[]>`
         SELECT
           AVG(star_rating) FILTER (
             WHERE detected_at >= NOW() - make_interval(days => ${windowDays})
@@ -504,8 +533,8 @@ async function fetchReputationRows(
           AND status <> ${REVIEW_STATUS.DELETED}
           AND star_rating IS NOT NULL
           AND detected_at >= NOW() - make_interval(days => ${priorEndDays})
-      `,
-      sql<TimeSavedWindowRow[]>`
+  `;
+  const timeSavedRows = await sql<TimeSavedWindowRow[]>`
         SELECT
           COUNT(*) FILTER (
             WHERE resp.approved_at >= NOW() - make_interval(days => ${windowDays})
@@ -522,8 +551,8 @@ async function fetchReputationRows(
           AND resp.status = ANY(${HANDLED}::text[])
           AND resp.approved_at IS NOT NULL
           AND resp.approved_at >= NOW() - make_interval(days => ${priorEndDays})
-      `,
-      sql<SentimentTrendRow[]>`
+  `;
+  const trendRows = await sql<SentimentTrendRow[]>`
         SELECT gs::date AS week_start,
                agg.avg_score::float AS avg_score,
                COALESCE(agg.cnt, 0)::int AS cnt
@@ -543,9 +572,8 @@ async function fetchReputationRows(
           GROUP BY DATE_TRUNC('week', detected_at)
         ) agg ON agg.wk = gs::date
         ORDER BY week_start ASC
-      `,
-      getPendingApprovalCount(sql, businessId),
-    ]);
+  `;
+  const pendingApprovalCount = await getPendingApprovalCount(sql, businessId);
 
   return {
     rate: rateRows[0] ?? {

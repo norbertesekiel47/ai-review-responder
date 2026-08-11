@@ -13,6 +13,7 @@
 
 import type { Sql } from 'postgres';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { settledInOrder } from '@/lib/shared/settled-in-order';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   type DashboardWindow,
@@ -128,6 +129,9 @@ export async function fetchPerLocationAggregateSlices(
   const { windowDays, trendWeeks } = dashboardWindowParams(window);
   const velocitySpanWeeks = trendWeeks - 1;
 
+  // SEQUENTIAL via settledInOrder — do NOT swap this back to Promise.allSettled
+  // (#505). See that helper's doc comment for the wedge mechanism and why the
+  // settled shape is preserved rather than becoming plain awaits.
   const [
     baselineSettled,
     countersSettled,
@@ -137,10 +141,10 @@ export async function fetchPerLocationAggregateSlices(
     monthlySettled,
     weeklySettled,
     pendingSettled,
-  ] = await Promise.allSettled([
+  ] = await settledInOrder([
     // (6) Baseline columns — the anchor set of active locations. buildValueSummary
     //     reads baseline_captured_at / initial_review_count / initial_responded_count.
-    sql<BaselineRow[]>`
+    () => sql<BaselineRow[]>`
       SELECT id AS business_id, name, created_at,
              initial_review_count, initial_responded_count, baseline_captured_at
       FROM businesses
@@ -153,7 +157,7 @@ export async function fetchPerLocationAggregateSlices(
     //     subquery, so its tenant scope is statically provable; COUNT(DISTINCT
     //     r.id) then makes the received/responded counts robust to a review with
     //     multiple handled responses (the response fan-out).
-    sql<CounterRow[]>`
+    () => sql<CounterRow[]>`
       SELECT
         b.id AS business_id,
         COUNT(DISTINCT r.id)::int AS total_received_all_time,
@@ -184,7 +188,7 @@ export async function fetchPerLocationAggregateSlices(
     //     (correlated to the account-scoped businesses row) and bucketed by
     //     week directly, so its tenant scope is statically provable; a review
     //     matches exactly one gs week, so a plain COUNT is exact.
-    sql<VelocityRow[]>`
+    () => sql<VelocityRow[]>`
       SELECT b.id AS business_id, gs::date AS week_start, COUNT(rv.id)::int AS count
       FROM businesses b
       CROSS JOIN generate_series(
@@ -203,7 +207,7 @@ export async function fetchPerLocationAggregateSlices(
       ORDER BY b.id, week_start ASC
     `,
     // (3) Rating breakdown — windowed GROUP BY b.id, star_rating.
-    sql<RatingRow[]>`
+    () => sql<RatingRow[]>`
       SELECT b.id AS business_id, rev.star_rating AS stars, COUNT(*)::int AS count
       FROM businesses b
       JOIN reviews rev ON rev.business_id = b.id
@@ -216,7 +220,7 @@ export async function fetchPerLocationAggregateSlices(
     `,
     // (4) Ranking — last 12 months, ordered so buildRanking's per-keyword
     //     snapshot arrays come out chronological.
-    sql<RankingRow[]>`
+    () => sql<RankingRow[]>`
       SELECT b.id AS business_id, rs.keyword, rs.snapshot_date, rs.rank_position
       FROM businesses b
       JOIN ranking_snapshots rs ON rs.business_id = b.id
@@ -227,7 +231,7 @@ export async function fetchPerLocationAggregateSlices(
       ORDER BY b.id, rs.keyword ASC, rs.snapshot_date ASC
     `,
     // (5a) Latest monthly brief per location (DISTINCT ON).
-    sql<MonthlyBriefRow[]>`
+    () => sql<MonthlyBriefRow[]>`
       SELECT DISTINCT ON (b.id)
         b.id AS business_id, m.summary_text, m.month_start_date, m.sent_at
       FROM businesses b
@@ -239,7 +243,7 @@ export async function fetchPerLocationAggregateSlices(
       ORDER BY b.id, m.sent_at DESC
     `,
     // (5b) Latest weekly brief per location (DISTINCT ON).
-    sql<WeeklyBriefRow[]>`
+    () => sql<WeeklyBriefRow[]>`
       SELECT DISTINCT ON (b.id)
         b.id AS business_id, w.summary_text, w.week_start_date, w.sent_at
       FROM businesses b
@@ -251,7 +255,7 @@ export async function fetchPerLocationAggregateSlices(
       ORDER BY b.id, w.sent_at DESC
     `,
     // (7) Authoritative per-location pending-approval counts (excludes held/flagged).
-    getPendingApprovalCountsForAccount(sql, accountId),
+    () => getPendingApprovalCountsForAccount(sql, accountId),
   ]);
 
   // FATAL identity anchor (see the degradation contract above).
