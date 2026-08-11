@@ -1,0 +1,94 @@
+{
+  "classification": "high",
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Apply the Review-time anchor (LEAST(review_date, detected_at), ADR 0019) to the reputation-flavored windows in the dashboard-payload aggregates that owners actually see, extract the anchor fragments into src/lib/kpi/fragments.ts as their single owner, and delete the consumer-less Stack A KPI service + GET /api/dashboard/kpis.",
+  "non_goals": [
+    "Re-anchoring workflow KPIs — response rate (dashboard/service.ts fetchReputationRows, aggregate-queries.ts counter query) and the MonthlyImpactWorker digest stay on detected_at per ADR 0019 D2 (the #675 unanswered-import nudge is deliberate)",
+    "Re-anchoring action-timestamp metrics — timeSaved keys on approved_at and does not move",
+    "Re-anchoring the recent-review feed (detected_at = ingestion recency, correct) or all-time totals / pending counts",
+    "Preserving Stack A's calendar-month volume MoM and TTR-duration metrics — they have never rendered anywhere; the semantics survive in ADR 0019 + CONTEXT.md + the fragment tests",
+    "Extracting detectedAtWindowFilter or the TTR validity filter into fragments.ts — both would have zero composers once Stack A dies",
+    "Adding an expression index on LEAST(review_date, detected_at) — ADR 0019's no-migration/no-index stance holds; sargability is recorded in the addendum as a deferred note",
+    "Fixing the null-vs-0 empty-state divergence between the two stacks (lives in response rate, which is untouched)",
+    "Editing historical records — docs/reviews/**/blast-radius.md and the superseded root PLAN.md keep their references to the deleted route"
+  ],
+  "user_visible_behavior": [
+    "On the single-location dashboard, review velocity, the 8-week sentiment trend, the reputation avg-star current/prior windows, and the 1-5 star rating breakdown bucket imported reviews into their true weeks/windows instead of piling into the import week",
+    "On the All-Locations aggregate view, per-location review velocity and rating breakdown bucket on the same anchor",
+    "Response rate is unchanged on both views — an imported unanswered review still drags it",
+    "The recent-reviews feed is unchanged — imported reviews still surface by ingestion recency",
+    "GET /api/dashboard/kpis returns 404 (route deleted); no UI consumed it"
+  ],
+  "invariants": [
+    "Tenant isolation: every touched query keeps its business_id / account_id predicate written out literally in the query template — fragments never carry a FROM/JOIN or a tenant predicate (ci:tenant-scope reads raw un-evaluated template text)",
+    "Windows reach SQL only as bound integers via make_interval(...) — never interpolated text (issue #403)",
+    "Invariant #15: dashboard and kpi modules take sql as an explicit parameter and never import @/lib/db/server",
+    "Invariant #1: no LLM/external/long-running work moves into Next.js routes",
+    "Per-widget degradation survives: a failing re-anchored query still degrades one widget via widgetOrFallback rather than 500ing the dashboard",
+    "Sequential-wave dispatch from #767 is preserved — no re-anchor edit may reintroduce a concurrent Promise.all fan-out on the shared pool",
+    "One owner per load-bearing spelling: LEAST(review_date, detected_at) is spelled only inside src/lib/kpi/fragments.ts"
+  ],
+  "edge_cases": [
+    "NULL review_date — LEAST ignores NULLs in Postgres, so the anchor falls back to detected_at",
+    "Future-dated review_date (clock skew) — clamps to detected_at; unclamped it lands in a week generate_series never generates and silently vanishes from the trend",
+    "aggregate-queries velocity puts the anchor inside a LEFT JOIN ON clause (DATE_TRUNC('week', anchor)::date = gs::date), so the zero-fill per location must still produce a row for every week",
+    "Renaming the reviews aliases rv/rev to r in aggregate-queries.ts must not disturb ci:tenant-scope's raw-text scan or collide with the counter query's own r alias (separate statement)",
+    "The 45s fail-open Redis caches (dashboard:location:*, the aggregate payload) serve pre-anchor payloads for up to 45s after deploy and after any revert — self-expiring, no invalidation work",
+    "Deleting the route leaves scripts/ci/__tests__/db-imports-audit.test.ts asserting composition-root status for a path that no longer exists (string-only test, would pass stale)",
+    "Deleting Stack A orphans KpiScope / DashboardKpiSummary / KpiResponseRate / KpiReviewVolume / SentimentTrendPoint in kpi/types.ts while the window vocabulary keeps 9 importers",
+    "An imported review older than the selected window drops out of velocity/rating/star entirely — correct under review-time semantics"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/kpi/service.ts:99-184 — the lazy-fragment factory style and the tenant-scope doc comment that must move with the fragments",
+    "src/lib/kpi/__tests__/service.anchor.integration.test.ts — live-DB conventions (describeWithDb, assertSchemaReady, DML-only fixtures, all time arithmetic in SQL, always-miss Redis stub) and the accepted-timing-risk header",
+    "src/lib/kpi/__tests__/service.test.ts — mocked SQL-shape suite that pins the LEAST( spelling as the every-day backstop",
+    "src/lib/dashboard/__tests__/service.rating-breakdown.test.ts and service.feed-projection.test.ts — one-concern-per-file naming for a new dashboard shape suite",
+    "src/lib/dashboard/__tests__/service.cache.test.ts and service.degradation.test.ts — how getActiveDashboardData is exercised with a mocked sql + Redis",
+    "src/lib/moderation/held-draft.ts openFlagExistsSql (#730) — the repo's precedent for a shared composable SQL fragment with one owner and many composers",
+    "src/lib/shared/settled-in-order.ts (#767) — the sequential wave runner the touched call sites now use"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/kpi/**",
+    "src/lib/dashboard/service.ts",
+    "src/lib/dashboard/aggregate-queries.ts",
+    "src/lib/dashboard/__tests__/**",
+    "src/app/api/dashboard/kpis/**",
+    "scripts/ci/__tests__/db-imports-audit.test.ts",
+    "docs/adr/0019-kpi-review-time-anchor.md",
+    "docs/directory.md",
+    "CONTEXT.md",
+    ".claude/CLAUDE.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "velocity buckets an imported review into its review_date week, not the import week",
+    "sentiment trend buckets an imported review into its review_date week, not the import week",
+    "avg star window excludes a review whose review_date is outside the window even though detected_at is inside",
+    "rating breakdown excludes a review whose review_date is outside the window even though detected_at is inside",
+    "review-time anchor falls back to detected_at when review_date is NULL",
+    "review-time anchor clamps a future review_date to detected_at",
+    "response rate still windows on detected_at so imported unanswered reviews drag the rate",
+    "recent-review feed still orders on detected_at so an imported review surfaces by ingestion recency",
+    "aggregate slices apply the same review-time anchor to velocity and rating breakdown",
+    "velocity, avg star, sentiment trend and rating breakdown queries all spell LEAST(review_date, detected_at)",
+    "response-rate and timeSaved queries never spell LEAST(",
+    "aggregate velocity and rating-breakdown queries spell LEAST(r.review_date, r.detected_at)",
+    "aggregate review-counter query never spells LEAST(",
+    "reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else",
+    "reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "680 changed production lines (~130 added: fragments.ts + plug edits; ~550 deleted: kpi/service.ts 405, kpis/route.ts 91, kpi/types.ts orphans ~50)",
+  "estimated_test_lines": "2100 changed test lines (~1060 deleted: kpis route.test 490, kpi service.test 408, service.cache.test 165; ~390 deleted + ~330 rewritten in the re-pointed live-DB anchor suite; ~320 added across the new dashboard/aggregate shape suites and the fragment unit tests)",
+  "dependencies_added": [],
+  "rollback_plan": "No migration and no schema change — revert the PR. The dashboard:location:* and aggregate Redis payloads carry a 45s fail-open TTL and self-expire, so pre-revert re-anchored payloads clear within 45s of the revert deploy with no invalidation step. Restoring GET /api/dashboard/kpis is part of the same revert; it had zero consumers, so nothing external breaks in either direction.",
+  "observability": [
+    "A re-anchored query that throws in prod degrades exactly one widget and raises a Sentry event via reportCaughtError('dashboard/service', ...) with widget: 'velocityRows' | 'ratingBreakdownRows' | 'reputationRows' and degraded: true — the dashboard still renders",
+    "The aggregate path raises the same shape under source 'dashboard/aggregate' with widget: 'sliceReviewVelocity' | 'sliceRatingBreakdown'",
+    "A 404 rate appearing on /api/dashboard/kpis after deploy would mean an undiscovered consumer existed — expected to stay at zero",
+    "KNOWN GAP, stated deliberately: a syntactically valid but semantically wrong anchor emits NO production signal. The live-DB eval suite and the staging smoke (seed an import, confirm the trend spreads across weeks instead of spiking) are the only proof this is correct."
+  ],
+  "open_questions": []
+}
