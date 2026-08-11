@@ -14,5 +14,36 @@ allowBuilds:
   msgpackr-extract: true
   sharp: true
   unrs-resolver: true
+# Security floors for TRANSITIVE dependencies. Each entry exists because a
+# parent package pins a version with an open Dependabot advisory and no
+# in-range update reaches the patch — a direct `pnpm update` cannot fix these.
+# Ranges, not exact pins, so later patches keep flowing without another PR;
+# the caret still blocks an unreviewed major.
+#
+# Drop an entry once the parent's own dependency range has moved past the
+# floor — leaving a stale override silently holds the tree back. Check with
+# `pnpm why <pkg>`.
 overrides:
-  postcss: 8.5.15
+  # postcss has been overridden since #48; kept, but moved off the vulnerable
+  # 8.5.15 onto the patched line (GHSA advisories fixed in 8.5.18 / 8.5.23).
+  postcss: ^8.5.23
+  # twilio@6.0.2 → axios@1.16.1 (10 advisories, the largest single group)
+  axios: ^1.18.0
+  # fastify@5.8.5 → find-my-way@9.6.0
+  find-my-way: ^9.7.0
+  # fastify/ajv + webpack toolchain → fast-uri@3.1.2
+  fast-uri: ^3.1.5
+  # Reached on two independent major lines and BOTH are vulnerable, so each
+  # gets its own selector-scoped floor. A single `brace-expansion: ^5.0.9`
+  # would drag the 1.x consumer across a major instead of patching it.
+  'brace-expansion@1': ^1.1.18
+  'brace-expansion@5': ^5.0.9
+  # dev-only: vitest toolchain. `vite` is deliberately NOT here — it reaches the
+  # tree only as an auto-installed PEER of vitest, and overrides do not apply to
+  # those (a `vite: ^8.0.16` entry here parses fine and silently does nothing,
+  # which is how a stale 8.0.5 sat under a `vite ^8.0.16` peer requirement).
+  # It is a direct devDependency in package.json instead — nothing imports it;
+  # the entry exists only to pin vitest's peer. Keep it in range with vitest.
+  undici: ^7.29.0
+  '@opentelemetry/core': ^2.8.0
+  '@babel/core': ^7.29.6
