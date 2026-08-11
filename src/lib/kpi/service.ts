@@ -9,6 +9,7 @@ import type { Sql } from 'postgres';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
+import { reviewTimeAnchor, reviewTimeWindowFilter } from './fragments';
 import {
   DashboardKpiSummary,
   DashboardWindow,
@@ -129,28 +130,6 @@ function detectedAtWindowFilter(sql: Sql, prefix: '' | 'r.', windowDays: number)
   return prefix === 'r.'
     ? sql`r.detected_at >= NOW() - make_interval(days => ${windowDays})`
     : sql`detected_at >= NOW() - make_interval(days => ${windowDays})`;
-}
-
-/**
- * Review-time anchor (#688, ADR 0019) — the timestamp the reputation KPIs
- * (volume MoM, sentiment trend, avg star) bucket on, so a consented Review
- * import lands in its true months/weeks instead of spiking the import month.
- * LEAST ignores NULLs in Postgres: a NULL review_date falls back to
- * detected_at, and a clock-skewed FUTURE review_date clamps to detected_at
- * (unclamped, a future week silently vanishes from the trend's
- * generate_series LEFT JOIN). Workflow KPIs (response rate) deliberately
- * stay on detected_at — imported unanswered reviews are meant to drag the
- * rate (#675 nudge reasoning).
- */
-function reviewTimeAnchor(sql: Sql, prefix: '' | 'r.') {
-  return prefix === 'r.'
-    ? sql`LEAST(r.review_date, r.detected_at)`
-    : sql`LEAST(review_date, detected_at)`;
-}
-
-/** Rolling review-time lookback for the avg-star query (both scopes). */
-function reviewTimeWindowFilter(sql: Sql, prefix: '' | 'r.', windowDays: number) {
-  return sql`${reviewTimeAnchor(sql, prefix)} >= NOW() - make_interval(days => ${windowDays})`;
 }
 
 /** responses.status membership check against the handled-status vocabulary. */

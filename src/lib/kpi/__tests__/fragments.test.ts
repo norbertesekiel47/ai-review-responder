@@ -4,13 +4,18 @@
 // single-owner source audit that keeps `src/lib/kpi/fragments.ts` the ONLY
 // place the anchor is spelled.
 //
-// The first two tests are `.todo` until the module exists — Task 2 of the #757
-// plan converts them. A surviving `.todo` satisfies the promised-tests gate
-// while proving nothing; treat one as a review-blocking defect.
+// The first two tests were authored `.todo` before the module existed and were
+// converted in Task 2 of the #757 plan. A surviving `.todo` satisfies the
+// promised-tests gate while proving nothing; treat one as a review-blocking
+// defect.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
+
+import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
+import { reviewTimeAnchor, reviewTimeWindowFilter } from '../fragments';
 
 const OWNER = join('src', 'lib', 'kpi', 'fragments.ts');
 const ANCHOR_PATTERN = /LEAST\(\s*(?:[A-Za-z_][\w$]*\.)?review_date\s*,/;
@@ -22,8 +27,32 @@ function sourceFiles(root: string): string[] {
 }
 
 describe('kpi/fragments — Review-time anchor owner (#757)', () => {
-  it.todo('reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else');
-  it.todo('reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text');
+  it('reviewTimeAnchor emits the unprefixed and r.-prefixed spellings and nothing else', async () => {
+    const harness = createMockSql();
+    const sql = harness.mockSql as unknown as Sql;
+    await sql`SELECT ${reviewTimeAnchor(sql, '')} AS a`;
+    await sql`SELECT ${reviewTimeAnchor(sql, 'r.')} AS a`;
+    expect(harness.sqlCalls[0]!.text).toBe('SELECT LEAST(review_date, detected_at) AS a');
+    expect(harness.sqlCalls[1]!.text).toBe('SELECT LEAST(r.review_date, r.detected_at) AS a');
+    // No FROM/JOIN and no tenant predicate may ever live in the fragment —
+    // ci:tenant-scope reads raw template text and would stop seeing it.
+    for (const call of harness.sqlCalls) {
+      expect(call.text).not.toMatch(/\bFROM\b|\bJOIN\b|business_id|account_id/);
+      expect(call.values).toEqual([]);
+    }
+  });
+
+  it('reviewTimeWindowFilter binds the window as an integer parameter, never interpolated text', async () => {
+    const harness = createMockSql();
+    const sql = harness.mockSql as unknown as Sql;
+    await sql`SELECT 1 WHERE ${reviewTimeWindowFilter(sql, '', 30)}`;
+    const call = harness.sqlCalls[0]!;
+    expect(call.text).toBe(
+      'SELECT 1 WHERE LEAST(review_date, detected_at) >= NOW() - make_interval(days => ?)',
+    );
+    expect(call.text).not.toMatch(/INTERVAL\s+'\d+\s+days'/i);
+    expect(call.values).toEqual([30]);
+  });
 
   it('the Review-time anchor is spelled only in kpi/fragments.ts', () => {
     const offenders = [...sourceFiles('src'), ...sourceFiles('worker')]
