@@ -76,12 +76,20 @@ accumulating one per render, including `overview-service`'s businesses query and
 query `SELECT id, role FROM users WHERE auth_id = $1` was itself among the
 wedged backends, which made the failure look like an auth problem at first.
 
-**Caveat 2 below is FALSIFIED — do not rely on it.** It guessed that a
-Vercel-side wedge "may be masked by function teardown recycling the connection
-before anyone notices" and therefore deprioritized the Vercel sites. It is not
-masked: the wedges persisted for minutes and starved the shared pool until the
-whole surface was down. Treat Vercel fan-out sites as first-class, not
-lower-urgency.
+**Caveat 2 below is CORRECTED — its mechanism is half-right, its conclusion is
+wrong.** It guessed that a Vercel-side wedge "may be masked by function teardown
+recycling the connection before anyone notices" and therefore deprioritized the
+Vercel sites. Teardown *does* eventually reclaim these backends — a follow-up
+check ~40 minutes later showed **zero** wedged connections with no intervention,
+presumably once the isolates were torn down and their sockets sent FIN, giving
+the ClientRead an EOF. But "eventually" is minutes, and the pool is 3. Wedges
+accumulate one per render far faster than teardown returns them, so the surface
+is fully down long before the self-heal arrives, and it re-wedges the moment
+anyone loads the page again. Teardown is a slow janitor, not a safety net —
+treat Vercel fan-out sites as first-class, not lower-urgency. The practical
+consequence for triage: **the evidence is transient**, so capture
+`pg_stat_activity` while the surface is actually broken; come back an hour later
+and it looks clean.
 
 Fixed in this pass (confirmed by the live staging observation above, converted to
 the sequential idiom, and guarded by
