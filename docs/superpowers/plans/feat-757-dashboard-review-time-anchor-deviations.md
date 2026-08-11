@@ -147,3 +147,47 @@ tree is the subject. Never let a task "fix" a repo-wide finding that lands outsi
 
 **Verdict:** ACCEPT — no plan surface changed; the step's intent (prove the rename is invisible)
 was met by isolating the run rather than by reading the repo-wide exit code.
+
+---
+
+## D7 — re-anchoring a query invalidates its text-keyed tenant-scope allowlist snippet
+
+**When:** verify gate, resolving the four `src/lib/dashboard/service.ts` findings D6 handed upward.
+
+**What the plan assumed:** Task 5 treated the tenant-scope allowlist as a **deletion**-only concern —
+remove the seven `src/lib/kpi/service.ts` entries alongside Stack A (D1, amendment #1). The plan
+carried no notion that *editing* allowlisted SQL could also break the audit, so nothing anticipated
+that re-anchoring would invalidate the snippets of the two `dashboard/service.ts` `reviews` entries.
+
+**What actually happened:** `tenantScopeAllowlist` entries are keyed on their **raw SQL snippet
+text** — `getAllowlistEntry` matches via
+`normalizeSql(stripSqlComments(sqlText)) === normalizeSql(stripSqlComments(entry.sqlSnippet))`. Both
+entries exist because their `business_id = ${businessId}` scope sits inside a `LEFT JOIN (...)`
+subquery, and `stripSelectSubqueries` removes it before predicate analysis, so each query reads as
+unscoped. `ad3e4711` replaced `detected_at` with `${reviewTimeAnchor(sql, '')}` in three places per
+query; the text no longer matched, so each entry went **unused** *and* its query went **unscoped** —
+one edit, two findings each, four total. The queries were correctly tenant-scoped throughout. This is
+the allowlist working as designed: any SQL edit forces a re-review.
+
+**What was done:** refreshed the `sqlSnippet` of exactly those two entries (velocity ~line 1679,
+sentiment trend ~line 606) to the current source text, deriving it mechanically rather than by
+transcription — a scratchpad script imported the audit's own exported `extractSqlTemplates` and
+printed the normalized text of both queries, which was pasted verbatim. Each `reason` was extended to
+note the bucketing column is now the Review-time anchor `LEAST(review_date, detected_at)` (ADR 0019 /
+#757) while the tenant scope is unchanged; the velocity entry's reason, previously generic, now also
+states the LEFT-JOIN-stripping rationale. `category: 'tenant-root-lookup'` kept on both. No entry
+added or removed, `ALLOWLIST_BASELINE` untouched, `tenant-scope-audit.ts` untouched, and
+`service.ts` **not** edited — the allowlist follows the code, never the reverse. Result:
+`tenant-scope-audit: passed — entries: 408 (baseline: 408)`, diff = 4 changed lines in one file.
+
+**Lesson for future plans:** in this repo, editing the SQL of any query that carries a tenant-scope
+allowlist entry **silently breaks `ci:tenant-scope`**, because entries are keyed on normalized raw
+SQL text — the failure surfaces as the confusing pair "unused allowlist entry" + "missing
+account_id or business_id scope" for the same file/table. Any plan that touches allowlisted SQL must
+include an explicit **allowlist-snippet refresh** step, and should derive the new snippet from the
+audit's own extractor rather than hand-transcribing it. Worth a grep of
+`tenant-scope-allowlist.ts` for every file in `allowed_edit_surface` at planning time.
+
+**Verdict:** ACCEPT — no new surface. `tenant-scope-allowlist.ts` was already added to
+`allowed_edit_surface` as amendment #1 (D1); this is a snippet refresh within that surface, not a new
+entry, so the amendment count is unchanged.

@@ -603,9 +603,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> ${REVIEW_STATUS.DELETED} AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> ${REVIEW_STATUS.DELETED} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
-    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route.",
+    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
   },
   {
     file: "src/lib/db/account-guard.ts",
@@ -1676,9 +1676,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks}) AND status <> ${REVIEW_STATUS.DELETED} GROUP BY DATE_TRUNC('week', detected_at) ) r ON r.wk = gs::date ORDER BY week_start ASC",
+    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) AND status <> ${REVIEW_STATUS.DELETED} GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) r ON r.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
+    reason: "Review-velocity metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis, so it cannot see that scope. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
