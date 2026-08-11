@@ -116,3 +116,108 @@ laundered.
 - **Glossary**: the term **Review-time anchor** is coined in `CONTEXT.md`
   alongside the Review-import cluster; the fragment doc comment in
   `src/lib/kpi/service.ts` cites this ADR.
+
+## Addendum — 2026-08-11 (#757): one stack, one fragment owner
+
+#688 applied this ADR to `src/lib/kpi/service.ts`, which nothing rendered. The
+customer-visible dashboard reads `src/lib/dashboard/service.ts` +
+`aggregate-queries.ts`, which still bucketed on `detected_at` — so a consented
+Review import produced exactly the spike this ADR removes, on the only surfaces
+owners see. #757 closes that gap (Pathfinder 2026-08-10 P1):
+
+- The anchor fragments moved to **`src/lib/kpi/fragments.ts`**, now their single
+  owner, enforced by a source audit in `fragments.test.ts` that fails if any
+  other non-test file spells `LEAST(review_date, detected_at)`.
+- **Single-location payload:** velocity, rating breakdown, avg star (current AND
+  prior buckets, so `star_n_prior` and the delta move with them) and the
+  sentiment trend are anchored.
+- **All-Locations aggregate:** velocity and rating breakdown are anchored. It has
+  no avg-star or sentiment-trend query; its review counters
+  (`windowedReceived`/`windowedResponded`) stay on `detected_at` because they
+  feed the account response rate.
+- Unchanged everywhere: response rate (Decision 2), timeSaved (`approved_at`),
+  the recent-review feed (`detected_at` = ingestion recency), all-time totals,
+  pending counts.
+- `getLocationKpiSummary`, `getAccountKpiSummary` and `GET /api/dashboard/kpis`
+  were **deleted** — zero consumers. Their calendar-month volume MoM and TTR
+  duration metrics have never rendered anywhere; when the deferred KPI-cards work
+  ships it extends the dashboard payload composing the same fragments.
+
+**Supersedes P1 item 1 on one point.** P1 required extracting four fragments;
+only `reviewTimeAnchor` and `reviewTimeWindowFilter` were extracted. Once Stack A
+is deleted, `detectedAtWindowFilter` and the TTR validity filter have zero
+composers — Stack B's response rate stays literal per Decision 2, and Stack B has
+no duration metric. Decision 3 (the TTR validity filter) is therefore **recorded
+but no longer implemented in code**; it returns with the metric.
+
+**Deferred, recorded here so it is not rediscovered as a surprise.** The relevant
+indexes are composite — `idx_reviews_business_detected_at` (migration 010) and
+`idx_reviews_business_review_date` (migration 031), both `(business_id, <ts>)`.
+`LEAST(review_date, detected_at) >= …` is not sargable on either, so these reads
+keep the `business_id` prefix but lose the timestamp as a range key: they become
+prefix-scan-plus-filter. At the #474 Capacity target (250 locations, ~125
+reviews/day) per-business row counts are small, and Stack A has run this way
+since #688. Revisit with an expression index only if dashboard read latency
+regresses — that is a migration, and this ADR's no-migration property is
+deliberate. The All-Locations aggregate is the path to measure first: it scans
+every active location of an account in one statement.
+
+### Spec 11's launch-KPI clause is superseded, and what the deleted metrics contracted
+
+Raised by the #757 branch's adversarial review. Spec 11
+(`docs/superpowers/specs/2026-05-26-wave-3-visibility-ai-safety-design.md` §Spec 11)
+is an **active** contract naming five launch KPIs. Deleting Stack A removed two
+of them from the codebase entirely — calendar-month **review volume MoM** and
+**average time-to-respond** — and the rendered dashboard has never had either.
+That is a rollback of a decided contract, not merely dead-code removal, and
+neither the Pathfinder P1 consolidation nor the #757 intake grilling checked
+Spec 11 before adjudicating DELETE.
+
+**Resolution: Spec 11's KPI clause is superseded on those two metrics only.** The
+other three (response rate, avg star, sentiment trend) render today in the
+dashboard payload. The two removed ones return when the deferred KPI-cards
+product work ships, composing the same fragments. Tracked as **issue #789**; the
+annotation on the spec file itself rides the post-merge documentation sweep.
+
+**Decision 2 is under review, tracked as issue #790.** #757 is the first release
+in which the reputation/workflow clock split is visible on one screen: a
+consented import counts in full toward the `detected_at`-windowed response rate
+while contributing little to the adjacent review-time charts, so a period can
+read as a responsiveness collapse next to a near-empty volume series. Decision 2
+stands until #790 concludes — nothing here is reverted — but a future reader
+should know the question is open rather than settled.
+
+The behavioral contract is recorded here so it is recoverable from the decision
+record rather than only from `git show f5151902:src/lib/kpi/service.ts`:
+
+**Review volume MoM** (`reviewVolume`)
+- **Calendar-month**, never the rolling `windowDays` lookback: `currentMonth` =
+  anchor `>= DATE_TRUNC('month', NOW())`; `priorMonth` = anchor in
+  `[DATE_TRUNC('month', NOW()) - 1 month, DATE_TRUNC('month', NOW()))`.
+- Buckets on the **Review-time anchor** (Decision 1). Counts every non-deleted
+  review regardless of `star_rating` — no NULL-rating exclusion.
+- `deltaPct = round((current - prior) / prior * 100)`, and **null when
+  `prior = 0`** — a delta is suppressed rather than shown as infinite growth.
+
+**Average time-to-respond** (`averageTimeToRespondHours`)
+- `AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)`,
+  rounded to **1 decimal**, null when no sample.
+- Measures against **`detected_at`, not the anchor** — response latency is
+  workflow time (when we could first have acted), so it is deliberately not
+  review-time. Only the *validity filter* below is anchor-adjacent.
+- Filters: response status in the handled vocabulary, `approved_at IS NOT NULL`,
+  **`approved_at >= r.detected_at`** (Decision 3), and
+  `approved_at >= NOW() - windowDays` — note the window is on **`approved_at`**,
+  not on the review.
+- **Multiplicity asymmetry, the least obvious part of the contract:** TTR selects
+  `FROM responses resp JOIN reviews r`, so a review carrying N handled responses
+  contributes **N samples**. Response rate, by contrast, uses
+  `COUNT(*) FILTER (WHERE EXISTS (...))` over `reviews`, so the same review
+  counts **once**. Any reimplementation must preserve this or the two metrics
+  will silently disagree about the same data.
+
+**Shared across both** — 45-second fail-open Redis cache (read and write both
+degrade to a fresh computation); account scope joins `businesses` with
+`archived_at IS NULL`; `windowDays`/`trendWeeks` reach SQL only as bound
+integers via `make_interval` (#403); `ratePct` and every rounded average return
+**null on an empty sample**, never `0`.

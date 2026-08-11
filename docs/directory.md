@@ -462,8 +462,18 @@ Dashboard query layer.
 
 | File | What it does |
 |------|--------------|
-| `service.ts` | `buildDashboardData(businessId)` — queries reviews, responses, weekly metrics, and Zernio connection state. Returns `DashboardDataActive`. Used by `GET /api/dashboard`. |
+| `service.ts` | `getActiveDashboardData(sql, businessId, opts?)` — queries reviews, responses, weekly metrics, and Zernio connection state. Returns `DashboardDataActive`. Used by `GET /api/dashboard`. |
 | `types.ts` | `DashboardData` discriminated union (`DashboardDataActive | DashboardDataPendingPayment | ...`), `ZernioConnectionState`. |
+
+### `kpi/`
+
+Analytics window vocabulary and the Review-time anchor fragments the dashboard payload composes.
+No service layer — the consumer-less Stack A KPI service was deleted in #757.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | `DASHBOARD_WINDOWS` / `DashboardWindow` / `resolveDashboardWindow` / `dashboardWindowParams` — the only window values that may reach windowed SQL, as bound integers (#403). |
+| `fragments.ts` | `reviewTimeAnchor` / `reviewTimeWindowFilter` — single owner of the Review-time anchor `LEAST(review_date, detected_at)` (ADR 0019). Composed by `dashboard/service.ts` + `dashboard/aggregate-queries.ts`; carries no FROM/JOIN and no tenant predicate. |
 
 ### `agents/`
 

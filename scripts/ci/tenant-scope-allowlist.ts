@@ -73,7 +73,11 @@ export interface TenantScopeAllowlistEntry {
 //     figures can no longer disagree. Two entries out, one in. The exemption
 //     narrows in the same motion — the merged query is scoped by
 //     `r.business_id = ${locationId}` exactly as its predecessors were.
-export const ALLOWLIST_BASELINE = 408;
+//   408 → 401 (#757), a SHRINK. The consumer-less Stack A KPI service under
+//     `src/lib/kpi/` was deleted with its route, taking all seven of its
+//     entries with it. Nothing else moved — the rendered dashboard stack
+//     keeps its own entries.
+export const ALLOWLIST_BASELINE = 401;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -603,9 +607,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> ${REVIEW_STATUS.DELETED} AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> ${REVIEW_STATUS.DELETED} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
-    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route.",
+    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
   },
   {
     file: "src/lib/db/account-guard.ts",
@@ -1676,9 +1680,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks}) AND status <> ${REVIEW_STATUS.DELETED} GROUP BY DATE_TRUNC('week', detected_at) ) r ON r.wk = gs::date ORDER BY week_start ASC",
+    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) AND status <> ${REVIEW_STATUS.DELETED} GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) r ON r.wk = gs::date ORDER BY week_start ASC",
     category: 'tenant-root-lookup',
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
+    reason: "Review-velocity metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis, so it cannot see that scope. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
@@ -2254,64 +2258,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "UPDATE channel_enrollments SET handle = ${senderHandle}, status = 'verified', verified_at = NOW(), verification_token_hash = NULL, verification_token_expires_at = NULL, updated_at = NOW() WHERE id = ${row.id} AND archived_at IS NULL",
     category: 'pre-auth-token',
     reason: "WhatsApp enrollment ingress updates the row id locked by verification token in the same transaction.",
-  },
-  // --- KPI service (src/lib/kpi/service.ts) ---
-  // Per-location queries: scoped by `r.business_id = ${businessId}` on the reviews scan.
-  // Responses are correlated via EXISTS(review_id = r.id) or JOIN ON r.id = resp.review_id —
-  // the static scanner cannot trace the correlated join/subquery back to the business scope.
-  // businessId is IDOR-checked in the calling route before this service is invoked.
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS received, COUNT(*) FILTER ( WHERE EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND ${handledStatusFilter(sql, HANDLED)} ) )::int AS handled FROM reviews r WHERE r.business_id = ${businessId} AND ${notDeletedFilter(sql, 'r.')} AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}",
-    category: 'tenant-root-lookup',
-    reason: "Per-location KPI query; responses accessed via correlated EXISTS (resp.review_id = r.id) inside the reviews scan scoped by r.business_id = ${businessId}. businessId is IDOR-checked in the route. Non-scope SELECT/filter pieces (handledStatusFilter/notDeletedFilter/detectedAtWindowFilter) are shared sql`` fragments (A+ campaign 2d) — none spell a FROM/JOIN of a tenant table.",
-  },
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT ${ttrSelectExpr(sql)} FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId} AND ${notDeletedFilter(sql, 'r.')} AND ${ttrHandledWindowFilter(sql, HANDLED, windowDays)}",
-    category: 'tenant-root-lookup',
-    reason: "Per-location KPI query; responses scoped via JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId}. businessId is IDOR-checked in the route. Non-scope SELECT/filter pieces are shared sql`` fragments (A+ campaign 2d) — none spell a FROM/JOIN of a tenant table.",
-  },
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND ${notDeletedFilter(sql, '')} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
-    category: 'tenant-root-lookup',
-    reason: "Per-location KPI query; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route. The notDeletedFilter fragment (A+ campaign 2d) sits entirely inside the stripped subquery.",
-  },
-  // Account-aggregate queries: scoped via JOIN businesses b ON b.id = r.business_id
-  // WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only).
-  // The static scanner cannot trace the scope through correlated subqueries / multi-join chains.
-  // accountId comes from the authenticated session.
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(*)::int AS received, COUNT(*) FILTER ( WHERE EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND ${handledStatusFilter(sql, HANDLED)} ) )::int AS handled FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND ${notDeletedFilter(sql, 'r.')} AND ${detectedAtWindowFilter(sql, 'r.', windowDays)}",
-    category: 'tenant-root-lookup',
-    reason: "Account-aggregate KPI; responses accessed via correlated EXISTS (resp.review_id = r.id) inside reviews scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only). Non-scope SELECT/filter pieces are shared sql`` fragments (A+ campaign 2d) — none spell a FROM/JOIN of a tenant table.",
-  },
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT ${ttrSelectExpr(sql)} FROM responses resp JOIN reviews r ON r.id = resp.review_id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND ${notDeletedFilter(sql, 'r.')} AND ${ttrHandledWindowFilter(sql, HANDLED, windowDays)}",
-    category: 'tenant-root-lookup',
-    reason: "Account-aggregate KPI; scoped via JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only). Non-scope SELECT/filter pieces are shared sql`` fragments (A+ campaign 2d) — none spell a FROM/JOIN of a tenant table.",
-  },
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')})::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND ${notDeletedFilter(sql, 'r.')} AND ${reviewTimeAnchor(sql, 'r.')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
-    category: 'tenant-root-lookup',
-    reason: "Account-aggregate KPI; businesses accessed inside a LEFT JOIN subquery scoped by b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis. The notDeletedFilter fragment (A+ campaign 2d) sits entirely inside the stripped subquery.",
-  },
-  {
-    file: "src/lib/kpi/service.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')})::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND ${notDeletedFilter(sql, 'r.')} AND ${reviewTimeAnchor(sql, 'r.')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, 'r.')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
-    category: 'tenant-root-lookup',
-    reason: "Account-aggregate KPI; reviews accessed inside a LEFT JOIN subquery scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis. The notDeletedFilter fragment (A+ campaign 2d) sits entirely inside the stripped subquery.",
   },
   // --- Named rival / Competitor Delta lane (src/lib/competitors/named-rival.ts) ---
   // Every leg of the single lane query IS bound to ${businessId}:

@@ -99,7 +99,7 @@ describe('db-imports-audit', () => {
     expect(isCompositionRoot('src/instrumentation.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
     expect(isCompositionRoot('src/lib/db/auth.ts', REGISTERED_WORKER_ROOTS)).toBe(true); // owner-decided 2i classification: db-layer auth gate + Supabase client factory + single identity SELECT
     expect(isCompositionRoot('src/lib/db/account-guard.ts', REGISTERED_WORKER_ROOTS)).toBe(false); // db-layer domain module — injected in 2i-T6, NOT classified as a root
-    expect(isCompositionRoot('src/app/api/dashboard/kpis/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
+    expect(isCompositionRoot('src/app/api/dashboard/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
     expect(isCompositionRoot('src/app/admin/jobs/page.tsx', REGISTERED_WORKER_ROOTS)).toBe(true);
     expect(isCompositionRoot('src/app/page.tsx', REGISTERED_WORKER_ROOTS)).toBe(true); // app-root page
     expect(isCompositionRoot('src/app/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true); // app-root route handler
@@ -115,7 +115,7 @@ describe('db-imports-audit', () => {
     expect(isCompositionRoot('worker/background/schedulers/WeeklySummaryScheduler.ts', REGISTERED_WORKER_ROOTS)).toBe(true); // registered scheduler
     expect(isCompositionRoot('worker/background/pollers/health-alert/checks.ts', REGISTERED_WORKER_ROOTS)).toBe(false); // poller subfolder helper ≠ root
     expect(isCompositionRoot('worker/ingress/stripe.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
-    expect(isCompositionRoot('src/lib/kpi/service.ts', REGISTERED_WORKER_ROOTS)).toBe(false);
+    expect(isCompositionRoot('src/lib/dashboard/service.ts', REGISTERED_WORKER_ROOTS)).toBe(false);
     expect(isCompositionRoot('src/components/dashboard/kpi/ValueKpiGrid.tsx', REGISTERED_WORKER_ROOTS)).toBe(false);
   });
 
