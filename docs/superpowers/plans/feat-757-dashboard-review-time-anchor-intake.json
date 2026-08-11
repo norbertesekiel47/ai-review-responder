@@ -54,6 +54,7 @@
     "src/lib/dashboard/aggregate-queries.ts",
     "src/lib/dashboard/__tests__/**",
     "src/app/api/dashboard/kpis/**",
+    "src/app/api/dashboard/__tests__/route.test.ts",
     "scripts/ci/__tests__/db-imports-audit.test.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
     "docs/adr/0019-kpi-review-time-anchor.md",

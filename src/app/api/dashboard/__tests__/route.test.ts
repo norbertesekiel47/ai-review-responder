@@ -488,10 +488,32 @@ describe('GET /api/dashboard', () => {
     ]);
     expect(body.ratingBreakdown.total).toBe(8);
 
-    // The breakdown is windowed: its query binds the interval via make_interval.
-    const breakdownSql = capturedSqlTexts.find((t) => t.includes('GROUP BY star_rating'));
-    expect(breakdownSql).toContain('make_interval(days => ?)');
-    expect(breakdownSql).toContain('business_id = ?');
+    // The breakdown is windowed: windowDays reaches SQL as a BOUND INTEGER (#403).
+    // Since #757 the interval text lives inside the composed Review-time anchor
+    // fragment (reviewTimeWindowFilter, src/lib/kpi/fragments.ts), and THIS file's
+    // sql mock is not fragment-aware — it renders any nested fragment as a bare
+    // `?`, so the inner `make_interval(days => ?)` is invisible here. Assert the
+    // bound value instead, which is what the #403 invariant actually claims; the
+    // text-level proof lives in service.rating-breakdown.test.ts and
+    // service.review-time-anchor.test.ts, both on the fragment-aware
+    // createMockSql harness.
+    // This mock returns a nested fragment as an inert { fragmentText, values }
+    // object, so both halves of the claim are still recoverable one level down.
+    const breakdownIdx = capturedSqlTexts.findIndex((t) => t.includes('GROUP BY star_rating'));
+    expect(breakdownIdx).toBeGreaterThanOrEqual(0);
+    expect(capturedSqlTexts[breakdownIdx]).toContain('business_id = ?');
+
+    const captured = capturedSqlValues[breakdownIdx] ?? [];
+    const isFragment = (v: unknown): v is { fragmentText: string; values: unknown[] } =>
+      typeof v === 'object' && v !== null && 'fragmentText' in v;
+    const fragmentText = captured.filter(isFragment).map((f) => f.fragmentText).join(' ');
+    const boundValues = captured.flatMap((v) => (isFragment(v) ? v.values : [v]));
+
+    // Interval text: still make_interval(...), never an interpolated literal.
+    expect(fragmentText).toContain('make_interval(days => ?)');
+    expect(fragmentText).not.toMatch(/INTERVAL\s+'\d+\s+days'/i);
+    // …and windowDays reaches SQL as the bound integer 30.
+    expect(boundValues).toContain(30);
   });
 
   it('returns null ranking when no snapshots exist', async () => {

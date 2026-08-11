@@ -3,6 +3,38 @@
 Entries are things the intake/plan did not anticipate. Each gets a one-line
 ACCEPT / RE-PLAN verdict at step 6 (deviations read-back) before review.
 
+## Step 6 read-back — completed 2026-08-11, before review dispatch
+
+All nine entries read end to end. **Verdict: 9 ACCEPT, 0 RE-PLAN.** No entry
+invalidates a locked intake decision, so the abort criteria are not triggered.
+D4 is a process note rather than a deviation; recorded ACCEPT for completeness.
+
+> **Superseded after the first full gate run:** D10 consumed the second
+> amendment. Budget is now **2 of 2** — any further surface change triggers the
+> abort criteria. The paragraph below reflects the state at step 6 read-back.
+
+**Amendment budget: 1 of 2 used** — only D1 amended `allowed_edit_surface`
+(`scripts/ci/tenant-scope-allowlist.ts`). D7 and D8 also edit that file but
+consume no further budget: it was already in surface. D2's five added
+`tests_to_add` titles are owner-approved deviations, not amendments, per step 5's
+rule.
+
+**The two entries a reviewer should read first**, because they are defects the
+plan actively caused rather than merely failed to foresee:
+
+- **D7** — re-anchoring a query silently invalidated its *text-keyed*
+  tenant-scope allowlist snippet, breaking `ci:tenant-scope` on a commit whose
+  own verification step was vitest-only. The class is general and is the single
+  most transferable lesson on this branch.
+- **D5** — two "parallel-eligible" tasks were dispatched into ONE worktree, so
+  disjoint *edited files* did not imply a disjoint *index*, and the plan's
+  prescribed `git add -A` would have entangled the commits.
+
+**D8 and D9 are the same defect twice**: the plan prescribed literal comment and
+prose text containing the very token its own `CLEAN` grep searched for, so
+following the plan verbatim made its own proof fail. Worth promoting at step 8 —
+a proof command and the text it greps must be authored against each other.
+
 ---
 
 ## D1 — `allowed_edit_surface` amendment #1: `scripts/ci/tenant-scope-allowlist.ts`
@@ -254,3 +286,46 @@ reconciliation must be done once across **every** task in the plan, not per task
 
 **Verdict:** ACCEPT — doc prose only, inside the declared surface, same facts, no plan surface
 changed. The grep prints `CLEAN`.
+
+---
+
+## D10 — amendment #2: a second, non-fragment-aware `sql` mock asserts on dashboard SQL text
+
+**When:** step 5, first full verify-gate run. The ONLY red row in an otherwise
+23/24 green gate.
+
+**What the plan assumed:** that the fragment-aware `createMockSql` harness
+(`worker/__tests__/helpers/mock-sql.ts`) is how dashboard SQL text gets asserted, so
+composing a fragment is invisible to existing tests as long as the shape suites are updated.
+
+**What actually happened:** `src/app/api/dashboard/__tests__/route.test.ts` defines its **own**
+inline `vi.mock('@/lib/db/server', …)` proxy. It renders every interpolation as `?` and returns a
+nested fragment as an inert `{ fragmentText, values }` object rather than flattening it into the
+parent text. So once the rating-breakdown query composed `reviewTimeWindowFilter`, its captured
+text became `AND ?` and the pre-existing assertion
+`expect(breakdownSql).toContain('make_interval(days => ?)')` (line 493) failed.
+
+**Not a production defect.** The SQL is correct and proven three independent ways: the live-DB
+suite (13/13 against real Postgres), the fragment-aware shape pins (exact anchor counts), and
+`service.rating-breakdown.test.ts` — which asserts the *same string* and passes, because its
+harness flattens fragments.
+
+**Amendment:** added `src/app/api/dashboard/__tests__/route.test.ts` to `allowed_edit_surface` in
+both intake copies. **This is amendment #2 of 2** — the abort criteria's trigger — so it was
+surfaced to the owner as a stop-and-decide rather than applied unilaterally. Owner granted it,
+choosing the minimal one-assertion fix over refactoring that file's mock.
+
+**What was done:** the assertion now reads through the captured fragment object — one level down —
+so BOTH halves of the #403 claim survive rather than being traded away: `make_interval(days => ?)`
+is asserted against the fragment's own `fragmentText` (plus a negative check that no
+`INTERVAL '<n> days'` literal appears), and `30` is asserted against its flattened bound values.
+The net assertion is *stronger* than the original, which only checked the text.
+
+**Lesson:** the repo has **two** SQL mocks with different fidelity. The shared `createMockSql`
+harness flattens nested fragments; the bespoke proxy in the dashboard route test does not. Any
+change that pushes SQL text down into a composed fragment is invisible to the first and breaking
+to the second. Before composing a fragment into an existing query, grep for every test asserting on
+that query's text, not just the ones using the shared harness.
+
+**Verdict:** ACCEPT — owner-approved, one assertion, no production change, and the invariant it
+guards is now better covered than before.
