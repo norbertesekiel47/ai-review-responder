@@ -975,7 +975,7 @@ come from the counter query, which does not move.
 the account response rate), ranking, briefs, pending counts, the fatal baseline read, or the
 `settledInOrder` sequencing.
 
-- [ ] **Step 6: Verify — own suite, then the shared suite if T3 has landed**
+- [ ] **Step 6: Verify — own suites only**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-757-dashboard-review-time-anchor
