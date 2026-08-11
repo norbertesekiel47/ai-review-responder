@@ -27,6 +27,11 @@ import { SQL_TAG_NAMES } from './lib/sql-tag-scan';
  *    §  — Worker code must not read NODE_ENV to decide which deployment lane it
  *         is on; the lane owner is src/lib/config/deployment-lane.ts (#611,
  *         ADR 0013). See scanWorkerNodeEnvReads for the exact scope.
+ *    §  — No `next/font/google` import. Turbopack resolves it by fetching
+ *         Google's CDN at compile time; an intermittent failure there breaks
+ *         the importing layout and every page under it, taking down E2E and
+ *         Vercel builds on unrelated commits. Self-host via next/font/local
+ *         from src/app/fonts (see that directory's README.md).
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -63,6 +68,7 @@ const LEGACY_TIER_HISTORY_EXCLUSIONS = new Set([
 
 export type PolicyRule =
   | 'crypto-js'
+  | 'next-font-google'
   | 'next-public-allowlist'
   | 'server-owned-table-browser-access'
   | 'server-db-client-import'
@@ -82,6 +88,15 @@ export interface PolicyFinding {
 
 // An ESM/CJS module specifier for the banned package (bare or submodule import).
 const CRYPTO_JS_SPECIFIER = /(?:from|require|import)\s*\(?\s*['"]crypto-js(?:\/[^'"]*)?['"]/;
+// Turbopack resolves `next/font/google` by fetching Google's CDN at COMPILE
+// time. An intermittent failure there yields `Module not found:
+// @vercel/turbopack-next/internal/font/google/font`, which breaks the importing
+// layout and therefore every page under it — it took down E2E runs and Vercel
+// builds (production included) on commits touching no React code. Fonts are
+// self-hosted from src/app/fonts via `next/font/local`; ONE re-introduced
+// import anywhere re-arms the failure, which is why this is a repo-wide ban
+// rather than a note on the two layout files.
+const NEXT_FONT_GOOGLE_SPECIFIER = /(?:from|require|import)\s*\(?\s*['"]next\/font\/google['"]/;
 // An actual READ of a public env var — dot form `process.env.NEXT_PUBLIC_X` OR
 // string-bracket form `process.env['NEXT_PUBLIC_X']` (so a non-allowlisted public
 // read can't bypass via notation; the dynamic `process.env[name]` is excluded).
@@ -865,6 +880,19 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
         line: i + 1,
         rule: 'crypto-js',
         detail: 'imports the banned crypto-js package — invariant #10: use node:crypto',
+      });
+    }
+
+    if (NEXT_FONT_GOOGLE_SPECIFIER.test(lineText)) {
+      findings.push({
+        file,
+        line: i + 1,
+        rule: 'next-font-google',
+        detail:
+          'imports next/font/google — Turbopack fetches it at compile time and an ' +
+          'intermittent failure breaks the whole build. Self-host instead: add the ' +
+          'woff2 to src/app/fonts and load it with next/font/local (see that ' +
+          "directory's README.md).",
       });
     }
 
