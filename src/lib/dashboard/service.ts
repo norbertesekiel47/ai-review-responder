@@ -20,6 +20,7 @@ import {
   DEFAULT_DASHBOARD_WINDOW,
   dashboardWindowParams,
 } from '@/lib/kpi/types';
+import { reviewTimeAnchor, reviewTimeWindowFilter } from '@/lib/kpi/fragments';
 import { pendingKey } from '@/lib/zernio/connect-state';
 import type { DashboardDataActive } from './types';
 import {
@@ -243,12 +244,12 @@ async function buildActiveDashboardData(
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt
+        SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, COUNT(*) AS cnt
         FROM reviews
         WHERE business_id = ${businessId}
-          AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
+          AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks})
           AND status <> ${REVIEW_STATUS.DELETED}
-        GROUP BY DATE_TRUNC('week', detected_at)
+        GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})
       ) r ON r.wk = gs::date
       ORDER BY week_start ASC
     `,
@@ -368,7 +369,7 @@ async function buildActiveDashboardData(
       WHERE business_id = ${businessId}
         AND status <> ${REVIEW_STATUS.DELETED}
         AND star_rating IS NOT NULL
-        AND detected_at >= NOW() - make_interval(days => ${windowDays})
+        AND ${reviewTimeWindowFilter(sql, '', windowDays)}
       GROUP BY star_rating
     `,
     // In-flight connect flow marker. Lives in Redis only — the DB row
@@ -448,6 +449,10 @@ function daysSince(date: Date): number {
  * prior period (PLAN.md A.2). All scoped by business_id. Intervals are
  * PARAMETERIZED (issue #403): `windowDays` / `priorEndDays` (= 2×windowDays) /
  * `trendWeeks` reach SQL only as bound integers via make_interval(...).
+ *
+ * Avg star and the sentiment trend bucket on the Review-time anchor (ADR 0019,
+ * #757); response rate stays on detected_at (workflow KPI) and timeSaved keys
+ * on approved_at (action timestamp) — neither may be re-anchored.
  */
 async function fetchReputationRows(
   sql: Sql,
@@ -515,24 +520,24 @@ async function fetchReputationRows(
   const starRows = await sql<StarWindowRow[]>`
         SELECT
           AVG(star_rating) FILTER (
-            WHERE detected_at >= NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${windowDays})
           )::float AS star_current,
           COUNT(star_rating) FILTER (
-            WHERE detected_at >= NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${windowDays})
           )::int AS star_n_current,
           AVG(star_rating) FILTER (
-            WHERE detected_at >= NOW() - make_interval(days => ${priorEndDays})
-              AND detected_at < NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${priorEndDays})
+              AND ${reviewTimeAnchor(sql, '')} < NOW() - make_interval(days => ${windowDays})
           )::float AS star_prior,
           COUNT(star_rating) FILTER (
-            WHERE detected_at >= NOW() - make_interval(days => ${priorEndDays})
-              AND detected_at < NOW() - make_interval(days => ${windowDays})
+            WHERE ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(days => ${priorEndDays})
+              AND ${reviewTimeAnchor(sql, '')} < NOW() - make_interval(days => ${windowDays})
           )::int AS star_n_prior
         FROM reviews
         WHERE business_id = ${businessId}
           AND status <> ${REVIEW_STATUS.DELETED}
           AND star_rating IS NOT NULL
-          AND detected_at >= NOW() - make_interval(days => ${priorEndDays})
+          AND ${reviewTimeWindowFilter(sql, '', priorEndDays)}
   `;
   const timeSavedRows = await sql<TimeSavedWindowRow[]>`
         SELECT
@@ -562,14 +567,14 @@ async function fetchReputationRows(
           INTERVAL '1 week'
         ) gs
         LEFT JOIN (
-          SELECT DATE_TRUNC('week', detected_at)::date AS wk,
+          SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk,
                  AVG(sentiment_score) AS avg_score,
                  COUNT(*) AS cnt
           FROM reviews
           WHERE business_id = ${businessId}
             AND status <> ${REVIEW_STATUS.DELETED}
-            AND detected_at >= NOW() - make_interval(weeks => ${trendWeeks})
-          GROUP BY DATE_TRUNC('week', detected_at)
+            AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks})
+          GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})
         ) agg ON agg.wk = gs::date
         ORDER BY week_start ASC
   `;

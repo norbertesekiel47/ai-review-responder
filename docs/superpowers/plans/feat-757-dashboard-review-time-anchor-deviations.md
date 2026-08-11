@@ -75,3 +75,31 @@ adjudication, which is now written.
 Plan review rounds are counted in `.feature/state.json` (`planReviewRounds`), not in prose — a
 resumed session continues the count rather than restarting at 1 (#628 lesson). Round 1 = full
 eval-first review, rounds 2–3 verification-only, stop after 3.
+
+---
+
+## D5 — T3/T4 parallel dispatch shares ONE worktree, so `git add -A` is unsafe
+
+**When:** Task 3 step 9 (commit), by the T3 implementer.
+
+**What the plan assumed:** T3 and T4 are "eligible for parallel dispatch" because their *edited*
+file sets are disjoint (`service.ts` vs `aggregate-queries.ts`). Both tasks' Step 9 then says
+`git add -A`.
+
+**What actually happened:** the two agents were dispatched into the **same** worktree
+(`RepWorth-worktrees/feat-757-dashboard-review-time-anchor`), not one worktree each. Disjoint
+*edited files* does not imply a disjoint *index*: at T3's commit point `aggregate-queries.ts` was
+already dirty with the sibling's in-flight T4 edits, so `git add -A` would have swept a
+possibly-half-finished Task 4 into the Task 3 commit under the Task 3 message — producing exactly
+the entangled commit the disjoint-file-set design exists to prevent.
+
+**What was done instead:** T3 staged only its own file
+(`git add src/lib/dashboard/service.ts`) plus this deviations entry. Commit message verbatim per
+Step 9; the change set is otherwise identical to the plan's.
+
+**Lesson for future plans:** when a task graph marks two tasks as parallel-eligible, the commit
+step must stage the task's declared **Files:** list explicitly, never `git add -A` — or the
+dispatcher must give each parallel task its own worktree. `git add -A` is only safe for a task
+that owns the tree.
+
+**Verdict:** ACCEPT — narrower staging, same content, no plan surface changed.
