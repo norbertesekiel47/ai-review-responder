@@ -2227,6 +2227,79 @@ a new-issue rule would fire exactly once, ever.
   scope for an observability fix — mitigated here by running the suite locally on
   every gate pass plus the five mutations.
 
+## Reviews list + On-demand generation (2026-08-08, #678 → PR #712, no migration)
+
+Map #667's last implementation ticket. `dashboard/reviews/history` is widened
+**in place** into the **Reviews list**; only #680 (closing cleanup) remains on the
+map. Squash commit `e447ee5b`. 71 files, +9,270 / −896.
+
+### What shipped
+
+- **The list query is now one row source.** `load-replies.ts` swaps its posted-only
+  `JOIN` for a `LEFT JOIN` plus four LATERALs — the live non-terminal draft *with
+  its moderation-held flag*, the in-flight `generate_response` outbox row, and the
+  two that absorb the deleted orphan query. Counts become
+  `unansweredTotal`/`answeredTotal` over all reviews; the average spans all
+  reviews; `ORDER BY (resp.id IS NOT NULL), r.review_date DESC, r.id DESC`.
+- **`replies-view.ts` derives a six-way `ReviewRowState`** (`recover` → `regenerate`
+  → `held` → `draft_ready` → `generating` → `generate`) plus a four-valued
+  `ProvenanceBadge`. `bucketReplies` → `groupReplies`; `OrphanRow` and
+  `toOrphanCardRow` deleted.
+- **Two new routes** under `api/dashboard/reviews/[reviewId]/`: `generate` (the
+  door) and `draft-status` (the poller, keyed on `reviewId`).
+- **One new Origin lane**, `on_demand_generate`, in `worker-types.ts`.
+- **`peekRegenBudgetBatch`** deepens `costs/tracker.ts` — one `MGET`, fails open.
+- **`PAST_REPLIES_VIEW_ENABLED` retired**; `flags.ts` collapses to one
+  `editRepliesEnabled()`.
+
+### Decisions worth keeping
+
+- **`held` is a sixth row state, added late.** The original five-state union had
+  **no correct configuration** for a moderation-held draft: filtered out, it fell
+  through to `generate` and offered an LLM spend the partial unique index would
+  reject; kept, it read `draft_ready` and surfaced held text with `Approve & post`.
+  Both violate invariant #4. The signed intake's "a review with a pending draft
+  shows a `Draft ready` cross-link" was unconditional — a contract defect, not an
+  implementation choice.
+- **The orphan query had to die, not be kept alongside.** Its `NOT EXISTS`
+  guaranteed disjointness *only because* the main query INNER JOINed `posted`.
+  Under `LEFT JOIN` every orphan would have rendered twice — once `generate`, once
+  `recover` — and its un-offset `LIMIT 50` would have merged into every page.
+- **`response_id` became nullable, deliberately.** Typing it `string` after the
+  `LEFT JOIN` would have been a false type, and `deriveRowState` branches on
+  exactly that NULL — one "simplify the always-truthy comparison" pass from
+  rendering every review as Answered.
+- **The tenant-scope allowlist shrank, 414 → 412.** All eight `load-replies.ts`
+  entries were orphaned by construction (the allowlist keys on exact SQL text);
+  six replaced them, and the new AVG needs none because it no longer joins
+  `responses`.
+
+### Gotchas found (full write-ups in lab-notes 2026-08-08 #678)
+
+- A review fix is applied when a **checkbox** changes, not when the plan discusses
+  it — four of nine round-1 fixes reached only an appendix.
+- `diff-coverage` passed at 80% while a new 15-cyclomatic hook sat at **0%**
+  coverage; fallow's per-function CRAP caught it in CI. They fail on different
+  things by design.
+- A `react-doctor` rule fired on correct cleanup code. Neither suppressing it nor
+  the obvious `useRef` restructure was right — probing the analyzer on scratch
+  shapes found the one form that is genuinely clean. **Zero rules disabled.**
+- A completed background review agent whose notification never fires looks exactly
+  like a dead one. Poll the job state file before re-dispatching.
+
+### Deferred to #710 — explicitly not settled by this PR
+
+Held drafts reachable through the legacy Past Replies draft lane (pre-existing
+invariant #4 gap); `deriveRowState` giving a posted reply precedence over a held
+replacement draft (a cross-product modelled as mutually exclusive — verdict was
+REMODEL, not "add a seventh state"); the Generate/live-ingest race, whose
+deferral was signed off on a **false** blast-radius premise (a non-auto lane never
+reaches the content-hash re-read, so the surviving draft can answer stale review
+text); and the held-draft predicate's real inventory of ≥8 sites.
+
+`DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` (C4) remain unset — a launch
+constraint, not a code task, and **not** resolved by this PR.
+
 ## Import consent enforcement locus + block reason (2026-08-08, #695 → PR #714)
 
 An ADR plus one observability marker. **No migration, no env var, no flag, no new
