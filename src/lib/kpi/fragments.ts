@@ -1,10 +1,11 @@
 // src/lib/kpi/fragments.ts
 //
 // Single owner of the Review-time anchor spelling (#688 ADR 0019, consolidated
-// by #757). Extracted from kpi/service.ts so the RENDERED dashboard stack
-// (dashboard/service.ts + dashboard/aggregate-queries.ts) composes the same
-// bucketing decision instead of re-spelling it. fragments.test.ts fails if any
-// non-test source file outside this one spells the anchor.
+// by #757). Extracted from the consumer-less Stack A KPI service — which #757
+// then deleted — so the RENDERED dashboard stack (dashboard/service.ts +
+// dashboard/aggregate-queries.ts) composes the same bucketing decision instead
+// of re-spelling it. fragments.test.ts fails if any non-test source file
+// outside this one spells the anchor.
 //
 // Each factory returns a lazy Postgres.js fragment (a nested sql`` template —
 // never awaited on its own; it composes into a caller's template text + bound

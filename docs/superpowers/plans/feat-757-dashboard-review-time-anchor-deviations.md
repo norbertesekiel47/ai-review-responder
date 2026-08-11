@@ -191,3 +191,36 @@ audit's own extractor rather than hand-transcribing it. Worth a grep of
 **Verdict:** ACCEPT — no new surface. `tenant-scope-allowlist.ts` was already added to
 `allowed_edit_surface` as amendment #1 (D1); this is a snippet refresh within that surface, not a new
 entry, so the amendment count is unchanged.
+
+---
+
+## D8 — Task 5's own `CLEAN` proof collides with two comments that name the deleted path
+
+**When:** Task 5, step 5 (prove nothing references the deleted surface).
+
+**What the plan assumed:** that after the deletions, `rg "kpi/service|…" src worker scripts e2e`
+prints `CLEAN`. Two *comments* — neither of them code — defeat that grep:
+
+1. `src/lib/kpi/fragments.ts:4` opened with "Extracted from kpi/service.ts so the RENDERED
+   dashboard stack …". Task 2 wrote that provenance line while Stack A was still alive; after
+   Task 5 it is a comment pointing at a file that no longer exists.
+2. The plan's **own** Step 2 text prescribes the baseline comment
+   `// was 408 — seven kpi/service.ts entries removed with the file (#757)`, which contains the
+   very string Step 5 then greps for. The plan contradicts itself here.
+
+**What was done:** both comments were reworded to keep the history without spelling a dead path —
+fragments.ts now says "Extracted from the consumer-less Stack A KPI service — which #757 then
+deleted —", and the baseline comment says "seven Stack A KPI-service entries removed with the file
+(#757)". Same facts, no live cross-reference. `src/lib/kpi/**` is inside the declared Task 5
+surface, so no amendment was needed; the repo's own working rule ("when deleting … grep the
+filename to clean every cross-reference in the same change") points the same way. Also added the
+`408 → 401 (#757), a SHRINK` line to the `ALLOWLIST_BASELINE` changelog block, the file's existing
+convention for every prior baseline move — it is the one place that block would otherwise go stale.
+
+**Lesson for future plans:** a plan that prescribes both a literal comment string and a `rg` clean
+sweep for that same string must reconcile them at planning time; and an extraction task (T2 here)
+should write provenance in prose ("extracted from the Stack A service") rather than as a path when
+a later task is scheduled to delete that path.
+
+**Verdict:** ACCEPT — comment wording only, inside the declared surface, no behavior and no
+allowlist entry changed. Both greps print `CLEAN`.
