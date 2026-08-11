@@ -46,6 +46,25 @@ step 7, staging ride + smoke before the PR to `main`, and an explicit merge paus
 - Amendments used: **1 of 2** (`scripts/ci/tenant-scope-allowlist.ts`, D1). A second amendment
   triggers abort criteria — stop and write a post-mortem instead of pushing through.
 
+## STATUS 2026-08-11 — steps 1–7 COMPLETE, awaiting the step 8 staging ride
+
+Phase `reviewed`, gate **GREEN** in `--review` mode at `894bb143` (26 rows incl. `diff-coverage`).
+Branch: T1–T6 + T4.5 all landed, 13/13 live-DB tests pass against real Postgres.
+Diff: 763 production lines / 2193 test lines — both inside their 2× reclassify bounds.
+Amendments: **2 of 2 used** (D1 `tenant-scope-allowlist.ts`, D10 the dashboard route test) — a third
+trips the abort criteria, so anything further must be a follow-up ticket, not an edit here.
+Review: 3 axes, 11 findings — 7 fixed, 2 rejected/corrected, 2 ticketed. Verdicts in
+`docs/reviews/feat-757-dashboard-review-time-anchor/TRIAGE.md`, which is the authoritative record.
+
+**Two open approach-level findings, deliberately NOT fixed on this branch** (see TRIAGE.md A1/A2):
+- **A1** — deleting Stack A rolls back Spec 11's launch-KPI contract
+  (`docs/superpowers/specs/2026-05-26-wave-3-visibility-ai-safety-design.md:845`). Neither
+  Pathfinder P1 nor the intake grilling checked that spec. Needs a supersession + deferred-contract
+  record, not a rebuild.
+- **A2** — the dashboard now shows a `detected_at` response rate beside a review-time volume series
+  for the same period; an import can push the rate toward 0% while barely moving the chart. This
+  reopens ADR 0019 Decision 2, which is an explicit `non_goals` entry here.
+
 ## Where to pick up
 
 Step 3 is complete once round 2 returns `APPROVED` (or round 3, or an owner call after round 3 —
