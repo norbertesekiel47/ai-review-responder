@@ -37,9 +37,11 @@ arguments; untracked TypeScript files remain included. The Codex port derives
 the repository root from Git and uses the session ID from the stop payload. CI
 and pre-push checks remain the stronger enforcement layer.
 
-## Global cbm hooks
+## Code discovery
 
-The session reminder can become a Codex SessionStart candidate if the codebase-memory MCP server is registered. The discovery gate is not directly portable: it blocks Claude's Grep, Glob, and Read flow, while Codex uses different tools. Preserve the preference in AGENTS guidance and only add a gate after confirming the actual Codex tool names and MCP availability.
+Codebase discovery uses local repository tools (`rg`, direct source reads,
+tests, and Git history). No codebase-search MCP or discovery-enforcement hook is
+required; checked-in source remains the authority.
 
 ## Project UI post-tool hook
 

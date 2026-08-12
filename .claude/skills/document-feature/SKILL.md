@@ -33,11 +33,11 @@ skip the file and say so in the final table — do not invent content.
 |---|---|---|
 | [docs/currents.md](../../../docs/currents.md) | Always (every feature changes current state) | **New `## Quick summary — <feature> (date, PR#)` at the TOP**, just under the `Last updated:` line. Plain English + a "the new shape" file map. **Bump the `Last updated:` line.** |
 | [docs/progresstracking.md](../../../docs/progresstracking.md) | Always | **Append** a detailed entry at the **BOTTOM** under the current sprint/era heading. Versions, file lists, decisions, gotchas. This is the human changelog. |
-| [.claude/reference/env-vars.md](../../reference/env-vars.md) | An env var or feature flag was added/changed | Add/update the var's row + its semantics |
-| [.claude/reference/migrations-log.md](../../reference/migrations-log.md) | A migration was added | New migration entry + bump the "current head / next number" |
-| [.claude/reference/review-ingestion.md](../../reference/review-ingestion.md) | A ReviewSource or the ingest path changed | Update the relevant section |
-| [.claude/reference/lab-notes.md](../../reference/lab-notes.md) | A non-obvious root cause / named-subsystem gotcha was found | Add a dated lab note: `[DATE] WHAT FAILED → WHY → CORRECT APPROACH` |
-| [.claude/CLAUDE.md](../../CLAUDE.md) | An architecture invariant, a file location, or a "Where things live" row changed | Edit minimally — invariants list, worker layout, or the table only |
+| [.claude/reference/env-vars.md](../../../.claude/reference/env-vars.md) | An env var or feature flag was added/changed | Add/update the var's row + its semantics |
+| [.claude/reference/migrations-log.md](../../../.claude/reference/migrations-log.md) | A migration was added | New migration entry + bump the "current head / next number" |
+| [.claude/reference/review-ingestion.md](../../../.claude/reference/review-ingestion.md) | A ReviewSource or the ingest path changed | Update the relevant section |
+| [.claude/reference/lab-notes.md](../../../.claude/reference/lab-notes.md) | A non-obvious root cause / named-subsystem gotcha was found | Add a dated lab note: `[DATE] WHAT FAILED → WHY → CORRECT APPROACH` |
+| [.claude/CLAUDE.md](../../../.claude/CLAUDE.md) | An architecture invariant, a file location, or a "Where things live" row changed | Edit minimally — invariants list, worker layout, or the table only |
 
 ### currents.md vs progresstracking.md — the boundary
 
