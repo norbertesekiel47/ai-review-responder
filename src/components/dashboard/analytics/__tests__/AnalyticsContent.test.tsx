@@ -153,6 +153,24 @@ describe('AnalyticsContent', () => {
     expect(screen.queryByText('Reputation trend')).not.toBeInTheDocument();
   });
 
+  it('explains the All-Locations response-rate denominator includes imported history', () => {
+    useDashboardDataMock.mockReturnValue({
+      data: {
+        ...baseAggregate,
+        valueSummary: { ...baseAggregate.valueSummary, baselineResponseRate: 72 },
+      },
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<AnalyticsContent />);
+
+    expect(
+      screen.getByText('Response rate is based on reviews added to RepWorth in this period, including imported history.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('was 72% before RepWorth')).toBeInTheDocument();
+  });
+
   it('renders the windowed rating breakdown in aggregate scope', () => {
     useDashboardDataMock.mockReturnValue({
       data: {

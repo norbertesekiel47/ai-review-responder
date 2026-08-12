@@ -1,5 +1,6 @@
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 
 interface Props {
   summary: ReputationSummary;
@@ -108,6 +109,8 @@ export function ReputationHeroBand({
           />
         </div>
       </div>
+
+      <p className="rep-period-context">{RESPONSE_RATE_PERIOD_CONTEXT}</p>
 
       <div className="rep-foot">
         {isRamping ? (

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "Keep the detected-time response-rate workflow KPI while making its denominator legible wherever an owner sees it beside Review-time-anchor reputation charts.",
+  "non_goals": [
+    "Re-anchor response rate or the MonthlyImpactWorker digest on the Review-time anchor",
+    "Add review-import provenance, a migration, or a derived import discriminator",
+    "Create an imported-unanswered-backlog metric or new dashboard surface",
+    "Change dashboard query, API payload, window-selection, or KPI arithmetic",
+    "Resolve unrelated dashboard labeling or chart issues"
+  ],
+  "user_visible_behavior": [
+    "The per-location response-rate stat visibly says that it is based on reviews added to RepWorth in the period, including imported history",
+    "The All-Locations response-rate card carries the same denominator explanation",
+    "All displayed KPI values and deltas remain unchanged"
+  ],
+  "invariants": [
+    "Response rate and the aggregate windowedReceived/windowedResponded counters remain keyed on detected_at",
+    "Velocity, rating breakdown, average star, and sentiment trend remain keyed on the Review-time anchor",
+    "The explanation is always visible and truthful whether or not the account has imported history",
+    "Ramping, baseline, and All-Locations card states keep their existing behavior"
+  ],
+  "edge_cases": [
+    "Accounts with no Review import still receive accurate copy because organic reviews are added to RepWorth when detected",
+    "Ramping accounts still see the denominator explanation without losing baseline guidance",
+    "All-Locations accounts with a baseline keep both the denominator explanation and baseline comparison"
+  ],
+  "existing_patterns_to_follow": [
+    "src/components/dashboard/kpi/ReputationHeroBand.tsx response-rate stat and Warm Editorial typography",
+    "src/components/dashboard/kpi/ValueKpiGrid.tsx KPI footnote treatment",
+    "src/components/dashboard/__tests__/ReputationHeroBand.test.tsx public render assertions",
+    "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx per-location and aggregate render assertions",
+    "docs/adr/0019-kpi-review-time-anchor.md decision/addendum format"
+  ],
+  "test_seams": [
+    "ReputationHeroBand rendered output",
+    "AnalyticsContent aggregate rendered output"
+  ],
+  "allowed_edit_surface": [
+    "src/components/dashboard/kpi/ReputationHeroBand.tsx",
+    "src/components/dashboard/kpi/ValueKpiGrid.tsx",
+    "src/components/dashboard/kpi/response-rate-copy.ts",
+    "src/components/dashboard/__tests__/ReputationHeroBand.test.tsx",
+    "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+    "src/app/(authenticated)/_styles/console.css",
+    "docs/adr/0019-kpi-review-time-anchor.md",
+    "CONTEXT.md"
+  ],
+  "tests_to_add": [
+    "explains that response rate includes imported history",
+    "explains the All-Locations response-rate denominator includes imported history"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/components/dashboard/__tests__/ReputationHeroBand.test.tsx src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx"
+  ],
+  "estimated_prod_lines": 55,
+  "estimated_test_lines": 40,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the UI explanation and ADR/glossary amendment; no stored data, API contract, or KPI computation changes require rollback.",
+  "observability": [],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request"
+  ],
+  "open_questions": []
+}
