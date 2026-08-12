@@ -39,6 +39,26 @@ Jump to the dated entries by subsystem (search the anchors below):
   keep DATE values strings end-to-end, plus pin the query shape in the suite
   (`expect(query.text).toContain('snapshot_date::text')`). Caught in PR #570
   review; same family as the timestamptz-µs lab note.
+- [2026-08-11] All-Locations combined `reviewVelocity` plotted its weeks
+  Aug, Aug, Jul, Jun → the dashboard mappers built the week key as
+  `String(row.week_start)`, and because Postgres.js decodes DATE to a JS `Date`
+  that is `Date.prototype.toString()` — `"Mon Jun 22 2026 00:00:00 GMT+0000 (…)"`.
+  Every key then shares a `"Xxx "` prefix, so ANY string comparison orders by
+  month **NAME** (`Aug` < `Jul` < `Jun`, `'l'` < `'n'`). Only the combined series
+  broke because it is the only velocity series re-sorted in JS; per-location
+  series keep SQL's `ORDER BY`, which is why this survived from PR #28 to #791.
+  The string is also process-timezone-dependent. → Normalize at the mapper with
+  `toIsoWeekStart` (`src/lib/dashboard/active-mappers.ts`, the single owner for
+  both `mapReviewVelocity` and `buildReputationSummary`): `toISOString().slice(0,10)`
+  on the UTC day, which round-trips the SQL date exactly because postgres.js
+  parsed it from a date-only string. Two traps this cost: (i) fixing only the
+  `.sort()` would have left the format — and the timezone dependency — in place;
+  (ii) the live-DB suite `review-time-anchor.integration.test.ts` had a
+  `weekMarkers()` helper that deliberately mirrored the broken path
+  ("stringify through the SAME postgres.js decode + String() path the mappers
+  use, NEVER ::text") and so agreed with the bug — a symmetric expectation
+  cannot detect a wrong shape; it is now `::text`, which pins the ISO day
+  against Postgres itself.
 - [2026-07-25] Postgres.js returns **NUMERIC as a JS string** (precision
   preservation) — `competitor_snapshots.rating NUMERIC(2,1)` reads back as
   `"4.8"`, not `4.8`. Any consumer must `Number(...)` at the read boundary.

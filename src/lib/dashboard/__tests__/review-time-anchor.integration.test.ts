@@ -35,9 +35,9 @@
 // dashboard queries). Two rules keep that risk from becoming a real flake:
 // any fixture whose assertion NAMES a week is seeded at NOW(), never
 // NOW() - interval '1 day' (a 1-day-old row is in the prior ISO week every
-// Monday), and expected week starts are selected as ::date and stringified
-// through the SAME postgres.js decode + String() path the mappers use — a
-// ::text expectation can never match (see weekMarkers below).
+// Monday), and expected week starts are selected as ::text so Postgres renders
+// the ISO calendar day the mappers now emit — since #791 a JS-Date round-trip
+// expectation can never match (see weekMarkers below).
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
@@ -167,19 +167,25 @@ async function rep(bizId: string) {
 }
 
 /**
- * Expected week starts, selected as ::date and stringified through the SAME
- * postgres.js decode + String() path the mappers use. NEVER ::text.
+ * Expected week starts as ISO `YYYY-MM-DD`, selected `::text` so Postgres — not
+ * a JS Date round-trip — renders the calendar day. This inverts the pre-#791
+ * rule ("stringify through the same postgres.js decode + String() path the
+ * mappers use, NEVER ::text"): back then the mappers emitted
+ * `Date.prototype.toString()`, so only a matching JS round-trip could match
+ * them. `toIsoWeekStart` now emits the ISO day, so `::text` is the expectation
+ * that matches — and it is the stronger one, because it cannot silently agree
+ * with the mapper on a wrong shape the way the old symmetric path did.
  */
 async function weekMarkers() {
-  const [row] = await sql()<{ current_week: unknown; back3: unknown; back6: unknown }[]>`
-    SELECT DATE_TRUNC('week', NOW())::date AS current_week,
-           (DATE_TRUNC('week', NOW()) - interval '21 days')::date AS back3,
-           (DATE_TRUNC('week', NOW()) - interval '42 days')::date AS back6
+  const [row] = await sql()<{ current_week: string; back3: string; back6: string }[]>`
+    SELECT (DATE_TRUNC('week', NOW())::date)::text AS current_week,
+           ((DATE_TRUNC('week', NOW()) - interval '21 days')::date)::text AS back3,
+           ((DATE_TRUNC('week', NOW()) - interval '42 days')::date)::text AS back6
   `;
   return {
-    currentWeek: String(row!.current_week),
-    back3: String(row!.back3),
-    back6: String(row!.back6),
+    currentWeek: row!.current_week,
+    back3: row!.back3,
+    back6: row!.back6,
   };
 }
 

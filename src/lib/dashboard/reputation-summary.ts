@@ -7,6 +7,7 @@
 // See PLAN.md (PR2) sections A–C.
 
 import type { ReputationMetric, ReputationSummary } from './types';
+import { toIsoWeekStart } from './active-mappers';
 import { MINUTES_SAVED_PER_RESPONSE } from './constants';
 
 /**
@@ -101,7 +102,7 @@ export function buildReputationSummary(input: {
     timeSavedMinutes: buildMetric(timeSavedCurrent, timeSavedPrior, timeSaved.handled_prior, 0),
     pendingApprovalCount,
     trend: trend.map((row) => ({
-      weekStart: String(row.week_start),
+      weekStart: toIsoWeekStart(row.week_start),
       starEquivalent: starEquivalent(row.avg_score == null ? null : Number(row.avg_score)),
       reviewCount: Number(row.cnt ?? 0),
     })),

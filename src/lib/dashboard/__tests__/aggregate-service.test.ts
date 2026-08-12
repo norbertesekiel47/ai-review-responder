@@ -195,6 +195,41 @@ describe('getAggregateDashboardData — windowed currentResponseRate', () => {
   });
 });
 
+describe('getAggregateDashboardData — combined velocity ordering (#791)', () => {
+  it('returns weeks chronologically when the window spans several months', async () => {
+    // The combined series is the ONE velocity series re-sorted in JS, so it is
+    // the only one that can come back out of order. Insertion order below is
+    // deliberately NOT chronological (loc-2 contributes the older months) so a
+    // sort that is a no-op — or one comparing anything but the ISO day — fails.
+    mockFetchSlices.mockResolvedValue(new Map<string, PerLocationAggregateSlice>([
+      ['loc-1', makeSlice({
+        reviewVelocity: [
+          { weekStart: '2026-08-03', count: 2 },
+          { weekStart: '2026-08-10', count: 1 },
+        ],
+      })],
+      ['loc-2', makeSlice({
+        reviewVelocity: [
+          { weekStart: '2026-06-22', count: 5 },
+          { weekStart: '2026-07-06', count: 3 },
+          { weekStart: '2026-08-03', count: 4 },
+        ],
+      })],
+    ]));
+
+    const result = await getAggregateDashboardData(mockSql, 'acc-1');
+
+    // Pre-fix this came back Aug, Aug, Jul, Jun — 'Aug' < 'Jul' < 'Jun'
+    // lexicographically once every key carried a "Mon Jun 22 2026 …" prefix.
+    expect(result.reviewVelocity).toEqual([
+      { weekStart: '2026-06-22', count: 5 },
+      { weekStart: '2026-07-06', count: 3 },
+      { weekStart: '2026-08-03', count: 6 },
+      { weekStart: '2026-08-10', count: 1 },
+    ]);
+  });
+});
+
 describe('getAggregateDashboardData — ratingBreakdown rollup (#405)', () => {
   it('sums the per-location windowed breakdowns into one account-wide breakdown', async () => {
     mockFetchSlices.mockResolvedValue(twoLocationSlices());

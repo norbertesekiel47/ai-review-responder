@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapRecentReviews, mapReviewVelocity } from '../active-mappers';
+import { mapRecentReviews, mapReviewVelocity, toIsoWeekStart } from '../active-mappers';
 
 describe('dashboard active mappers', () => {
   it('maps recent review row nulls and dates to dashboard shape', () => {
@@ -148,5 +148,58 @@ describe('dashboard active mappers', () => {
         count: 7,
       },
     ]);
+  });
+
+  // #791: postgres.js decodes a `date` column (OID 1082) with `new Date(x)`, so
+  // production hands the mapper a JS Date, not the ISO string the fixtures above
+  // use. `String(date)` produced "Mon May 18 2026 …", which sorts by month NAME.
+  it('maps a postgres.js-decoded Date week_start to the ISO calendar day', () => {
+    expect(mapReviewVelocity([{ week_start: new Date('2026-05-18'), count: 7 }])).toEqual([
+      { weekStart: '2026-05-18', count: 7 },
+    ]);
+  });
+
+  describe('toIsoWeekStart', () => {
+    it('round-trips a Date at UTC midnight to the same calendar day', () => {
+      expect(toIsoWeekStart(new Date('2026-06-22'))).toBe('2026-06-22');
+    });
+
+    it('is immune to the process timezone', () => {
+      // The Date postgres.js builds is UTC midnight; reading LOCAL components
+      // under a negative offset would report the previous day (here 2026-06-21).
+      const original = process.env.TZ;
+      try {
+        process.env.TZ = 'America/Los_Angeles';
+        expect(toIsoWeekStart(new Date('2026-06-22'))).toBe('2026-06-22');
+      } finally {
+        if (original === undefined) delete process.env.TZ;
+        else process.env.TZ = original;
+      }
+    });
+
+    it('passes an ISO date-only string through untouched', () => {
+      expect(toIsoWeekStart('2026-06-22')).toBe('2026-06-22');
+    });
+
+    it('truncates a full ISO timestamp to its calendar day', () => {
+      expect(toIsoWeekStart('2026-06-22T00:00:00.000Z')).toBe('2026-06-22');
+    });
+
+    it('yields ISO strings that sort chronologically across a month boundary', () => {
+      const weeks = [
+        new Date('2026-08-03'),
+        new Date('2026-07-06'),
+        new Date('2026-06-22'),
+      ].map(toIsoWeekStart);
+
+      expect([...weeks].sort()).toEqual(['2026-06-22', '2026-07-06', '2026-08-03']);
+    });
+
+    it('returns empty string for null, undefined, and unparseable values', () => {
+      expect(toIsoWeekStart(null)).toBe('');
+      expect(toIsoWeekStart(undefined)).toBe('');
+      expect(toIsoWeekStart('not a date')).toBe('');
+      expect(toIsoWeekStart(new Date('nope'))).toBe('');
+    });
   });
 });

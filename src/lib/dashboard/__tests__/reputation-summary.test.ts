@@ -101,6 +101,15 @@ describe('buildReputationSummary', () => {
     expect(s.trend[3]?.starEquivalent).toBeNull();
   });
 
+  // #791: production hands this mapper a postgres.js-decoded Date, not the ISO
+  // strings the fixture above uses. `String(date)` yielded "Fri May 01 2026 …".
+  it('maps a postgres.js-decoded Date week_start to the ISO calendar day', () => {
+    const trend: SentimentTrendRow[] = [
+      { week_start: new Date('2026-05-01'), avg_score: 0.5, cnt: 4 },
+    ];
+    expect(build({ trend }).trend[0]?.weekStart).toBe('2026-05-01');
+  });
+
   it('flags ramping strictly below the age threshold', () => {
     expect(build({ accountAgeDays: RAMPING_AGE_DAYS - 1 }).isRamping).toBe(true);
     expect(build({ accountAgeDays: RAMPING_AGE_DAYS }).isRamping).toBe(false);
