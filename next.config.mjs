@@ -6,6 +6,15 @@ import { buildContentSecurityPolicy } from './src/lib/security/csp.mjs';
 const nextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['postgres'],
+  // Agent instructions are hand-owned here (#798). Left at its default, Next
+  // 16.3 upserts a managed `<!-- BEGIN:nextjs-agent-rules -->` block into the
+  // tracked root `AGENTS.md` on every `next dev` that detects a coding agent,
+  // and re-asserts it byte-for-byte on each upgrade that rewords it. The
+  // useful part of that block — "read the version-matched docs bundled at
+  // node_modules/next/dist/docs/ before writing Next code" — is restated in
+  // our own words in `.claude/CLAUDE.md` → Working rules, the durable layer
+  // both Claude Code and Codex route through. One authoritative owner per fact.
+  agentRules: false,
   async headers() {
     return [
       {

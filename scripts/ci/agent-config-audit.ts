@@ -238,6 +238,34 @@ function assertAgentsGuidance(): void {
   if (!agents.includes('.codex/HOOKS.md')) {
     fail('AGENTS.md must point to .codex/HOOKS.md.');
   }
+  assertNextAgentRulesOptOut(agents);
+}
+
+/**
+ * #798: AGENTS.md is hand-owned, so Next.js must not upsert its managed
+ * agent-rules block into it. The two halves are checked together because
+ * either alone regresses silently — dropping the flag lets `next dev`
+ * re-append the block, and hand-deleting the block without the flag only
+ * re-creates it on the next dev run.
+ *
+ * Matching the start marker alone is sufficient and is what Next itself keys
+ * on (a plain substring test in `next/dist/server/lib/generate-agent-files`).
+ * A start marker with no end marker is the worse case, not a safe one: Next
+ * reads that as malformed and appends a second block rather than replacing.
+ */
+function assertNextAgentRulesOptOut(agents: string): void {
+  if (agents.includes('<!-- BEGIN:nextjs-agent-rules -->')) {
+    fail(
+      "AGENTS.md contains Next.js's managed agent-rules block. It is hand-owned (#798) — " +
+        'delete the block and keep `agentRules: false` in next.config.mjs.',
+    );
+  }
+  if (!/^\s*agentRules:\s*false,/m.test(read('next.config.mjs'))) {
+    fail(
+      'next.config.mjs must set `agentRules: false` (#798), or `next dev` re-adds the ' +
+        'managed agent-rules block to the tracked AGENTS.md on every run.',
+    );
+  }
 }
 
 function assertCanonicalReferences(): void {
