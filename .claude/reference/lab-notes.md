@@ -59,6 +59,31 @@ Jump to the dated entries by subsystem (search the anchors below):
   use, NEVER ::text") and so agreed with the bug — a symmetric expectation
   cannot detect a wrong shape; it is now `::text`, which pins the ISO day
   against Postgres itself.
+- [2026-08-11] Second half of #791, same root value, different consumer: a
+  **calendar-day label must format with `timeZone: 'UTC'`**. A week bucket
+  (`YYYY-MM-DD`) parses as UTC midnight, so `toLocaleDateString` in the viewer's
+  zone rolls it back one day EVERYWHERE west of Greenwich — the Monday-Jun-22
+  bucket labelled its tick "Jun 21", a Sunday, for essentially every US owner.
+  A calendar day has no time of day to localize; pinning the zone is what makes
+  the label mean the same date for every viewer, and it is what
+  `src/components/admin/ui/format.ts` already argues at length (there the driver
+  is SSR **hydration** — Vercel's Node runs UTC, the browser does not — which is
+  the harsher version of the same defect; the owner dashboard fetches its data
+  client-side via react-query, so it is display-only there today). Convention is
+  now unanimous across all five calendar-day sites: `formatRankingDateLabel`,
+  `service-mappers` `periodLabel`, `weekly-value-report` `formatWeekDate`, plus
+  the two this fixed (`weekShortLabel`, `ReputationTrendChart.weekLabel`).
+  **The symmetric-expectation trap bit AGAIN in the same PR** — third instance:
+  `ReputationTrendChart.test.tsx` recomputed the expected tooltip label with the
+  component's own broken formatter, and its comment *named the exact roll-back*
+  ("some local zones (e.g. America/Los_Angeles) roll back to 'Apr 2'") while
+  treating it as test flake to route around rather than the bug it was. When a
+  test comment explains away a wrong-looking value, that is the finding. Guard
+  shape that actually works: assert the LITERAL (`'Apr 3'`) plus a case under
+  `process.env.TZ = 'America/Los_Angeles'` — CI runs UTC, so the literal alone
+  passes there whether or not the fix exists; the TZ-mutating case is what
+  carries the guard. Verified discriminating (`bare=Jun 21` vs `pinned=Jun 22`)
+  before being written, and mutation-proved after.
 - [2026-07-25] Postgres.js returns **NUMERIC as a JS string** (precision
   preservation) — `competitor_snapshots.rating NUMERIC(2,1)` reads back as
   `"4.8"`, not `4.8`. Any consumer must `Number(...)` at the read boundary.

@@ -51,15 +51,29 @@ describe('ReputationTrendChart', () => {
     const tip = container.querySelector('.chart-tip');
     expect(tip).not.toBeNull();
     expect(tip!.textContent).toContain('4.6');
-    // Week label for trend[2] (weekStart 2026-04-03), computed the same way the
-    // component does — a hardcoded 'Apr 3' literal is timezone-flaky because
-    // `new Date('2026-04-03')` parses as UTC midnight, which some local zones
-    // (e.g. America/Los_Angeles) roll back to "Apr 2" on format.
-    const expectedWeekLabel = new Date(trend[2]!.weekStart).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
-    expect(tip!.textContent).toContain(expectedWeekLabel);
+    // Week label for trend[2] (weekStart 2026-04-03). The literal is safe now:
+    // `weekLabel` pins `timeZone: 'UTC'`, so the label is 'Apr 3' in every zone.
+    // It previously was NOT — this assertion used to recompute the expectation
+    // the same way the component did, to dodge the very roll-back that made the
+    // label wrong ("Apr 2" west of Greenwich). A symmetric expectation agrees
+    // with the bug it is standing next to; a literal cannot.
+    expect(tip!.textContent).toContain('Apr 3');
+  });
+
+  it('labels the week in UTC, not the viewer zone', () => {
+    // Without `timeZone: 'UTC'` this reads "Apr 2" — a Thursday label on a
+    // Friday bucket — for every owner west of Greenwich, which is most of them.
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = 'America/Los_Angeles';
+      const trend = trendWith([4.3, null, 4.6, 4.8]);
+      const { container } = render(<ReputationTrendChart trend={trend} />);
+      fireEvent.pointerMove(container.querySelector('svg')!, { clientX: 430, clientY: 100 });
+      expect(container.querySelector('.chart-tip')!.textContent).toContain('Week of Apr 3');
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
   });
 });
 

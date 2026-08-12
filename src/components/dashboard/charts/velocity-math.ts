@@ -21,10 +21,24 @@ export function computeVelocitySummary(counts: number[]): VelocitySummary {
   };
 }
 
-/** Shows only ~half the tick labels (every other, plus the last) to avoid crowding. */
+/**
+ * Shows only ~half the tick labels (every other, plus the last) to avoid crowding.
+ *
+ * `timeZone: 'UTC'` is load-bearing, not decoration. `weekStartIso` is a
+ * calendar DAY (`YYYY-MM-DD`), which JS parses as UTC midnight — so formatting
+ * it in the viewer's zone rolls it back a day everywhere west of Greenwich, and
+ * a week starting Monday Jun 22 labels its tick "Jun 21", a Sunday. A week
+ * bucket has no time of day to localize; pinning the zone is what makes the
+ * label mean the same date for every owner. Same reason as
+ * `formatRankingDateLabel` and `src/components/admin/ui/format.ts`.
+ */
 export function weekShortLabel(weekStartIso: string, idx: number, total: number): string {
   if (idx % 2 !== 0 && idx !== total - 1) return '';
-  return new Date(weekStartIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(weekStartIso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 // Shared geometry: the total and stacked velocity charts toggle in place in

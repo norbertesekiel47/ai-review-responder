@@ -60,8 +60,17 @@ export function computeTrendDomain(stars: number[]): { min: number; max: number 
   return { min, max };
 }
 
+/**
+ * `weekStartIso` is a calendar DAY, which JS parses as UTC midnight — formatting
+ * it in the viewer's zone rolls it back a day west of Greenwich ("Week of Jun 21"
+ * for the week that starts Monday Jun 22). Pin the zone; see `weekShortLabel`.
+ */
 function weekLabel(weekStartIso: string): string {
-  return new Date(weekStartIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(weekStartIso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 export function ReputationTrendChart({ trend }: Props) {
