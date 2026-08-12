@@ -34,8 +34,8 @@ Code.
 - Codex feature guards are active under `.codex/hooks/` and registered in
   `.codex/hooks.json`. Their compatibility notes and trust procedure live in
   `.codex/HOOKS.md`. `pnpm ci:agent-config` validates the hooks, skill
-  metadata, reference paths, and repository discoverability in local gates
-  and CI.
+  metadata, source/mirror parity, reference paths, and repository
+  discoverability in local gates and CI.
 - This file is hand-owned end to end. Next.js would otherwise upsert a managed
   `nextjs-agent-rules` block here on every `next dev` that detects a coding
   agent (its `<!-- BEGIN:… -->` marker is deliberately never written out

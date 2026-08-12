@@ -13,7 +13,7 @@ The fix for an applied migration is always a NEW migration.
 Authoritative sources — this skill is the checklist, not the data:
 - `.claude/reference/migrations-log.md` — head/next number, full per-migration history, retention policy. **Read it before anything else.**
 - `.claude/reference/lab-notes.md` "Indexes / migrations" topic — the failure catalog behind the checklist below.
-- CLAUDE.md "Environments & branches" — lockstep rule + standing exceptions (e.g. 078 deliberately absent in prod until the WS8 cutover).
+- `.claude/CLAUDE.md` "Environments & branches" — lockstep rule + standing exceptions (e.g. 078 deliberately absent in prod until the WS8 cutover).
 
 ## Workflow
 
@@ -29,12 +29,12 @@ Authoritative sources — this skill is the checklist, not the data:
 4. **Apply staging first, then prod**, same change window. Verify by **schema introspection** (`information_schema.columns` / `pg_indexes` for the objects created) — NEVER the Supabase migration ledger; `list_migrations` does not track RepWorth's `0xx` migrations (lab note 2026-06-20).
 5. **Same-change bookkeeping** (skipping any of these is a bug):
    - Update `migrations-log.md`: bump the head line AND add the migration's entry.
-   - If the migration adds a JSONB column that production code will read via Postgres.js: add the parser site to CLAUDE.md's PgBouncer JSONB carve-out list.
-6. **Gates**: `pnpm test`, `pnpm ci:rls-audit`, `pnpm ci:tenant-scope` (repworth.md requires the last two for DB-touching changes).
+   - If the migration adds a JSONB column that production code will read via Postgres.js: add the parser site to `.claude/CLAUDE.md`'s PgBouncer JSONB carve-out list.
+6. **Gates**: `pnpm test`, `pnpm ci:rls-audit`, `pnpm ci:tenant-scope` (`.claude/CLAUDE.md` requires the last two for DB-touching changes).
 
 ## Common mistakes
 
 - Editing an applied migration "just to fix a typo" — blocked by hook; write head+1 instead.
 - Trusting `list_migrations` as proof of application — it returns wrong/empty results here; introspect the schema.
-- Applying to prod but not staging (or vice versa) — lockstep violation; the only sanctioned exception is documented in CLAUDE.md (078 until the WS8 cutover).
+- Applying to prod but not staging (or vice versa) — lockstep violation; the only sanctioned exception is documented in `.claude/CLAUDE.md` (078 until the WS8 cutover).
 - Forgetting the migrations-log head bump — the immutability hook reads it, so a stale head silently un-protects the newest applied migration.

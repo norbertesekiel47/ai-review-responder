@@ -10,8 +10,8 @@ spec docs. The user decides what happens with the findings.
 
 ## Inputs
 
-`$ARGUMENTS` = one or more spec/plan/checklist doc paths. If none given, ask
-which doc(s) to verify — do not guess.
+Use the spec/plan/checklist paths from the user's current request. If none are
+given, ask which document(s) to verify — do not guess.
 
 ## Procedure
 
@@ -26,8 +26,8 @@ which doc(s) to verify — do not guess.
 
 3. **Verify each item against reality, not against other docs.** Evidence
    hierarchy, strongest first:
-   - code inspection at a specific `file:line` (prefer codebase-memory-mcp
-     graph tools for structural questions — who-calls-X, routes, call chains)
+   - code inspection at a specific `file:line` (use `rg` to find symbols and
+     callers, then inspect the source and tests directly)
    - `git log`/`git diff` showing the change landed on `main`
    - a passing test that pins the behavior
    - migration applied (check `.claude/reference/migrations-log.md` head)

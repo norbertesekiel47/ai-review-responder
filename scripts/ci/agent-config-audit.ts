@@ -24,6 +24,9 @@ const PROJECT_SKILLS = [
   'runbook',
   'verify-spec',
 ] as const;
+const SHARED_CLAUDE_SKILLS = PROJECT_SKILLS.filter(
+  (skill) => skill !== 'feature' && skill !== 'feature-resume',
+);
 const HOOK_SCRIPTS = [
   'bash-write-guard.sh',
   'edit-surface-guard.sh',
@@ -223,6 +226,20 @@ function assertSkill(skill: string): void {
   assertRelativeLinks(skillPath, source);
 }
 
+function assertSharedSkillParity(skill: string): void {
+  const claudePath = `.claude/skills/${skill}/SKILL.md`;
+  const codexPath = `.agents/skills/${skill}/SKILL.md`;
+  if (!existsSync(resolve(REPO_ROOT, claudePath))) {
+    fail(`Missing canonical Claude skill: ${claudePath}`);
+    return;
+  }
+  if (read(claudePath).trimEnd() !== read(codexPath).trimEnd()) {
+    fail(
+      `${codexPath} drifted from canonical ${claudePath}; update both copies in the same change.`,
+    );
+  }
+}
+
 function assertNoShadowReferences(): void {
   const staleReferenceDir = resolve(REPO_ROOT, '.codex/reference');
   if (existsSync(staleReferenceDir) && readdirSync(staleReferenceDir).length > 0) {
@@ -293,6 +310,7 @@ function main(): void {
   assertCodexConfig();
   assertHooks();
   for (const skill of PROJECT_SKILLS) assertSkill(skill);
+  for (const skill of SHARED_CLAUDE_SKILLS) assertSharedSkillParity(skill);
   assertCanonicalReferences();
   assertSkillLock();
 
