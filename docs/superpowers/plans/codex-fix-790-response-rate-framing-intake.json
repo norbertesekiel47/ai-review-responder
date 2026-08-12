@@ -43,6 +43,7 @@
   "allowed_edit_surface": [
     "src/components/dashboard/kpi/ReputationHeroBand.tsx",
     "src/components/dashboard/kpi/ValueKpiGrid.tsx",
+    "src/components/dashboard/kpi/response-rate-copy.ts",
     "src/components/dashboard/__tests__/ReputationHeroBand.test.tsx",
     "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
     "src/app/(authenticated)/_styles/console.css",
@@ -56,8 +57,8 @@
   "verification_commands": [
     "pnpm exec vitest run src/components/dashboard/__tests__/ReputationHeroBand.test.tsx src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx"
   ],
-  "estimated_prod_lines": 16,
-  "estimated_test_lines": 14,
+  "estimated_prod_lines": 55,
+  "estimated_test_lines": 40,
   "dependencies_added": [],
   "rollback_plan": "Revert the UI explanation and ADR/glossary amendment; no stored data, API contract, or KPI computation changes require rollback.",
   "observability": [],

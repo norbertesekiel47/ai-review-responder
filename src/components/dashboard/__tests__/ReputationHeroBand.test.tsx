@@ -15,6 +15,24 @@ const baseSummary: ReputationSummary = {
 };
 
 describe('ReputationHeroBand', () => {
+  it('explains that response rate includes imported history', () => {
+    render(
+      <ReputationHeroBand
+        summary={baseSummary}
+        lifetimeReviewsHandled={1284}
+        lifetimeTimeSavedMinutes={3120}
+        connected
+      />,
+    );
+
+    const context = screen.getByText(
+      'Response rate is based on reviews added to RepWorth in this period, including imported history.',
+    );
+    expect(context).toBeInTheDocument();
+    expect(context).toHaveClass('rep-period-context');
+    expect(context.closest('.rep-stat')).toBeNull();
+  });
+
   it('renders the three reputation stats with values and deltas', () => {
     render(
       <ReputationHeroBand
@@ -46,6 +64,7 @@ describe('ReputationHeroBand', () => {
       />,
     );
     expect(screen.getByText(/Still building your baseline/)).toBeInTheDocument();
+    expect(screen.getByText(/including imported history/)).toBeInTheDocument();
     expect(screen.queryByText(/replies handled for you since joining/)).not.toBeInTheDocument();
   });
 

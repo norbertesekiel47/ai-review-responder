@@ -4,6 +4,7 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import { useCountUp } from '@/hooks/useCountUp';
 import { cn } from '@/lib/ui/cn';
 import type { ValueSummary } from '@/lib/dashboard/types';
+import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 
 interface ValueKpiGridProps {
   valueSummary: ValueSummary;
@@ -59,6 +60,9 @@ export function ValueKpiGrid({
         </div>
         <div className="kpi-bar-wrap">
           <div className={cn('kpi-bar', rateClass)} style={{ width: `${clampedResponseRate}%` }} />
+        </div>
+        <div className="kpi-context">
+          {RESPONSE_RATE_PERIOD_CONTEXT}
         </div>
         {baseline != null && <div className="kpi-foot">was {baseline}% before RepWorth</div>}
       </div>

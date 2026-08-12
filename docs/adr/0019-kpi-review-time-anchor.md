@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted — 2026-08-10 (#688 grilling, owner-adjudicated). #688 is the deciding
-ticket on this question from map #667. Supersedes the #675 intake's
+Accepted — 2026-08-10 (#688 grilling, owner-adjudicated); Decision 2 amended
+2026-08-12 by #790. #688 is the deciding ticket on this question from map #667.
+Supersedes the #675 intake's
 "accepted as-is" holding position — that intake noted the consented import
 would distort the KPIs and accepted it pending a decision; this ADR is the
 decision.
@@ -60,6 +61,12 @@ Three parts, decided together at the #688 grilling:
    imported unanswered review is meant to drag the rate: that is the #675
    nudge, preserved on purpose.
 
+   **#790 legibility amendment.** Every owner-facing response-rate card states:
+   "Response rate is based on reviews added to RepWorth in this period,
+   including imported history." The metric keeps its workflow clock, but the UI
+   may not present it as though it shares the adjacent reputation charts'
+   Review-time anchor.
+
 3. **Avg time-to-respond gains the validity filter
    `approved_at >= detected_at`** — an exclusion, not a clamp, composed into
    `ttrHandledWindowFilter`. A pre-existing Google reply's latency is never our
@@ -110,12 +117,12 @@ laundered.
   more truthful, not a regression.
 - **Imported reviews older than a KPI window drop out entirely** — correct
   under review-time semantics; they are history, not recent performance.
-- **KPI card copy is unchanged.** Zero production customers; the new semantics
-  are the intuitive reading of the existing labels, so no microcopy rides this
-  change.
+- **Response-rate card copy names its denominator.** #790 keeps the
+  `detected_at` workflow semantics and makes the mixed-clock dashboard legible
+  with the Decision 2 explanation. Other KPI card copy is unchanged.
 - **Glossary**: the term **Review-time anchor** is coined in `CONTEXT.md`
   alongside the Review-import cluster; the fragment doc comment in
-  `src/lib/kpi/service.ts` cites this ADR.
+  `src/lib/kpi/fragments.ts` cites this ADR.
 
 ## Addendum — 2026-08-11 (#757): one stack, one fragment owner
 
@@ -179,13 +186,14 @@ dashboard payload. The two removed ones return when the deferred KPI-cards
 product work ships, composing the same fragments. Tracked as **issue #789**; the
 annotation on the spec file itself rides the post-merge documentation sweep.
 
-**Decision 2 is under review, tracked as issue #790.** #757 is the first release
-in which the reputation/workflow clock split is visible on one screen: a
-consented import counts in full toward the `detected_at`-windowed response rate
-while contributing little to the adjacent review-time charts, so a period can
-read as a responsiveness collapse next to a near-empty volume series. Decision 2
-stands until #790 concludes — nothing here is reverted — but a future reader
-should know the question is open rather than settled.
+**Decision 2 was amended by issue #790.** #757 was the first release in which
+the reputation/workflow clock split became visible on one screen: a consented
+import counts in full toward the `detected_at`-windowed response rate while
+contributing little to the adjacent review-time charts. #790 keeps that
+workflow semantic and the #675 unanswered-backlog nudge, but requires the
+owner-facing denominator explanation recorded in Decision 2. Re-anchoring the
+rate, adding an import discriminator, and building a separate imported-backlog
+surface remain out of scope.
 
 The behavioral contract is recorded here so it is recoverable from the decision
 record rather than only from `git show f5151902:src/lib/kpi/service.ts`:
