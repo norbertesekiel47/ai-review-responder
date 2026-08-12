@@ -24,6 +24,29 @@ describe('weekShortLabel', () => {
     expect(weekShortLabel('2026-07-13T00:00:00Z', 7, 8)).not.toBe('');
     expect(weekShortLabel('2026-07-13T00:00:00Z', 2, 8)).not.toBe('');
   });
+
+  it('renders the week-start calendar day itself', () => {
+    // The suite previously asserted only empty-vs-non-empty, so the label TEXT
+    // was unguarded and could be off by a day without failing anything.
+    expect(weekShortLabel('2026-06-22', 0, 8)).toBe('Jun 22');
+    expect(weekShortLabel('2026-06-22T00:00:00Z', 0, 8)).toBe('Jun 22');
+  });
+
+  it('labels the week in UTC, not the viewer zone', () => {
+    // A week bucket is a calendar day parsed as UTC midnight. Formatted in the
+    // viewer's zone it rolls back one day everywhere west of Greenwich, so the
+    // Monday-Jun-22 bucket would read "Jun 21" — a Sunday — for most owners.
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = 'America/Los_Angeles';
+      expect(weekShortLabel('2026-06-22', 0, 8)).toBe('Jun 22');
+      process.env.TZ = 'Asia/Tokyo';
+      expect(weekShortLabel('2026-06-22', 0, 8)).toBe('Jun 22');
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
 });
 
 describe('VelocityChart', () => {

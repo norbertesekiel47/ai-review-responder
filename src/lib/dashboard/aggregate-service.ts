@@ -272,9 +272,14 @@ async function buildAggregateDashboardData(
     }
   }
 
+  // Per-location series keep SQL's ORDER BY; the combined series is the ONE
+  // place a week key is re-sorted in JS, so it is the only one #791 could break.
+  // `weekStart` is a fixed-width ISO `YYYY-MM-DD` (toIsoWeekStart), so plain
+  // lexicographic order IS chronological order. Deliberately not localeCompare:
+  // collation must never get a say in a date ordering.
   const reviewVelocity = Array.from(weekMap.entries())
     .map(([weekStart, count]) => ({ weekStart, count }))
-    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    .sort((a, b) => (a.weekStart < b.weekStart ? -1 : a.weekStart > b.weekStart ? 1 : 0));
 
   // ── Ranking (best position across locations per keyword) ─────────────────
   const perLocationRanking: PerLocationRanking[] = [];
