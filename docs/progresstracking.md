@@ -3414,12 +3414,79 @@ Two things the smoke itself produced:
   bucketing, null-on-empty-sample, rounding, the `approved_at` window, Decision 3's
   validity filter, and the response-rate-vs-TTR **multiplicity asymmetry**) is
   reconstructed from git history into ADR 0019's addendum so nothing is lost.
-- **#790** — reopen ADR 0019 Decision 2. One dashboard period now shows a `detected_at`
-  response rate beside a review-time volume series; the staging smoke demonstrated it
-  live (20% rate beside a breakdown of 4 that excludes the counted review). #688
-  anchored a stack nobody rendered, so this branch is the first time the mixed clock is
-  owner-visible.
+- **#790 — RESOLVED 2026-08-12 by PR #805.** One dashboard period now shows a
+  `detected_at` response rate beside a review-time volume series; the staging smoke
+  demonstrated it live (20% rate beside a breakdown of 4 that excludes the counted
+  review). The resolution preserves the workflow clock and adds an explicit
+  owner-facing denominator explanation; see the #790 entry below.
 - **#791** — All-Locations *combined* velocity sorts alphabetically by month name
   (`Aug` < `Jul` < `Jun`), because `weekStart` is a `String(Date)` compared with
   `localeCompare` at `aggregate-service.ts:277`. Counts correct, sequence wrong.
   Pre-existing since PR #28 (2026-05-10); found by the staging smoke.
+
+## 2026-08-12 — #790 response-rate period framing (PR #805, squash db4dd4a1)
+
+**The ambiguity #757 exposed.** The rendered dashboard intentionally places three
+metrics on three clocks: reputation metrics use the Review-time anchor, response
+rate uses `detected_at`, and time saved uses `approved_at`. After #757, an imported
+review could count toward the selected period's response-rate denominator while
+falling outside the adjacent review-time charts. The arithmetic was deliberate, but
+the UI gave owners no way to distinguish the clocks.
+
+**No KPI arithmetic, query, API, period selection, migration, env var, feature flag,
+dependency, schema, worker, or ingestion change.**
+
+### What shipped
+
+- Every owner-facing response-rate card now says: "Response rate is based on reviews
+  added to RepWorth in this period, including imported history."
+- The per-location `ReputationHeroBand` renders that caption below the three-column
+  stat grid. Keeping it outside every `.rep-stat` preserves the three delta pills'
+  shared baseline; naming the metric makes the full-width, left-aligned caption
+  self-scoping rather than a misleading footnote for Average rating.
+- The All-Locations `ValueKpiGrid` renders the same copy inside its response-rate tile.
+- ADR 0019 Decision 2 now requires the explanation while preserving the
+  `detected_at` workflow clock and the #675 unanswered-import nudge.
+- `CONTEXT.md` records the same owner-facing contract in the Review-time anchor
+  glossary entry.
+
+### Files
+
+```
+src/components/dashboard/kpi/response-rate-copy.ts              ← NEW: one copy owner
+src/components/dashboard/kpi/ReputationHeroBand.tsx             ← band-level caption
+src/components/dashboard/kpi/ValueKpiGrid.tsx                    ← aggregate tile caption
+src/app/(authenticated)/_styles/console.css                      ← context styles
+src/components/dashboard/__tests__/ReputationHeroBand.test.tsx  ← copy + DOM ownership
+src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx ← aggregate pin
+docs/adr/0019-kpi-review-time-anchor.md                           ← D2 amendment
+CONTEXT.md                                                        ← glossary contract
+docs/superpowers/plans/codex-fix-790-response-rate-framing-intake.json
+```
+
+### Decisions and gotchas worth carrying
+
+- Re-anchoring response rate was rejected: it is a workflow KPI, and imported
+  unanswered reviews are intentionally part of the current-period backlog signal.
+- A caption inside the response-rate column was semantically local but stretched that
+  grid cell and dropped its delta pill below the other two. Hoisting the caption fixed
+  alignment but made unnamed copy appear to qualify Average rating. The durable shape
+  is band-level placement plus copy that starts with "Response rate".
+- The exact sentence has one production owner
+  (`RESPONSE_RATE_PERIOD_CONTEXT`); both component suites assert it verbatim.
+- Email/digest templates were deliberately excluded because they do not place response
+  rate beside Review-time charts. The analytics card's pre-existing fixed
+  "Last 30 days" eyebrow is a separate period-label concern.
+
+### Verification
+
+- Focused component tests: **14/14**.
+- Guarded review gate: lint, typecheck, full tests, all 17 repository audits,
+  production build, promised tests, and diff coverage **PASS**.
+- React Doctor: **100/100**.
+- The hero band was rendered against the real `tokens.css` + `console.css`; delta
+  pills share a baseline and the card grows by about 13 px.
+- Three branch-review rounds completed; the final independent review found no
+  actionable issue after the self-scoping copy and documentation punctuation fixes.
+- PR CI was fully green: build, dummy-env canary, deploy install, lint, typecheck,
+  unit tests, E2E, CodeQL, Fallow, React Doctor, LLM eval, and Vercel preview.

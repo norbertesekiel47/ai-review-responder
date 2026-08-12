@@ -186,7 +186,8 @@ and the intake's `non_goals`.
 **This run is also the first live demonstration of finding A2 / #790.** In that same payload the
 period shows a **20% response rate** beside a `ratingBreakdown.total` of **4** that excludes the very
 review the 20% is counting. The mixed clock is real and now owner-visible — exactly the legibility
-question #790 carries. ADR 0019 Decision 2 stands until #790 concludes; nothing was changed here.
+question #790 carried. Nothing was changed in this run; #790 later preserved Decision 2's
+`detected_at` clock and added the owner-facing denominator explanation in PR #805 (2026-08-12).
 
 ---
 

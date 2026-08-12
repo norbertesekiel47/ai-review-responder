@@ -54,7 +54,8 @@ ticketed rather than latent.
   20% vs 0%; observed **20%**. Response rate is confirmed still on `detected_at`. Recorded as D11.
 - **A2 / #790 now has a live demonstration.** The same payload shows a 20% response rate beside a
   `ratingBreakdown.total` of 4 that excludes the very review that 20% counts. The mixed clock is
-  real and owner-visible. ADR 0019 Decision 2 stands until #790 concludes; nothing changed here.
+  real and owner-visible. Nothing changed in #757; #790 later preserved ADR 0019 Decision 2 and
+  added the owner-facing denominator explanation in PR #805 (2026-08-12).
 - **New defect found, pre-existing and unrelated → #791.** The All-Locations *combined*
   `reviewVelocity` sorts alphabetically by month name (`Aug` < `Jul` < `Jun`), because
   `weekStart` is a `String(Date)` and `aggregate-service.ts:277` compares it with `localeCompare`.
@@ -67,5 +68,5 @@ deleted metrics' full behavioral contract (calendar-month bucketing, null-on-emp
 the `approved_at` window, Decision 3's validity filter, and the response-rate-vs-TTR **multiplicity
 asymmetry**) — is now recorded in ADR 0019's addendum, reconstructed from
 `git show f5151902:src/lib/kpi/service.ts` rather than from memory. #789 carries only the spec-file
-annotation and the eventual restore. A2 is recorded in the ADR as an open question and carried
-whole by #790; Decision 2 stands until it concludes.
+annotation and the eventual restore. A2 was carried whole by #790 and resolved in PR #805: the
+`detected_at` workflow clock stands, with explicit owner-facing denominator copy.

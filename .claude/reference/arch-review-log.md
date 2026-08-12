@@ -6,7 +6,22 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — incremented by **PR #793 (#757 Review-time anchor on the rendered dashboard, 2026-08-11, squash `17f60e2c`)**. Read-path only: no migration, no env var, no flag, no new dependency. Applies the ADR-0019 anchor at the rendered plug lines in `src/lib/dashboard/{service,aggregate-queries}.ts` and DELETES Stack A (`src/lib/kpi/service.ts` + `GET /api/dashboard/kpis`, zero consumers); `kpi/types.ts` kept; new single-owner `src/lib/kpi/fragments.ts`; tenant-scope allowlist **408 → 401** (7 entries out with the file, 2 survivors re-pinned). Follow-ups filed: **#789** (supersede Spec 11's KPI clause; the deleted metrics' behavioral contract is preserved in ADR 0019's addendum), **#790** (reopen ADR 0019 Decision 2 — mixed clocks now owner-visible), **#791** (All-Locations combined velocity sorts by month NAME, pre-existing since PR #28).
+**Merges since last architecture pass: 2.**
+
+- **PR #805** — #790 response-rate period framing (2026-08-12, squash
+  `db4dd4a1`). UI copy/placement only: no KPI arithmetic, query, API, migration,
+  env var, flag, dependency, schema, worker, or ingestion change. Keeps response
+  rate on `detected_at`; adds one shared owner-facing denominator explanation to
+  the per-location and All-Locations cards; amends ADR 0019 Decision 2.
+- **PR #793** — #757 Review-time anchor on the rendered dashboard (2026-08-11,
+  squash `17f60e2c`). Read-path only: no migration, env var, flag, or dependency.
+  Applies the ADR-0019 anchor at the rendered plug lines in
+  `src/lib/dashboard/{service,aggregate-queries}.ts` and deletes Stack A
+  (`src/lib/kpi/service.ts` + `GET /api/dashboard/kpis`, zero consumers);
+  `kpi/types.ts` remains, `src/lib/kpi/fragments.ts` is the new single owner,
+  and the tenant-scope allowlist moved 408 → 401. Follow-ups: **#789**
+  (Spec 11/metric restoration), **#790 resolved by PR #805**, and **#791**
+  (All-Locations combined velocity month-name sorting).
 
 > **Answers to three of the next pass's own scope questions, observed while shipping #757 — the pass should start from these rather than re-deriving them.**
 >
