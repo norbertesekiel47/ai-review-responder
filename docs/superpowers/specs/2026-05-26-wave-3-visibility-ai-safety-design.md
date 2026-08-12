@@ -761,6 +761,16 @@ Current UI shows:
 
 Wave 3 should define and implement the launch KPI set:
 
+> **Contract update — 2026-08-12 (#789, ADR 0019):** The launch requirement
+> below is superseded for **Review volume MoM** and **Average time-to-respond**
+> only; neither metric is in the current dashboard payload. The other three
+> metrics remain active and render today. When the deferred KPI-cards product
+> work ships, restore both deferred metrics by extending the existing dashboard
+> payload and composing `src/lib/kpi/fragments.ts` — do not revive a second KPI
+> stack. The `DashboardKpiSummary` type proposal below is superseded too; the
+> surviving metrics live on the dashboard payload's `ReputationSummary`. ADR
+> 0019 records the deferred metrics' complete behavioral contract.
+
 | KPI | Definition | Scope |
 |---|---|---|
 | Response rate | handled responses divided by received reviews | account/location, last 30 days |
