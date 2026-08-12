@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The change alters connection scheduling for every postgres.js client in Vercel and Railway.",
+    "A regression can starve request or worker database access, while an incomplete fix leaves the permanent active/ClientRead Connection wedge possible."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Concurrent database work beyond a postgres.js pool's connection count queues client-side instead of pipelining onto busy connections, preventing the Connection wedge across overlapping Fluid Compute requests.",
+  "non_goals": [
+    "Raise DB_POOL_MAX or DB_READ_POOL_MAX.",
+    "Move additional read call sites from sql to sqlRead.",
+    "Undo the per-request sequentialization shipped by issues 761, 767, and 779.",
+    "Deploy to staging or production, mutate remote data, or change remote environment variables in this review-ready run."
+  ],
+  "user_visible_behavior": [
+    "Concurrent dashboard and admin renders complete without creating postgres.js pipelining wedges when aggregate demand exceeds the local connection count.",
+    "Excess database work waits for a connection, so overload appears as bounded request latency rather than a permanently leaked pool slot."
+  ],
+  "invariants": [
+    "Supabase transaction-pooler clients keep prepare=false.",
+    "The existing max connection budgets, idle timeout, lifetime, connect timeout, and statement timeouts remain unchanged.",
+    "All production postgres.js clients inherit one central max_pipeline=1 policy.",
+    "The health-bundle differential retains an explicit max_pipeline=100 negative control that can still reproduce the historical wedge on an ephemeral branch.",
+    "No query, schema, tenant scope, authorization, or durable data contract changes."
+  ],
+  "edge_cases": [
+    "Two or more overlapping requests can collectively exceed a pool even when each request stays below it; the queueing policy applies at the isolate-wide client.",
+    "A single request can also exceed the pool; it queues rather than pipelines.",
+    "Dedicated clients used by worker pollers inherit the safe policy unless the checked-in differential explicitly requests the historical pipeline depth.",
+    "If a future postgres.js version stops accepting max_pipeline, the parsed-client option tests fail rather than silently restoring the default depth of 100."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/db/server.ts BASE_POSTGRES_OPTIONS as the single owner of pinned postgres.js connection behavior.",
+    "src/lib/db/__tests__/server.test.ts assertions against postgres.js's parsed client options.",
+    "scripts/health-bundle-differential.ts branch-isolated negative-control and cure-arm experiment.",
+    "docs/adr/0009-split-postgres-pools.md connection-budget decision record.",
+    ".claude/reference/lab-notes.md Connection wedge operational findings."
+  ],
+  "test_seams": [
+    "createDedicatedPostgresClient parsed options.",
+    "The exported sql and sqlRead parsed options.",
+    "health-bundle-differential run-arm configuration and evaluateRun verdict."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/db/server.ts",
+    "src/lib/db/__tests__/server.test.ts",
+    "scripts/health-bundle-differential.ts",
+    "scripts/ci/__tests__/health-bundle-differential.test.ts",
+    "docs/adr/0009-split-postgres-pools.md",
+    "docs/runbooks/pool-wedge-burst-drill.md",
+    "docs/superpowers/plans/2026-08-12-773-disable-postgres-pipelining.md",
+    ".claude/reference/lab-notes.md",
+    "CONTEXT.md"
+  ],
+  "tests_to_add": [
+    "all production postgres.js clients cap max_pipeline at one",
+    "createDedicatedPostgresClient permits an explicit legacy pipeline depth for the differential only",
+    "concurrent max-two with max_pipeline one is a required clean cure arm",
+    "a wedged max_pipeline-one arm fails the differential as a cure regression"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/lib/db/__tests__/server.test.ts scripts/ci/__tests__/health-bundle-differential.test.ts",
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "estimated_prod_lines": 45,
+  "estimated_test_lines": 90,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the central max_pipeline option and its differential cure arm, then redeploy the previous artifact. The change writes no data and requires no data rollback; the prior per-request sequentialization remains in place during rollback.",
+  "observability": [
+    "During the ephemeral-branch differential, concurrent-max2 with the historical pipeline depth wedges while concurrent-max2 with max_pipeline=1 fulfills with zero active/ClientRead signature backends.",
+    "During the staging Vercel soak, all response bodies complete within the accepted latency bound and pg_stat_activity shows zero aging active/ClientRead wedge signatures.",
+    "Backend and Supavisor client connection peaks remain within ADR 0009's measured ceilings because pool maxima are unchanged."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy"
+  ],
+  "open_questions": []
+}
