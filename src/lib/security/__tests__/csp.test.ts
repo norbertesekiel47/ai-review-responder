@@ -26,9 +26,22 @@ describe('buildContentSecurityPolicy', () => {
       expect(directive('connect-src')).toContain('https://maps.googleapis.com');
       expect(directive('connect-src')).toContain('https://places.googleapis.com');
     });
-    it('allows the fonts the Places web component pulls', () => {
-      expect(directive('font-src')).toContain('https://fonts.gstatic.com');
-      expect(directive('style-src')).toContain('https://fonts.googleapis.com');
+    // #799: fonts are self-hosted (#795), so no Google font host is allowlisted
+    // any more. The Maps widget still REQUESTS fonts.googleapis.com and is
+    // blocked — measured against the live PlaceAutocompleteElement, blocking it
+    // leaves predictions, icons, the attribution dialog and the
+    // gmp-select → fetchFields path all working; only the widget's own
+    // typography falls back to the system sans. The three CSP console errors
+    // per widget mount are that block working, not a regression.
+    it('does not allowlist the Google font CDN', () => {
+      expect(directive('style-src')).not.toContain('https://fonts.googleapis.com');
+      expect(directive('font-src')).not.toContain('https://fonts.gstatic.com');
+    });
+    it('still allows the maps.gstatic.com widget chrome', () => {
+      // Dropping this one WOULD visibly break the widget — it is not a Google
+      // font host and is unrelated to #795/#799.
+      expect(directive('style-src')).toContain('https://maps.gstatic.com');
+      expect(directive('font-src')).toContain('https://maps.gstatic.com');
     });
 
     // Guard the existing policy so the extraction / Maps additions did not
