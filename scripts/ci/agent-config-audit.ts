@@ -306,22 +306,35 @@ function assertSkillLock(): void {
   }
 }
 
+function assertProjectSkills(): void {
+  for (const skill of PROJECT_SKILLS) assertSkill(skill);
+}
+
+function assertSharedSkillParityForAll(): void {
+  for (const skill of SHARED_CLAUDE_SKILLS) assertSharedSkillParity(skill);
+}
+
+function reportResult(): void {
+  if (failures.length === 0) {
+    console.log(
+      `agent-config-audit: passed (${PROJECT_SKILLS.length} skills, ${HOOK_SCRIPTS.length} hooks).`,
+    );
+    return;
+  }
+
+  console.error(`agent-config-audit: FAILED (${failures.length} issue(s))`);
+  for (const failure of failures) console.error(`  - ${failure}`);
+  process.exit(1);
+}
+
 function main(): void {
   assertCodexConfig();
   assertHooks();
-  for (const skill of PROJECT_SKILLS) assertSkill(skill);
-  for (const skill of SHARED_CLAUDE_SKILLS) assertSharedSkillParity(skill);
+  assertProjectSkills();
+  assertSharedSkillParityForAll();
   assertCanonicalReferences();
   assertSkillLock();
-
-  if (failures.length > 0) {
-    console.error(`agent-config-audit: FAILED (${failures.length} issue(s))`);
-    for (const failure of failures) console.error(`  - ${failure}`);
-    process.exit(1);
-  }
-  console.log(
-    `agent-config-audit: passed (${PROJECT_SKILLS.length} skills, ${HOOK_SCRIPTS.length} hooks).`,
-  );
+  reportResult();
 }
 
 main();
