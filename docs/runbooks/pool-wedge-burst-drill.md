@@ -1,7 +1,7 @@
 # Runbook — #505 differential + #480 capacity-burst drill (staging)
 
-**Created:** 2026-07-18 (ticket #505, map #472) · **Updated:** 2026-07-19 (T2/T3
-scripts landed — two-arm burst drill + branch-isolated differential)
+**Created:** 2026-07-18 (ticket #505, map #472) · **Updated:** 2026-08-12
+(#773 adds the `max_pipeline=1` candidate arm and pre-change Vercel baseline)
 **Owner:** @norbertesekiel
 **Applies to:** (a) reproducing the pipelining connection wedge proven in
 `.claude/reference/lab-notes.md` (2026-07-18 entry) via a checked-in
@@ -46,11 +46,11 @@ downstream.
 **What it proves:** the checked-in `scripts/health-bundle-differential.ts`
 reproduces the exact differential recorded in lab-notes (2026-07-18): the real
 6-query health-check bundle fired via `Promise.all` on a `max:2` postgres.js
-client wedges over the Supavisor transaction pooler; the same bundle run
-**sequentially** (the shipped `runHealthChecks`, i.e. the actual cure) does
-not; and the same bundle concurrent on `max:6` (one connection per query) does
-not either — proving pool-size×mix pipelining, not concurrency alone, is the
-trigger.
+client with the legacy `max_pipeline=100` wedges over the Supavisor transaction
+pooler; the same bundle run **sequentially** and the same bundle concurrent on
+`max:6` do not. Ticket #773 adds a fourth, otherwise-identical `max:2` arm with
+`max_pipeline=1`. That arm asks a new question; it is not called a cure unless
+the legacy negative control wedges and both established clean controls fulfill.
 
 **Why an ephemeral branch, not shared staging:** running the pre-fix
 concurrent arm against shared staging would wedge connections on the pooler
@@ -65,11 +65,19 @@ inoperable).
 
 ### Procedure
 
-1. **Operator: create an ephemeral branch off staging** (Supabase MCP/CLI
+1. **Before remote execution, prove transaction compatibility locally:**
+   ```
+   pnpm exec vitest run src/lib/db/__tests__/postgres-max-pipeline.integration.test.ts
+   ```
+   The live-local test must execute (not skip) and pass. It proves postgres.js
+   can reserve a connection, execute two statements, and commit `sql.begin()`
+   with `max_pipeline=1`. `max_pipeline=0` is forbidden: postgres.js rejects
+   `sql.begin()` before its reservation callback runs.
+2. **Operator: create an ephemeral branch off staging** (Supabase MCP/CLI
    `create_branch`, base = the staging project). Capture its
    **transaction-pooler URL** (`:6543`, transaction mode — matching staging's
    topology is required or the wedge won't form) and its project ref.
-2. **Run the differential:**
+3. **Run the differential:**
    ```
    pnpm tsx scripts/health-bundle-differential.ts \
      --branch-pool-url <branch transaction-pooler url> \
@@ -79,18 +87,26 @@ inoperable).
    The script self-verifies the target is neither the prod ref nor the known
    staging ref (`assertEphemeralBranchTarget`, `scripts/staging-guard.ts`) —
    it refuses to run against anything but a genuine throwaway branch.
-3. **Expected outcome (3 arms × N iterations, default 6):**
-   - `concurrent-max2` → **`wedged`** (deadline passed, read-only observer
-     corroborates the `state=active, wait_event='ClientRead'` signature).
+4. **Expected outcome (4 arms × N iterations, default 6):**
+   - `concurrent-max2` (`max_pipeline=100`) → **`wedged`** (deadline passed,
+     read-only observer corroborates the `state=active,
+     wait_event='ClientRead'` signature). This explicit value preserves the
+     negative control if a production default changes later.
+   - `concurrent-max2-pipeline1` (`max_pipeline=1`) → either **`fulfilled`**
+     (`depth-one-clean`, candidate survives) or corroborated **`wedged`**
+     (`depth-one-wedged`, candidate rejected). Both are conclusive exit-zero
+     experiment results. `rejected` and `hung-unknown` remain inconclusive and
+     exit nonzero.
    - `sequential-max2` → **`fulfilled`** (the shipped `runHealthChecks` — the
-     actual cure).
+     established clean control, explicitly `max_pipeline=100`).
    - `concurrent-max6` → **`fulfilled`** (the pool-size control — proves it's
-     pool-size×mix pipelining, not concurrency alone).
+     pool-size×mix pipelining, not concurrency alone; explicitly
+     `max_pipeline=100`).
    - If `concurrent-max2` does **not** wedge, the script reports the run as
      `inconclusive`, never a false "cure regression" — that's a possible
      branch-pooler-mode difference from shared staging's pooler, worth
      investigating separately, not evidence the fix broke.
-4. **Operator: delete the branch** (Supabase MCP/CLI `delete_branch`) —
+5. **Operator: delete the branch** (Supabase MCP/CLI `delete_branch`) —
    final teardown regardless of the script's own cleanup ladder.
 
 Because the differential runs on an isolated branch, it does **not**
@@ -98,7 +114,31 @@ contaminate the #507 soak — but still run it **post-soak** (per T5's blocking
 edge) to avoid unrelated project-level resource contention on the parent
 staging project while the branch exists.
 
-Record the 3-arm outcome in **Results** below.
+Record the 4-arm outcome in **Results** below.
+
+### #773 pre-change Vercel latency baseline
+
+Capture this baseline on the current staging deployment **before** deploying
+any candidate configuration. Use an existing authenticated Chrome session; do
+not paste or export cookies. Measure the complete response body, not merely
+time-to-first-byte:
+
+- owner session: `GET https://staging.repworth.net/api/dashboard`
+- AAL2 admin session: `GET https://staging.repworth.net/api/admin/flagged?limit=20&offset=0`
+
+For each route, run one warm-up followed by 20 recorded samples at concurrency
+1 and 10 recorded waves at concurrency 4. Each request must set `cache:
+'no-store'`, await `response.text()`, record HTTP status and elapsed
+`performance.now()`, and use a 15-second deadline. Report sample count, failures,
+timeouts, min/p50/p95/max, deployment ID, UTC window, auth role, cache state,
+and route. Never record response bodies. A later treatment comparison is valid
+only with the same route, role, deployment shape, cache state, concurrency,
+sample count, body-completion timing, and deadline.
+
+The baseline is read-only application traffic. Observe contemporaneous
+`pg_stat_activity` counts separately, without query text. Do not terminate any
+backend on shared staging; the terminate-all cleanup rule applies only to the
+sole-client ephemeral branch.
 
 ## Part B — Capacity-burst drill (proves dispatch-drain + alert fire/clear)
 
@@ -266,11 +306,12 @@ ephemeral branch (T5)._
 
 | Arm | Expected | Observed | Iterations (per-iteration outcomes) |
 |---|---|---|---|
-| `concurrent-max2` | `wedged` | | |
-| `sequential-max2` | `fulfilled` | | |
-| `concurrent-max6` | `fulfilled` | | |
+| `concurrent-max2` (`max_pipeline=100`) | `wedged` | | |
+| `concurrent-max2-pipeline1` (`max_pipeline=1`) | question under test | | |
+| `sequential-max2` (`max_pipeline=100`) | `fulfilled` | | |
+| `concurrent-max6` (`max_pipeline=100`) | `fulfilled` | | |
 
-Verdict: _(repro-confirmed / inconclusive / cure-regression / aborted-residual)_
+Verdict: _(depth-one-clean / depth-one-wedged / inconclusive / cure-regression / aborted-residual)_
 
 ## Results (executed <date>) — capacity-burst drill (Part B)
 

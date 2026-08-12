@@ -18,11 +18,12 @@
 //     --confirm-branch  <branch-project-ref> \
 //     [--iterations N] [--observer-url <url>]
 //
-// Three arms, N iterations each (default 6), FRESH client per iteration so a wedge
+// Four arms, N iterations each (default 6), FRESH client per iteration so a wedge
 // can't leak forward:
-//   - concurrent-max2 : the 6 checks fired via Promise.all on a max:2 client → EXPECT wedge.
-//   - sequential-max2 : the shipped runHealthChecks(sql) on a max:2 client   → EXPECT clean (proves THE cure).
-//   - concurrent-max6 : the same Promise.all on a max:6 client               → EXPECT clean (control: pool-size×mix, not concurrency alone).
+//   - concurrent-max2           : Promise.all, max:2, max_pipeline:100 → EXPECT wedge.
+//   - concurrent-max2-pipeline1 : Promise.all, max:2, max_pipeline:1   → QUESTION under test.
+//   - sequential-max2           : shipped sequence, max:2, max_pipeline:100 → EXPECT clean.
+//   - concurrent-max6           : Promise.all, max:6, max_pipeline:100 → EXPECT clean.
 //
 // Detection is a 4-way taxonomy with MANDATORY observer corroboration (D3-A): a
 // bare timeout is NOT a wedge — a read-only observer must confirm the ClientRead
@@ -31,6 +32,7 @@
 // baseline barrier before the next arm. Final branch teardown is the operator's
 // delete_branch.
 import { createDedicatedPostgresClient } from '../src/lib/db/server';
+import postgres from 'postgres';
 import {
   checkFailedOutboxByTopic,
   checkOldestPendingOutbox,
@@ -56,7 +58,14 @@ type Sql = ReturnType<typeof createDedicatedPostgresClient>;
  */
 export const DIFFERENTIAL_DEADLINE_MS = 40_000;
 
-const ARM_NAMES = ['concurrent-max2', 'sequential-max2', 'concurrent-max6'] as const;
+export const DIFFERENTIAL_ARMS = [
+  { name: 'concurrent-max2', max: 2, maxPipeline: 100, mode: 'concurrent' },
+  { name: 'concurrent-max2-pipeline1', max: 2, maxPipeline: 1, mode: 'concurrent' },
+  { name: 'sequential-max2', max: 2, maxPipeline: 100, mode: 'sequential' },
+  { name: 'concurrent-max6', max: 6, maxPipeline: 100, mode: 'concurrent' },
+] as const;
+
+const ARM_NAMES = DIFFERENTIAL_ARMS.map((arm) => arm.name);
 type ArmName = (typeof ARM_NAMES)[number];
 
 // ── CLI args (PURE) ────────────────────────────────────────────────────────────
@@ -187,11 +196,17 @@ export function collapseArmOutcome(outcomes: ArmOutcome[]): ArmOutcome {
 
 export interface RunArms {
   'concurrent-max2': ArmOutcome;
+  'concurrent-max2-pipeline1': ArmOutcome;
   'sequential-max2': ArmOutcome;
   'concurrent-max6': ArmOutcome;
 }
 
-export type RunStatus = 'repro-confirmed' | 'inconclusive' | 'cure-regression' | 'aborted-residual';
+export type RunStatus =
+  | 'depth-one-clean'
+  | 'depth-one-wedged'
+  | 'inconclusive'
+  | 'cure-regression'
+  | 'aborted-residual';
 
 export interface RunVerdict {
   status: RunStatus;
@@ -200,11 +215,10 @@ export interface RunVerdict {
 }
 
 /**
- * Expected-vs-actual exit gating. Non-zero when: a residual survived terminate-all
- * (branch misbehaving → ABORT), OR a cure arm wedged (regression), OR concurrent-max2
- * did not wedge (repro failed → reported honestly as INCONCLUSIVE, a possible
- * branch-pooler-mode mismatch — NOT a cure regression). Precedence is most-severe
- * first: residual > cure-regression > inconclusive > confirmed.
+ * Expected-vs-actual exit gating. The legacy depth-100 repro and both clean controls
+ * must behave as expected before the depth-1 arm is interpreted. A resolved or
+ * corroborated-wedge depth-1 result is conclusive evidence either way; rejection or
+ * an uncorroborated hang is inconclusive. Precedence is most-severe first.
  */
 export function evaluateRun(arms: RunArms, residualSurvived: boolean): RunVerdict {
   const reasons: string[] = [];
@@ -231,10 +245,35 @@ export function evaluateRun(arms: RunArms, residualSurvived: boolean): RunVerdic
   if (residualSurvived) return { status: 'aborted-residual', exitCode: 1, reasons };
   if (cureArmsWedged.length > 0) return { status: 'cure-regression', exitCode: 1, reasons };
   if (!reproConfirmed) return { status: 'inconclusive', exitCode: 1, reasons };
+
+  const cleanControls = [arms['sequential-max2'], arms['concurrent-max6']];
+  if (cleanControls.some((outcome) => outcome !== 'fulfilled')) {
+    return {
+      status: 'inconclusive',
+      exitCode: 1,
+      reasons: [...reasons, 'one or more clean controls did not fulfill — depth-1 evidence cannot be interpreted'],
+    };
+  }
+
+  const depthOne = arms['concurrent-max2-pipeline1'];
+  if (depthOne === 'fulfilled') {
+    return {
+      status: 'depth-one-clean',
+      exitCode: 0,
+      reasons: ['legacy max_pipeline=100 wedged; max_pipeline=1 fulfilled; both clean controls fulfilled'],
+    };
+  }
+  if (depthOne === 'wedged') {
+    return {
+      status: 'depth-one-wedged',
+      exitCode: 0,
+      reasons: ['legacy max_pipeline=100 and max_pipeline=1 both wedged; both clean controls fulfilled'],
+    };
+  }
   return {
-    status: 'repro-confirmed',
-    exitCode: 0,
-    reasons: ['concurrent-max2 wedged; sequential-max2 + concurrent-max6 clean — expected differential'],
+    status: 'inconclusive',
+    exitCode: 1,
+    reasons: [...reasons, `max_pipeline=1 outcome=${depthOne} — depth-1 evidence is inconclusive`],
   };
 }
 
@@ -305,6 +344,7 @@ interface ArmRun {
 async function runArm(
   name: ArmName,
   clientMax: number,
+  maxPipeline: number,
   fire: (sql: Sql, cfg: HealthAlertConfig) => Promise<unknown>,
   cfg: HealthAlertConfig,
   config: DifferentialConfig,
@@ -315,7 +355,19 @@ async function runArm(
   let residualSurvived = false;
 
   for (let i = 0; i < config.iterations; i++) {
-    const client = createDedicatedPostgresClient(config.branchPoolUrl, { max: clientMax });
+    // `max_pipeline` is implemented by postgres.js 3.4.9 but omitted from its
+    // public Options type. Keep the compatibility cast isolated to this experiment;
+    // production client options remain unchanged.
+    const clientOptions: postgres.Options<{}> & { max_pipeline: number } = {
+      prepare: false,
+      idle_timeout: 30,
+      max_lifetime: 1800,
+      connect_timeout: 10,
+      max: clientMax,
+      connection: { statement_timeout: 30_000 },
+      max_pipeline: maxPipeline,
+    };
+    const client = postgres(config.branchPoolUrl, clientOptions);
     liveClients.add(client);
 
     const work = fire(client, cfg);
@@ -360,7 +412,11 @@ async function runArm(
 function printSummary(arms: RunArms, perArm: Record<ArmName, ArmOutcome[]>, verdict: RunVerdict): void {
   console.log('\n============ HEALTH_BUNDLE_DIFFERENTIAL SUMMARY ============');
   for (const name of ARM_NAMES) {
-    const expected = name === 'concurrent-max2' ? 'wedge' : 'clean';
+    const expected = name === 'concurrent-max2'
+      ? 'wedge'
+      : name === 'concurrent-max2-pipeline1'
+        ? 'question-under-test'
+        : 'clean';
     console.log(
       `  ${name}: ${arms[name]} (expected ${expected}) :: iterations=[${perArm[name].join(', ')}]`,
     );
@@ -428,6 +484,7 @@ async function main(): Promise<number> {
 
   const perArm: Record<ArmName, ArmOutcome[]> = {
     'concurrent-max2': [],
+    'concurrent-max2-pipeline1': [],
     'sequential-max2': [],
     'concurrent-max6': [],
   };
@@ -445,15 +502,21 @@ async function main(): Promise<number> {
       }
     }
 
-    const armPlan: Array<{ name: ArmName; max: number; fire: (sql: Sql, cfg: HealthAlertConfig) => Promise<unknown> }> = [
-      { name: 'concurrent-max2', max: 2, fire: fireConcurrentBundle },
-      { name: 'sequential-max2', max: 2, fire: (sql) => runHealthChecks(sql) },
-      { name: 'concurrent-max6', max: 6, fire: fireConcurrentBundle },
-    ];
-
-    for (const arm of armPlan) {
+    for (const arm of DIFFERENTIAL_ARMS) {
       if (residualSurvived) break;
-      const run = await runArm(arm.name, arm.max, arm.fire, cfg, config, observer, liveClients);
+      const fire = arm.mode === 'concurrent'
+        ? fireConcurrentBundle
+        : (sql: Sql) => runHealthChecks(sql);
+      const run = await runArm(
+        arm.name,
+        arm.max,
+        arm.maxPipeline,
+        fire,
+        cfg,
+        config,
+        observer,
+        liveClients,
+      );
       perArm[arm.name] = run.outcomes;
       if (run.residualSurvived) residualSurvived = true;
     }
@@ -465,6 +528,7 @@ async function main(): Promise<number> {
 
   const arms: RunArms = {
     'concurrent-max2': collapseArmOutcome(perArm['concurrent-max2']),
+    'concurrent-max2-pipeline1': collapseArmOutcome(perArm['concurrent-max2-pipeline1']),
     'sequential-max2': collapseArmOutcome(perArm['sequential-max2']),
     'concurrent-max6': collapseArmOutcome(perArm['concurrent-max6']),
   };

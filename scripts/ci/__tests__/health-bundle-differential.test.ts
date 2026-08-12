@@ -7,6 +7,7 @@ import {
   collapseArmOutcome,
   runWithDeadline,
   evaluateRun,
+  DIFFERENTIAL_ARMS,
   DIFFERENTIAL_DEADLINE_MS,
   type DeadlineResult,
   type RunArms,
@@ -165,16 +166,46 @@ describe('runWithDeadline (bounded-deadline wrapper)', () => {
 describe('evaluateRun (expected-vs-actual exit gating)', () => {
   const arms = (overrides: Partial<RunArms> = {}): RunArms => ({
     'concurrent-max2': 'wedged',
+    'concurrent-max2-pipeline1': 'fulfilled',
     'sequential-max2': 'fulfilled',
     'concurrent-max6': 'fulfilled',
     ...overrides,
   });
 
-  it('confirmed repro (concurrent-max2 wedged, cure arms clean) → exit 0', () => {
+  it('concurrent max-two with max_pipeline one is an explicit differential arm', () => {
+    expect(DIFFERENTIAL_ARMS).toContainEqual({
+      name: 'concurrent-max2-pipeline1',
+      max: 2,
+      maxPipeline: 1,
+      mode: 'concurrent',
+    });
+    expect(
+      DIFFERENTIAL_ARMS
+        .filter((arm) => arm.name !== 'concurrent-max2-pipeline1')
+        .every((arm) => arm.maxPipeline === 100),
+    ).toBe(true);
+  });
+
+  it('fulfilled max_pipeline-one evidence reports depth-one clean', () => {
     const verdict = evaluateRun(arms(), false);
-    expect(verdict.status).toBe('repro-confirmed');
+    expect(verdict.status).toBe('depth-one-clean');
     expect(verdict.exitCode).toBe(0);
   });
+
+  it('wedged max_pipeline-one evidence reports depth-one wedged', () => {
+    const verdict = evaluateRun(arms({ 'concurrent-max2-pipeline1': 'wedged' }), false);
+    expect(verdict.status).toBe('depth-one-wedged');
+    expect(verdict.exitCode).toBe(0);
+  });
+
+  it.each(['rejected', 'hung-unknown'] as const)(
+    'non-resolving max_pipeline-one evidence is inconclusive (%s)',
+    (outcome) => {
+      const verdict = evaluateRun(arms({ 'concurrent-max2-pipeline1': outcome }), false);
+      expect(verdict.status).toBe('inconclusive');
+      expect(verdict.exitCode).toBe(1);
+    },
+  );
 
   it('concurrent-max2 fulfilled → inconclusive, exit 1 (NOT a cure regression)', () => {
     const verdict = evaluateRun(arms({ 'concurrent-max2': 'fulfilled' }), false);
