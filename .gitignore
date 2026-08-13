@@ -175,3 +175,11 @@ tests/llm-eval/reports/
 # Session scratch — throwaway drivers/notes from live ops sessions (e.g. the
 # Phase D suspension drill script). Never useful to future clones.
 .scratch/
+
+# Generated-artifact output from external tooling (spreadsheets, previews).
+# NOT repo source and never committed, but it sits in the repo root, so an
+# unignored copy is scanned by `fallow audit --gate new-only` and fails
+# `ci:fallow:coverage` LOCALLY with findings that CI (a clean checkout) never
+# sees — a confusing red gate on a clean branch. Ignored, not deleted: the
+# contents are real work product.
+outputs/
