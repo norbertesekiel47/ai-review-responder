@@ -37,7 +37,6 @@ import {
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { isSubscriptionTier } from '../../../src/lib/accounts/tier-config';
-import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -48,8 +47,8 @@ import { importReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
   liveIngestCutoff,
-  openPhiReviewException,
   reconcileExternallyAnsweredReview,
+  screenPhiOrOpenException,
 } from './zernio-ingest-shared';
 import { guardImportConsent, guardZernioJobEligibility } from './job-eligibility';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
@@ -376,19 +375,13 @@ export async function handleZernioBackfill(sql: Sql, job: Job<ZernioInitialBackf
       continue;
     }
 
-    const phi = detectLikelyPhi(z.comment);
-    if (phi.matched) {
-      logger.warn(
-        `Likely PHI detected for import review ${z.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(z.comment)}; skipping`,
-      );
-      await sql.begin((tx) => openPhiReviewException(tx, {
+    if (await screenPhiOrOpenException(sql, {
         businessId: business_id,
         accountId: zernio_account_id,
         locationId: zernio_location_id,
         review: z,
-        reasons: phi.reasons,
         source: 'backfill',
-      }, logger));
+      }, logger)) {
       skippedCount += 1;
       continue;
     }

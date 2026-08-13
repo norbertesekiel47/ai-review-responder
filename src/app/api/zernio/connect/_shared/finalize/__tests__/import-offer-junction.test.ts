@@ -27,8 +27,9 @@
 //
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
+const { mockSql, txCalls, txScenario, initialRunFragment } = vi.hoisted(() => {
   const txCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const initialRunFragment = { kind: 'initial-run-fragment' };
   const txScenario = {
     importConsent: 'pending' as 'pending' | 'accepted' | 'declined' | 'expired' | null,
     subscriptionActivatedAt: new Date('2026-05-01T00:00:00.000Z') as Date | null,
@@ -39,6 +40,10 @@ const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
   const mockTx: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const raw = strings.join('?');
     txCalls.push({ raw, values });
+
+    if (raw.trim() === "br.run_reason = 'initial'") {
+      return initialRunFragment;
+    }
 
     // readImportConsent — matched first, on its aliased column.
     if (/import_decision_at AS decided_at/.test(raw)) {
@@ -96,7 +101,7 @@ const { mockSql, txCalls, txScenario } = vi.hoisted(() => {
   const mockSql: any = vi.fn(() => Promise.resolve([]));
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
 
-  return { mockTx, mockSql, txCalls, txScenario };
+  return { mockTx, mockSql, txCalls, txScenario, initialRunFragment };
 });
 
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'mock-uuid-v7-junction-0000000001') }));
@@ -221,7 +226,7 @@ describe('finalize connection — Import offer junction', () => {
     // `initial` run — would permanently suppress an initial import the banner
     // still reports as `importing`, forever, on a 4s poll. This is the assertion
     // that keeps the three gates aligned with `readImportOfferView`.
-    expect(guard!.raw).toContain("br.run_reason = 'initial'");
+    expect(guard!.values).toContain(initialRunFragment);
     expect(guard!.raw).toContain('br.completed_at IS NOT NULL');
     // …and nothing was enqueued.
     expect(importEnqueued()).toBe(false);

@@ -18,11 +18,12 @@ import { sql, sqlRead } from '@/lib/db/server';
 import { requireDashboardReviewOwner } from '@/lib/approval/http-routes';
 import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
-import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
+import { classifyOutboxStatus } from '@/lib/shared/job-outbox-status';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { proveReviewOwnership } from '@/lib/responses/review-ownership';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,19 +41,10 @@ export async function GET(
   // READ pool like every other query in this handler: the route is polled every
   // ~1.5s per expanded row and writes nothing, so there is no read-your-write
   // to preserve and no reason to spend a write-pool connection on it.
-  const ownedRows = await sqlRead<{ business_id: string }[]>`
-    SELECT rv.business_id
-    FROM reviews rv
-    JOIN businesses b ON b.id = rv.business_id
-    WHERE rv.id = ${reviewId}::uuid
-      AND b.account_id = ${owner.accountId}::uuid
-      AND b.archived_at IS NULL
-    LIMIT 1
-  `;
-  if (!ownedRows[0]) {
+  const businessId = await proveReviewOwnership(sqlRead, reviewId, owner.accountId);
+  if (!businessId) {
     return NextResponse.json({ error: 'review_not_found' }, { status: 404, headers: NO_STORE_HEADERS });
   }
-  const businessId = ownedRows[0].business_id;
 
   try {
     // F5 / invariant #4: a high-severity moderation flag leaves the draft at
@@ -107,18 +99,19 @@ export async function GET(
     // exists because a bind parameter inside an `ON CONFLICT … WHERE` predicate
     // defeats partial-index inference. This is a JS comparison, so the exported
     // constant is the right tool (import-offer-view.ts is the same call).
-    if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(outbox.status)) {
-      return NextResponse.json({ status: 'generating' }, { status: 200, headers: NO_STORE_HEADERS });
+    switch (classifyOutboxStatus(outbox.status)) {
+      case 'in_flight':
+        return NextResponse.json({ status: 'generating' }, { status: 200, headers: NO_STORE_HEADERS });
+      case 'completed':
+        // Completed but no non-terminal draft: the draft was held by moderation
+        // (invariant #4) or already settled. Nothing for the row to expand.
+        return NextResponse.json({ status: 'idle' }, { status: 200, headers: NO_STORE_HEADERS });
+      case 'terminal':
+        return NextResponse.json(
+          { status: 'failed', error: outbox.last_error },
+          { status: 200, headers: NO_STORE_HEADERS },
+        );
     }
-    if (outbox.status === 'completed') {
-      // Completed but no non-terminal draft: the draft was held by moderation
-      // (invariant #4) or already settled. Nothing for the row to expand.
-      return NextResponse.json({ status: 'idle' }, { status: 200, headers: NO_STORE_HEADERS });
-    }
-    return NextResponse.json(
-      { status: 'failed', error: outbox.last_error },
-      { status: 200, headers: NO_STORE_HEADERS },
-    );
   } catch (err) {
     reportCaughtError('reviews/draft-status', err, { accountId: owner.accountId, businessId, reviewId });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });

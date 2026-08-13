@@ -16,9 +16,13 @@
 // preference. Read them before changing the query.
 //
 import type { Sql, TransactionSql } from 'postgres';
-import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
+import { classifyOutboxStatus } from '@/lib/shared/job-outbox-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
-import { importConsentStateSql, type ImportConsentState } from './import-consent';
+import {
+  importConsentStateSql,
+  initialRunJoinSql,
+  type ImportConsentState,
+} from './import-consent';
 
 type SqlExecutor = Sql | TransactionSql;
 
@@ -99,7 +103,7 @@ export async function readImportOfferView(
     FROM businesses b
     LEFT JOIN zernio_backfill_runs br
       ON br.business_id = ${businessId}::uuid
-     AND br.run_reason = 'initial'
+     AND ${initialRunJoinSql(db)}
     WHERE b.id = ${businessId}::uuid
       AND b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
@@ -157,13 +161,14 @@ export async function readImportOfferView(
     // IMPORTED, never re-spelled — this is a JS comparison, not a SQL predicate,
     // so invariant #2's byte-for-byte requirement does not apply and the constant
     // is the right tool.
-    if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(outboxStatus)) {
+    const statusClass = classifyOutboxStatus(outboxStatus);
+    if (statusClass === 'in_flight') {
       return { state: 'importing' };
     }
     // `completed` outbox with no completed RUN means the worker finished the job
     // but the run row is not final — still importing from the owner's point of
     // view, and the `completed_at IS NULL` sentinel keeps it retryable (spec §5.1).
-    if (outboxStatus === 'completed') return { state: 'importing' };
+    if (statusClass === 'completed') return { state: 'importing' };
     return { state: 'failed' };
   }
 

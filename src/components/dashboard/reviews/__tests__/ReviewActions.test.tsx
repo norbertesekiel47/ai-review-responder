@@ -133,6 +133,7 @@ describe('ReviewActions approve and save-edit', () => {
 
     render(<ReviewActions reviewId="rev-2" responseText="original" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    expect(screen.getByLabelText(/edit reply text/i)).toHaveAttribute('maxlength', '2000');
     fireEvent.change(screen.getByLabelText(/edit reply text/i), {
       target: { value: 'better reply' },
     });

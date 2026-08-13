@@ -33,6 +33,15 @@
  */
 export const OUTBOX_IN_FLIGHT_STATUSES = ['pending', 'dispatching', 'dispatched'] as const;
 
+export type OutboxStatusClass = 'in_flight' | 'completed' | 'terminal';
+
+export function classifyOutboxStatus(status: string): OutboxStatusClass {
+  if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(status)) {
+    return 'in_flight';
+  }
+  return status === 'completed' ? 'completed' : 'terminal';
+}
+
 /**
  * Statuses that only ever occur on `job_outbox`, so their presence in a status
  * group identifies that group as an outbox predicate rather than one belonging

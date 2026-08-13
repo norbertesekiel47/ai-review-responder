@@ -40,9 +40,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 60_000;
+import {
+  readJsonSafe,
+  REPLY_POLL_INTERVAL_MS,
+  REPLY_POLL_TIMEOUT_MS,
+} from '@/components/dashboard/reviews/client-helpers';
 
 // Module-private: the hook's return type carries it by inference and
 // InlineGeneratePanel switches on `state.kind` without naming the union, so
@@ -70,14 +72,6 @@ interface ApiBody {
   message?: string;
   response_id?: string;
   response_text?: string | null;
-}
-
-async function readJsonSafe(res: Response): Promise<ApiBody | null> {
-  try {
-    return (await res.json()) as ApiBody;
-  } catch {
-    return null;
-  }
 }
 
 /** Server copy wins; `error` is the code the routes return without a message. */
@@ -119,7 +113,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
     const timerId = setTimeout(async () => {
       // No `cancelled` check before the first await: the cleanup's clearTimeout
       // below runs synchronously, so a cancelled timer never enters this body.
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+      if (Date.now() - startedAt > REPLY_POLL_TIMEOUT_MS) {
         setState({
           kind: 'error',
           message: 'Generation is taking longer than expected. Refresh to check again.',
@@ -131,7 +125,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
           `/api/dashboard/reviews/${encodeURIComponent(reviewId)}/draft-status`,
           { credentials: 'same-origin' },
         );
-        const body = await readJsonSafe(res);
+        const body = await readJsonSafe<ApiBody>(res);
         if (cancelled) return;
         if (!res.ok || !body) {
           setState({
@@ -164,7 +158,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
           message: err instanceof Error ? err.message : 'Network error while checking status.',
         });
       }
-    }, POLL_INTERVAL_MS);
+    }, REPLY_POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -182,7 +176,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
       });
-      const body = await readJsonSafe(res);
+      const body = await readJsonSafe<ApiBody>(res);
       if (!res.ok) {
         // 429 `rate_limited` / `regen_limit_reached` bodies are surfaced
         // verbatim — dashboard-regen-rate-limit.ts owns that copy.
@@ -209,7 +203,7 @@ export function useInlineGenerate({ reviewId, resumeGenerating }: UseInlineGener
             ...(payload ? { body: JSON.stringify(payload) } : {}),
           },
         );
-        const body = await readJsonSafe(res);
+        const body = await readJsonSafe<ApiBody>(res);
         if (!res.ok) {
           setState({ kind: 'error', message: serverMessage(body, `Posting failed (${res.status}).`) });
           return;

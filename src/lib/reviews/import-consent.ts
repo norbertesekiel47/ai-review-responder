@@ -103,6 +103,15 @@ import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 type SqlExecutor = Sql | TransactionSql;
 
+function junctionReachedSql(db: SqlExecutor) {
+  return db`a.subscription_activated_at IS NOT NULL AND zc.status = 'active'`;
+}
+
+/** SQL predicate for joins where zernio_backfill_runs is aliased as `br`. */
+export function initialRunJoinSql(db: SqlExecutor) {
+  return db`br.run_reason = 'initial'`;
+}
+
 const LOG_PREFIX = '[import-consent]';
 
 /**
@@ -288,8 +297,7 @@ export async function createImportOffer(
       AND b.import_decision = 'pending'
       AND b.import_offer_expires_at IS NULL
       AND b.archived_at IS NULL
-      AND a.subscription_activated_at IS NOT NULL
-      AND zc.status = 'active'
+      AND ${junctionReachedSql(tx)}
     RETURNING b.id
   `;
 
@@ -666,14 +674,13 @@ export async function enqueueInitialImport(
     JOIN accounts a ON a.id = b.account_id
     LEFT JOIN zernio_backfill_runs br
       ON br.business_id = ${businessId}::uuid
-     AND br.run_reason = 'initial'
+     AND ${initialRunJoinSql(tx)}
      AND br.completed_at IS NOT NULL
     WHERE zc.business_id = ${businessId}::uuid
       AND b.account_id = ${accountId}::uuid
       AND a.id = ${accountId}::uuid
-      AND zc.status = 'active'
       AND b.archived_at IS NULL
-      AND a.subscription_activated_at IS NOT NULL
+      AND ${junctionReachedSql(tx)}
       AND br.id IS NULL
     LIMIT 1
   `;

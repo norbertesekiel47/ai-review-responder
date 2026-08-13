@@ -9,17 +9,16 @@ import { editBySession } from '@/lib/approval/service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export const dynamic = 'force-dynamic';
-
-const MAX_EDIT_LENGTH = 2000;
 
 const editSchema = z.object({
   editedText: z
     .string()
     .transform((value) => sanitizePublicResponseText(value))
     .refine((value) => value.length > 0)
-    .refine((value) => value.length <= MAX_EDIT_LENGTH),
+    .refine((value) => value.length <= MAX_REPLY_LENGTH),
 });
 
 async function editReview(

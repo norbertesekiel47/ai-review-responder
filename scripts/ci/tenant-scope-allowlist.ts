@@ -77,7 +77,10 @@ export interface TenantScopeAllowlistEntry {
 //     `src/lib/kpi/` was deleted with its route, taking all seven of its
 //     entries with it. Nothing else moved — the rendered dashboard stack
 //     keeps its own entries.
-export const ALLOWLIST_BASELINE = 401;
+//   401 → 398 (#765), a SHRINK. Four caller-local next-response-version reads
+//     moved behind one reviewed helper after each caller's existing review
+//     ownership proof/lock. The globally unique review id remains the key.
+export const ALLOWLIST_BASELINE = 398;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1699,23 +1702,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Drain owner-connect worker processes a business aggregate id and only enqueues publish work for responses with that businessId.",
   },
   {
-    file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
+    file: "src/lib/responses/generation-state.ts",
     table: "responses",
-    sqlSnippet: "INSERT INTO responses ( id, review_id, business_id, response_text, approved_text, original_draft_text, edited_text, response_language, version, status, approval_method, approved_at, llm_provider, llm_model, prompt_tokens, completion_tokens ) VALUES ( ${newId}, ${reviewId}, ${failed.business_id}, ${restoredText}, ${restoredText}, ${restoredText}, ${null}, ${superseded.response_language}, (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId} AND business_id = ${failed.business_id}), 0) + 1), 'approved', ${APPROVAL_METHOD.OWNER}, NOW(), ${null}, ${null}, ${null}, ${null} )",
+    sqlSnippet: "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM responses WHERE review_id = ${reviewId}::uuid",
     category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
+    reason: "Every caller proves or locks the globally unique review id inside its existing tenant-scoped request or worker transaction before allocating the next response version.",
   },
   {
     file: "src/app/api/dashboard/past-replies/draft/route.ts",
     table: "responses",
     sqlSnippet: "SELECT id AS response_id, COALESCE(edited_text, approved_text, response_text) AS text, (edited_text IS NOT NULL) AS is_edited, status FROM responses WHERE review_id = ${parsed.data.review_id} AND status = ANY(${statusArraySql(sql, NON_TERMINAL_STATUSES)}) ORDER BY version DESC LIMIT 1 FOR UPDATE",
-    category: 'tenant-root-lookup',
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/draft/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM responses WHERE review_id = ${parsed.data.review_id}",
     category: 'tenant-root-lookup',
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
@@ -1875,13 +1871,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/reviews/process-review.ts",
     table: "responses",
-    sqlSnippet: "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM responses WHERE review_id = ${existing.id}",
-    category: 'worker-job-scoped',
-    reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest.",
-  },
-  {
-    file: "src/lib/reviews/process-review.ts",
-    table: "responses",
     sqlSnippet: "UPDATE responses SET status = 'failed', posting_error = 'review_content_changed', updated_at = NOW() WHERE id = ${activeResponse.id}",
     category: 'worker-job-scoped',
     reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest.",
@@ -2002,13 +1991,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     file: "worker/jobs/zernio/zernio-ingest-shared.ts",
     table: "responses",
     sqlSnippet: "UPDATE responses SET status = 'superseded', posting_error = 'already_replied_external', updated_at = NOW() WHERE id = ANY(${supersedeIds}::uuid[]) RETURNING id",
-    category: 'worker-job-scoped',
-    reason: "Zernio ingest worker has already resolved businessId from the active provider connection; review/response ids derive from that scoped batch.",
-  },
-  {
-    file: "worker/jobs/zernio/zernio-ingest-shared.ts",
-    table: "responses",
-    sqlSnippet: "INSERT INTO responses ( id, review_id, business_id, response_text, approved_text, original_draft_text, edited_text, response_language, version, status, approved_at, posted_at, llm_provider, llm_model, prompt_tokens, completion_tokens ) VALUES ( gen_random_uuid(), ${reviewId}, ${businessId}, ${replyText}, ${replyText}, ${replyText}, NULL, ${reviewLanguage}, COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1, 'posted', ${updateTime}::timestamptz, ${updateTime}::timestamptz, NULL, NULL, NULL, NULL ) ON CONFLICT (review_id) WHERE status = 'posted' DO NOTHING RETURNING 1",
     category: 'worker-job-scoped',
     reason: "Zernio ingest worker has already resolved businessId from the active provider connection; review/response ids derive from that scoped batch.",
   },

@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import type postgres from 'postgres';
+import { nextResponseVersion } from '@/lib/responses/generation-state';
 import type { Sql } from 'postgres';
 import type { MonitoredReview } from './types';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
@@ -355,12 +356,7 @@ async function processExistingReview(
     // with the new draft. ResponseGeneratorWorker's idempotency check
     // (UNIQUE (review_id, version)) would otherwise short-circuit on the
     // existing terminal row and silently skip generation.
-    const [versionRow] = await tx<{ next_version: number }[]>`
-      SELECT COALESCE(MAX(version), 0) + 1 AS next_version
-      FROM responses
-      WHERE review_id = ${existing.id}
-    `;
-    const nextVersion = versionRow?.next_version ?? 1;
+    const nextVersion = await nextResponseVersion(tx, existing.id);
 
     await enqueueGenerateResponse(tx, {
       reviewId: existing.id,

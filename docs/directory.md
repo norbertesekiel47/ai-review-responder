@@ -414,6 +414,7 @@ Reusable React components imported by multiple pages.
 | `dashboard/reviews/PastReplyCard.tsx` | Card for one row of the **Reviews list**. Renders the server-derived `reply_state` + Action slot `row_action` (#727, via the shared `ReplyPanel`) — it never computes an affordance — so every "never offer Generate on X" rule lives in `replies-view.ts`; a moderation-held replacement arrives as `row_action 'none'`, never as a held value. Shows the review on the left, the reply (when any) on the right, and a `ProvenanceBadge`. Mutation affordances (`Regenerate` → `EditReplyDrawer`, recovery) appear only when `editRepliesEnabled` is passed true. A missing regen-budget map entry means **unknown**, not zero: `Regenerate` stays enabled and the counter hides (fail-open, per the cost-guard matrix). |
 | `dashboard/reviews/InlineGeneratePanel.tsx` | **(#678)** The `Generate` door's inline expansion on a never-replied row — the low-risk counterpart to `EditReplyDrawer` (which replaces a LIVE Google reply and therefore stays a two-pane drawer). Presentational; all fetch/poll/state lives in `useInlineGenerate.ts`. |
 | `dashboard/reviews/useInlineGenerate.ts` | **(#678)** Hook owning the inline Generate lifecycle: POST `reviews/[reviewId]/generate`, then poll `reviews/[reviewId]/draft-status` until `ready` or terminal, mapping the route's closed error strings to owner-facing copy. |
+| `dashboard/reviews/client-helpers.ts` | **(#765)** Browser-safe JSON parsing plus the shared 1500ms cadence / 60-second Reply polling budget. The two poll state machines remain separate. |
 | `dashboard/AgentTeamStrip.tsx` | **(WS5)** Three-card Reply/Guardian/Insights summary strip. Follows the dashboard's account/location scope and time window; zero-count agents remain visible as "Standing by". |
 | `dashboard/NeedsAttentionList.tsx` | **(WS5)** Owner exception queue backed by `/api/dashboard/escalations`; hidden when empty, otherwise links each open escalation to its review timeline. |
 | `dashboard/timeline/` | **(WS5)** Timeline presentation package: `TimelineContent`, `RunTimeline`, `TimelineStepRow`, `RunStateBadge`, and `TimelineEscalationActions`. Renders stored persona attribution and structured facts; acknowledge/resolve actions reuse the existing Guardian transition routes. |
@@ -452,7 +453,7 @@ Database and cache clients.
 | `browser.ts` | `supabaseClient` — Supabase JS client for browser-side code (anon key, SSR-safe cookie management). |
 | `supabase-server.ts` | `createSupabaseServerClient()` — SSR Supabase client (anon key, reads request cookies). Used in API routes and middleware. |
 | `auth.ts` | `requireRole(req, role)` — throws `AuthError` if the session lacks the required role. |
-| `redis-cache.ts` | `getCacheRedis()` — Redis client for application caching (separate Redis instance from BullMQ). |
+| `redis-cache.ts` | `getCacheRedis()` — Redis client for application caching (separate Redis instance from BullMQ); `withTtlCache()` owns fail-open JSON read/compute/`EX` write mechanics while callers provide their log source and TTL policy. |
 | `client.ts` | **Tombstone.** Previously re-exported server + browser clients. Now a comment directing imports to the correct modules. |
 | `index.ts` | **Tombstone.** Same as `client.ts` — do not barrel-import server and browser together. |
 
@@ -694,6 +695,9 @@ AI response generation.
 | `judge-store.ts` | **(WS6)** Injected-SQL verdict insert and read helpers: idempotent verdict persistence, latest run correlation, and the subscription-eligible 24-hour unjudged auto-post anti-join. |
 | `judge-health.ts` | **(WS6)** Fail-closed publisher health probe over verdict freshness and recent error density; query errors are deliberately propagated to the worker retry path. |
 | `judge-flags.ts` | **(WS6)** Server-only `JUDGE_ENABLED` accessor over `readFlag`, default off. |
+| `limits.ts` | **(#765)** `MAX_REPLY_LENGTH` — the shared 2000-character server/client edit contract. |
+| `generation-state.ts` | **(#765)** Injected-SQL helpers for the in-flight `generate_response` predicate and monotonic per-review `MAX(version)+1` allocation; callers retain their existing tenant proof and review locks. |
+| `review-ownership.ts` | **(#765)** Whole-query account ownership proof for the Reviews-list Generate door and its account-scoped poll route; deliberately not used by cookie-location past-replies routes. |
 
 **Connection:** `ResponseGeneratorWorker` calls `generateResponse()`. `DemoGenerationWorker` calls it in `demo` mode.
 

@@ -1,8 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
-
-const MAX_REPLY_CHARS = 2000;
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export function ManualEditor({
   initialText,
@@ -14,7 +13,7 @@ export function ManualEditor({
   onCancel: () => void;
 }) {
   const [text, setText] = useState(initialText);
-  const remaining = MAX_REPLY_CHARS - text.length;
+  const remaining = MAX_REPLY_LENGTH - text.length;
   const overLimit = remaining < 0;
 
   return (
@@ -33,7 +32,7 @@ export function ManualEditor({
         id="reply-textarea"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        maxLength={MAX_REPLY_CHARS}
+        maxLength={MAX_REPLY_LENGTH}
         rows={8}
         className="textarea"
       />
@@ -42,7 +41,7 @@ export function ManualEditor({
           className="text-xs"
           style={{ color: overLimit ? 'var(--rw-danger)' : 'var(--rw-app-text-muted)' }}
         >
-          {text.length} / {MAX_REPLY_CHARS}
+          {text.length} / {MAX_REPLY_LENGTH}
         </span>
         <div className="flex gap-2">
           <button

@@ -22,6 +22,7 @@ vi.mock('@/lib/db/redis-cache', () => ({
     get: async () => null,
     set: async () => 'OK',
   }),
+  withTtlCache: async <T>(_key: string, _ttl: number, compute: () => Promise<T>) => compute(),
 }));
 
 vi.mock('@/lib/locations/repo', () => ({

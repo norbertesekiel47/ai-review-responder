@@ -63,3 +63,33 @@ export function getCacheRedis(): Redis {
   }
   return _redis;
 }
+
+/**
+ * Read-through JSON cache with fail-open Redis reads and writes. `compute`
+ * runs outside those catch blocks: rejected computations (including
+ * BusinessNotFoundError) propagate and are never cached. Resolved values are
+ * cacheable as-is, including intentionally degraded aggregate payloads.
+ */
+export async function withTtlCache<T>(
+  key: string,
+  ttlSeconds: number,
+  compute: () => Promise<T>,
+  source: string,
+): Promise<T> {
+  try {
+    const cached = await getCacheRedis().get(key);
+    if (cached) return JSON.parse(cached) as T;
+  } catch (error) {
+    console.error(`[${source}] cache read failed (computing fresh):`, error);
+  }
+
+  const value = await compute();
+
+  try {
+    await getCacheRedis().set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  } catch (error) {
+    console.error(`[${source}] cache write failed (serving fresh):`, error);
+  }
+
+  return value;
+}

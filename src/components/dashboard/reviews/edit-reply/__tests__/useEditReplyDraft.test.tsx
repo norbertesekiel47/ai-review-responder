@@ -37,6 +37,14 @@ function jsonResponse(body: unknown, init: { ok?: boolean; status?: number } = {
   return { ok, status, json: async () => body } as unknown as Response;
 }
 
+function malformedJsonResponse(message = 'malformed success JSON') {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => { throw new SyntaxError(message); },
+  } as unknown as Response;
+}
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -110,6 +118,13 @@ describe('useEditReplyDraft — initial + manual', () => {
     const { result } = setup();
     await act(async () => { await result.current.actions.submitManual('text', null); });
     expect(result.current.state).toEqual({ kind: 'error', message: 'network down' });
+  });
+
+  it('preserves strict success parsing when manual-draft JSON is malformed', async () => {
+    fetchMock.mockResolvedValueOnce(malformedJsonResponse());
+    const { result } = setup();
+    await act(async () => { await result.current.actions.submitManual('text', null); });
+    expect(result.current.state).toEqual({ kind: 'error', message: 'malformed success JSON' });
   });
 
   it('submitManual creates a draft, publishes, succeeds, refreshes', async () => {
@@ -224,6 +239,33 @@ describe('useEditReplyDraft — regenerate + polling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not re-arm polling when unmounted while a status request is pending', async () => {
+    vi.useFakeTimers();
+    let resolvePoll!: (response: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-pending-cleanup' }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { resolvePoll = resolve; }));
+    const { result, unmount } = setup();
+
+    await act(async () => { await result.current.actions.startRegenerate(); });
+    await act(async () => { vi.advanceTimersByTime(1500); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    unmount();
+    await act(async () => { resolvePoll(jsonResponse({ status: 'generating' })); });
+
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves strict success parsing when regenerate JSON is malformed', async () => {
+    fetchMock.mockResolvedValueOnce(malformedJsonResponse());
+    const { result } = setup();
+    await act(async () => { await result.current.actions.startRegenerate(); });
+    expect(result.current.state).toEqual({ kind: 'error', message: 'malformed success JSON' });
+  });
+
   it('transitions to regenerate_poll_error after the 60s budget', async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-t' }));
@@ -308,6 +350,13 @@ describe('useEditReplyDraft — preview, recovery, conflict', () => {
     expect(result.current.state.kind).toBe('success');
     expect(fetchMock.mock.calls[0]![0]).toBe('/api/dashboard/past-replies/resp-fail/restore-original');
     expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves strict success parsing when restore JSON is malformed', async () => {
+    fetchMock.mockResolvedValueOnce(malformedJsonResponse());
+    const { result } = setup();
+    await act(async () => { await result.current.actions.restoreOriginal('resp-fail'); });
+    expect(result.current.state).toEqual({ kind: 'error', message: 'malformed success JSON' });
   });
 
   it('discardExistingDraft DELETEs then returns to initial', async () => {

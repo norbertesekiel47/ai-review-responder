@@ -38,13 +38,17 @@ import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
-import { OUTBOX_IN_FLIGHT_STATUSES } from '@/lib/shared/job-outbox-status';
+import { classifyOutboxStatus } from '@/lib/shared/job-outbox-status';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<Response> {
   if (!editRepliesEnabled()) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
+    return NextResponse.json(
+      { error: 'feature_disabled' },
+      { status: 503, headers: NO_STORE_HEADERS },
+    );
   }
 
   // Auth + current-location scope (no CSRF check — GET is exempt).
@@ -53,7 +57,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     ({ locationId } = await resolveOwnerScope(sql, request, { allowReadOnly: true }));
   } catch (err) {
     if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode, headers: NO_STORE_HEADERS },
+      );
     }
     throw err;
   }
@@ -61,7 +68,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   const url = new URL(request.url);
   const outboxId = url.searchParams.get('outbox_id');
   if (!outboxId) {
-    return NextResponse.json({ error: 'missing_outbox_id' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'missing_outbox_id' },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
   }
 
   try {
@@ -81,7 +91,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     `;
     const outbox = outboxRows[0];
     if (!outbox) {
-      return NextResponse.json({ error: 'outbox_not_found' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'outbox_not_found' },
+        { status: 404, headers: NO_STORE_HEADERS },
+      );
     }
 
     // Postgres.js + PgBouncer can return JSONB columns as strings — guard.
@@ -94,7 +107,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     // caller's resolved current location. Without this, any owner could poll
     // any outbox_id and observe another tenant's generation status / draft text.
     if (!payload || payload.business_id !== locationId) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'forbidden' },
+        { status: 403, headers: NO_STORE_HEADERS },
+      );
     }
 
     // The in-flight set is IMPORTED, never re-spelled. Invariant #2's
@@ -104,11 +120,15 @@ export async function GET(request: NextRequest): Promise<Response> {
     // constant is the right tool (the sibling reviews/[reviewId]/draft-status
     // route and import-offer-view.ts are the same call). This route predates
     // the constant (#56 vs #588); it was the last JS hand-spell left (#764).
-    if ((OUTBOX_IN_FLIGHT_STATUSES as readonly string[]).includes(outbox.status)) {
-      return NextResponse.json({ status: 'generating' }, { status: 200 });
+    const statusClass = classifyOutboxStatus(outbox.status);
+    if (statusClass === 'in_flight') {
+      return NextResponse.json(
+        { status: 'generating' },
+        { status: 200, headers: NO_STORE_HEADERS },
+      );
     }
 
-    if (outbox.status === 'completed') {
+    if (statusClass === 'completed') {
       // Worker INSERTed the response row. aggregate_id is the review_id.
       //
       // Invariant #4: a high-severity moderation flag leaves the draft at
@@ -134,13 +154,19 @@ export async function GET(request: NextRequest): Promise<Response> {
       `;
       const response = responseRows[0];
       if (!response) {
-        return NextResponse.json({ error: 'response_not_found' }, { status: 404 });
+        return NextResponse.json(
+          { error: 'response_not_found' },
+          { status: 404, headers: NO_STORE_HEADERS },
+        );
       }
       // Defense in depth: even if the outbox payload passed the tenant check,
       // re-verify the response row also belongs to the caller's current location
       // before returning the draft text.
       if (response.business_id !== locationId) {
-        return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        return NextResponse.json(
+          { error: 'forbidden' },
+          { status: 403, headers: NO_STORE_HEADERS },
+        );
       }
       // Moderation-held draft (invariant #4, semantic owner
       // src/lib/moderation/held-draft.ts): terminal `failed` with the
@@ -150,7 +176,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       if (response.held) {
         return NextResponse.json(
           { status: 'failed', error: 'held_for_review' },
-          { status: 200 },
+          { status: 200, headers: NO_STORE_HEADERS },
         );
       }
       return NextResponse.json(
@@ -159,7 +185,7 @@ export async function GET(request: NextRequest): Promise<Response> {
           status: response.status,
           response_text: response.response_text,
         },
-        { status: 200 },
+        { status: 200, headers: NO_STORE_HEADERS },
       );
     }
 
@@ -167,10 +193,13 @@ export async function GET(request: NextRequest): Promise<Response> {
     // as a failure for polling purposes — the client has nothing else to do.
     return NextResponse.json(
       { status: 'failed', error: outbox.last_error },
-      { status: 200 },
+      { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (err) {
     reportCaughtError('past-replies/draft-status GET', err, { locationId, outboxId });
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'internal_error' },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
   }
 }

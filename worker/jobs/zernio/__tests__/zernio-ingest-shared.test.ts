@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type postgres from 'postgres';
 
 vi.mock('@/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: vi.fn(),
@@ -10,12 +11,16 @@ vi.mock('@/lib/shared/outbox', () => ({
 vi.mock('@sentry/node', () => ({
   captureMessage: vi.fn(),
 }));
+vi.mock('@/lib/responses/generation-state', () => ({
+  nextResponseVersion: vi.fn(async () => 2),
+}));
 
 import {
   handleZernioIngestError,
   liveIngestCutoff,
   openPhiReviewException,
   reconcileExternallyAnsweredReview,
+  screenPhiOrOpenException,
 } from '../zernio-ingest-shared';
 import {
   ZernioAuthError,
@@ -27,6 +32,7 @@ import type { ZernioReview } from '@/lib/zernio/types';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import { buildZernioMonitoredReview } from '@/lib/reviews/zernio-normalize';
 import { computeContentHash } from '@/lib/reviews/types';
+import type { WorkerLogger } from '@/lib/shared/logger';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
@@ -177,6 +183,43 @@ describe('openPhiReviewException', () => {
     expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
     expect(calls.some((call) => call.values.includes('notify_admin_review_exception'))).toBe(false);
     expect(captureMessage).not.toHaveBeenCalled();
+  });
+
+  it('screens likely PHI, opens the exception transactionally, and passes ordinary reviews', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      return Promise.resolve(calls.length === 1 ? [{ id: 'exc-1' }] : []);
+    });
+    (tx as unknown as { json: (value: unknown) => unknown }).json = (value) => value;
+    const sqlBegin = vi.fn(async (callback: (db: typeof tx) => Promise<void>) => callback(tx));
+    const sql = { begin: sqlBegin } as unknown as postgres.Sql;
+    const loggerMock = mkLogger();
+    const logger: WorkerLogger = loggerMock;
+    const review = {
+      id: 'rev-screen',
+      name: 'accounts/A/locations/L/reviews/rev-screen',
+      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      createTime: '2026-04-01T00:00:00Z',
+      updateTime: '2026-04-01T00:00:00Z',
+      reviewReply: null,
+    } satisfies ZernioReview;
+
+    await expect(screenPhiOrOpenException(sql, {
+      businessId: 'B', accountId: 'A', locationId: 'L', review, source: 'webhook',
+    }, logger)).resolves.toBe(true);
+    expect(sqlBegin).toHaveBeenCalledOnce();
+    expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
+
+    const cleanReview = { ...review, id: 'rev-clean', comment: 'Great service!' };
+    await expect(screenPhiOrOpenException(sql, {
+      businessId: 'B', accountId: 'A', locationId: 'L', review: cleanReview, source: 'backfill',
+    }, logger)).resolves.toBe(false);
+    expect(sqlBegin).toHaveBeenCalledOnce();
   });
 });
 
@@ -396,7 +439,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(calls[2]!.sql).toContain('response_text');
     expect(calls[2]!.sql).toContain('approved_text');
     expect(calls[2]!.sql).toContain('original_draft_text');
-    expect(calls[2]!.sql).toContain('MAX(version)');
+    expect(calls[2]!.values).toContain(2);
     // Counter bump.
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
     expect(calls[3]!.sql).toContain('external_reply_ingested_count');
@@ -455,8 +498,8 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     // INSERT INTO responses targeting the existing review id.
     expect(calls[2]!.sql).toContain('INSERT INTO responses');
     expect(calls[2]!.values).toContain('rev-row-1');
-    // version is COALESCE(MAX(version), 0) + 1 — handled server-side.
-    expect(calls[2]!.sql).toContain('MAX(version)');
+    // Version comes from the shared allocator before the INSERT.
+    expect(calls[2]!.values).toContain(2);
     // Counter bump.
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply onto existing review'));

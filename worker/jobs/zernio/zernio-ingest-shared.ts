@@ -33,6 +33,7 @@ import {
 import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
+import { nextResponseVersion } from '../../../src/lib/responses/generation-state';
 
 type TxClient = postgres.TransactionSql;
 type SqlExecutor = postgres.Sql | TxClient;
@@ -207,6 +208,28 @@ export async function openPhiReviewException(
   });
 }
 
+export async function screenPhiOrOpenException(
+  sql: postgres.Sql,
+  input: Omit<PhiReviewExceptionInput, 'reasons' | 'source'> & {
+    source: 'webhook' | 'backfill';
+  },
+  logger: WorkerLogger,
+): Promise<boolean> {
+  const phi = detectLikelyPhi(input.review.comment);
+  if (!phi.matched) return false;
+
+  const reviewLabel = input.source === 'backfill' ? 'import review' : 'review';
+  const suffix = input.source === 'backfill' ? '; skipping' : '';
+  logger.warn(
+    `Likely PHI detected for ${reviewLabel} ${input.review.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(input.review.comment)}${suffix}`,
+  );
+  await sql.begin((tx) => openPhiReviewException(tx, {
+    ...input,
+    reasons: phi.reasons,
+  }, logger));
+  return true;
+}
+
 /**
  * Called from both ingest worker and backfill worker when a fetched Zernio
  * review has reviewReply !== null. Matches local rows by EITHER:
@@ -249,6 +272,9 @@ export async function reconcileExternallyAnsweredReview(
   const targetComment = matchFields.review_text_trimmed;
   const targetPhi = detectLikelyPhi(targetComment);
 
+  // Pre-existing reconciliation transaction kept unified: its branches share
+  // one lock/protection set, while #765 only extracted PHI/version mechanics.
+  // fallow-ignore-next-line complexity
   await sql.begin(async (tx) => {
     const matchedRows = await tx<{ id: string; provider: string }[]>`
       SELECT id, provider FROM reviews
@@ -520,6 +546,7 @@ async function insertImportedResponse(
 ): Promise<boolean> {
   const replyText = canonicalizeReplyText(externalReply.comment);
   const updateTime = externalReply.updateTime;
+  const version = await nextResponseVersion(tx, reviewId);
 
   // RETURNING 1 lets the caller distinguish "actually inserted" from
   // "ON CONFLICT DO NOTHING fired" — important for the
@@ -536,7 +563,7 @@ async function insertImportedResponse(
       gen_random_uuid(), ${reviewId}, ${businessId},
       ${replyText}, ${replyText}, ${replyText}, NULL,
       ${reviewLanguage},
-      COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1,
+      ${version},
       'posted',
       ${updateTime}::timestamptz, ${updateTime}::timestamptz,
       NULL, NULL, NULL, NULL

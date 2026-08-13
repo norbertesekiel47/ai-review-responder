@@ -5,6 +5,7 @@ import { QueryClientContext } from '@tanstack/react-query';
 import { DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY } from '@/components/dashboard/NeedsAttentionList';
 import type { OpenEscalationStatus } from '@/lib/escalations/types';
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 type ActionState =
   | { kind: 'idle' }
@@ -152,7 +153,7 @@ export function ReviewActions({
           aria-label="Edit reply text"
           value={editText}
           onChange={(e) => setEditText(e.target.value)}
-          maxLength={2000}
+          maxLength={MAX_REPLY_LENGTH}
           rows={4}
           className="textarea"
         />

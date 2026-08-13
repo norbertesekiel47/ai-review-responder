@@ -7,7 +7,7 @@
 // See docs/superpowers/specs/2026-04-26-modularization-design.md §7.1.
 
 import type { Sql } from 'postgres';
-import { getCacheRedis } from '@/lib/db/redis-cache';
+import { getCacheRedis, withTtlCache } from '@/lib/db/redis-cache';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   HANDLED_STATUSES,
@@ -117,33 +117,13 @@ export async function getActiveDashboardData(
   businessId: string,
   opts?: ActiveDashboardOpts,
 ): Promise<DashboardDataActive> {
-  // Cache read fails open: a Redis blip degrades to a fresh computation.
   const cacheKey = locationCacheKey(businessId, opts);
-  try {
-    const cached = await getCacheRedis().get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached) as DashboardDataActive;
-    }
-  } catch (err) {
-    console.error('[dashboard/service] cache read failed (computing fresh):', err);
-  }
-
-  // BusinessNotFoundError throws inside the compute (missing business row),
-  // before the set below — so a 404 signal is never cached.
-  const data = await buildActiveDashboardData(sql, businessId, opts);
-
-  try {
-    await getCacheRedis().set(
-      cacheKey,
-      JSON.stringify(data),
-      'EX',
-      DASHBOARD_LOCATION_CACHE_TTL_SECONDS,
-    );
-  } catch (err) {
-    console.error('[dashboard/service] cache write failed (serving fresh):', err);
-  }
-
-  return data;
+  return withTtlCache(
+    cacheKey,
+    DASHBOARD_LOCATION_CACHE_TTL_SECONDS,
+    () => buildActiveDashboardData(sql, businessId, opts),
+    'dashboard/service',
+  );
 }
 
 async function buildActiveDashboardData(

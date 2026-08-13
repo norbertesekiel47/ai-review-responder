@@ -10,6 +10,7 @@ import { REVIEW_STATUS } from '@/lib/reviews/status';
 // readPendingMarker + the payload read cache both hit Redis; always-miss stub.
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
+  withTtlCache: async (_key: string, _ttl: number, compute: () => Promise<unknown>) => compute(),
 }));
 
 import { getActiveDashboardData } from '../service';

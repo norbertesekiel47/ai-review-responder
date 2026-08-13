@@ -26,11 +26,11 @@ import type { TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { assertWritableSubscriptionForBusiness } from '@/lib/shared/writable-subscription';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
-import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import { nextResponseVersion, pendingGenerateExists } from '@/lib/responses/generation-state';
 
 export type OnDemandGenerateResult =
   | { ok: true; outboxId: string; version: number }
@@ -127,27 +127,14 @@ export async function onDemandGenerateTx(
     return { ok: false, reason: 'orphan_recovery_pending' };
   }
 
-  const pendingGen = await tx<{ exists: number }[]>`
-    SELECT 1 AS exists FROM job_outbox
-    WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
-      AND aggregate_id = ${reviewId}
-      AND status IN ('pending', 'dispatching', 'dispatched')
-    LIMIT 1
-  `;
-  if (pendingGen.length > 0) {
+  if (await pendingGenerateExists(tx, reviewId)) {
     return { ok: false, reason: 'regenerate_in_progress' };
   }
 
   // D-B: MAX-derived, never hardcoded 1. A discarded draft is retained at
   // status='superseded', so version climbs and C1's per-review budget
   // self-arms on the next attempt.
-  const versionRows = await tx<{ next_version: number }[]>`
-    SELECT COALESCE(MAX(version), 0) + 1 AS next_version
-    FROM responses
-    WHERE review_id = ${reviewId}::uuid
-      AND business_id = ${businessId}::uuid
-  `;
-  const nextVersion = versionRows[0]?.next_version ?? 1;
+  const nextVersion = await nextResponseVersion(tx, reviewId);
 
   const outboxId = uuidv7();
   await enqueueGenerateResponse(tx, {

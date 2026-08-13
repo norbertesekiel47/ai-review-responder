@@ -341,14 +341,16 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     //   3. live-posted check (none — orphan state real)
     //   4. non-terminal-sibling check (none)
     //   5. superseded-FOR-UPDATE select (FOUND)
-    //   6. INSERT new approved row (no rows returned)
-    //   7. INSERT publish_response outbox (no rows returned)
+    //   6. next-response-version query
+    //   7. INSERT new approved row (no rows returned)
+    //   8. INSERT publish_response outbox (no rows returned)
     seedTxRows(
       [{ id: REVIEW_ID }],
       [orphanFailedRow()],
       [],
       [],
       [supersededRow()],
+      [{ next_version: 3 }],
       [],
       [],
     );
@@ -364,10 +366,10 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(typeof body.outbox_id).toBe('string');
     expect(body.outbox_id).toMatch(/^[0-9a-f-]{36}$/);
 
-    // INSERT call (6th tx call). Verify it's an INSERT INTO responses with
+    // INSERT call (7th tx call). Verify it's an INSERT INTO responses with
     // the correct shape: approved status, all 3 text columns set, edited_text
-    // NULL, approved_at set, version = MAX+1 inline expression, llm fields NULL.
-    const insertCall = txMock.mock.calls[5] as unknown as unknown[];
+    // NULL, approved_at set, version from the shared allocator, llm fields NULL.
+    const insertCall = txMock.mock.calls[6] as unknown as unknown[];
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO responses');
     expect(insertSql).toContain('response_text');
@@ -379,15 +381,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertSql).toContain('approved_at');
     expect(insertSql).toContain('NOW()');
     expect(insertCall).toContain('owner');
-    // The version expression is inline SQL; verify the COALESCE/MAX expression is present.
-    expect(insertSql).toContain('COALESCE');
-    expect(insertSql).toContain('MAX(version)');
+    const versionCall = txMock.mock.calls[5] as unknown as unknown[];
+    const versionSql = (versionCall[0] as unknown as TemplateStringsArray).join('|');
+    expect(versionSql).toContain('COALESCE(MAX(version), 0) + 1');
 
     // Bound params on the INSERT (positions 1..N from the route's tagged template):
     //   ${newId}, ${reviewId}, ${failed.business_id},
     //   ${restoredText}, ${restoredText}, ${restoredText}, ${null},
     //   ${superseded.response_language},
-    //   inline SQL — ${reviewId} and ${failed.business_id} again,
+    //   ${version},
     //   ${APPROVAL_METHOD.OWNER},
     //   ${null}, ${null}, ${null}, ${null}
     const newIdParam = insertCall[1] as string;
@@ -402,15 +404,13 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertCall[7]).toBeNull();
     // response_language preserved from superseded row.
     expect(insertCall[8]).toBe('en');
-    // The MAX(version) sub-select also uses ${reviewId} + business_id.
-    expect(insertCall[9]).toBe(REVIEW_ID);
-    expect(insertCall[10]).toBe(LOCATION_ID);
-    expect(insertCall[11]).toBe('owner');
+    expect(insertCall[9]).toBe(3);
+    expect(insertCall[10]).toBe('owner');
     // llm_provider, llm_model, prompt_tokens, completion_tokens all NULL.
+    expect(insertCall[11]).toBeNull();
     expect(insertCall[12]).toBeNull();
     expect(insertCall[13]).toBeNull();
     expect(insertCall[14]).toBeNull();
-    expect(insertCall[15]).toBeNull();
 
     // The OLD failed row was NOT updated — verify no UPDATE call hit responses.
     const allTxCalls = txMock.mock.calls as unknown as unknown[][];
@@ -475,6 +475,7 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
       [],
       [],
       [supersededRow()],
+      [{ next_version: 3 }],
       [],
       [],
     );
@@ -498,7 +499,7 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
       locationId: ALT_LOCATION_ID,
     });
     // New row's business_id (INSERT param 3) is the ALT location's.
-    const insertCall = txMock.mock.calls[5] as unknown as unknown[];
+    const insertCall = txMock.mock.calls[6] as unknown as unknown[];
     expect(insertCall[3]).toBe(ALT_LOCATION_ID);
     // Audit business_id scoped to the ALT location.
     expect(mockInsertAuditLogSession.mock.calls[0]![2]).toBe(ALT_LOCATION_ID);

@@ -55,11 +55,26 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
 vi.mock('../../../../src/lib/reviews/process-review', () => ({
   processReview: mockProcessReview,
 }));
-vi.mock('../zernio-ingest-shared', () => ({
-  reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
-  openPhiReviewException: mockOpenPhiReviewException,
-  handleZernioIngestError: mockHandleZernioIngestError,
-}));
+vi.mock('../zernio-ingest-shared', async () => {
+  const { detectLikelyPhi } = await vi.importActual<
+    typeof import('../../../../src/lib/security/phi-scanner')
+  >('../../../../src/lib/security/phi-scanner');
+  return {
+    reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+    openPhiReviewException: mockOpenPhiReviewException,
+    screenPhiOrOpenException: async (
+      sql: unknown,
+      input: { review: ZernioReview; source: string },
+      logger: unknown,
+    ) => {
+      const phi = detectLikelyPhi(input.review.comment);
+      if (!phi.matched) return false;
+      await mockOpenPhiReviewException(sql, { ...input, reasons: phi.reasons }, logger);
+      return true;
+    },
+    handleZernioIngestError: mockHandleZernioIngestError,
+  };
+});
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
   applyIngestionAuthErrorFallback: mockApplyIngestionAuthErrorFallback,
 }));

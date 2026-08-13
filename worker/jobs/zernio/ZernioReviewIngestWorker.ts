@@ -23,7 +23,6 @@ import type { Sql } from 'postgres';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -33,8 +32,8 @@ import {
 import { processReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
-  openPhiReviewException,
   reconcileExternallyAnsweredReview,
+  screenPhiOrOpenException,
 } from './zernio-ingest-shared';
 import { guardZernioJobEligibility } from './job-eligibility';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
@@ -88,9 +87,9 @@ export class ZernioIngestUnparseableLocationError extends Error {
   }
 }
 
-// Complexity is inherited (pre-PR-262 shape; this PR only swapped the inline
-// guards for guardZernioJobEligibility) — decomposition tracked in the
-// multi-location fast-follow spec, not done here to keep the hardening PR surgical.
+// Existing one-pass ingest orchestration remains unified: eligibility, PHI
+// refusal, fetch, reconcile, and completion share one owned outbox lifecycle.
+// Issue #765 extracts the repeated PHI decision without changing that ordering.
 // fallow-ignore-next-line complexity
 export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioReviewPayload>): Promise<void> {
   const logger = createWorkerLogger('[ZernioReviewIngestWorker]', job.data.correlation_id);
@@ -217,19 +216,13 @@ export async function handleZernioReviewIngest(sql: Sql, job: Job<IngestZernioRe
     return;
   }
 
-  const phi = detectLikelyPhi(target.comment);
-  if (phi.matched) {
-    logger.warn(
-      `Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(target.comment)}`,
-    );
-    await sql.begin((tx) => openPhiReviewException(tx, {
+  if (await screenPhiOrOpenException(sql, {
       businessId: business_id,
       accountId: zernio_account_id,
       locationId: zernio_location_id,
       review: target,
-      reasons: phi.reasons,
       source: 'webhook',
-    }, logger));
+    }, logger)) {
     await markOutboxCompleted(sql, outboxId, attempt);
     return;
   }
