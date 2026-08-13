@@ -64,6 +64,10 @@ function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
 // (the mock-sql suite already covers the gate). checkZeroDeliveryNotifications
 // has no threshold param and returns null at count 0, handled by its helper.
 const PROBE_CFG: HealthAlertConfig = {
+  // Wedge check has its own live suite (wedge-check.integration.test.ts); the
+  // defaults here just keep it quiet for the other probes.
+  wedgedClientReadAgeS: 10,
+  wedgedClientReadThreshold: 0,
   pendingAgeThresholdS: 900,
   failedWindowS: 3600,
   failedThreshold: 0,

@@ -307,6 +307,8 @@ poll interval (the cost-cap drill fires immediately at the throw site):
 | `HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD` | `5` | Open `flagged_responses` before warning. |
 | `HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S` | `3600` | Window for completed-but-undelivered notifications. |
 | `HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD` | `1500` | Per-table pending backlog depth (`job_outbox`, `analytics_events`) before warning (`backlog_depth:<table>`). Sized to the #474 capacity target. |
+| `HEALTH_ALERT_WEDGED_CLIENT_READ_AGE_S` | `10` | Age above which `state='active' AND wait_event='ClientRead'` is the #773 connection wedge (`db_connection_wedged`, error). **Age, never presence** — transient sub-100ms ClientRead is normal protocol traffic; 10s is above that noise and below the shortest observed wedge (16.6s). |
+| `HEALTH_ALERT_WEDGED_CLIENT_READ_THRESHOLD` | `0` | Wedged sessions tolerated (0 → any pages). |
 | `HEALTH_ALERT_MONITOR_SLUG` | `health-alert-poller` | Sentry Cron monitor slug. |
 | `EMAIL_SEND_TIMEOUT_MS` | `10000` | Per-send Resend timeout (chokepoint). |
 
