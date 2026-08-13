@@ -30,7 +30,9 @@ import {
   checkBacklogDepth,
   checkFailedInboundEvents,
   checkStalledSendBatches,
+  checkWedgedClientRead,
   runHealthChecks,
+  WEDGED_CLIENT_READ_AGE_DEFAULT_S,
   type HealthAlertConfig,
 } from '../checks';
 import { resetWorkerConfigForTests } from '../../../../../src/lib/config/worker';
@@ -38,6 +40,8 @@ import { QUEUE_NAMES } from '../../../../../src/lib/shared/queue-names';
 import { stalledThresholdMsForKind } from '../../../../../src/lib/agents/read';
 
 const CFG: HealthAlertConfig = {
+  wedgedClientReadAgeS: WEDGED_CLIENT_READ_AGE_DEFAULT_S,
+  wedgedClientReadThreshold: 0,
   pendingAgeThresholdS: 900,
   failedWindowS: 3600,
   failedThreshold: 0,
@@ -342,10 +346,11 @@ describe('health-alert checks', () => {
   });
 
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
-  // Sequential dispatch order: failedByTopic, oldestPending, staleDispatching,
+  // Sequential dispatch order: wedgedClientRead, failedByTopic, oldestPending, staleDispatching,
   // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents,
   // stalledSendBatches, backlogDepth — push a queue entry per check in that order.
   function pushQuietChecksBeforeBacklog(): void {
+    sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]); // wedgedClientRead → null
     sqlReturnQueue.push([]);              // failedByTopic → []
     sqlReturnQueue.push([{ age: null }]); // oldestPending → null
     sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null
@@ -373,12 +378,58 @@ describe('health-alert checks', () => {
     });
   });
 
+  // #773 wedge signal. The property under test is AGE, NOT PRESENCE: transient
+  // sub-100ms ClientRead is ordinary protocol behaviour and was constant through
+  // every clean staging run, so a presence check would page continuously.
+  describe('checkWedgedClientRead', () => {
+    it('stays quiet when no session is over the age threshold', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]);
+      expect(await checkWedgedClientRead(mockSql, CFG)).toBeNull();
+    });
+
+    it('raises an error finding naming the count and the oldest age', async () => {
+      sqlReturnQueue.push([{ count: 2, oldest_age_s: 374 }]);
+      const finding = await checkWedgedClientRead(mockSql, CFG);
+      expect(finding?.key).toBe('db_connection_wedged');
+      expect(finding?.level).toBe('error');
+      expect(finding?.detail).toMatchObject({ count: 2, oldest_age_s: 374, age_threshold_s: 10 });
+    });
+
+    it('filters on age, state and wait_event — never on ClientRead presence alone', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]);
+      await checkWedgedClientRead(mockSql, CFG);
+      const [template, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain("state = 'active'");
+      expect(queryText).toContain("wait_event = 'ClientRead'");
+      expect(queryText).toContain('pid <> pg_backend_pid()');
+      // The age predicate must be present and bound to the configured threshold;
+      // without it this check would fire on every healthy poll.
+      expect(queryText).toContain('clock_timestamp() - query_start >');
+      expect(values).toContain(WEDGED_CLIENT_READ_AGE_DEFAULT_S);
+    });
+
+    it('honors a tightened age threshold from config', async () => {
+      sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]);
+      await checkWedgedClientRead(mockSql, { ...CFG, wedgedClientReadAgeS: 45 });
+      const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      expect(values).toContain(45);
+    });
+
+    it('defaults to a 10s age — above protocol noise, below the shortest observed wedge', () => {
+      expect(WEDGED_CLIENT_READ_AGE_DEFAULT_S).toBe(10);
+      expect(WEDGED_CLIENT_READ_AGE_DEFAULT_S).toBeGreaterThan(1);
+      expect(WEDGED_CLIENT_READ_AGE_DEFAULT_S).toBeLessThan(16.6);
+    });
+  });
+
   describe('runHealthChecks', () => {
     it('aggregates findings across all checks (env defaults)', async () => {
       // Order matches sequential dispatch order in runHealthChecks:
-      // failedByTopic, oldestPending, staleDispatching, openFlagged,
+      // wedgedClientRead, failedByTopic, oldestPending, staleDispatching, openFlagged,
       // zeroDelivery, ownerUnreachable, failedInboundEvents,
       // stalledSendBatches, backlogDepth
+      sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]);          // wedgedClientRead → null
       sqlReturnQueue.push([{ topic: 'publish_response', count: 1 }]); // failed → finding
       sqlReturnQueue.push([{ age: 50 }]);                              // pending → null
       sqlReturnQueue.push([{ count: 0 }]);                             // stale → null
@@ -406,6 +457,7 @@ describe('health-alert checks', () => {
       // The core checks (dispatch order) drain the queue synchronously; the
       // backlog check's sql.begin rejects (as it would under the DB pressure it
       // detects) and consumes no queue entry.
+      sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]); // wedgedClientRead → null
       sqlReturnQueue.push([]);              // failedByTopic → []
       sqlReturnQueue.push([{ age: null }]); // oldestPending → null
       sqlReturnQueue.push([{ count: 0 }]);  // staleDispatching → null

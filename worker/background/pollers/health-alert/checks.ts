@@ -24,6 +24,8 @@ export interface HealthFinding {
 }
 
 export interface HealthAlertConfig {
+  wedgedClientReadAgeS: number;
+  wedgedClientReadThreshold: number;
   pendingAgeThresholdS: number;
   failedWindowS: number;
   failedThreshold: number;
@@ -43,6 +45,8 @@ export function num(value: string | undefined, fallback: number): number {
 export function resolveHealthAlertConfig(): HealthAlertConfig {
   const cfg = getWorkerConfig();
   return {
+    wedgedClientReadAgeS: num(cfg.HEALTH_ALERT_WEDGED_CLIENT_READ_AGE_S, WEDGED_CLIENT_READ_AGE_DEFAULT_S),
+    wedgedClientReadThreshold: num(cfg.HEALTH_ALERT_WEDGED_CLIENT_READ_THRESHOLD, 0),
     pendingAgeThresholdS: num(cfg.HEALTH_ALERT_PENDING_AGE_S, 900),
     failedWindowS: num(cfg.HEALTH_ALERT_FAILED_WINDOW_S, 3600),
     failedThreshold: num(cfg.HEALTH_ALERT_FAILED_THRESHOLD, 0),
@@ -316,6 +320,69 @@ export async function checkStalledSendBatches(sql: postgres.Sql): Promise<Health
   };
 }
 
+/**
+ * Default wedge age. Ten seconds is far above any legitimate ClientRead pause
+ * and far below the shortest wedge ever observed (16.6s; the long one ran
+ * 374.5s).
+ */
+export const WEDGED_CLIENT_READ_AGE_DEFAULT_S = 10;
+
+/**
+ * The #773 connection wedge, as a permanent signal.
+ *
+ * ALERTS ON AGE, NEVER ON PRESENCE. `wait_event='ClientRead'` on its own is
+ * ordinary protocol behaviour — the server is simply waiting for the client's
+ * next message — and it appeared constantly, at sub-100ms ages, throughout
+ * clean staging runs (the step B measurement peaked at 0.056s across 1000+
+ * samples). A presence check would page continuously and be turned off within a
+ * day. What is pathological is a ClientRead that does not END: a query
+ * pipelined onto a busy connection whose response parks server-side and never
+ * returns, holding a client pool slot until the isolate is reaped.
+ *
+ * This check exists BECAUSE the admission chokepoint (src/lib/db/admission.ts)
+ * cannot be proven complete by non-reproduction. If a wedge ever recurs — a new
+ * un-gated client, a raw postgres.js client added somewhere, the kill switch
+ * left off — this is what says so, instead of an owner reporting a hung page.
+ *
+ * `statement_timeout` cannot substitute: ClientRead is a WAIT state, not a
+ * running statement, so the server timeout never fires on it (#773 fact 6).
+ *
+ * Cluster-wide by design: it reports wedges from ANY client against this
+ * database — Vercel isolates included, which is where every observed wedge
+ * happened — not just this worker's own pool.
+ */
+export async function checkWedgedClientRead(
+  sql: postgres.Sql,
+  cfg: HealthAlertConfig,
+): Promise<HealthFinding | null> {
+  const [row] = await sql<{ count: number; oldest_age_s: number | null }[]>`
+    SELECT
+      COUNT(*)::int AS count,
+      MAX(EXTRACT(EPOCH FROM (clock_timestamp() - query_start)))::int AS oldest_age_s
+    FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+      AND state = 'active'
+      AND wait_event = 'ClientRead'
+      AND clock_timestamp() - query_start > make_interval(secs => ${cfg.wedgedClientReadAgeS})
+  `;
+  const count = row?.count ?? 0;
+  if (count <= cfg.wedgedClientReadThreshold) return null;
+  return {
+    key: 'db_connection_wedged',
+    level: 'error',
+    title:
+      `${count} database session(s) stuck in state=active/wait_event=ClientRead for over ` +
+      `${cfg.wedgedClientReadAgeS}s (oldest ${row?.oldest_age_s ?? 0}s) — the #773 connection ` +
+      'wedge; a client pool slot is held and will not self-clear until that instance is reaped',
+    detail: {
+      count,
+      oldest_age_s: row?.oldest_age_s ?? null,
+      age_threshold_s: cfg.wedgedClientReadAgeS,
+      threshold: cfg.wedgedClientReadThreshold,
+    },
+  };
+}
+
 export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[]> {
   const cfg = resolveHealthAlertConfig();
   const findings: HealthFinding[] = [];
@@ -334,6 +401,9 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   // wedged vs 0/6 sequential). Sequential naturally preserves the core checks'
   // shared-fate: a core-check rejection propagates and fails the cycle, and the
   // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes.md.
+  // FIRST: a wedged connection is the failure that makes every other signal
+  // below unreliable, so it is reported even if a later check throws.
+  collect(await checkWedgedClientRead(sql, cfg));
   collect(await checkFailedOutboxByTopic(sql, cfg));
   collect(await checkOldestPendingOutbox(sql, cfg));
   collect(await checkStaleDispatching(sql, cfg));
