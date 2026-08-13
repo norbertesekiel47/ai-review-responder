@@ -7,7 +7,54 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-12 (#790 response-rate period framing SHIPPED — PR #805, squash `db4dd4a1`; Quick summary immediately below. Prior entry: #757 Review-time anchor on the rendered dashboard — PR #793, squash `17f60e2c`.)
+Last updated: 2026-08-13 (#773 admission chokepoint + wedge alert — Quick summary immediately below. Prior entry: #790 response-rate period framing — PR #805, squash `db4dd4a1`.)
+
+## Quick summary — #773 database connection wedge, closed (2026-08-13)
+
+Some pages could hang indefinitely. The database was healthy; the fault was in the
+client library. postgres.js has **no admission control** — when every connection in
+its pool is busy it does not queue, it writes the query onto an already-busy
+connection. Sometimes that query's response parked server-side
+(`state='active', wait_event='ClientRead'`) and never returned, killing a pool slot
+for good. Observed hangs: 16.6s and 374.5s, clearing only when the Fluid Compute
+isolate was recycled. `statement_timeout` never fires on it, because ClientRead is a
+*wait* state, not a running statement.
+
+Three things now stand between us and that:
+
+1. **Per-request sequencing** (PRs #809, #810) — six admin read services issue one
+   query at a time instead of a `Promise.all` fan-out. Necessary, but *not
+   sufficient*: the pool is per isolate and an isolate serves overlapping requests,
+   so `/api/admin/flagged` wedged with a fan-out of only 2 against a pool of 3.
+2. **The admission chokepoint** (`src/lib/db/admission.ts`) — the durable fix. Both
+   `sql` and `sqlRead` are wrapped so in-flight work never exceeds the pool; excess
+   callers **queue** (30s deadline) instead of being pipelined. A transaction takes
+   **one** slot for its whole duration. Applied at the client, not at call sites —
+   `src/app/**` alone has 153 files importing `sql`.
+3. **A permanent alert** (`checkWedgedClientRead`) — fires on ClientRead **age > 10s**,
+   never on presence, because sub-100ms ClientRead is ordinary protocol traffic.
+
+**Proven on staging at 4x the pool:** 520 requests at concurrency 8 and 12 across
+both routes that previously wedged, **520 × HTTP 200**, zero timeouts, max ClientRead
+age **0.132s** against a 1s bar, full recovery. Evidence:
+`docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md`.
+
+**The accepted trade-off:** waiting instead of breaking. Forced-miss p95 is ~4-5s at
+these concurrencies versus ~1.3s cached. **Do not buy that back by raising
+`DB_POOL_MAX`** — backend sessions already peaked at 44 of 57, because the gate
+bounds work per isolate and does nothing about how many isolates Vercel warms. The
+pool size is a worse lever after #773 than before it.
+
+The new shape:
+
+```
+src/lib/db/admission.ts              ← NEW: the chokepoint (semaphore + Query seam + ALS)
+src/lib/db/server.ts                 ← sql and sqlRead now wrapped at cap == pool
+src/lib/shared/pool-wait.ts          ← probe now measures admission wait too
+worker/background/pollers/health-alert/checks.ts ← checkWedgedClientRead, first in the run
+```
+
+Kill switch: `DB_ADMISSION_ENABLED=false` (default on).
 
 ## Quick summary — #790 Response-rate period framing (2026-08-12, PR #805)
 
