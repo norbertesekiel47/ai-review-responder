@@ -46,6 +46,7 @@ import {
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
+import { nextResponseVersion } from '@/lib/responses/generation-state';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -190,6 +191,7 @@ export async function POST(
       }
 
       const newId = uuidv7();
+      const version = await nextResponseVersion(tx, reviewId);
       await tx`
         INSERT INTO responses (
           id, review_id, business_id,
@@ -201,7 +203,7 @@ export async function POST(
           ${newId}, ${reviewId}, ${failed.business_id},
           ${restoredText}, ${restoredText}, ${restoredText}, ${null},
           ${superseded.response_language},
-          (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId} AND business_id = ${failed.business_id}), 0) + 1),
+          ${version},
           'approved', ${APPROVAL_METHOD.OWNER}, NOW(),
           ${null}, ${null}, ${null}, ${null}
         )

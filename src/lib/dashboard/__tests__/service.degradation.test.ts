@@ -24,6 +24,7 @@ const { mockRedisGet, mockRedisSet } = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: mockRedisGet, set: mockRedisSet }),
+  withTtlCache: async (_key: string, _ttl: number, compute: () => Promise<unknown>) => compute(),
 }));
 
 import { getActiveDashboardData } from '../service';

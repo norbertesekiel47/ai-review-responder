@@ -1,8 +1,12 @@
 // src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts
 //
 // Shared request preamble for the Edit-Replies mutation routes. Every route
-// repeated the same opening chain inline; this centralizes the two reusable
-// pieces:
+// repeated the same opening chain inline; this centralizes four reusable
+// pieces: wrapper-CSRF scope resolution, location-scoped response authorization,
+// the dynamic-route request preamble, and its full authorized/audited context.
+//
+//   resolveEditReplyScope       — feature flags + owner scope for routes whose
+//     same-origin check is supplied by withSameOrigin.
 //
 //   authorizeEditReplyResponse  — the location-scoped review lookup + tier gate
 //     (a tenant-isolation boundary: a response_id from another location must
@@ -14,6 +18,9 @@
 //     owner scope → responseId validation → authorize → audit context. Preserves
 //     the exact inline ordering the routes had, so a cross-origin request with
 //     bad auth still 403s (same-origin) before owner scope runs.
+//
+//   resolveEditReplyRequest     — the request-only dynamic-route preamble used
+//     where authorization/body ordering remains route-specific.
 
 import { NextRequest, NextResponse } from 'next/server';
 import type postgres from 'postgres';
@@ -41,6 +48,8 @@ export interface EditReplyContext {
   reviewId: string;
   audit: SessionAuditContext;
 }
+
+export type EditReplyRequest = Omit<EditReplyContext, 'reviewId' | 'audit'>;
 
 /**
  * Feature gate + owner scope shared by the wrapper-CSRF edit-reply routes
@@ -121,6 +130,36 @@ export async function resolveEditReplyContext(
   request: NextRequest,
   paramsPromise: Promise<{ responseId: string }>,
 ): Promise<EditReplyGuard<EditReplyContext>> {
+  const resolved = await resolveEditReplyRequest(sql, request, paramsPromise);
+  if (!resolved.ok) return resolved;
+  const { accountId, locationId, userId, responseId } = resolved.value;
+
+  const authorized = await authorizeEditReplyResponse(sql, responseId, { accountId, locationId });
+  if (!authorized.ok) return authorized;
+
+  const ip = request.headers.get('x-forwarded-for') ?? null;
+  const audit: SessionAuditContext = { actorUserId: userId, ipAddress: ip };
+
+  return {
+    ok: true,
+    value: {
+      ...resolved.value,
+      reviewId: authorized.value.reviewId,
+      audit,
+    },
+  };
+}
+
+/**
+ * Shared request-only preamble for dynamic edit-reply routes. Authorization is
+ * intentionally left to each caller so PATCH can parse its body first and
+ * DELETE can retain its idempotent no-tier-gate contract.
+ */
+export async function resolveEditReplyRequest(
+  sql: postgres.Sql,
+  request: NextRequest,
+  paramsPromise: Promise<{ responseId: string }>,
+): Promise<EditReplyGuard<EditReplyRequest>> {
   if (!editRepliesEnabled()) {
     return {
       ok: false,
@@ -158,21 +197,8 @@ export async function resolveEditReplyContext(
     };
   }
 
-  const authorized = await authorizeEditReplyResponse(sql, responseId, { accountId, locationId });
-  if (!authorized.ok) return authorized;
-
-  const ip = request.headers.get('x-forwarded-for') ?? null;
-  const audit: SessionAuditContext = { actorUserId: userId, ipAddress: ip };
-
   return {
     ok: true,
-    value: {
-      accountId,
-      locationId,
-      userId,
-      responseId,
-      reviewId: authorized.value.reviewId,
-      audit,
-    },
+    value: { accountId, locationId, userId, responseId },
   };
 }

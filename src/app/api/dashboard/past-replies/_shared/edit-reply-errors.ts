@@ -1,19 +1,18 @@
 // src/app/api/dashboard/past-replies/_shared/edit-reply-errors.ts
 //
-// Shared error mapper for the assertCanEditReply catch-ladder. All five
-// past-replies mutation routes (draft, draft/[responseId], publish, retry,
-// restore-original) map the same three domain errors to identical HTTP
-// responses. Centralising them here keeps the per-route catch blocks thin
-// and ensures the status codes / error strings stay in sync.
-//
-// Returns a NextResponse for ForbiddenError and NotFoundError. Returns null for anything else so the caller can continue
-// to its own error handling and final re-throw.
+// Two deliberately narrow HTTP seams for past-replies mutations:
+// mapEditReplyError owns SubscriptionReadOnly/Forbidden/NotFound responses;
+// mapConcurrencyError owns ReviewChanged/ResponseChanged 409 responses.
+// Both return null for unhandled errors so each route can preserve its own
+// remaining catch behavior and final rethrow.
 
 import { NextResponse } from 'next/server';
 import {
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
+  ReviewChangedError,
+  ResponseChangedError,
 } from '@/lib/responses/edit-existing';
 
 export function mapEditReplyError(err: unknown): NextResponse | null {
@@ -25,6 +24,23 @@ export function mapEditReplyError(err: unknown): NextResponse | null {
   }
   if (err instanceof NotFoundError) {
     return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
+  }
+  return null;
+}
+
+export function mapConcurrencyError(err: unknown): NextResponse | null {
+  if (err instanceof ReviewChangedError) {
+    return NextResponse.json(
+      {
+        error: 'review_changed',
+        current_review_text: err.current.reviewText,
+        current_review_hash: err.current.reviewHash,
+      },
+      { status: 409 },
+    );
+  }
+  if (err instanceof ResponseChangedError) {
+    return NextResponse.json({ error: 'response_changed' }, { status: 409 });
   }
   return null;
 }

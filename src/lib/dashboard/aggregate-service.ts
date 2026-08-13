@@ -11,7 +11,7 @@
 // via mapWithConcurrency); the query count is now independent of N.
 
 import type { Sql } from 'postgres';
-import { getCacheRedis } from '@/lib/db/redis-cache';
+import { withTtlCache } from '@/lib/db/redis-cache';
 import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
@@ -93,29 +93,13 @@ export async function getAggregateDashboardData(
   accountId: string,
   window: DashboardWindow = DEFAULT_DASHBOARD_WINDOW,
 ): Promise<AggregateDashboardData> {
-  // Cache read fails open: a Redis blip degrades to a fresh computation.
   const cacheKey = aggregateCacheKey(accountId, window);
-  try {
-    const cached = await getCacheRedis().get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached) as AggregateDashboardData;
-    }
-  } catch (err) {
-    console.error('[dashboard/aggregate] cache read failed (computing fresh):', err);
-  }
-
-  const data = await buildAggregateDashboardData(sql, accountId, window);
-
-  // Degraded widgets return empty-but-valid shapes, so the payload is always
-  // safe to cache (bounded 45s staleness for a degraded payload — see the
-  // TTL comment above).
-  try {
-    await getCacheRedis().set(cacheKey, JSON.stringify(data), 'EX', AGGREGATE_CACHE_TTL_SECONDS);
-  } catch (err) {
-    console.error('[dashboard/aggregate] cache write failed (serving fresh):', err);
-  }
-
-  return data;
+  return withTtlCache(
+    cacheKey,
+    AGGREGATE_CACHE_TTL_SECONDS,
+    () => buildAggregateDashboardData(sql, accountId, window),
+    'dashboard/aggregate',
+  );
 }
 
 async function buildAggregateDashboardData(

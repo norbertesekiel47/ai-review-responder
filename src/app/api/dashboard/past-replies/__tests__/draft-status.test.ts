@@ -152,6 +152,10 @@ async function importGET() {
   return mod.GET as (req: NextRequest) => Promise<Response>;
 }
 
+function expectNoStore(response: Response): void {
+  expect(response.headers.get('cache-control')).toContain('no-store');
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('GET /api/dashboard/past-replies/draft-status', () => {
@@ -160,6 +164,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
     expect(res.status).toBe(503);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ error: 'feature_disabled' });
   });
 
@@ -169,6 +174,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
     expect(res.status).toBe(401);
+    expectNoStore(res);
   });
 
   it('returns 403 no_business when accountId is missing', async () => {
@@ -183,6 +189,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest());
     expect(res.status).toBe(400);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ error: 'missing_outbox_id' });
   });
 
@@ -191,6 +198,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
     expect(res.status).toBe(404);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ error: 'outbox_not_found' });
   });
 
@@ -207,6 +215,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
     expect(res.status).toBe(403);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 
@@ -222,6 +231,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
     expect(res.status).toBe(200);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ status: 'generating' });
   });
 
@@ -244,6 +254,7 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
 
     expect(res.status).toBe(200);
+    expectNoStore(res);
     expect(await res.json()).toEqual({ status: 'generating' });
   });
 

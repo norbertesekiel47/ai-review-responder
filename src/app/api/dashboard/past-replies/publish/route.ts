@@ -33,11 +33,7 @@ import { z } from 'zod';
 import { getOffboardingState, isPublishingBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import {
-  validateOptimisticConcurrency,
-  ReviewChangedError,
-  ResponseChangedError,
-} from '@/lib/responses/edit-existing';
+import { validateOptimisticConcurrency } from '@/lib/responses/edit-existing';
 import { authorizeEditReplyResponse, resolveEditReplyScope } from '../_shared/edit-reply-request';
 import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
@@ -46,6 +42,7 @@ import type { SessionAuditContext } from '@/lib/approval/audit';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { mapConcurrencyError } from '../_shared/edit-reply-errors';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,19 +113,8 @@ async function handler(request: NextRequest): Promise<Response> {
       try {
         await validateOptimisticConcurrency(tx, reviewId, parsed.data.snapshot);
       } catch (err) {
-        if (err instanceof ReviewChangedError) {
-          return NextResponse.json(
-            {
-              error: 'review_changed',
-              current_review_text: err.current.reviewText,
-              current_review_hash: err.current.reviewHash,
-            },
-            { status: 409 },
-          );
-        }
-        if (err instanceof ResponseChangedError) {
-          return NextResponse.json({ error: 'response_changed' }, { status: 409 });
-        }
+        const mapped = mapConcurrencyError(err);
+        if (mapped) return mapped;
         throw err;
       }
 

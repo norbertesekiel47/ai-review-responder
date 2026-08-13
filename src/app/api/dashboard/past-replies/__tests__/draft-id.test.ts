@@ -388,6 +388,17 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
     expect(body.error).toBe('invalid_body');
   });
 
+  it('enforces the shared 2000-character limit for draft edits', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    const { PATCH } = await importHandlers();
+    const res = await PATCH(
+      makeRequest({ body: validPatchBody({ new_text: 'x'.repeat(2001) }) }),
+      ctx(),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'invalid_body' });
+  });
+
   it('REGRESSION: when rw_location_scope cookie points at a non-primary location, DB lookups use that location (not primary)', async () => {
     // Session user's locationId is the PRIMARY (LOCATION_ID).
     // Cookie selects ALT_LOCATION_ID — getRequestScope returns it.

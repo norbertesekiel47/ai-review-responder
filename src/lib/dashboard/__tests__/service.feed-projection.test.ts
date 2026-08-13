@@ -7,6 +7,7 @@ import {
 
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
+  withTtlCache: async (_key: string, _ttl: number, compute: () => Promise<unknown>) => compute(),
 }));
 
 import { getActiveDashboardData } from '../service';

@@ -19,6 +19,21 @@ const { getMock, setMock } = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: getMock, set: setMock }),
+  withTtlCache: async <T>(key: string, ttl: number, compute: () => Promise<T>) => {
+    try {
+      const cached = await getMock(key);
+      if (cached) return JSON.parse(cached) as T;
+    } catch {
+      // The production helper fails open.
+    }
+    const value = await compute();
+    try {
+      await setMock(key, JSON.stringify(value), 'EX', ttl);
+    } catch {
+      // The production helper serves the fresh value.
+    }
+    return value;
+  },
 }));
 
 import { getActiveDashboardData, BusinessNotFoundError } from '../service';

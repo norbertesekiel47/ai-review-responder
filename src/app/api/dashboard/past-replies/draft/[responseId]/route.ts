@@ -33,23 +33,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
+import { validateOptimisticConcurrency } from '@/lib/responses/edit-existing';
 import {
-  validateOptimisticConcurrency,
-  ReviewChangedError,
-  ResponseChangedError,
-} from '@/lib/responses/edit-existing';
-import { authorizeEditReplyResponse } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
+  authorizeEditReplyResponse,
+  resolveEditReplyRequest,
+} from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { editRepliesEnabled } from '@/lib/past-replies/flags';
+import { mapConcurrencyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export const dynamic = 'force-dynamic';
 
 const patchBodySchema = z.object({
-  new_text: z.string().trim().min(1).max(2000),
+  new_text: z.string().trim().min(1).max(MAX_REPLY_LENGTH),
   snapshot: snapshotSchema,
 });
 
@@ -61,33 +59,9 @@ export async function PATCH(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (!editRepliesEnabled()) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
-  }
-
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    throw err;
-  }
-
-  let accountId, locationId;
-  try {
-    ({ accountId, locationId } = await resolveOwnerScope(sql, request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
-
-  const { responseId } = await context.params;
-  if (!responseId) {
-    return NextResponse.json({ error: 'invalid_response_id' }, { status: 400 });
-  }
+  const resolved = await resolveEditReplyRequest(sql, request, context.params);
+  if (!resolved.ok) return resolved.response;
+  const { accountId, locationId, responseId } = resolved.value;
 
   const json = await request.json().catch(() => null);
   const parsed = patchBodySchema.safeParse(json);
@@ -125,19 +99,8 @@ export async function PATCH(
       try {
         await validateOptimisticConcurrency(tx, reviewId, parsed.data.snapshot);
       } catch (err) {
-        if (err instanceof ReviewChangedError) {
-          return NextResponse.json(
-            {
-              error: 'review_changed',
-              current_review_text: err.current.reviewText,
-              current_review_hash: err.current.reviewHash,
-            },
-            { status: 409 },
-          );
-        }
-        if (err instanceof ResponseChangedError) {
-          return NextResponse.json({ error: 'response_changed' }, { status: 409 });
-        }
+        const mapped = mapConcurrencyError(err);
+        if (mapped) return mapped;
         throw err;
       }
 
@@ -188,33 +151,9 @@ export async function DELETE(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (!editRepliesEnabled()) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
-  }
-
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    throw err;
-  }
-
-  let accountId, locationId;
-  try {
-    ({ accountId, locationId } = await resolveOwnerScope(sql, request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
-
-  const { responseId } = await context.params;
-  if (!responseId) {
-    return NextResponse.json({ error: 'invalid_response_id' }, { status: 400 });
-  }
+  const resolved = await resolveEditReplyRequest(sql, request, context.params);
+  if (!resolved.ok) return resolved.response;
+  const { accountId, locationId, responseId } = resolved.value;
 
   try {
     return await sql.begin(async (tx) => {

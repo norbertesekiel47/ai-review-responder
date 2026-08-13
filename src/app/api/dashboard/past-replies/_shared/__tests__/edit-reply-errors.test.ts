@@ -5,6 +5,8 @@ const {
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
+  ReviewChangedError,
+  ResponseChangedError,
 } = vi.hoisted(() => {
   class SubscriptionReadOnlyError extends Error {
     readonly status = 402;
@@ -17,16 +19,32 @@ const {
   class NotFoundError extends Error {
     constructor() { super('review_not_found'); this.name = 'NotFoundError'; }
   }
-  return { SubscriptionReadOnlyError, ForbiddenError, NotFoundError };
+  class ReviewChangedError extends Error {
+    constructor(readonly current: { reviewText: string | null; reviewHash: string | null }) {
+      super('review_changed');
+    }
+  }
+  class ResponseChangedError extends Error {
+    constructor() { super('response_changed'); }
+  }
+  return {
+    SubscriptionReadOnlyError,
+    ForbiddenError,
+    NotFoundError,
+    ReviewChangedError,
+    ResponseChangedError,
+  };
 });
 
 vi.mock('@/lib/responses/edit-existing', () => ({
   SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
+  ReviewChangedError,
+  ResponseChangedError,
 }));
 
-import { mapEditReplyError } from '../edit-reply-errors';
+import { mapConcurrencyError, mapEditReplyError } from '../edit-reply-errors';
 
 describe('mapEditReplyError', () => {
   it('maps SubscriptionReadOnlyError → 402 past_due_read_only', async () => {
@@ -62,5 +80,25 @@ describe('mapEditReplyError', () => {
     expect(mapEditReplyError('string')).toBeNull();
     expect(mapEditReplyError(null)).toBeNull();
     expect(mapEditReplyError(42)).toBeNull();
+  });
+});
+
+describe('mapConcurrencyError', () => {
+  it('preserves review_changed details and maps response_changed to 409', async () => {
+    const reviewResponse = mapConcurrencyError(new ReviewChangedError({
+      reviewText: 'updated review',
+      reviewHash: 'hash-2',
+    }));
+    expect(reviewResponse?.status).toBe(409);
+    await expect(reviewResponse?.json()).resolves.toEqual({
+      error: 'review_changed',
+      current_review_text: 'updated review',
+      current_review_hash: 'hash-2',
+    });
+
+    const responseResponse = mapConcurrencyError(new ResponseChangedError());
+    expect(responseResponse?.status).toBe(409);
+    await expect(responseResponse?.json()).resolves.toEqual({ error: 'response_changed' });
+    expect(mapConcurrencyError(new Error('other'))).toBeNull();
   });
 });

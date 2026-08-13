@@ -23,8 +23,9 @@
 //
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => {
+const { mockSql, sqlCalls, scenario, mockPublishingEnabled, initialRunFragment } = vi.hoisted(() => {
   const sqlCalls: { text: string; values: unknown[] }[] = [];
+  const initialRunFragment = { kind: 'initial-run-fragment' };
   const scenario = {
     lockedAccountId: 'acct-1' as string | null,
     target: {
@@ -40,6 +41,10 @@ const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => 
   const mockSql: any = vi.fn((s: TemplateStringsArray, ...v: unknown[]) => {
     const text = Array.from(s).join('?');
     sqlCalls.push({ text, values: v });
+
+    if (text.trim() === "br.run_reason = 'initial'") {
+      return initialRunFragment;
+    }
 
     if (/import_decision_at AS decided_at/.test(text)) {
       return Promise.resolve(
@@ -79,7 +84,7 @@ const { mockSql, sqlCalls, scenario, mockPublishingEnabled } = vi.hoisted(() => 
   mockSql.savepoint = vi.fn((cb: (sp: unknown) => Promise<unknown>) => cb(mockSql));
 
   const mockPublishingEnabled = vi.fn(() => scenario.publishingEnabled);
-  return { mockSql, sqlCalls, scenario, mockPublishingEnabled };
+  return { mockSql, sqlCalls, scenario, mockPublishingEnabled, initialRunFragment };
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -189,7 +194,7 @@ describe('stripe activation resume — Import offer', () => {
 
     const guard = sqlCalls.find((c) => /LEFT JOIN zernio_backfill_runs/.test(c.text));
     expect(guard, 'the shared completed-run guard did not run').toBeDefined();
-    expect(guard!.text).toContain("br.run_reason = 'initial'");
+    expect(guard!.values).toContain(initialRunFragment);
     expect(guard!.text).toContain('br.completed_at IS NOT NULL');
     // And no second, locally-spelled copy came back with it.
     expect(sqlCalls.filter((c) => /zernio_backfill_runs/.test(c.text))).toHaveLength(1);

@@ -31,7 +31,6 @@ import {
   isProcessingBlocked,
 } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
-import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { NON_TERMINAL_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
@@ -39,16 +38,16 @@ import { resolveEditReplyScope } from '../_shared/edit-reply-request';
 import {
   assertCanEditReply,
   validateOptimisticConcurrency,
-  ReviewChangedError,
-  ResponseChangedError,
 } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '../_shared/edit-reply-errors';
+import { mapConcurrencyError, mapEditReplyError } from '../_shared/edit-reply-errors';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import { snapshotSchema } from '../_shared/schemas';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 import { enforceDashboardRegenRateLimit } from '@/lib/shared/dashboard-regen-rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
+import { nextResponseVersion, pendingGenerateExists } from '@/lib/responses/generation-state';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +55,7 @@ const bodySchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('manual'),
     review_id: z.uuid(),
-    new_text: z.string().trim().min(1).max(2000),
+    new_text: z.string().trim().min(1).max(MAX_REPLY_LENGTH),
     snapshot: snapshotSchema,
   }),
   z.object({
@@ -169,14 +168,7 @@ async function handler(request: NextRequest): Promise<Response> {
 
       // 2b. Reject if a regenerate is in flight (worker hasn't INSERTed yet,
       //     so step 2a wouldn't catch it).
-      const pendingGen = await tx<{ exists: number }[]>`
-        SELECT 1 AS exists FROM job_outbox
-        WHERE topic = ${QUEUE_NAMES.GENERATE_RESPONSE}
-          AND aggregate_id = ${parsed.data.review_id}
-          AND status IN ('pending', 'dispatching', 'dispatched')
-        LIMIT 1
-      `;
-      if (pendingGen.length > 0) {
+      if (await pendingGenerateExists(tx, parsed.data.review_id)) {
         return NextResponse.json({ error: 'regenerate_in_progress' }, { status: 409 });
       }
 
@@ -184,29 +176,14 @@ async function handler(request: NextRequest): Promise<Response> {
       try {
         await validateOptimisticConcurrency(tx, parsed.data.review_id, parsed.data.snapshot);
       } catch (err) {
-        if (err instanceof ReviewChangedError) {
-          return NextResponse.json(
-            {
-              error: 'review_changed',
-              current_review_text: err.current.reviewText,
-              current_review_hash: err.current.reviewHash,
-            },
-            { status: 409 },
-          );
-        }
-        if (err instanceof ResponseChangedError) {
-          return NextResponse.json({ error: 'response_changed' }, { status: 409 });
-        }
+        const mapped = mapConcurrencyError(err);
+        if (mapped) return mapped;
         throw err;
       }
 
       // 4. Compute next version (MAX over ALL responses for this review, not
       //    just the posted one — keeps version monotonic across superseded rows).
-      const versionRows = await tx<{ next_version: number }[]>`
-        SELECT COALESCE(MAX(version), 0) + 1 AS next_version
-        FROM responses WHERE review_id = ${parsed.data.review_id}
-      `;
-      const nextVersion = versionRows[0]?.next_version ?? 1;
+      const nextVersion = await nextResponseVersion(tx, parsed.data.review_id);
 
       // 5. Manual: INSERT response row. Regenerate: INSERT outbox row.
       if (parsed.data.mode === 'manual') {

@@ -313,24 +313,27 @@ describe('onDemandGenerateTx', () => {
     expect(txCallTexts().at(-1)).toContain('INSERT INTO job_outbox');
   });
 
-  it('every sibling read is scoped by business_id as well as review_id', async () => {
+  it('keeps sibling reads business-scoped and allocates by the already-locked review id', async () => {
     seedHappyPath(1);
 
     const result = await runGenerate();
     expect(result.ok).toBe(true);
 
-    // The four reads against `responses`: posted-sibling, non-terminal draft,
-    // orphan, MAX(version). Invariant #8 — each carries its own business_id
-    // scope natively (businessId is already resolved and locked), which is
-    // what lets the tenant-scope allowlist entries come out in T3.
+    // The three sibling reads stay natively business-scoped. The shared
+    // MAX(version) allocator keys on the globally unique review id after the
+    // first statement locked that review with its business id.
     const siblingReads = txCalls.filter((call) => call.text.includes('FROM responses'));
     expect(siblingReads).toHaveLength(4);
-    for (const read of siblingReads) {
+    const versionRead = siblingReads.find((call) => call.text.includes('MAX(version)'));
+    const tenantSiblingReads = siblingReads.filter((call) => call !== versionRead);
+    for (const read of tenantSiblingReads) {
       const text = read.text.replace(/\s+/g, ' ');
       expect(text).toContain('review_id');
       expect(text).toContain('business_id');
       expect(read.values).toContain(REVIEW_ID);
       expect(read.values).toContain(BUSINESS_ID);
     }
+    expect(versionRead?.text).toContain('WHERE review_id = ?::uuid');
+    expect(versionRead?.values).toContain(REVIEW_ID);
   });
 });

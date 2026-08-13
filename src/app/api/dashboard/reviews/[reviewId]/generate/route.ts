@@ -22,9 +22,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireDashboardReviewOwner } from '@/lib/approval/http-routes';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { errorResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 import { onDemandGenerateTx } from '@/lib/reviews/on-demand-generate';
+import { proveReviewOwnership } from '@/lib/responses/review-ownership';
 import {
   enforceDashboardRegenRateLimit,
   enforceRegenBudgetForReview,
@@ -35,15 +36,17 @@ import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
 
+// Auth/rate-limit setup deliberately stays route-local: first generation and
+// regeneration diverge immediately afterward in ownership, budget, and enqueue semantics.
 async function generateFirstDraft(
   request: NextRequest,
   { params }: { params: Promise<{ reviewId: string }> },
 ): Promise<NextResponse> {
+  // fallow-ignore-next-line code-duplication
   const owner = await requireDashboardReviewOwner(request);
   if (owner instanceof NextResponse) return owner;
 
-  // C3: the THIRD caller of the shared per-owner counter. Before any DB work,
-  // matching regenerate/route.ts. Fails open by design.
+  // Rate limiting is fail-open and runs before any database work.
   const limited = await enforceDashboardRegenRateLimit(owner.accountId);
   if (limited) return limited;
 
@@ -51,23 +54,10 @@ async function generateFirstDraft(
 
   // Tenant proof: the review must belong to a live location under this account.
   // This is the ownership gate — do NOT trust a location cookie here.
-  const ownedRows = await sql<{ business_id: string }[]>`
-    SELECT rv.business_id
-    FROM reviews rv
-    JOIN businesses b ON b.id = rv.business_id
-    WHERE rv.id = ${reviewId}::uuid
-      AND b.account_id = ${owner.accountId}::uuid
-      AND b.archived_at IS NULL
-    LIMIT 1
-  `;
-  const owned = ownedRows[0];
-  if (!owned) {
-    return NextResponse.json(
-      { error: 'review_not_found' },
-      { status: 404, headers: NO_STORE_HEADERS },
-    );
+  const businessId = await proveReviewOwnership(sql, reviewId, owner.accountId);
+  if (!businessId) {
+    return errorResponse('review_not_found', 404);
   }
-  const businessId = owned.business_id;
 
   // ONE guard, not two. assertWritableSubscriptionForAccount already resolves
   // the offboarding state in the SAME query (LEFT JOIN account_offboardings)
@@ -79,10 +69,7 @@ async function generateFirstDraft(
   // processing-class, which is exactly this helper's default.
   const writable = await assertWritableSubscriptionForAccount(owner.accountId, sql);
   if (!writable.ok) {
-    return NextResponse.json(
-      { error: writable.error },
-      { status: writable.status, headers: NO_STORE_HEADERS },
-    );
+    return errorResponse(writable.error, writable.status);
   }
 
   // Read-only peek — consumes no budget, fails open. Authoritative gate stays

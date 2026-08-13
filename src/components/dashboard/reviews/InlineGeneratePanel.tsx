@@ -21,8 +21,7 @@
 
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { useInlineGenerate } from '@/components/dashboard/reviews/useInlineGenerate';
-
-const MAX_EDIT_LENGTH = 2000;
+import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export function InlineGeneratePanel({
   reviewId,
@@ -86,7 +85,7 @@ export function InlineGeneratePanel({
             className="pr-gen-textarea"
             aria-label="Edit the draft reply"
             value={state.text}
-            maxLength={MAX_EDIT_LENGTH}
+            maxLength={MAX_REPLY_LENGTH}
             rows={5}
             onChange={(event) => actions.changeEditText(event.target.value)}
           />

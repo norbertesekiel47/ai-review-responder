@@ -80,10 +80,23 @@ vi.mock('../zernio-ingest-shared', async () => {
   const actual = await vi.importActual<typeof import('../zernio-ingest-shared')>(
     '../zernio-ingest-shared',
   );
+  const { detectLikelyPhi } = await vi.importActual<
+    typeof import('../../../../src/lib/security/phi-scanner')
+  >('../../../../src/lib/security/phi-scanner');
   return {
     liveIngestCutoff: actual.liveIngestCutoff,
     reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
     openPhiReviewException: mockOpenPhiReviewException,
+    screenPhiOrOpenException: async (
+      sql: unknown,
+      input: { review: ZernioReview; source: string },
+      logger: unknown,
+    ) => {
+      const phi = detectLikelyPhi(input.review.comment);
+      if (!phi.matched) return false;
+      await mockOpenPhiReviewException(sql, { ...input, reasons: phi.reasons }, logger);
+      return true;
+    },
     handleZernioIngestError: mockHandleZernioIngestError,
   };
 });
