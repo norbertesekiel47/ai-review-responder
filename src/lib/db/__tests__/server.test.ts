@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeAllPostgresClients, createDedicatedPostgresClient, sql, sqlRead, SHARED_POOL_MAX } from '../server';
+import { admissionStats } from '../admission';
 
 // Constructing a postgres.js client does NOT open a connection (it connects
 // lazily on the first query), so these assertions are offline and side-effect
@@ -136,6 +137,15 @@ describe('sqlRead read bulkhead', () => {
 
   it('exposes the shared write-pool max as a positive number', () => {
     expect(SHARED_POOL_MAX).toBeGreaterThan(0);
+  });
+
+  // Without this, unwrapping either singleton in server.ts would pass every
+  // other test in the repo — admission.test.ts exercises the wrapper, nothing
+  // asserted it was actually APPLIED (#773).
+  it('gates BOTH singletons at their own pool size', () => {
+    expect(admissionStats(sql)).toMatchObject({ cap: SHARED_POOL_MAX });
+    const readMax = (sqlRead as unknown as { options: { max: number } }).options.max;
+    expect(admissionStats(sqlRead)).toMatchObject({ cap: readMax });
   });
 
   it('floors DB_READ_POOL_MAX at the wedge-safe minimum — a mis-set 1 cannot reintroduce the #505 wedge (codex #6)', async () => {

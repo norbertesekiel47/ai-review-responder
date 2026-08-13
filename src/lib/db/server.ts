@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { createClient } from '@supabase/supabase-js';
 import { createWorkerLogger } from '../shared/logger';
+import { withAdmissionControl } from './admission';
 
 // Boot-time config-validation warnings (pool sizing). Safe at this foundational
 // layer: logger.ts imports only a pure sanitizer + node-only log-context (no cycle).
@@ -37,20 +38,36 @@ const BASE_POSTGRES_OPTIONS = {
 // `connection.statement_timeout`.
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 
-export const sql = postgres(process.env.DATABASE_POOL_URL!, {
-  ...BASE_POSTGRES_OPTIONS,
-  // One client serves two roles, so `max` is env-tunable: the Railway worker
-  // keeps the default 10; Vercel sets DB_POOL_MAX=3 per serverless instance
-  // (the Supabase pooler multiplexes behind it — keep per-instance demand low).
-  max: readPoolMax(),
-  connection: {
-    statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
-  },
-});
-
 // Resolved shared write-pool ceiling (env-tunable). Exported so the worker
-// composition root hands it to the pool-wait probe without re-reading env.
+// composition root hands it to the pool-wait probe without re-reading env, and
+// used below as the admission cap — cap == pool is exactly the condition under
+// which postgres.js never pipelines onto a busy connection.
 export const SHARED_POOL_MAX = readPoolMax();
+
+/**
+ * The shared write client, behind the #773 admission chokepoint.
+ *
+ * The gate is applied HERE, at the client, not at call sites: `src/app/**`
+ * alone has 153 files importing `sql`, so per-call-site discipline has no
+ * enforceable coverage. It is transparent — same type, same laziness, same
+ * chaining — so nothing downstream changes. What changes is that a 4th
+ * concurrent query against a pool of 3 now WAITS instead of being pipelined
+ * onto a busy connection. See `./admission.ts` for the mechanism and why
+ * postgres.js cannot do this itself.
+ */
+export const sql = withAdmissionControl(
+  postgres(process.env.DATABASE_POOL_URL!, {
+    ...BASE_POSTGRES_OPTIONS,
+    // One client serves two roles, so `max` is env-tunable: the Railway worker
+    // keeps the default 10; Vercel sets DB_POOL_MAX=3 per serverless instance
+    // (the Supabase pooler multiplexes behind it — keep per-instance demand low).
+    max: readPoolMax(),
+    connection: {
+      statement_timeout: DEFAULT_STATEMENT_TIMEOUT_MS,
+    },
+  }),
+  { cap: SHARED_POOL_MAX, clientName: 'sql' },
+);
 
 /**
  * Read-path pool size (`sqlRead`). Sized to the fan-out of the routes that use
@@ -98,11 +115,21 @@ function readReadPoolMax(): number {
  * 'Supavisor' server-side (ADR 0007), so it is NOT an attribution mechanism.
  * Lazy: postgres.js connects on first query; the worker imports this module
  * but never queries sqlRead, so zero connections there.
+ *
+ * Also behind the #773 admission chokepoint, at its OWN cap — a separate pool
+ * needs a separate gate, and a transaction on `sql` does not exempt it. The
+ * dedicated poller clients from `createDedicatedPostgresClient` are
+ * deliberately NOT gated: each is a small single-flight bulkhead whose caller
+ * already controls its own fan-out.
  */
-export const sqlRead = createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
-  max: readReadPoolMax(),
-  connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
-});
+const READ_POOL_MAX = readReadPoolMax();
+export const sqlRead = withAdmissionControl(
+  createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
+    max: READ_POOL_MAX,
+    connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
+  }),
+  { cap: READ_POOL_MAX, clientName: 'sqlRead' },
+);
 
 /** Tight overrides a dedicated client may pass; both are optional. */
 type DedicatedClientOverrides = {

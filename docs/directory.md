@@ -449,6 +449,7 @@ Database and cache clients.
 | File | What it does |
 |------|--------------|
 | `server.ts` | Exports the Postgres.js `sql` tagged-template client (PgBouncer pool) and `supabaseServer` (service-role Supabase client). Also exports `jsonb(value)` helper — the only correct way to pass JSONB values. Composition-root-only import (invariant #15). |
+| `admission.ts` | **The #773 admission chokepoint.** `withAdmissionControl(client, {cap, clientName})` wraps a postgres.js client so in-flight work never exceeds its pool: a top-level query takes one slot, a `sql.begin()` takes ONE slot for the whole transaction (its `tx` queries are ungated by construction), and excess callers QUEUE with a 30s deadline (`DbSlotTimeoutError`) instead of being pipelined onto a busy connection. Applied to `sql` and `sqlRead` in `server.ts` — at the CLIENT, because `src/app/**` alone has 153 files importing `sql`. Kill switch `DB_ADMISSION_ENABLED=false`. |
 | `browser.ts` | `supabaseClient` — Supabase JS client for browser-side code (anon key, SSR-safe cookie management). |
 | `supabase-server.ts` | `createSupabaseServerClient()` — SSR Supabase client (anon key, reads request cookies). Used in API routes and middleware. |
 | `auth.ts` | `requireRole(req, role)` — throws `AuthError` if the session lacks the required role. |

@@ -2346,3 +2346,52 @@ the caller's client as a union — `SubscriptionSql` in
   explicitly self-scoping ("Response rate is …"), keep it outside every stat column,
   and pin both properties: exact sentence plus a DOM assertion that the caption has no
   `.rep-stat` ancestor.
+
+## 2026-08-13 — #773 admission chokepoint (step A)
+
+- [2026-08-13] The `max_pipeline` dial looked like the obvious cure for the #773
+  wedge and is a **dead end at every value** → `max_pipeline: 0` breaks EVERY
+  `sql.begin()` (`connection.js:170-178` short-circuits on
+  `sent.length < max_pipeline` *before* invoking `q.options.onexecute`, the only
+  hook that binds a transaction to its connection → `UNSAFE_TRANSACTION` across
+  192 call sites), and `max_pipeline: 1` still admits **two** queries in flight
+  (the first query is `query`, not in `sent`, so `sent.length === 0 < 1` passes)
+  and wedged 6/6 on staging, indistinguishable from the default 100. CORRECT →
+  bound admission in application code above postgres.js. `src/lib/db/admission.ts`
+  wraps the `sql`/`sqlRead` singletons at cap == pool, which is exactly the
+  no-pipelining condition: with N ≤ max in flight `handler()` always finds an
+  `open` or `closed` connection and never reaches `go(busy.shift(), query)`.
+- [2026-08-13] Wrapping a postgres.js client is NOT a matter of proxying the
+  returned query — a Proxy over the `Query` breaks `.raw()`/`.values()`/
+  `.simple()`/`.forEach()` chaining, and gating at call sites is not an option
+  either (`src/app/**` alone has **153** files importing `sql`, so coverage is
+  unenforceable). WHY the seam exists → `Query` is LAZY: the constructor only
+  stores `handler`, and dispatch happens in `handle()`, called from
+  `then`/`catch`/`finally`/`forEach`/`execute`. CORRECT → replace `handler` on
+  the SAME instance (carrying `handler.debug` over, which `Query.origin` reads)
+  and release the slot via `Promise.prototype.then.call(query, release, release)`
+  — `handle()` has already run at that point, so it cannot re-dispatch, and
+  passing both handlers means a rejected query can't emit an unhandled rejection.
+  `.cursor()` is the one shape that cannot be gated: it re-assigns
+  `resolve`/`reject` on every iterator step and never settles the Query promise,
+  so there is no settlement to release on — it throws rather than leaking a slot
+  (zero call sites today).
+- [2026-08-13] Counting a slot per QUERY deadlocks; counting per CONNECTION does
+  not → `sql.begin()` holds one connection for the whole transaction, so a
+  per-query semaphore has a transaction waiting on a slot it is itself holding.
+  CORRECT → one slot per transaction for its full duration; queries on the `tx`
+  handle are ungated **by construction** (postgres.js hands the callback a
+  separate scoped `Sql` with its own handler). The residual hazard — code inside
+  a transaction reaching the OUTER `sql` handle — is handled with an
+  `AsyncLocalStorage` store carrying WHICH clients' slots are held (not a bare
+  flag, so a transaction on `sql` cannot exempt `sqlRead` from its own gate):
+  the self-referential case bypasses the gate instead of waiting, which can never
+  deadlock, over-subscribes by at most one per in-flight transaction, and is
+  counted + warned once so the anti-pattern stays visible.
+- [2026-08-13] Binding a wrapped client's methods EAGERLY (`client.unsafe.bind(client)`
+  at wrap time) crashed a suite that `vi.mock`s the `postgres` module —
+  `Cannot read properties of undefined (reading 'bind')` at import time, from a
+  test file that never touches the pool. CORRECT → resolve wrapped methods on
+  first ACCESS inside the Proxy `get` trap and memoize them (identity must stay
+  stable or `vi.spyOn` breaks); merely constructing a wrapper must never assume
+  the wrapped object is real.

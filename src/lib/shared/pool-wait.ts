@@ -6,6 +6,13 @@
 // outstanding reservation globally so repeated endpoint hits can't accumulate
 // queued reservations under a wedge (codex #2). `max` is caller-supplied
 // context only (the shared pool's configured ceiling) — never read here.
+//
+// Since #773 the shared client is behind the admission chokepoint
+// (src/lib/db/admission.ts), and `reserve()` takes a slot like any other work —
+// so `waitMs` now includes ADMISSION queue wait, not just postgres.js connect
+// wait. That is the more honest saturation signal (a caller's real wait is the
+// slot wait), but it means a saturated gate reports `saturating: true` where the
+// pre-#773 probe would have reported a fast reserve on an over-subscribed pool.
 import type postgres from 'postgres';
 import { withTimeout, TimeoutError } from './with-timeout';
 import { createWorkerLogger, toError } from './logger';
