@@ -100,6 +100,126 @@ staging project while the branch exists.
 
 Record the 3-arm outcome in **Results** below.
 
+## Part C — #773 authenticated Vercel capacity decision (shared staging)
+
+**What it proves:** complete-response latency and connection pressure for the
+two staging surfaces named by #773: owner `GET /api/dashboard` and AAL2-admin
+`GET /api/admin/flagged?limit=20&offset=0`. This is a read-only request drill.
+It does not change pool sizes, routing, flags, schema, or durable data, and it
+does not re-run Part B's outbox injection.
+
+### Safety and evidence contract
+
+Open `docs/runbooks/evidence/YYYY-MM-DD-773-vercel-capacity-decision.md` and its
+teardown ledger before the first request. Use only existing authenticated
+Chrome sessions. Never read/export cookies or tokens, return response bodies
+to the operator, or record query text. Owner and admin roles cannot share one
+origin cookie jar: use isolated Chrome profiles, or stop for an explicit
+user-driven profile/login switch. Validate the expected role and HTTP status
+immediately before each lane; never automate MFA.
+
+Pin one staging deployment ID for the whole recorded window. If it changes,
+discard the mixed-deployment samples. Every request must use
+`cache: 'no-store'`, a 15-second deadline, and measure from `fetch()` through
+completed `response.text()`. The body is discarded in page context.
+
+Abort immediately on any timeout, non-2xx response, Vercel health degradation,
+backend sessions at or above **46 of 57 usable**, or a growing wedge signature.
+Never terminate a backend on shared staging.
+
+### Continuous database observer
+
+Use a separate direct (`:5432`) read-only staging connection. Sample every two
+seconds from preflight through recovery. Record aggregates only:
+
+```sql
+SELECT
+  count(*) FILTER (WHERE pid <> pg_backend_pid())::int AS total,
+  count(*) FILTER (WHERE pid <> pg_backend_pid() AND state = 'active')::int AS active,
+  count(*) FILTER (WHERE pid <> pg_backend_pid() AND state = 'idle')::int AS idle,
+  count(*) FILTER (WHERE pid <> pg_backend_pid() AND state = 'idle in transaction')::int
+    AS idle_in_transaction,
+  count(*) FILTER (
+    WHERE pid <> pg_backend_pid()
+      AND state = 'active'
+      AND wait_event = 'ClientRead'
+  )::int AS active_client_read,
+  coalesce(max(extract(epoch FROM (clock_timestamp() - query_start))) FILTER (
+    WHERE pid <> pg_backend_pid()
+      AND state = 'active'
+      AND wait_event = 'ClientRead'
+  ), 0)::double precision AS oldest_active_client_read_seconds
+FROM pg_stat_activity;
+```
+
+Only `state='active' AND wait_event='ClientRead'` is the damaging #505/#773
+signature. Idle pooler sessions waiting on `ClientRead` are not wedges.
+
+### Owner lane — cache hits and forced misses
+
+Valid dashboard `window` keys are `7d`, `30d`, `90d`, and `12w`; the server-side
+Redis TTL is 45 seconds. Browser `no-store` does not bypass that Redis cache.
+Record four separately labeled groups:
+
+1. **Hit / concurrency 1:** warm one key immediately before the lane; exclude
+   that warm-up; record 20 sequential requests to the same key. Finish inside
+   its 45-second TTL or discard and restart the lane.
+2. **Hit / concurrency 4:** re-warm immediately before this lane; record 10
+   waves of four requests to the warm key. Apply the same TTL-boundary rule.
+3. **Forced miss / concurrency 1:** record 20 requests as five rounds over all
+   four keys. Do not warm them first; wait at least 46 seconds before reusing
+   any key.
+4. **Forced miss / concurrency 4:** record 10 waves. Each wave uses all four
+   distinct expired keys, one per request, so one response cannot populate
+   another request's cache entry. Wait at least 46 seconds before any key is
+   reused.
+
+For every group record UTC window, deployment ID, role, route, cache posture,
+concurrency, `n`, status counts, failures, timeouts, and min/p50/p95/max.
+
+### AAL2-admin lane
+
+After recovery from the owner lane, switch to an isolated admin profile or stop
+for the owner's explicit login/profile boundary. Reconfirm deployment ID and
+AAL2-admin access, then run one excluded warm-up, 20 sequential recorded
+requests, and 10 recorded waves of four against
+`/api/admin/flagged?limit=20&offset=0`. This route has no application Redis
+cache lane. Record the same fields as above.
+
+### Correlation and recovery
+
+For each exact UTC lane window, capture available Vercel invocation errors,
+timeouts, Start Type distribution, region, and latency/resource signals. Map
+the database peak to 57 usable backend sessions and carry forward ADR 0009's
+per-isolate write-3 plus read-8 client arithmetic and compound worker-plus-
+Vercel residual.
+
+After every load lane—and immediately after an abort—keep the observer running
+until `active_client_read=0`, its oldest age is no longer growing, and total /
+active counts are back in the preflight band for two consecutive samples. Then
+verify one sequential full-body request for each currently available role and
+re-read Vercel health. If recovery is not observed within 45 minutes, verdict
+is **FAIL**, teardown remains open, and no treatment is selected.
+
+### Treatment decision
+
+Select exactly one next treatment for a separate guarded implementation run;
+do not implement it here. Compare in this order:
+
+1. reduce `listOpenFlaggedResponses` from two simultaneous reads to one in
+   flight (prefer one exact window-count query, otherwise sequence page/count);
+2. route implicated read-only surfaces to `sqlRead`, only with proven peak
+   fan-out `<= 8`;
+3. raise Vercel `DB_POOL_MAX`, only with recalculated 57-backend and ~200-client
+   headroom including compound worker demand;
+4. bounded application-level admission/queuing;
+5. accept residual risk with a named monitoring signal, only when both lanes
+   are healthy and headroom is demonstrated.
+
+A reproduced wedge or body timeout rules out acceptance. Backend peak
+`>= 46/57` rules out increasing either local pool. Non-reproduction alone never
+proves the wedge class closed.
+
 ## Part B — Capacity-burst drill (proves dispatch-drain + alert fire/clear)
 
 **Design target (ADR 0005 addendum / #474):** 250 locations at 6 months,
