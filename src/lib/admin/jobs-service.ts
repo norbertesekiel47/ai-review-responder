@@ -62,14 +62,22 @@ export async function getAdminJobsData(
   sql: Sql,
   { limit, offset }: { limit: number; offset: number },
 ): Promise<AdminJobsData> {
-  // Fan-out is 3 on the SHARED `sql` client, whose pool is `DB_POOL_MAX` = 3 on
-  // Vercel — one connection per query, the shape #505 proved non-wedging. It is
-  // AT the limit, not under it: a 4th query here reintroduces the permanent
-  // Connection wedge. Both callers race this against `fetchQueueHealth`, which
-  // is safe ONLY because that is an HTTP call to the worker and takes no `sql`
-  // connection; do not swap it for a DB-backed reader without going sequential.
-  const [summaryRows, failedRows, countRows] = await Promise.all([
-    sql<OutboxSummaryRow[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773).
+  //
+  // The previous comment here reasoned that a fan-out of 3 against
+  // `DB_POOL_MAX` = 3 was safe because #505 proved one-connection-per-query
+  // non-wedging. Staging measurement on 2026-08-13 DISPROVED that as a
+  // sufficient condition: `/api/admin/flagged` wedged with a fan-out of only
+  // TWO against the same 3-connection pool, because the pool is per Fluid
+  // Compute ISOLATE and is shared across overlapping requests. Fan-out ≤ pool
+  // says nothing once two requests land on one isolate. Evidence: branch
+  // codex/773-vercel-capacity-decision,
+  // docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md.
+  //
+  // Both callers race this against `fetchQueueHealth`, which remains safe only
+  // because that is an HTTP call to the worker and takes no `sql` connection;
+  // do not swap it for a DB-backed reader.
+  const summaryRows = await sql<OutboxSummaryRow[]>`
       SELECT
         COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending,
         COUNT(CASE WHEN status = 'dispatching' THEN 1 END)::int AS dispatching,
@@ -77,18 +85,19 @@ export async function getAdminJobsData(
         COUNT(CASE WHEN status = 'failed' THEN 1 END)::int AS failed,
         COUNT(CASE WHEN status = 'completed' AND completed_at >= CURRENT_DATE THEN 1 END)::int AS completed_today
       FROM job_outbox
-    `,
-    sql<FailedJobRow[]>`
+    `;
+  const failedRows = await sql<FailedJobRow[]>`
       SELECT id, topic, last_error, attempts, max_attempts, created_at
       FROM job_outbox
       WHERE status = 'failed'
       ORDER BY created_at DESC
       LIMIT ${limit} OFFSET ${offset}
-    `,
-    sql<FailedCountRow[]>`
+    `;
+  // Not collapsed into a window `COUNT(*) OVER ()`: an empty page (offset past
+  // the end) carries no row to hold the total, which would report 0.
+  const countRows = await sql<FailedCountRow[]>`
       SELECT COUNT(*)::int AS total FROM job_outbox WHERE status = 'failed'
-    `,
-  ]);
+    `;
 
   const summary = summaryRows[0] ?? { pending: 0, dispatching: 0, dispatched: 0, failed: 0, completed_today: 0 };
   const failedTotal = countRows[0]?.total ?? 0;

@@ -125,15 +125,22 @@ export async function getMarginReport(
 ): Promise<MarginData> {
   const limit = opts.limit ?? 20;
 
-  // Fan-out is 3 on the SHARED `sql` client, whose pool is `DB_POOL_MAX` = 3 on
-  // Vercel — one connection per query, the shape #505 proved non-wedging. It is
-  // AT the limit, not under it: a 4th query here reintroduces the permanent
-  // Connection wedge, and so does racing this against any other `sql` work.
-  // That is exactly why both callers (src/app/admin/costs/page.tsx and
-  // src/app/api/admin/costs/route.ts) now await it sequentially after the cost
-  // report instead of running it concurrently.
-  const [accountRows, costRows, platformRows] = await Promise.all([
-    sql<AccountRow[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773).
+  //
+  // The previous comment here reasoned that a fan-out of 3 against
+  // `DB_POOL_MAX` = 3 was safe because #505 proved one-connection-per-query
+  // non-wedging. Staging measurement on 2026-08-13 DISPROVED that as a
+  // sufficient condition: `/api/admin/flagged` wedged with a fan-out of only
+  // TWO against the same 3-connection pool, because the pool is per Fluid
+  // Compute ISOLATE and is shared across overlapping requests. Fan-out ≤ pool
+  // says nothing once two requests land on one isolate. Evidence: branch
+  // codex/773-vercel-capacity-decision,
+  // docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md.
+  //
+  // The three reads are independent, so sequencing changes no result. It trades
+  // latency (sum instead of max) on an admin-only page for the wedge removal.
+  // Keeping the callers' sequential await of this function is still correct.
+  const accountRows = await sql<AccountRow[]>`
       SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
              a.locations_included, a.locations_overage_price_cents, a.base_price_cents,
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
@@ -141,8 +148,8 @@ export async function getMarginReport(
       LEFT JOIN businesses b ON b.account_id = a.id
       WHERE a.subscription_status IN ('active', 'past_due', 'trialing')  -- enum: SubscriptionStatus.ACTIVE / .PAST_DUE / .TRIALING (trialing = distinct $0-revenue cohort)
       GROUP BY a.id
-    `,
-    sql<CostAggRow[]>`
+    `;
+  const costRows = await sql<CostAggRow[]>`
       SELECT account_id,
              SUM(cost_usd)::float AS api_cost_usd,
              COUNT(*) FILTER (WHERE provider IN ('openai', 'anthropic'))::int AS generation_count,
@@ -154,13 +161,12 @@ export async function getMarginReport(
       WHERE account_id IS NOT NULL
         AND created_at >= NOW() - INTERVAL '30 days'
       GROUP BY account_id
-    `,
-    sql<{ total_cost_usd: number | null }[]>`
+    `;
+  const platformRows = await sql<{ total_cost_usd: number | null }[]>`
       SELECT COALESCE(SUM(cost_usd), 0)::float AS total_cost_usd
       FROM api_costs
       WHERE created_at >= NOW() - INTERVAL '30 days'
-    `,
-  ]);
+    `;
 
   const costByAccount = new Map<string, CostAggRow>();
   for (const row of costRows) costByAccount.set(row.account_id, row);
