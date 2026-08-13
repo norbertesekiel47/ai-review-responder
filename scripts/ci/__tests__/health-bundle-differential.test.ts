@@ -7,6 +7,7 @@ import {
   collapseArmOutcome,
   runWithDeadline,
   evaluateRun,
+  formatSummaryLines,
   DIFFERENTIAL_ARMS,
   DIFFERENTIAL_DEADLINE_MS,
   type DeadlineResult,
@@ -236,5 +237,32 @@ describe('evaluateRun (expected-vs-actual exit gating)', () => {
     const verdict = evaluateRun(arms({ 'sequential-max2': 'wedged' }), true);
     expect(verdict.status).toBe('aborted-residual');
     expect(verdict.exitCode).toBe(1);
+  });
+});
+
+describe('formatSummaryLines', () => {
+  it('renders every arm expectation and the verdict reasons without branching in the reporter', () => {
+    const arms: RunArms = {
+      'concurrent-max2': 'wedged',
+      'concurrent-max2-pipeline1': 'wedged',
+      'sequential-max2': 'fulfilled',
+      'concurrent-max6': 'fulfilled',
+    };
+    const perArm: Parameters<typeof formatSummaryLines>[1] = {
+      'concurrent-max2': ['wedged', 'wedged'],
+      'concurrent-max2-pipeline1': ['wedged', 'wedged'],
+      'sequential-max2': ['fulfilled', 'fulfilled'],
+      'concurrent-max6': ['fulfilled', 'fulfilled'],
+    };
+    const verdict = evaluateRun(arms, false);
+
+    const output = formatSummaryLines(arms, perArm, verdict).join('\n');
+
+    expect(output).toContain('concurrent-max2: wedged (expected wedge)');
+    expect(output).toContain('concurrent-max2-pipeline1: wedged (expected question-under-test)');
+    expect(output).toContain('sequential-max2: fulfilled (expected clean)');
+    expect(output).toContain('concurrent-max6: fulfilled (expected clean)');
+    expect(output).toContain('VERDICT: depth-one-wedged (exit 0)');
+    expect(output).toContain('legacy max_pipeline=100 and max_pipeline=1 both wedged');
   });
 });

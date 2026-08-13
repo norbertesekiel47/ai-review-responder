@@ -85,21 +85,33 @@ const USAGE =
   'usage: health-bundle-differential.ts --branch-pool-url <url> --confirm-branch <branch-ref> ' +
   '[--iterations N] [--observer-url <url>]';
 
+function collectFlags(argv: string[]): Map<string, string> {
+  const flags = new Map<string, string>();
+  let pendingKey: string | undefined;
+
+  for (const token of argv.slice(2)) {
+    if (pendingKey !== undefined) {
+      flags.set(pendingKey, token);
+      pendingKey = undefined;
+      continue;
+    }
+
+    const match = /^--([^=]+)(?:=(.*))?$/.exec(token);
+    if (!match) continue;
+    const [, key, inlineValue] = match;
+    if (inlineValue === undefined) pendingKey = key;
+    else flags.set(key!, inlineValue);
+  }
+
+  if (pendingKey !== undefined) flags.set(pendingKey, '');
+  return flags;
+}
+
 // CLI arg parsing; one branch per flag — inherently branchy, correctness pinned by
 // scripts/ci/__tests__/health-bundle-differential.test.ts.
 // fallow-ignore-next-line complexity
 export function parseArgs(argv: string[]): DifferentialConfig {
-  const flags = new Map<string, string>();
-  for (let i = 2; i < argv.length; i++) {
-    const token = argv[i]!;
-    if (!token.startsWith('--')) continue;
-    const eq = token.indexOf('=');
-    if (eq !== -1) {
-      flags.set(token.slice(2, eq), token.slice(eq + 1));
-    } else {
-      flags.set(token.slice(2), argv[++i] ?? '');
-    }
-  }
+  const flags = collectFlags(argv);
 
   const branchPoolUrl = (flags.get('branch-pool-url') ?? '').trim();
   if (!branchPoolUrl) throw new Error(`--branch-pool-url is required. ${USAGE}`);
@@ -338,36 +350,70 @@ interface ArmRun {
   residualSurvived: boolean;
 }
 
-// One arm: N fresh-client iterations, each raced against the deadline, corroborated,
-// then cleaned up with a baseline barrier. Inherently branchy repro protocol.
-// fallow-ignore-next-line complexity
-async function runArm(
+interface ArmExecution {
+  name: ArmName;
+  clientMax: number;
+  maxPipeline: number;
+  fire: (sql: Sql, cfg: HealthAlertConfig) => Promise<unknown>;
+  cfg: HealthAlertConfig;
+  config: DifferentialConfig;
+  observer: Sql;
+  liveClients: Set<Sql>;
+}
+
+function createArmClient(config: DifferentialConfig, clientMax: number, maxPipeline: number): Sql {
+  // `max_pipeline` is implemented by postgres.js 3.4.9 but omitted from its
+  // public Options type. Keep the compatibility cast isolated to this experiment;
+  // production client options remain unchanged.
+  const clientOptions: postgres.Options<{}> & { max_pipeline: number } = {
+    prepare: false,
+    idle_timeout: 30,
+    max_lifetime: 1800,
+    connect_timeout: 10,
+    max: clientMax,
+    connection: { statement_timeout: 30_000 },
+    max_pipeline: maxPipeline,
+  };
+  return postgres(config.branchPoolUrl, clientOptions);
+}
+
+async function classifyArmWork(work: Promise<unknown>, observer: Sql): Promise<ArmOutcome> {
+  const result = await runWithDeadline(work, DIFFERENTIAL_DEADLINE_MS);
+  const signaturePresent = result.status === 'timeout'
+    ? (await sampleWedgeSignature(observer)).length > 0
+    : false;
+  return classifyArm(result, signaturePresent);
+}
+
+async function restoreArmBaseline(
   name: ArmName,
-  clientMax: number,
-  maxPipeline: number,
-  fire: (sql: Sql, cfg: HealthAlertConfig) => Promise<unknown>,
-  cfg: HealthAlertConfig,
-  config: DifferentialConfig,
+  client: Sql,
   observer: Sql,
   liveClients: Set<Sql>,
-): Promise<ArmRun> {
+): Promise<boolean> {
+  await bestEffortEnd(client);
+  liveClients.delete(client);
+  const killed = await terminateAllWedgeBackends(observer);
+  if (killed > 0) console.log(`[${name}] terminated ${killed} wedge-signature backend(s)`);
+
+  await sleep(500);
+  const residual = await sampleWedgeSignature(observer);
+  if (residual.length === 0) return false;
+  console.error(
+    `[${name}] ABORT: ${residual.length} wedge-signature backend(s) survived terminate-all ` +
+      `(pids ${residual.join(',')}) — branch pooler misbehaving`,
+  );
+  return true;
+}
+
+// One arm: N fresh-client iterations, each raced against the deadline, corroborated,
+// then cleaned up with a baseline barrier.
+async function runArm(execution: ArmExecution): Promise<ArmRun> {
+  const { name, clientMax, maxPipeline, fire, cfg, config, observer, liveClients } = execution;
   const outcomes: ArmOutcome[] = [];
-  let residualSurvived = false;
 
   for (let i = 0; i < config.iterations; i++) {
-    // `max_pipeline` is implemented by postgres.js 3.4.9 but omitted from its
-    // public Options type. Keep the compatibility cast isolated to this experiment;
-    // production client options remain unchanged.
-    const clientOptions: postgres.Options<{}> & { max_pipeline: number } = {
-      prepare: false,
-      idle_timeout: 30,
-      max_lifetime: 1800,
-      connect_timeout: 10,
-      max: clientMax,
-      connection: { statement_timeout: 30_000 },
-      max_pipeline: maxPipeline,
-    };
-    const client = postgres(config.branchPoolUrl, clientOptions);
+    const client = createArmClient(config, clientMax, maxPipeline);
     liveClients.add(client);
 
     const work = fire(client, cfg);
@@ -375,69 +421,51 @@ async function runArm(
     // pg_terminate below) so it never surfaces as an unhandledRejection after timeout.
     void work.catch(() => {});
 
-    const result = await runWithDeadline(work, DIFFERENTIAL_DEADLINE_MS);
-    let signaturePresent = false;
-    if (result.status === 'timeout') {
-      signaturePresent = (await sampleWedgeSignature(observer)).length > 0;
-    }
-    const outcome = classifyArm(result, signaturePresent);
+    const outcome = await classifyArmWork(work, observer);
     outcomes.push(outcome);
     console.log(`[${name}] iteration ${i + 1}/${config.iterations}: ${outcome}`);
 
     // Cleanup ladder: best-effort FIN, then terminate-all-wedge (sole-client → safe).
-    await bestEffortEnd(client);
-    liveClients.delete(client);
-    const killed = await terminateAllWedgeBackends(observer);
-    if (killed > 0) console.log(`[${name}] terminated ${killed} wedge-signature backend(s)`);
-
-    // Baseline barrier: the branch must show zero wedge-signature backends before
-    // the next iteration/arm. A residual that survived terminate-all → ABORT.
-    await sleep(500);
-    const residual = await sampleWedgeSignature(observer);
-    if (residual.length > 0) {
-      console.error(
-        `[${name}] ABORT: ${residual.length} wedge-signature backend(s) survived terminate-all ` +
-          `(pids ${residual.join(',')}) — branch pooler misbehaving`,
-      );
-      residualSurvived = true;
-      break;
-    }
+    const residualSurvived = await restoreArmBaseline(name, client, observer, liveClients);
+    if (residualSurvived) return { outcomes, residualSurvived: true };
   }
 
-  return { outcomes, residualSurvived };
+  return { outcomes, residualSurvived: false };
 }
 
 // ── reporting ──────────────────────────────────────────────────────────────────
 
+const ARM_EXPECTATIONS: Record<ArmName, string> = {
+  'concurrent-max2': 'wedge',
+  'concurrent-max2-pipeline1': 'question-under-test',
+  'sequential-max2': 'clean',
+  'concurrent-max6': 'clean',
+};
+
+export function formatSummaryLines(
+  arms: RunArms,
+  perArm: Record<ArmName, ArmOutcome[]>,
+  verdict: RunVerdict,
+): string[] {
+  const armLines = ARM_NAMES.map(
+    (name) => `  ${name}: ${arms[name]} (expected ${ARM_EXPECTATIONS[name]}) :: iterations=[${perArm[name].join(', ')}]`,
+  );
+  return [
+    '\n============ HEALTH_BUNDLE_DIFFERENTIAL SUMMARY ============',
+    ...armLines,
+    `VERDICT: ${verdict.status} (exit ${verdict.exitCode})`,
+    ...verdict.reasons.map((reason) => `  - ${reason}`),
+    '===========================================================\n',
+  ];
+}
+
 function printSummary(arms: RunArms, perArm: Record<ArmName, ArmOutcome[]>, verdict: RunVerdict): void {
-  console.log('\n============ HEALTH_BUNDLE_DIFFERENTIAL SUMMARY ============');
-  for (const name of ARM_NAMES) {
-    const expected = name === 'concurrent-max2'
-      ? 'wedge'
-      : name === 'concurrent-max2-pipeline1'
-        ? 'question-under-test'
-        : 'clean';
-    console.log(
-      `  ${name}: ${arms[name]} (expected ${expected}) :: iterations=[${perArm[name].join(', ')}]`,
-    );
-  }
-  console.log(`VERDICT: ${verdict.status} (exit ${verdict.exitCode})`);
-  for (const reason of verdict.reasons) console.log(`  - ${reason}`);
-  console.log('===========================================================\n');
+  for (const line of formatSummaryLines(arms, perArm, verdict)) console.log(line);
 }
 
 // ── entry point ────────────────────────────────────────────────────────────────
 
-// Differential orchestration; correctness of the pure helpers is pinned by
-// scripts/ci/__tests__/health-bundle-differential.test.ts, not unit granularity.
-// fallow-ignore-next-line complexity
-async function main(): Promise<number> {
-  const config = parseArgs(process.argv);
-
-  // SAFETY GUARD — both the branch target AND the observer must pass the ephemeral-
-  // branch gate (prod denylist wins) BEFORE any connection is opened.
-  assertBranchTargets(config);
-
+function logConfig(config: DifferentialConfig): void {
   console.log(
     `[differential] branch ref=${extractProjectRefForLog(config.branchPoolUrl)} ` +
       `confirmed=${config.confirmBranchRef} observer=${config.observerIsSeparate ? 'separate' : 'branch-pool(shared)'} ` +
@@ -446,92 +474,129 @@ async function main(): Promise<number> {
   if (!config.observerIsSeparate) {
     console.log('[differential] NOTE: no --observer-url — sampling over the branch pool (may be flattened).');
   }
+}
 
-  const cfg = resolveHealthAlertConfig();
-  const observer = createDedicatedPostgresClient(config.observerUrl, {
-    max: 2,
-    connection: { statement_timeout: 10_000 },
-  });
+async function ignoreCleanupError(label: string, cleanup: () => Promise<unknown>): Promise<void> {
+  try {
+    await cleanup();
+  } catch (error) {
+    console.error(`[differential] ${label} during cleanup threw`, error);
+  }
+}
 
-  const liveClients = new Set<Sql>();
-  let cleaningUp = false;
-  // Staging operational harness, live-DB CLI (like scripts/wedge-repro.ts) — 0%
-  // runtime coverage BY DESIGN, not risk; the pure helpers (classifyArm, collapseArmOutcome,
-  // evaluateRun) ARE unit-tested.
-  // fallow-ignore-next-line complexity
-  const emergencyCleanup = async (): Promise<void> => {
-    if (cleaningUp) return;
-    cleaningUp = true;
-    for (const client of liveClients) await bestEffortEnd(client);
-    liveClients.clear();
-    try {
-      await terminateAllWedgeBackends(observer);
-    } catch (error) {
-      console.error('[differential] terminate-all during cleanup threw', error);
-    }
-    try {
-      await observer.end({ timeout: 5 });
-    } catch (error) {
-      console.error('[differential] observer.end threw', error);
-    }
+async function cleanupResources(observer: Sql, liveClients: Set<Sql>): Promise<void> {
+  for (const client of liveClients) await bestEffortEnd(client);
+  liveClients.clear();
+  await ignoreCleanupError('terminate-all', () => terminateAllWedgeBackends(observer));
+  await ignoreCleanupError('observer.end', () => observer.end({ timeout: 5 }));
+}
+
+function createEmergencyCleanup(observer: Sql, liveClients: Set<Sql>): () => Promise<void> {
+  let cleanupPromise: Promise<void> | undefined;
+  return () => {
+    cleanupPromise ??= cleanupResources(observer, liveClients);
+    return cleanupPromise;
   };
+}
+
+function installSignalCleanup(emergencyCleanup: () => Promise<void>): () => void {
   const onSignal = (): void => {
     console.error('\n[differential] signal received — closing clients + terminating wedge backends, then exiting');
     void emergencyCleanup().finally(() => process.exit(130));
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  return () => {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  };
+}
 
-  const perArm: Record<ArmName, ArmOutcome[]> = {
+function emptyPerArmOutcomes(): Record<ArmName, ArmOutcome[]> {
+  return {
     'concurrent-max2': [],
     'concurrent-max2-pipeline1': [],
     'sequential-max2': [],
     'concurrent-max6': [],
   };
-  let residualSurvived = false;
+}
 
-  try {
-    // Start-of-run baseline barrier: the branch must be clean before arm 1.
-    const preExisting = await sampleWedgeSignature(observer);
-    if (preExisting.length > 0) {
-      console.error(`[differential] ${preExisting.length} pre-existing wedge-signature backend(s) — clearing before start`);
-      await terminateAllWedgeBackends(observer);
-      await sleep(500);
-      if ((await sampleWedgeSignature(observer)).length > 0) {
-        residualSurvived = true;
-      }
-    }
+async function clearPreExistingWedges(observer: Sql): Promise<boolean> {
+  const preExisting = await sampleWedgeSignature(observer);
+  if (preExisting.length === 0) return false;
+  console.error(`[differential] ${preExisting.length} pre-existing wedge-signature backend(s) — clearing before start`);
+  await terminateAllWedgeBackends(observer);
+  await sleep(500);
+  return (await sampleWedgeSignature(observer)).length > 0;
+}
 
-    for (const arm of DIFFERENTIAL_ARMS) {
-      if (residualSurvived) break;
-      const fire = arm.mode === 'concurrent'
-        ? fireConcurrentBundle
-        : (sql: Sql) => runHealthChecks(sql);
-      const run = await runArm(
-        arm.name,
-        arm.max,
-        arm.maxPipeline,
-        fire,
-        cfg,
-        config,
-        observer,
-        liveClients,
-      );
-      perArm[arm.name] = run.outcomes;
-      if (run.residualSurvived) residualSurvived = true;
-    }
-  } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-    await emergencyCleanup();
+const ARM_FIRE = {
+  concurrent: fireConcurrentBundle,
+  sequential: (sql: Sql): Promise<unknown> => runHealthChecks(sql),
+};
+
+async function runAllArms(
+  perArm: Record<ArmName, ArmOutcome[]>,
+  cfg: HealthAlertConfig,
+  config: DifferentialConfig,
+  observer: Sql,
+  liveClients: Set<Sql>,
+): Promise<boolean> {
+  for (const arm of DIFFERENTIAL_ARMS) {
+    const run = await runArm({
+      name: arm.name,
+      clientMax: arm.max,
+      maxPipeline: arm.maxPipeline,
+      fire: ARM_FIRE[arm.mode],
+      cfg,
+      config,
+      observer,
+      liveClients,
+    });
+    perArm[arm.name] = run.outcomes;
+    if (run.residualSurvived) return true;
   }
+  return false;
+}
 
-  const arms: RunArms = {
+function collapseRunArms(perArm: Record<ArmName, ArmOutcome[]>): RunArms {
+  return {
     'concurrent-max2': collapseArmOutcome(perArm['concurrent-max2']),
     'concurrent-max2-pipeline1': collapseArmOutcome(perArm['concurrent-max2-pipeline1']),
     'sequential-max2': collapseArmOutcome(perArm['sequential-max2']),
     'concurrent-max6': collapseArmOutcome(perArm['concurrent-max6']),
   };
+}
+
+// Differential orchestration; live behavior stays in the extracted protocol helpers,
+// while the pure verdict and summary seams are pinned by focused unit tests.
+async function main(): Promise<number> {
+  const config = parseArgs(process.argv);
+
+  // SAFETY GUARD — both targets pass the ephemeral-branch gate before a connection opens.
+  assertBranchTargets(config);
+  logConfig(config);
+
+  const cfg = resolveHealthAlertConfig();
+  const observer = createDedicatedPostgresClient(config.observerUrl, {
+    max: 2,
+    connection: { statement_timeout: 10_000 },
+  });
+  const liveClients = new Set<Sql>();
+  const emergencyCleanup = createEmergencyCleanup(observer, liveClients);
+  const removeSignalCleanup = installSignalCleanup(emergencyCleanup);
+  const perArm = emptyPerArmOutcomes();
+  let residualSurvived: boolean;
+
+  try {
+    residualSurvived = await clearPreExistingWedges(observer);
+    if (!residualSurvived) residualSurvived = await runAllArms(perArm, cfg, config, observer, liveClients);
+  } finally {
+    removeSignalCleanup();
+    await emergencyCleanup();
+  }
+
+  const arms = collapseRunArms(perArm);
   const verdict = evaluateRun(arms, residualSurvived);
   printSummary(arms, perArm, verdict);
   return verdict.exitCode;
