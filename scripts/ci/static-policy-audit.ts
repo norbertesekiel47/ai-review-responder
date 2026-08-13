@@ -215,7 +215,9 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
-  'src/lib/admin/margin-service.ts:142',
+  // Line moved 142 → 149 by #773 (Promise.all fan-out sequenced); same SQL
+  // predicate, same trailing `-- enum:` annotation, unchanged text.
+  'src/lib/admin/margin-service.ts:149',
   'worker/background/pollers/CancellationGracePoller.ts:46',
   'worker/background/pollers/EmailChannelReconcilePoller.ts:124',
   'worker/background/pollers/EngagementMonitorPoller.ts:91',

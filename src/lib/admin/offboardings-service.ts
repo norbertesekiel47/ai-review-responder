@@ -102,8 +102,9 @@ export async function getAdminOffboardings(
   sql: Sql,
   { limit, offset }: { limit: number; offset: number },
 ): Promise<AdminOffboardingsList> {
-  const [rows, countRows] = await Promise.all([
-    sql<AdminOffboardingRow[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773). See
+  // src/lib/admin/flagged-service.ts for the mechanism and staging evidence.
+  const rows = await sql<AdminOffboardingRow[]>`
         SELECT
           ao.id,
           ao.account_id,
@@ -159,14 +160,15 @@ export async function getAdminOffboardings(
           ao.requested_at DESC,
           ao.id ASC
         LIMIT ${limit} OFFSET ${offset}
-      `,
-    sql<{ total: number }[]>`
+      `;
+  // Not collapsed into a window `COUNT(*) OVER ()`: an empty page (offset past
+  // the end) carries no row to hold the total, which would report 0.
+  const countRows = await sql<{ total: number }[]>`
         SELECT COUNT(*)::int AS total
         FROM account_offboardings
         WHERE terminal_at IS NULL
            OR status = 'failed'
-      `,
-  ]);
+      `;
 
   return {
     offboardings: rows.map(mapOffboardingRow),

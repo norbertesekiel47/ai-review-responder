@@ -43,8 +43,12 @@ export async function getAdminBusinessesList(
   sql: Sql,
   { limit, offset }: { limit: number; offset: number },
 ): Promise<AdminBusinessesList> {
-  const [businessRows, countRows] = await Promise.all([
-    sql<BusinessListRow[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773). See
+  // src/lib/admin/flagged-service.ts for the mechanism and staging evidence.
+  // Not collapsed into a window `COUNT(*) OVER ()`: this page query GROUPs and
+  // the count is over unfiltered `businesses`, so a window total would count
+  // grouped page rows instead — a different number.
+  const businessRows = await sql<BusinessListRow[]>`
         SELECT
           b.id,
           b.name,
@@ -59,9 +63,8 @@ export async function getAdminBusinessesList(
         GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at
         ORDER BY b.name ASC
         LIMIT ${limit} OFFSET ${offset}
-      `,
-    sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
-  ]);
+      `;
+  const countRows = await sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`;
 
   return {
     businesses: businessRows.map((row) => ({
