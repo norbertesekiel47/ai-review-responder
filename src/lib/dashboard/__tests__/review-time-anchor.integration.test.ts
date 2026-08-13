@@ -65,6 +65,11 @@ import { fetchPerLocationAggregateSlices } from '../aggregate-queries';
 // keeps this suite Postgres-only (the cache contract lives in service.cache.test.ts).
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: async () => null, set: async () => 'OK' }),
+  withTtlCache: async <T>(
+    _key: string,
+    _ttlSeconds: number,
+    compute: () => Promise<T>,
+  ): Promise<T> => compute(),
 }));
 
 // responses.status has no per-value constant export — shared/response-status.ts
