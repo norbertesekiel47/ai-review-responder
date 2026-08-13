@@ -72,4 +72,44 @@ describe('listOpenFlaggedResponses', () => {
 
     expect(data).toEqual({ flagged: [], total: 0 });
   });
+
+  // #773 regression. The page and count reads must NEVER be in flight together:
+  // 2 concurrent queries per request against Vercel's DB_POOL_MAX=3 is what
+  // wedged a Fluid Compute isolate's pool slot on staging (2026-08-13 evidence).
+  // Holding the page query pending and asserting the count has NOT been issued
+  // is the discriminator — under `Promise.all` both record before either settles.
+  it('issues the count only after the page query settles (one query in flight)', async () => {
+    resetMockSql();
+    let releasePage!: (rows: unknown) => void;
+    sqlReturnQueue.push(new Promise((resolve) => { releasePage = resolve; }));
+    sqlReturnQueue.push([{ total: 7 }]);
+
+    const pending = listOpenFlaggedResponses(mockSql as unknown as Sql, { limit: 50, offset: 0 });
+
+    // Flush microtasks AND a macrotask turn: ample time for a concurrent
+    // fan-out to have registered its second query.
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+    expect(sqlCalls).toHaveLength(1);
+    expect(sqlCalls[0]!.text).toContain("WHERE fr.status = 'open'");
+
+    releasePage([]);
+    const data = await pending;
+
+    expect(sqlCalls).toHaveLength(2);
+    expect(sqlCalls[1]!.text).toContain('COUNT(*)::int AS total');
+    expect(data.total).toBe(7);
+  });
+
+  // The reason this fix does NOT collapse into a single `COUNT(*) OVER ()`
+  // round trip: an empty page must still report the true total.
+  it('keeps the total exact when the page is empty (offset past the end)', async () => {
+    resetMockSql();
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ total: 5 }]);
+
+    const data = await listOpenFlaggedResponses(mockSql as unknown as Sql, { limit: 20, offset: 100 });
+
+    expect(data).toEqual({ flagged: [], total: 5 });
+  });
 });

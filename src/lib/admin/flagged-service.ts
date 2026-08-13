@@ -61,29 +61,43 @@ export async function listOpenFlaggedResponses(
   sql: Sql,
   { limit, offset }: { limit: number; offset: number },
 ): Promise<AdminFlaggedData> {
-  const [rows, countRows] = await Promise.all([
-    // Admin cross-tenant read of the OPEN flagged queue. The joins to tenant
-    // tables (responses/reviews/businesses) are intentionally unscoped (admin
-    // sees every tenant) and are covered by tenant-scope-allowlist.ts entries.
-    sql<FlaggedRow[]>`
-      SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id,
-             fr.source, fr.reason, fr.severity, fr.status, fr.created_at,
-             r.response_text, r.version,
-             rev.reviewer_name, rev.star_rating,
-             b.name AS business_name
-      FROM flagged_responses fr
-      JOIN responses r ON r.id = fr.response_id
-      JOIN reviews rev ON rev.id = fr.review_id
-      JOIN businesses b ON b.id = fr.business_id
-      WHERE fr.status = 'open'
-      ORDER BY fr.created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `,
-    // Total OPEN flags for the "Showing X-Y of Z" pagination footer.
-    sql<{ total: number }[]>`
-      SELECT COUNT(*)::int AS total FROM flagged_responses WHERE status = 'open'
-    `,
-  ]);
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight per request (#773).
+  // These two reads previously fanned out concurrently, putting 2 in-flight
+  // queries per request against Vercel's `DB_POOL_MAX=3`. Overlapping admin
+  // requests on one Fluid Compute isolate then exceeded that pool and parked a
+  // backend in `state=active, wait_event=ClientRead` — the connection wedge.
+  // Measured on staging 2026-08-13: this route wedged at concurrency 4 (and
+  // afterwards at concurrency 1, once an isolate pool slot was stuck) while the
+  // already-sequenced owner dashboard stayed clean at identical concurrency and
+  // backend usage peaked at only 25 of 57 sessions — so the binding constraint
+  // is the per-isolate pool, not the backend budget. Full evidence:
+  // docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md.
+  // Do NOT "optimize" this back into one round trip with `COUNT(*) OVER ()`:
+  // an empty page (offset past the end) carries no row to hold the window
+  // total, so the pagination footer would report 0 instead of the true count.
+  // The separate count keeps that total exact.
+
+  // Admin cross-tenant read of the OPEN flagged queue. The joins to tenant
+  // tables (responses/reviews/businesses) are intentionally unscoped (admin
+  // sees every tenant) and are covered by tenant-scope-allowlist.ts entries.
+  const rows = await sql<FlaggedRow[]>`
+    SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id,
+           fr.source, fr.reason, fr.severity, fr.status, fr.created_at,
+           r.response_text, r.version,
+           rev.reviewer_name, rev.star_rating,
+           b.name AS business_name
+    FROM flagged_responses fr
+    JOIN responses r ON r.id = fr.response_id
+    JOIN reviews rev ON rev.id = fr.review_id
+    JOIN businesses b ON b.id = fr.business_id
+    WHERE fr.status = 'open'
+    ORDER BY fr.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  // Total OPEN flags for the "Showing X-Y of Z" pagination footer.
+  const countRows = await sql<{ total: number }[]>`
+    SELECT COUNT(*)::int AS total FROM flagged_responses WHERE status = 'open'
+  `;
   const total = countRows[0]?.total ?? 0;
 
   return {
