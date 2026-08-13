@@ -3490,3 +3490,122 @@ docs/superpowers/plans/codex-fix-790-response-rate-framing-intake.json
   actionable issue after the self-scoping copy and documentation punctuation fixes.
 - PR CI was fully green: build, dummy-env canary, deploy install, lint, typecheck,
   unit tests, E2E, CodeQL, Fallow, React Doctor, LLM eval, and Vercel preview.
+
+## 2026-08-13 — #773 admission chokepoint, latency trade-off, and the wedge alert
+
+**The failure.** Pages could hang indefinitely while the database stayed healthy.
+Root cause read from postgres.js@3.4.9 source, not inferred: `handler()`
+(`src/index.js:329`) never queues on pool exhaustion — `open` → `closed` → else
+`busy.length ? go(busy.shift(), query) : queries.push(query)`, and that third branch
+**pipelines onto an already-busy connection**. `connection.js` `execute()` writes to
+the socket unconditionally; its return value only marks the connection `busy` vs
+`full`. So `max` caps TCP connections, **not concurrency**. A pipelined query's
+response could park server-side in `state='active', wait_event='ClientRead'` and
+never return, holding a client pool slot until the Fluid Compute isolate was reaped
+(16.6s and 374.5s observed). `statement_timeout` never fires — ClientRead is a WAIT
+state, not a running statement.
+
+**`max_pipeline` is a dead end at every value.** `0` breaks EVERY `sql.begin()` (the
+`sent.length < max_pipeline` short-circuit skips `onexecute`, the only hook binding a
+transaction to its connection → `UNSAFE_TRANSACTION` across 192 call sites). `1`
+still admits two queries in flight (the first query is `query`, not in `sent`) and
+wedged 6/6 on staging. Draft PR #808 records this; do not revisit that dial.
+
+**Fan-out ≤ pool was disproven.** `/api/admin/flagged` wedged with a fan-out of
+**2** against `DB_POOL_MAX=3`, because the pool is per ISOLATE and an isolate serves
+overlapping requests. Per-request sequencing (#809/#810) lowers demand to 1 per
+request — real risk reduction, raising the bar from ≥2 to ≥4 concurrent requests per
+isolate — but is not a cure.
+
+### What shipped
+
+- `withAdmissionControl(client, {cap, clientName})` wraps `sql` and `sqlRead` at
+  **cap == pool**, which is exactly the no-pipelining condition: with N ≤ max in
+  flight, `handler()` always finds an `open` or `closed` connection and never reaches
+  `go(busy.shift(), query)`. Excess callers queue with a 30s deadline
+  (`DbSlotTimeoutError`) so a wedge fails fast instead of hanging.
+- **Slot accounting is per CONNECTION, not per query.** A transaction takes ONE slot
+  for its whole duration; its `tx` queries are ungated by construction (postgres.js
+  hands the callback a separately-scoped `Sql` with its own handler). Counting per
+  query would deadlock — a transaction waiting on a slot it already holds.
+- **Re-entrancy net.** An `AsyncLocalStorage` store carries WHICH clients' slots are
+  held (not a bare flag, so a transaction on `sql` cannot exempt `sqlRead` from its
+  own gate). Only the self-referential case bypasses: it can never deadlock,
+  over-subscribes by at most one per in-flight transaction, and is counted + warned
+  once so the anti-pattern stays visible.
+- `checkWedgedClientRead` in the HealthAlertPoller, registered FIRST in the already
+  strictly-sequential `runHealthChecks`. Alerts on **age > 10s**, never presence.
+
+### Files
+
+```
+src/lib/db/admission.ts                                     ← NEW: the chokepoint
+src/lib/db/server.ts                                        ← sql + sqlRead wrapped
+src/lib/db/__tests__/admission.test.ts                      ← NEW: 9 cases, red 7/9 ungated
+src/lib/db/__tests__/admission.integration.test.ts          ← NEW: live-DB, red 3/4 ungated
+src/lib/db/__tests__/server.test.ts                         ← singletons-stay-wrapped guard
+src/lib/shared/pool-wait.ts                                 ← probe semantics note
+src/lib/config/worker.ts                                    ← two HEALTH_ALERT_WEDGED_* vars
+worker/background/pollers/health-alert/checks.ts            ← checkWedgedClientRead
+worker/background/pollers/health-alert/__tests__/wedge-check.integration.test.ts ← NEW
+worker/background/pollers/health-alert/__tests__/checks.test.ts ← new cases + queue reorder
+docs/superpowers/plans/2026-08-13-773-admission-chokepoint-handoff.md
+```
+
+### Decisions and gotchas worth carrying
+
+- **Call-site application was rejected on measurement, not taste**: `src/app/**`
+  alone has **153** files importing `sql`, so a per-call-site helper has no
+  enforceable coverage. The gate belongs at the client.
+- **The seam is `Query.handler`.** `Query` is lazy — the constructor only stores
+  `handler`; dispatch happens in `handle()`. Replacing `handler` on the SAME instance
+  preserves chaining, `.raw()`, `.values()`, `.forEach()`. A Proxy over the returned
+  Query would break all of them. Release via
+  `Promise.prototype.then.call(query, release, release)` — `handle()` has already run
+  so it cannot re-dispatch, and passing both handlers prevents an unhandled rejection.
+- **`.cursor()` cannot be gated** — it reassigns `resolve`/`reject` every iterator
+  step and never settles the Query promise, so there is no settlement to release on.
+  It throws rather than leaking a slot; zero call sites today.
+- **Eager `.bind()` at wrap time crashed an unrelated suite** that `vi.mock`s the
+  `postgres` module. Wrapped methods resolve on first ACCESS and are memoized
+  (identity must stay stable or `vi.spyOn` breaks).
+- **The alert must key on AGE.** ClientRead is continuously present in healthy
+  traffic — the staging run saw it on up to 8 concurrent sessions, peaking at 0.132s
+  across 631 samples. A presence check would page continuously.
+- **The idle-in-transaction false positive is the real risk** and is what the live-DB
+  suite pins: an ordinary open transaction ALSO shows `ClientRead` with a growing age,
+  so only `state='active'` makes it the wedge. Verified red by dropping that filter.
+- **Do not raise `DB_POOL_MAX` to recover the latency.** Sessions peaked 44/57 at
+  concurrency 12 because the gate bounds work per isolate, not the number of warm
+  isolates (each holding write-3 + read-8). The pool is a worse lever after #773.
+
+### Staging proof (step B — Part C above the pool)
+
+Combined branch (`main` + #809 + #810 + step A) on `dpl_F7RovQ4cawMd9wrJWBiXsAmNiUrm`.
+520 recorded requests at concurrency **8 and 12** across owner `/api/dashboard`
+(cache-hit and forced-miss lanes) and AAL2-admin `/api/admin/flagged`:
+
+- **520 × HTTP 200**, fully drained bodies, **zero timeouts**, every lane reached its
+  final wave.
+- 631 observer samples, 0 failed. **Max `oldest_active_client_read_seconds` 0.132s**
+  against a 1s bar; the age never grew.
+- Backend peak **44/57**, below the 46 abort line. Full recovery to the preflight band.
+- `admin-seq` (20 sequential) matters independently: a stuck slot fails that route at
+  concurrency 1, and it ran clean at p95 1031ms.
+- Zero admission-related log lines on Vercel or Railway — no slot timeouts, no
+  reentrant bypasses. The staging worker booted clean under the gate.
+
+**Honest limit:** non-reproduction alone never proves this class closed. The
+load-bearing claim is mechanical — postgres.js pipelines only when it runs out of
+connections, and the chokepoint makes that unreachable while enabled. The measurement
+shows the mechanism holds under 4x load *without deadlocking*, which was the real
+risk the design carried. Firing the alert on a genuine wedge is NOT proven:
+manufacturing one requires provoking the pipelining pathology on shared staging.
+
+### Verification
+
+- Full suite **11,135 passed**, 0 failed. Lint, typecheck, all 17 `ci:*` audits,
+  and `ci:fallow:coverage` (**✓ No issues in 11 changed files**) all pass.
+- Unit suite verified **red 7/9** with the gate disabled; live-DB suite red 3/4.
+- The 4 pre-existing local integration failures (`ECONNREFUSED 127.0.0.1:5432`, suites
+  assuming the default port) were confirmed identical on the unmodified base.

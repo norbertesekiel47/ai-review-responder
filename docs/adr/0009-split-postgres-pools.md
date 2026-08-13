@@ -4,6 +4,23 @@
 
 Accepted — 2026-07-20
 
+> **Amended 2026-08-13 (#773) — one premise below is now known to be insufficient.**
+> Decision 2 narrows read scope to "wedge-safe fan-out ≤ pool", treating that as a
+> SUFFICIENT non-wedge condition. Staging measurement disproved it: `/api/admin/flagged`
+> wedged with a fan-out of **2** against a pool of **3**. The pool is per Fluid Compute
+> **isolate** and an isolate serves overlapping requests, so per-request fan-out says
+> nothing about in-flight demand — two concurrent 2-query requests present 4 against 3.
+> Fan-out ≤ pool remains a useful risk reduction and the sizing arithmetic here is
+> unchanged; it is simply not a proof of safety. The sufficient condition is now
+> enforced mechanically by the admission chokepoint (`src/lib/db/admission.ts`), which
+> bounds in-flight work per client at cap == pool.
+>
+> This ADR's **capacity** reasoning is not weakened — it is reinforced. #773 measured
+> backend sessions peaking at **44 of 57** at concurrency 12, because the chokepoint
+> bounds work per isolate and does nothing about how many isolates Vercel warms. Do not
+> raise `DB_POOL_MAX` or `READ_POOL_MAX_CEILING` to buy back latency.
+> Evidence: `docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md`.
+
 (ADR numbers 0007 and 0008 were already taken — 0007 is the Supavisor
 `application_name`-flattening finding, 0008 is the #505 boot-readiness cure — so
 this pool-split work lands as 0009. It builds directly on both: 0007's
