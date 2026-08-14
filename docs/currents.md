@@ -1988,7 +1988,7 @@ We gave the project an automatic safety check that runs every time code is propo
 
 We created a brand-new `.github/` folder, which is where GitHub looks for this kind of automation:
 
-- **`.github/workflows/ci.yml`** — the actual checks (the four jobs above), run on every pull request and every push to `main`.
+- **`.github/workflows/ci.yml`** — the actual checks (the four jobs above), run on every pull request and every push to `main`. *(Superseded 2026-08: PR-only now — the job set grew, typecheck folded into `lint`, a `changes` job short-circuits heavy jobs on docs-only PRs, and push-to-`main` runs were retired in favor of strict up-to-date required checks. Current truth: CLAUDE.md "CI & repo".)*
 - **`.github/actions/setup/`** — a small shared "setup" step (install Node + pnpm, restore the cache) that all four jobs reuse, so we don't repeat the same lines four times.
 - **`.github/dependabot.yml`** — a robot that opens pull requests weekly to keep dependencies up to date. We tuned it so routine small updates come bundled and green, while big "major version" updates each arrive as their own separate PR to review carefully.
 - **`.github/pull_request_template.md`** — a checklist that pre-fills every new pull request.

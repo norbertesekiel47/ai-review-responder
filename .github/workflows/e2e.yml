@@ -7,9 +7,11 @@ name: E2E
 # (PR-gate runtime budget). Dummy Supabase/session values exist solely so
 # server modules can construct clients — nothing authenticates in CI.
 #
-# This is NOT a required status check (the ruleset requires only lint, typecheck,
-# test, build, deploy-install), so skipping it on non-UI PRs never blocks a merge.
-# It runs only when something that can change rendered behaviour is touched.
+# This is NOT a required status check (the ruleset requires only changes, lint,
+# test, build, deploy-install, llm-eval), so skipping it on non-UI PRs never
+# blocks a merge. It runs only when something that can change rendered behaviour
+# is touched. PR-only, like ci.yml: strict up-to-date checks make the PR run
+# authoritative, so a post-merge push-to-main re-run was a pure duplicate.
 
 on:
   pull_request:
@@ -23,9 +25,6 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/e2e.yml'
       - '.github/actions/**'
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
