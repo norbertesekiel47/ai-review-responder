@@ -136,7 +136,7 @@ Current runbook list is solid. Maintain pattern; add a runbook every time a new 
 
 - **The cheapest win with the biggest risk reduction is the first PITR restore.** Everything else (SLO publishing, status page) is downstream of trusting the backup.
 - **Status page + synthetic checks** depend on a Next.js `/api/health` route (only the worker has one). Build that route, then point BetterStack at both health endpoints.
-- **Change-management controls:** "no direct push to `main`" is **done** (RepWorth-org branch-protection ruleset requires the four CI checks). The remaining controls — staging dry-run and smoke test in PR — still need reliability-specific CI gates and remain follow-up work in [Spec 24](./24-devops-deployment.md).
+- **Change-management controls:** "no direct push to `main`" is **done** (RepWorth-org branch-protection ruleset requires the six CI checks — `changes`/`lint`/`test`/`build`/`deploy-install`/`llm-eval`, strict up-to-date; current truth: CLAUDE.md "CI & repo"). The remaining controls — staging dry-run and smoke test in PR — still need reliability-specific CI gates and remain follow-up work in [Spec 24](./24-devops-deployment.md).
 - **Backups** run as a Railway cron alongside the existing `worker/background/` loops until a secret-bearing scheduled GitHub Action is designed on top of the base CI.
 - **Runbook audit** is doc-only: ensure each surviving runbook (and the archived ones if reactivated) carries the five required sections.
 
