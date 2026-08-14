@@ -326,7 +326,9 @@ None widens *behaviour*. None touches a locked intake decision, the reviewed des
 
 **Owner call required.** This is the orchestrator overriding a stated stop condition, so it is surfaced in the final report rather than buried here. If the owner disagrees, the remedy is a post-mortem + re-plan per step 5, not a silent continuation.
 
-**Triage verdict:** _(pending step 6)_
+**Owner decision, 2026-08-14: APPROVED.** Norbert reviewed all three amendments and accepted them. No post-mortem or re-plan required; the branch continues.
+
+**Triage verdict:** ACCEPT (owner-approved).
 
 ---
 
